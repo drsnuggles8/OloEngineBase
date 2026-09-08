@@ -148,11 +148,12 @@ from the GL tier, which compiles the same source at vulkan_1_2 without the macro
   process-wide flag written by the last `Bind` on any thread. Agreeing makes that flag safe;
   disagreeing lets a thread read the other route's answer, and the frame is plausible either way.
 
-Pinned by three tests. `BindlessShaderPipeline.VulkanMaterialHeapArmLeavesNoMaterialLocalSampler-
-Declared`: one of the five left declared classic on this arm is a sampler nothing binds.
-`...EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm` is the rule above, found from the tree —
+Pinned by three tests, all in `BindlessShaderPipeline`.
+`VulkanMaterialHeapArmLeavesNoMaterialLocalSamplerDeclared`:
+one of the five left declared classic on this arm is a sampler nothing binds.
+`EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm` is the rule above, found from the tree —
 a header that DECLARES one of the five forces its includers to agree, and `PBRCommon.glsl`, which
-only reads the token, is correctly not one. `...TheMaterialHeapArmCoversExactlyTheRecordedFamilies`
+only reads the token, is correctly not one. `TheMaterialHeapArmCoversExactlyTheRecordedFamilies`
 records the converted set both ways, because losing a `#define` is SILENT: the shader falls back to
 classic bindings, gets its five binds back, and renders correctly while the conversion stops
 existing.
