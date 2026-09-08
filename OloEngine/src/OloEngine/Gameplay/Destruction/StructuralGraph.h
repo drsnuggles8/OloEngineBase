@@ -96,7 +96,7 @@ namespace OloEngine
         std::vector<glm::vec3> Centers;     // world-space bound centre
         std::vector<glm::vec3> HalfExtents; // world-space axis-aligned half-extents
         std::vector<u8> Anchor;
-        std::vector<u8> Alive;          // 0 once the piece has left the structure
+        std::vector<u8> Alive;           // 0 once the piece has left the structure
         std::vector<u32> MaxLateralSpan; // per-piece cantilever budget, in same-course steps
         std::vector<u32> Island;
 
