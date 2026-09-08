@@ -612,7 +612,7 @@ namespace
         const f32 texelsPerUnit = static_cast<f32>(resolution) / (radius * 2.0f);
         return std::ceil(radius * texelsPerUnit) / texelsPerUnit;
     }
-}
+} // namespace
 
 TEST_F(ShadowMapMatrixTest, CSMDepthBiasIsExactlyTheAuthoredNumberOfTexels)
 {
