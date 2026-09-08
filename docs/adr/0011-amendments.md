@@ -2499,3 +2499,107 @@ GPU Scene records' `*HeapOffset` fields keep their existing meaning.
 
 Rules and evidence: [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md);
 the consumer is [gpu-path-tracer.md](../agent-rules/gpu-path-tracer.md).
+
+## Amendments from issue #805 (2026-09-08) — shader-side bindless for the material families
+
+### (96) The five material-local maps are reached by runtime index on Vulkan; every other declaration keeps its binding, on both backends
+
+**Per-backend shader source is accepted for the material families, and only for their five
+material-local 2D maps** — albedo, metallic-roughness, normal, AO, emissive. On the Vulkan arm those
+five are reached through `GL_EXT_descriptor_heap` arrays indexed by a byte offset carried in
+`PBRMaterialUBO`. Everything else a material shader samples — the environment cubemap, the IBL trio,
+the shadow arrays, every published frame texture — keeps `layout(binding = N)` on both backends.
+This is amendment (95) extended from "a shader with no OpenGL twin" to "the declarations whose index
+is the payoff", and it re-opens (50) exactly that far.
+
+**The price is not the one #805 quoted, and three measured facts are why.**
+
+*There is no fifth compile route.* #805 was written before the Vulkan tier existed in its present
+shape. `VulkanShader::BuildFromSources` already compiles the same GLSL a second time — target env
+vulkan_1_4, SPIR-V 1.6, `OLO_VULKAN=1` — into its own content-addressed cache under
+`ShaderCachePaths::Root()/"vulkan"` with `.cached_vulkan14.*` names, whose key hashes
+`kOptionsDescriptor`, and that descriptor already names the macro. A Vulkan-only `#ifdef OLO_VULKAN`
+arm travels the existing route and lands in a cache already keyed by it. The fifth route (24) priced
+is the **GL** raw-GLSL one; it is built, and it stays off by default.
+
+*"One SPIR-V serves both backends" was already not literally true, and is not the property (50)
+bought.* The GL tier compiles at vulkan_1_2 without `OLO_VULKAN`, the Vulkan tier at vulkan_1_4 with
+it: two modules from one source, ever since the vertex-pulling arm (50) itself carved out. What (50)
+bought, and what this amendment spends part of, is narrower — **one set of binding declarations**: a
+`layout(binding = N)` line means the same thing on both backends and no author writes per-backend
+resource declarations. That survives here for every declaration except the five.
+
+*A PARTIAL conversion is expressible on Vulkan, and that is what makes the scope above possible.*
+Measured with SDK 1.4.357.0 glslc: one fragment shader declaring
+`layout(descriptor_heap, descriptor_stride = 1)` arrays of `texture2D`, `textureCube` and `sampler`
+**alongside** classic `layout(binding = 8/12/33)` samplers compiles, and is `spirv-val` clean for
+Vulkan 1.4. The heap arrays lower to variables decorated `BuiltIn ResourceHeapEXT` carrying **no
+`Binding` and no `DescriptorSet` decoration at all**, while the classic samplers keep theirs
+unchanged. A converted declaration therefore simply leaves the pipeline's
+`VkDescriptorSetAndBindingMappingEXT` array and the ones that stay keep their entries. **The GL
+bindless route has no such property**: `Shader::IsBoundProgramBindless()` is a property of the whole
+PROGRAM, so `HeapBinding::BindTextureOrOffset` withholds *every* bind and one unconverted sampler
+reads black — that is §5c, and it is why a GL conversion is all-or-nothing. Vulkan's is
+per-declaration. (Recorded from the same disassembly: glslang merges every typed heap array onto
+**two** builtin variables, `resource_heap` and `sampler_heap`, one runtime-array type per element
+type, all `ArrayStrideIdEXT 1`.)
+
+**What changes in the source is one more arm, not a rewrite.** The PBR family's material texture
+block already has two arms behind `#ifdef OLO_BINDLESS`, and the shader BODY is byte-identical
+between them because the maps are reached through macros. The Vulkan arm is a third case in the same
+`#ifdef` redefining the same five names. No shader body changes.
+
+**One structural difference from the GL arm, and it costs a lane.** `GL_ARB_bindless_texture` bakes
+sampler state into the `uvec2` handle, so a GL offset is a complete descriptor.
+`GL_EXT_descriptor_heap` splits them — `sampler2D(texture2D, sampler)` — so the Vulkan arm needs a
+**sampler byte-offset as well**. Every material 2D map is minted with one sampler state
+(`HeapBinding::MaterialTexture2DSampler()`), so one lane covers all five and it is frame-uniform
+rather than per-material. `PBRMaterialUBO::HeapOffsets[2].w` is already reserved unused and is where
+it goes; on GL it stays `kNullHeapOffset` and means nothing, which is correct, because a GL handle
+needs no sampler.
+
+**`nonuniformEXT` is required by the declaration, not by today's divergence.** In a raster draw the
+material is uniform across the draw and its offsets come from a UBO, so the index is already
+dynamically uniform and the qualifier costs nothing. It is written anyway because the payoff is
+precisely the case where the index stops being uniform, and because the device feature behind it
+(`shaderSampledImageArrayNonUniformIndexing`) is what the resolvers check and refuse on.
+
+**The cost this DOES pay, stated plainly.**
+
+- The five declarations are authored in three arms where there were two. A reader of
+  `PBR_MultiLight.glsl` must know which arm their backend takes.
+- **A Vulkan material offset is not memoisable across frames, and the material UBO is cached on the
+  material index.** `ResolveShaderHeapTexture` keys the slot cache on the `VkImage`; a texture
+  reloaded in place keeps its `RHI::ResourceHandle` and gets a NEW `VkImage`
+  (`VulkanTexture2D::Invalidate`), so a stored offset then names a different descriptor.
+  RHITypes.h's rule is "fetch it, do not store it", and #1055's `MaterialTextureTable` re-resolves
+  every frame for exactly this reason. The UBO cache must drop on the same events, not only on
+  `DescriptorHeap::GetInitEpoch()`. A stale offset here samples a **plausible wrong texture, not
+  black**.
+- **Only a texture at rest resolves**, which is why the scope stops at the five. They are asset-owned
+  `Texture2D` resting in `SHADER_READ_ONLY_OPTIMAL`; the environment cubemap and the IBL trio are
+  baked into render targets, and a resolver that cannot move a layout cannot describe one.
+
+**What it unlocks is a precondition, not a measurement.** With the five reached by runtime index the
+per-draw binding for them disappears on Vulkan as it already does on GL, and — the part that matters
+— **the index becomes data rather than pipeline state**. That is what GPU-driven material selection
+needs (a compute pass writes indices; the draw binds nothing), what draw merging needs (draws
+differing only by material stop differing in anything the driver can see), and what §4.2's indirect
+path needs to stop staging descriptors CPU-side. None of the three is delivered here, none is
+measured here, and **no throughput claim is made or implied**.
+
+**The GL side's fate: classic declarations in production, indefinitely, for these families.**
+`BindlessShaderPipeline.BindlessGlslCannotTravelTheProductionSpirvPath` still holds on SDK
+1.4.357.0 — `GL_ARB_bindless_texture` has no representation in the Vulkan target environment, which
+is where every production shader enters. #805's alternative, "the GL path moves to
+`ARB_bindless_texture` in production", is closed not for want of code — (24)'s raw-GLSL route is
+built — but for want of a way into the production compile path. It stays behind `OLO_RHI_BINDLESS`.
+The two backends' bindless arms are therefore permanently different mechanisms, and this amendment
+does not pretend to unify them.
+
+**What this does NOT decide.** The material textures outside the five; every non-material family
+(the third fact above means converting one would be *possible*; #805 is explicit that engine-slot
+textures gain nothing, so it would not be *worth it*); and GPU-driven material selection, draw
+merging and the indirect payoff, which stay open under #805.
+
+Rules and evidence: [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md).
