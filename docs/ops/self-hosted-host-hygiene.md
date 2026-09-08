@@ -101,6 +101,47 @@ The two missing-piece outcomes are NOT the same, which matters when you read a r
   first sanitizer link (`cannot find libclang_rt.asan.a`), so nothing is silently skipped —
   the warning just tells you why, several minutes earlier than the linker would.
 
+## 5. A running job holds a shutdown inhibitor
+
+**Rule: while a job executes on any runner, the host refuses to reboot; override it knowingly
+with `-i`, never by accident.** Section 1 guards one path -- the update timer. On 2026-09-07 at
+06:54 UTC the box was rebooted from a logged-in session under a running sanitizer job, and
+nothing stood in the way; `olo-ci-2` stayed down for the rest of the day.
+
+Two runner hooks, [`scripts/ci-host/job-started.sh`](../../scripts/ci-host/job-started.sh) and
+`job-completed.sh`, take and release a `systemd-inhibit --what=shutdown --mode=block` lock per
+job. `systemctl reboot` / `poweroff` and `shutdown` then refuse with *"Operation inhibited by
+actions-runner olo-ci-1 ..."* and Cockpit shows the same; `systemctl reboot -i` overrides. The
+runner user has no active seat, so a polkit rule grants it `inhibit-block-shutdown`;
+`setup-olo-ci-host.sh` installs the hooks to `/usr/local/lib/olo-ci/`, the rule, and the two
+`ACTIONS_RUNNER_HOOK_JOB_*` lines in each runner's `.env`. A hook never fails a job: a lock it
+cannot take is logged in the job's output and the job runs without it.
+
+Check it during any job: `systemd-inhibit --list` names the runner and the run id. A stale lock
+(runner crashed between hooks) is released by the next job's started hook.
+
+## 6. Runner memory ceilings: a job that runs out fails the job, not the runner
+
+**Rule: every runner unit carries `MemoryMax=` and `OOMPolicy=continue`; a runner cgroup at
+`memory.max=max` is a bug, not a default.** On 2026-09-07 at 09:01 UTC `systemd-oomd` killed
+both CI runner cgroups 16 s apart -- two sanitizer jobs plus the GPU nightly's arm on 31 GiB.
+A whole cgroup goes at once, listener included, and the jobs surface on GitHub as *"The
+self-hosted runner lost communication with the server"* with zero steps run.
+
+With a ceiling, the kernel OOM-kills the largest process *inside* the runner's cgroup first --
+a compiler or a test process, a few GB -- long before slice-wide pressure reaches oomd's
+threshold. `OOMPolicy=continue` keeps the service up when that happens (the default `stop`
+would take the runner down on every in-job OOM, which is the failure being fixed). The job
+fails visibly at the step that ran out. **Not `MemoryHigh`:** throttling works by forcing
+reclaim, reclaim is the pressure oomd measures, so a `MemoryHigh` ceiling makes the oomd kill
+*more* likely.
+
+The default is 14G per runner (`OLO_RUNNER_MEMORY_MAX=` overrides): a 4-wide instrumented
+build is ~12 GB and the sanitizer's symbolizer ~0.9 GB. Two CI runners and the GPU runner at
+14G is 42 GB against 31 GiB -- three peaks at once do not fit, and under that overlap the
+ceiling turns a runner kill into a red job. The script's report prints each runner cgroup's
+`memory.peak` since its last start; revise the default from that number, not from a guess.
+
 ## Root steps, once
 
 ```
@@ -109,8 +150,9 @@ sudo bash scripts/setup-olo-ci-host.sh
 
 Idempotent, and safe to re-run: everything it does is checked first and skipped when already
 in place. It installs the sanitizer runtimes and `lld` for the system clang, the update-timer
-drop-in, the GPU runtime-PM rule and the pinned clang-23 at `/opt/llvm-23.1.0`, then prints the
-resulting state. The compiler step is **last on purpose** -- it is the only one that needs the
+drop-in, the GPU runtime-PM rule, the job-inhibitor hooks and their polkit rule, the runner
+memory ceilings, and the pinned clang-23 at `/opt/llvm-23.1.0`, then prints the resulting
+state -- including whether a job lock is held right now and each runner cgroup's `memory.peak`. The compiler step is **last on purpose** -- it is the only one that needs the
 network and moves gigabytes, and under `set -e` anything after it would be skipped when a
 download fails. Budget ~20 minutes and ~16 GB of free space on the first run; a re-run with the
 prefix already present only re-verifies, which takes seconds.

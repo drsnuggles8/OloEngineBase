@@ -55,7 +55,37 @@
 #      minutes cold. Details at the step itself and in
 #      docs/ops/self-hosted-linux-toolchain.md.
 #
+#   5. A running job holds a systemd SHUTDOWN INHIBITOR (steps 3b below).
+#      Item 2 guards one reboot path -- the update timer. The box was rebooted
+#      from a logged-in session at 2026-09-07 06:54 UTC under a running
+#      sanitizer job, and nothing stood in the way. Two runner hooks
+#      (scripts/ci-host/job-started.sh, job-completed.sh) take and release a
+#      `systemd-inhibit --mode=block` lock per job, so `systemctl reboot`,
+#      `shutdown` and Cockpit refuse -- or warn, and need `-i` -- while a job
+#      runs. A service user has no active seat, so a polkit rule grants it
+#      inhibit-block-shutdown. The hooks never fail a job: a lock that cannot
+#      be taken is logged and the job runs without it.
+#
+#   6. RUNNER MEMORY CEILINGS (step 3c). On 2026-09-07 09:01 UTC systemd-oomd
+#      killed both CI runner cgroups 16 s apart under memory pressure -- two
+#      sanitizer jobs and the GPU nightly's arm on 31 GiB -- and the jobs
+#      surfaced as "runner lost communication". The runner units had
+#      memory.max=max: no ceiling, so nothing failed BEFORE the whole slice
+#      was under pressure and oomd picked the largest cgroup, which was a
+#      runner mid-job, listener and all. MemoryMax= per runner unit makes the
+#      kernel OOM-kill the largest process INSIDE that cgroup first -- a
+#      compiler or a test, ~3 GB, not the ~100 MB listener -- and
+#      OOMPolicy=continue keeps the service up when it does. The job fails
+#      visibly at the step that ran out; the runner survives. NOT MemoryHigh:
+#      throttling forces reclaim, reclaim is the pressure oomd measures, so a
+#      MemoryHigh ceiling makes the oomd kill MORE likely.
+#
 # Usage (as root, idempotent):  sudo bash scripts/setup-olo-ci-host.sh
+#
+#   Memory ceilings are overridable per run: OLO_RUNNER_MEMORY_MAX=14G (default)
+#   applies to actions-runner-ci-1/2 and actions-runner-olo alike. The report at
+#   the end prints each runner cgroup's memory.peak since its last start, which
+#   is the number to revise the default from.
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -133,6 +163,157 @@ if [ "$gpus" -eq 0 ]; then
   echo "no amdgpu PCI device found under /sys/bus/pci/drivers/amdgpu" >&2
   gpu_missing=1
 fi
+
+# --------------------------- 3b. a running job holds a shutdown inhibitor
+runner_user=gh-runner-olo
+runner_home="/home/${runner_user}"
+runner_uid=$(id -u "$runner_user" 2>/dev/null || true)
+if [ -z "$runner_uid" ]; then
+  echo "user ${runner_user} does not exist -- run scripts/setup-olo-ci-runners.sh first" >&2
+  exit 1
+fi
+# systemctl --user for the runner user, from root. The user manager lives under
+# uid 1004's session; without XDG_RUNTIME_DIR the call silently addresses the
+# SYSTEM manager and reports defaults for units that are not there.
+runner_systemctl() { sudo -u "$runner_user" XDG_RUNTIME_DIR="/run/user/${runner_uid}" systemctl --user "$@"; }
+
+hookdir=/usr/local/lib/olo-ci
+script_dir=$(cd "$(dirname "$0")" && pwd)
+install -d -m 0755 "$hookdir"
+hooks_changed=0
+for h in job-started.sh job-completed.sh; do
+  src="${script_dir}/ci-host/${h}"
+  [ -f "$src" ] || { echo "missing ${src} -- run this script from a repository checkout" >&2; exit 1; }
+  if ! cmp -s "$src" "${hookdir}/${h}"; then
+    install -m 0755 "$src" "${hookdir}/${h}"
+    hooks_changed=1
+  fi
+done
+
+# polkit: a service user has no active seat, and inhibit-block-shutdown is
+# auth_admin for inactive subjects by default. polkit reloads rules.d on change.
+rule=/etc/polkit-1/rules.d/50-olo-runner-inhibit.rules
+tmp=$(mktemp)
+cat > "$tmp" <<EOF
+// Let the CI runner user hold a BLOCK shutdown inhibitor for the duration of a
+// job (scripts/ci-host/job-started.sh, installed by setup-olo-ci-host.sh).
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.login1.inhibit-block-shutdown" &&
+        subject.user == "${runner_user}") {
+        return polkit.Result.YES;
+    }
+});
+EOF
+if ! cmp -s "$tmp" "$rule" 2>/dev/null; then
+  install -d -m 0755 "$(dirname "$rule")"
+  install -m 0644 "$tmp" "$rule"
+fi
+rm -f "$tmp"
+
+# Point every runner's .env at the hooks. The runner reads .env once, at start,
+# so a changed .env is picked up at the next restart -- done below for runners
+# that are idle, deferred (and said so) for one with a job in flight.
+declare -A unit_of=()
+env_changed=()
+for dir in "${runner_home}/actions-runner" "${runner_home}"/actions-runner-ci-*; do
+  [ -x "${dir}/run.sh" ] || continue
+  case "$(basename "$dir")" in
+    actions-runner)      unit="actions-runner-olo.service" ;;
+    actions-runner-ci-*) unit="$(basename "$dir").service" ;;
+    *) continue ;;
+  esac
+  unit_of["$dir"]="$unit"
+  envf="${dir}/.env"
+  [ -f "$envf" ] || { install -o "$runner_user" -g "$runner_user" -m 600 /dev/null "$envf"; }
+  changed=0
+  for kv in "ACTIONS_RUNNER_HOOK_JOB_STARTED=${hookdir}/job-started.sh" \
+            "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=${hookdir}/job-completed.sh"; do
+    key=${kv%%=*}
+    if grep -q "^${key}=" "$envf"; then
+      grep -qxF "$kv" "$envf" || { sed -i "s|^${key}=.*|${kv}|" "$envf"; changed=1; }
+    else
+      printf '%s\n' "$kv" >> "$envf"
+      changed=1
+    fi
+  done
+  [ "$changed" -eq 1 ] && env_changed+=("$dir")
+done
+if [ "${#unit_of[@]}" -eq 0 ]; then
+  echo "no runner directories under ${runner_home} -- run scripts/setup-olo-ci-runners.sh first" >&2
+  exit 1
+fi
+for dir in "${env_changed[@]}"; do
+  unit="${unit_of[$dir]}"
+  if pgrep -f "^${dir}/bin/Runner.Worker" >/dev/null; then
+    echo "${unit}: .env updated; a job is executing, so the hooks apply at its next restart"
+  elif runner_systemctl is-active --quiet "$unit"; then
+    runner_systemctl restart "$unit"
+    echo "${unit}: .env updated and the runner restarted (idle)"
+  else
+    echo "${unit}: .env updated; unit is not active, nothing restarted"
+  fi
+done
+echo "job hooks: ${hookdir}/job-{started,completed}.sh, polkit rule ${rule}"
+
+# ------------------------------------------------ 3c. runner memory ceilings
+# One drop-in per runner unit, under /etc/systemd/user so the user manager sees
+# it without touching the runner's home. See item 6 in the header for why
+# MemoryMax + OOMPolicy=continue and not MemoryHigh.
+#
+# 14G: a 4-wide instrumented build is ~12 GB (asan.yml's own arithmetic for the
+# box), and the sanitizer's llvm-symbolizer is ~0.9 GB (#1111). Two CI runners
+# and the GPU runner at 14G is 42 GB against 31 GiB of RAM -- three peaks at
+# once do not fit, and under that overlap the ceiling fails the JOB at the step
+# that ran out instead of killing a runner. The report below prints memory.peak
+# per runner, which is the measurement to revise this from.
+mem_max="${OLO_RUNNER_MEMORY_MAX:-14G}"
+mem_changed=0
+for dir in "${!unit_of[@]}"; do
+  unit="${unit_of[$dir]}"
+  d="/etc/systemd/user/${unit}.d"
+  tmp=$(mktemp)
+  cat > "$tmp" <<EOF
+# Runner memory ceiling (scripts/setup-olo-ci-host.sh, item 6). The kernel
+# OOM-kills the largest process INSIDE this cgroup at the ceiling -- a compiler
+# or a test -- and OOMPolicy=continue keeps the runner service up when it does.
+# Without this, systemd-oomd killed whole runner cgroups under slice-wide
+# pressure (2026-09-07 09:01 UTC) and jobs died as "lost communication".
+[Service]
+MemoryMax=${mem_max}
+OOMPolicy=continue
+ManagedOOMPreference=avoid
+EOF
+  if ! cmp -s "$tmp" "${d}/olo-memory.conf" 2>/dev/null; then
+    install -d -m 0755 "$d"
+    install -m 0644 "$tmp" "${d}/olo-memory.conf"
+    mem_changed=1
+  fi
+  rm -f "$tmp"
+done
+runner_systemctl daemon-reload
+# Apply to the RUNNING units too, without a restart: daemon-reload loads the
+# drop-in for the next start; set-property --runtime pushes the same values
+# into the live cgroup now, so a job already executing is covered.
+for dir in "${!unit_of[@]}"; do
+  unit="${unit_of[$dir]}"
+  runner_systemctl is-active --quiet "$unit" || continue
+  runner_systemctl set-property --runtime "$unit" "MemoryMax=${mem_max}" OOMPolicy=continue ManagedOOMPreference=avoid
+done
+# VERIFY from the cgroup itself, not from systemctl show: the value that
+# matters is the one the kernel enforces.
+for dir in "${!unit_of[@]}"; do
+  unit="${unit_of[$dir]}"
+  cg="/sys/fs/cgroup/user.slice/user-${runner_uid}.slice/user@${runner_uid}.service/app.slice/${unit}"
+  if [ -r "${cg}/memory.max" ]; then
+    [ "$(cat "${cg}/memory.max")" != max ] \
+      || { echo "${unit}: memory.max is still 'max' after the drop-in and set-property; check ${cg}" >&2; exit 1; }
+  else
+    echo "${unit}: cgroup ${cg} not present (unit not running?) -- ceiling applies at its next start"
+  fi
+done
+units_capped=""
+for dir in "${!unit_of[@]}"; do units_capped="${units_capped}${units_capped:+ }${unit_of[$dir]}"; done
+echo "runner memory ceiling: MemoryMax=${mem_max} OOMPolicy=continue on ${units_capped}"
 
 # ----------------------------------- 4. the pinned clang-23 for the CI arm
 # LAST ON PURPOSE: this is the only step that needs the network and the only
@@ -402,6 +583,17 @@ echo "  fallback:  $(command -v clang++) -> $(clang++ --version | head -1)"
 echo "  runtimes:  $(clang++ -print-runtime-dir 2>/dev/null || echo '<unknown>')"
 echo "  timer:     $(systemctl list-timers dnf-automatic-install.timer --no-pager | sed -n 2p)"
 echo "  condition: $(grep ExecCondition "$dropin")"
+echo "  inhibitor: $(systemd-inhibit --list --no-legend 2>/dev/null | grep -c 'actions-runner' | sed 's/^0$/none held (no job executing)/; t; s/$/ job lock(s) held/')"
+for dir in "${!unit_of[@]}"; do
+  unit="${unit_of[$dir]}"
+  cg="/sys/fs/cgroup/user.slice/user-${runner_uid}.slice/user@${runner_uid}.service/app.slice/${unit}"
+  if [ -r "${cg}/memory.max" ]; then
+    printf '  %-32s max=%s current=%sMiB peak=%sMiB\n' "$unit" "$(cat "${cg}/memory.max")" \
+      "$(( $(cat "${cg}/memory.current") / 1048576 ))" "$(( $(cat "${cg}/memory.peak" 2>/dev/null || echo 0) / 1048576 ))"
+  else
+    printf '  %-32s (not running)\n' "$unit"
+  fi
+done
 echo "  gpu:       $(for dev in /sys/bus/pci/drivers/amdgpu/0000:*; do printf '%s control=%s status=%s ' "$(basename "$dev")" "$(cat "$dev/power/control")" "$(cat "$dev/power/runtime_status")"; done)"
 
 # Deferred from step 3 so that a host without the GPU driver loaded still gets
