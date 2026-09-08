@@ -71,8 +71,8 @@ TEST_F(NetworkThreadDispatchTest, EnqueueNetworkThreadTask)
 TEST_F(NetworkThreadDispatchTest, EnqueueGameThreadFromNetwork)
 {
     // Same shared-ownership reason as the test above, one level deeper: the outer task
-    // runs on the network thread and the inner one on the game thread, and the only
-    // bound on either is the fixed sleep below.
+    // runs on the network thread and only then enqueues the inner one onto the game
+    // thread.
     auto probe = std::make_shared<FDispatchProbe>();
 
     // From the network thread, dispatch a callback to the game thread
@@ -80,12 +80,20 @@ TEST_F(NetworkThreadDispatchTest, EnqueueGameThreadFromNetwork)
                              { EnqueueGameThreadTask([probe]()
                                                      { probe->Executed.store(true, std::memory_order_release); }, "GameThreadCallback"); }, "NetworkToGameBridge");
 
-    // Give the network thread time to enqueue the game-thread callback
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // Process pending game-thread tasks (simulates what Application::Run does each frame)
+    // Drain on a deadline rather than sleeping once and draining once. Two hops have to
+    // happen before there is anything to process, and a single ProcessAll at a fixed
+    // 100 ms fails a working implementation whenever the network thread is slower than
+    // that -- the same way the case above would without its wait loop. Each pass
+    // simulates one Application::Run frame; the loop just allows more than one of them.
     auto& queue = FNamedThreadManager::Get().GetQueue(ENamedThread::GameThread);
-    queue.ProcessAll(true);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    do
+    {
+        queue.ProcessAll(true);
+        if (probe->Executed.load(std::memory_order_acquire))
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
 
     EXPECT_TRUE(probe->Executed.load(std::memory_order_acquire))
         << "Game-thread callback dispatched from NetworkThread was not executed during ProcessTasks";

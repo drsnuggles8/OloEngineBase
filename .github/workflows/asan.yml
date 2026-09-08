@@ -1477,15 +1477,20 @@ jobs:
           ccache --show-stats
         fi
 
-    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
-    # asked of sccache -- the step the asan-windows job has had since #1082, here for
-    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
-    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
-    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
-    # that clears the object set and one that does not. It also reports a FRESH
-    # server's zeros if the old one exited (run 34048670103). The directory is on disk
-    # either way, and its size is what the compressed entry is charged against the
-    # store's ~9537 MiB wall.
+    # THE LOCAL FOOTPRINT, measured off the directory rather than asked of sccache --
+    # the step the asan-windows job has had since #1082, here for the same two reasons
+    # plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for this job while the
+    # sibling arms printed "973 MiB" and "923 MiB", and "1 GiB" covers everything from
+    # 1024 to 2047 MiB, which is the difference between a cap that clears the object
+    # set and one that does not. It also reports a FRESH server's zeros if the old one
+    # exited (run 34048670103). The directory is on disk either way.
+    #
+    # THIS IS NOT WHAT THE STORE IS CHARGED. `du` measures the UNCOMPRESSED directory;
+    # the actions/cache entry is a compressed tarball of it, and on these three arms
+    # that measured ~0.74x -- 923 and 994 MiB dirs banked 686 and 727 MiB entries. So
+    # read this as the local footprint, and as a CONSERVATIVE upper bound on the entry.
+    # What it measures exactly is the object set, which is what SCCACHE_CACHE_SIZE has
+    # to clear; for the store bill, see the budget doc's table of measured entry sizes.
     - name: Measure the sccache directory
       if: always() && runner.environment == 'github-hosted'
       shell: bash
@@ -1872,15 +1877,20 @@ jobs:
           ccache --show-stats
         fi
 
-    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
-    # asked of sccache -- the step the asan-windows job has had since #1082, here for
-    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
-    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
-    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
-    # that clears the object set and one that does not. It also reports a FRESH
-    # server's zeros if the old one exited (run 34048670103). The directory is on disk
-    # either way, and its size is what the compressed entry is charged against the
-    # store's ~9537 MiB wall.
+    # THE LOCAL FOOTPRINT, measured off the directory rather than asked of sccache --
+    # the step the asan-windows job has had since #1082, here for the same two reasons
+    # plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for this job while the
+    # sibling arms printed "973 MiB" and "923 MiB", and "1 GiB" covers everything from
+    # 1024 to 2047 MiB, which is the difference between a cap that clears the object
+    # set and one that does not. It also reports a FRESH server's zeros if the old one
+    # exited (run 34048670103). The directory is on disk either way.
+    #
+    # THIS IS NOT WHAT THE STORE IS CHARGED. `du` measures the UNCOMPRESSED directory;
+    # the actions/cache entry is a compressed tarball of it, and on these three arms
+    # that measured ~0.74x -- 923 and 994 MiB dirs banked 686 and 727 MiB entries. So
+    # read this as the local footprint, and as a CONSERVATIVE upper bound on the entry.
+    # What it measures exactly is the object set, which is what SCCACHE_CACHE_SIZE has
+    # to clear; for the store bill, see the budget doc's table of measured entry sizes.
     - name: Measure the sccache directory
       if: always() && runner.environment == 'github-hosted'
       shell: bash
@@ -2264,15 +2274,20 @@ jobs:
           ccache --show-stats
         fi
 
-    # THE SIZE THIS ENTRY WILL COST THE STORE, measured off the directory rather than
-    # asked of sccache -- the step the asan-windows job has had since #1082, here for
-    # the same two reasons plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for
-    # this job while the sibling arms printed "973 MiB" and "923 MiB", and "1 GiB"
-    # covers everything from 1024 to 2047 MiB, which is the difference between a cap
-    # that clears the object set and one that does not. It also reports a FRESH
-    # server's zeros if the old one exited (run 34048670103). The directory is on disk
-    # either way, and its size is what the compressed entry is charged against the
-    # store's ~9537 MiB wall.
+    # THE LOCAL FOOTPRINT, measured off the directory rather than asked of sccache --
+    # the step the asan-windows job has had since #1082, here for the same two reasons
+    # plus a third. `--show-stats` ROUNDS: it printed "1 GiB" for this job while the
+    # sibling arms printed "973 MiB" and "923 MiB", and "1 GiB" covers everything from
+    # 1024 to 2047 MiB, which is the difference between a cap that clears the object
+    # set and one that does not. It also reports a FRESH server's zeros if the old one
+    # exited (run 34048670103). The directory is on disk either way.
+    #
+    # THIS IS NOT WHAT THE STORE IS CHARGED. `du` measures the UNCOMPRESSED directory;
+    # the actions/cache entry is a compressed tarball of it, and on these three arms
+    # that measured ~0.74x -- 923 and 994 MiB dirs banked 686 and 727 MiB entries. So
+    # read this as the local footprint, and as a CONSERVATIVE upper bound on the entry.
+    # What it measures exactly is the object set, which is what SCCACHE_CACHE_SIZE has
+    # to clear; for the store bill, see the budget doc's table of measured entry sizes.
     - name: Measure the sccache directory
       if: always() && runner.environment == 'github-hosted'
       shell: bash
