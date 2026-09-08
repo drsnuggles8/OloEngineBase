@@ -137,3 +137,22 @@ from the GL tier, which compiles the same source at vulkan_1_2 without the macro
 Pinned by `BindlessShaderPipeline.VulkanMaterialHeapArmLeavesNoMaterialLocalSamplerDeclared`: a
 shader on this arm that leaves one of the five declared classic is a sampler nothing binds, because
 `CommandDispatch::BindPBRTextures` skips those five binds for it.
+
+### Proving it in a frame: restart the editor, do not hot-reload
+
+**`olo_shader_reload` does not rebuild a Vulkan GRAPHICS pipeline.** It answers `"ok": true,
+"status": "ready"` and the frame does not change — measured by forcing the arm's albedo macro to flat
+magenta and reloading, which returned a byte-identical capture. An A/B built on it measures nothing.
+Restart the editor between arms; the same control after a restart turned the scene magenta, which is
+what made the rest of the evidence trustworthy.
+
+**A/B against `git`, not against a hand-disabled arm.** Commenting out
+`OLO_MATERIAL_VULKAN_HEAP_READER` looks like it reproduces the pre-conversion shader and does not —
+that variant textured every surface wrongly, which reads as "the classic path is broken" and is
+really "this variant is neither arm". Check the base commit's shaders into the working tree
+(`git checkout <base> -- OloEditor/assets/shaders/`); the C++ is inert without the token, so the
+shader-only baseline needs no rebuild.
+
+Measured that way on SDK 1.4.357.0 / RTX 4090, Sponza on both scenes: deferred **RMSE 0.0000**
+(byte-identical) and forward **RMSE 0.0012** (max 1 LSB) against the base engine, with the magenta
+control at RMSE 52.9 over 99.7% of pixels. OpenGL is unaffected (RMSE ≤ 0.05).
