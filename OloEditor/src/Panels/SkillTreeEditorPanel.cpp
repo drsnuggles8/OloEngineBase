@@ -477,7 +477,6 @@ namespace OloEngine
                 m_SelectedNodeID.clear();
             }
         }
-
     }
 
     void SkillTreeEditorPanel::HandleShortcuts()

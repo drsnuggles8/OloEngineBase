@@ -687,7 +687,6 @@ namespace OloEngine
                 m_SelectedNodeID = 0;
             }
         }
-
     }
 
     void DialogueEditorPanel::HandleShortcuts()
