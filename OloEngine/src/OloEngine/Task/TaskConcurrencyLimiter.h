@@ -371,7 +371,22 @@ namespace OloEngine::Tasks
 
             // One slot per concurrency unit, holding the launched-but-not-yet-started task so
             // Wait() can retract it. Sized to MaxConcurrency in the constructor.
-            TArray<FPaddedSharedTask> m_ScheduledTasks;
+            //
+            // TAlignedHeapAllocator, not the default: TArray calls its allocator's
+            // three-argument ResizeAllocation, which takes no alignment, so a default
+            // heap array gives FPaddedSharedTask whatever the allocator's minimum
+            // alignment is -- and alignas(64) on the element does not change that.
+            // Two things went wrong at once. The padding stopped separating anything,
+            // which is this type's entire purpose; and constructing a 64-byte-aligned
+            // type on a 16-aligned address is undefined behaviour, which is why
+            // TaskConcurrencyLimiterTest and LowLevelTaskUserDataTest were excluded
+            // from UBSan. Whether it fired was down to what the allocator happened to
+            // return for that size, so it read as a flake rather than a bug:
+            //
+            //   MemoryOps.h:71:49: runtime error: constructor call on misaligned
+            //   address 0x55dd290745e0 for type 'FPaddedSharedTask', which requires
+            //   64 byte alignment
+            TArray<FPaddedSharedTask, TAlignedHeapAllocator<OLO_PLATFORM_CACHE_LINE_SIZE>> m_ScheduledTasks;
 
             std::atomic<u32> m_NumWorkItems{ 0 };
             std::atomic<FEvent*> m_CompletionEvent{ nullptr }; // Lazy-allocated event
