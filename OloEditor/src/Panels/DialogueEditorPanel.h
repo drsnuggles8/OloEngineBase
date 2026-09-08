@@ -6,6 +6,7 @@
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Asset/AssetTypes.h"
+#include "Panels/Graph/GraphCanvas.h"
 
 #include <imgui.h>
 
@@ -54,15 +55,14 @@ namespace OloEngine
 
       private:
         // --- Canvas rendering ---
-        void DrawCanvas();
-        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const;
-        void DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawMinimap(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize);
+        void DrawCanvas(f32 width);
+        void DrawNodes();
+        void DrawConnections();
+        void DrawConnectionInProgress();
+        void DrawMinimap();
 
         // --- Node rendering ---
-        void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, DialogueNodeData& node);
+        void DrawNode(DialogueNodeData& node);
         ImVec2 GetNodeSize(const DialogueNodeData& node) const;
         ImU32 GetNodeColor(const std::string& type) const;
         ImU32 GetNodeHeaderColor(const std::string& type) const;
@@ -77,9 +77,11 @@ namespace OloEngine
         std::vector<PortInfo> GetNodePorts(const DialogueNodeData& node, const ImVec2& nodeScreenPos) const;
 
         // --- Interaction ---
-        void HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize);
-        void HandleNodeInteraction(const ImVec2& canvasOrigin);
-        void HandleConnectionDrag(const ImVec2& canvasOrigin);
+        void HandleCanvasInput();
+        void HandleNodeInteraction();
+        void HandleConnectionDrag();
+        /// The node under `screenPos`, topmost first, or nullptr.
+        [[nodiscard]] const DialogueNodeData* HitTestNode(ImVec2 screenPos) const;
 
         // --- Toolbar & property panel ---
         void DrawToolbar();
@@ -93,7 +95,7 @@ namespace OloEngine
         void PreviewReset();
 
         // --- Context menu ---
-        void DrawContextMenu(const ImVec2& canvasOrigin);
+        void DrawContextMenu();
 
         // --- Serialization ---
         void SaveDialogue();
@@ -106,11 +108,10 @@ namespace OloEngine
         void DeleteConnection(size_t index);
         void DuplicateNode(UUID nodeID);
 
-        // --- Coordinate transforms ---
-        ImVec2 WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const;
-        glm::vec2 ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const;
-
         // --- Helpers ---
+        /// Fits every node into the viewport. Needs the canvas' size, so it is
+        /// only meaningful once Begin() has run at least once.
+        void FrameAll();
         DialogueNodeData* FindNodeMutable(UUID nodeID);
         UUID GenerateNodeID();
         std::string ResolveSourcePort(const std::string& portName, UUID sourceNodeID);
@@ -133,10 +134,9 @@ namespace OloEngine
         void PushDialogueUndoCommand(const DialogueEditorSnapshot& oldState, const std::string& description);
         [[nodiscard]] DialogueEditorSnapshot CaptureSnapshot() const;
 
-        // Canvas state
-        glm::vec2 m_ScrollOffset = { 0.0f, 0.0f };
-        f32 m_Zoom = 1.0f;
-        bool m_IsPanning = false;
+        // Canvas view: pan, zoom, the grid, the screen<->graph transforms and
+        // wire drawing all live in the shared widget, not here.
+        EditorUI::GraphCanvas m_Canvas;
 
         // Selection
         UUID m_SelectedNodeID = 0;
@@ -151,10 +151,16 @@ namespace OloEngine
         std::string m_ConnectionStartPort;
         bool m_ConnectionStartIsOutput = false;
         ImVec2 m_ConnectionEndPos = { 0.0f, 0.0f };
+        /// A right-press cancels a connection drag; its RELEASE would otherwise
+        /// read as a plain right-click and pop the context menu on top of it.
+        bool m_SuppressNextContextMenu = false;
 
         // Context menu
         bool m_ShowContextMenu = false;
-        ImVec2 m_ContextMenuPos = { 0.0f, 0.0f };
+        // Captured in GRAPH space at click time. Storing the screen position and
+        // converting it when the popup is drawn placed a new node wrongly
+        // whenever the view moved between the two.
+        glm::vec2 m_ContextMenuGraphPos = { 0.0f, 0.0f };
 
         // Preview state
         bool m_ShowPreview = false;
@@ -174,11 +180,11 @@ namespace OloEngine
         static constexpr f32 s_NodePortRadius = 6.0f;
         static constexpr f32 s_NodePortSpacing = 22.0f;
         static constexpr f32 s_NodePadding = 8.0f;
-        static constexpr f32 s_GridSize = 32.0f;
-        static constexpr f32 s_MinZoom = 0.25f;
-        static constexpr f32 s_MaxZoom = 2.0f;
         static constexpr f32 s_PropertyPanelWidth = 300.0f;
         static constexpr f32 s_MinimapSize = 150.0f;
+        /// Screen pixels. A port hit box that scales with zoom shrinks to under
+        /// two pixels at the canvas' minimum zoom, which no mouse can hit.
+        static constexpr f32 s_PortHitRadiusMin = 10.0f;
     };
 
 } // namespace OloEngine

@@ -11,11 +11,11 @@ namespace OloEngine::EditorUI
     /// The view half of a node-graph canvas: pan, zoom, the background grid, the
     /// two coordinate transforms, and wire drawing.
     ///
-    /// Three panels share this widget: `VisualScriptEditorPanel` (its first
-    /// consumer), `ShaderGraphEditorPanel` (migrated in #1103) and
-    /// `SkillTreeEditorPanel` (#1070). Two still carry a private copy of exactly
-    /// what is in this file and are what remains of the migration (#1070),
-    /// largest first: `SoundGraphEditorPanel`, `DialogueEditorPanel`.
+    /// Four panels share this widget: `VisualScriptEditorPanel` (its first
+    /// consumer), `ShaderGraphEditorPanel` (migrated in #1103), and
+    /// `SkillTreeEditorPanel` and `DialogueEditorPanel` (#1070). One still
+    /// carries a private copy of exactly what is in this file and is what
+    /// remains of the migration (#1070): `SoundGraphEditorPanel`.
     ///
     /// **Three panels that earlier counts listed here are not canvases and have
     /// nothing to migrate**, so do not go looking for viewport maths in them:
