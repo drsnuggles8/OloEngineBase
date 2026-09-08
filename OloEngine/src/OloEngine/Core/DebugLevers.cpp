@@ -149,7 +149,21 @@ namespace OloEngine::Levers
         // possibly before Log::Initialize(). So a malformed value is recorded
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
-        constinit std::vector<std::string> s_SeedWarnings;
+        //
+        // A function-local static rather than a `constinit` namespace-scope
+        // vector, and NOT part of the constant-initialized set above. Under
+        // MSVC's debug STL a default-constructed container allocates an
+        // iterator-debug `_Container_proxy`, so its default constructor is not
+        // a constant expression and `constinit` is a hard error under clang-cl
+        // (observed with STL 14.51; MSVC's own front end accepts it, which is
+        // why it built at all). A magic static gives the property that block
+        // actually wants — no static-initialization-order dependency, thread
+        // safe — for a type that cannot be constant-initialized portably.
+        [[nodiscard]] std::vector<std::string>& SeedWarnings()
+        {
+            static std::vector<std::string> warnings;
+            return warnings;
+        }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
         // computed default alone. Deliberately NOT Env::IsTruthy: for these the
@@ -184,7 +198,7 @@ namespace OloEngine::Levers
             {
                 return *parsed;
             }
-            s_SeedWarnings.push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
+            SeedWarnings().push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
                                      std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
             return kUnsetNumber;
         }
@@ -409,11 +423,11 @@ namespace OloEngine::Levers
     {
         Seed();
         // Deferred from the seed, which can run before the logger exists.
-        for (const std::string& warning : s_SeedWarnings)
+        for (const std::string& warning : SeedWarnings())
         {
             OLO_CORE_WARN("[Levers] {}", warning);
         }
-        s_SeedWarnings.clear();
+        SeedWarnings().clear();
 
         if (const std::string summary = ActiveSummary(); !summary.empty())
         {
