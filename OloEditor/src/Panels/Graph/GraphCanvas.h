@@ -11,18 +11,30 @@ namespace OloEngine::EditorUI
     /// The view half of a node-graph canvas: pan, zoom, the background grid, the
     /// two coordinate transforms, and wire drawing.
     ///
-    /// This repo has seven hand-rolled ImGui graph canvases (`SoundGraphEditorPanel`,
-    /// `DialogueEditorPanel`, `ShaderGraphEditorPanel`, `SkillTreeEditorPanel`,
-    /// `AnimationGraphEditorPanel`, `FSMEditorPanel`, `BehaviorTreeEditorPanel`)
-    /// with no shared code — roughly 8.6k lines, each with its own copy of exactly
-    /// what is in this file. `VisualScriptEditorPanel` is the eighth graph editor
-    /// and deliberately does NOT add an eighth copy.
+    /// Two panels share this widget: `VisualScriptEditorPanel` (its first
+    /// consumer) and `ShaderGraphEditorPanel` (migrated in #1103). Three still
+    /// carry a private copy of exactly what is in this file and are what remains
+    /// of the migration (#1070), largest first: `SoundGraphEditorPanel`,
+    /// `DialogueEditorPanel`, `SkillTreeEditorPanel`.
     ///
-    /// **This widget is new code, not an extraction.** Refactoring the seven
-    /// existing panels onto it is a separate, riskier change (it touches working
-    /// panels, and `ShaderGraphCommandTest.cpp` is the only regression net) —
-    /// tracked as its own item, so the migration can happen one panel at a time
-    /// against a widget that already has a real consumer.
+    /// **Three panels that earlier counts listed here are not canvases and have
+    /// nothing to migrate**, so do not go looking for viewport maths in them:
+    /// `AnimationGraphEditorPanel` is a tabbed form over parameters, states and
+    /// layers whose states are `ImGui::Selectable` rows; `FSMEditorPanel` and
+    /// `BehaviorTreeEditorPanel` are read-only `TreeNode` inspectors. None of the
+    /// three declares a pan or zoom, draws a grid, or draws a bezier wire. The
+    /// original count of seven came from ranking panels by line count rather than
+    /// by what they draw — see
+    /// docs/agent-rules/notes-editor-and-assets.md.
+    ///
+    /// **This widget is new code, not an extraction.** Refactoring the remaining
+    /// panels onto it is a separate, riskier change, and it is thinly covered:
+    /// NO test references `GraphCanvas` at all, and the only test near the
+    /// migration is `ShaderGraphCommandTest.cpp`, which covers that panel's
+    /// command/undo layer rather than any viewport maths. So a migration is
+    /// verified by driving the live editor, not by a green suite — tracked as
+    /// its own item, so it can happen one panel at a time against a widget that
+    /// already has real consumers.
     ///
     /// Deliberately owns NO graph data. Node layout, hit-testing, selection,
     /// dragging and link semantics are the panel's, because they are where graph
