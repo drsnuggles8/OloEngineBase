@@ -16,12 +16,14 @@ Measured at a 3G probe cap, hosted, identical source, 2026-09-08:
 
 | arm | object set | at `900M` | at `3G` |
 |---|---|---|---|
-| `tsan-linux` | 945 MiB | 94 % / 2 min | 99.94 % / 1.7 min |
-| `asan-lsan-linux` | 994 MiB | 71 % / 17 min | 99.94 % / 1.5 min |
-| `ubsan-linux` | **1084 MiB** | **32 % / 38 min** | 99.94 % / 1.4 min |
+| `tsan-linux` | 945 MiB | 93.88 % / 4.0 min | 99.94 % / 1.7 min |
+| `asan-lsan-linux` | 994 MiB | 69.89 % / 17.1 min | 99.94 % / 1.5 min |
+| `ubsan-linux` | **1084 MiB** | **30.62 % / 36.7 min** | 99.94 % / 1.4 min |
 
-`900M` is 5 / 10 / 20 % under the three sets, and the arm 20 % over loses 68 points of
-hit rate and 36 minutes: **a cap under the object set is not a proportional saving.**
+`900M` is 5 / 10 / 20 % under the three sets, and the arm 20 % over loses **69 points of hit
+rate and 35 minutes**: a cap under the object set is not a proportional saving. Run the control
+before believing it — master's entries are re-banked nightly, so "a fresher entry" explains the
+jump just as well until you re-run the OLD cap on the same commit.
 Note what the old comment on those lines believed — that the sets "filled 1500M", from
 entry sizes of 1252 / 1231 / 1258 MiB measured in the #1082 era. They did not: a
 *rolling* compiler was banking a fresh object set into one directory nightly (see the
@@ -43,12 +45,35 @@ So "just use the workflow-level 1500M" is not available. **Do this arithmetic be
 raising any cap** — the number that constrains you is rarely the one you set out to
 measure.
 
-**Then check who is waiting.** Rule 5 decides between two caps that both fit. These three
-entries are read only by the nightly and by fork PRs (same-repo PRs route those jobs to
-the box and its local ccache), while `sccache-asan-windows-2025` measured 1230 MiB
-against its own 1500M cap the same day — it fills its cap and evicts too, on a job that
-*is* on the PR critical path. Rule 5 does not answer in favour of the arm with the
-worse-looking number.
+`1300M` is what landed. **Then check who is waiting** — rule 5 decides between two caps
+that both fit, and these three entries are read only by the nightly and by fork PRs
+(same-repo PRs route those jobs to the box and its local ccache). The apparent competing
+claim was `sccache-asan-windows-2025`, on the PR critical path, at 1230 MiB against its
+own 1500M cap. **It was not competing, and the reason is this file's subject.** Its stats
+print `Cache size 1 GiB / Max cache size 1 GiB`, which reads as a full cache; `du -sm`
+puts its object set at 1241 MiB, and dispatches at 1500M and at 3G on identical source
+both returned **99.87 %** and 12–13 min. The cap has ~259 MiB spare.
+
+## The other way a cache misses on nothing: the key does not cover what changed
+
+That job *did* return 42.17 % once — 923 misses of 1588, a 2 h 06 build — on PR #1112,
+which bumps the Vulkan SDK. The entry restored cleanly, and the stats showed the same
+`1 GiB / 1 GiB` pair, so it read as capacity. It was not. sccache hashes **preprocessed
+output**, so every TU reaching a Vulkan header changed, while the key
+`sccache-asan-windows-2025-<run_id>-<attempt>` carried no SDK version and the
+`restore-keys` prefix therefore kept finding the pre-bump entry. The tell is in that
+run's own log: `Found Vulkan ... found version "1.4.357"` under a `-1.4.321.0` cache key.
+
+This is the rule the Linux keys already follow with `llvm-<version>` (see *A cache can be
+worth removing*, where a **rolling clang** produced 0.00 % for weeks): **pin whatever the
+key is hashed over.** The Windows ASan key now carries `-vk<version>` in both `key` and
+`restore-keys`, so a bump costs one visible cold build instead of a mystery 42 %, and
+`cache-prune.yml` strips that segment when grouping so the bump supersedes its
+predecessor rather than stranding ~1230 MiB for thirty days.
+
+**Two failure modes, one symptom.** A cache that misses on everything looks the same
+whether the cap is too small or the key is too coarse. `du -sm` against the cap separates
+them: at or above the cap it is eviction, comfortably below it is invalidation.
 
 ## See also
 
