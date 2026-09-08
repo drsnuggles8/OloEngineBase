@@ -154,8 +154,9 @@ void main()
 // Shader::ReadsMaterialHeapOffsets() is program state read at that moment. Two
 // programs disagreeing about the arm would make the five material binds land for
 // one route and be withheld for the other while the shared body samples the same
-// way — pinned by BindlessShaderPipeline.EntryShadersSharingAMaterialStageBody-
-// AgreeOnTheHeapArm.
+// way. Pinned by BindlessShaderPipeline.
+// EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm — spelled whole so it
+// is greppable.
 //
 // THE DIRECTIVES MUST SIT HERE, before any other token: GLSL requires every
 // `#extension` to precede all non-preprocessor tokens, and the include below
