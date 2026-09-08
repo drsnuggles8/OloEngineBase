@@ -149,7 +149,25 @@ namespace OloEngine::Levers
         // possibly before Log::Initialize(). So a malformed value is recorded
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
-        constinit std::vector<std::string> s_SeedWarnings;
+        //
+        // NOT `constinit`, unlike its neighbours above, and it cannot be: under the
+        // MSVC DEBUG STL (_ITERATOR_DEBUG_LEVEL != 0) `std::vector`'s default
+        // constructor heap-allocates a `_Container_proxy`, so it is not a constant
+        // expression and clang-cl rejects the specifier outright ("pointer to
+        // subobject of heap-allocated object is not a constant expression"). MSVC's
+        // own front end accepts it, which is why this only ever broke the clang-cl
+        // Debug trees.
+        //
+        // A function-local static keeps the property the `constinit` was there for:
+        // the vector is constructed on first use, so it cannot be read before its
+        // storage exists and there is no static-init order question with the levers.
+        // The trade is a thread-safe-init guard on each access, which is free next to
+        // the string formatting these calls already do.
+        [[nodiscard]] std::vector<std::string>& SeedWarnings()
+        {
+            static std::vector<std::string> warnings;
+            return warnings;
+        }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
         // computed default alone. Deliberately NOT Env::IsTruthy: for these the
@@ -184,7 +202,7 @@ namespace OloEngine::Levers
             {
                 return *parsed;
             }
-            s_SeedWarnings.push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
+            SeedWarnings().push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
                                      std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
             return kUnsetNumber;
         }
@@ -409,11 +427,11 @@ namespace OloEngine::Levers
     {
         Seed();
         // Deferred from the seed, which can run before the logger exists.
-        for (const std::string& warning : s_SeedWarnings)
+        for (const std::string& warning : SeedWarnings())
         {
             OLO_CORE_WARN("[Levers] {}", warning);
         }
-        s_SeedWarnings.clear();
+        SeedWarnings().clear();
 
         if (const std::string summary = ActiveSummary(); !summary.empty())
         {
