@@ -109,6 +109,12 @@ namespace OloEngine
         std::vector<PinInfo> GetNodePins(const SoundGraphNodeData& node, const ImVec2& nodeScreenPos) const;
 
         // Interaction
+        /// Panel-level keys (Delete, Ctrl+Z/Y/C/V). Runs outside the canvas so
+        /// they keep working on a frame the canvas child is clipped away.
+        void HandleShortcuts();
+        /// Ends any gesture still in flight. Called when the canvas is not drawn
+        /// this frame, because then there is no release to observe.
+        void CancelInteractions();
         void HandleNodeInteraction();
         void HandleConnectionDrag();
 

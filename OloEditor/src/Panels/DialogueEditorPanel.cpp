@@ -108,6 +108,8 @@ namespace OloEngine
                                     ? availWidth - s_PropertyPanelWidth
                                     : availWidth;
 
+        HandleShortcuts();
+
         // Left side: node canvas
         DrawCanvas(canvasWidth);
 
@@ -168,6 +170,9 @@ namespace OloEngine
         // its own child region - everything this function used to do by hand.
         if (!m_Canvas.Begin("##NodeCanvas", ImVec2(width, 0.0f)))
         {
+            // Clipped away: no geometry to hit-test against and no release to
+            // observe, so anything in flight has to end here.
+            CancelInteractions();
             return;
         }
 
@@ -672,8 +677,9 @@ namespace OloEngine
             m_SuppressNextContextMenu = false;
         }
 
-        // Click on empty space to deselect. Suppressed while panning, or dragging
-        // the background would also clear the selection.
+        // Click on empty space to deselect. Suppressed while the canvas is
+        // panning: a left click can land in the middle of a right-drag pan (both
+        // buttons down at once), and that must not also clear the selection.
         if (isHovered && !m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_IsDraggingNode)
         {
             if (HitTestNode(ImGui::GetIO().MousePos) == nullptr)
@@ -682,6 +688,10 @@ namespace OloEngine
             }
         }
 
+    }
+
+    void DialogueEditorPanel::HandleShortcuts()
+    {
         // Delete selected node
         if (m_SelectedNodeID != 0 && ImGui::IsKeyPressed(ImGuiKey_Delete) && !ImGui::IsAnyItemActive())
         {
@@ -699,6 +709,19 @@ namespace OloEngine
         {
             NewDialogue();
         }
+    }
+
+    void DialogueEditorPanel::CancelInteractions()
+    {
+        if (m_IsDraggingNode)
+        {
+            // EditorPosition was already written frame by frame, so the move is
+            // real and still needs its undo entry; only the drag is abandoned.
+            PushDialogueUndoCommand(m_DragStartSnapshot, "Move Node");
+            m_IsDraggingNode = false;
+        }
+        m_IsCreatingConnection = false;
+        m_SuppressNextContextMenu = false;
     }
 
     const DialogueNodeData* DialogueEditorPanel::HitTestNode(ImVec2 screenPos) const

@@ -95,6 +95,7 @@ namespace OloEngine
         f32 const availWidth = ImGui::GetContentRegionAvail().x;
         f32 const canvasWidth = (m_SelectedNodeID != 0) ? availWidth - s_PropertyPanelWidth : availWidth;
 
+        HandleShortcuts();
         DrawCanvas(canvasWidth);
 
         if (m_SelectedNodeID != 0)
@@ -329,7 +330,12 @@ namespace OloEngine
         // Begin() paints the background and grid, consumes pan/zoom and clips to
         // its own child region - everything this function used to do by hand.
         if (!m_Canvas.Begin("##SGRCanvas", ImVec2(width, 0.0f)))
+        {
+            // Clipped away: no geometry to hit-test against and no release to
+            // observe, so anything in flight has to end here.
+            CancelInteractions();
             return;
+        }
 
         DrawConnections();
         DrawNodes();
@@ -854,7 +860,7 @@ namespace OloEngine
     // Node + canvas interaction
     // =========================================================================
 
-    void SoundGraphEditorPanel::HandleNodeInteraction()
+    void SoundGraphEditorPanel::HandleShortcuts()
     {
         if (!m_GraphAsset)
             return;
@@ -885,6 +891,34 @@ namespace OloEngine
             if (ImGui::IsKeyPressed(ImGuiKey_V))
                 PasteNodes(m_Canvas.ToGraph(ImGui::GetIO().MousePos));
         }
+    }
+
+    void SoundGraphEditorPanel::CancelInteractions()
+    {
+        if (m_IsDraggingNode)
+        {
+            // The positions were already written frame by frame, so the move is
+            // real and still needs its undo entry; only the drag is abandoned.
+            const bool wasMultiDrag = m_DragNodeStartPositions.size() > 1;
+            m_IsDraggingNode = false;
+            m_DragNodeID = 0;
+            m_DragNodeStartPositions.clear();
+            EndEditSession(wasMultiDrag ? "Move Nodes" : "Move Node");
+        }
+        m_IsBoxSelecting = false;
+        m_IsDraggingConnection = false;
+        m_DragStartNodeID = 0;
+        m_DragStartEndpoint.clear();
+        // Pseudo-node positions are per-session UI state, so an abandoned drag
+        // just stops where it is; there is nothing to undo.
+        m_DraggingGraphOutputNode = false;
+        m_DraggingGraphInputNode = false;
+    }
+
+    void SoundGraphEditorPanel::HandleNodeInteraction()
+    {
+        if (!m_GraphAsset)
+            return;
 
         // The canvas' own hover state, not ImGui's last-item one: everything the
         // panel draws goes straight to the draw list, so "the last item" is

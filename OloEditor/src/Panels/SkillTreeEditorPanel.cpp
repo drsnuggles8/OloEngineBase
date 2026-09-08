@@ -132,6 +132,7 @@ namespace OloEngine
         f32 const availWidth = ImGui::GetContentRegionAvail().x;
         f32 const canvasWidth = std::max(availWidth - s_PropertyPanelWidth, 100.0f);
 
+        HandleShortcuts();
         DrawCanvas(canvasWidth);
 
         ImGui::SameLine();
@@ -207,19 +208,25 @@ namespace OloEngine
 
     void SkillTreeEditorPanel::DrawCanvas(f32 width)
     {
+        // Framed BEFORE Begin(), because Begin() paints the grid: servicing the
+        // request after it would draw one frame with the grid at the old pan and
+        // the nodes at the new one. FitToBounds needs a canvas size, which only
+        // exists once Begin() has run at least once, so a request made before the
+        // first frame simply waits for the next one.
+        if (m_FrameAllRequested && m_Canvas.GetSize().x > 1.0f)
+        {
+            FrameAll();
+            m_FrameAllRequested = false;
+        }
+
         // Begin() paints the background and grid, consumes pan/zoom and clips to
         // its own child region - everything this function used to do by hand.
         if (!m_Canvas.Begin("##SkillTreeCanvas", ImVec2(width, 0.0f)))
         {
+            // Clipped away: no geometry to hit-test against and no release to
+            // observe, so anything in flight has to end here.
+            CancelInteractions();
             return;
-        }
-
-        // Serviced here rather than in the menu handler because FitToBounds needs
-        // the canvas' size, and that is only known once Begin() has run.
-        if (m_FrameAllRequested)
-        {
-            FrameAll();
-            m_FrameAllRequested = false;
         }
 
         DrawEdges();
@@ -460,8 +467,9 @@ namespace OloEngine
             m_SuppressNextContextMenu = false;
         }
 
-        // Click on empty space deselects. Suppressed while panning, or dragging
-        // the background would also clear the selection.
+        // Click on empty space deselects. Suppressed while the canvas is panning:
+        // a left click can land in the middle of a right-drag pan (both buttons
+        // down at once), and that must not also clear the selection.
         if (isHovered && !m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_IsDraggingNode && !m_IsCreatingConnection)
         {
             if (HitTestNode(ImGui::GetIO().MousePos).empty())
@@ -470,6 +478,10 @@ namespace OloEngine
             }
         }
 
+    }
+
+    void SkillTreeEditorPanel::HandleShortcuts()
+    {
         // Delete selected node
         if (!m_SelectedNodeID.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete) && !ImGui::IsAnyItemActive())
         {
@@ -486,6 +498,19 @@ namespace OloEngine
         {
             NewTree();
         }
+    }
+
+    void SkillTreeEditorPanel::CancelInteractions()
+    {
+        if (m_IsDraggingNode)
+        {
+            // EditorPosition was already written frame by frame, so the move is
+            // real and still needs its undo entry; only the drag is abandoned.
+            PushUndoCommand(m_DragStartSnapshot, "Move Skill Node");
+            m_IsDraggingNode = false;
+        }
+        m_IsCreatingConnection = false;
+        m_ConnectionSourceNodeID.clear();
     }
 
     void SkillTreeEditorPanel::HandleNodeInteraction()
