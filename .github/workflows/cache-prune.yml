@@ -160,18 +160,31 @@ jobs:
             > /tmp/caches.tsv
 
           # The prefix is the key with its trailing `-<run_id>[-<run_attempt>]`
-          # stripped, AND THEN a trailing content hash (#1073). Both strips matter:
+          # stripped, THEN a trailing content hash (#1073), THEN a trailing `-vk<version>`
+          # SDK stamp. All three strips matter:
           #
           #   sccache-windows-2025-release-33993528874-1  -> sccache-windows-2025-release
           #   vcpkg-Windows-x64-windows-static-md-<64hex>-34021696485-1
           #                                              -> vcpkg-Windows-x64-windows-static-md
           #   ffmpeg-Windows-n7.1-<64hex>                 -> ffmpeg-Windows-n7.1
+          #   sccache-asan-windows-2025-vk1.4.357.0-34166829499-1
+          #                                              -> sccache-asan-windows-2025
           #   Windows-vulkan-prebuilt-sdk-true-1.4.321.0  -> (unchanged; no run id, no hash)
           #
           # Without the second strip a manifest-hash bump starts a NEW group whose sole
           # member is immortal, and the entry it superseded is immortal too -- see the
           # header. With it, the newest hash supersedes the older ones, which matches how
           # a restore behaves: it reaches at most one entry of a lineage anyway.
+          #
+          # The third strip is the same rule for a version rather than a hash. asan.yml's
+          # Windows ASan key now carries the Vulkan SDK version, because sccache hashes
+          # preprocessed output and an SDK bump therefore invalidates every TU that
+          # reaches a Vulkan header -- see the long note on that key. Without this strip
+          # each bump would start a new group and strand the ~1230 MiB predecessor until
+          # the 30-day age-out, which is precisely the leak the second strip was added to
+          # stop. Note the LLVM stamp on the Linux keys (`sccache-ubsan-linux-llvm-23.1.0`)
+          # is NOT stripped and has the same exposure; it is left alone here because
+          # nothing in this change bumps it, but a clang bump will strand three entries.
           # Entries arrive newest-first, so the first sighting of a group is the
           # keeper and every later one is superseded.
           #
@@ -253,7 +266,7 @@ jobs:
           kept_bytes=0
           while IFS=$'\t' read -r id ref key size accessed; do
             [ -n "${id:-}" ] || continue
-            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-[0-9a-f]{32,}$//')
+            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-[0-9a-f]{32,}$//; s/-vk[0-9]+(\.[0-9]+)*$//')
             group="${ref}|${prefix}"
             closed_pr=0
             if [[ "$ref" =~ ^refs/pull/([0-9]+)/merge$ ]] && pr_is_closed "${BASH_REMATCH[1]}"; then

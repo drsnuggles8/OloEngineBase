@@ -357,6 +357,7 @@ jobs:
         python -m pip install jinja2==3.1.6
 
     - name: Setup Vulkan SDK
+      id: vulkan
       uses: ./.github/actions/setup-vulkan
 
     # This job builds with clang-cl (Clang front-end, MSVC ABI) via the
@@ -481,6 +482,28 @@ jobs:
     # still restoring it, and `-fsanitize=address` is part of the command line, so
     # this job's objects can never collide with `sccache-windows-2025-release-`.
     # When `runs-on` is bumped, bump this string with it.
+    #
+    # AND IT CARRIES THE VULKAN SDK VERSION, for the same reason the Linux keys carry
+    # `llvm-<version>`: PIN WHATEVER THE KEY IS HASHED OVER. sccache hashes the
+    # preprocessed output, so every TU that reaches a Vulkan header changes when the
+    # SDK does. Measured on PR #1112 (run 34166829499), which bumps the SDK: the entry
+    # restored cleanly and the build still took 2 h 06 at 42.17 % -- 923 misses of 1588,
+    # about the share of this target that reaches a Vulkan header. Its log has the tell,
+    # `Found Vulkan ... found version "1.4.357"` under a `-1.4.321.0` cache key.
+    #
+    # THAT RUN LOOKED LIKE A CAPACITY PROBLEM AND WAS NOT. Its stats read "Cache size
+    # 1 GiB / Max cache size 1 GiB", which is the whole reason to distrust that pair:
+    # sccache ROUNDS, and this job's set measures 1241 MiB by `du -sm` against a 1500M
+    # cap. Two dispatches on identical source, one at 1500M and one at 3G, both returned
+    # 99.87 % and 12-13 min (runs 34206210094 / 34203502889). The cap has 259 MiB spare
+    # and raising it buys nothing.
+    #
+    # `restore-keys` carries the version too, deliberately. A bare
+    # `sccache-asan-windows-2025-` fallback would keep finding the pre-bump entry and
+    # reproduce exactly the half-stale restore above. The cost is ONE cold build per SDK
+    # bump, taken visibly instead of as a mystery 42 % -- and cache-prune.yml strips the
+    # `-vk<version>` segment when it groups, so the bump supersedes the old entry rather
+    # than orphaning 1230 MiB of it for thirty days.
     - name: Restore sccache storage
       # HOSTED ONLY (#1076): a persistent runner keeps SCCACHE_DIR on local disk, with
       # no upload, no download, no slice of the shared cap and no post-job save for a
@@ -489,9 +512,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-asan-windows-2025-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-asan-windows-2025-
+          sccache-asan-windows-2025-vk${{ steps.vulkan.outputs.version }}-
 
     - name: Setup vcpkg
       id: vcpkg
@@ -658,7 +681,7 @@ jobs:
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-asan-windows-2025-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-asan-windows-2025-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     # ---------------------------------------------------------------- #1083
