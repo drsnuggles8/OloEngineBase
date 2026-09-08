@@ -143,7 +143,15 @@ namespace OloEngine
                     "EditorAssetManager_FileWatcher",
                     [this, currentGeneration]()
                     {
-                        FileWatcherThreadFunction();
+                        // Shutdown() bumps m_FileWatcherGeneration to "invalidate any active
+                        // task", but nothing ever read the captured generation, so that bump
+                        // did nothing and a superseded task still ran the whole watch loop.
+                        // The flag is cleared either way: Shutdown() spin-waits on it, so an
+                        // early return that skipped the store would hang shutdown instead.
+                        if (m_FileWatcherGeneration.load(std::memory_order_acquire) == currentGeneration)
+                        {
+                            FileWatcherThreadFunction();
+                        }
                         m_FileWatcherTaskActive.store(false, std::memory_order_release);
                     },
                     Tasks::ETaskPriority::BackgroundNormal);
