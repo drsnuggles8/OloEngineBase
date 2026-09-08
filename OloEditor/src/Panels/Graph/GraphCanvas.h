@@ -11,11 +11,12 @@ namespace OloEngine::EditorUI
     /// The view half of a node-graph canvas: pan, zoom, the background grid, the
     /// two coordinate transforms, and wire drawing.
     ///
-    /// Four panels share this widget: `VisualScriptEditorPanel` (its first
-    /// consumer), `ShaderGraphEditorPanel` (migrated in #1103), and
-    /// `SkillTreeEditorPanel` and `DialogueEditorPanel` (#1070). One still
-    /// carries a private copy of exactly what is in this file and is what
-    /// remains of the migration (#1070): `SoundGraphEditorPanel`.
+    /// Every node-graph panel in the editor now shares this widget:
+    /// `VisualScriptEditorPanel` (its first consumer), `ShaderGraphEditorPanel`
+    /// (migrated in #1103), and `SkillTreeEditorPanel`, `DialogueEditorPanel` and
+    /// `SoundGraphEditorPanel` (#1070). No panel carries a private copy of the
+    /// viewport maths any more; the bezier grep in
+    /// docs/agent-rules/notes-editor-and-assets.md returns GraphCanvas.cpp alone.
     ///
     /// **Three panels that earlier counts listed here are not canvases and have
     /// nothing to migrate**, so do not go looking for viewport maths in them:
@@ -27,14 +28,12 @@ namespace OloEngine::EditorUI
     /// by what they draw — see
     /// docs/agent-rules/notes-editor-and-assets.md.
     ///
-    /// **This widget is new code, not an extraction.** Refactoring the remaining
-    /// panels onto it is a separate, riskier change, and it is thinly covered:
-    /// NO test references `GraphCanvas` at all, and the only test near the
-    /// migration is `ShaderGraphCommandTest.cpp`, which covers that panel's
-    /// command/undo layer rather than any viewport maths. So a migration is
-    /// verified by driving the live editor, not by a green suite — tracked as
-    /// its own item, so it can happen one panel at a time against a widget that
-    /// already has real consumers.
+    /// **This widget is new code, not an extraction, and it is thinly covered:**
+    /// NO test references `GraphCanvas` at all, and the nearest test to it is
+    /// `ShaderGraphCommandTest.cpp`, which covers that panel's command/undo layer
+    /// rather than any viewport maths. A change here is therefore verified by
+    /// driving the live editor, not by a green suite — which is how each of the
+    /// five consumers was checked as it landed, one panel at a time.
     ///
     /// Deliberately owns NO graph data. Node layout, hit-testing, selection,
     /// dragging and link semantics are the panel's, because they are where graph

@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/UUID.h"
+#include "Panels/Graph/GraphCanvas.h"
 
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -85,14 +86,13 @@ namespace OloEngine
 
       private:
         // Canvas
-        void DrawCanvas();
-        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const;
-        void DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin) const;
+        void DrawCanvas(f32 width);
+        void DrawNodes();
+        void DrawConnections();
+        void DrawConnectionInProgress() const;
 
         // Node rendering
-        void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, SoundGraphNodeData& node);
+        void DrawNode(SoundGraphNodeData& node);
         ImVec2 GetNodeSize(const SoundGraphNodeData& node) const;
         ImU32 GetNodeColor(const std::string& type) const;
         ImU32 GetNodeHeaderColor(const std::string& type) const;
@@ -109,9 +109,8 @@ namespace OloEngine
         std::vector<PinInfo> GetNodePins(const SoundGraphNodeData& node, const ImVec2& nodeScreenPos) const;
 
         // Interaction
-        void HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize);
-        void HandleNodeInteraction(const ImVec2& canvasOrigin);
-        void HandleConnectionDrag(const ImVec2& canvasOrigin);
+        void HandleNodeInteraction();
+        void HandleConnectionDrag();
 
         // Toolbar & property panel
         void DrawToolbar();
@@ -119,7 +118,7 @@ namespace OloEngine
         void DrawNodeProperties(SoundGraphNodeData& node);
 
         // Context menu (node palette)
-        void DrawContextMenu(const ImVec2& canvasOrigin);
+        void DrawContextMenu();
 
         // Serialization
         void SaveSoundGraph();
@@ -161,18 +160,14 @@ namespace OloEngine
         // Handles both real nodes and the graph-output pseudo-node. Returns false if
         // nothing matches.
         bool ResolvePinScreenPos(UUID nodeID, const std::string& endpoint, bool wantOutput,
-                                 const ImVec2& canvasOrigin, ImVec2& outPos) const;
+                                 ImVec2& outPos) const;
 
-        // Approximate bezier hit-test. Returns the index of the asset connection nearest
-        // to mousePos (within hitDistancePx), or size_t(-1) if no wire is within range.
-        // Cheap-and-cheerful: samples each wire as N straight segments and uses
-        // point-to-segment distance.
-        sizet HitTestConnection(const ImVec2& mousePos, const ImVec2& canvasOrigin,
-                                f32 hitDistancePx) const;
-
-        // Coordinate transforms
-        ImVec2 WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const;
-        glm::vec2 ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const;
+        // Bezier hit-test. Returns the index of the asset connection nearest to
+        // mousePos (within hitDistancePx), or size_t(-1) if no wire is within
+        // range. Sampling lives in GraphCanvas::DistanceToWire, which walks the
+        // SAME curve the canvas drew, so the clickable wire and the visible wire
+        // cannot drift apart at zoom.
+        sizet HitTestConnection(const ImVec2& mousePos, f32 hitDistancePx) const;
 
       private:
         bool m_IsOpen = true;
@@ -189,10 +184,9 @@ namespace OloEngine
         AssetHandle m_PendingLoadHandle = 0;
         int m_PendingLoadFrameDelay = 0;
 
-        // Canvas state
-        glm::vec2 m_ScrollOffset = { 0.0f, 0.0f };
-        f32 m_Zoom = 1.0f;
-        bool m_IsPanning = false;
+        // Canvas view: pan, zoom, the grid, the screen<->graph transforms and
+        // wire drawing/hit-testing all live in the shared widget, not here.
+        EditorUI::GraphCanvas m_Canvas;
 
         // Selection. m_SelectedNodeID is the "primary" selection that drives the property
         // sidebar (single-node-focused UI). m_SelectedNodes is the full selection set used
@@ -295,7 +289,10 @@ namespace OloEngine
         // landed on a specific node, in which case the popup shows node-specific actions
         // (Delete, etc.) instead of the add-node palette.
         bool m_ShowContextMenu = false;
-        ImVec2 m_ContextMenuPos = {};
+        // Captured in GRAPH space at click time. Storing the screen position and
+        // converting it when the popup is drawn placed a new node wrongly
+        // whenever the view moved between the two.
+        glm::vec2 m_ContextMenuGraphPos = {};
         char m_NodeSearchFilter[128] = {};
         UUID m_RightClickNodeID = 0;
 
@@ -314,11 +311,15 @@ namespace OloEngine
         CommandHistory* m_CommandHistory = nullptr;
 
         // Layout constants (matching ShaderGraph defaults for visual consistency).
-        static constexpr f32 s_GridSize = 32.0f;
         static constexpr f32 s_NodeWidth = 180.0f;
         static constexpr f32 s_PinRadius = 5.0f;
         static constexpr f32 s_PinSpacing = 22.0f;
         static constexpr f32 s_HeaderHeight = 26.0f;
         static constexpr f32 s_PropertyPanelWidth = 300.0f;
+        /// Screen pixels. A pin hit box that scales with zoom shrinks to under two
+        /// pixels at the canvas' minimum zoom, which no mouse can hit.
+        static constexpr f32 s_PinHitRadiusMin = 9.0f;
+        /// Screen pixels from a wire that still counts as clicking it.
+        static constexpr f32 s_WireHitDistance = 8.0f;
     };
 } // namespace OloEngine
