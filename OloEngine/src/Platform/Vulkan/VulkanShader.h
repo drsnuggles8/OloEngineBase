@@ -252,6 +252,10 @@ namespace OloEngine
         RHI::ScopedResourceHandle m_RHIHandle;
         ShaderCompilationStatus m_Status = ShaderCompilationStatus::Pending;
         bool m_IsDeferredCapable = false;
+        // This program reaches its five material-local maps through the descriptor
+        // heap (ADR 0011 amendment (96)), so CommandDispatch must not bind them.
+        // Read off the source in BuildFromSources, republished on every Bind.
+        bool m_ReadsMaterialHeapOffsets = false;
     };
 } // namespace OloEngine
 

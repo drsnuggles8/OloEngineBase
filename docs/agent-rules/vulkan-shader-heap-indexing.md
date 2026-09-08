@@ -1,10 +1,16 @@
-# Vulkan-only shaders may index the descriptor heap themselves
+# Which declarations may index the descriptor heap, and which may not
 
-**Rule: a shader that already needs a Vulkan-only extension (`GL_EXT_ray_query`) may sample
-material textures by indexing the descriptor heap with `GL_EXT_descriptor_heap`; every shader with an
-OpenGL twin keeps classic `layout(binding = N)` declarations.** ADR 0011 amendment (95). This is the
-capability issue #805 asked for, scoped to the shaders where it costs the "one SPIR-V serves both
-backends" property (amendment (50)) nothing, because those shaders never had a GL twin.
+**Rule: two sets of declarations index the heap with `GL_EXT_descriptor_heap`, and nothing else
+does.** A shader with no OpenGL twin (one that already needs `GL_EXT_ray_query`) may reach ANY
+texture that way — ADR 0011 amendment (95). A shader that HAS a GL twin may convert only its **five
+material-local maps** (albedo, metallic-roughness, normal, AO, emissive), and only on its Vulkan
+arm — amendment (96), issue #805. Every other declaration in every shader keeps classic
+`layout(binding = N)` on both backends.
+
+The two scopes exist for different reasons. (95) costs the "one SPIR-V serves both backends"
+property (amendment (50)) nothing, because those shaders never had a GL twin. (96) spends part of
+it deliberately, for the five declarations whose runtime index is the payoff — and it is affordable
+because a partial conversion is expressible on Vulkan (§4).
 
 ## 1. How a shader reaches a texture
 
@@ -65,3 +71,69 @@ device address (`StorageBuffer::kNoBinding`), and does not touch the records.
 - **Region offsets are not descriptor multiples.** The heap's slot region starts at an aligned
   offset that need not be a multiple of the descriptor size, so an index in descriptors cannot
   address a slot. `descriptor_stride = 1` and byte offsets side-step the whole question.
+
+## 4. The material arm (amendment (96)) — what makes a PARTIAL conversion legal
+
+**A heap array carries no binding decoration, so converting one declaration does not disturb the
+others.** Measured on SDK 1.4.357.0: in one fragment shader, `layout(descriptor_heap,
+descriptor_stride = 1)` arrays of `texture2D`, `textureCube` and `sampler` compile alongside classic
+`layout(binding = 8/12/33)` samplers, `spirv-val` clean for Vulkan 1.4. The heap arrays lower to two
+variables decorated `BuiltIn ResourceHeapEXT` and `BuiltIn SamplerHeapEXT`, with **no `Binding` and
+no `DescriptorSet` decoration**; the classic samplers keep theirs unchanged, so their
+`VkDescriptorSetAndBindingMappingEXT` entries are untouched.
+
+**The GL bindless route has no such property, and that asymmetry is the thing to remember.**
+`Shader::IsBoundProgramBindless()` is a property of the whole PROGRAM, so the seam withholds EVERY
+bind and one unconverted sampler reads black (§5c). A GL conversion is all-or-nothing; a Vulkan one
+is per-declaration.
+
+### How a material shader takes the arm
+
+```glsl
+#type fragment
+#version 460 core
+#ifdef OLO_VULKAN                              // at the TOP — before any other token
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#define OLO_MATERIAL_VULKAN_HEAP_READER 1      // read by PBRCommon.glsl AND by VulkanShader
+#endif
+...
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+#include "include/DescriptorHeapTextures.glsl"
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#elif defined(OLO_BINDLESS)                    // the GL arm, unchanged
+...
+#else                                          // classic declarations
+```
+
+`#ifdef` is not a token, so guarding the `#extension` directives keeps them legal while hiding them
+from the GL tier, which compiles the same source at vulkan_1_2 without the macro.
+
+### What bit, or would have
+
+- **A combined sampler cannot cross a function call.** `sampler2D(texture2D, sampler)` must appear
+  at its point of use; glslc rejects `sampleAlbedo(u_AlbedoMap, ...)` with `'call argument' :
+  sampler constructor must appear at point of use`. `GL_ARB_bindless_texture`'s `sampler2D(uvec2)`
+  has no such restriction, so this is the one place the two bindless arms cannot share a spelling.
+  `PBRCommon.glsl`'s `OLO_MAT_*` macros exist for it: on GL and the slot path they expand to the
+  helper call unchanged, and only the Vulkan arm inlines the `texture()`.
+- **Every lane must name a REAL descriptor.** An out-of-range heap index is undefined behaviour, not
+  a black texel, so "no map" and "could not resolve" both get
+  `HeapBinding::ResolveShaderHeapNullTexture()`. The shader's `Use*Map` gate is not sufficient on its
+  own: `PBR_GBuffer` takes that flag from the GPU Scene material record, not from the UBO the CPU
+  just corrected, so the OFFSET has to be safe by itself.
+- **The offset is not memoisable, and the material UBO is cached.** The slot cache keys on `VkImage`,
+  and a texture reloaded in place keeps its `RHI::ResourceHandle` while getting a new one — so a
+  stored offset names a different descriptor and the frame renders a **plausible wrong texture**.
+  `HeapBinding::ShaderHeapGeneration()` moves on exactly the events that can reassign a slot, and
+  `CommandDispatch`'s material-UBO cache key carries it alongside the heap epoch.
+- **A sampler offset is a SECOND index.** `GL_ARB_bindless_texture` bakes sampler state into its
+  handle; `GL_EXT_descriptor_heap` does not. One lane (`HeapOffsets[2].w`) serves all five, because
+  every material 2D descriptor is minted with `HeapBinding::MaterialTexture2DSampler()` — it is
+  frame-uniform, not per-material. On GL that lane means nothing and stays null.
+- **Only textures AT REST convert**, which is why the scope stops at the five: the environment
+  cubemap and the IBL trio are baked into render targets, and this resolver cannot move a layout.
+
+Pinned by `BindlessShaderPipeline.VulkanMaterialHeapArmLeavesNoMaterialLocalSamplerDeclared`: a
+shader on this arm that leaves one of the five declared classic is a sampler nothing binds, because
+`CommandDispatch::BindPBRTextures` skips those five binds for it.

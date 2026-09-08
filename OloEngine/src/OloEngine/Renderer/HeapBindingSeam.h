@@ -262,4 +262,24 @@ namespace OloEngine::HeapBinding
     [[nodiscard]] auto ShaderHeapIndexingSupported() -> bool;
     [[nodiscard]] auto ResolveShaderHeapTexture(RHI::ResourceHandle texture) -> RHI::HeapOffset;
     [[nodiscard]] auto ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> RHI::HeapOffset;
+
+    // The offset every UNSET or UNRESOLVABLE material texture must be given, and
+    // the reason it is an offset rather than a refusal: a shader on the heap arm
+    // indexes the heap with what the CPU wrote, so an out-of-range index is
+    // undefined behaviour rather than a black texel. Names a 1x1 null image in a
+    // slot the backend owns for the life of the device — the same null an unfed
+    // binding resolves to on the draw path (amendment (81)).
+    [[nodiscard]] auto ResolveShaderHeapNullTexture() -> RHI::HeapOffset;
+
+    // Fold this into ANY cache that holds an offset from the two resolvers above
+    // (ADR 0011 amendment (96)). It moves whenever a slot they handed out can
+    // have been reassigned — a released image, a heap reset — and at no other
+    // time, so a steady frame still hits the cache.
+    //
+    // The rule those resolvers obey is "fetch the offset, do not store it": a
+    // texture reloaded in place keeps its RHI handle and gets new backing, so a
+    // stored offset then names a DIFFERENT descriptor and the frame renders a
+    // plausible wrong texture rather than anything that reads as an error. The
+    // per-material UBO is cached on the material index, so it needs this.
+    [[nodiscard]] auto ShaderHeapGeneration() -> u64;
 } // namespace OloEngine::HeapBinding

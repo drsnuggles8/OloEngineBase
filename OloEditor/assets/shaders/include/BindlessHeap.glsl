@@ -179,17 +179,8 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // PBRMaterialUBO block; these macros only name the lanes, so the index layout
 // lives in exactly one place on each side (CommandDispatch::WriteMaterialHeapOffsets
 // mirrors it).
-#define OLO_MATERIAL_ALBEDO_OFFSET u_MaterialHeapOffsets[0].x
-#define OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET u_MaterialHeapOffsets[0].y
-#define OLO_MATERIAL_NORMAL_OFFSET u_MaterialHeapOffsets[0].z
-#define OLO_MATERIAL_AO_OFFSET u_MaterialHeapOffsets[0].w
-#define OLO_MATERIAL_EMISSIVE_OFFSET u_MaterialHeapOffsets[1].x
-#define OLO_MATERIAL_ENVIRONMENT_OFFSET u_MaterialHeapOffsets[1].y
-#define OLO_MATERIAL_IRRADIANCE_OFFSET u_MaterialHeapOffsets[1].z
-#define OLO_MATERIAL_PREFILTER_OFFSET u_MaterialHeapOffsets[1].w
-#define OLO_MATERIAL_BRDF_LUT_OFFSET u_MaterialHeapOffsets[2].x
-#define OLO_MATERIAL_DIFFUSE_OFFSET u_MaterialHeapOffsets[2].y
-#define OLO_MATERIAL_SPECULAR_OFFSET u_MaterialHeapOffsets[2].z
+// The lane names themselves are hoisted below, OUTSIDE #ifdef OLO_BINDLESS —
+// see the note there.
 
 // The sampler constructors for them. Unlike OLO_HEAP_TEX_*, these take an OFFSET
 // straight from the material block rather than a TEX_* slot — there is no table
@@ -252,5 +243,42 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
     layout(fmt) mem type name = layout(fmt) type(g_OloResourceHeap[OLO_HEAP_IMAGE_OFFSET(imgUnit)])
 
 #endif // OLO_BINDLESS
+
+// =============================================================================
+// THE PER-MATERIAL LANE NAMES — OUTSIDE `#ifdef OLO_BINDLESS` ON PURPOSE.
+//
+// Two bindless arms read these lanes now: the GL one (OLO_BINDLESS, uvec2
+// handles) and the Vulkan one (OLO_VULKAN, GL_EXT_descriptor_heap byte offsets
+// — ADR 0011 amendment (96)). Both index the SAME `u_MaterialHeapOffsets[3]`
+// block, written once by CommandDispatch::WriteMaterialHeapOffsets, so the lane
+// layout must have exactly one definition. Leaving these inside the
+// OLO_BINDLESS block would have forced the Vulkan arm to restate them, and two
+// copies of an index layout drift the way (24)'s cache did — silently, into a
+// plausible wrong texture rather than an error.
+//
+// They are plain `#define`s naming a member of a block the including shader
+// declares, so they cost nothing where they are unused, exactly like the rest
+// of this file on the slot-based build.
+#define OLO_MATERIAL_ALBEDO_OFFSET u_MaterialHeapOffsets[0].x
+#define OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET u_MaterialHeapOffsets[0].y
+#define OLO_MATERIAL_NORMAL_OFFSET u_MaterialHeapOffsets[0].z
+#define OLO_MATERIAL_AO_OFFSET u_MaterialHeapOffsets[0].w
+#define OLO_MATERIAL_EMISSIVE_OFFSET u_MaterialHeapOffsets[1].x
+#define OLO_MATERIAL_ENVIRONMENT_OFFSET u_MaterialHeapOffsets[1].y
+#define OLO_MATERIAL_IRRADIANCE_OFFSET u_MaterialHeapOffsets[1].z
+#define OLO_MATERIAL_PREFILTER_OFFSET u_MaterialHeapOffsets[1].w
+#define OLO_MATERIAL_BRDF_LUT_OFFSET u_MaterialHeapOffsets[2].x
+#define OLO_MATERIAL_DIFFUSE_OFFSET u_MaterialHeapOffsets[2].y
+#define OLO_MATERIAL_SPECULAR_OFFSET u_MaterialHeapOffsets[2].z
+
+// THE SAMPLER LANE, and it exists for one arm only. GL_ARB_bindless_texture
+// bakes sampler state into its uvec2 handle, so a GL offset is a complete
+// descriptor and this lane means nothing there — CommandDispatch leaves it at
+// kNullHeapOffset. GL_EXT_descriptor_heap splits texture from sampler, so the
+// Vulkan arm needs the sampler's byte offset as well. ONE lane covers all five
+// maps because HeapBinding::MaterialTexture2DSampler() is the single state every
+// material 2D descriptor is minted with, and it is frame-uniform rather than
+// per-material. [2].w was the block's reserved unused lane (amendment (96)).
+#define OLO_MATERIAL_SAMPLER_OFFSET u_MaterialHeapOffsets[2].w
 
 #endif // OLO_BINDLESS_HEAP_GLSL

@@ -2591,6 +2591,16 @@ precisely the case where the index stops being uniform, and because the device f
 - **Only a texture at rest resolves**, which is why the scope stops at the five. They are asset-owned
   `Texture2D` resting in `SHADER_READ_ONLY_OPTIMAL`; the environment cubemap and the IBL trio are
   baked into render targets, and a resolver that cannot move a layout cannot describe one.
+- **Every lane must name a REAL descriptor, and the shader's own gate cannot be relied on to make
+  that unnecessary.** An out-of-range heap index is undefined behaviour, not a black texel, so "no
+  map" and "could not resolve" both resolve to a 1x1 null the backend owns
+  (`HeapBinding::ResolveShaderHeapNullTexture`) rather than to `HeapOffset::Invalid`. The obvious
+  cheaper answer — write Invalid and let the shader's `Use*Map` branch skip the fetch — holds for the
+  FORWARD consumer, which reads that flag from the very UBO the CPU just corrected, and fails for the
+  DEFERRED one: `PBR_GBuffer` takes the flag from the GPU Scene material record whenever the draw
+  carries a live link, and the writer cannot reach that record. The flag is still cleared on failure,
+  for appearance rather than safety — sampling the null multiplies the base colour to BLACK, where
+  shading from the factor leaves the mesh plainly untextured.
 
 **What it unlocks is a precondition, not a measurement.** With the five reached by runtime index the
 per-draw binding for them disappears on Vulkan as it already does on GL, and — the part that matters

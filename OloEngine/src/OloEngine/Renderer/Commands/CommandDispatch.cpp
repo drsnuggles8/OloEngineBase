@@ -152,6 +152,12 @@ namespace OloEngine
         // Its per-material heap offsets index THAT heap, so the cache must be
         // dropped when it bumps (issue #691).
         u64 HeapEpoch = 0u;
+        // The Vulkan slot cache's generation the cached material UBO was built
+        // under (ADR 0011 amendment (96)). Sibling of HeapEpoch above, one heap
+        // over: that one tracks a re-initialised ENGINE heap, this one tracks the
+        // backend's own slot cache reassigning a slot — which a texture reloaded
+        // in place does while keeping its RHI handle. Always 0 on OpenGL.
+        u64 ShaderHeapGeneration = 0u;
         // Whether the CACHED material UBO was built with live heap offsets.
         //
         // The cache is keyed on the material index, but an offset's validity
@@ -729,6 +735,104 @@ namespace OloEngine
         ++Data().Stats.TextureBinds;
     }
 
+    // THE VULKAN ARM of the per-material offsets (ADR 0011 amendment (96)).
+    //
+    // A DIFFERENT MECHANISM FROM THE GL ARM BELOW, not a parameterisation of it,
+    // and the amendment says why: GL_ARB_bindless_texture bakes sampler state into
+    // its uvec2 handle, so a GL offset is a complete descriptor drawn from the
+    // ENGINE heap; GL_EXT_descriptor_heap splits texture from sampler, and its
+    // offsets are BYTE offsets into the BACKEND's own slot region — the very slots
+    // the raster frame binds this texture through. The two cannot share a resolver
+    // because they do not name the same thing.
+    //
+    // ONLY THE FIVE MATERIAL-LOCAL MAPS. The environment cubemap and the IBL trio
+    // keep classic bindings on this arm (they are baked into render targets, and
+    // ResolveShaderHeapTexture can only describe a texture AT REST), so their lanes
+    // stay Invalid here and the converted shader never reads them.
+    //
+    // EVERY LANE THIS ARM WRITES NAMES A REAL DESCRIPTOR, and that is the whole
+    // safety argument for letting a raster shader index the heap. An out-of-range
+    // heap index is undefined behaviour, not a black texel, so "no map" and "could
+    // not resolve" both resolve to the backend's 1x1 null rather than to
+    // HeapOffset::Invalid.
+    //
+    // THE SHADER'S OWN `Use*Map` GATE IS NOT ENOUGH ON ITS OWN, which is why the
+    // null matters rather than merely tidying up. The forward consumer reads that
+    // flag from this UBO, so clearing it here would be sufficient there — but the
+    // DEFERRED one (PBR_GBuffer) takes it from the GPU Scene material record
+    // whenever the draw carries a live link, and this function cannot reach that
+    // record. A material whose albedo failed to resolve would keep a set flag from
+    // the record and index the heap anyway. The offset has to be safe by itself.
+    //
+    // THE FLAG IS STILL CLEARED ON FAILURE, for appearance rather than safety:
+    // sampling the null multiplies the base colour by zero and the mesh goes BLACK,
+    // where shading from the factor alone leaves it plainly untextured. The failure
+    // is COUNTED and warned either way — never absorbed.
+    static void WriteMaterialShaderHeapOffsets(const PODMaterialData& mat,
+                                               ShaderBindingLayout::PBRMaterialUBO& ubo)
+    {
+        static std::atomic<u64> s_Unresolved{ 0 };
+
+        // Resolved once per call rather than per lane: it is memoised in the
+        // backend and every failing lane wants the same answer.
+        const u32 nullTexture = HeapBinding::ResolveShaderHeapNullTexture().Value;
+
+        // ONE SAMPLER FOR ALL FIVE, and it is frame-uniform rather than
+        // per-material: every material 2D descriptor is minted with this one state
+        // (HeapBinding::MaterialTexture2DSampler), which is what lets a single lane
+        // serve the whole set. Resolved first because nothing else is usable
+        // without it — a texture descriptor with no sampler cannot be sampled.
+        const RHI::HeapOffset samplerOffset =
+            HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler());
+        const bool armLive = samplerOffset.IsValid();
+
+        const auto resolve = [&](const RHI::ResourceHandle texture, i32& useFlag) -> u32
+        {
+            if (!texture.IsValid())
+            {
+                // No map, which is ordinary rather than a failure: `useFlag` is
+                // already 0 (it was set from this same handle), so the shader takes
+                // its factor branch. The null is written anyway so the lane is safe
+                // to index for a consumer whose flag came from somewhere else.
+                return nullTexture;
+            }
+            const RHI::HeapOffset offset =
+                armLive ? HeapBinding::ResolveShaderHeapTexture(texture) : RHI::HeapOffset{};
+            if (!offset.IsValid())
+            {
+                useFlag = 0;
+                if (s_Unresolved.fetch_add(1, std::memory_order_relaxed) < 8)
+                {
+                    OLO_CORE_WARN("CommandDispatch: a material texture could not be resolved to a shader-heap "
+                                  "descriptor; this material shades UNTEXTURED on the Vulkan heap arm "
+                                  "(ADR 0011 amendment (96), issue #805).");
+                }
+                return nullTexture;
+            }
+            return offset.Value;
+        };
+
+        const u32 albedo = resolve(mat.albedoMapID, ubo.UseAlbedoMap);
+        const u32 metallicRoughness = resolve(mat.metallicRoughnessMapID, ubo.UseMetallicRoughnessMap);
+        const u32 normal = resolve(mat.normalMapID, ubo.UseNormalMap);
+        const u32 ao = resolve(mat.aoMapID, ubo.UseAOMap);
+        const u32 emissive = resolve(mat.emissiveMapID, ubo.UseEmissiveMap);
+
+        ubo.HeapOffsets[0] = { albedo, metallicRoughness, normal, ao };
+        // Lanes [1].yzw and [2].xyz are the environment / IBL / legacy maps, which
+        // this arm does NOT convert — they keep classic bindings on both backends
+        // (amendment (96)). Given the NULL rather than Invalid for the same reason
+        // as every other lane: no shader reads them here, and if one ever did it
+        // would sample the null instead of indexing out of bounds.
+        ubo.HeapOffsets[1] = { emissive, nullTexture, nullTexture, nullTexture };
+        // [2].w is the sampler lane. It indexes the SAMPLER heap, not the resource
+        // heap, so the null above is not a substitute for it — a failure there
+        // stands the whole arm down (armLive), which every lane above has already
+        // taken into account.
+        ubo.HeapOffsets[2] = { nullTexture, nullTexture, nullTexture,
+                               armLive ? samplerOffset.Value : 0u };
+    }
+
     // Resolve a material's nine textures to heap offsets for the material UBO.
     //
     // Persistent lifetime throughout: these are asset-owned textures, never
@@ -741,6 +845,19 @@ namespace OloEngine
     static void WriteMaterialHeapOffsets(const PODMaterialData& mat,
                                          ShaderBindingLayout::PBRMaterialUBO& ubo)
     {
+        // TWO ARMS, forked on the BACKEND rather than on the heap lever (ADR 0011
+        // amendment (96)). ShaderHeapIndexingSupported() is true only on Vulkan,
+        // and ReadsMaterialHeapOffsets() only for a program that actually declares
+        // the lanes — so this takes the shader-heap arm exactly when the shader in
+        // flight was built to read byte offsets, and the engine-heap arm below in
+        // every other case, including an unconverted Vulkan program (whose lanes
+        // are then filled with the reserved nulls it never reads).
+        if (HeapBinding::ShaderHeapIndexingSupported() && Shader::ReadsMaterialHeapOffsets())
+        {
+            WriteMaterialShaderHeapOffsets(mat, ubo);
+            return;
+        }
+
         // A BINDLESS DESCRIPTOR BAKES SAMPLER STATE; A SLOT BIND DOES NOT.
         // glBindTextureUnit samples with whatever the TEXTURE OBJECT carries,
         // while a heap handle carries what its descriptor was minted with — so
@@ -911,6 +1028,20 @@ namespace OloEngine
         if (const u64 heapEpoch = RHI::DescriptorHeap::Get().GetInitEpoch(); heapEpoch != Data().HeapEpoch)
         {
             Data().HeapEpoch = heapEpoch;
+            Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        }
+        // THE SAME ARGUMENT ONE HEAP OVER (ADR 0011 amendment (96)). The epoch
+        // above covers a re-INITIALISED engine heap; the Vulkan arm's offsets come
+        // from the backend's own slot cache, which reassigns a slot whenever a
+        // texture is released or reloaded IN PLACE. That keeps the RHI handle and
+        // changes the VkImage, so this UBO's cached offsets would then name a
+        // different descriptor — a plausible wrong texture, not black, and nothing
+        // else in this function can notice. The generation moves only on those
+        // events, so a steady frame still hits the cache.
+        if (const u64 slotGeneration = HeapBinding::ShaderHeapGeneration();
+            slotGeneration != Data().ShaderHeapGeneration)
+        {
+            Data().ShaderHeapGeneration = slotGeneration;
             Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
         }
 

@@ -157,6 +157,35 @@ namespace OloEngine
         return static_cast<u32>(byteOffset);
     }
 
+    auto VulkanDescriptorHeapBackend::ResolveShaderHeapNullTexture() -> u32
+    {
+        if (!IsShaderHeapIndexingSupported())
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        // The draw path's own memoised null, not a second one: GetNullSampledHeapSlot
+        // acquires it through the same slot cache every resolved texture comes from,
+        // so the null a heap-indexing shader reads and the null an unfed binding
+        // resolves to (amendment (81)) are one descriptor.
+        const u32 slot = GetNullSampledHeapSlot(VK_IMAGE_VIEW_TYPE_2D);
+        if (slot == VulkanResourceHeap::InvalidSlot)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        const auto& heap = VulkanResourceHeap::Get();
+        const VkDeviceSize byteOffset =
+            heap.GetSlotRegionOffset() + static_cast<VkDeviceSize>(slot) * heap.GetDescriptorStride();
+        return static_cast<u32>(byteOffset);
+    }
+
+    auto VulkanDescriptorHeapBackend::GetShaderHeapGeneration() const -> u64
+    {
+        // The slot cache is the only thing that can reassign a resolved slot:
+        // the SAMPLER heap deduplicates by state and never frees, so a sampler
+        // offset is stable for the life of the device and contributes nothing.
+        return VulkanDescriptorSlotCache::Get().GetGeneration();
+    }
+
     auto VulkanDescriptorHeapBackend::IsBindlessSupported() const -> bool
     {
         // The device gate already refused anything without

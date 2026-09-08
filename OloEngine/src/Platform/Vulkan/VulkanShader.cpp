@@ -19,6 +19,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
@@ -313,6 +314,30 @@ namespace OloEngine
             m_Status = ShaderCompilationStatus::Failed;
             return false;
         }
+
+        // THE MATERIAL HEAP ARM (ADR 0011 amendment (96)). A shader that spells
+        // OLO_MATERIAL_VULKAN_HEAP_READER reaches its five material-local maps by
+        // runtime heap index, so its material texture BINDINGS are gone from the
+        // SPIR-V and CommandDispatch::BindPBRTextures must stop issuing the five
+        // binds for it — exactly what the GL route's OLO_MATERIAL_HEAP_READER does
+        // on its side, decided from the source for the same reason.
+        //
+        // READ OFF THE SOURCE AND NOT OFF REFLECTION, which would be the obvious
+        // alternative and is the wrong one: a heap array carries no descriptor
+        // binding at all, so "binding 0 is absent from the reflection" is also true
+        // of a shader that simply has no albedo map. The token says what the AUTHOR
+        // decided; the absence says only what the compiler emitted.
+        //
+        // Recomputed on every build, reload included: a shader that loses the arm
+        // must lose the flag with it, or the five binds stay withheld and every
+        // mesh it draws samples the reserved null.
+        m_ReadsMaterialHeapOffsets =
+            std::ranges::any_of(sources,
+                                [](const auto& entry)
+                                {
+                                    return ShaderSourceScan::MentionsOutsideComments(
+                                        entry.second, ShaderSourceScan::kVulkanMaterialHeapReaderToken);
+                                });
 
         std::error_code ec;
         if (useCache)
@@ -675,13 +700,21 @@ namespace OloEngine
             return;
         }
         SetBoundProgramBindless(false);
-        // Its SIBLING flag has the identical stale-across-backends hazard
-        // (#691): OLO_MATERIAL_HEAP_READER programs exist only on the
-        // GL route, and CommandDispatch::BindPBRTextures SKIPS the five
-        // material texture binds whenever this reads true — a stale true from
-        // a GL bindless bind renders every Vulkan mesh with null material
-        // lanes, no error anywhere.
-        SetBoundProgramMaterialOffsets(false);
+        // Its SIBLING flag is no longer always false here (ADR 0011 amendment
+        // (96)). CommandDispatch::BindPBRTextures SKIPS the five material texture
+        // binds whenever this reads true, and on this backend that is now RIGHT
+        // for a shader carrying OLO_MATERIAL_VULKAN_HEAP_READER — its five
+        // material bindings are not in the SPIR-V, so the binds would have nothing
+        // to land on and the offsets in the material UBO are what it reads.
+        //
+        // It is still WRITTEN on every bind rather than only when true, which is
+        // the half that was load-bearing before and still is: the flag is
+        // process-global, so a stale true left by the previously bound program —
+        // a GL bindless bind before a backend swap (#691), or a converted material
+        // shader before an unconverted one — withholds the five binds from a
+        // program that needs them and renders every mesh with null material lanes,
+        // with no error anywhere.
+        SetBoundProgramMaterialOffsets(m_ReadsMaterialHeapOffsets);
     }
 
     void VulkanShader::Unbind() const

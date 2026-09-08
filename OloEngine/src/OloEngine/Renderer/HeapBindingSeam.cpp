@@ -579,4 +579,16 @@ namespace OloEngine::HeapBinding
         }
         return RHI::HeapOffset{ backend->ResolveShaderHeapSampler(sampler) };
     }
+
+    auto ResolveShaderHeapNullTexture() -> RHI::HeapOffset
+    {
+        RHI::IDescriptorHeapBackend* backend = RHI::DescriptorHeap::Get().GetBackend();
+        return backend == nullptr ? RHI::HeapOffset{} : RHI::HeapOffset{ backend->ResolveShaderHeapNullTexture() };
+    }
+
+    auto ShaderHeapGeneration() -> u64
+    {
+        RHI::IDescriptorHeapBackend* backend = RHI::DescriptorHeap::Get().GetBackend();
+        return backend == nullptr ? 0u : backend->GetShaderHeapGeneration();
+    }
 } // namespace OloEngine::HeapBinding
