@@ -242,17 +242,10 @@ if [ "${#unit_of[@]}" -eq 0 ]; then
   echo "no runner directories under ${runner_home} -- run scripts/setup-olo-ci-runners.sh first" >&2
   exit 1
 fi
-for dir in "${env_changed[@]}"; do
-  unit="${unit_of[$dir]}"
-  if pgrep -f "^${dir}/bin/Runner.Worker" >/dev/null; then
-    echo "${unit}: .env updated; a job is executing, so the hooks apply at its next restart"
-  elif runner_systemctl is-active --quiet "$unit"; then
-    runner_systemctl restart "$unit"
-    echo "${unit}: .env updated and the runner restarted (idle)"
-  else
-    echo "${unit}: .env updated; unit is not active, nothing restarted"
-  fi
-done
+# The restart that makes a runner re-read .env happens ONCE, after step 3c has
+# written the memory drop-in too, so an idle runner comes back with both.
+declare -A needs_restart=()
+for dir in "${env_changed[@]}"; do needs_restart["$dir"]=1; done
 echo "job hooks: ${hookdir}/job-{started,completed}.sh, polkit rule ${rule}"
 
 # ------------------------------------------------ 3c. runner memory ceilings
@@ -267,7 +260,6 @@ echo "job hooks: ${hookdir}/job-{started,completed}.sh, polkit rule ${rule}"
 # that ran out instead of killing a runner. The report below prints memory.peak
 # per runner, which is the measurement to revise this from.
 mem_max="${OLO_RUNNER_MEMORY_MAX:-14G}"
-mem_changed=0
 for dir in "${!unit_of[@]}"; do
   unit="${unit_of[$dir]}"
   d="/etc/systemd/user/${unit}.d"
@@ -286,21 +278,43 @@ EOF
   if ! cmp -s "$tmp" "${d}/olo-memory.conf" 2>/dev/null; then
     install -d -m 0755 "$d"
     install -m 0644 "$tmp" "${d}/olo-memory.conf"
-    mem_changed=1
+    needs_restart["$dir"]=1
   fi
   rm -f "$tmp"
 done
 runner_systemctl daemon-reload
-# Apply to the RUNNING units too, without a restart: daemon-reload loads the
-# drop-in for the next start; set-property --runtime pushes the same values
-# into the live cgroup now, so a job already executing is covered.
+
+# ONE apply pass for both steps. An idle unit whose .env or drop-in changed is
+# restarted and comes back with the hooks AND the full drop-in. A unit with a
+# job executing is not touched: the cgroup properties are pushed into it live
+# with set-property --runtime, and the rest waits for its next restart.
+#
+# OOMPolicy is deliberately NOT in the set-property call. It is a [Service]
+# execution setting, not a cgroup resource property, and set-property rejects
+# it -- "Cannot set property OOMPolicy, or unknown property" -- and because one
+# call is all-or-nothing, MemoryMax went unapplied with it. Measured on the box
+# on the first run of this step. It comes from the drop-in, at the next start.
+runner_busy() { pgrep -f "$1/bin/Runner.Worker" >/dev/null; }
 for dir in "${!unit_of[@]}"; do
   unit="${unit_of[$dir]}"
-  runner_systemctl is-active --quiet "$unit" || continue
-  runner_systemctl set-property --runtime "$unit" "MemoryMax=${mem_max}" OOMPolicy=continue ManagedOOMPreference=avoid
+  if ! runner_systemctl is-active --quiet "$unit"; then
+    echo "${unit}: not active; hooks and ceiling apply when it is started"
+  elif runner_busy "$dir"; then
+    runner_systemctl set-property --runtime "$unit" "MemoryMax=${mem_max}" ManagedOOMPreference=avoid
+    echo "${unit}: a job is executing -- MemoryMax applied live; hooks and OOMPolicy=continue apply at its next restart"
+  elif [ -n "${needs_restart[$dir]:-}" ]; then
+    runner_systemctl restart "$unit"
+    echo "${unit}: restarted (idle) -- hooks and ceiling active"
+  else
+    runner_systemctl set-property --runtime "$unit" "MemoryMax=${mem_max}" ManagedOOMPreference=avoid
+    echo "${unit}: unchanged; ceiling re-applied live"
+  fi
 done
+
 # VERIFY from the cgroup itself, not from systemctl show: the value that
-# matters is the one the kernel enforces.
+# matters is the one the kernel enforces. OOMPolicy is reported per unit
+# below rather than asserted, because a busy unit legitimately carries the
+# old value until it restarts.
 for dir in "${!unit_of[@]}"; do
   unit="${unit_of[$dir]}"
   cg="/sys/fs/cgroup/user.slice/user-${runner_uid}.slice/user@${runner_uid}.service/app.slice/${unit}"
@@ -588,8 +602,9 @@ for dir in "${!unit_of[@]}"; do
   unit="${unit_of[$dir]}"
   cg="/sys/fs/cgroup/user.slice/user-${runner_uid}.slice/user@${runner_uid}.service/app.slice/${unit}"
   if [ -r "${cg}/memory.max" ]; then
-    printf '  %-32s max=%s current=%sMiB peak=%sMiB\n' "$unit" "$(cat "${cg}/memory.max")" \
-      "$(( $(cat "${cg}/memory.current") / 1048576 ))" "$(( $(cat "${cg}/memory.peak" 2>/dev/null || echo 0) / 1048576 ))"
+    printf '  %-32s max=%s current=%sMiB peak=%sMiB oompolicy=%s\n' "$unit" "$(cat "${cg}/memory.max")" \
+      "$(( $(cat "${cg}/memory.current") / 1048576 ))" "$(( $(cat "${cg}/memory.peak" 2>/dev/null || echo 0) / 1048576 ))" \
+      "$(runner_systemctl show -p OOMPolicy --value "$unit" 2>/dev/null || echo '?')"
   else
     printf '  %-32s (not running)\n' "$unit"
   fi
