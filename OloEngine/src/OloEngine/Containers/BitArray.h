@@ -1910,7 +1910,7 @@ namespace OloEngine
             }
 
             [[nodiscard]] OLO_FINLINE explicit FReverseIterator(TBitArray& InArray, i32 StartIndex)
-                : FRelativeBitReference(-1), Array(InArray), Index(-1)
+                : FRelativeBitReference(StartIndex), Array(InArray), Index(StartIndex)
             {
             }
 
@@ -1970,7 +1970,7 @@ namespace OloEngine
             }
 
             [[nodiscard]] OLO_FINLINE explicit FConstReverseIterator(const TBitArray& InArray, i32 StartIndex)
-                : FRelativeBitReference(-1), Array(InArray), Index(-1)
+                : FRelativeBitReference(StartIndex), Array(InArray), Index(StartIndex)
             {
             }
 
