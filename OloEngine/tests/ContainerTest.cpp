@@ -41,6 +41,34 @@ TEST(ContainerSmoke, TBitArrayBasicInitAndIndexing)
     EXPECT_TRUE(bits[0]);
 }
 
+TEST(ContainerSmoke, TBitArrayReverseIterationVisitsEveryBitIncludingBitZero)
+{
+    // Guards the reverse-end sentinel. FRelativeBitReference::operator== compares
+    // WordIndex and Mask, never Index, and FRelativeBitReference(0) is bit 0 exactly.
+    // So rend() built from 0 rather than INDEX_NONE compares equal to the bit-0
+    // iterator and a reverse loop stops one bit early -- silently, and with nothing
+    // else in the suite touching rbegin()/rend().
+    TBitArray<> bits;
+    bits.Init(false, 40); // spans two words, so the word-boundary step is covered too
+    bits[0] = true;
+    bits[1] = true;
+    bits[31] = true;
+    bits[32] = true;
+    bits[39] = true;
+
+    i32 visited = 0;
+    i32 setBits = 0;
+    for (auto it = bits.rbegin(); it != bits.rend(); ++it)
+    {
+        ++visited;
+        if (*it)
+            ++setBits;
+    }
+
+    EXPECT_EQ(visited, 40);
+    EXPECT_EQ(setBits, 5);
+}
+
 TEST(ContainerSmoke, TSparseArrayAddAndIterate)
 {
     TSparseArray<i32> arr;
