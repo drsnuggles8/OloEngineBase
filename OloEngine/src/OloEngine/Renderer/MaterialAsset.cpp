@@ -11,6 +11,14 @@ namespace OloEngine
     // so they cost no global constructor and no exit-time destructor (issue #763).
     // Not `std::string_view`: every consumer below takes `const std::string&`, and
     // std::string's converting constructor from a string_view is explicit.
+    //
+    // The trade this makes, stated plainly: each accessor call now builds a std::string
+    // temporary, and these names are 25-31 characters so they miss MSVC's 15-char SSO
+    // buffer and heap-allocate. Accepted because every caller is cold -- asset
+    // (de)serialization, PlaceholderAsset setup, preview-thumbnail rendering, no
+    // per-frame path -- and each of those calls already allocates anyway, converting the
+    // key to the FString that Material's uniform TMaps are keyed on. If a hot caller
+    // ever appears, give Material std::string_view overloads rather than reverting this.
     constexpr const char* s_AlbedoColorUniform = "u_MaterialUniforms.AlbedoColor";
     constexpr const char* s_UseNormalMapUniform = "u_MaterialUniforms.UseNormalMap";
     constexpr const char* s_MetalnessUniform = "u_MaterialUniforms.Metalness";
