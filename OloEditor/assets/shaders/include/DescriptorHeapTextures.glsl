@@ -12,9 +12,12 @@
 // region and descriptor size stay the backend's business.
 //
 // RULES.
-//   * Only a shader that already needs a Vulkan-only extension may include
-//     this. Every shader with a GL twin keeps classic bindings — that is
-//     amendment (50), and this file does not reopen it.
+//   * TWO CONSUMERS, and they are scoped differently. A shader with no GL twin
+//     (the ray-query tracer) may reach ANY texture here — amendment (95). A
+//     shader that HAS a GL twin may use only OLO_HEAP_MATERIAL_TEX_2D, and only
+//     for the five material-local maps — amendment (96). Everything else in
+//     such a shader keeps classic bindings; (50) is reopened exactly that far
+//     and no further.
 //   * The including shader must put `#extension GL_EXT_descriptor_heap` and
 //     `#extension GL_EXT_nonuniform_qualifier` at its top, next to its ray
 //     query extension: GLSL requires every #extension to precede all other
@@ -43,6 +46,28 @@ vec4 oloHeapSampleLod(uint textureByteOffset, uint samplerByteOffset, vec2 uv, f
                                 g_OloHeapSampler[nonuniformEXT(samplerByteOffset)]),
                       uv, lod);
 }
+
+// -----------------------------------------------------------------------------
+// THE MATERIAL ARM (amendment (96)): one of the five material-local maps, as a
+// combined sampler for the caller to fetch through with normal derivatives.
+//
+// A MACRO AND NOT A FUNCTION, and that is forced rather than preferred. A
+// combined sampler built from a separate texture and sampler must appear at its
+// POINT OF USE — it cannot be returned from a function or passed into one, and
+// glslc says so as "'call argument' : sampler constructor must appear at point
+// of use". So the construction has to land syntactically inside the `texture()`
+// call that uses it, which only a macro can arrange. PBRCommon.glsl's
+// OLO_MAT_* wrappers are the other half of that arrangement.
+//
+// BOTH INDICES CARRY nonuniformEXT even though a raster draw's material is
+// uniform across the draw. It costs nothing while the index is dynamically
+// uniform, and the whole point of (96) is the case where it stops being — a
+// merged draw or a GPU-written index. The device feature behind it
+// (shaderSampledImageArrayNonUniformIndexing) is what the CPU resolvers check
+// and refuse on, so the qualifier and the refusal describe the same guarantee.
+#define OLO_HEAP_MATERIAL_TEX_2D(textureByteOffset, samplerByteOffset) \
+    sampler2D(g_OloHeapTexture2D[nonuniformEXT(textureByteOffset)],    \
+              g_OloHeapSampler[nonuniformEXT(samplerByteOffset)])
 #else
 vec4 oloHeapSampleLod(uint textureByteOffset, uint samplerByteOffset, vec2 uv, float lod)
 {

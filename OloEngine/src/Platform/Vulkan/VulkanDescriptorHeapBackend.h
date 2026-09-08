@@ -99,6 +99,8 @@ namespace OloEngine
         // samples and one a ray-query shader samples are one descriptor.
         [[nodiscard]] auto IsShaderHeapIndexingSupported() const -> bool override;
         [[nodiscard]] auto ResolveShaderHeapTexture(RHI::ResourceHandle texture) -> u32 override;
+        [[nodiscard]] auto GetShaderHeapGeneration() const -> u64 override;
+        [[nodiscard]] auto ResolveShaderHeapNullTexture() -> u32 override;
         [[nodiscard]] auto ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> u32 override;
 
         // Write the null descriptor of `type` at an arbitrary heap slot —

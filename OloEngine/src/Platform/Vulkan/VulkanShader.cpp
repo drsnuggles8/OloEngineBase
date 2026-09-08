@@ -19,6 +19,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
@@ -228,6 +229,32 @@ namespace OloEngine
         }
     } // namespace
 
+    namespace
+    {
+        // Does the ENTRY SHADER opt into the Vulkan material heap arm (ADR 0011
+        // amendment (96))?
+        //
+        // BEFORE INCLUDES ARE SPLICED, and asking for a `#define` rather than a
+        // mention. Both narrowings are load-bearing and each is independently
+        // sufficient to prevent the same bug: PBRCommon.glsl TESTS this token with
+        // `#ifdef` to pick its OLO_MAT_* spelling, and every caller below resolves
+        // includes verbatim into the stage text before compiling. Asking the resolved
+        // source whether it "mentions" the token was true for all 14 PBRCommon
+        // includers while only 2 opt in — so 12 slot-based programs would have had
+        // CommandDispatch::BindPBRTextures withhold their five material binds while
+        // their SPIR-V still declared those bindings, rendering them untextured with
+        // no error anywhere.
+        [[nodiscard]] bool DeclaresMaterialHeapArm(const std::unordered_map<VkShaderStageFlagBits, std::string>& ownSources)
+        {
+            return std::ranges::any_of(ownSources,
+                                       [](const auto& entry)
+                                       {
+                                           return ShaderSourceScan::DefinesOutsideComments(
+                                               entry.second, ShaderSourceScan::kVulkanMaterialHeapReaderToken);
+                                       });
+        }
+    } // namespace
+
     VulkanShader::VulkanShader(const std::string& filepath) : m_FilePath(filepath)
     {
         OLO_PROFILE_FUNCTION();
@@ -249,12 +276,14 @@ namespace OloEngine
         // computes from it is already sensitive to an included header
         // changing (issue #906) — no separate include-path tracking needed.
         auto stages = SplitStages(raw);
+        // Asked BEFORE the splice, for the reason DeclaresMaterialHeapArm gives.
+        const bool readsMaterialHeapOffsets = DeclaresMaterialHeapArm(stages);
         for (auto& [stage, source] : stages)
         {
             source = OpenGLShader::ProcessIncludes(source, "");
         }
 
-        if (BuildFromSources(stages, /*useCache=*/true))
+        if (BuildFromSources(stages, /*useCache=*/true, readsMaterialHeapOffsets))
         {
             m_Status = ShaderCompilationStatus::Ready;
         }
@@ -264,11 +293,15 @@ namespace OloEngine
         : m_Name(std::move(name))
     {
         OLO_PROFILE_FUNCTION();
+        const bool readsMaterialHeapOffsets = DeclaresMaterialHeapArm({
+            { VK_SHADER_STAGE_VERTEX_BIT, vertexSrc },
+            { VK_SHADER_STAGE_FRAGMENT_BIT, fragmentSrc },
+        });
         const std::unordered_map<VkShaderStageFlagBits, std::string> stages = {
             { VK_SHADER_STAGE_VERTEX_BIT, OpenGLShader::ProcessIncludes(vertexSrc, "") },
             { VK_SHADER_STAGE_FRAGMENT_BIT, OpenGLShader::ProcessIncludes(fragmentSrc, "") },
         };
-        if (BuildFromSources(stages, /*useCache=*/false))
+        if (BuildFromSources(stages, /*useCache=*/false, readsMaterialHeapOffsets))
         {
             m_Status = ShaderCompilationStatus::Ready;
         }
@@ -297,7 +330,7 @@ namespace OloEngine
     }
 
     bool VulkanShader::BuildFromSources(const std::unordered_map<VkShaderStageFlagBits, std::string>& sources,
-                                        bool useCache)
+                                        bool useCache, bool readsMaterialHeapOffsets)
     {
         OLO_PROFILE_FUNCTION();
         auto* device = VulkanDevice::Get();
@@ -485,6 +518,18 @@ namespace OloEngine
         }
 
         // Commit — nothing below can fail.
+        //
+        // THE MATERIAL HEAP ARM FLAG COMMITS HERE, with everything else, and not where
+        // it is computed (ADR 0011 amendment (96)). A failed Reload keeps the previous
+        // modules, so every piece of committed state must keep describing THOSE — the
+        // reason m_Bindings and m_IsDeferredCapable are restored above. Assigning this
+        // at the top of the function left it describing source that did not compile:
+        // an edit that both drops the token and breaks the GLSL would publish `false`
+        // while converted modules still execute, so CommandDispatch would issue the
+        // five material binds against SPIR-V that has no material bindings and write
+        // the engine-heap arm's lanes. The reverse edit withholds the binds from an
+        // unconverted program. Both render a wrong image with no error.
+        m_ReadsMaterialHeapOffsets = readsMaterialHeapOffsets;
         m_SPIRV = std::move(spirv);
         m_Modules = std::move(newModules);
         m_HasMeshStage = m_Modules.contains(VK_SHADER_STAGE_MESH_BIT_EXT);
@@ -675,13 +720,21 @@ namespace OloEngine
             return;
         }
         SetBoundProgramBindless(false);
-        // Its SIBLING flag has the identical stale-across-backends hazard
-        // (#691): OLO_MATERIAL_HEAP_READER programs exist only on the
-        // GL route, and CommandDispatch::BindPBRTextures SKIPS the five
-        // material texture binds whenever this reads true — a stale true from
-        // a GL bindless bind renders every Vulkan mesh with null material
-        // lanes, no error anywhere.
-        SetBoundProgramMaterialOffsets(false);
+        // Its SIBLING flag is no longer always false here (ADR 0011 amendment
+        // (96)). CommandDispatch::BindPBRTextures SKIPS the five material texture
+        // binds whenever this reads true, and on this backend that is now RIGHT
+        // for a shader carrying OLO_MATERIAL_VULKAN_HEAP_READER — its five
+        // material bindings are not in the SPIR-V, so the binds would have nothing
+        // to land on and the offsets in the material UBO are what it reads.
+        //
+        // It is still WRITTEN on every bind rather than only when true, which is
+        // the half that was load-bearing before and still is: the flag is
+        // process-global, so a stale true left by the previously bound program —
+        // a GL bindless bind before a backend swap (#691), or a converted material
+        // shader before an unconverted one — withholds the five binds from a
+        // program that needs them and renders every mesh with null material lanes,
+        // with no error anywhere.
+        SetBoundProgramMaterialOffsets(m_ReadsMaterialHeapOffsets);
     }
 
     void VulkanShader::Unbind() const
@@ -730,6 +783,9 @@ namespace OloEngine
             return;
         }
         auto stages = SplitStages(raw);
+        // Asked BEFORE the splice, as in the constructor — a reload that read the
+        // resolved text would opt every PBRCommon includer into the arm.
+        const bool readsMaterialHeapOffsets = DeclaresMaterialHeapArm(stages);
         for (auto& [stage, source] : stages)
         {
             source = OpenGLShader::ProcessIncludes(source, "");
@@ -741,7 +797,7 @@ namespace OloEngine
         const ShaderCompilationStatus previousStatus = m_Status;
         auto oldModules = std::move(m_Modules);
         m_Modules.clear();
-        if (!BuildFromSources(stages, /*useCache=*/true))
+        if (!BuildFromSources(stages, /*useCache=*/true, readsMaterialHeapOffsets))
         {
             // Failed reload: keep the old modules and pipelines working (the
             // GL path's restore rule) — and the old STATUS: forcing Ready on

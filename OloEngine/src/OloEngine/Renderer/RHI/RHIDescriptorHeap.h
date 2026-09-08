@@ -331,6 +331,40 @@ namespace OloEngine::RHI
             (void)sampler;
             return HeapOffset::Invalid;
         }
+        // The offset of a descriptor that is ALWAYS safe to sample: a 1x1 null
+        // image, in a slot this backend owns for the life of the device.
+        //
+        // WHY A CONSUMER NEEDS ONE RATHER THAN JUST REFUSING. A shader on the heap
+        // arm indexes the heap with whatever the CPU wrote, and an out-of-range
+        // index is undefined behaviour, not a black texel — so "no map" and "could
+        // not resolve" must still name a real descriptor. The shader's own
+        // `Use*Map` gate is not sufficient on its own: ADR 0011 amendment (96)'s
+        // deferred consumer takes that flag from the GPU Scene material record, not
+        // from the UBO the CPU just corrected, so the OFFSET has to be safe by
+        // itself. This is the Vulkan analogue of the GL arm's reserved slot 0.
+        //
+        // Invalid when the backend cannot index a heap at all.
+        [[nodiscard]] virtual auto ResolveShaderHeapNullTexture() -> u32
+        {
+            return HeapOffset::Invalid;
+        }
+        // The value a consumer must fold into any cache holding offsets from the
+        // two resolvers above. It changes whenever a slot they handed out can
+        // have been reassigned, and at no other time.
+        //
+        // WHY A CONSUMER NEEDS ONE AT ALL: the rule for a heap offset is fetch
+        // it, do not store it. A texture reloaded in place keeps its
+        // ResourceHandle and gets new backing, so an offset held across that
+        // event names a different descriptor and the frame renders a plausible
+        // wrong texture. ADR 0011 amendment (96) puts these offsets in the
+        // per-material UBO, which IS cached, so the cache key carries this.
+        //
+        // Default 0 and never moves: a backend that resolves nothing has nothing
+        // to invalidate.
+        [[nodiscard]] virtual auto GetShaderHeapGeneration() const -> u64
+        {
+            return 0u;
+        }
     };
 
     // -------------------------------------------------------------------------

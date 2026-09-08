@@ -193,8 +193,14 @@ namespace OloEngine::Tests
         // sampler of SCREEN-SPACE normals (u_GBufferNormal, u_ViewNormals, …) is a normal
         // CONSUMER, not a normal-mapper, and is deliberately not matched.
         const std::regex materialSlotRe(R"(uniform\s+sampler2D\s+u_NormalMap\w*)");
-        // Goes through the shared implementation.
-        const std::regex sharedCallRe(R"(getNormalFromMap(Grad)?\s*\()");
+        // Goes through the shared implementation. OLO_MAT_NORMAL counts because it IS the
+        // shared implementation, reached by a second spelling: ADR 0011 amendment (96) gave the
+        // material shaders a Vulkan arm on which a combined sampler cannot be passed to a
+        // function at all ("sampler constructor must appear at point of use"), so the call site
+        // had to become a macro. Accepting the NAME alone would be a hole — a future edit could
+        // point it at a hand-rolled frame and this scan would still pass — so the macro's own
+        // definition is checked below, in the owner file, against the same two primitives.
+        const std::regex sharedCallRe(R"((getNormalFromMap(Grad)?|OLO_MAT_NORMAL)\s*\()");
         // Builds a tangent frame of its own. A hand-copied getNormalFromMap always contains
         // one of these — that IS what it is — so this is the pattern that catches the copy
         // before it has a chance to drift, whatever the copier calls their samplers.
@@ -242,6 +248,52 @@ namespace OloEngine::Tests
                 offenders.push_back(name + ": builds its OWN tangent frame (mat3(T,B,N) / cross(N,T)) — this is the "
                                            "exact drift that re-introduced the #440 BC5 inversion and a flipped "
                                            "bitangent in the software rasterizer");
+            }
+        }
+
+        // THE MACRO IS NOT A LOOPHOLE, and this is the half that keeps it from becoming one.
+        // Every arm of OLO_MAT_NORMAL must resolve to the shared entry point (getNormalFromMap)
+        // or to the two shared primitives it is built from (applyNormalMapTBN over
+        // decodeTangentNormal). Without this, accepting the macro name above would let a
+        // redefinition hand-roll a tangent frame INSIDE the owner file — where the
+        // hand-rolled-TBN regex never looks, because the owner is skipped from the scan.
+        {
+            const std::string ownerSource = StripComments(ReadFile(owner));
+            std::vector<std::string> definitions;
+            std::istringstream in(ownerSource);
+            std::string line;
+            while (std::getline(in, line))
+            {
+                if (line.find("#define OLO_MAT_NORMAL") == std::string::npos)
+                {
+                    continue;
+                }
+                // Join the macro's continuation lines: the definition is what must be checked,
+                // and on the Vulkan arm it spans three of them.
+                std::string definition = line;
+                while (!definition.empty() && definition.back() == '\\' && std::getline(in, line))
+                {
+                    definition.pop_back();
+                    definition += line;
+                }
+                definitions.push_back(definition);
+            }
+
+            EXPECT_GE(definitions.size(), 2u)
+                << "expected one OLO_MAT_NORMAL definition per arm in " << owner.string()
+                << "; found " << definitions.size() << " — the macro moved, and the scan above now "
+                                                       "accepts a name nothing defines";
+
+            for (const std::string& definition : definitions)
+            {
+                const bool delegates = definition.find("getNormalFromMap") != std::string::npos;
+                const bool inlinesTheSharedPieces = definition.find("applyNormalMapTBN") != std::string::npos &&
+                                                    definition.find("decodeTangentNormal") != std::string::npos;
+                EXPECT_TRUE(delegates || inlinesTheSharedPieces)
+                    << "an OLO_MAT_NORMAL arm neither calls getNormalFromMap nor builds its frame from "
+                       "applyNormalMapTBN(decodeTangentNormal(...)), so a shader using it no longer shares "
+                       "PBRCommon's ONE tangent frame:\n    "
+                    << definition;
             }
         }
 

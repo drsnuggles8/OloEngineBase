@@ -7,6 +7,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -70,6 +71,17 @@ namespace OloEngine
 
     namespace Utils
     {
+        // The whole-identifier, comment-skipping token scan and its two ASCII
+        // predicates moved to Renderer/ShaderSourceScan.h when the Vulkan backend
+        // started asking the same question of the same sources (ADR 0011
+        // amendment (96)): the GL route looks for `OLO_BINDLESS`, the Vulkan one
+        // for `OLO_MATERIAL_VULKAN_HEAP_READER`, and two copies of the scanner is
+        // how the two backends would come to disagree about what a shader is.
+        // Re-exported under these names so every call site below is unchanged.
+        using ShaderSourceScan::IsAsciiSpace;
+        using ShaderSourceScan::IsIdentifierChar;
+        using ShaderSourceScan::MentionsOutsideComments;
+
         // Does this fragment source declare a G-BUFFER OUTPUT?
         //
         // The bindless route has no SPIR-V, so `Reflect()` never runs and cannot
@@ -83,66 +95,6 @@ namespace OloEngine
         // identifier of an `out` statement. Scanning for the bare name would also
         // fire on a shader that merely SAMPLES a G-Buffer target — DeferredLighting
         // reads `gAlbedo` — and would misclassify a consumer as a producer.
-        // True when `token` occurs in `source` as a WHOLE IDENTIFIER outside every
-        // // and /* */ comment. GLSL has no raw strings and no char literals, so
-        // comments are the only span that has to be skipped.
-        //
-        // The whole-identifier requirement matters because include/BindlessHeap.glsl
-        // guards itself with `#ifndef OLO_BINDLESS_HEAP_GLSL`, and a plain substring
-        // search for "OLO_BINDLESS" matches that guard. Every shader that merely
-        // INCLUDES the header would then take the raw-GLSL route whether or not it
-        // converted anything — and taking the route is what makes the seam stop
-        // issuing real binds (§5c). No shader depends on the loose reading today
-        // (all 64 on the route spell `OLO_BINDLESS` themselves), so tightening it
-        // is behaviour-preserving.
-        // GLSL identifiers are ASCII by definition, so classify them directly
-        // rather than through <cctype>. Three reasons, all of which SonarCloud
-        // flags separately on the same expression: std::isalnum returns an INT,
-        // so using it as a `&&`/`||` operand is a bool-conversion bug (S867); it
-        // is locale-sensitive, so a build under a non-C locale can classify
-        // differently (M23_404); and it needs an unsigned-char cast at every call
-        // site to avoid UB on negative values (S810). A four-line predicate has
-        // none of those properties and says what it means.
-        [[nodiscard]] constexpr bool IsIdentifierChar(char c) noexcept
-        {
-            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-        }
-
-        [[nodiscard]] constexpr bool IsAsciiSpace(char c) noexcept
-        {
-            return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v' || c == '\f';
-        }
-
-        [[nodiscard]] static bool MentionsOutsideComments(std::string_view source, std::string_view token)
-        {
-            for (sizet i = 0; i < source.size();)
-            {
-                if (source.compare(i, 2, "//") == 0)
-                {
-                    i = std::min(source.find('\n', i), source.size());
-                    continue;
-                }
-                if (source.compare(i, 2, "/*") == 0)
-                {
-                    const sizet end = source.find("*/", i + 2u);
-                    i = (end == std::string_view::npos) ? source.size() : end + 2u;
-                    continue;
-                }
-                if (source.compare(i, token.size(), token) == 0)
-                {
-                    const bool leftOk = (i == 0) || !IsIdentifierChar(source[i - 1u]);
-                    const sizet after = i + token.size();
-                    const bool rightOk = (after >= source.size()) || !IsIdentifierChar(source[after]);
-                    if (leftOk && rightOk)
-                    {
-                        return true;
-                    }
-                }
-                ++i;
-            }
-            return false;
-        }
-
         [[nodiscard]] static bool DeclaresGBufferOutput(std::string_view source, std::string_view prefix,
                                                         std::span<const std::string_view> sentinels)
         {

@@ -33,6 +33,8 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/DDGI/DDGICommon.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
+#include "Platform/OpenGL/OpenGLShader.h"
 
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
@@ -430,16 +432,34 @@ void main()
         // by a condition that does NOT mention OLO_BINDLESS are "pass-through":
         // both of their branches stay active, so a hazard hiding in the #else of
         // an unrelated conditional is still caught.
-        [[nodiscard]] std::vector<SamplerDecl> ActiveSamplerDeclarations(const std::string& source)
+        // Which condition text puts a branch on the route being scanned. The GL
+        // bindless route and the Vulkan material heap arm (ADR 0011 amendment (96))
+        // ask the identical question of the identical files about a different
+        // token, so the scanner takes the question rather than hard-coding one.
+        using RouteMentions = bool (*)(const std::string&);
+
+        [[nodiscard]] bool MentionsVulkanMaterialHeapArm(const std::string& text)
+        {
+            return MentionsIdentifier(text, "OLO_MATERIAL_VULKAN_HEAP_READER");
+        }
+
+        [[nodiscard]] std::vector<SamplerDecl> ActiveSamplerDeclarations(const std::string& source,
+                                                                         RouteMentions routeMentions)
         {
             struct Frame
             {
                 bool Active{ true };
                 bool IsBindlessFrame{ false };
                 bool ParentActive{ true };
+                // A branch of THIS fork whose condition mentions OLO_BINDLESS has
+                // already been entered, so every later branch is definitely not
+                // taken. Without it a three-arm fork silently keeps its slot-based
+                // #else alongside the bindless arm (see the #elif note below).
+                bool BindlessBranchTaken{ false };
             };
 
             static const std::regex kIfDir(R"(^\s*#\s*(ifdef|ifndef|if)\b(.*)$)");
+            static const std::regex kElifDir(R"(^\s*#\s*elif\b(.*)$)");
             static const std::regex kSampler(
                 R"(layout\s*\([^)]*binding\s*=\s*(\d+)[^)]*\)\s*uniform\s+\w*sampler\w*\s+(\w+))");
 
@@ -470,14 +490,44 @@ void main()
                 if (std::smatch m; std::regex_match(line, m, kIfDir))
                 {
                     const std::string directive = m[1].str();
-                    const bool mentions = WantsBindlessVariant(m[2].str());
+                    const bool mentions = routeMentions(m[2].str());
                     const bool parentActive = stack.back().Active;
 
                     Frame frame;
                     frame.IsBindlessFrame = mentions;
                     frame.ParentActive = parentActive;
                     frame.Active = parentActive && (!mentions || directive != "ifndef");
+                    frame.BindlessBranchTaken = mentions && frame.Active;
                     stack.push_back(frame);
+                    continue;
+                }
+                // `#elif`, and it is not a completeness nicety — a fork that has one
+                // silently loses this scan's whole guarantee. ADR 0011 amendment (96)
+                // gave the material shaders a THIRD arm:
+                //
+                //     #ifdef OLO_MATERIAL_VULKAN_HEAP_READER   ... Vulkan heap arm
+                //     #elif defined(OLO_BINDLESS)              ... GL bindless arm
+                //     #else                                    ... slot declarations
+                //
+                // `#elif` matches neither the kIfDir regex nor the "#else" search, so
+                // it used to be read as ordinary content: the leading `#ifdef` frame is
+                // not an OLO_BINDLESS frame, so the `#else` below kept its parent's
+                // state and every slot declaration in the third arm counted as ACTIVE
+                // with OLO_BINDLESS defined. The whole PBR family would have been
+                // reported as offending, which reads as "the conversion is broken"
+                // rather than "the scanner cannot parse the file".
+                //
+                // The rule generalises the `#else` rule rather than replacing it: once
+                // a branch whose condition mentions OLO_BINDLESS is entered, no later
+                // branch of the same fork can be. Every two-arm shape scans exactly as
+                // it did before.
+                if (std::smatch m; std::regex_match(line, m, kElifDir) && stack.size() > 1)
+                {
+                    Frame& top = stack.back();
+                    const bool mentions = routeMentions(m[1].str());
+                    top.IsBindlessFrame = top.IsBindlessFrame || mentions;
+                    top.Active = top.ParentActive && !top.BindlessBranchTaken;
+                    top.BindlessBranchTaken = top.BindlessBranchTaken || (mentions && top.Active);
                     continue;
                 }
                 if (line.find("#else") != std::string::npos && stack.size() > 1)
@@ -485,7 +535,8 @@ void main()
                     Frame& top = stack.back();
                     // Only a genuine OLO_BINDLESS fork has a branch that is
                     // definitely NOT taken; anything else keeps both halves.
-                    top.Active = top.IsBindlessFrame ? (top.ParentActive && !top.Active) : top.ParentActive;
+                    top.Active = top.IsBindlessFrame ? (top.ParentActive && !top.BindlessBranchTaken)
+                                                     : top.ParentActive;
                     continue;
                 }
                 if (line.find("#endif") != std::string::npos && stack.size() > 1)
@@ -504,6 +555,13 @@ void main()
                 }
             }
             return found;
+        }
+
+        // The GL bindless route's spelling, which is what every pre-(96) caller
+        // means when it asks this question.
+        [[nodiscard]] std::vector<SamplerDecl> ActiveSamplerDeclarations(const std::string& source)
+        {
+            return ActiveSamplerDeclarations(source, &WantsBindlessVariant);
         }
     } // namespace
 
@@ -890,6 +948,360 @@ void main()
                "unless something compares them. Convert the declaration (see §5c), or bind the slot\n"
                "through PublishTextureOffsetAndBind if a slot-based consumer of it also exists."
             << report;
+    }
+
+    // =========================================================================
+    // THE ARM'S OPT-IN IS THE ENTRY SHADER'S, NOT ITS HEADERS' (issue #805,
+    // ADR 0011 amendment (96)).
+    //
+    // WHAT SHIPPED AND WAS CAUGHT IN REVIEW. VulkanShader decided the arm by asking
+    // whether the stage source MENTIONS OLO_MATERIAL_VULKAN_HEAP_READER — and it asked
+    // AFTER `OpenGLShader::ProcessIncludes` splices every `#include` verbatim into that
+    // source. PBRCommon.glsl carries `#ifdef OLO_MATERIAL_VULKAN_HEAP_READER` to pick
+    // its OLO_MAT_* spelling, so the token was present in all 14 of its includers while
+    // only 2 define it. The other 12 — both skinned PBR variants, Terrain_PBR, Water,
+    // DeferredLighting — would have made Shader::ReadsMaterialHeapOffsets() true, and
+    // CommandDispatch::BindPBRTextures withholds the five material binds whenever that
+    // reads true. Slot-based programs whose SPIR-V still declares bindings 0/1/2/4/5
+    // would have sampled whatever those units last held: a plausible wrong image, no
+    // error anywhere, and invisible to a Sponza capture because Sponza draws neither a
+    // skinned mesh nor terrain nor water.
+    //
+    // WHY THIS TEST RESOLVES INCLUDES RATHER THAN TRUSTING THE PREDICATE. Checking
+    // `DefinesOutsideComments` against a hand-written string would pass without ever
+    // touching the shipped shaders — it is the COMBINATION of the real include graph
+    // and the real predicate that was wrong. So this runs the engine's own include
+    // resolver over the real tree and asserts the answer is unchanged by it: the arm is
+    // a property of the file, and splicing a header in can neither grant it nor take it
+    // away.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, TheMaterialHeapArmIsDecidedByTheEntryShaderNotItsIncludes)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        constexpr std::string_view kToken = ShaderSourceScan::kVulkanMaterialHeapReaderToken;
+
+        std::vector<std::string> optedIn; // defines the token in its own text
+        std::vector<std::string> disagreements;
+        u32 scanned = 0;
+        u32 mentionAfterSplice = 0;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            // .glsl only. The material heap arm is a RASTER concept — it exists so a
+            // draw's five material textures need no per-draw binding — and a .comp has
+            // no PBRMaterialUBO to read lanes from. Excluding them also keeps the
+            // include resolution above honest: a compute shader spells its includes
+            // "../include/..." relative to compute/, which the engine's own
+            // shaderRoot-relative resolution does not reach either.
+            if (p.extension() != ".glsl")
+            {
+                continue;
+            }
+            // A shared header is never an entry shader; it is measured through its
+            // includers, which is exactly the distinction under test.
+            if (p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+            ++scanned;
+
+            const std::string relative = fs::relative(p, shaderRoot).generic_string();
+            const std::string own = ReadWholeFile(p);
+
+            // The engine's own resolver, so the include graph under test is the real one.
+            //
+            // THE DIRECTORY IS NOT OPTIONAL HERE. With it empty ProcessIncludes resolves
+            // against "assets/shaders" relative to the CWD, which is the editor's working
+            // directory and not the test binary's — every include silently fails to
+            // resolve and this whole test passes while measuring nothing. The
+            // loose-vs-strict floor below is what makes that failure loud.
+            //
+            // shaderRoot is the FAITHFUL reproduction, not merely a working one: the
+            // engine passes "" and ProcessIncludes then resolves "assets/shaders" against
+            // the editor's CWD, which is exactly this directory.
+            const std::string spliced = OpenGLShader::ProcessIncludes(own, shaderRoot.string());
+
+            const bool declaresIt = ShaderSourceScan::DefinesOutsideComments(own, kToken);
+            const bool declaresAfterSplice = ShaderSourceScan::DefinesOutsideComments(spliced, kToken);
+            if (ShaderSourceScan::MentionsOutsideComments(spliced, kToken))
+            {
+                ++mentionAfterSplice;
+            }
+            if (declaresIt)
+            {
+                optedIn.push_back(relative);
+            }
+
+            // THE CONTRACT: resolving includes must not change the answer, in either
+            // direction. A header that granted the arm would convert every includer at
+            // once; a header that somehow removed it would silently unconvert one.
+            if (declaresIt != declaresAfterSplice)
+            {
+                disagreements.push_back(relative + (declaresIt ? ": loses" : ": gains") +
+                                        " the material heap arm when its includes are resolved");
+            }
+        }
+
+        EXPECT_GT(scanned, 80u) << "the shader scan did not actually run";
+
+        // The floor that makes the rest meaningful: if nothing opts in, the equality
+        // below holds vacuously and the arm could be deleted unnoticed.
+        EXPECT_FALSE(optedIn.empty())
+            << "no shader defines " << kToken << " — either the arm was removed (delete this test and "
+                                                 "amendment (96) with it) or the token was renamed in only some of its three homes";
+
+        std::string report;
+        for (const std::string& d : disagreements)
+        {
+            report += "\n    " + d;
+        }
+        EXPECT_TRUE(disagreements.empty())
+            << "Resolving includes changed which shaders take the Vulkan material heap arm. The arm is an\n"
+               "ENTRY-SHADER opt-in: VulkanShader asks before the splice and asks for a #define, so a header\n"
+               "that merely tests the token cannot convert its includers. Detecting it any other way makes\n"
+               "CommandDispatch::BindPBRTextures withhold the five material binds from slot-based programs\n"
+               "whose SPIR-V still declares them (ADR 0011 amendment (96))."
+            << report;
+
+        // THE HAZARD MUST STILL BE REAL, and this is the assertion that keeps the test
+        // from going quietly vacuous. PBRCommon.glsl mentions the token in an `#ifdef`,
+        // so once includes resolve, strictly MORE shaders mention it than define it —
+        // and every one of that surplus is a shader a mention-based scan would have
+        // wrongly converted. If this ever fails, either the includes stopped resolving
+        // (the directory argument above) or PBRCommon stopped testing the token, and
+        // the rest of this test is no longer measuring the thing it was written for.
+        EXPECT_GT(mentionAfterSplice, optedIn.size())
+            << "after resolving includes, only " << mentionAfterSplice << " shader(s) mention "
+            << kToken << " and " << optedIn.size()
+            << " define it. PBRCommon.glsl tests the token with #ifdef, so the mention count must "
+               "exceed the definition count — an equal count means the includes did not resolve and "
+               "this test is measuring nothing.";
+
+        GTEST_LOG_(INFO) << optedIn.size() << " shader(s) opt into the material heap arm; "
+                         << mentionAfterSplice
+                         << " merely MENTION the token once includes are resolved — the gap is exactly what a "
+                            "mention-based scan would have wrongly converted.";
+    }
+
+    // =========================================================================
+    // THE §5c GUARD'S VULKAN TWIN (issue #805, ADR 0011 amendment (96)).
+    //
+    // The test above asks whether a GL-bindless shader left a slot declaration
+    // that HeapBinding::BindTextureOrOffset will never bind. This asks the same
+    // question of the other arm, and the failure it catches is NOT the same
+    // shape, which is why it cannot be folded into that test.
+    //
+    // On the GL route the hazard is whole-program: taking the route makes the
+    // seam withhold EVERY bind, so any surviving declaration reads black. On
+    // Vulkan a heap array simply carries no binding decoration, so a classic
+    // declaration next to a converted one keeps its mapping entry and keeps
+    // working — that is precisely the property (96) rests on, and it is why the
+    // Vulkan arm converts five declarations rather than all of them.
+    //
+    // The narrow hazard that remains is the FIVE. A shader carrying
+    // OLO_MATERIAL_VULKAN_HEAP_READER makes Shader::ReadsMaterialHeapOffsets()
+    // true while it is bound, and CommandDispatch::BindPBRTextures then SKIPS the
+    // five material binds. So a material-local declaration left classic on that
+    // arm is a sampler nothing binds: it reads whatever that unit last held, or
+    // nothing. It renders a plausible frame either way, and no CPU test that does
+    // not compare the arms can see it.
+    //
+    // WHY THE BINDINGS ARE NAMED FROM ShaderBindingLayout AND NOT WRITTEN OUT.
+    // The five are TEX_DIFFUSE, TEX_SPECULAR (repurposed as metallic-roughness),
+    // TEX_NORMAL, TEX_AMBIENT and TEX_EMISSIVE, and they are exactly the set
+    // BindPBRTextures skips. If that set ever moves, this test must move with it,
+    // and reading the constants is what makes that automatic.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, VulkanMaterialHeapArmLeavesNoMaterialLocalSamplerDeclared)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        // The set CommandDispatch::BindPBRTextures withholds when
+        // Shader::ReadsMaterialHeapOffsets() is true.
+        static const std::set<u32> kMaterialLocalSlots{
+            ShaderBindingLayout::TEX_DIFFUSE,
+            ShaderBindingLayout::TEX_SPECULAR,
+            ShaderBindingLayout::TEX_NORMAL,
+            ShaderBindingLayout::TEX_AMBIENT,
+            ShaderBindingLayout::TEX_EMISSIVE,
+        };
+
+        std::vector<std::string> offenders;
+        std::vector<std::string> unresolved;
+        u32 onArm = 0;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            const std::string ext = p.extension().string();
+            if (ext != ".glsl" && ext != ".comp")
+            {
+                continue;
+            }
+            // Shared headers are measured through their includers, as above.
+            if (p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+
+            // ON THE ARM IS DECIDED FROM THE SHADER'S OWN TEXT, and the resolved
+            // text is only ever SCANNED. PBRCommon.glsl now TESTS this token to
+            // pick its OLO_MAT_* spelling, so asking the resolved source would put
+            // every shader that merely includes it on the arm — GpuPathTracer, the
+            // DDGI relight pass, the PBR probes. That is the shared-header trap
+            // ShaderSourceScan.h records for OLO_BINDLESS, one level up: a header
+            // that MENTIONS a route token is not a shader that TAKES the route.
+            const std::string own = BlankComments(ReadWholeFile(p));
+            if (!MentionsVulkanMaterialHeapArm(own))
+            {
+                continue;
+            }
+            ++onArm;
+
+            std::set<std::string> seen;
+            const std::string resolved = ResolveIncludes(p, shaderRoot, seen, unresolved);
+
+            for (const SamplerDecl& decl : ActiveSamplerDeclarations(resolved, &MentionsVulkanMaterialHeapArm))
+            {
+                if (!kMaterialLocalSlots.contains(decl.Binding))
+                {
+                    continue;
+                }
+                offenders.push_back(p.filename().string() + ": binding " + std::to_string(decl.Binding) + " '" +
+                                    decl.Name + "' survives on the Vulkan material heap arm");
+            }
+        }
+
+        // A scan that found nothing to scan would pass this vacuously, and the
+        // whole arm could be deleted without a test noticing.
+        EXPECT_GT(onArm, 0u) << "no shader carries OLO_MATERIAL_VULKAN_HEAP_READER — either the material heap "
+                                "arm was removed (delete this test and amendment (96) with it) or the scan is "
+                                "broken";
+
+        std::string missing;
+        for (const std::string& u : unresolved)
+        {
+            missing += "\n    " + u;
+        }
+        EXPECT_TRUE(unresolved.empty())
+            << "unresolvable #include(s) — the scan cannot see what they declare:" << missing;
+
+        std::string report;
+        for (const std::string& o : offenders)
+        {
+            report += "\n    " + o;
+        }
+        EXPECT_TRUE(offenders.empty())
+            << "These shaders build as the Vulkan material heap arm but still declare one of the five\n"
+               "material-local samplers. CommandDispatch::BindPBRTextures skips those five binds for such a\n"
+               "program, so the declaration is a sampler NOTHING binds — it samples whatever that unit last\n"
+               "held and the frame still looks plausible. Convert it with OLO_HEAP_MATERIAL_TEX_2D, or take\n"
+               "the shader off the arm (ADR 0011 amendment (96))."
+            << report;
+    }
+
+    // =========================================================================
+    // THE MATERIAL LANE LAYOUT (issue #805, ADR 0011 amendment (96)).
+    //
+    // `u_MaterialHeapOffsets[3]` is now read by TWO shader arms — the GL bindless
+    // one through uvec2 handles and the Vulkan heap one through byte offsets — and
+    // written by ONE C++ function per arm. The lane names live in
+    // include/BindlessHeap.glsl, hoisted out of `#ifdef OLO_BINDLESS` precisely so
+    // there is a single definition for both to share.
+    //
+    // WHAT THIS CATCHES, and why a mismatch is worth a test rather than care. Two
+    // lanes naming the same slot, or a lane drifting one position, swaps two real
+    // textures. Nothing fails: the frame renders, every other test stays green, and
+    // the image is merely wrong in a way that looks like an art bug. That is the
+    // same failure genre as the uvec4 stride note in BindlessHeap.glsl and the
+    // OLO_HEAP_IMAGE_BASE drift that shipped once.
+    //
+    // It pins the SHAPE — every lane distinct, inside the block, and the sampler
+    // lane exactly where amendment (96) put it — rather than restating the mapping,
+    // because a test that restates a table cannot detect that the table is wrong.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, MaterialHeapLanesAreDistinctAndCoverTheBlock)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path header =
+            fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / "include" / "BindlessHeap.glsl";
+        ASSERT_TRUE(fs::exists(header)) << "not found: " << header.string();
+
+        const std::string src = BlankComments(ReadWholeFile(header));
+
+        // `#define OLO_MATERIAL_<NAME>_OFFSET u_MaterialHeapOffsets[<i>].<c>`
+        static const std::regex kLane(
+            R"(#define\s+(OLO_MATERIAL_\w+_OFFSET)\s+u_MaterialHeapOffsets\[(\d+)\]\.([xyzw]))");
+
+        std::map<std::string, std::string> laneByName; // name -> "i.c"
+        std::map<std::string, std::string> nameByLane; // "i.c" -> name
+        std::vector<std::string> collisions;
+
+        for (auto it = std::sregex_iterator(src.begin(), src.end(), kLane); it != std::sregex_iterator(); ++it)
+        {
+            const std::string name = (*it)[1].str();
+            const u32 vec = static_cast<u32>(std::stoul((*it)[2].str()));
+            const std::string component = (*it)[3].str();
+            const std::string lane = std::to_string(vec) + "." + component;
+
+            EXPECT_LT(vec, 3u) << name << " indexes u_MaterialHeapOffsets[" << vec
+                               << "], but the block is uvec4[3] — PBRMaterialUBO::HeapOffsets has three "
+                                  "vectors and a fourth would read past the UBO.";
+
+            if (const auto prior = nameByLane.find(lane); prior != nameByLane.end())
+            {
+                collisions.push_back(name + " and " + prior->second + " both name lane [" + lane + "]");
+            }
+            nameByLane.emplace(lane, name);
+            laneByName.emplace(name, lane);
+        }
+
+        // Floor guard: a regex that matched nothing would pass every check below.
+        EXPECT_GE(laneByName.size(), 12u)
+            << "expected at least the eleven texture lanes plus the sampler lane; the scan found "
+            << laneByName.size() << " — the #define spelling in BindlessHeap.glsl probably moved";
+
+        std::string report;
+        for (const std::string& c : collisions)
+        {
+            report += "\n    " + c;
+        }
+        EXPECT_TRUE(collisions.empty())
+            << "Two material lanes name the same slot of u_MaterialHeapOffsets. Each resolves a DIFFERENT\n"
+               "texture on the C++ side, so one of them silently samples the other's map — a plausible\n"
+               "wrong image, not an error."
+            << report;
+
+        // THE SAMPLER LANE, named explicitly because it is the one amendment (96)
+        // added and the one with an asymmetric meaning: GL_ARB_bindless_texture
+        // bakes sampler state into its handle, so the GL arm leaves this null,
+        // while GL_EXT_descriptor_heap needs it as a second index. It took the
+        // block's previously-unused lane, and taking a DIFFERENT one would land on
+        // a texture lane.
+        const auto sampler = laneByName.find("OLO_MATERIAL_SAMPLER_OFFSET");
+        ASSERT_NE(sampler, laneByName.end())
+            << "OLO_MATERIAL_SAMPLER_OFFSET is gone from BindlessHeap.glsl — the Vulkan material heap arm "
+               "cannot build a combined sampler without it (amendment (96))";
+        EXPECT_EQ(sampler->second, "2.w")
+            << "the sampler lane moved off [2].w, which was the block's reserved unused lane; every other "
+               "lane already carries a texture (CommandDispatch::WriteMaterialShaderHeapOffsets)";
     }
 
     // =========================================================================

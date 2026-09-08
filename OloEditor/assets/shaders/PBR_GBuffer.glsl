@@ -132,6 +132,19 @@ void main()
 #type fragment
 #version 460 core
 
+// THE VULKAN MATERIAL-HEAP ARM (ADR 0011 amendment (96)). This shader declares
+// only the material five, so on this backend it converts whole. The directives
+// must sit here, before any other token — GLSL requires every `#extension` to
+// precede all non-preprocessor tokens, and an include below cannot satisfy that
+// (BindlessHeap.glsl's note). `#ifdef` is not a token, so the guard is legal and
+// the GL tier — which compiles this same source WITHOUT the macro — never sees
+// them. PBR_MultiLight.glsl carries the fuller note.
+#ifdef OLO_VULKAN
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#define OLO_MATERIAL_VULKAN_HEAP_READER 1
+#endif
+
 // FIRST — the sampler declarations below expand its accessors on the bindless
 // build. Contributes nothing on the slot-based build.
 #include "include/BindlessHeap.glsl"
@@ -182,10 +195,12 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // every material constant below comes from the registry's committed record
 // when the draw carries a live link, and from the per-draw UBO otherwise.
 //
-// The textures still bind through the slot path — the record's heap offsets
-// read OLO_GPU_SCENE_HEAP_OFFSET_UNRESOLVED wherever the descriptor heap is
-// off (GL's default), and #805 has not landed — so the record supplies the
-// FACTORS and the FLAGS, and the sampler set stays exactly as it was.
+// The record supplies the FACTORS and the FLAGS; it does not supply the
+// textures. Its own `*HeapOffset` fields still read
+// OLO_GPU_SCENE_HEAP_OFFSET_UNRESOLVED wherever the engine descriptor heap is
+// off (GL's default) and are untouched by #805 — the five material offsets this
+// shader reads on the Vulkan arm come from PBRMaterialUBO, resolved through the
+// BACKEND's slot region rather than the engine heap (ADR 0011 amendment (96)).
 #include "include/GPUSceneMaterialResolve.glsl"
 
 // Baked lightmap atlas (issue #439): UBO 1 + sampler 16. Included AFTER the
@@ -199,7 +214,20 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // job (§5c: the unit of conversion is a C++ bind and its declaration together).
 // Everything else it reads — the G-Buffer targets it WRITES, the instance block
 // — is not a sampler.
-#ifdef OLO_BINDLESS
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+// The heap arrays and OLO_HEAP_MATERIAL_TEX_2D; guarded internally by
+// `#ifdef OLO_VULKAN`, so it contributes nothing on any other route.
+#include "include/DescriptorHeapTextures.glsl"
+
+// ONE SAMPLER LANE FOR ALL FIVE: every material 2D descriptor is minted with
+// HeapBinding::MaterialTexture2DSampler(), so the sampler offset is
+// frame-uniform rather than per-material (amendment (96)).
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
 #define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
@@ -296,15 +324,15 @@ void main()
             discard;
     }
 
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, matBaseColorFactor.rgb, matUseAlbedoMap);
-    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, matBaseColorFactor.rgb, matUseAlbedoMap);
+    vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                      matMetallicFactor, matRoughnessFactor,
                                                      matUseMRMap);
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
 
-    float ao = sampleAO(u_AOMap, v_TexCoord, matOcclusionStrength, matUseAOMap);
-    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, matEmissiveFactor.rgb, matUseEmissiveMap);
+    float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, matOcclusionStrength, matUseAOMap);
+    vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, matEmissiveFactor.rgb, matUseEmissiveMap);
 
     // sanitizeSurfaceNormal, not normalize: a zero-length or NaN interpolated normal
     // (zero-area triangle, cancelling smooth normals, bad import) would otherwise write a
@@ -312,7 +340,7 @@ void main()
     vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
     if (matUseNormalMap)
     {
-        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, matNormalScale);
+        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, matNormalScale);
     }
 
     // Screen-space velocity in [-1,1] NDC units.

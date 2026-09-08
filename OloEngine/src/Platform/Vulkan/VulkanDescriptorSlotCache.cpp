@@ -123,6 +123,12 @@ namespace OloEngine
         {
             return;
         }
+        // Bumped BEFORE the slots move, and only when something actually moves —
+        // the early return above leaves it alone, so an image that was never
+        // cached does not invalidate anyone's memoised offset. Every freed slot
+        // below re-enters m_FreeSlots and will be handed to a different image, so
+        // any offset a caller stored for this image is now a lie (see the header).
+        m_Generation.fetch_add(1, std::memory_order_release);
         for (const u64 key : it->second)
         {
             if (const auto slotIt = m_SlotByKey.find(key); slotIt != m_SlotByKey.end())
@@ -145,6 +151,10 @@ namespace OloEngine
     void VulkanDescriptorSlotCache::Reset()
     {
         std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        // Unconditional here, unlike ReleaseSlotsForImage: a reset is a heap
+        // teardown, so every offset anyone holds is stale whether or not this
+        // cache happened to be populated.
+        m_Generation.fetch_add(1, std::memory_order_release);
         m_SlotByKey.clear();
         m_KeysByImage.clear();
         m_ImagesBySlot.clear();

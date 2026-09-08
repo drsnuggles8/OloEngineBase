@@ -2114,4 +2114,61 @@ vec3 sampleEmissive(sampler2D emissiveMap, vec2 texCoord, vec3 emissiveFactor, b
     return emissiveFactor;
 }
 
+// =============================================================================
+// THE MATERIAL SAMPLE MACROS (ADR 0011 amendment (96)).
+//
+// WHY A CONVERTED SHADER CANNOT CALL THE FOUR HELPERS ABOVE DIRECTLY. On the
+// Vulkan heap arm a material map is a combined sampler built from a SEPARATE
+// texture and sampler (GL_EXT_descriptor_heap), and GLSL requires such a
+// constructor to appear at its POINT OF USE: it cannot be passed as a function
+// argument. glslc rejects `sampleAlbedo(u_AlbedoMap, ...)` with
+//
+//     error: 'call argument' : sampler constructor must appear at point of use
+//
+// GL_ARB_bindless_texture's `sampler2D(uvec2)` has no such restriction, which is
+// why this is the ONE place the two bindless arms cannot share a spelling
+// (amendment (96)); everything else about a conversion is a declaration change.
+//
+// So every material fetch goes through a macro whose `map` parameter expands at
+// the point of use, and the call site reads the same in all three arms.
+//
+// NOTHING MOVES ON GL OR THE SLOT PATH: there these expand to the helper call
+// they replaced, argument for argument. Only the Vulkan arm inlines the fetch,
+// and it keeps the helper's `useMap` branch rather than sampling
+// unconditionally — an absent map resolves to the reserved null descriptor, so
+// the fetch would be SAFE, but it would still be a texture read this shader
+// never used to issue.
+//
+// ONE FETCH PER MAP, which is why metallic-roughness swizzles `.bg` instead of
+// reading `.b` and `.g` separately. The helper it mirrors reads the texel into a
+// local once; a macro has no local, and spelling `texture(map, uv)` twice is two
+// fetches unless the compiler happens to common them up. `.bg` is the same two
+// channels in the same order the helper multiplies — blue is metallic, green is
+// roughness — with the fetch written once.
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+#define OLO_MAT_ALBEDO(map, uv, factor, use) \
+    ((use) ? (factor) * texture(map, uv).rgb : (factor))
+#define OLO_MAT_METALLIC_ROUGHNESS(map, uv, metallicFactor, roughnessFactor, use) \
+    ((use) ? vec2((metallicFactor), (roughnessFactor)) * texture(map, uv).bg      \
+           : vec2((metallicFactor), (roughnessFactor)))
+#define OLO_MAT_AO(map, uv, strength, use) \
+    ((use) ? mix(1.0, texture(map, uv).r, (strength)) : 1.0)
+#define OLO_MAT_EMISSIVE(map, uv, factor, use) \
+    ((use) ? (factor) * texture(map, uv).rgb : (factor))
+// getNormalFromMap's body, inlined for the same point-of-use reason. `uv` and
+// `worldPos` appear more than once, so pass VARIABLES — every call site does
+// (v_TexCoord, v_WorldPos), and an expression with a side effect would be
+// evaluated several times.
+#define OLO_MAT_NORMAL(map, uv, worldPos, normal, scale)               \
+    applyNormalMapTBN(decodeTangentNormal(texture(map, uv).xy, scale), \
+                      dFdx(worldPos), dFdy(worldPos), dFdx(uv), dFdy(uv), normal)
+#else
+#define OLO_MAT_ALBEDO(map, uv, factor, use) sampleAlbedo(map, uv, factor, use)
+#define OLO_MAT_METALLIC_ROUGHNESS(map, uv, metallicFactor, roughnessFactor, use) \
+    sampleMetallicRoughness(map, uv, metallicFactor, roughnessFactor, use)
+#define OLO_MAT_AO(map, uv, strength, use) sampleAO(map, uv, strength, use)
+#define OLO_MAT_EMISSIVE(map, uv, factor, use) sampleEmissive(map, uv, factor, use)
+#define OLO_MAT_NORMAL(map, uv, worldPos, normal, scale) getNormalFromMap(map, uv, worldPos, normal, scale)
+#endif
+
 #endif // PBR_GLSL

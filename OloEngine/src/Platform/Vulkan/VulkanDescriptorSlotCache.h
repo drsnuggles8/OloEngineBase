@@ -52,6 +52,7 @@
 
 #include <mutex>
 #include <shared_mutex>
+#include <atomic>
 #include <unordered_map>
 #include <vector>
 #include <optional>
@@ -89,6 +90,24 @@ namespace OloEngine
         // returned to the heap — the heap itself is being released.
         void Reset();
 
+        // THE GENERATION, and it exists because a heap offset must be FETCHED,
+        // NOT STORED (RHITypes.h; #1055's MaterialTextureTable re-resolves every
+        // frame for this reason). This cache keys on the VkImage, and a texture
+        // reloaded in place keeps its RHI::ResourceHandle while getting a NEW
+        // VkImage — so an offset a caller memoised then names a DIFFERENT
+        // descriptor, and the frame renders a plausible wrong texture rather than
+        // anything that looks like an error.
+        //
+        // ADR 0011 amendment (96) put such offsets in the per-material UBO, which
+        // is cached on the material index. Folding this value into that cache's
+        // key is what makes the stale read impossible: it moves on every event
+        // that can reassign a slot — a released image and a full reset — and on
+        // nothing else, so a steady frame still hits the cache.
+        [[nodiscard]] u64 GetGeneration() const noexcept
+        {
+            return m_Generation.load(std::memory_order_acquire);
+        }
+
         // Diagnostic/test affordances.
         [[nodiscard]] sizet GetCachedSlotCount() const
         {
@@ -113,6 +132,8 @@ namespace OloEngine
             VkDescriptorType Type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         };
 
+        // Bumped under m_Mutex, read without it — hence atomic rather than plain.
+        std::atomic<u64> m_Generation{ 0 };
         mutable std::shared_mutex m_Mutex; ///< Shared on the hit path, exclusive on a miss and for release/reset. ///< Guards everything below (see the thread-safety note).
         std::unordered_map<u64, SlotEntry> m_SlotByKey;
         std::unordered_map<VkImage, std::vector<u64>> m_KeysByImage;

@@ -1000,7 +1000,10 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (90) | A backend-native handle may be PRINTED; only the identity may be DECIDED on. A native 0 is legitimate under Vulkan, so it can confirm backing and never deny it — and the ordering (identity asked first, its storage answer final in both directions) must be repeated at every layer that resolves a resource | live |
 | (91) | A core-promoted feature is still OFF, still optional in practice, and its layout lists are a driver property (#809) | live |
 | (92) | A parallel region records one secondary per work item and executes them in item order; per-command-buffer state is a `VulkanRecordingContext` resolved per thread; item tracker overlays merge in item order with an identity-only overlap rule; a resource object has one writer per region | live |
+| (93) | Hardware ray tracing is a Tier-2 capability whose whole answer is one value, and whose acceleration structures need no descriptor (#1055) | live |
+| (94) | Whole-pass recording requires caller preparation and ordered publication (#806) | live |
 | (95) | A shader with no OpenGL twin (one that already needs `GL_EXT_ray_query`) may index the descriptor heap itself with `GL_EXT_descriptor_heap`; every shader with a GL twin keeps classic bindings, and #805's full conversion stays open | live |
+| (96) | Per-backend shader source is accepted for the material families and ONLY for their five material-local 2D maps, which the Vulkan arm reaches by runtime heap index; every other declaration keeps `layout(binding = N)` on both backends. There is no fifth compile route (the Vulkan tier already is one), and a PARTIAL conversion is expressible on Vulkan because a heap array carries no binding decoration (#805) | live |
 
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be
