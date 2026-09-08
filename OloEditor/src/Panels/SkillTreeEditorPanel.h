@@ -4,6 +4,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
+#include "Panels/Graph/GraphCanvas.h"
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -72,12 +73,11 @@ namespace OloEngine
 
       private:
         // --- Canvas rendering ---
-        void DrawCanvas();
-        void DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const;
-        void DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, const SkillTreeNode& node);
-        void DrawEdges(ImDrawList* drawList, const ImVec2& canvasOrigin);
-        void DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin);
+        void DrawCanvas(f32 width);
+        void DrawNodes();
+        void DrawNode(const SkillTreeNode& node);
+        void DrawEdges();
+        void DrawConnectionInProgress();
         [[nodiscard]] ImVec2 GetNodeSize() const;
         [[nodiscard]] ImVec2 GetInputPortPos(const ImVec2& nodeScreenPos) const;
         [[nodiscard]] ImVec2 GetOutputPortPos(const ImVec2& nodeScreenPos) const;
@@ -85,11 +85,11 @@ namespace OloEngine
         [[nodiscard]] ImU32 GetNodeHeaderColor(SkillTreeNode::PayloadKind payload) const;
 
         // --- Interaction ---
-        void HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize);
-        void HandleNodeInteraction(const ImVec2& canvasOrigin);
-        void HandleConnectionDrag(const ImVec2& canvasOrigin);
-        void DrawContextMenu(const ImVec2& canvasOrigin);
-        [[nodiscard]] std::string HitTestNode(const ImVec2& screenPos, const ImVec2& canvasOrigin) const;
+        void HandleCanvasInput();
+        void HandleNodeInteraction();
+        void HandleConnectionDrag();
+        void DrawContextMenu();
+        [[nodiscard]] std::string HitTestNode(const ImVec2& screenPos) const;
 
         // --- Toolbar & property panel ---
         void DrawToolbar();
@@ -112,15 +112,11 @@ namespace OloEngine
         // Validate + rollback). Returns true when the edge was added.
         bool TryAddPrerequisite(const std::string& sourceId, const std::string& targetId);
 
-        // --- Coordinate transforms ---
-        [[nodiscard]] ImVec2 WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const;
-        [[nodiscard]] glm::vec2 ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const;
-
         // --- Helpers ---
         [[nodiscard]] SkillTreeNode* FindNodeMutable(const std::string& nodeId);
         [[nodiscard]] i32 FindNodeIndex(const std::string& nodeId) const;
         [[nodiscard]] std::string GenerateNodeID() const;
-        void FrameAll(const ImVec2& canvasSize);
+        void FrameAll();
         void SurfaceError(const std::string& message);
 
         // --- Undo ---
@@ -143,11 +139,11 @@ namespace OloEngine
         SkillTreeEditorSnapshot m_PropertyEditSnapshot;
         SkillTreeEditorSnapshot m_DragStartSnapshot;
 
-        // Canvas state
-        glm::vec2 m_ScrollOffset{ 0.0f, 0.0f };
-        f32 m_Zoom = 1.0f;
-        bool m_IsPanning = false;
-        bool m_RightDragPanned = false;
+        // Canvas view: pan, zoom, the grid, the screen<->graph transforms and
+        // wire drawing all live in the shared widget, not here.
+        EditorUI::GraphCanvas m_Canvas;
+        // Framing needs the canvas' size, which only exists once Begin() has run,
+        // so the menu item requests it and DrawCanvas services it.
         bool m_FrameAllRequested = false;
 
         // Selection / node drag
@@ -163,7 +159,10 @@ namespace OloEngine
 
         // Context menu
         bool m_ShowContextMenu = false;
-        ImVec2 m_ContextMenuPos{ 0.0f, 0.0f };
+        // Captured in GRAPH space at click time. Storing the screen position and
+        // converting it when the popup is drawn placed a new node wrongly
+        // whenever the view moved between the two.
+        glm::vec2 m_ContextMenuGraphPos{ 0.0f, 0.0f };
         std::string m_ContextMenuNodeID; // empty = canvas background
 
         // Error popup (save validation failures, cycle rejections, load errors)
@@ -182,10 +181,10 @@ namespace OloEngine
         static constexpr f32 s_NodeBodyHeight = 46.0f;
         static constexpr f32 s_NodePortRadius = 6.0f;
         static constexpr f32 s_NodePadding = 8.0f;
-        static constexpr f32 s_GridSize = 32.0f;
-        static constexpr f32 s_MinZoom = 0.25f;
-        static constexpr f32 s_MaxZoom = 2.0f;
         static constexpr f32 s_PropertyPanelWidth = 300.0f;
+        /// Screen pixels. A port hit box that scales with zoom shrinks to under
+        /// two pixels at the canvas' minimum zoom, which no mouse can hit.
+        static constexpr f32 s_PortHitRadiusMin = 10.0f;
     };
 
 } // namespace OloEngine
