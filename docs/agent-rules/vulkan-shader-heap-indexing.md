@@ -32,7 +32,11 @@ The resolvers fork on the **backend**, not on the engine heap's `OLO_RHI_BINDLES
 routes the draw path's binding through the engine heap and is off by default, and the GPU Scene
 material records' `*HeapOffset` fields stay unresolved under it. `MaterialTextureTable` therefore
 resolves the records' texture handles itself, one 16-byte record per material slot, uploaded by
-device address (`StorageBuffer::kNoBinding`), and does not touch the records.
+device address (`StorageBuffer::kNoBinding`), and does not touch the records. A table whose bytes
+changed is published through a **fresh** `StorageBuffer`, never by `SetData` into the one a
+submitted frame may still read through `GetDeviceAddress()`; dropping the old `Ref` hands its
+allocation to the backend's deferred reclaim, which keeps it alive for `kFramesInFlight` completed
+frames. `EmissiveTriangleTable` follows the same rule ([gpu-path-tracer.md](gpu-path-tracer.md)).
 
 ## 2. What must hold
 
