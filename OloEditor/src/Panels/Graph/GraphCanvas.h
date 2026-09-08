@@ -28,10 +28,13 @@ namespace OloEngine::EditorUI
     /// docs/agent-rules/notes-editor-and-assets.md.
     ///
     /// **This widget is new code, not an extraction.** Refactoring the remaining
-    /// panels onto it is a separate, riskier change (it touches working panels,
-    /// and `ShaderGraphCommandTest.cpp` is the only regression net) — tracked as
-    /// its own item, so the migration can happen one panel at a time against a
-    /// widget that already has real consumers.
+    /// panels onto it is a separate, riskier change, and it is thinly covered:
+    /// NO test references `GraphCanvas` at all, and the only test near the
+    /// migration is `ShaderGraphCommandTest.cpp`, which covers that panel's
+    /// command/undo layer rather than any viewport maths. So a migration is
+    /// verified by driving the live editor, not by a green suite — tracked as
+    /// its own item, so it can happen one panel at a time against a widget that
+    /// already has real consumers.
     ///
     /// Deliberately owns NO graph data. Node layout, hit-testing, selection,
     /// dragging and link semantics are the panel's, because they are where graph

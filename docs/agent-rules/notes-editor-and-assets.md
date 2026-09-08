@@ -361,8 +361,9 @@ Found on #1057, fixed in `EditorLayer::OnImGuiRender`'s framebuffer-size computa
 ## Three of the "graph panels" are not canvases — rank by what a panel draws, not by line count
 
 Before migrating a panel onto `EditorUI::GraphCanvas` (issue #1070), check that it *has* a canvas.
-Three of the seven panels the issue lists have no viewport maths at all, so there is nothing to
-migrate and the honest outcome for each is a comment, not a PR:
+The issue lists seven panels to migrate; the seventh, `ShaderGraphEditorPanel`, landed in #1103 and
+is left out of the table below. Of the six that remain, **three have no viewport maths at all**, so
+there is nothing to migrate and the honest outcome for each is a comment, not a PR:
 
 | Panel | Lines | Pan | Zoom | Grid | Bezier wire | What it actually is |
 |---|---|---|---|---|---|---|
@@ -378,13 +379,14 @@ cursor — a progress bar with tick marks, not a node graph. `FSMEditorPanel` an
 `BehaviorTreeEditorPanel` list entities carrying a component and print their blackboards; neither
 edits anything despite the name.
 
-The census, three greps — a panel with a private canvas declares a zoom, a panel with wires calls
-`AddBezierCubic`, and a migrated panel names the widget:
+Run three greps for the census: a panel with a private canvas declares a zoom, a panel with wires
+calls `AddBezierCubic`, and a migrated panel names the widget.
 
 ```bash
 grep -rln -E "m_[A-Za-z]*Zoom" OloEditor/src/     # the 3 above + GraphCanvas + AnimationPanel
 grep -rln "AddBezierCubic" OloEditor/src/         # the 3 above + GraphCanvas
-grep -rln "GraphCanvas" OloEditor/src/Panels/     # ShaderGraph + VisualScript, already migrated
+# --include, or this one also matches GraphCanvas.{h,cpp} — the widget's own files:
+grep -rln --include='*EditorPanel.*' "GraphCanvas" OloEditor/src/Panels/   # ShaderGraph + VisualScript
 ```
 
 **`AnimationPanel` is the one false positive in the zoom grep**, and it is not in #1070's list at

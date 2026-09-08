@@ -159,7 +159,7 @@ Accumulated per-subsystem gotchas. Skim the relevant one before working in that 
 - [notes-core-and-threading.md](notes-core-and-threading.md): yaml-cpp decode, `Ref<T>` constness, the task system, EnTT first-touch, C++ traps.
 - [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md): the two Jolt systems, joints, Detour, dialogue guards, the gameplay scheduler.
 - [notes-audio-animation-sim.md](notes-audio-animation-sim.md): pose sampling, retargeting, morph targets, the fixed-timestep split, SoundGraph.
-- [notes-editor-and-assets.md](notes-editor-and-assets.md): Content Browser, filewatch import, placeholders, texture cook, the ScriptCore build edge, why a second meaning for an already-registered extension loses silently, and why an asset serializer that resolves a second asset used to deadlock the whole editor with no diagnostic at all. Also: which editor "graph panels" actually have a canvas, because three of the seven named in the GraphCanvas migration do not.
+- [notes-editor-and-assets.md](notes-editor-and-assets.md): Content Browser, filewatch import, placeholders, texture cook, the ScriptCore build edge, why a second meaning for an already-registered extension loses silently, and why an asset serializer that resolves a second asset used to deadlock the whole editor with no diagnostic at all. Also: which editor "graph panels" actually have a canvas, because three of the six still named in the GraphCanvas migration do not.
 
 ---
 
