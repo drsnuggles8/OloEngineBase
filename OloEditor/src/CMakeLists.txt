@@ -37,6 +37,8 @@
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
+		"MCP/McpToolsGateway.cpp"
+		"MCP/McpExposure.h"
 		"MCP/McpScriptTools.cpp"
 		"MCP/McpScriptTools.h"
 		"MCP/McpScriptApi.cpp"

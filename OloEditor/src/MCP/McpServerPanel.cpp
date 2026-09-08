@@ -194,15 +194,58 @@ namespace OloEngine::MCP
                 break;
         }
 
+        // Tool exposure (issue #1124). Session-scoped like the write consent above,
+        // and for the same reason: it is a per-agent-session decision, not a project
+        // setting. Switching it republishes the catalogue (SetExposurePolicy fires
+        // notifications/tools/list_changed), so a connected agent picks the wider
+        // listing up without reconnecting. The env vars OLO_MCP_TOOL_PROFILE /
+        // OLO_MCP_TOOLSETS set the launch default for a headless session.
+        const ExposurePolicy exposure = server.GetExposurePolicy();
+        ImGui::TextUnformatted("Tools listed:");
+        ImGui::SameLine();
+        for (const ExposureProfile candidate :
+             { ExposureProfile::Core, ExposureProfile::Toolset, ExposureProfile::Full })
+        {
+            const std::string label(ToStringView(candidate));
+            if (ImGui::RadioButton(label.c_str(), exposure.Profile == candidate))
+            {
+                ExposurePolicy updated = exposure;
+                updated.Profile = candidate;
+                server.SetExposurePolicy(std::move(updated));
+            }
+            if (candidate != ExposureProfile::Full)
+                ImGui::SameLine();
+        }
+
         ImGui::Checkbox("Start automatically when the editor launches", &autoStart);
         ImGui::SameLine();
         ImGui::TextDisabled("(persisted; default off)");
 
-        ImGui::Text("Exposed (%s): %d tools, %d resources, %d prompts",
-                    server.AllowWrites() ? "writes ON" : "read-only",
-                    static_cast<int>(server.ToolCount()),
-                    static_cast<int>(server.ResourcesSnapshot()->size()),
-                    static_cast<int>(server.Prompts().size()));
+        // Registry size, recomputed only when the catalogue or the profile actually
+        // changed: ComputeRegistryMetrics serializes the whole tool surface twice, so
+        // calling it every frame would burn milliseconds rendering a panel.
+        {
+            static u64 s_MetricsGeneration = ~0ull;
+            static ExposureProfile s_MetricsProfile = ExposureProfile::Core;
+            static ToolRegistryMetrics s_Metrics;
+            if (const u64 generation = server.ToolsGeneration();
+                generation != s_MetricsGeneration || exposure.Profile != s_MetricsProfile)
+            {
+                s_Metrics = server.ComputeRegistryMetrics();
+                s_MetricsGeneration = generation;
+                s_MetricsProfile = exposure.Profile;
+            }
+            ImGui::Text("Exposed (%s): %d of %d tools, %d resources, %d prompts",
+                        server.AllowWrites() ? "writes ON" : "read-only",
+                        static_cast<int>(s_Metrics.ListedTools), static_cast<int>(server.ToolCount()),
+                        static_cast<int>(server.ResourcesSnapshot()->size()),
+                        static_cast<int>(server.Prompts().size()));
+            ImGui::TextDisabled("tools/list: %.1f KB (~%d tokens); full surface %.1f KB (~%d tokens)",
+                                static_cast<f64>(s_Metrics.ListedBytes) / 1024.0,
+                                static_cast<int>(s_Metrics.ApproxListedTokens()),
+                                static_cast<f64>(s_Metrics.FullBytes) / 1024.0,
+                                static_cast<int>(s_Metrics.ApproxFullTokens()));
+        }
 
         // ---- outbound stdio MCP clients (issue #673) --------------------
         ImGui::Separator();

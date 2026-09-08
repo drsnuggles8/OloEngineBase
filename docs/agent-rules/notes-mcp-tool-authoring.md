@@ -35,6 +35,29 @@ the wrong destination).
 > prompt or tool changes what the headless tests see**, so a `resources/list` count assertion in an
 > unrelated test can fail on your change.
 
+## 1b. Your new tool will NOT appear in the default `tools/list` (#1124)
+
+`tools/list` lists an **exposure profile**, not the registry: by default a curated core
+set (`CoreToolNames()` in `OloEditor/src/MCP/McpExposure.h`) plus the four discovery
+gateway tools. A tool you just registered is dispatchable immediately — exposure filters
+the listing, never `tools/call` — but a client browsing `tools/list` will not see it, and
+neither will you when you attach an agent to check your work.
+
+Three practical consequences:
+
+- **To see it, widen the profile.** `OLO_MCP_TOOL_PROFILE=full` before launching the
+  editor, or the `Tools listed:` radio buttons in the MCP Server panel (switching there
+  fires `notifications/tools/list_changed`, so a connected agent picks it up live).
+  `olo_tool_search` finds it under any profile — it is deliberately profile-blind.
+- **A test that asserts on `tools/list` must opt in.** Registering a fake tool and
+  listing it now returns nothing: call `server.SetExposurePolicy({ExposureProfile::Full, {}})`
+  first. Several existing MCP tests do exactly that, with a comment saying why.
+- **Adding your tool to the core set is a budget decision, not a convenience.**
+  `McpExposureProfileTest` asserts a byte ceiling on the default payload — the number
+  #1124 exists to stop drifting back to ~66k tokens. If your tool genuinely belongs in
+  the set a session needs to *form its next question*, move the ceiling deliberately and
+  say so in the commit. Otherwise leave it discoverable.
+
 ## 2. A green test run does not mean your handler *works*
 
 Building `OloEngine-Tests` **does** compile `McpTools.cpp` and every per-domain `McpTools*.cpp`, so

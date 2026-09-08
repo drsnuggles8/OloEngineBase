@@ -26,6 +26,7 @@
 // the main (game) thread at a frame boundary via MarshalRead() ("main-marshaled").
 
 #include "MCP/McpCaptureRegion.h"
+#include "MCP/McpExposure.h"
 #include "MCP/McpLightmapBake.h"
 #include "MCP/McpTerrainPick.h"
 
@@ -1069,6 +1070,49 @@ namespace OloEngine::MCP
         void RegisterResource(ResourceDef resource);
         void RegisterPrompt(PromptDef prompt);
 
+        // ---- exposure profiles (issue #1124) -----------------------------------
+        //
+        // Which tools `tools/list` advertises. This filters the LISTING ONLY: every
+        // registered tool stays dispatchable by name under every profile, so
+        // narrowing the default cannot break a client that already knows a tool's
+        // name — and `tools/search` (the discovery method, #385) deliberately keeps
+        // searching the FULL registry, or the narrowed default would be a dead end.
+        //
+        // Published as an immutable snapshot behind an atomic, the same shape as the
+        // tool registry: set once during editor init (env / preference) but read from
+        // every httplib worker thread that serves a tools/list.
+        void SetExposurePolicy(ExposurePolicy policy);
+        [[nodiscard]] ExposurePolicy GetExposurePolicy() const
+        {
+            return *m_ExposurePolicy.load(std::memory_order_acquire);
+        }
+
+        // What one tools/list costs right now, under the active profile and under
+        // `full` (issue #1124 asked for the number to be TRACKED rather than
+        // rediscovered in eighteen months). Serializes the catalogue twice with the
+        // same builder tools/list uses, so ListedBytes is the exact payload size.
+        // Not cheap — it dumps the whole catalogue; call it on demand
+        // (olo_capability, the startup log line, the regression test), never per
+        // request.
+        [[nodiscard]] ToolRegistryMetrics ComputeRegistryMetrics() const;
+        // Same, over a snapshot the caller already holds — for a report that must
+        // describe ONE registry (olo_capability pairs these numbers with a toolset
+        // table it derives itself, and a concurrent script reload between two
+        // snapshots would make the two halves disagree).
+        [[nodiscard]] ToolRegistryMetrics ComputeRegistryMetrics(const ToolSnapshot& snapshot) const;
+
+        // The facts one ToolDef contributes to the exposure decision. The single
+        // definition of "user-provided" (a project Lua tool or a bridged external
+        // one): both tools/list and the gateway's per-hit `listed` flag go through
+        // here, so they cannot drift into disagreeing about what is listed.
+        [[nodiscard]] static ToolExposureFacts ExposureFactsOf(const ToolDef& tool);
+
+        // Serialize one registered tool into its MCP tools/list entry. Public so the
+        // gateway tools (olo_tool_describe / olo_tool_search) hand back entries that
+        // are byte-identical to what tools/list would have emitted — a tool must be
+        // callable straight from a describe hit.
+        [[nodiscard]] static Json BuildToolEntry(const ToolDef& tool);
+
         // Publish a RUNTIME resource (issue #673, resource links) — the
         // capture a tool just handed out as a resource_link block. Marks it
         // Ephemeral, replaces any existing resource with the same URI, then
@@ -1349,6 +1393,14 @@ namespace OloEngine::MCP
         // client that never calls this keeps working.
         [[nodiscard]] Json HandleToolsSearch(const Json& id, const Json& params) const;
         [[nodiscard]] Json HandleToolsCall(const Json& id, const Json& params);
+        // Turn an `olo_tool_execute` tools/call params object into the plain
+        // tools/call envelope for its target (issue #1124), preserving `_meta` so a
+        // progressToken and cancellation survive the indirection. Returns the
+        // user-facing error message on a malformed payload, std::nullopt on success.
+        // Static + pure so the rewrite is decided before any registry lookup, and so
+        // it cannot accidentally consult server state the real call has not gated yet.
+        [[nodiscard]] static std::optional<std::string> RewriteGatewayExecuteParams(const Json& params,
+                                                                                    Json& rewritten);
         [[nodiscard]] Json HandleResourcesList(const Json& id) const;
         [[nodiscard]] Json HandleResourcesRead(const Json& id, const Json& params);
         [[nodiscard]] Json HandlePromptsList(const Json& id) const;
@@ -1402,6 +1454,12 @@ namespace OloEngine::MCP
         std::atomic<ToolSnapshot> m_Tools{ std::make_shared<const ToolList>() };
         std::mutex m_ToolsWriteMutex;
         std::atomic<u64> m_ToolsGeneration{ 0 };
+        // Which tools tools/list advertises (issue #1124). Immutable once published,
+        // swapped wholesale by SetExposurePolicy — so a worker thread mid-tools/list
+        // reads one consistent policy rather than a half-updated toolset vector.
+        std::atomic<std::shared_ptr<const ExposurePolicy>> m_ExposurePolicy{
+            std::make_shared<const ExposurePolicy>()
+        };
         // Copy-on-write, atomically published (see ResourcesSnapshot). Writers
         // serialize on m_ResourcesWriteMutex; readers are lock-free.
         std::atomic<ResourceSnapshot> m_Resources{ std::make_shared<const ResourceList>() };

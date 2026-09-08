@@ -67,6 +67,33 @@ $tools = Invoke-Rpc 'tools/list' $null
 Write-Host "tools/list -> $($tools.result.tools.Count) tools:" -ForegroundColor Green
 $tools.result.tools | ForEach-Object { Write-Host "  - $($_.name): $($_.description.Substring(0,[Math]::Min(70,$_.description.Length)))..." }
 
+# 3b. The capability gateway (#1124). tools/list above shows the ACTIVE EXPOSURE
+# PROFILE, not the whole registry — by default a curated core set plus these four
+# tools. Everything else stays callable by name, which is what the rest of this
+# script proves: it calls olo_memory_report, olo_shader_list, olo_assets_list and
+# friends directly, and none of them is listed under the default profile.
+$cap = Invoke-Rpc 'tools/call' @{ name = 'olo_capability'; arguments = @{} }
+$capData = $cap.result.structuredContent
+Write-Host "olo_capability -> profile=$($capData.profile), listed=$($capData.registry.listedTools)/$($capData.registry.totalTools) tools, $($capData.registry.listedBytes) bytes (~$($capData.registry.approxListedTokens) tokens); full=$($capData.registry.fullBytes) bytes (~$($capData.registry.approxFullTokens) tokens)" -ForegroundColor Green
+if ($tools.result.tools.Count -ne $capData.registry.listedTools) {
+    Write-Error "tools/list returned $($tools.result.tools.Count) entries but olo_capability reports $($capData.registry.listedTools) listed"
+}
+
+$search = Invoke-Rpc 'tools/call' @{ name = 'olo_tool_search'; arguments = @{ query = 'raycast' } }
+$hit = $search.result.structuredContent.tools | Where-Object { $_.name -eq 'olo_physics_raycast' }
+if (-not $hit) { Write-Error 'olo_tool_search could not find olo_physics_raycast' }
+Write-Host "olo_tool_search 'raycast' -> $($search.result.structuredContent.matched) match(es); olo_physics_raycast listed=$($hit.listed)" -ForegroundColor Green
+
+$desc = Invoke-Rpc 'tools/call' @{ name = 'olo_tool_describe'; arguments = @{ names = @('olo_physics_raycast') } }
+$descTool = $desc.result.structuredContent.tools[0]
+if (-not $descTool.inputSchema) { Write-Error 'olo_tool_describe returned no inputSchema' }
+Write-Host "olo_tool_describe -> $($descTool.name) with inputSchema ($(($descTool.inputSchema.properties | Get-Member -MemberType NoteProperty).Count) properties)" -ForegroundColor Green
+
+# ...and the same tool reached through the execute alias, to prove the indirection
+# lands on the real handler with the real consent/validation path.
+$exec = Invoke-Rpc 'tools/call' @{ name = 'olo_tool_execute'; arguments = @{ tool = 'olo_memory_report'; arguments = @{} } }
+Write-Host "olo_tool_execute olo_memory_report (isError=$($exec.result.isError)) -> $($exec.result.content[0].text.Substring(0,[Math]::Min(90,$exec.result.content[0].text.Length)))..." -ForegroundColor Green
+
 # 4. tools/call olo_log_tail
 $logs = Invoke-Rpc 'tools/call' @{ name = 'olo_log_tail'; arguments = @{ count = 10 } }
 Write-Host "tools/call olo_log_tail (isError=$($logs.result.isError)) ->" -ForegroundColor Green
@@ -126,7 +153,11 @@ Write-Host $errs.result.content[0].text
 
 # 14. tools/call olo_screenshot  (main-marshaled GL readback -> PNG image content)
 $shot = Invoke-Rpc 'tools/call' @{ name = 'olo_screenshot'; arguments = @{ maxWidth = 512 } }
-$block = $shot.result.content[0]
+# SEARCH for the image block, never assume content[0]: olo_screenshot returns a
+# metadata/liveness text block FIRST and the PNG second, so an index-based read
+# reports "did not return an image" on a perfectly good capture.
+$block = $shot.result.content | Where-Object { $_.type -eq 'image' } | Select-Object -First 1
+if (-not $block) { $block = $shot.result.content[0] }
 Write-Host "tools/call olo_screenshot (isError=$($shot.result.isError)) -> type=$($block.type), mimeType=$($block.mimeType)" -ForegroundColor Green
 if ($block.type -eq 'image' -and $block.data) {
     $bytes = [Convert]::FromBase64String($block.data)

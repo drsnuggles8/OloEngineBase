@@ -824,6 +824,12 @@ add_executable(OloEngine-Tests
 		${_olo_mcp_field_registry_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
+		# The capability-discovery gateway (#1124): olo_capability / olo_tool_search /
+		# olo_tool_describe / olo_tool_execute. Registration-only from the tests'
+		# point of view, like the rest of this list — but its handlers are pure
+		# registry reads with no MarshalRead, so McpExposureProfileTest drives them
+		# for real over the dispatch seam.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsGateway.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
 		# Consented MCP synthetic-input WRITE tool: olo_input_inject (#607) — click /
 		# drag / key / text into the running editor so an agent can verify an
@@ -967,6 +973,13 @@ add_executable(OloEngine-Tests
 		# a well-formed open object and pins the set of schema-declaring tools.
 		# Uses the McpTools*.cpp TUs already pulled in above.
 		MCP/McpOutputSchemaCoverageTest.cpp
+		# Tool exposure profiles + the discovery gateway (#1124): the profile
+		# arithmetic (MCP/McpExposure.h, pure), the core-set-vs-registry pin, the
+		# tools/list BYTE CEILING that stops the catalogue silently growing back to
+		# ~66k tokens, and the gateway round-trip (capability -> search -> describe ->
+		# execute). Registration-only against the real surface; the execute /
+		# consent-gate round-trips drive fake tools over the dispatch seam.
+		MCP/McpExposureProfileTest.cpp
 		# Audience-tagged content blocks (#673 Tier 2): the ToolResult::AnnotateBlock /
 		# StructuredDualAudience mechanism + the ToolDef::DualAudienceContent
 		# re-shaping in HandleToolsCall (fake tools over the dispatch seam), the pure
