@@ -132,7 +132,10 @@ With a ceiling, the kernel OOM-kills the largest process *inside* the runner's c
 a compiler or a test process, a few GB -- long before slice-wide pressure reaches oomd's
 threshold. `OOMPolicy=continue` keeps the service up when that happens (the default `stop`
 would take the runner down on every in-job OOM, which is the failure being fixed). The job
-fails visibly at the step that ran out. **Not `MemoryHigh`:** throttling works by forcing
+fails visibly at the step that ran out. `MemoryMax` is pushed into a *running* unit live with
+`set-property --runtime`; `OOMPolicy` is an execution setting, not a cgroup property, so it
+cannot be -- it takes effect at the unit's next start, and the script's report shows
+`oompolicy=` per unit so a busy runner still on `stop` is visible rather than assumed. **Not `MemoryHigh`:** throttling works by forcing
 reclaim, reclaim is the pressure oomd measures, so a `MemoryHigh` ceiling makes the oomd kill
 *more* likely.
 
