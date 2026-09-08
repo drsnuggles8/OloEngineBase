@@ -7,7 +7,13 @@
 
 namespace OloEngine
 {
-    RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
+    // constinit is load-bearing, not decoration: RenderCommand.cpp's namespace-scope
+    // `s_RendererAPI = RendererAPI::Create()` reads s_API from ANOTHER TU during static
+    // initialisation. That read is only well-defined because s_API is constant-initialised
+    // and therefore already has its value before any dynamic initialiser runs. Giving s_API
+    // a dynamic initialiser would turn that into an unordered cross-TU read -- the Tracy /
+    // entt failure shape (issue #763). This annotation makes the compiler enforce it.
+    constinit RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
 
     void RendererAPI::BindTexture(u32 slot, RHI::ResourceHandle texture, const RHI::SamplerDesc& /*sampler*/)
     {
