@@ -360,16 +360,18 @@ Found on #1057, fixed in `EditorLayer::OnImGuiRender`'s framebuffer-size computa
 
 ## Three of the "graph panels" are not canvases — rank by what a panel draws, not by line count
 
-Before migrating a panel onto `EditorUI::GraphCanvas` (issue #1070), check that it *has* a canvas.
-The issue lists seven panels to migrate; the seventh, `ShaderGraphEditorPanel`, landed in #1103 and
-is left out of the table below. Of the six that remain, **three have no viewport maths at all**, so
-there is nothing to migrate and the honest outcome for each is a comment, not a PR:
+Before migrating a panel onto `EditorUI::GraphCanvas`, check that it *has* a canvas. Issue #1070
+listed seven panels to migrate. Three of them draw no viewport maths at all, so there was nothing
+to migrate and the honest outcome for each was a comment, not a PR. **The migration is finished:**
+`ShaderGraphEditorPanel` landed in #1103 and the three real canvases below in #1070, so every panel
+that has a viewport now shares the widget. The table is kept because the ranking mistake behind the
+count of seven is the reusable part:
 
 | Panel | Lines | Pan | Zoom | Grid | Bezier wire | What it actually is |
 |---|---|---|---|---|---|---|
-| `SoundGraphEditorPanel` | 2515 | yes | yes | yes | yes | a real canvas, unmigrated |
-| `DialogueEditorPanel` | 2042 | yes | yes | yes | yes | a real canvas, unmigrated |
-| `SkillTreeEditorPanel` | 1406 | yes | yes | yes | yes | a real canvas, unmigrated |
+| `SoundGraphEditorPanel` | 2515 | yes | yes | yes | yes | a real canvas, migrated in #1070 |
+| `DialogueEditorPanel` | 2042 | yes | yes | yes | yes | a real canvas, migrated in #1070 |
+| `SkillTreeEditorPanel` | 1406 | yes | yes | yes | yes | a real canvas, migrated in #1070 |
 | `AnimationGraphEditorPanel` | 990 | no | no | no | no | tabbed form; states are `ImGui::Selectable` rows |
 | `FSMEditorPanel` | 114 | no | no | no | no | read-only `TreeNode` inspector |
 | `BehaviorTreeEditorPanel` | 104 | no | no | no | no | read-only `TreeNode` inspector |
@@ -383,11 +385,14 @@ Run three greps for the census: a panel with a private canvas declares a zoom, a
 calls `AddBezierCubic`, and a migrated panel names the widget.
 
 ```bash
-grep -rln -E "m_[A-Za-z]*Zoom" OloEditor/src/     # the 3 above + GraphCanvas + AnimationPanel
-grep -rln "AddBezierCubic" OloEditor/src/         # the 3 above + GraphCanvas
+grep -rln -E "m_[A-Za-z]*Zoom" OloEditor/src/     # now GraphCanvas + AnimationPanel only
+grep -rln "AddBezierCubic" OloEditor/src/         # now GraphCanvas.cpp alone
 # --include, or this one also matches GraphCanvas.{h,cpp} — the widget's own files:
-grep -rln --include='*EditorPanel.*' "GraphCanvas" OloEditor/src/Panels/   # ShaderGraph + VisualScript
+grep -rln --include='*EditorPanel.*' "GraphCanvas" OloEditor/src/Panels/   # all five consumers
 ```
+
+Those are still the census: if a new panel ever appears in the first two greps, it grew a private
+canvas instead of using the widget.
 
 **`AnimationPanel` is the one false positive in the zoom grep**, and it is not in #1070's list at
 all: its `m_TimelineZoom` scales a 1D keyframe timeline (a playhead and tick marks, `AddLine`
@@ -401,3 +406,30 @@ Line count tracks how much *form* a panel puts on screen, not whether it has a v
 that are not canvases are `Editor` panels over graph-shaped **data**, which is a different thing.
 Migrating one anyway would mean *adding* a canvas to a panel that never had one. That is a new
 feature rather than a migration, and it is the kind of change ADR 0014 set out to avoid.
+
+### What the three migrations actually cost, and what they fixed
+
+`GraphCanvas` needed **no new capability** for any of the three (#1070) — `WasRightClicked()`, added
+for `ShaderGraphEditorPanel` in #1103, was the last missing piece, and `FitToBounds`, `ResetView`,
+`DistanceToWire` and `DrawDirectionalWire` covered everything else. What each panel keeps is node
+layout, hit-testing, selection and link semantics; what it loses is the grid, the two transforms,
+pan/zoom and the bezier maths. Roughly 300 net lines went away across the three.
+
+Three bug classes fell out of the move, and they are the ones to look for in any future panel that
+still hand-rolls part of this:
+
+- **A pin hit radius that scales with zoom is untargetable when zoomed out.** All three multiplied
+  the pin radius by zoom, so a 5–6 px pin became under 2 px at the canvas' minimum zoom. Every hit
+  radius now has a screen-pixel floor: `std::max(s_PinHitRadiusMin, m_Canvas.Scaled(r))`.
+- **A context-menu position captured in SCREEN space is wrong by the time the popup draws.** All
+  three stored the click position and converted it when the menu ran, so a node landed in the wrong
+  place if the view moved in between. Capture `ToGraph(mousePos)` at click time instead.
+- **A "fit the view" that measures the wrong rectangle.** `DialogueEditorPanel`'s Zoom to Fit read
+  `ImGui::GetContentRegionAvail()` from inside the **menu bar**, and its Add Node menu passed the
+  window position in as the canvas origin. Both are impossible to write once the canvas owns its
+  own origin and size; use `FitToBounds` and `GetOrigin()`/`GetSize()`.
+
+Deliberate behaviour changes, all of them the widget's rules rather than a panel's: right-drag pans
+everywhere (so `DialogueEditorPanel` lost Alt+left-drag panning), zoom anchors on the cursor and is
+multiplicative over [0.15, 3.0], wire thickness is screen pixels rather than `2 * zoom`, grid majors
+land every 5 in graph space, and a context menu opens on right-**release**-without-drag.

@@ -314,6 +314,30 @@ Two things to get right when adding one:
   A subsystem that cached the value at init still won't see a later change on
   its own — register a change callback (below) or check the consumer.
 
+### `constinit` on a `std::vector` does not compile against MSVC's debug STL
+
+Mark a namespace-scope global `constinit` only when the type really is constant-
+initialisable on every toolchain the repo builds with. `std::vector` is not:
+under `_ITERATOR_DEBUG_LEVEL != 0` (which `/MDd`, i.e. every Debug build here,
+turns on) its default constructor allocates an iterator-debug proxy, so
+`constinit std::vector<std::string> s_Warnings;` fails outright with
+*"variable does not have a constant initializer"*. `DebugLevers.cpp` shipped
+exactly that in #1122 and broke the whole `dev-cached` Debug tree at
+`OloEngine.lib`, well before anything that reads a lever.
+
+The four levers globals (`Storage`, `Overridden`, `Handles`, `std::once_flag`)
+**do** need `constinit`, and keep it: `SystemScheduler.cpp` and
+`TerrainChunkManager.cpp` read levers from their own global initialisers, so
+those four must have their values before any dynamic initialiser runs. The
+warning list is not in that contract — nothing reads it during static init — and
+it was swept into the change with them.
+
+Where the type cannot be `constinit`, a **function-local static** is the right
+answer rather than a bare global: initialise-on-first-use guarantees the storage
+exists before anything can read it, which is the property the comment was after,
+and it holds on every toolchain. It also stops the next audit re-adding
+`constinit` to it.
+
 ### The console-variable layer above it (`Core/CVar.h`, issue #821)
 
 Every lever is *also* a console variable, bound into `CVars::` by
