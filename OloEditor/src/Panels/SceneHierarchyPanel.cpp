@@ -7223,8 +7223,8 @@ namespace OloEngine
                     : "Chunk Mesh: None (reuse this object's mesh)";
                 ImGui::Button(chunkMeshLabel.c_str(), ImVec2(-1.0f, 0.0f));
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Drag a MeshSource asset here to spawn pre-fractured debris.
-None = reuse this object's own mesh scaled down, else a cube.");
+                    ImGui::SetTooltip("Drag a MeshSource asset here to spawn pre-fractured debris.\n"
+                                      "None = reuse this object's own mesh scaled down, else a cube.");
                 if (ImGui::BeginDragDropTarget())
                 {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
