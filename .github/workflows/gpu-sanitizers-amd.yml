@@ -227,7 +227,7 @@ jobs:
               ;;
             ubsan)
               cmake_flag='-DOLO_ENABLE_UBSAN=ON'
-              exclude='^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^TaskConcurrencyLimiterTest\.|^LowLevelTaskUserDataTest\.|^WorkerRestartTest\.'
+              exclude='^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
               asan_options=''
               lsan_options=''
               ubsan_options='halt_on_error=1:print_stacktrace=1'

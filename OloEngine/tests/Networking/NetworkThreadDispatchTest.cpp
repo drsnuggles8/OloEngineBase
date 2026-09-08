@@ -28,47 +28,73 @@ class NetworkThreadDispatchTest : public ::testing::Test
     }
 };
 
+// The dispatched task can outlive this frame. Both waits below are bounded, and on a
+// loaded runner the bound expires before the network thread gets to the task -- the
+// assertion then fails, the frame is destroyed, and the task writes into it. ASan
+// reported that as a stack-use-after-return here on the hosted arm. So the shared state
+// is owned by a shared_ptr captured BY VALUE, and outlives whichever of the two runs last.
+namespace
+{
+    struct FDispatchProbe
+    {
+        std::atomic<bool> Executed{ false };
+        std::atomic<std::thread::id> ExecutionThreadId{};
+    };
+} // namespace
+
 TEST_F(NetworkThreadDispatchTest, EnqueueNetworkThreadTask)
 {
-    std::atomic<bool> executed{ false };
-    std::atomic<std::thread::id> executionThreadId{};
+    auto probe = std::make_shared<FDispatchProbe>();
 
-    EnqueueNetworkThreadTask([&]()
+    // ExecutionThreadId is published BEFORE Executed: the wait below keys on Executed
+    // and then reads ExecutionThreadId, so the other order lets it read an unwritten id.
+    EnqueueNetworkThreadTask([probe]()
                              {
-        executed.store(true, std::memory_order_release);
-        executionThreadId.store(std::this_thread::get_id(), std::memory_order_release); }, "TestTask");
+        probe->ExecutionThreadId.store(std::this_thread::get_id(), std::memory_order_release);
+        probe->Executed.store(true, std::memory_order_release); }, "TestTask");
 
     // Wait for the network thread to process the task (up to 2 seconds)
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!executed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+    while (!probe->Executed.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    EXPECT_TRUE(executed.load(std::memory_order_acquire))
+    EXPECT_TRUE(probe->Executed.load(std::memory_order_acquire))
         << "Task was not executed on the network thread within timeout";
 
     // Verify the task ran on a different thread (the network thread, not the test/game thread)
-    EXPECT_NE(executionThreadId.load(std::memory_order_acquire), std::this_thread::get_id())
+    EXPECT_NE(probe->ExecutionThreadId.load(std::memory_order_acquire), std::this_thread::get_id())
         << "Task should have executed on the network thread, not the calling thread";
 }
 
 TEST_F(NetworkThreadDispatchTest, EnqueueGameThreadFromNetwork)
 {
-    std::atomic<bool> gameThreadTaskExecuted{ false };
+    // Same shared-ownership reason as the test above, one level deeper: the outer task
+    // runs on the network thread and only then enqueues the inner one onto the game
+    // thread.
+    auto probe = std::make_shared<FDispatchProbe>();
 
     // From the network thread, dispatch a callback to the game thread
-    EnqueueNetworkThreadTask([&]()
-                             { EnqueueGameThreadTask([&]()
-                                                     { gameThreadTaskExecuted.store(true, std::memory_order_release); }, "GameThreadCallback"); }, "NetworkToGameBridge");
+    EnqueueNetworkThreadTask([probe]()
+                             { EnqueueGameThreadTask([probe]()
+                                                     { probe->Executed.store(true, std::memory_order_release); }, "GameThreadCallback"); }, "NetworkToGameBridge");
 
-    // Give the network thread time to enqueue the game-thread callback
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-    // Process pending game-thread tasks (simulates what Application::Run does each frame)
+    // Drain on a deadline rather than sleeping once and draining once. Two hops have to
+    // happen before there is anything to process, and a single ProcessAll at a fixed
+    // 100 ms fails a working implementation whenever the network thread is slower than
+    // that -- the same way the case above would without its wait loop. Each pass
+    // simulates one Application::Run frame; the loop just allows more than one of them.
     auto& queue = FNamedThreadManager::Get().GetQueue(ENamedThread::GameThread);
-    queue.ProcessAll(true);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    do
+    {
+        queue.ProcessAll(true);
+        if (probe->Executed.load(std::memory_order_acquire))
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
 
-    EXPECT_TRUE(gameThreadTaskExecuted.load(std::memory_order_acquire))
+    EXPECT_TRUE(probe->Executed.load(std::memory_order_acquire))
         << "Game-thread callback dispatched from NetworkThread was not executed during ProcessTasks";
 }

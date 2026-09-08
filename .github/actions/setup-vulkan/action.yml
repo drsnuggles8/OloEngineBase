@@ -19,9 +19,29 @@ inputs:
     description: 'Enable caching'
     required: false
     default: true
+# The version this action actually installed, so a cache key can be hashed over it.
+# A compiler cache keyed WITHOUT it restores cleanly across an SDK bump and then misses
+# on every TU that reaches a Vulkan header -- measured on PR #1112's Windows ASan build:
+# 923 misses of 1588 (42.17 % hits) and a 2 h 06 build, while the entry restored fine and
+# the stats read "Cache size 1 GiB / Max cache size 1 GiB" as though the cap were the
+# problem. It was not; the cap has 259 MiB spare. See the note on asan.yml's key.
+outputs:
+  version:
+    description: 'The Vulkan SDK version installed, for use in cache keys'
+    value: ${{ steps.resolved.outputs.version }}
 runs:
   using: 'composite'
   steps:
+    # Through env, not interpolated into the script body: `${{ }}` inside `run:` is
+    # the script-injection shape the githubactions rules flag, and it costs nothing
+    # to avoid here.
+    - name: Resolve the SDK version
+      id: resolved
+      shell: bash
+      env:
+        OLO_VULKAN_SDK_VERSION: ${{ inputs.version }}
+      run: echo "version=${OLO_VULKAN_SDK_VERSION}" >> "$GITHUB_OUTPUT"
+
     - name: Install Vulkan SDK
       uses: humbletim/install-vulkan-sdk@033219e2d69dd4d3e873e217eb385fdd4b4438f4 # main @ 2025-08-05 (no release tag; newest is v1.2)
       with:
