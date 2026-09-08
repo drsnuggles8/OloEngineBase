@@ -70,11 +70,15 @@ namespace OloEngine
         // Assignment operator for value semantics
         Material& operator=(const Material& other);
 
-        // Move constructor for efficient transfers
-        Material(Material&& other) = default;
-
-        // Move assignment operator for efficient transfers
-        Material& operator=(Material&& other) = default;
+        // No move operations, deliberately. The RendererResource base has a deleted move
+        // constructor, so `Material(Material&&) = default;` was defined as deleted and the
+        // "efficient transfers" the old comment promised never existed: a defaulted-as-deleted
+        // move is IGNORED by overload resolution, so every std::move(Material) already bound
+        // to the copy constructor above. Declaring them `= delete` instead would change that
+        // -- an explicit delete does participate, turning those calls into hard errors.
+        // Leaving them undeclared keeps the copy fallback and drops the misleading
+        // -Wdefaulted-function-deleted. Making Material movable means making
+        // RendererResource movable first.
 
         static Ref<Material> Create(const Ref<OloEngine::Shader>& shader, const std::string& name = "");
         static Ref<Material> Copy(const Ref<Material>& other, const std::string& name = "");

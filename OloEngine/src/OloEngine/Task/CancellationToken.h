@@ -38,11 +38,17 @@ namespace OloEngine::Tasks
       public:
         FCancellationToken() = default;
 
-        // Non-copyable but movable
+        // Neither copyable nor movable. The moves were `= default` and therefore implicitly
+        // DELETED, because m_Canceled is a std::atomic<bool> and std::atomic is not movable,
+        // so "but movable" was never true. A token is observed by other threads through the
+        // shared state, so moving one is not something to add casually -- pass it by
+        // reference, or hold it in a Ref/Scope.
         FCancellationToken(const FCancellationToken&) = delete;
         FCancellationToken& operator=(const FCancellationToken&) = delete;
-        FCancellationToken(FCancellationToken&&) = default;
-        FCancellationToken& operator=(FCancellationToken&&) = default;
+        // Move operations are intentionally not declared: m_Canceled is a std::atomic<bool>,
+        // which is not movable, so `= default` defined them as deleted and they were ignored
+        // by overload resolution anyway. Copy is deleted above, so a move attempt still fails
+        // -- same behaviour, without the -Wdefaulted-function-deleted noise.
 
         // @brief Request cancellation
         //
