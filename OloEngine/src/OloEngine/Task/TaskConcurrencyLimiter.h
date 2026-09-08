@@ -378,10 +378,11 @@ namespace OloEngine::Tasks
             // alignment is -- and alignas(64) on the element does not change that.
             // Two things went wrong at once. The padding stopped separating anything,
             // which is this type's entire purpose; and constructing a 64-byte-aligned
-            // type on a 16-aligned address is undefined behaviour, which is why
-            // TaskConcurrencyLimiterTest and LowLevelTaskUserDataTest were excluded
-            // from UBSan. Whether it fired was down to what the allocator happened to
-            // return for that size, so it read as a flake rather than a bug:
+            // type on a 16-aligned address is undefined behaviour. Whether that fires
+            // is down to what the allocator happens to return for that size, so it
+            // reads as a flake rather than a bug -- which is plausibly why
+            // TaskConcurrencyLimiterTest and LowLevelTaskUserDataTest sat in the UBSan
+            // exclusion list for so long, though nothing on record says so:
             //
             //   MemoryOps.h:71:49: runtime error: constructor call on misaligned
             //   address 0x55dd290745e0 for type 'FPaddedSharedTask', which requires
