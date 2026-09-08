@@ -137,10 +137,25 @@ from the GL tier, which compiles the same source at vulkan_1_2 without the macro
   frame-uniform, not per-material. On GL that lane means nothing and stays null.
 - **Only textures AT REST convert**, which is why the scope stops at the five: the environment
   cubemap and the IBL trio are baked into render targets, and this resolver cannot move a layout.
+- **A shared stage BODY cannot grant the arm: state the opt-in once per ENTRY POINT, and every
+  entry point sharing that body must agree.** `include/VirtualGBufferFragment.glsl` holds the five
+  declarations for both virtualized-geometry raster paths, so `VirtualMeshGBuffer.glsl` (MDI) and
+  `VirtualMeshletGBuffer.glsl` (mesh shader) each `#define` the token themselves — `VulkanShader`
+  asks the entry shader's own PRE-INCLUDE text, and the `#extension` directives must precede every
+  token. Agreement is the sharp half: each program is self-consistent alone, but
+  `VirtualGeometryPass` switches between them PER INSTANCE inside one `RecordParallel` loop, calling
+  `UploadMaterialForDirectDraw` after each rebind, and `Shader::ReadsMaterialHeapOffsets()` is a
+  process-wide flag written by the last `Bind` on any thread. Agreeing makes that flag safe;
+  disagreeing lets a thread read the other route's answer, and the frame is plausible either way.
 
-Pinned by `BindlessShaderPipeline.VulkanMaterialHeapArmLeavesNoMaterialLocalSamplerDeclared`: a
-shader on this arm that leaves one of the five declared classic is a sampler nothing binds, because
-`CommandDispatch::BindPBRTextures` skips those five binds for it.
+Pinned by three tests. `BindlessShaderPipeline.VulkanMaterialHeapArmLeavesNoMaterialLocalSampler-
+Declared`: one of the five left declared classic on this arm is a sampler nothing binds.
+`...EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm` is the rule above, found from the tree —
+a header that DECLARES one of the five forces its includers to agree, and `PBRCommon.glsl`, which
+only reads the token, is correctly not one. `...TheMaterialHeapArmCoversExactlyTheRecordedFamilies`
+records the converted set both ways, because losing a `#define` is SILENT: the shader falls back to
+classic bindings, gets its five binds back, and renders correctly while the conversion stops
+existing.
 
 ### Proving it in a frame: restart the editor, do not hot-reload
 

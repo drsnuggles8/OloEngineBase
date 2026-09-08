@@ -132,6 +132,26 @@ void main()
 #type fragment
 #version 460 core
 
+// THE VULKAN MATERIAL-HEAP ARM (ADR 0011 amendment (96), issue #805). The twin
+// of PBR_GBuffer.glsl's block, and for the same reason: skinning is a VERTEX
+// stage concern, so the fragment-side binding story of a skinned mesh is the
+// unskinned one exactly. Only the five material-local maps convert; this shader
+// declares nothing else that samples.
+//
+// THE DIRECTIVES MUST SIT HERE, before any other token — GLSL requires every
+// `#extension` to precede all non-preprocessor tokens, and an include below
+// cannot satisfy that (BindlessHeap.glsl's note). `#ifdef` is not a token, so
+// the guard is legal and the GL tier — which compiles this same source WITHOUT
+// the macro — never sees them. PBR_MultiLight.glsl carries the fuller note.
+//
+// BEFORE THE PBRCommon INCLUDE, necessarily: its OLO_MAT_* wrappers switch on
+// this macro to pick their spelling.
+#ifdef OLO_VULKAN
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#define OLO_MATERIAL_VULKAN_HEAP_READER 1
+#endif
+
 #include "include/PBRCommon.glsl"
 
 layout(std140, binding = 2) uniform PBRMaterialProperties {
@@ -165,9 +185,26 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 
 #include "include/InstanceBlock.glsl"
 
-// Converted whole (§5c) — the material five are every sampler this shader has.
+// Converted whole (§5c) — the material five are every sampler this shader has,
+// on either bindless arm.
 #include "include/BindlessHeap.glsl"
-#ifdef OLO_BINDLESS
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+// The heap arrays and OLO_HEAP_MATERIAL_TEX_2D; guarded internally by
+// `#ifdef OLO_VULKAN`, so it contributes nothing on any other route.
+#include "include/DescriptorHeapTextures.glsl"
+
+// ONE SAMPLER LANE FOR ALL FIVE: every material 2D descriptor is minted with
+// HeapBinding::MaterialTexture2DSampler(), so the sampler offset is
+// frame-uniform rather than per-material (amendment (96)).
+//
+// NO `OLO_MATERIAL_HEAP_READER` HERE: that token is the GL raw-GLSL route's
+// marker, and a shader carrying it takes the ARB_bindless_texture arm.
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
 #define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
@@ -223,22 +260,22 @@ void main()
             discard;
     }
 
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
-    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
-                                                     u_MetallicFactor, u_RoughnessFactor,
-                                                     bool(u_UseMetallicRoughnessMap));
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
+                                                        u_MetallicFactor, u_RoughnessFactor,
+                                                        bool(u_UseMetallicRoughnessMap));
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
 
-    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
-    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
+    float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
+    vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
     // sanitizeSurfaceNormal, not normalize: see PBR_GBuffer.glsl — a zero/NaN vertex normal
     // must not reach the octahedral G-Buffer encode.
     vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
     if (u_UseNormalMap == 1)
     {
-        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
 
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
