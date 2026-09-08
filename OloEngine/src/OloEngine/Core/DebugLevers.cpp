@@ -149,7 +149,22 @@ namespace OloEngine::Levers
         // possibly before Log::Initialize(). So a malformed value is recorded
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
-        constinit std::vector<std::string> s_SeedWarnings;
+        //
+        // A function-local static rather than one more constinit global: this is
+        // NOT one of the four above and no other TU's static initialiser reads it,
+        // so it does not need the cross-TU ordering guarantee — and it cannot have
+        // it anyway. Under MSVC's debug STL (_ITERATOR_DEBUG_LEVEL != 0) the
+        // std::vector default constructor allocates an iterator-debug proxy, which
+        // makes `constinit std::vector` a hard compile error; it built only where
+        // that STL was not in play. Initialise-on-first-use gives the property the
+        // comment above actually cares about — the storage exists before anything
+        // can read it — on every toolchain, so re-adding constinit here is neither
+        // needed nor possible.
+        [[nodiscard]] std::vector<std::string>& SeedWarnings()
+        {
+            static std::vector<std::string> warnings;
+            return warnings;
+        }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
         // computed default alone. Deliberately NOT Env::IsTruthy: for these the
@@ -184,7 +199,7 @@ namespace OloEngine::Levers
             {
                 return *parsed;
             }
-            s_SeedWarnings.push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
+            SeedWarnings().push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
                                      std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
             return kUnsetNumber;
         }
@@ -409,11 +424,11 @@ namespace OloEngine::Levers
     {
         Seed();
         // Deferred from the seed, which can run before the logger exists.
-        for (const std::string& warning : s_SeedWarnings)
+        for (const std::string& warning : SeedWarnings())
         {
             OLO_CORE_WARN("[Levers] {}", warning);
         }
-        s_SeedWarnings.clear();
+        SeedWarnings().clear();
 
         if (const std::string summary = ActiveSummary(); !summary.empty())
         {
