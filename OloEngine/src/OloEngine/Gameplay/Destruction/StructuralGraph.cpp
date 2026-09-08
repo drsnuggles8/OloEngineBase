@@ -76,6 +76,21 @@ namespace OloEngine
             u8 Lateral; // 1 = a same-course step, which the 0-1 flood charges for
         };
 
+        // Order-independent fold over an entity-id set. splitmix64 each id before
+        // summing, so a swap of two members cannot cancel out the way a bare XOR
+        // or a bare sum can, and wrapping addition keeps it independent of the
+        // view's iteration order.
+        [[nodiscard]] u64 MixID(u64 id)
+        {
+            u64 x = id + 0x9E3779B97F4A7C15ull;
+            x ^= x >> 30;
+            x *= 0xBF58476D1CE4E5B9ull;
+            x ^= x >> 27;
+            x *= 0x94D049BB133111EBull;
+            x ^= x >> 31;
+            return x;
+        }
+
         // Build a CSR (offsets, targets [, weights]) from an unsorted edge list.
         // `weights` may be null when the caller does not care about edge kind.
         void BuildCSR(u32 nodeCount, const std::vector<Edge>& edges,
@@ -126,7 +141,7 @@ namespace OloEngine
         IndexByID.clear();
         IslandCount = 0;
         AliveCount = 0;
-        BuiltSceneCount = 0;
+        BuiltSignature = 0;
         Built = false;
         // m_NoAnchorWarned deliberately survives: it is keyed by a stable piece
         // UUID precisely so a rebuild does not re-report the same structure.
@@ -153,9 +168,11 @@ namespace OloEngine
         if (!scene)
             return;
 
-        const auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>();
-        const u32 sceneCount = static_cast<u32>(view.size());
-        if (Built && sceneCount == BuiltSceneCount)
+        u64 signature = 0;
+        for (auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>(); auto e : view)
+            signature += MixID(static_cast<u64>(Entity{ e, scene }.GetUUID()));
+
+        if (Built && signature == BuiltSignature)
             return;
 
         Rebuild(scene);
@@ -170,7 +187,7 @@ namespace OloEngine
             return;
 
         // ── Nodes ────────────────────────────────────────────────────────────
-        u32 sceneCount = 0;
+        u64 signature = 0;
         f32 maxContactMargin = kDefaultContactMargin;
         // Per-node contact slack. Local to the build: the pair test uses the more
         // generous of the two pieces' own margins, so a loosely built structure
@@ -180,8 +197,8 @@ namespace OloEngine
         bool truncated = false;
         for (auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>(); auto e : view)
         {
-            ++sceneCount;
             Entity entity{ e, scene };
+            signature += MixID(static_cast<u64>(entity.GetUUID()));
             const auto& node = entity.GetComponent<StructuralNodeComponent>();
 
             // Aliveness is derived from the piece's own state, never from the
@@ -227,7 +244,7 @@ namespace OloEngine
 
         const u32 nodeCount = static_cast<u32>(NodeIDs.size());
         AliveCount = nodeCount;
-        BuiltSceneCount = sceneCount;
+        BuiltSignature = signature;
         Built = true;
         ++TotalRebuilds;
 
@@ -251,22 +268,42 @@ namespace OloEngine
         // ── Adjacency ────────────────────────────────────────────────────────
         // A uniform hash over the piece centres. The cell size is the widest
         // query any piece will make, so every query sweeps at most 3x3x3 cells.
+        std::vector<f32> extentRadii;
+        extentRadii.reserve(nodeCount);
         f32 maxExtentRadius = 0.0f;
         for (const glm::vec3& he : HalfExtents)
-            maxExtentRadius = std::max(maxExtentRadius, glm::length(he));
+        {
+            extentRadii.push_back(glm::length(he));
+            maxExtentRadius = std::max(maxExtentRadius, extentRadii.back());
+        }
 
         // The pair test is per-axis, so the widest centre distance that can still
         // overlap is |he_i + he_j + margin*(1,1,1)| — the margin enters on the
         // diagonal, hence sqrt(3). Querying with only one margin would silently
         // drop corner-touching pairs.
-        const f32 queryRadius = 2.0f * maxExtentRadius + maxContactMargin * 1.7320509f;
+        const f32 marginReach = maxContactMargin * 1.7320509f;
+
+        // Size the cells from the TYPICAL piece, not the largest. Sizing them
+        // from the largest lets a single oversized piece — a ground slab modelled
+        // as a structural node, say — collapse the whole scene into a handful of
+        // cells, and the adjacency pass silently degenerates to O(N^2) on every
+        // rebuild, i.e. most ticks of a collapse. Each node then queries with its
+        // OWN radius, so a small piece sweeps a small neighbourhood and only the
+        // oversized one pays for being oversized.
+        std::vector<f32> sortedRadii(extentRadii);
+        std::nth_element(sortedRadii.begin(), sortedRadii.begin() + sortedRadii.size() / 2, sortedRadii.end());
+        const f32 medianExtentRadius = sortedRadii[sortedRadii.size() / 2];
+        const f32 cellSize = std::max(2.0f * medianExtentRadius + marginReach, FlockSpatialHash::kMinCellSize);
+
         FlockSpatialHash grid;
-        grid.Rebuild(Centers, std::max(queryRadius, FlockSpatialHash::kMinCellSize));
+        grid.Rebuild(Centers, cellSize);
 
         std::vector<Edge> supportPairs;    // (supporter, supported, lateral?)
         std::vector<Edge> undirectedEdges; // both directions, for islands
         for (u32 i = 0; i < nodeCount; ++i)
         {
+            // Tight per-node bound: nothing further than this can overlap node i.
+            const f32 queryRadius = extentRadii[i] + maxExtentRadius + marginReach;
             grid.ForEachInRadius(Centers[i], queryRadius,
                                  [&](u32 j, const glm::vec3&, f32)
                                  {
@@ -406,42 +443,50 @@ namespace OloEngine
             return;
         LastSolveIslands = static_cast<u32>(m_Islands.size());
 
+        // Scope, and check for anchors PER ISLAND. Summing anchors across every
+        // scoped island would let one anchored structure vouch for an unanchored
+        // one solved alongside it, so the unanchored one would collapse in
+        // silence — which is precisely the authoring mistake the warning exists
+        // to name.
         m_Queue.clear();
-        u32 anchorsInScope = 0;
-        u64 lowestScopedID = ~0ull;
         for (u32 island : m_Islands)
         {
+            u32 islandAlive = 0;
+            u32 islandAnchors = 0;
+            // Keyed over EVERY member, dead ones included, so the latch does not
+            // drift to a new key each time the collapse takes another piece.
+            u64 islandKey = ~0ull;
             for (u32 k = IslandNodeOffsets[island]; k < IslandNodeOffsets[island + 1]; ++k)
             {
                 const u32 i = IslandNodes[k];
+                islandKey = std::min(islandKey, static_cast<u64>(NodeIDs[i]));
                 if (!Alive[i])
                     continue;
                 m_ScopeStamp[i] = m_Stamp;
+                ++islandAlive;
                 ++LastSolveVisitedNodes;
-                lowestScopedID = std::min(lowestScopedID, static_cast<u64>(NodeIDs[i]));
                 if (Anchor[i])
                 {
-                    ++anchorsInScope;
+                    ++islandAnchors;
                     m_CostStamp[i] = m_Stamp;
                     m_Cost[i] = 0u;
                     m_Queue.push_back(i);
                 }
             }
+
+            if (islandAlive > 0 && islandAnchors == 0 && m_NoAnchorWarned.insert(islandKey).second)
+            {
+                // Loud and countable: an unanchored structure is an authoring
+                // mistake, and the whole-island collapse below is a consequence
+                // of it, not a solver bug.
+                OLO_CORE_WARN("StructuralGraph: a structure of {} pieces (lowest id {}) has no "
+                              "StructuralNodeComponent::m_Anchor left; every remaining piece is unsupported and "
+                              "will collapse",
+                              islandAlive, islandKey);
+            }
         }
         if (LastSolveVisitedNodes == 0)
             return;
-
-        if (anchorsInScope == 0 && m_NoAnchorWarned.insert(lowestScopedID).second)
-        {
-            // Loud and countable: an unanchored structure is an authoring
-            // mistake, and the whole-island collapse below is a consequence of
-            // it, not a solver bug. Latched on a stable member UUID so it says
-            // this once per structure, not once per rebuild.
-            OLO_CORE_WARN("StructuralGraph: a structure of {} pieces (lowest id {}) has no "
-                          "StructuralNodeComponent::m_Anchor left; every remaining piece is unsupported and will "
-                          "collapse",
-                          LastSolveVisitedNodes, lowestScopedID);
-        }
 
         // ── The support flood: 0-1 BFS over sideways cost ────────────────────
         // Vertical edges are free, same-course edges cost one step, and a piece

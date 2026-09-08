@@ -120,9 +120,13 @@ namespace OloEngine
 
         u32 IslandCount = 0;
         u32 AliveCount = 0;
-        // Structural-node entities the scene held when this graph was built. A
-        // mismatch is the (exact, O(1)) staleness test EnsureBuilt uses.
-        u32 BuiltSceneCount = 0;
+        // Order-independent fold over the UUIDs of every structural-node entity in
+        // the scene at build time. This, not a count, is EnsureBuilt's staleness
+        // test: a tick that destroys one piece and creates another leaves the count
+        // unchanged while the graph is thoroughly wrong — the dead piece still
+        // holding up its neighbours, the new one absent from IndexByID so a break
+        // on it seeds no island at all.
+        u64 BuiltSignature = 0;
         bool Built = false;
 
         // ── Statistics; the island-scoping contract is asserted against these ──
@@ -136,8 +140,10 @@ namespace OloEngine
         // Rebuild from every standing StructuralNodeComponent entity.
         void Rebuild(Scene* scene);
 
-        // Rebuild iff the scene's structural-node count no longer matches what
-        // was built. O(1) — an EnTT single-component view knows its own size.
+        // Rebuild iff the scene's set of structural-node entities has changed
+        // since the build. O(N) over a view this tick already walks, and unlike a
+        // count it cannot be fooled by a simultaneous create and destroy. A piece
+        // merely DETACHING does not change it — that is tracked in place.
         void EnsureBuilt(Scene* scene);
 
         // Index of `id`, or kInvalidIndex. Dead nodes still resolve — their

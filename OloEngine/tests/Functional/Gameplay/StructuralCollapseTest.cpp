@@ -29,6 +29,7 @@
 #include "OloEngine/Gameplay/Destruction/DestructibleSystem.h"
 #include "OloEngine/Gameplay/Destruction/StructuralGraph.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Scene/Entity.h"
 
 #include <glm/glm.hpp>
@@ -507,6 +508,83 @@ TEST_F(StructuralCollapseTest, APlainDestructibleIsUnaffectedByTheSolver)
 
     EXPECT_EQ(CountDebris(), 5u) << "a plain destructible must still shatter into exactly its chunk count";
     EXPECT_TRUE(IsIntact(neighbour)) << "a non-structural break must not propagate into the graph";
+}
+
+// The staleness test must key on WHICH pieces exist, not how many. A tick that
+// destroys one piece and creates another leaves the count unchanged while the
+// graph is thoroughly wrong: the destroyed piece still counted as holding up its
+// neighbours, and the new one absent from the index so a break on it seeds
+// nothing at all.
+TEST_F(StructuralCollapseTest, AddingAndRemovingAPieceInOneTickStillInvalidatesTheGraph)
+{
+    std::vector<UUID> column = MakeColumn(0.0f, 3, "C");
+    UUID doomed = MakeBlock(GetScene(), "Doomed", { 12.0f, 0.5f, 0.0f }, /*anchor=*/true);
+
+    RunFrames(1);
+    StructuralGraph& graph = GetScene().GetStructuralGraph();
+    ASSERT_EQ(graph.NodeIDs.size(), 4u);
+
+    // Destroy one piece and create another in the same tick — the scene's
+    // structural-node COUNT is unchanged across the pair.
+    GetScene().DestroyEntity(*Resolve(doomed));
+    std::vector<UUID> replacement = MakeColumn(20.0f, 1, "R");
+    RunFrames(1);
+
+    EXPECT_EQ(graph.Find(doomed), StructuralGraph::kInvalidIndex)
+        << "the destroyed piece must not survive in the graph as a load-bearing member";
+    EXPECT_NE(graph.Find(replacement[0]), StructuralGraph::kInvalidIndex)
+        << "the piece created in the same tick must be picked up";
+
+    // And the graph still works: the original column collapses normally.
+    ASSERT_TRUE(Damage(column[0], 500.0f));
+    RunFrames(8);
+    EXPECT_TRUE(HasLeftStructure(column[1]));
+    EXPECT_TRUE(HasLeftStructure(column[2]));
+}
+
+// The save-game serializer for StructuralNodeComponent is hand-written and
+// unguarded, and it carries the collapse state on purpose: a structure saved
+// half-down must reload half-down, with a piece already falling kept out of the
+// rebuilt support graph rather than restored as load-bearing.
+TEST_F(StructuralCollapseTest, CollapseStateSurvivesASaveGameRoundTrip)
+{
+    constexpr f32 kEps = 1e-4f;
+
+    Entity e = GetScene().CreateEntity("StructuralSaveGame");
+    auto& node = e.AddComponent<StructuralNodeComponent>();
+    node.m_Anchor = true;
+    node.m_ContactMargin = 0.22f;
+    node.m_MaxLateralSpan = 5;
+    node.m_CollapseDelay = 0.4f;
+    node.m_FallDuration = 2.5f;
+    node.m_ShatterOnCollapse = false;
+    node.m_State = StructuralState::Detaching;
+    node.m_CollapseHops = 3;
+    node.m_StateTimer = 1.6f; // == m_CollapseDelay * (hops + 1), what the solver sets
+
+    auto payload = SaveGameSerializer::CaptureSceneState(GetScene());
+    ASSERT_GT(payload.size(), 0u);
+
+    Ref<Scene> restored = Scene::Create();
+    restored->SetRenderingEnabled(false);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, payload));
+
+    Entity re = restored->FindEntityByName("StructuralSaveGame");
+    ASSERT_TRUE(re);
+    ASSERT_TRUE(re.HasComponent<StructuralNodeComponent>())
+        << "StructuralNodeComponent dropped by the save-game round-trip";
+
+    const auto& rn = re.GetComponent<StructuralNodeComponent>();
+    EXPECT_TRUE(rn.m_Anchor);
+    EXPECT_NEAR(rn.m_ContactMargin, 0.22f, kEps);
+    EXPECT_EQ(rn.m_MaxLateralSpan, 5u);
+    EXPECT_NEAR(rn.m_CollapseDelay, 0.4f, kEps);
+    EXPECT_NEAR(rn.m_FallDuration, 2.5f, kEps);
+    EXPECT_FALSE(rn.m_ShatterOnCollapse);
+    EXPECT_EQ(rn.m_State, StructuralState::Detaching) << "a half-collapsed structure must reload half-collapsed";
+    EXPECT_EQ(rn.m_CollapseHops, 3u);
+    EXPECT_NEAR(rn.m_StateTimer, 1.6f, kEps)
+        << "the restore clamp must bound the timer by what the runtime could have set, not by a flat ceiling";
 }
 
 // The graph is derived from the pieces standing right now, and rebuilding it

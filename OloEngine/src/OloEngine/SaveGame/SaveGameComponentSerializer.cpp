@@ -1608,7 +1608,6 @@ namespace OloEngine
             clampRange(c.m_ContactMargin, 0.0f, 10.0f);
             clampRange(c.m_CollapseDelay, 0.0f, 60.0f);
             clampRange(c.m_FallDuration, 0.0f, 60.0f);
-            clampRange(c.m_StateTimer, 0.0f, 60.0f);
             if (c.m_MaxLateralSpan > 64u)
                 c.m_MaxLateralSpan = 64u;
 
@@ -1616,6 +1615,16 @@ namespace OloEngine
             // straight into the collapse switch; refuse it and restore the piece
             // as intact rather than as an unknown fourth thing.
             c.m_State = (state <= static_cast<u8>(StructuralState::Collapsed)) ? static_cast<StructuralState>(state) : StructuralState::Stable;
+
+            // Bound the timer by what the RUNTIME could have put there for the
+            // state it is in — the Detaching delay is m_CollapseDelay per hop, so
+            // it has no fixed ceiling of its own and a flat clamp would quietly
+            // rewrite the collapse ordering this field exists to preserve.
+            const f32 ceiling = (c.m_State == StructuralState::Detaching)
+                                    ? c.m_CollapseDelay * static_cast<f32>(c.m_CollapseHops + 1u)
+                                    : ((c.m_State == StructuralState::Falling) ? c.m_FallDuration : 0.0f);
+            c.m_StateTimer = (!std::isfinite(c.m_StateTimer) || c.m_StateTimer < 0.0f) ? 0.0f
+                                                                                       : std::min(c.m_StateTimer, ceiling);
         }
     }
 

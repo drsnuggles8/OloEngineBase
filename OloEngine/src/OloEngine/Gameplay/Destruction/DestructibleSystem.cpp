@@ -153,6 +153,28 @@ namespace OloEngine
             return (std::isfinite(seconds) && seconds >= 0.0f) ? seconds : fallback;
         }
 
+        // Destroy every Jolt constraint anchored to `id`, in either direction.
+        // Field writes plus JoltScene bookkeeping only — no EnTT structural change
+        // — so this is safe inside the StructuralNodeComponent view walk.
+        void ReleaseConstraintsTouching(Scene* scene, JoltScene* physics, UUID id)
+        {
+            if (auto owner = scene->TryGetEntityWithUUID(id); owner && owner->HasComponent<PhysicsJoint3DComponent>())
+            {
+                physics->DestroyConstraint(*owner);
+                owner->GetComponent<PhysicsJoint3DComponent>().m_RuntimeConstraintToken = 0;
+            }
+
+            for (auto view = scene->GetAllEntitiesWith<PhysicsJoint3DComponent>(); auto e : view)
+            {
+                Entity jointOwner{ e, scene };
+                auto& joint = jointOwner.GetComponent<PhysicsJoint3DComponent>();
+                if (joint.m_ConnectedEntity != id || joint.m_RuntimeConstraintToken == 0)
+                    continue;
+                physics->DestroyConstraint(jointOwner);
+                joint.m_RuntimeConstraintToken = 0;
+            }
+        }
+
         // Hand a condemned piece to physics: it stops being part of the building
         // and starts being a falling object. Returns true if a rigidbody actually
         // took over — a piece with no body cannot fall, and shatters immediately
@@ -180,6 +202,17 @@ namespace OloEngine
                     // body instead: CreateBodySettings now sees the structural
                     // component and asks Jolt for a body that can move.
                     entity.GetComponent<Rigidbody3DComponent>().m_Type = BodyType3D::Dynamic;
+
+                    // Every constraint anchored to this body has to go with it: a
+                    // JPH::TwoBodyConstraint holds raw pointers to the bodies it
+                    // joins, and DestroyBody does not consult m_Constraints, so a
+                    // surviving joint would dereference a freed body on the next
+                    // physics tick. Both directions matter — the joint this piece
+                    // owns, and any joint on another entity that names it. A piece
+                    // coming down would break its joints anyway, so this is what
+                    // should happen, not merely what is safe.
+                    ReleaseConstraintsTouching(scene, physics, entity.GetUUID());
+
                     // Drop our own reference BEFORE the replacement exists.
                     // ~JoltBody removes the Jolt body and zeroes the entity's
                     // m_RuntimeBodyToken; if the old one is still referenced here
