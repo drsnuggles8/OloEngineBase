@@ -44,6 +44,16 @@ on:
         description: 'Run the Linux sanitizer jobs on GitHub-hosted ubuntu-24.04 even when the self-hosted box is enabled'
         type: boolean
         default: false
+      only:
+        # ONE SANITIZER PER DISPATCH, for a diagnosis loop. Every other job is
+        # skipped at its gate, so a TSan-only run on a warm cache is ~20 min and
+        # banks one sccache entry on the dispatching ref instead of four -- which
+        # matters on a branch, where nothing prunes those entries until the branch
+        # dies (#1111 was diagnosed this way). Default runs everything.
+        description: 'Run only this sanitizer job (and its shards)'
+        type: choice
+        options: [all, asan-lsan, ubsan, tsan, asan-windows]
+        default: all
 
 concurrency:
   # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
@@ -52,7 +62,9 @@ concurrency:
   # most one PENDING run and silently cancels the other. The first attempt at the
   # A/B lost its routed arm exactly this way and looked like an infrastructure
   # flake. Keyed on the input, the two arms are independent runs.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}
+  # `only` is in the key for the same reason `force_hosted` is (below): a TSan-only
+  # dispatch fired beside a full one on the same ref must not cancel it.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly is this workflow's only
@@ -254,7 +266,8 @@ jobs:
     # twice.
     name: ASan (Windows/clang-cl) build
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-windows') }}
     # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON (#1076) -- the same
     # expression, the same kill switch and the same fork boundary as Windows.yml's
     # `build` job, whose comment owns the reasoning. DEFAULT OFF: the variable is
@@ -1129,7 +1142,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-lsan') }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
     # expression as vulkan-off.yml, whose comment owns the security reasoning:
     # the fork boundary is `head.repo.full_name`, never a `pull_request_target`
@@ -1535,19 +1549,31 @@ jobs:
       # different resources (peak compiler RSS vs. peak instrumented-test RSS).
       run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
         # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
         # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
-        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
-        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
-        # could not be attributed to a single line of source because of this.
+        # Finding nothing, it does NOT print bare hex and move on -- it falls back to
+        # binutils `addr2line`, one process per test process, and addr2line reads the
+        # ENTIRE DWARF of the binary. For a Debug sanitizer build of OloEngine-Tests
+        # that is ~7.5 GB each. MEASURED on run 34160911722 (#1111): two of them at
+        # 7.2-8.0 GB with MemAvailable at 41 MiB, then `The runner has received a
+        # shutdown signal`. The test processes were at ~0.2 GB. Every hosted TSan run
+        # since the pin died this way, at the physics block, because that is where
+        # tsan.txt's suppressed Jolt races make TSan symbolize during PASSING tests.
         #
-        # setup-linux-build derives the path from the compiler it actually chose and
-        # warns if there is none; an empty value here leaves the variable effectively
-        # unset, which is the same behaviour as before rather than a new failure.
+        # ASAN_SYMBOLIZER_PATH alone did not prevent it: the same run had it set to
+        # the right path and still spawned addr2line -- the TSan runtime does not read
+        # that variable. `external_symbolizer_path` is the common-runtime flag every
+        # sanitizer honours, so it goes into each *_OPTIONS; the env var stays for
+        # ASan, which does read it.
+        #
+        # AN EMPTY VALUE DISABLES SYMBOLIZATION rather than falling back to addr2line
+        # ("External symbolizer is explicitly disabled"). That is the failure mode
+        # wanted here: a job whose toolchain cannot symbolize should print hex, not
+        # eat the VM. setup-linux-build already warns when it resolves nothing.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
-        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1:symbolize=1
+        ASAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:halt_on_error=1:detect_leaks=1:symbolize=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
@@ -1573,7 +1599,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
     # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
@@ -1892,19 +1919,31 @@ jobs:
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
       run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
         # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
         # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
-        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
-        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
-        # could not be attributed to a single line of source because of this.
+        # Finding nothing, it does NOT print bare hex and move on -- it falls back to
+        # binutils `addr2line`, one process per test process, and addr2line reads the
+        # ENTIRE DWARF of the binary. For a Debug sanitizer build of OloEngine-Tests
+        # that is ~7.5 GB each. MEASURED on run 34160911722 (#1111): two of them at
+        # 7.2-8.0 GB with MemAvailable at 41 MiB, then `The runner has received a
+        # shutdown signal`. The test processes were at ~0.2 GB. Every hosted TSan run
+        # since the pin died this way, at the physics block, because that is where
+        # tsan.txt's suppressed Jolt races make TSan symbolize during PASSING tests.
         #
-        # setup-linux-build derives the path from the compiler it actually chose and
-        # warns if there is none; an empty value here leaves the variable effectively
-        # unset, which is the same behaviour as before rather than a new failure.
+        # ASAN_SYMBOLIZER_PATH alone did not prevent it: the same run had it set to
+        # the right path and still spawned addr2line -- the TSan runtime does not read
+        # that variable. `external_symbolizer_path` is the common-runtime flag every
+        # sanitizer honours, so it goes into each *_OPTIONS; the env var stays for
+        # ASan, which does read it.
+        #
+        # AN EMPTY VALUE DISABLES SYMBOLIZATION rather than falling back to addr2line
+        # ("External symbolizer is explicitly disabled"). That is the failure mode
+        # wanted here: a job whose toolchain cannot symbolize should print hex, not
+        # eat the VM. setup-linux-build already warns when it resolves nothing.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
-        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:symbolize=1
+        UBSAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:halt_on_error=1:print_stacktrace=1:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Test report
@@ -1929,7 +1968,8 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+        && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'tsan') }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
     #
     # A cold sccache restore (concurrent runs evict each other under the 10 GB
@@ -2291,10 +2331,12 @@ jobs:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
         # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
-        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
-        # See the ASAN_SYMBOLIZER_PATH note in the ASan+LSan job: the variable is
-        # read by every sanitizer runtime, TSan included, and without it this job's
-        # race reports are unsymbolized too.
+        TSAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
+        # See the symbolizer note in the ASan+LSan job. The claim that used to sit
+        # here -- that ASAN_SYMBOLIZER_PATH "is read by every sanitizer runtime, TSan
+        # included" -- was measured false on run 34160911722: TSan ignored it and
+        # spawned addr2line. `external_symbolizer_path` in TSAN_OPTIONS above is
+        # what TSan reads; this variable is kept only so the two jobs look alike.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
@@ -2433,19 +2475,31 @@ jobs:
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
         # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
         # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
-        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
-        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
-        # could not be attributed to a single line of source because of this.
+        # Finding nothing, it does NOT print bare hex and move on -- it falls back to
+        # binutils `addr2line`, one process per test process, and addr2line reads the
+        # ENTIRE DWARF of the binary. For a Debug sanitizer build of OloEngine-Tests
+        # that is ~7.5 GB each. MEASURED on run 34160911722 (#1111): two of them at
+        # 7.2-8.0 GB with MemAvailable at 41 MiB, then `The runner has received a
+        # shutdown signal`. The test processes were at ~0.2 GB. Every hosted TSan run
+        # since the pin died this way, at the physics block, because that is where
+        # tsan.txt's suppressed Jolt races make TSan symbolize during PASSING tests.
         #
-        # setup-linux-build derives the path from the compiler it actually chose and
-        # warns if there is none; an empty value here leaves the variable effectively
-        # unset, which is the same behaviour as before rather than a new failure.
+        # ASAN_SYMBOLIZER_PATH alone did not prevent it: the same run had it set to
+        # the right path and still spawned addr2line -- the TSan runtime does not read
+        # that variable. `external_symbolizer_path` is the common-runtime flag every
+        # sanitizer honours, so it goes into each *_OPTIONS; the env var stays for
+        # ASan, which does read it.
+        #
+        # AN EMPTY VALUE DISABLES SYMBOLIZATION rather than falling back to addr2line
+        # ("External symbolizer is explicitly disabled"). That is the failure mode
+        # wanted here: a job whose toolchain cannot symbolize should print hex, not
+        # eat the VM. setup-linux-build already warns when it resolves nothing.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
-        ASAN_OPTIONS: halt_on_error=1:detect_leaks=1:symbolize=1
+        ASAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:halt_on_error=1:detect_leaks=1:symbolize=1
         LSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/lsan.txt:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
@@ -2652,19 +2706,31 @@ jobs:
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
-        # WITHOUT THIS EVERY SANITIZER TRACE IN THIS JOB IS BARE HEX (#1073 follow-up).
+        # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
         # The sanitizer runtime resolves `llvm-symbolizer` from PATH, and the pinned
         # LLVM prefix is deliberately kept OFF the system PATH (see setup-linux-build).
-        # It finds nothing, prints `Module+0xf12f658` frames, and exits normally -- no
-        # warning anywhere. Run 34108719319 reported four LSan leaks on master that
-        # could not be attributed to a single line of source because of this.
+        # Finding nothing, it does NOT print bare hex and move on -- it falls back to
+        # binutils `addr2line`, one process per test process, and addr2line reads the
+        # ENTIRE DWARF of the binary. For a Debug sanitizer build of OloEngine-Tests
+        # that is ~7.5 GB each. MEASURED on run 34160911722 (#1111): two of them at
+        # 7.2-8.0 GB with MemAvailable at 41 MiB, then `The runner has received a
+        # shutdown signal`. The test processes were at ~0.2 GB. Every hosted TSan run
+        # since the pin died this way, at the physics block, because that is where
+        # tsan.txt's suppressed Jolt races make TSan symbolize during PASSING tests.
         #
-        # setup-linux-build derives the path from the compiler it actually chose and
-        # warns if there is none; an empty value here leaves the variable effectively
-        # unset, which is the same behaviour as before rather than a new failure.
+        # ASAN_SYMBOLIZER_PATH alone did not prevent it: the same run had it set to
+        # the right path and still spawned addr2line -- the TSan runtime does not read
+        # that variable. `external_symbolizer_path` is the common-runtime flag every
+        # sanitizer honours, so it goes into each *_OPTIONS; the env var stays for
+        # ASan, which does read it.
+        #
+        # AN EMPTY VALUE DISABLES SYMBOLIZATION rather than falling back to addr2line
+        # ("External symbolizer is explicitly disabled"). That is the failure mode
+        # wanted here: a job whose toolchain cannot symbolize should print hex, not
+        # eat the VM. setup-linux-build already warns when it resolves nothing.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
-        UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:symbolize=1
+        UBSAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:halt_on_error=1:print_stacktrace=1:symbolize=1
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
     - name: Upload this shard's test results
@@ -2868,15 +2934,38 @@ jobs:
 
     - name: Run tests under TSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+      # A MEMORY SAMPLER STREAMS BESIDE CTEST, one line per 10 s (#1111). When the
+      # hosted VM is taken down under memory pressure the job ends with
+      # `The runner has received a shutdown signal` and NO `if: always()` step runs
+      # afterwards -- so anything that is going to explain the kill has to be in the
+      # log already. `MEM` lines carry MemAvailable and the three largest resident
+      # processes; the last one before the shutdown is the measurement. On a run
+      # that does not die they are ~90 lines of noise, which is the price.
+      run: |
+        set -uo pipefail
+        (
+          while sleep 10; do
+            printf 'MEM %s avail=%sMiB top:' "$(date -u +%H:%M:%S)" \
+              "$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)"
+            ps -eo rss=,comm= --sort=-rss | head -3 | awk '{printf " %s=%dMiB", $2, $1/1024}'
+            echo
+          done
+        ) &
+        sampler=$!
+        ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+        rc=$?
+        kill "$sampler" 2>/dev/null || true
+        exit "$rc"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
         # lock-ownership bookkeeping in JPH::Mutex/SharedMutex).
-        TSAN_OPTIONS: suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
-        # See the ASAN_SYMBOLIZER_PATH note in the ASan+LSan job: the variable is
-        # read by every sanitizer runtime, TSan included, and without it this job's
-        # race reports are unsymbolized too.
+        TSAN_OPTIONS: external_symbolizer_path=${{ steps.linux.outputs.symbolizer }}:suppressions=${{github.workspace}}/.github/sanitizer-suppressions/tsan.txt:halt_on_error=1:second_deadlock_stack=1:symbolize=1
+        # See the symbolizer note in the ASan+LSan job. The claim that used to sit
+        # here -- that ASAN_SYMBOLIZER_PATH "is read by every sanitizer runtime, TSan
+        # included" -- was measured false on run 34160911722: TSan ignored it and
+        # spawned addr2line. `external_symbolizer_path` in TSAN_OPTIONS above is
+        # what TSan reads; this variable is kept only so the two jobs look alike.
         ASAN_SYMBOLIZER_PATH: ${{ steps.linux.outputs.symbolizer }}
         GTEST_OUTPUT: xml:${{github.workspace}}/test_results/
 
