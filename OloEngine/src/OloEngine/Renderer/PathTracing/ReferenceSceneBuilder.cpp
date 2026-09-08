@@ -395,6 +395,41 @@ namespace OloEngine::PathTracing
         m_Lights.push_back(refLight);
     }
 
+    void ReferenceSceneBuilder::AddSphereAreaLight(const SphereAreaLightComponent& light, const glm::vec3& position)
+    {
+        if (m_Consumed)
+        {
+            OLO_CORE_ERROR("ReferenceSceneBuilder::AddSphereAreaLight on a consumed builder");
+            return;
+        }
+        if (!IsFinite(position) || !IsFinite(light.m_Color) || !std::isfinite(light.m_Intensity) ||
+            !std::isfinite(light.m_Radius) || !std::isfinite(light.m_Range))
+        {
+            OLO_CORE_WARN("ReferenceSceneBuilder::AddSphereAreaLight: non-finite position {}, color {}, intensity {}, "
+                          "radius {}, or range {} — light skipped",
+                          position, light.m_Color, light.m_Intensity, light.m_Radius, light.m_Range);
+            return;
+        }
+        if (!(light.m_Intensity > 0.0f) || !(light.m_Radius > 0.0f))
+        {
+            return;
+        }
+
+        // The sphere-light packing the GPU Scene record carries: position and
+        // range, radius, colour and intensity — the lanes PathTracer.cpp's
+        // ViewSphereLight and the shader's twin read.
+        ReferenceLight refLight;
+        refLight.Type = ReferenceLightType::SphereArea;
+        refLight.Position = position;
+        refLight.Color = light.m_Color;
+        refLight.Intensity = light.m_Intensity;
+        refLight.Radius = light.m_Radius;
+        refLight.AttenuationParams = glm::vec4(1.0f, 0.0f, 0.0f, light.m_Range);
+        refLight.Direction = glm::vec3(0.0f, -1.0f, 0.0f);
+        refLight.SpotParams = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        m_Lights.push_back(refLight);
+    }
+
     void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position)
     {
         if (m_Consumed)
@@ -605,6 +640,9 @@ namespace OloEngine::PathTracing
             addLightsOfType(std::type_identity<SpotLightComponent>{},
                             [this](const SpotLightComponent& light, const glm::vec3& position)
                             { AddSpotLight(light, position); });
+            addLightsOfType(std::type_identity<SphereAreaLightComponent>{},
+                            [this](const SphereAreaLightComponent& light, const glm::vec3& position)
+                            { AddSphereAreaLight(light, position); });
         }
     }
 

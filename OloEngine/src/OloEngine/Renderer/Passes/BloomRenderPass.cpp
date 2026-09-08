@@ -40,6 +40,9 @@ namespace OloEngine
                 // both here is a two-way lookup, not a precedence decision.
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::FSR2Color, ResourceNames::FSR2ColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::EASUColor, ResourceNames::EASUColorTexture),
+                // The GPU path tracer (#1055) replaces the raster chain below
+                // it; the upscalers above consume it when they run.
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PathTracerColor, ResourceNames::PathTracerColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ContactShadowColor, ResourceNames::ContactShadowColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSRColor, ResourceNames::SSRColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::RTReflectionColor, ResourceNames::RTReflectionColorTexture),

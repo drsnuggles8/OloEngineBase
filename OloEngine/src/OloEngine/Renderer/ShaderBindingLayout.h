@@ -582,6 +582,47 @@ namespace OloEngine
         static_assert(sizeof(RayTracingReflectionUBO) == 320,
                       "RayTracingReflectionUBO std140 size drifted from the GLSL RayTracingReflectionParams block (320 B)");
 
+        // @brief GPU reference path tracer parameters (issue #1055), uploaded at
+        // UBO_RAY_TRACING (65). GLSL twin: the RayTracingPathTracerParams block
+        // in GpuPathTracer.glsl.
+        //
+        // The fourth block on binding 65, under the same rules as the other
+        // three: the pass rebinds its own buffer before its own draw, and the
+        // shader declares no VSM sampler (65 is also TEX_VSM_PHYSICAL).
+        //
+        // Two device addresses travel here — the TLAS and the pass-owned
+        // emissive-triangle table, which has no binding slot to live in — and
+        // the GPU Scene tables come from their canonical SSBO bindings, for the
+        // reason RayTracingReflectionUBO's note gives. InvViewProjection is
+        // inverse(P * V) in the engine's GL clip convention, deliberately not
+        // the backend-adjusted inverse: the shader derives its primary rays
+        // from the CPU film's pixel index, not from a backend texture
+        // coordinate, so the CPU reference camera's matrix is the right one on
+        // both backends (GpuPathTracer.glsl's GenerateRay).
+        struct RayTracingPathTracerUBO
+        {
+            glm::mat4 InvViewProjection; //   0 — clip -> render-relative world, GL clip convention
+            glm::vec4 CameraPosition;    //  64 — xyz render-relative eye, w unused
+            glm::uvec4 TlasAddress;      //  80 — xy = TLAS device address, z = instance mask, w = sampler seed
+            glm::uvec4 SlotCounts;       //  96 — x = instance, y = geometry, z = material, w = light slots
+            glm::uvec4 EmissiveTable;    // 112 — xy = table device address, z = triangle count, w = flags
+            glm::uvec4 PathParams;       // 128 — x = max bounces, y = RR start, z = samples/frame, w = max samples
+            glm::vec4 RayParams;         // 144 — x = ray epsilon, y = radiance clamp, z = max ray distance, w = env cube intensity
+            glm::vec4 Environment;       // 160 — rgb = uniform environment radiance, a = emissive area pdf
+            glm::vec4 ScreenParams;      // 176 — x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 DebugParams;       // 192 — x = debug view, y = sample-count scale, z = variance scale, w pad
+            glm::uvec4 MaterialTable;    // 208 — xy = material texture table device address, z = record count, w = sampler heap byte offset
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(RayTracingPathTracerUBO);
+            }
+        };
+        static_assert(sizeof(RayTracingPathTracerUBO) % 16 == 0,
+                      "RayTracingPathTracerUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(RayTracingPathTracerUBO) == 224,
+                      "RayTracingPathTracerUBO std140 size drifted from the GLSL RayTracingPathTracerParams block (224 B)");
+
         // @brief Decal projection parameters
         struct DecalUBO
         {
@@ -3476,6 +3517,10 @@ namespace OloEngine
                            name == "u_FirstMomentsHistory" ||
                            // Slot 3 is reused as the fog-history input slot for the fog pass.
                            name == "u_FogHistory" ||
+                           // GPU path tracer (issue #1055): last frame's first-hit
+                           // albedo sum. Pass-local fullscreen reuse with no
+                           // material bound, like the entries around it.
+                           name == "u_PathTracerAlbedoHistory" ||
                            // Compute dispatch pass-local reuse (issue #627).
                            name == "u_HZBDepth" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).

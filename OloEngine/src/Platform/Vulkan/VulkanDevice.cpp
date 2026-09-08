@@ -383,6 +383,7 @@ namespace OloEngine
         {
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties(m_PhysicalDevice, &properties);
+            m_MaxSamplerAnisotropy = properties.limits.maxSamplerAnisotropy;
             OLO_CORE_INFO("[Vulkan] Device: {} (driver {}.{}.{}, API {}.{}.{})", properties.deviceName,
                           VK_API_VERSION_MAJOR(properties.driverVersion), VK_API_VERSION_MINOR(properties.driverVersion),
                           VK_API_VERSION_PATCH(properties.driverVersion), VK_API_VERSION_MAJOR(properties.apiVersion),
@@ -643,6 +644,13 @@ namespace OloEngine
         // mode matrix's per-RT colour masks). Enabled when supported, never a
         // gate row (#691).
         enabledFeatures.independentBlend = supported.independentBlend;
+        // samplerAnisotropy: a VkSamplerCreateInfo with anisotropyEnable
+        // needs the feature (VUID-VkSamplerCreateInfo-anisotropyEnable-01070)
+        // and a maxAnisotropy within the device limit (-01071); the sampler
+        // heap reads both from here and files an isotropic sampler when the
+        // feature is off. When-supported, never a gate row.
+        enabledFeatures.samplerAnisotropy = supported.samplerAnisotropy;
+        m_SamplerAnisotropyEnabled = supported.samplerAnisotropy == VK_TRUE;
         m_TessellationShaderEnabled = supported.tessellationShader == VK_TRUE;
         m_GeometryShaderEnabled = supported.geometryShader == VK_TRUE;
         m_MultiDrawIndirectEnabled = supported.multiDrawIndirect == VK_TRUE;
@@ -692,6 +700,12 @@ namespace OloEngine
             supportedAtomics.shaderBufferInt64Atomics == VK_TRUE && supported.shaderInt64 == VK_TRUE;
         vulkan12Features.drawIndirectCount = supported12.drawIndirectCount;
         m_DrawIndirectCountEnabled = supported12.drawIndirectCount == VK_TRUE;
+        // Divergent descriptor-heap indices (a ray-query hit's material,
+        // amendment (95)) carry the NonUniform decoration; both array kinds
+        // the heap arrays can be, gated like drawIndirectCount.
+        vulkan12Features.shaderSampledImageArrayNonUniformIndexing = supported12.shaderSampledImageArrayNonUniformIndexing;
+        vulkan12Features.shaderStorageImageArrayNonUniformIndexing = supported12.shaderStorageImageArrayNonUniformIndexing;
+        m_SampledImageNonUniformIndexingEnabled = supported12.shaderSampledImageArrayNonUniformIndexing == VK_TRUE;
         vulkan11Features.shaderDrawParameters = supported11.shaderDrawParameters;
         m_ShaderDrawParametersEnabled = supported11.shaderDrawParameters == VK_TRUE;
 

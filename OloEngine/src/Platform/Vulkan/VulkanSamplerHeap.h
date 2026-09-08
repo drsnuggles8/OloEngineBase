@@ -30,6 +30,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "OloEngine/Renderer/RHI/RHIResources.h"
 
 #include <mutex>
 #include <shared_mutex>
@@ -63,6 +64,15 @@ namespace OloEngine
         // VulkanPipelineBuilder's old DefaultEmbeddedSampler duplicated it
         // until the embedded-sampler path retired (#691).
         [[nodiscard]] static VkSamplerCreateInfo DefaultSamplerInfo();
+
+        // The engine's SamplerDesc as a VkSamplerCreateInfo — filters, mip
+        // filter, addressing, compare (Never = disabled), anisotropy, border.
+        // ONE conversion: the draw path (VulkanRendererAPI::BindTexture) and
+        // the shader-side heap resolver (VulkanDescriptorHeapBackend) both
+        // mint from it, so a sampler state cannot mean two things. Integer
+        // formats need NEAREST filters on top; that is the caller's business
+        // because it depends on the image, not the desc.
+        [[nodiscard]] static VkSamplerCreateInfo CreateInfoFromDesc(const RHI::SamplerDesc& desc);
 
         // Record the heap bind. Must run before any draw whose pipeline
         // sources sampler descriptors from the heap; re-recorded per command

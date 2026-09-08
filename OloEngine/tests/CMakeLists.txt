@@ -176,6 +176,10 @@ add_executable(OloEngine-Tests
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
 		Rendering/PathTracing/PathTracerCornellBoxTest.cpp
 		Rendering/PathTracing/ReferenceSceneBuilderTest.cpp
+		# #1055: the GPU reference path tracer's headless half — the emissive
+		# table against the reference emitter set, the accumulation-restart
+		# rules, and the vertex layout the ray-query helpers hard-code.
+		Rendering/PathTracing/GpuPathTracerContractTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapAtlasPagingTest.cpp
@@ -349,6 +353,11 @@ add_executable(OloEngine-Tests
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
+		# #1055: the GPU reference path tracer against the CPU reference on a
+		# real ray-tracing device — the same Cornell box for both, region means
+		# within a stated budget, determinism and progressive accumulation
+		# demonstrated on the device. Same SKIP ladder as the tenant above.
+		Rendering/PathTracing/GpuPathTracerDeviceParityTest.cpp
 		# #1056 hybrid ray-traced soft shadows. The technique SELECTION and its
 		# fallback counters are backend-neutral and run everywhere; the rendered
 		# mask is checked by the GPU visual-evidence tenant beside it, which skips
@@ -359,6 +368,10 @@ add_executable(OloEngine-Tests
 		# every rendered-frame check in this repo happens to sit.
 		Rendering/Shadow/RayTracedShadowSpaceTest.cpp
 		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
+		# #1055: the GPU path tracer on a device that cannot trace — the path
+		# every CI runner takes. Drives the real pipeline on the GL fixture and
+		# demonstrates a byte-identical frame plus a named reason.
+		Rendering/PropertyTests/GpuPathTracerFallbackTest.cpp
 		# #691 Phase 4: the --rhi= / config-file backend-selection chain (headless).
 		Rendering/BackendSelectionTest.cpp
 		# Coordinate math of GPUResourceInspector::CaptureTexturePng's `region`
@@ -420,6 +433,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PathTracing/ReferenceBRDFGpuParityTest.cpp
 		Rendering/PathTracing/ClosureV2GpuParityTest.cpp
+		# #1055: the two device-pinned twins the GPU path tracer draws through —
+		# the v2 closure's SAMPLE and the Sobol'-Owen sampler.
+		Rendering/PathTracing/ClosureV2SampleGpuParityTest.cpp
+		Rendering/PathTracing/PathTracerSamplerParityTest.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp

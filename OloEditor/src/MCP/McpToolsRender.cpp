@@ -59,6 +59,8 @@
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -313,6 +315,8 @@ namespace OloEngine::MCP
                     return "Cloudscape";
                 case TemporalHistoryEffect::RayTracedShadow:
                     return "RayTracedShadow";
+                case TemporalHistoryEffect::PathTracer:
+                    return "PathTracer";
             }
             return "Unknown";
         }
@@ -335,6 +339,8 @@ namespace OloEngine::MCP
                     return "MomentsSecond";
                 case TemporalHistoryPlane::Diagnostics:
                     return "Diagnostics";
+                case TemporalHistoryPlane::Albedo:
+                    return "Albedo";
             }
             return "Unknown";
         }
@@ -399,6 +405,8 @@ namespace OloEngine::MCP
                     return "CopyFailed";
                 case TemporalHistoryInvalidationCause::Manual:
                     return "Manual";
+                case TemporalHistoryInvalidationCause::SceneMutated:
+                    return "SceneMutated";
             }
             return "Unknown";
         }
@@ -6153,6 +6161,82 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // The GPU reference path tracer's counters (issue #1055), the MCP twin
+        // of the Post-Process panel's stats block. Read like the other
+        // previous-frame stats: the pass fills GpuPathTracerStats while it
+        // runs, so the payload describes the last completed frame, and a
+        // disabled pass may not execute at all — the status says which.
+        Json BuildGpuPathTracerStatsReport()
+        {
+            Json report = Json::object();
+            const GpuPathTracerPass* pass = Renderer3D::HasInitialized() ? Renderer3D::GetGpuPathTracerPass() : nullptr;
+            const bool available = pass != nullptr;
+            const GpuPathTracerSettings settings =
+                available ? Renderer3D::GetPostProcessSettings().GpuPathTracer : GpuPathTracerSettings{};
+            const bool enabled = available && settings.Enabled;
+
+            Json availability = Json::object();
+            availability["available"] = available;
+            availability["enabled"] = enabled;
+            if (!available)
+            {
+                availability["active"] = false;
+                availability["status"] = "unavailable";
+                availability["fallbackReason"] = "the renderer is not up";
+                report["availability"] = std::move(availability);
+                return report;
+            }
+
+            const GpuPathTracerStats& stats = pass->GetStats();
+            availability["active"] = stats.Active;
+            availability["status"] = !enabled ? "disabled" : (stats.Active ? "active" : "fallback");
+            availability["fallbackReason"] = stats.Active ? std::string("none") : std::string(ToString(stats.Fallback));
+            report["availability"] = std::move(availability);
+
+            report["freshness"] = Json{ { "model", "previousFrame" }, { "stale", !stats.Active } };
+
+            report["accumulation"] = Json{
+                { "historyValid", stats.HistoryValid },
+                { "accumulatedSamplesPerPixel", stats.AccumulatedSamplesPerPixel },
+                { "samplesTracedThisFrame", stats.SamplesTracedThisFrame },
+                { "consecutiveRestarts", stats.ConsecutiveRestarts },
+                { "raysDispatchedUpperBound", stats.RaysDispatchedUpperBound },
+            };
+            report["lights"] = Json{
+                { "emissiveTriangles", stats.EmissiveTriangles },
+                { "emissiveTotalArea", stats.EmissiveTotalArea },
+                { "emissiveTableUnaddressable", stats.EmissiveTableUnaddressable },
+                { "punctualLights", stats.PunctualLights },
+                { "punctualLightsBeyondShaderBound", stats.PunctualLightsBeyondShaderBound },
+                { "sphereAreaLights", stats.SphereAreaLights },
+            };
+            report["materials"] = Json{
+                { "legacyMaterials", stats.LegacyMaterials },
+                { "texturesAvailable", stats.TexturesAvailable },
+                { "hitsShadedUntextured", stats.HitsShadedUntextured },
+                { "maskedGeometryTracedAsSolid", stats.MaskedGeometryTracedAsSolid },
+                { "materialTexturesUnresolved", stats.MaterialTexturesUnresolved },
+            };
+            report["settings"] = Json{
+                { "samplesPerFrame", settings.SamplesPerFrame },
+                { "maxSamples", settings.MaxSamples },
+                { "maxBounces", settings.MaxBounces },
+                { "russianRouletteStartBounce", settings.RussianRouletteStartBounce },
+                { "nextEventEstimation", settings.EnableNextEventEstimation },
+                { "sampleTextures", settings.SampleTextures },
+                { "maxRadianceClamp", settings.MaxRadianceClamp },
+                { "debugView", std::string(ToString(settings.DebugView)) },
+            };
+            return report;
+        }
+
+        ToolResult Handle_GpuPathTracerStats(McpServer& server, const Json& /*args*/)
+        {
+            const Json result = server.MarshalRead([]() -> Json
+                                                   { return BuildGpuPathTracerStatsReport(); });
+            return ToolResult::Structured(result);
+        }
+
         Json BuildDDGIProbeStatsReport()
         {
             DDGIProbeStats::Snapshot snapshot;
@@ -8046,6 +8130,73 @@ namespace OloEngine::MCP
                     .Required({ "availability", "freshness", "capability", "gpuScene" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
+            server.RegisterTool(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_pathtracer_stats";
+            tool.Toolset = "render";
+            tool.Title = "GPU path tracer statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the GPU reference path tracer's counters for the last completed frame (issue #1055): "
+                "whether it is active and, when it is not, WHY ('status' distinguishes 'unavailable' — no "
+                "renderer — from 'disabled' and from 'fallback', where the pass is switched on but standing down "
+                "for the reason named); the accumulation state (samples per pixel before this frame, samples "
+                "added, consecutive restarts — a climbing count means something invalidates every frame and the "
+                "image can never converge); the scene as the tracer saw it (emissive triangles and area, punctual "
+                "and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials); the "
+                "texture path (whether hits shade from the material maps, and the counted limits where they do "
+                "not); and the settings the frame ran with. Read it before trusting a traced frame as ground "
+                "truth: 'hitsShadedUntextured', 'maskedGeometryTracedAsSolid', 'punctualLightsBeyondShaderBound' "
+                "and 'emissiveTableUnaddressable' each name a term the frame is missing.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability", Schema::Object()
+                                              .Prop("available", Schema::Bool())
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("active", Schema::Bool())
+                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "fallback", "active" }))
+                                              .Prop("fallbackReason", Schema::String().Desc("GpuPathTracerFallbackReason as text; 'none' while active."))
+                                              .Required({ "available", "enabled", "active", "status", "fallbackReason" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                           .Prop("stale", Schema::Bool().Desc("True while the pass is not active: the counters then describe the last frame it ran."))
+                                           .Required({ "model", "stale" }))
+                    .Prop("accumulation", Schema::Object()
+                                              .Prop("historyValid", Schema::Bool())
+                                              .Prop("accumulatedSamplesPerPixel", Schema::Int().Min(0).Desc("Before this frame's samples were added; 0 right after an invalidation."))
+                                              .Prop("samplesTracedThisFrame", Schema::Int().Min(0).Desc("0 once MaxSamples is reached: the frame passes the converged image through."))
+                                              .Prop("consecutiveRestarts", Schema::Int().Min(0))
+                                              .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
+                                              .Required({ "historyValid", "accumulatedSamplesPerPixel", "samplesTracedThisFrame", "consecutiveRestarts" }))
+                    .Prop("lights", Schema::Object()
+                                        .Prop("emissiveTriangles", Schema::Int().Min(0))
+                                        .Prop("emissiveTotalArea", Schema::Number().Min(0))
+                                        .Prop("emissiveTableUnaddressable", Schema::Bool())
+                                        .Prop("punctualLights", Schema::Int().Min(0))
+                                        .Prop("punctualLightsBeyondShaderBound", Schema::Int().Min(0))
+                                        .Prop("sphereAreaLights", Schema::Int().Min(0)))
+                    .Prop("materials", Schema::Object()
+                                           .Prop("legacyMaterials", Schema::Int().Min(0))
+                                           .Prop("texturesAvailable", Schema::Bool())
+                                           .Prop("hitsShadedUntextured", Schema::Bool())
+                                           .Prop("maskedGeometryTracedAsSolid", Schema::Bool())
+                                           .Prop("materialTexturesUnresolved", Schema::Int().Min(0)))
+                    .Prop("settings", Schema::Object()
+                                          .Prop("samplesPerFrame", Schema::Int().Min(1))
+                                          .Prop("maxSamples", Schema::Int().Min(0))
+                                          .Prop("maxBounces", Schema::Int().Min(1))
+                                          .Prop("russianRouletteStartBounce", Schema::Int().Min(0))
+                                          .Prop("nextEventEstimation", Schema::Bool())
+                                          .Prop("sampleTextures", Schema::Bool())
+                                          .Prop("maxRadianceClamp", Schema::Number().Min(0))
+                                          .Prop("debugView", Schema::String()))
+                    .Required({ "availability" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_GpuPathTracerStats;
             server.RegisterTool(std::move(tool));
         }
 

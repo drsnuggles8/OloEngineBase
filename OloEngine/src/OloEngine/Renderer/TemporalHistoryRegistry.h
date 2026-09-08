@@ -21,6 +21,7 @@ namespace OloEngine
         SSR,
         Cloudscape,
         RayTracedShadow, ///< Hybrid ray-traced shadow visibility mask (issue #1056)
+        PathTracer,      ///< GPU reference path tracer's progressive accumulation (issue #1055)
     };
 
     enum class TemporalHistoryPlane : u8
@@ -32,6 +33,7 @@ namespace OloEngine
         MomentsFirst,
         MomentsSecond,
         Diagnostics,
+        Albedo, ///< First-hit albedo AOV accumulation (issue #1055)
     };
 
     enum class TemporalHistoryResolution : u8
@@ -93,6 +95,12 @@ namespace OloEngine
         Backend = 1u << 5u,
         FeatureState = 1u << 6u,
         Jitter = 1u << 7u,
+        // The scene's CONTENT changed under a still camera: a GPU Scene record
+        // (an instance transform, a material factor, a light, the environment)
+        // committed with different bytes. Declared only by a history that
+        // cannot reproject (the path tracer's accumulation); a reprojecting
+        // history survives a moving object by design and does not declare it.
+        SceneContent = 1u << 8u,
     };
 
     [[nodiscard]] constexpr TemporalHistoryDependency operator|(
@@ -122,6 +130,12 @@ namespace OloEngine
         JitterReset,
         CopyFailed,
         Manual,
+        // A record in the GPU Scene changed this frame (an instance moved, a
+        // material factor was edited, a light changed) without the scene being
+        // reloaded. Maps to the SceneContent dependency, which only a history
+        // that cannot reproject declares — a reprojecting history survives a
+        // moving object by design (issue #1055).
+        SceneMutated,
     };
 
     struct TemporalHistoryToken

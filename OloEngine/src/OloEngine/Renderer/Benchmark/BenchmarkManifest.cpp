@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/YAMLConverters.h"
+#include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 
 #include <yaml-cpp/yaml.h>
 
@@ -325,7 +326,8 @@ namespace OloEngine::Benchmark
         {
             RequireKnownKeys(rs,
                              { "Path", "EnableDDGI", "DepthPrepassEnabled", "OcclusionCullingEnabled",
-                               "HZBOcclusionCullingEnabled", "TAAEnabled" },
+                               "HZBOcclusionCullingEnabled", "TAAEnabled", "GpuPathTracerEnabled",
+                               "GpuPathTracerSamplesPerFrame" },
                              "RendererSettings", errors);
             if (rs["Path"])
             {
@@ -367,6 +369,35 @@ namespace OloEngine::Benchmark
             if (rs["TAAEnabled"])
             {
                 manifest.RendererSettings.TAAEnabled = rs["TAAEnabled"].as<bool>(false);
+            }
+            if (rs["GpuPathTracerEnabled"])
+            {
+                // Decoded explicitly: `as<bool>(false)` would turn a typo
+                // ("ture", a number) into a silently disabled tracer, and a
+                // benchmark that meant to measure it would measure the raster.
+                bool enabled = false;
+                if (!rs["GpuPathTracerEnabled"].IsScalar() ||
+                    !YAML::convert<bool>::decode(rs["GpuPathTracerEnabled"], enabled))
+                {
+                    errors.Add("RendererSettings.GpuPathTracerEnabled must be true or false");
+                }
+                else
+                {
+                    manifest.RendererSettings.GpuPathTracerEnabled = enabled;
+                }
+            }
+            if (rs["GpuPathTracerSamplesPerFrame"])
+            {
+                const auto samples = rs["GpuPathTracerSamplesPerFrame"].as<i64>(0);
+                if (samples < 1 || samples > static_cast<i64>(kGpuPathTracerMaxSamplesPerFrame))
+                {
+                    errors.Add("RendererSettings.GpuPathTracerSamplesPerFrame must be in [1, " +
+                               std::to_string(kGpuPathTracerMaxSamplesPerFrame) + "]");
+                }
+                else
+                {
+                    manifest.RendererSettings.GpuPathTracerSamplesPerFrame = static_cast<u32>(samples);
+                }
             }
         }
 

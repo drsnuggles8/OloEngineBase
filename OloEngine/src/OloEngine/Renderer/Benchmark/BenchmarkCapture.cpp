@@ -386,6 +386,14 @@ namespace OloEngine::Benchmark
         {
             postProcess.TAAEnabled = *wanted.TAAEnabled;
         }
+        if (wanted.GpuPathTracerEnabled)
+        {
+            postProcess.GpuPathTracer.Enabled = *wanted.GpuPathTracerEnabled;
+        }
+        if (wanted.GpuPathTracerSamplesPerFrame)
+        {
+            postProcess.GpuPathTracer.SamplesPerFrame = *wanted.GpuPathTracerSamplesPerFrame;
+        }
         // The one setting a capture PINS regardless of the scene: FSR2's
         // temporal locks decay on REAL elapsed time by contract (see
         // RenderPipeline.cpp), so any upscaler makes a mock-clock capture

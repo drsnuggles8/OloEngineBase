@@ -54,6 +54,9 @@ namespace OloEngine
         RenderGraphNode* RayTracedReflection = nullptr;
         RenderGraphNode* SSR = nullptr;
         RenderGraphNode* ContactShadow = nullptr;
+        // The GPU reference path tracer (#1055). Registered after the
+        // screen-space chain and before the upscalers.
+        RenderGraphNode* GpuPathTracer = nullptr;
         RenderGraphNode* EASU = nullptr;
         RenderGraphNode* FSR2 = nullptr;
         RenderGraphNode* DepthVelocityUpscale = nullptr;

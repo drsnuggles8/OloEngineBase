@@ -216,8 +216,36 @@ namespace OloEngine
         if (s_Data.GPUSceneExtractionActive)
         {
             ExtractGPUSceneEnvironment();
-            (void)s_Data.SceneGPU.EndExtraction();
+            const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
+            // The path tracer's tables (#1055), committed right after the
+            // records they resolve against and before any pass can read them:
+            // the material texture table first (the emissive table reads an
+            // emitter's map offset from it), then the area-light table.
+            s_Data.PathTracerMaterialTextures.EndFrame(s_Data.SceneGPU);
+            s_Data.PathTracerEmissive.EndFrame(s_Data.SceneGPU, s_Data.PathTracerMaterialTextures);
+            // A DIRTY RECORD IS A SCENE MUTATION. RecordTable::Commit marks a
+            // slot dirty only when its bytes changed (or it is new), so any
+            // non-empty range after commit means something the tracer shades —
+            // an instance transform, a material factor, a light, the
+            // environment — is not what last frame's samples saw, and an
+            // accumulation that kept summing would converge to a mixture of
+            // two scenes. Unscoped: the cause maps to the SceneContent
+            // dependency, which only a history that cannot reproject declares
+            // (the path tracer's planes); TAA, SSR and SSGI survive a moving
+            // object by design and do not declare it.
+            // The path tracer's two by-address tables are part of the same
+            // integrand: a map that resolves a frame late changes what every
+            // hit shades with, and a table whose upload failed turns a term off,
+            // neither with a dirty range of its own.
+            if (s_Data.RGraph &&
+                (!frameUpdate.m_InstanceDirtyRanges.empty() || !frameUpdate.m_GeometryDirtyRanges.empty() ||
+                 !frameUpdate.m_MaterialDirtyRanges.empty() || !frameUpdate.m_LightDirtyRanges.empty() ||
+                 !frameUpdate.m_EnvironmentDirtyRanges.empty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
+                 s_Data.PathTracerEmissive.ChangedThisFrame()))
+            {
+                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
+            }
             // The commit-to-consumer step (issue #994): slots and generations
             // are final here, so every draw link staged during submission is
             // turned into the record it names, once, before any pass can read

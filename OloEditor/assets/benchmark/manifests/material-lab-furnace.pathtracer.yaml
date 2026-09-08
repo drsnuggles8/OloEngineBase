@@ -1,0 +1,102 @@
+# Material laboratory WHITE FURNACE through the GPU reference path tracer —
+# Product DIAGNOSTIC capture (issue #1055, #979 Phase 2).
+# Schema: docs/guides/renderer-benchmarks.md "Capture manifest schema (v1)".
+#
+# The same furnace scene as material-lab-furnace.golden.yaml, rendered by the
+# progressive ray-query path tracer instead of the raster chain, with its
+# accumulation and AOV planes captured as float images:
+#
+#   Beauty            the tonemapped composite the viewport shows
+#   Radiance          PathTracerAccum — rgb = radiance SUM, a = SAMPLE COUNT;
+#                     divide rgb by a for the mean. The furnace reading: an
+#                     energy-conserving material converges to the sky's
+#                     radiance, darker is losing energy, brighter is gaining
+#   Albedo            PathTracerAlbedo — first-hit albedo sum, a = hit count
+#   Normal            PathTracerNormal — first-hit shading-normal sum
+#   Variance          PathTracerVariance — per-channel variance of the mean
+#   SampleCount       PathTracerAccum's alpha, on its own
+#
+# The warm-up frames ARE the accumulation: Warmup.Frames x
+# GpuPathTracerSamplesPerFrame samples per pixel land in the capture, with the
+# mock clock stepping so nothing decays. Vulkan only — the tracer needs a
+# ray-tracing device, and the OpenGL front door would capture the raster
+# fallback instead of the thing this manifest is about. Run it through the
+# editor's olo_benchmark_capture under --rhi=vulkan; it is a diagnostic, not a
+# gate, and CI never runs it (no runner has an RT device).
+ManifestVersion: 1
+Id: material-lab-furnace-pathtracer
+Product: diagnostic
+Scene: Scenes/Benchmark/MaterialLabFurnace.olo
+
+Backends:
+  Supported: [vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+# Same pose as material-lab-furnace.golden.yaml, so the two captures are the
+# raster and the reference of ONE view.
+Camera:
+  Id: furnace
+  Position: [0.0, 9.0, 16.0]
+  YawDegrees: 0.0
+  PitchDegrees: 31.5
+  FovDegrees: 45.0
+  Near: 0.05
+  Far: 300.0
+
+Output:
+  Resolution: [1280, 720]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: false
+  GpuPathTracerEnabled: true
+  GpuPathTracerSamplesPerFrame: 4
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 974
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+# 64 frames x 4 samples = 256 samples per pixel at capture.
+Warmup:
+  Frames: 64
+  PerFeature:
+    IBL: 16
+    GpuPathTracer: 64
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: Radiance
+    Source: PathTracerAccum
+    Format: hdr
+  - Name: Albedo
+    Source: PathTracerAlbedo
+    Format: hdr
+  - Name: Normal
+    Source: PathTracerNormal
+    Format: hdr
+  - Name: Variance
+    Source: PathTracerVariance
+    Format: hdr
+  - Name: SampleCount
+    Source: PathTracerAccum
+    Format: hdr
+    Derive: channel-a
+
+Tolerance:
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/hdr/furnace_white_1x1.hdr
+    Origin: generated in-repo (uniform white 1x1 Radiance HDR, issue #974)
+    License: CC0-1.0

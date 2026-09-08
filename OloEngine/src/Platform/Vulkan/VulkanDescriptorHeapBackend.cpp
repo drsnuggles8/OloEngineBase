@@ -13,6 +13,7 @@
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
+#include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
@@ -73,6 +74,87 @@ namespace OloEngine
 
         RHI::DescriptorHeap::Get().Initialize(heapDesc, &Get());
         return true;
+    }
+
+    auto VulkanDescriptorHeapBackend::IsShaderHeapIndexingSupported() const -> bool
+    {
+        // Both heaps exist on every device this backend runs on (the device
+        // gate refused anything without VK_EXT_descriptor_heap); "supported"
+        // is "both buffers exist", which EnsureCreated makes true.
+        const VulkanDevice* device = VulkanDevice::Get();
+        return device != nullptr && device->IsSampledImageNonUniformIndexingEnabled() &&
+               VulkanResourceHeap::Get().EnsureCreated() && VulkanSamplerHeap::Get().EnsureCreated();
+    }
+
+    auto VulkanDescriptorHeapBackend::ResolveShaderHeapTexture(const RHI::ResourceHandle texture) -> u32
+    {
+        if (!texture.IsValid() || !IsShaderHeapIndexingSupported())
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        const auto image = reinterpret_cast<VkImage>(native);
+        const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+        if (info == nullptr)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+
+        // Only a texture AT REST: content uploaded by a load-time one-shot
+        // rests in SHADER_READ_ONLY_OPTIMAL (VulkanTexture.cpp) and registers
+        // that as its initial layout; an attachment or storage image registers
+        // UNDEFINED, sits in whatever layout the last pass left, and only a
+        // recording can move it — the draw path does that at bind time
+        // (EnsureImageLayoutForDescriptor), this resolver cannot, so it
+        // refuses rather than bake a descriptor that lies about the layout.
+        if (info->InitialLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+
+        // The draw path's whole-image sampled view (VulkanRendererAPI::
+        // BindTexture), so the slot cache hands back the SAME slot the raster
+        // frame binds this texture through.
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = image;
+        view.viewType = info->ViewType;
+        view.format = info->Format;
+        view.subresourceRange.aspectMask = info->HasDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.baseMipLevel = 0;
+        view.subresourceRange.levelCount = std::max(info->MipLevels, 1u);
+        view.subresourceRange.baseArrayLayer = 0;
+        view.subresourceRange.layerCount = std::max(info->ArrayLayers, 1u);
+
+        const u32 slot = VulkanDescriptorSlotCache::Get().AcquireSlot(image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (slot == VulkanResourceHeap::InvalidSlot)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        const auto& heap = VulkanResourceHeap::Get();
+        const VkDeviceSize byteOffset = heap.GetSlotRegionOffset() + static_cast<VkDeviceSize>(slot) * heap.GetDescriptorStride();
+        return static_cast<u32>(byteOffset);
+    }
+
+    auto VulkanDescriptorHeapBackend::ResolveShaderHeapSampler(const RHI::SamplerDesc& sampler) -> u32
+    {
+        if (!IsShaderHeapIndexingSupported())
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        auto& heap = VulkanSamplerHeap::Get();
+        const u32 slot = heap.GetOrCreateSlot(VulkanSamplerHeap::CreateInfoFromDesc(sampler));
+        if (slot == VulkanSamplerHeap::InvalidSlot)
+        {
+            return RHI::HeapOffset::Invalid;
+        }
+        const VkDeviceSize byteOffset = heap.GetSlotRegionOffset() + static_cast<VkDeviceSize>(slot) * heap.GetDescriptorStride();
+        return static_cast<u32>(byteOffset);
     }
 
     auto VulkanDescriptorHeapBackend::IsBindlessSupported() const -> bool

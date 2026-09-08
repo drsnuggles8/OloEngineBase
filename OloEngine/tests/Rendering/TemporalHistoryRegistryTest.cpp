@@ -19,6 +19,10 @@ namespace OloEngine::Tests
                                               TemporalHistoryDependency::Backend |
                                               TemporalHistoryDependency::FeatureState |
                                               TemporalHistoryDependency::Jitter;
+        // SceneContent is deliberately NOT part of the view mask: it is what an
+        // accumulating history (the GPU path tracer) declares because it cannot
+        // reproject, and the reprojecting SSGI/SSR fixtures here must not.
+        // Its cause mapping is pinned in EveryLifecycleCauseTargetsItsDeclaredDependency.
 
         TemporalHistoryDescriptor MakeDescriptor(u32 width = 640, u32 height = 360)
         {
@@ -142,6 +146,7 @@ namespace OloEngine::Tests
             std::pair{ TemporalHistoryInvalidationCause::ViewportResized, TemporalHistoryDependency::Viewport },
             std::pair{ TemporalHistoryInvalidationCause::DynamicResolutionChanged, TemporalHistoryDependency::RenderScale },
             std::pair{ TemporalHistoryInvalidationCause::SceneReset, TemporalHistoryDependency::Scene },
+            std::pair{ TemporalHistoryInvalidationCause::SceneMutated, TemporalHistoryDependency::SceneContent },
             std::pair{ TemporalHistoryInvalidationCause::JitterReset, TemporalHistoryDependency::Jitter },
         };
 

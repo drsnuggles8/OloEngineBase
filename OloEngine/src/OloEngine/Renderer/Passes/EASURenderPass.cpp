@@ -36,6 +36,9 @@ namespace OloEngine
                 // ONLY pre-EASU (reduced-resolution) sources — deliberately NOT
                 // PostProcessColor, which aliases EASUColor once EASU runs and
                 // would make EASU read its own output.
+                // The GPU path tracer (#1055) replaces everything the raster
+                // chain produced, so it ranks first.
+                RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::PathTracerColor, ResourceNames::PathTracerColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::ContactShadowColor, ResourceNames::ContactShadowColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::SSRColor, ResourceNames::SSRColorTexture),
                 RenderPipelineBuilderInternal::MakeCandidateBaseNames(ResourceNames::RTReflectionColor, ResourceNames::RTReflectionColorTexture),

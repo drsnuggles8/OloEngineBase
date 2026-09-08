@@ -28,6 +28,8 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
+#include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -68,6 +70,7 @@ namespace OloEngine
     class DDGIProbeUpdatePass;
     class RayTracedShadowPass;
     class RayTracedReflectionPass;
+    class GpuPathTracerPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -1241,6 +1244,9 @@ namespace OloEngine
         // quality limits are invisible in a still frame, so a number is the
         // only way a user learns about them without reading the source.
         [[nodiscard]] static RayTracedReflectionPass* GetRayTracedReflectionPass();
+        // The GPU reference path tracer (issue #1055), for the panel's
+        // fallback reason, sample count and ray counters. Same null contract.
+        [[nodiscard]] static GpuPathTracerPass* GetGpuPathTracerPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
@@ -1820,6 +1826,9 @@ namespace OloEngine
             // buffer before its own draws, so one shared allocation would have
             // whichever uploaded last win.
             Ref<UniformBuffer> RayTracedReflection;
+            // The GPU path tracer (#1055): the fourth owner of UBO_RAY_TRACING,
+            // separate for the same reason as the two above.
+            Ref<UniformBuffer> GpuPathTracer;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -1846,6 +1855,7 @@ namespace OloEngine
                 // the only moment this can be done safely.
                 RayTracedShadow.Reset();
                 RayTracedReflection.Reset();
+                GpuPathTracer.Reset();
             }
         };
 
@@ -2049,6 +2059,14 @@ namespace OloEngine
             // Stable CPU registries plus RHI-neutral instance/geometry SSBOs.
             // Value-owned so generations survive renderer restart resets.
             GPUScene SceneGPU;
+            // The GPU path tracer's area-light table (#1055), gathered off the
+            // same staging seam SceneGPU is fed from and committed right after
+            // it in EndScene. Value-owned beside the scene for the same reason
+            // the acceleration structures are.
+            EmissiveTriangleTable PathTracerEmissive;
+            // ...and its per-material texture table (the #805 capability for
+            // ray-query shaders), resolved before the emissive table reads it.
+            MaterialTextureTable PathTracerMaterialTextures;
             // Acceleration structures over SceneGPU (#978). Value-owned beside
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.

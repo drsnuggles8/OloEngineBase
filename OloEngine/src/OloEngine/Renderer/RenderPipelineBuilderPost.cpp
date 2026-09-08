@@ -47,6 +47,17 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("ContactShadowPass", inputs.Passes->ContactShadow));
         }
+        // The GPU reference path tracer (#1055). Registered AFTER the whole
+        // screen-space chain and BEFORE the upscalers: its output REPLACES the
+        // rasterised colour, so it must be the freshest pre-Bloom source, and
+        // the alias chain in PopulateBlackboard ranks it accordingly. It
+        // declares its own execution dependency on RayTracingScenePass by
+        // name. Self-skips when off and on a non-RT device (its
+        // PathTracerColor resource is never declared).
+        if (inputs.Passes->GpuPathTracer)
+        {
+            graph.AddNode(PrepareGraphNode("GpuPathTracerPass", inputs.Passes->GpuPathTracer));
+        }
         // FSR1 EASU spatial upscale (#480). Runs right after the screen-space
         // band and BEFORE Bloom: it upscales the reduced-resolution HDR scene
         // colour to display res so every downstream display-res post stage runs

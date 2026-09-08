@@ -135,9 +135,29 @@ namespace OloEngine
         {
             return m_DrawIndirectCountEnabled;
         }
+        // shaderSampledImageArrayNonUniformIndexing (Vulkan 1.2) gates the
+        // SPIR-V SampledImageArrayNonUniformIndexing capability a shader
+        // declares when it indexes the descriptor heap with nonuniformEXT
+        // (ADR 0011 amendment (95)); module creation fails validation
+        // without it, so the heap-indexing resolvers refuse when it is off.
+        [[nodiscard]] bool IsSampledImageNonUniformIndexingEnabled() const
+        {
+            return m_SampledImageNonUniformIndexingEnabled;
+        }
         [[nodiscard]] bool IsMultiDrawIndirectEnabled() const
         {
             return m_MultiDrawIndirectEnabled;
+        }
+        // samplerAnisotropy (core feature) and the device's maxSamplerAnisotropy
+        // limit: VulkanSamplerHeap::CreateInfoFromDesc enables anisotropy only
+        // when the feature is on and clamps the requested degree to the limit.
+        [[nodiscard]] bool IsSamplerAnisotropyEnabled() const
+        {
+            return m_SamplerAnisotropyEnabled;
+        }
+        [[nodiscard]] f32 GetMaxSamplerAnisotropy() const
+        {
+            return m_MaxSamplerAnisotropy;
         }
         [[nodiscard]] bool IsShaderDrawParametersEnabled() const
         {
@@ -314,7 +334,10 @@ namespace OloEngine
         bool m_ShaderBufferInt64AtomicsEnabled = false;
         bool m_DynamicBlendStateEnabled = false;
         bool m_DrawIndirectCountEnabled = false;
+        bool m_SampledImageNonUniformIndexingEnabled = false;
         bool m_MultiDrawIndirectEnabled = false;
+        bool m_SamplerAnisotropyEnabled = false;
+        f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
         bool m_MeshShaderEnabled = false;

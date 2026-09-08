@@ -135,8 +135,9 @@ namespace OloEngine
         VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::StorageBuffer, this);
         // GL twins occupy their binding point from creation (glBindBufferBase
         // in the ctor); mirror that so a pass that never calls Bind() still
-        // resolves.
-        VulkanBindingState::Get().SetStorageBuffer(m_Binding, this);
+        // resolves. A by-address buffer (kNoBinding) publishes nowhere.
+        if (m_Binding != StorageBuffer::kNoBinding)
+            VulkanBindingState::Get().SetStorageBuffer(m_Binding, this);
     }
 
     void VulkanStorageBuffer::ReleaseBuffer()
@@ -155,7 +156,8 @@ namespace OloEngine
         // What Bind() DOES mean here is GL's glBindBufferBase semantics:
         // publish this buffer as binding point m_Binding's occupant so the
         // draw-time root writer can find it.
-        VulkanBindingState::Get().SetStorageBuffer(m_Binding, const_cast<VulkanStorageBuffer*>(this));
+        if (m_Binding != StorageBuffer::kNoBinding)
+            VulkanBindingState::Get().SetStorageBuffer(m_Binding, const_cast<VulkanStorageBuffer*>(this));
     }
 
     void VulkanStorageBuffer::Unbind() const

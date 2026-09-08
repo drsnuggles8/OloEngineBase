@@ -2473,3 +2473,29 @@ original observation boundaries.
 
 Implementation rules and evidence: [parallel recording guide](../agent-rules/vulkan-parallel-recording.md)
 and [pass audit](../agent-rules/vulkan-parallel-pass-audit.md).
+
+### (95) A shader with no OpenGL twin may index the descriptor heap itself
+
+Issue #1055 (the GPU reference path tracer) needed what issue #805 asked for: a ray-query hit can
+land on any material, so shading it from textures needs the shader to pick a descriptor at runtime.
+Amendment (50) kept classic `layout(set, binding)` declarations so that ONE SPIR-V serves both
+backends; #805 priced true shader-side bindless as a fifth compile route and per-backend shader
+source, and parked it behind this amendment.
+
+The decision: the "one SPIR-V" property is worth keeping for every shader that HAS an OpenGL twin,
+and costs nothing to waive for a shader that never had one. A shader that already requires a
+Vulkan-only extension (`GL_EXT_ray_query` today) may use `GL_EXT_descriptor_heap` directly:
+`layout(descriptor_heap, descriptor_stride = 1)` arrays of `texture2D` and `sampler`, indexed with
+BYTE offsets. The backend hands those offsets out through two new resolvers on
+`IDescriptorHeapBackend` (`ResolveShaderHeapTexture`, `ResolveShaderHeapSampler`), answered on
+Vulkan from the draw path's own slot cache and sampler heap and as `Invalid` on OpenGL; the seam is
+`HeapBinding::ResolveShaderHeap*`. Reflection sees no resource for a heap array, so the mapping model
+of (50) is untouched, and the heap is already bound per recording.
+
+What this does NOT decide: the material shaders keep classic bindings; the fifth compile route, the
+GL production bindless variant and the draw-merging payoff #805 describes remain open under #805.
+The engine heap's `OLO_RHI_BINDLESS` lever is unrelated: the resolvers fork on the backend, and the
+GPU Scene records' `*HeapOffset` fields keep their existing meaning.
+
+Rules and evidence: [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md);
+the consumer is [gpu-path-tracer.md](../agent-rules/gpu-path-tracer.md).

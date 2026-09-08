@@ -38,6 +38,9 @@
 #include "OloEngine/Renderer/Ray.h"
 #include "OloEngine/Renderer/Vertex.h"
 
+#include <memory>
+#include <span>
+
 #include <glm/glm.hpp>
 
 #include <memory>
@@ -52,11 +55,47 @@ namespace OloEngine::PathTracing
     // sampler/mip conventions, which is a separate (and much larger) parity
     // problem. Every consumer here is a factor-only material.
     // -------------------------------------------------------------------------
+    // A texture the reference can sample: linear RGBA texels, row 0 first as
+    // uploaded (the Vulkan convention: uv (0, 0) is the first texel of the
+    // first row). Built from the same 8-bit pixels a Texture2D is uploaded
+    // from, so the two tracers sample one image; an sRGB texture is decoded
+    // per texel BEFORE filtering, which is what the hardware does.
+    struct ReferenceTexture
+    {
+        u32 Width = 0;
+        u32 Height = 0;
+        std::vector<glm::vec4> Texels;
+
+        [[nodiscard]] static ReferenceTexture FromRgba8(u32 width, u32 height, std::span<const u8> rgba, bool srgb);
+
+        // Level 0, bilinear, REPEAT on both axes: the material sampler the GPU
+        // path tracer minds (HeapBinding::MaterialTexture2DSampler) at the LOD
+        // it samples. Texel centres sit at (i + 0.5) / size.
+        [[nodiscard]] glm::vec4 SampleBilinear(const glm::vec2& uv) const;
+    };
+
     struct ReferenceMaterial
     {
         glm::vec3 BaseColor{ 0.8f };
+        // The base colour's alpha: with AlphaMask it is what the albedo map's
+        // alpha multiplies, the glTF MASK definition the raster path uses.
+        f32 BaseAlpha = 1.0f;
         f32 Metallic = 0.0f;
         f32 Roughness = 1.0f;
+        // The maps (any may be null), applied exactly as GpuPathTracer.glsl
+        // applies them: albedo rgb multiplies BaseColor, metallic = blue and
+        // roughness = green of the metallic-roughness map, emissive rgb
+        // multiplies Emissive, the normal map perturbs the shading normal in
+        // the triangle's UV tangent frame (ApplyNormalMap). All at level 0.
+        std::shared_ptr<const ReferenceTexture> AlbedoMap;
+        std::shared_ptr<const ReferenceTexture> MetallicRoughnessMap;
+        std::shared_ptr<const ReferenceTexture> NormalMap;
+        std::shared_ptr<const ReferenceTexture> EmissiveMap;
+        f32 NormalScale = 1.0f;
+        // glTF MASK: a hit whose BaseAlpha * albedo alpha is below the cutoff
+        // is not a hit, on the primary, bounce and shadow rays alike.
+        bool AlphaMask = false;
+        f32 AlphaCutoff = 0.5f;
         // Emitted radiance in linear units (NOT a colour x intensity pair —
         // the tracer wants radiance directly).
         glm::vec3 Emissive{ 0.0f };
@@ -128,6 +167,10 @@ namespace OloEngine::PathTracing
         // `sanitizeSurfaceNormal`, and for the same reason: real imported
         // meshes contain zero-length normals.
         [[nodiscard]] glm::vec3 InterpolateNormal(u32 triangleIndex, f32 u, f32 v) const;
+        [[nodiscard]] glm::vec2 InterpolateUV(u32 triangleIndex, f32 u, f32 v) const;
+        // The triangle's three vertex indices; false when the index buffer or
+        // the vertices are out of range.
+        [[nodiscard]] bool GetTriangleVertices(u32 triangleIndex, u32& i0, u32& i1, u32& i2) const;
 
       private:
         std::vector<Vertex> m_Vertices;
@@ -176,7 +219,12 @@ namespace OloEngine::PathTracing
     {
         Directional = 0,
         Point = 1,
-        Spot = 2
+        Spot = 2,
+        // A spherical emitter (SphereAreaLightComponent). The raster path
+        // shades it with a representative-point approximation; the reference
+        // integrates it as a real sphere of radiance — see PathTracer.cpp's
+        // ViewSphereLight for the model, which GpuPathTracer.glsl mirrors.
+        SphereArea = 3
     };
 
     struct ReferenceLight
@@ -192,6 +240,9 @@ namespace OloEngine::PathTracing
         glm::vec4 AttenuationParams{ 1.0f, 0.09f, 0.032f, 50.0f };
         // (innerCutoff, outerCutoff, falloff, enabled) as cosines.
         glm::vec4 SpotParams{ 0.95f, 0.9f, 1.0f, 1.0f };
+        // SphereArea only: the emitter's radius (LightData::spotParams.z on
+        // the raster side, GPUSceneLight::DirectionAndRadius.w on the GPU).
+        f32 Radius = 0.1f;
     };
 
     // -------------------------------------------------------------------------
@@ -217,8 +268,11 @@ namespace OloEngine::PathTracing
         // toward the ray — the integrator needs the true orientation to decide
         // whether it is looking at an emitter's front face).
         glm::vec3 GeometricNormal{ 0.0f, 1.0f, 0.0f };
-        // Interpolated shading normal, same orientation convention.
+        // Interpolated shading normal, same orientation convention, with the
+        // material's normal map already applied.
         glm::vec3 ShadingNormal{ 0.0f, 1.0f, 0.0f };
+        // Interpolated texture coordinate (the vertices' TexCoord).
+        glm::vec2 Uv{ 0.0f };
         bool FrontFace = false;
         u32 InstanceIndex = 0;
         u32 MaterialIndex = 0;
@@ -235,6 +289,9 @@ namespace OloEngine::PathTracing
         glm::vec3 V1{ 0.0f };
         glm::vec3 V2{ 0.0f };
         glm::vec3 Normal{ 0.0f, 1.0f, 0.0f }; // world geometric normal
+        glm::vec2 Uv0{ 0.0f };
+        glm::vec2 Uv1{ 0.0f };
+        glm::vec2 Uv2{ 0.0f };
         f32 Area = 0.0f;
         u32 InstanceIndex = 0;
         u32 MaterialIndex = 0;
@@ -291,6 +348,20 @@ namespace OloEngine::PathTracing
         // meaningful when the call returns true.
         [[nodiscard]] bool Intersect(const Ray& ray, SurfaceInteraction& outHit) const;
 
+        // The material as the hit SEES it: the factors multiplied by the maps
+        // sampled at the hit's UV. The normal map is not here — Intersect has
+        // applied it to ShadingNormal already, because it needs the triangle.
+        [[nodiscard]] ReferenceMaterial ResolveMaterial(const SurfaceInteraction& hit) const;
+
+        // The analytic tangent frame of a triangle from its UV gradients,
+        // applied to a sampled tangent-space normal — the SAME formula as
+        // GpuPathTracer.glsl's PtApplyNormalMap, so a normal-mapped hit
+        // shades identically on both tracers. Degenerate UVs return `n`.
+        [[nodiscard]] static glm::vec3 ApplyNormalMap(const glm::vec3& n, const glm::vec3& p0, const glm::vec3& p1,
+                                                      const glm::vec3& p2, const glm::vec2& uv0, const glm::vec2& uv1,
+                                                      const glm::vec2& uv2, const glm::vec2& sampledXY,
+                                                      f32 normalScale);
+
         // Any-hit shadow query between two world points, with both ends inset
         // by `epsilon` along the segment so the shading point and the light
         // sample cannot self-shadow.
@@ -306,6 +377,14 @@ namespace OloEngine::PathTracing
         [[nodiscard]] const std::vector<ReferenceInstance>& GetInstances() const
         {
             return m_Instances;
+        }
+        // The geometry an instance references, for a consumer building the
+        // SAME scene for another tracer (the GPU path tracer's device parity
+        // test uploads these exact vertices and indices, issue #1055). Read
+        // only; a scene is immutable once Build()t.
+        [[nodiscard]] const ReferenceGeometry& GetGeometry(u32 index) const
+        {
+            return *m_Geometries.at(index);
         }
         [[nodiscard]] const std::vector<ReferenceLight>& GetLights() const
         {
