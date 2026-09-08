@@ -48,6 +48,12 @@ device address (`StorageBuffer::kNoBinding`), and does not touch the records.
 
 ## 3. What bit
 
+- **The compiler has to be new enough.** Vulkan SDK 1.4.357.0's glslang compiles
+  `GL_EXT_descriptor_heap`; the hosted CI runners were pinned to 1.4.321.0, whose glslang does not, and `ShaderCompilation.AllProductionShaders-
+  CompileUnderVulkanTarget` failed with "extension not supported" on every Windows job while the box
+  with the newer SDK passed. The pin lives in `.github/actions/setup-vulkan/action.yml`; the
+  self-hosted runners carry their own SDK. An old SDK fails loudly there, by design: the engine does
+  not skip a shader it cannot compile.
 - **The GLSL syntax is `layout(descriptor_heap) uniform texture2D name[]`**, plus
   `descriptor_stride`. Neither `resourceHeapEXT` built-ins nor `layout(resource_heap)` exist;
   glslang reports them as undeclared identifiers, not as an unsupported extension, which reads as a

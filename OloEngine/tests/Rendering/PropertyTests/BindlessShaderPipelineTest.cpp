@@ -1052,6 +1052,19 @@ void main()
             { "Renderer2D_Quad.glsl",
               "2D batcher's 32-slot sampler array: bindless replaces the mechanism, so the conversion "
               "is a vertex-format change" },
+            // ---- 4. THE OTHER ROUTE: A SHADER THAT INDEXES THE HEAP ITSELF --
+            // Not slot-based and not on the OLO_BINDLESS route either: the
+            // arrays it declares carry no binding at all. They are the
+            // GL_EXT_descriptor_heap arrays (ADR 0011 amendment (95)) that a
+            // Vulkan-only ray-query shader indexes by heap BYTE OFFSET, offsets
+            // that MaterialTextureTable resolves through
+            // HeapBinding::ResolveShaderHeapTexture and uploads by device
+            // address. There is nothing to convert and no GL twin to keep in
+            // step; the audit lists it so the header stays a decision.
+            { "include/DescriptorHeapTextures.glsl",
+              "shared header, GL_EXT_descriptor_heap arrays with NO binding (ADR 0011 amendment (95), "
+              "issue #1055): the shader indexes the heap by byte offset from MaterialTextureTable, "
+              "so there is no slot to convert and no seam bind to move" },
         });
 
         // ---- 4. A HARNESS FIXTURE HAS NO SEAM TO STAGE THROUGH ---------------

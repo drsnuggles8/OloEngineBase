@@ -166,7 +166,7 @@ jobs:
           #   vcpkg-Windows-x64-windows-static-md-<64hex>-34021696485-1
           #                                              -> vcpkg-Windows-x64-windows-static-md
           #   ffmpeg-Windows-n7.1-<64hex>                 -> ffmpeg-Windows-n7.1
-          #   Windows-vulkan-prebuilt-sdk-true-1.4.321.0  -> (unchanged; no run id, no hash)
+          #   Windows-vulkan-prebuilt-sdk-true-1.4.357.0  -> (unchanged; no run id, no hash)
           #
           # Without the second strip a manifest-hash bump starts a NEW group whose sole
           # member is immortal, and the entry it superseded is immortal too -- see the
