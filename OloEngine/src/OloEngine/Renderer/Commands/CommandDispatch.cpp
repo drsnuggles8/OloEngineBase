@@ -775,7 +775,17 @@ namespace OloEngine
 
         // Resolved once per call rather than per lane: it is memoised in the
         // backend and every failing lane wants the same answer.
-        const u32 nullTexture = HeapBinding::ResolveShaderHeapNullTexture().Value;
+        //
+        // AND IT IS ITSELF CHECKED, because HeapOffset::Invalid is 0xFFFFFFFF and
+        // writing THAT into a lane is the exact out-of-bounds index this null
+        // exists to prevent. Byte offset 0 is inside the heap buffer, so it is the
+        // least-bad substitute; the arm is stood down as well (below), so nothing
+        // this function can reach still samples. Unreachable in practice — a device
+        // that cannot resolve a null cannot create the shader module either, and
+        // fails loudly at vkCreateShaderModule — but the fallback must not be the
+        // one value that turns a degraded frame into undefined behaviour.
+        const RHI::HeapOffset resolvedNull = HeapBinding::ResolveShaderHeapNullTexture();
+        const u32 nullTexture = resolvedNull.IsValid() ? resolvedNull.Value : 0u;
 
         // ONE SAMPLER FOR ALL FIVE, and it is frame-uniform rather than
         // per-material: every material 2D descriptor is minted with this one state
@@ -784,7 +794,7 @@ namespace OloEngine
         // without it — a texture descriptor with no sampler cannot be sampled.
         const RHI::HeapOffset samplerOffset =
             HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler());
-        const bool armLive = samplerOffset.IsValid();
+        const bool armLive = samplerOffset.IsValid() && resolvedNull.IsValid();
 
         const auto resolve = [&](const RHI::ResourceHandle texture, i32& useFlag) -> u32
         {
