@@ -870,6 +870,21 @@ case 1568934385u: // SpringBoneComponent
     comp.Weight = std::clamp(comp.Weight, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
     break;
 }
+case 2489598917u: // StructuralNodeComponent
+{
+    auto& comp = deserializedEntity.AddComponent<StructuralNodeComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Anchor)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ContactMargin)) return false;
+    comp.m_ContactMargin = std::clamp(comp.m_ContactMargin, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxLateralSpan)) return false;
+    comp.m_MaxLateralSpan = std::clamp(comp.m_MaxLateralSpan, static_cast<u32>(0), static_cast<u32>(64));
+    if (!SceneBinIO::Read(reader, comp.m_CollapseDelay)) return false;
+    comp.m_CollapseDelay = std::clamp(comp.m_CollapseDelay, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    if (!SceneBinIO::Read(reader, comp.m_FallDuration)) return false;
+    comp.m_FallDuration = std::clamp(comp.m_FallDuration, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ShatterOnCollapse)) return false;
+    break;
+}
 case 4161997664u: // TilemapComponent
 {
     auto& comp = deserializedEntity.AddComponent<TilemapComponent>();

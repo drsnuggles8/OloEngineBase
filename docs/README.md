@@ -89,6 +89,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md](adr/0018-gaussian-splats-gpu-ordering-and-merge-lod.md) — Gaussian splats order per view on the GPU and coarsen by merging; a CPU sort and a selection budget are both dead ends.
 - [adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md](adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md) — the Windows jobs can be routed to a self-hosted runner behind a `vars.` kill switch and a fork guard; the switch stays off until a runner exists and both paths are measured.
 - [adr/0020-reflection-tier-selection-contract.md](adr/0020-reflection-tier-selection-contract.md) — the four reflection sources are competing estimates of one quantity; they composite bottom-up by confidence with the bottom tier pinned at 1, so the weights sum to exactly one and a double-count is impossible by construction.
+- [adr/0021-structural-connectivity-is-derived-from-collider-adjacency.md](adr/0021-structural-connectivity-is-derived-from-collider-adjacency.md) — a destructible structure's support graph is derived from collider adjacency, not authored per piece; the component carries only anchor/timing policy; same-course neighbours support each other so a lintel can cantilever, but the flood charges for each sideways step, because free lateral transfer makes a wall all-or-nothing.
 
 ## bug-investigations/ — postmortems & deep-dives
 

@@ -87,6 +87,7 @@ namespace OloEngine
             // 3D Physics
             REGISTER_COMPONENT(Rigidbody3DComponent),
             REGISTER_COMPONENT(DestructibleComponent),
+            REGISTER_COMPONENT(StructuralNodeComponent),
             REGISTER_COMPONENT(BuoyancyComponent),
             REGISTER_COMPONENT(FluidComponent),
             REGISTER_COMPONENT(FluidEmitterComponent),

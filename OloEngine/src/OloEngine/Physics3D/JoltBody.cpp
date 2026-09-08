@@ -117,6 +117,18 @@ namespace OloEngine
         GetBodyInterface().SetObjectLayer(m_BodyID, ObjectLayers::DEBRIS);
     }
 
+    bool JoltBody::CanBecomeDynamic() const
+    {
+        if (m_BodyID.IsInvalid())
+            return false;
+        if (GetBodyType() != EBodyType::Static)
+            return true;
+
+        const auto& bodyLockInterface = GetBodyLockInterface();
+        JPH::BodyLockRead lock(bodyLockInterface, m_BodyID);
+        return lock.Succeeded() && lock.GetBody().CanBeKinematicOrDynamic();
+    }
+
     u32 JoltBody::GetCollisionLayer() const
     {
         if (m_BodyID.IsInvalid())
@@ -927,10 +939,39 @@ namespace OloEngine
         // Apply material properties from collider components
         ApplyMaterialProperties(bodySettings);
 
-        if (motionType == JPH::EMotionType::Dynamic)
+        // A structural piece (issue #786) is authored Static so it holds the
+        // building up, and is switched to Dynamic the instant the support solver
+        // condemns it. Jolt allocates MotionProperties at CREATION time only, and
+        // a Static body has none — SetMotionType(Dynamic) on one asserts. So a
+        // piece that opts into collapse pays for the ability up front. Scoped to
+        // exactly those entities: every other static body in the scene keeps its
+        // current, cheaper layout.
+        const bool allowLaterMotion = motionType != JPH::EMotionType::Dynamic && m_Entity && m_Entity.HasComponent<StructuralNodeComponent>();
+        bodySettings.mAllowDynamicOrKinematic = allowLaterMotion;
+
+        // Honour the authored mass — on a Dynamic body, and on a Static piece that
+        // is going to BECOME one, where otherwise the mass properties come from
+        // the shape's density and a heavy block falls as if it were made of the
+        // default material.
+        //
+        // The finiteness guard covers both: CalculateInertia with a zero or NaN
+        // mass is a Jolt assert, and nothing validates m_Mass on the way in. An
+        // invalid value is an authoring error, so it is reported rather than
+        // silently substituted, and the body falls back to shape-derived mass so
+        // it still simulates.
+        if (motionType == JPH::EMotionType::Dynamic || allowLaterMotion)
         {
-            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
+            if (std::isfinite(rigidBodyComponent.m_Mass) && rigidBodyComponent.m_Mass > 0.0f)
+            {
+                bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+                bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
+            }
+            else if (motionType == JPH::EMotionType::Dynamic)
+            {
+                OLO_CORE_WARN("Rigidbody3D on entity {} is Dynamic with a non-positive or non-finite mass ({}); "
+                              "falling back to shape-derived mass properties",
+                              static_cast<u64>(m_Entity.GetUUID()), rigidBodyComponent.m_Mass);
+            }
         }
 
         return bodySettings;

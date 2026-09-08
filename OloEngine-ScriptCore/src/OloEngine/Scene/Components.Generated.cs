@@ -2828,6 +2828,45 @@ namespace OloEngine
 		}
 	}
 
+	public partial class StructuralNodeComponent : Component
+	{
+		public bool Anchor
+		{
+			get => InternalCalls.StructuralNodeComponent_GetAnchor(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetAnchor(Entity.ID, value);
+		}
+
+		public float ContactMargin
+		{
+			get => InternalCalls.StructuralNodeComponent_GetContactMargin(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetContactMargin(Entity.ID, value);
+		}
+
+		public uint MaxLateralSpan
+		{
+			get => InternalCalls.StructuralNodeComponent_GetMaxLateralSpan(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetMaxLateralSpan(Entity.ID, value);
+		}
+
+		public float CollapseDelay
+		{
+			get => InternalCalls.StructuralNodeComponent_GetCollapseDelay(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetCollapseDelay(Entity.ID, value);
+		}
+
+		public float FallDuration
+		{
+			get => InternalCalls.StructuralNodeComponent_GetFallDuration(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetFallDuration(Entity.ID, value);
+		}
+
+		public bool ShatterOnCollapse
+		{
+			get => InternalCalls.StructuralNodeComponent_GetShatterOnCollapse(Entity.ID);
+			set => InternalCalls.StructuralNodeComponent_SetShatterOnCollapse(Entity.ID, value);
+		}
+	}
+
 	public partial class TerrainComponent : Component
 	{
 		public float WorldSizeX

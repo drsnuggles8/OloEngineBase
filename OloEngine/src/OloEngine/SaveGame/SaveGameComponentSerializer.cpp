@@ -1586,6 +1586,52 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, StructuralNodeComponent& c)
+    {
+        ar << c.m_Anchor << c.m_ContactMargin << c.m_MaxLateralSpan;
+        ar << c.m_CollapseDelay << c.m_FallDuration << c.m_ShatterOnCollapse;
+
+        // The collapse state IS persisted: a structure saved half-down must
+        // reload half-down, and a piece already falling must not be restored as a
+        // load-bearing member of the graph (StructuralGraph::Rebuild reads exactly
+        // this field to decide what is still standing).
+        u8 state = static_cast<u8>(c.m_State);
+        ar << state;
+        ar << c.m_StateTimer << c.m_CollapseHops;
+
+        if (ar.IsLoading())
+        {
+            // Sanitize untrusted on-disk values, mirroring the OLO_SERIALIZE(Clamp)
+            // ranges on the component so a corrupt save can't poison the runtime.
+            const auto clampRange = [](f32& v, f32 lo, f32 hi)
+            { v = !std::isfinite(v) ? lo : (v < lo ? lo : (v > hi ? hi : v)); };
+            clampRange(c.m_ContactMargin, 0.0f, 10.0f);
+            clampRange(c.m_CollapseDelay, 0.0f, 60.0f);
+            clampRange(c.m_FallDuration, 0.0f, 60.0f);
+            if (c.m_MaxLateralSpan > 64u)
+                c.m_MaxLateralSpan = 64u;
+
+            // An out-of-range state byte would be an undefined enumerator flowing
+            // straight into the collapse switch; refuse it and restore the piece
+            // as intact rather than as an unknown fourth thing.
+            c.m_State = (state <= static_cast<u8>(StructuralState::Collapsed)) ? static_cast<StructuralState>(state) : StructuralState::Stable;
+
+            // Bound the timer by what the RUNTIME could have put there for the
+            // state it is in — the Detaching delay is m_CollapseDelay per hop, so
+            // it has no fixed ceiling of its own and a flat clamp would quietly
+            // rewrite the collapse ordering this field exists to preserve.
+            // Widen before the +1: a corrupt UINT32_MAX hop count would wrap to
+            // zero, collapse the ceiling to zero, and drop the timer to zero —
+            // detaching the piece instantly, which is the opposite of the
+            // conservative thing to do with an untrusted value.
+            const f32 ceiling = (c.m_State == StructuralState::Detaching)
+                                    ? c.m_CollapseDelay * static_cast<f32>(static_cast<u64>(c.m_CollapseHops) + 1ull)
+                                    : ((c.m_State == StructuralState::Falling) ? c.m_FallDuration : 0.0f);
+            c.m_StateTimer = (!std::isfinite(c.m_StateTimer) || c.m_StateTimer < 0.0f) ? 0.0f
+                                                                                       : std::min(c.m_StateTimer, ceiling);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, PointLightComponent& c)
     {
         ar << c.m_Color << c.m_Intensity << c.m_Range << c.m_Attenuation;
@@ -4863,6 +4909,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(CircleCollider2DComponent);
         REGISTER_SAVE_COMPONENT(Rigidbody3DComponent);
         REGISTER_SAVE_COMPONENT(DestructibleComponent);
+        REGISTER_SAVE_COMPONENT(StructuralNodeComponent);
         REGISTER_SAVE_COMPONENT(BoxCollider3DComponent);
         REGISTER_SAVE_COMPONENT(SphereCollider3DComponent);
         REGISTER_SAVE_COMPONENT(CapsuleCollider3DComponent);

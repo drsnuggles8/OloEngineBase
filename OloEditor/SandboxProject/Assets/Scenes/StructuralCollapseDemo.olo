@@ -1,0 +1,2741 @@
+Scene: StructuralCollapseDemo.olo
+# ============================================================================
+# StructuralCollapseDemo — issue #786, progressive structural collapse.
+#
+# A 9 x 6 brick wall whose bottom course is anchored to the ground. Two seconds
+# after Play, the five middle base blocks blow out (StructuralBreachDemo.lua
+# depletes their Health, the same trigger DestructibleSystem::ApplyDamage uses).
+#
+# What you should see: the breach itself shatters into debris, then the wall
+# above it comes down IN STAGES rather than all at once — the pieces nearest the
+# hole detach first, fall as whole blocks, and shatter where they land, while the
+# shoulders on either side stay standing. That partial collapse is the point:
+# every block here has MaxLateralSpan 1, so load may cross one bonded neighbour
+# before it needs something underneath again, and a five-block hole is wider than
+# the wall can arch over.
+#
+# Knobs worth playing with in the inspector (Structural Node):
+#   MaxLateralSpan  0 = nothing cantilevers, the wall above the hole drops
+#                       immediately; 3+ = the wall arches over the breach and
+#                       barely anything falls.
+#   CollapseDelay   per hop of distance from the break. 0 drops everything on
+#                       one tick; 0.3 makes it a slow-motion peel.
+#   FallDuration    how long a detached block tumbles as one body before it
+#                       shatters into debris.
+# ============================================================================
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.4
+  BloomIterations: 4
+  FXAAEnabled: true
+Entities:
+  # -- Camera --
+  - Entity: 786000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      # Three-quarter view: the wall's face and its shadow are both in frame, and
+      # the middle columns drop toward the camera rather than straight down a flat
+      # elevation, which is what makes the collapse legible.
+      Translation: [-9, 5.5, 15]
+      Rotation: [-0.14, -0.48, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox --
+  - Entity: 786000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/Skybox
+      IsCubemapFolder: true
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      # Turned well down from the usual 1: this skybox is a bright sea and sky, and
+      # at full strength its ambient swamps the directional light, so the ground
+      # shadow has no contrast and both sides of a block look identically lit.
+      IBLIntensity: 0.35
+      Tint: [1, 1, 1]
+  # -- Directional Light --
+  - Entity: 786000000000003
+    TagComponent:
+      Tag: Directional Light
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      # Raking sun: it travels +X and -Z, so the two faces this scene's camera
+      # sees stay lit while the wall's shadow is thrown clear of it to the right,
+      # onto open ground. A steep sun pointing away from the camera (the obvious
+      # choice) hides the shadow behind the wall and the collapse reads as a set
+      # of floating blocks.
+      Direction: [0.7, -0.55, -0.45]
+      Color: [1, 0.97, 0.92]
+      Intensity: 5
+      CastShadows: true
+      ShadowBias: 0.005
+      # The engine's own default (DirectionalLightComponent::m_ShadowNormalBias).
+      # Most sample scenes copy 0.1 from each other, which is ten times this and
+      # pushes the ground shadow clean off its caster — a wall ends up floating
+      # over a detached parallelogram. At a scene this size that is very visible.
+      ShadowNormalBias: 0.01
+      # 200 m of cascade range for a 12 m subject spends the whole shadow map on
+      # empty sea; 60 keeps the texels on the wall.
+      MaxShadowDistance: 60
+      CascadeSplitLambda: 0.9
+  # -- Static Ground --
+  - Entity: 786000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 1, 40]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.38, 0.4, 0.42]
+      Metallic: 0.1
+      Roughness: 0.9
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 0
+      LinearDrag: 0
+      AngularDrag: 0
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      # Unit half-extents: JoltShapes multiplies these by the transform Scale
+      # ([40, 1, 40]), so the collider matches the rendered ground.
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.9
+      DynamicFriction: 0.8
+      Restitution: 0.05
+  # -- The wall: 9 columns x 6 courses of 1 m blocks --
+  # The bottom course is anchored; every other block is held up by the graph the
+  # StructuralGraph derives from these colliders. The five base blocks in the
+  # middle carry StructuralBreachDemo.lua and blow themselves out on a timer.
+  - Entity: 786000000000010
+    TagComponent:
+      Tag: Brick_0_0
+    TransformComponent:
+      Translation: [-4, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000011
+    TagComponent:
+      Tag: Brick_0_1
+    TransformComponent:
+      Translation: [-4, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000012
+    TagComponent:
+      Tag: Brick_0_2
+    TransformComponent:
+      Translation: [-4, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000013
+    TagComponent:
+      Tag: Brick_0_3
+    TransformComponent:
+      Translation: [-4, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000014
+    TagComponent:
+      Tag: Brick_0_4
+    TransformComponent:
+      Translation: [-4, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000015
+    TagComponent:
+      Tag: Brick_0_5
+    TransformComponent:
+      Translation: [-4, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000016
+    TagComponent:
+      Tag: Brick_1_0
+    TransformComponent:
+      Translation: [-3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000017
+    TagComponent:
+      Tag: Brick_1_1
+    TransformComponent:
+      Translation: [-3, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000018
+    TagComponent:
+      Tag: Brick_1_2
+    TransformComponent:
+      Translation: [-3, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000019
+    TagComponent:
+      Tag: Brick_1_3
+    TransformComponent:
+      Translation: [-3, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000020
+    TagComponent:
+      Tag: Brick_1_4
+    TransformComponent:
+      Translation: [-3, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000021
+    TagComponent:
+      Tag: Brick_1_5
+    TransformComponent:
+      Translation: [-3, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000022
+    TagComponent:
+      Tag: Brick_2_0
+    TransformComponent:
+      Translation: [-2, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/StructuralBreachDemo.lua
+  - Entity: 786000000000023
+    TagComponent:
+      Tag: Brick_2_1
+    TransformComponent:
+      Translation: [-2, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000024
+    TagComponent:
+      Tag: Brick_2_2
+    TransformComponent:
+      Translation: [-2, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000025
+    TagComponent:
+      Tag: Brick_2_3
+    TransformComponent:
+      Translation: [-2, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000026
+    TagComponent:
+      Tag: Brick_2_4
+    TransformComponent:
+      Translation: [-2, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000027
+    TagComponent:
+      Tag: Brick_2_5
+    TransformComponent:
+      Translation: [-2, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000028
+    TagComponent:
+      Tag: Brick_3_0
+    TransformComponent:
+      Translation: [-1, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/StructuralBreachDemo.lua
+  - Entity: 786000000000029
+    TagComponent:
+      Tag: Brick_3_1
+    TransformComponent:
+      Translation: [-1, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000030
+    TagComponent:
+      Tag: Brick_3_2
+    TransformComponent:
+      Translation: [-1, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000031
+    TagComponent:
+      Tag: Brick_3_3
+    TransformComponent:
+      Translation: [-1, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000032
+    TagComponent:
+      Tag: Brick_3_4
+    TransformComponent:
+      Translation: [-1, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000033
+    TagComponent:
+      Tag: Brick_3_5
+    TransformComponent:
+      Translation: [-1, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000034
+    TagComponent:
+      Tag: Brick_4_0
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/StructuralBreachDemo.lua
+  - Entity: 786000000000035
+    TagComponent:
+      Tag: Brick_4_1
+    TransformComponent:
+      Translation: [0, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000036
+    TagComponent:
+      Tag: Brick_4_2
+    TransformComponent:
+      Translation: [0, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000037
+    TagComponent:
+      Tag: Brick_4_3
+    TransformComponent:
+      Translation: [0, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000038
+    TagComponent:
+      Tag: Brick_4_4
+    TransformComponent:
+      Translation: [0, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000039
+    TagComponent:
+      Tag: Brick_4_5
+    TransformComponent:
+      Translation: [0, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000040
+    TagComponent:
+      Tag: Brick_5_0
+    TransformComponent:
+      Translation: [1, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/StructuralBreachDemo.lua
+  - Entity: 786000000000041
+    TagComponent:
+      Tag: Brick_5_1
+    TransformComponent:
+      Translation: [1, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000042
+    TagComponent:
+      Tag: Brick_5_2
+    TransformComponent:
+      Translation: [1, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000043
+    TagComponent:
+      Tag: Brick_5_3
+    TransformComponent:
+      Translation: [1, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000044
+    TagComponent:
+      Tag: Brick_5_4
+    TransformComponent:
+      Translation: [1, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000045
+    TagComponent:
+      Tag: Brick_5_5
+    TransformComponent:
+      Translation: [1, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000046
+    TagComponent:
+      Tag: Brick_6_0
+    TransformComponent:
+      Translation: [2, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/StructuralBreachDemo.lua
+  - Entity: 786000000000047
+    TagComponent:
+      Tag: Brick_6_1
+    TransformComponent:
+      Translation: [2, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000048
+    TagComponent:
+      Tag: Brick_6_2
+    TransformComponent:
+      Translation: [2, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000049
+    TagComponent:
+      Tag: Brick_6_3
+    TransformComponent:
+      Translation: [2, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000050
+    TagComponent:
+      Tag: Brick_6_4
+    TransformComponent:
+      Translation: [2, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000051
+    TagComponent:
+      Tag: Brick_6_5
+    TransformComponent:
+      Translation: [2, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000052
+    TagComponent:
+      Tag: Brick_7_0
+    TransformComponent:
+      Translation: [3, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000053
+    TagComponent:
+      Tag: Brick_7_1
+    TransformComponent:
+      Translation: [3, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000054
+    TagComponent:
+      Tag: Brick_7_2
+    TransformComponent:
+      Translation: [3, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000055
+    TagComponent:
+      Tag: Brick_7_3
+    TransformComponent:
+      Translation: [3, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000056
+    TagComponent:
+      Tag: Brick_7_4
+    TransformComponent:
+      Translation: [3, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000057
+    TagComponent:
+      Tag: Brick_7_5
+    TransformComponent:
+      Translation: [3, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000058
+    TagComponent:
+      Tag: Brick_8_0
+    TransformComponent:
+      Translation: [4, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: true
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000059
+    TagComponent:
+      Tag: Brick_8_1
+    TransformComponent:
+      Translation: [4, 1.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000060
+    TagComponent:
+      Tag: Brick_8_2
+    TransformComponent:
+      Translation: [4, 2.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000061
+    TagComponent:
+      Tag: Brick_8_3
+    TransformComponent:
+      Translation: [4, 3.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.61, 0.26, 0.20]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000062
+    TagComponent:
+      Tag: Brick_8_4
+    TransformComponent:
+      Translation: [4, 4.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.67, 0.28, 0.22]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true
+  - Entity: 786000000000063
+    TagComponent:
+      Tag: Brick_8_5
+    TransformComponent:
+      Translation: [4, 5.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.98, 0.98, 0.98]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.23, 0.18]
+      Metallic: 0.05
+      Roughness: 0.85
+    Rigidbody3DComponent:
+      BodyType: 0
+      Mass: 8
+      LinearDrag: 0.05
+      AngularDrag: 0.05
+      DisableGravity: false
+      IsTrigger: false
+    BoxCollider3DComponent:
+      HalfExtents: [0.5, 0.5, 0.5]
+      Offset: [0, 0, 0]
+      StaticFriction: 0.8
+      DynamicFriction: 0.7
+      Restitution: 0.05
+    DestructibleComponent:
+      Health: 100
+      MaxHealth: 100
+      DamageThreshold: 0
+      ChunkMesh: 0
+      ChunkCount: 5
+      ChunkScale: 0.3
+      ChunkMass: 1
+      ExplosionImpulse: 1.5
+      DebrisLifetime: 10
+      BreakOnJointBreak: true
+      DestroyOnBreak: true
+    StructuralNodeComponent:
+      Anchor: false
+      ContactMargin: 0.05
+      # 1 = load may cross one bonded neighbour before it needs something
+      # underneath again. The five-block breach below is wider than that, so the
+      # middle of the wall cannot arch over it and comes down.
+      MaxLateralSpan: 1
+      CollapseDelay: 0.08
+      FallDuration: 0.7
+      ShatterOnCollapse: true

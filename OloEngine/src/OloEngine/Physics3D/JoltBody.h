@@ -60,6 +60,16 @@ namespace OloEngine
         void SetBodyType(EBodyType bodyType);
         EBodyType GetBodyType() const;
 
+        // Whether SetBodyType(Dynamic/Kinematic) is legal on this body. Jolt
+        // allocates MotionProperties at CREATION time only, so a body created
+        // Static has none and switching its motion type would assert. The
+        // allocation is requested by BodyCreationSettings::mAllowDynamicOrKinematic,
+        // which CreateBodySettings sets for structural pieces (issue #786).
+        // A caller that needs a static body to start moving must check this and
+        // rebuild the body if it returns false — the flag depends on what
+        // components existed when the body was built.
+        [[nodiscard]] bool CanBecomeDynamic() const;
+
         // Collision properties
         void SetCollisionLayer(u32 layerID);
         u32 GetCollisionLayer() const;

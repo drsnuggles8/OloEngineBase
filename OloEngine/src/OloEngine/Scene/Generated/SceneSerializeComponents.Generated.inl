@@ -798,6 +798,20 @@ if (entity.HasComponent<SpringBoneComponent>())
     out << YAML::EndMap; // SpringBoneComponent
 }
 
+if (entity.HasComponent<StructuralNodeComponent>())
+{
+    out << YAML::Key << "StructuralNodeComponent";
+    out << YAML::BeginMap; // StructuralNodeComponent
+    auto const& comp = entity.GetComponent<StructuralNodeComponent>();
+    out << YAML::Key << "Anchor" << YAML::Value << comp.m_Anchor;
+    out << YAML::Key << "ContactMargin" << YAML::Value << comp.m_ContactMargin;
+    out << YAML::Key << "MaxLateralSpan" << YAML::Value << comp.m_MaxLateralSpan;
+    out << YAML::Key << "CollapseDelay" << YAML::Value << comp.m_CollapseDelay;
+    out << YAML::Key << "FallDuration" << YAML::Value << comp.m_FallDuration;
+    out << YAML::Key << "ShatterOnCollapse" << YAML::Value << comp.m_ShatterOnCollapse;
+    out << YAML::EndMap; // StructuralNodeComponent
+}
+
 if (entity.HasComponent<TilemapComponent>())
 {
     out << YAML::Key << "TilemapComponent";

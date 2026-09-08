@@ -935,6 +935,14 @@ registry.push_back(OLO_GFW_FIELD(StreamingVolumeComponent, "UnloadRadius", Unloa
 
 static void BuildRegistryChunk12(std::vector<FieldEntry>& registry)
 {
+// StructuralNodeComponent
+registry.push_back(OLO_GFW_FIELD(StructuralNodeComponent, "Anchor", m_Anchor));
+registry.push_back(OLO_GFW_FIELD_RANGE(StructuralNodeComponent, "ContactMargin", m_ContactMargin, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(StructuralNodeComponent, "MaxLateralSpan", m_MaxLateralSpan, OLO_GFW_BOUND(0), OLO_GFW_BOUND(64)));
+registry.push_back(OLO_GFW_FIELD_RANGE(StructuralNodeComponent, "CollapseDelay", m_CollapseDelay, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(60.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(StructuralNodeComponent, "FallDuration", m_FallDuration, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(60.0f)));
+registry.push_back(OLO_GFW_FIELD(StructuralNodeComponent, "ShatterOnCollapse", m_ShatterOnCollapse));
+
 // SubmeshComponent
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "SubmeshIndex", m_SubmeshIndex));
 registry.push_back(OLO_GFW_FIELD(SubmeshComponent, "Visible", m_Visible));

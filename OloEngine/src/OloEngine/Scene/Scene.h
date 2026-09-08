@@ -58,6 +58,7 @@ namespace OloEngine
     class UINavigation;
     class SystemScheduler;
     struct FlockingWorkspace;
+    struct StructuralGraph;
 
     namespace VisualScript
     {
@@ -449,6 +450,16 @@ namespace OloEngine
         JoltScene* GetPhysicsScene() const
         {
             return m_JoltScene.get();
+        }
+
+        // Structural connectivity for progressive collapse (issue #786): the
+        // support graph over this scene's StructuralNodeComponent pieces, built
+        // lazily and kept across ticks by DestructibleSystem. Runtime-only —
+        // never serialized, never copied by Scene::Copy; it is fully rederived
+        // from the components.
+        [[nodiscard]] StructuralGraph& GetStructuralGraph() const
+        {
+            return *m_StructuralGraph;
         }
 
         // Fluid access (issue #630): the per-scene registry of PBF solver
@@ -1328,6 +1339,9 @@ namespace OloEngine
         // m_JoltScene / m_CrowdManager above); ~Scene() is out-of-line in
         // Scene.cpp where the type is complete.
         std::unique_ptr<FlockingWorkspace> m_FlockingWorkspace;
+
+        // Support graph for progressive collapse (issue #786). See GetStructuralGraph.
+        std::unique_ptr<StructuralGraph> m_StructuralGraph;
 
         // Scratch buffers for PropagateWorldTransforms (issue #499) — persistent
         // across ticks and .clear()ed at the top of each call instead of being

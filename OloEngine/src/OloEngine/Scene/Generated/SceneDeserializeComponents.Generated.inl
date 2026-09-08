@@ -869,6 +869,20 @@ if (auto node = entity["SpringBoneComponent"]; node)
         comp.Weight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["StructuralNodeComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<StructuralNodeComponent>();
+    comp.m_Anchor = node["Anchor"].as<bool>(comp.m_Anchor);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ContactMargin"], v))
+        comp.m_ContactMargin = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    comp.m_MaxLateralSpan = std::clamp(node["MaxLateralSpan"].as<u32>(comp.m_MaxLateralSpan), static_cast<u32>(0), static_cast<u32>(64));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CollapseDelay"], v))
+        comp.m_CollapseDelay = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FallDuration"], v))
+        comp.m_FallDuration = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    comp.m_ShatterOnCollapse = node["ShatterOnCollapse"].as<bool>(comp.m_ShatterOnCollapse);
+}
+
 if (auto node = entity["TilemapComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<TilemapComponent>();

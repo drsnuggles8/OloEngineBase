@@ -2124,6 +2124,12 @@ namespace OloEngine
             DisplayAddComponentEntry<DiscoverableComponent>("Discoverable");
             DisplayAddComponentEntry<DiscoveredSetComponent>("Discovered Set");
 
+            // Destruction (issues #459 / #786). Destructible turns an object into
+            // debris on damage; Structural Node makes a set of destructibles hold
+            // each other up, so removing one brings down what it was carrying.
+            DisplayAddComponentEntry<DestructibleComponent>("Destructible");
+            DisplayAddComponentEntry<StructuralNodeComponent>("Structural Node");
+
             ImGui::Separator();
 
             // Audio Components
@@ -7191,6 +7197,116 @@ namespace OloEngine
                                               {
                 ImGui::Text("Discovered: %d", static_cast<int>(component.m_Discovered.size()));
                 ImGui::TextDisabled("Populated at runtime by the discovery system; not hand-authored."); });
+
+        // Destructible (issue #459) — shatters into pre-authored debris chunks on
+        // damage. The chunk mesh is optional: without one the object's own mesh is
+        // reused scaled down, and without that a cube primitive (ADR 0013).
+        DrawComponent<DestructibleComponent>("Destructible", entity, [](auto& component)
+                                             {
+                ImGui::SeparatorText("Integrity");
+                ImGui::DragFloat("Health", &component.m_Health, 1.0f, 0.0f, 1.0e9f, "%.1f");
+                ImGui::DragFloat("Max Health", &component.m_MaxHealth, 1.0f, 0.0f, 1.0e9f, "%.1f");
+                ImGui::DragFloat("Damage Threshold", &component.m_DamageThreshold, 0.5f, 0.0f, 1.0e9f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Chip resistance: hits weaker than this are ignored entirely. 0 = every hit lands.");
+
+                ImGui::SeparatorText("Debris");
+
+                // Pre-fractured chunk mesh (ADR 0013). Same generic
+                // CONTENT_BROWSER_ITEM + type-filter idiom as the Weather Map /
+                // Tileset slots. Empty is a valid, documented choice: the break
+                // path then reuses the object's own mesh scaled down, and failing
+                // that a cube primitive.
+                std::string chunkMeshLabel = component.m_ChunkMesh != 0
+                    ? "Chunk Mesh: " + std::to_string(static_cast<u64>(component.m_ChunkMesh))
+                    : "Chunk Mesh: None (reuse this object's mesh)";
+                ImGui::Button(chunkMeshLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Drag a MeshSource asset here to spawn pre-fractured debris.
+None = reuse this object's own mesh scaled down, else a cube.");
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                        {
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::MeshSource)
+                            {
+                                component.m_ChunkMesh = handle;
+                            }
+                            else if (handle != 0)
+                            {
+                                OLO_WARN("Dropped asset is not a MeshSource (type: {0})",
+                                         AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (component.m_ChunkMesh != 0)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear##ChunkMesh"))
+                        component.m_ChunkMesh = 0;
+                }
+
+                int chunkCount = static_cast<int>(component.m_ChunkCount);
+                if (ImGui::DragInt("Chunk Count", &chunkCount, 1.0f, 0, 64))
+                    component.m_ChunkCount = static_cast<u32>(std::clamp(chunkCount, 0, 64));
+                ImGui::DragFloat("Chunk Scale", &component.m_ChunkScale, 0.01f, 0.01f, 10.0f, "%.3f");
+                ImGui::DragFloat("Chunk Mass", &component.m_ChunkMass, 0.05f, 0.001f, 1.0e6f, "%.3f kg");
+                ImGui::DragFloat("Explosion Impulse", &component.m_ExplosionImpulse, 0.1f, 0.0f, 1.0e6f, "%.2f");
+                ImGui::DragFloat("Debris Lifetime", &component.m_DebrisLifetime, 0.1f, 0.0f, 600.0f, "%.2f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 uses the engine default. Live debris is capped globally; a burst past the cap evicts the oldest pieces.");
+
+                ImGui::SeparatorText("Triggers");
+                ImGui::Checkbox("Break On Joint Break", &component.m_BreakOnJointBreak);
+                ImGui::Checkbox("Destroy On Break", &component.m_DestroyOnBreak);
+
+                ImGui::BeginDisabled();
+                bool broken = component.m_Broken;
+                ImGui::Checkbox("Broken (runtime)", &broken);
+                ImGui::EndDisabled(); });
+
+        // Structural node (issue #786) — membership in a support graph. Adjacency
+        // is DERIVED from collider bounds at runtime, so there is nothing to author
+        // here but the anchor flag and the timing of the collapse.
+        DrawComponent<StructuralNodeComponent>("Structural Node", entity, [](auto& component)
+                                               {
+                ImGui::Checkbox("Anchor", &component.m_Anchor);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Ground piece: the support flood starts here and this piece never collapses.\nA structure with no anchor comes down entirely on the first break (and says so in the log).");
+
+                ImGui::DragFloat("Contact Margin", &component.m_ContactMargin, 0.005f, 0.0f, 10.0f, "%.3f m");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Slack added to this piece's bounds when deciding what it touches. Authored blocks rarely sit exactly flush.");
+
+                int maxSpan = static_cast<int>(component.m_MaxLateralSpan);
+                if (ImGui::DragInt("Max Lateral Span", &maxSpan, 0.1f, 0, 64))
+                    component.m_MaxLateralSpan = static_cast<u32>(std::clamp(maxSpan, 0, 64));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How many sideways steps along a bonded course load may travel before it needs something underneath again.\n0 = no cantilever: a piece must sit on something. Without a limit a wall never partially collapses.");
+
+                ImGui::SeparatorText("Collapse");
+                ImGui::DragFloat("Collapse Delay", &component.m_CollapseDelay, 0.01f, 0.0f, 60.0f, "%.3f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Per hop of distance from the break. 0 drops the whole unsupported set on one tick.");
+                ImGui::DragFloat("Fall Duration", &component.m_FallDuration, 0.05f, 0.0f, 60.0f, "%.2f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How long a detached piece falls as one rigidbody before it shatters. Needs a Rigidbody 3D; without one the piece shatters as soon as it detaches.");
+                ImGui::Checkbox("Shatter On Collapse", &component.m_ShatterOnCollapse);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Needs a Destructible on this entity. Off = the piece just keeps falling as one body.");
+
+                ImGui::SeparatorText("Runtime");
+                const char* stateNames[] = { "Stable", "Detaching", "Falling", "Collapsed" };
+                const u8 stateIndex = static_cast<u8>(component.m_State);
+                ImGui::Text("State: %s", stateIndex < IM_ARRAYSIZE(stateNames) ? stateNames[stateIndex] : "?");
+                ImGui::Text("Timer: %.3f s", static_cast<double>(component.m_StateTimer));
+                ImGui::Text("Hops from break: %u", component.m_CollapseHops); });
 
         // Aircraft (issue #438) — a force-based fixed-wing flight model.
         DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)
