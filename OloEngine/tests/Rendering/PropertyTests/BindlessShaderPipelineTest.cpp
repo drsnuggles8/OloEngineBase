@@ -33,6 +33,8 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/DDGI/DDGICommon.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderSourceScan.h"
+#include "Platform/OpenGL/OpenGLShader.h"
 
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
@@ -946,6 +948,148 @@ void main()
                "unless something compares them. Convert the declaration (see §5c), or bind the slot\n"
                "through PublishTextureOffsetAndBind if a slot-based consumer of it also exists."
             << report;
+    }
+
+    // =========================================================================
+    // THE ARM'S OPT-IN IS THE ENTRY SHADER'S, NOT ITS HEADERS' (issue #805,
+    // ADR 0011 amendment (96)).
+    //
+    // WHAT SHIPPED AND WAS CAUGHT IN REVIEW. VulkanShader decided the arm by asking
+    // whether the stage source MENTIONS OLO_MATERIAL_VULKAN_HEAP_READER — and it asked
+    // AFTER `OpenGLShader::ProcessIncludes` splices every `#include` verbatim into that
+    // source. PBRCommon.glsl carries `#ifdef OLO_MATERIAL_VULKAN_HEAP_READER` to pick
+    // its OLO_MAT_* spelling, so the token was present in all 14 of its includers while
+    // only 2 define it. The other 12 — both skinned PBR variants, Terrain_PBR, Water,
+    // DeferredLighting — would have made Shader::ReadsMaterialHeapOffsets() true, and
+    // CommandDispatch::BindPBRTextures withholds the five material binds whenever that
+    // reads true. Slot-based programs whose SPIR-V still declares bindings 0/1/2/4/5
+    // would have sampled whatever those units last held: a plausible wrong image, no
+    // error anywhere, and invisible to a Sponza capture because Sponza draws neither a
+    // skinned mesh nor terrain nor water.
+    //
+    // WHY THIS TEST RESOLVES INCLUDES RATHER THAN TRUSTING THE PREDICATE. Checking
+    // `DefinesOutsideComments` against a hand-written string would pass without ever
+    // touching the shipped shaders — it is the COMBINATION of the real include graph
+    // and the real predicate that was wrong. So this runs the engine's own include
+    // resolver over the real tree and asserts the answer is unchanged by it: the arm is
+    // a property of the file, and splicing a header in can neither grant it nor take it
+    // away.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, TheMaterialHeapArmIsDecidedByTheEntryShaderNotItsIncludes)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        constexpr std::string_view kToken = ShaderSourceScan::kVulkanMaterialHeapReaderToken;
+
+        std::vector<std::string> optedIn; // defines the token in its own text
+        std::vector<std::string> disagreements;
+        u32 scanned = 0;
+        u32 mentionAfterSplice = 0;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            // .glsl only. The material heap arm is a RASTER concept — it exists so a
+            // draw's five material textures need no per-draw binding — and a .comp has
+            // no PBRMaterialUBO to read lanes from. Excluding them also keeps the
+            // include resolution above honest: a compute shader spells its includes
+            // "../include/..." relative to compute/, which the engine's own
+            // shaderRoot-relative resolution does not reach either.
+            if (p.extension() != ".glsl")
+            {
+                continue;
+            }
+            // A shared header is never an entry shader; it is measured through its
+            // includers, which is exactly the distinction under test.
+            if (p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+            ++scanned;
+
+            const std::string relative = fs::relative(p, shaderRoot).generic_string();
+            const std::string own = ReadWholeFile(p);
+
+            // The engine's own resolver, so the include graph under test is the real one.
+            //
+            // THE DIRECTORY IS NOT OPTIONAL HERE. With it empty ProcessIncludes resolves
+            // against "assets/shaders" relative to the CWD, which is the editor's working
+            // directory and not the test binary's — every include silently fails to
+            // resolve and this whole test passes while measuring nothing. The
+            // loose-vs-strict floor below is what makes that failure loud.
+            //
+            // shaderRoot is the FAITHFUL reproduction, not merely a working one: the
+            // engine passes "" and ProcessIncludes then resolves "assets/shaders" against
+            // the editor's CWD, which is exactly this directory.
+            const std::string spliced = OpenGLShader::ProcessIncludes(own, shaderRoot.string());
+
+            const bool declaresIt = ShaderSourceScan::DefinesOutsideComments(own, kToken);
+            const bool declaresAfterSplice = ShaderSourceScan::DefinesOutsideComments(spliced, kToken);
+            if (ShaderSourceScan::MentionsOutsideComments(spliced, kToken))
+            {
+                ++mentionAfterSplice;
+            }
+            if (declaresIt)
+            {
+                optedIn.push_back(relative);
+            }
+
+            // THE CONTRACT: resolving includes must not change the answer, in either
+            // direction. A header that granted the arm would convert every includer at
+            // once; a header that somehow removed it would silently unconvert one.
+            if (declaresIt != declaresAfterSplice)
+            {
+                disagreements.push_back(relative + (declaresIt ? ": loses" : ": gains") +
+                                        " the material heap arm when its includes are resolved");
+            }
+        }
+
+        EXPECT_GT(scanned, 80u) << "the shader scan did not actually run";
+
+        // The floor that makes the rest meaningful: if nothing opts in, the equality
+        // below holds vacuously and the arm could be deleted unnoticed.
+        EXPECT_FALSE(optedIn.empty())
+            << "no shader defines " << kToken << " — either the arm was removed (delete this test and "
+                                                 "amendment (96) with it) or the token was renamed in only some of its three homes";
+
+        std::string report;
+        for (const std::string& d : disagreements)
+        {
+            report += "\n    " + d;
+        }
+        EXPECT_TRUE(disagreements.empty())
+            << "Resolving includes changed which shaders take the Vulkan material heap arm. The arm is an\n"
+               "ENTRY-SHADER opt-in: VulkanShader asks before the splice and asks for a #define, so a header\n"
+               "that merely tests the token cannot convert its includers. Detecting it any other way makes\n"
+               "CommandDispatch::BindPBRTextures withhold the five material binds from slot-based programs\n"
+               "whose SPIR-V still declares them (ADR 0011 amendment (96))."
+            << report;
+
+        // THE HAZARD MUST STILL BE REAL, and this is the assertion that keeps the test
+        // from going quietly vacuous. PBRCommon.glsl mentions the token in an `#ifdef`,
+        // so once includes resolve, strictly MORE shaders mention it than define it —
+        // and every one of that surplus is a shader a mention-based scan would have
+        // wrongly converted. If this ever fails, either the includes stopped resolving
+        // (the directory argument above) or PBRCommon stopped testing the token, and
+        // the rest of this test is no longer measuring the thing it was written for.
+        EXPECT_GT(mentionAfterSplice, optedIn.size())
+            << "after resolving includes, only " << mentionAfterSplice << " shader(s) mention "
+            << kToken << " and " << optedIn.size()
+            << " define it. PBRCommon.glsl tests the token with #ifdef, so the mention count must "
+               "exceed the definition count — an equal count means the includes did not resolve and "
+               "this test is measuring nothing.";
+
+        GTEST_LOG_(INFO) << optedIn.size() << " shader(s) opt into the material heap arm; "
+                         << mentionAfterSplice
+                         << " merely MENTION the token once includes are resolved — the gap is exactly what a "
+                            "mention-based scan would have wrongly converted.";
     }
 
     // =========================================================================

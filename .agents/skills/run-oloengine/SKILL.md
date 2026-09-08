@@ -1,0 +1,267 @@
+---
+name: run-oloengine
+description: Build, run, and screenshot the OloEngine apps on Windows — the OloEditor GUI, the OloServer headless dedicated server, and the GoogleTest suite. Use when asked to start/launch/run the editor, screenshot the editor, build OloEditor/OloServer/OloRuntime, run the tests, or confirm a change works in the real running app.
+---
+
+OloEngine is a native C++23 / OpenGL 4.6 desktop engine. The headline binary,
+**OloEditor**, is a GLFW + ImGui window — there is no DOM and no Playwright
+handle, so it is driven through the Win32 window manager by
+[driver.ps1](driver.ps1): it launches the process
+with the correct working directory, waits for the top-level window, and captures
+the window's own surface with `PrintWindow` (works even when the editor is **not**
+the focused/top-most window — which it usually isn't, since a background process
+can't steal foreground on Windows). OloServer is headless (`curl`/log-driven, no
+window); the tests are a plain console exe.
+
+All paths below are relative to the repo root (`e:\repos\OloEngineBaseTwo`). All
+commands were run on Windows 11 + VS 2026 + an RTX 4090 (real OpenGL 4.6).
+
+## Prerequisites
+
+Already provisioned on this machine; listed for a clean box. There is no
+`apt-get` — this is Windows:
+
+- **CMake 4.2+** — the `msvc` preset uses the `Visual Studio 18 2026` generator, which only exists in CMake 4.2+. (`cmake --version` → 4.2.0 here.)
+- **Visual Studio 2026** (Community is fine) with the C++ desktop workload. VS 2022 also works via `scripts\Win-GenerateProjectVS2022.bat`.
+- **Vulkan SDK 1.3+** with `VULKAN_SDK` set (provides `glslc` for SPIR-V shader compilation). Here: `C:\VulkanSDK\1.4.309.0`.
+- **Python 3.10+** with `jinja2` (used to generate the glad2 GL loader at configure time).
+- **A GPU with real OpenGL 4.6** for OloEditor/OloRuntime. WSL2's software GL is only 4.5 and will not run the editor.
+- **PowerShell 7 (`pwsh`)** to run the driver (Windows PowerShell 5.1 also works; the driver is `#requires -version 5.1`).
+
+## Build
+
+The `build/` tree already exists here. Configure (only needed on a clean clone,
+or after editing a `CMakeLists.txt`):
+
+```powershell
+cmake --preset msvc
+```
+
+**Always build through `build-lock.ps1`** — it is the cross-worktree build gate, and it is how the
+"never build two trees at once" rule in `AGENTS.md` is actually enforced. **Prefer the cached
+tree** (`cmake --preset dev-cached` once per worktree): it is ~3.5× faster warm and it is the only
+kind of tree eligible to build concurrently with another.
+
+```powershell
+pwsh -File .Codex/skills/run-oloengine/build-lock.ps1 -Command `
+  'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6'
+```
+
+Targets: `OloEditor`, `OloServer`, `OloRuntime`, `OloEngine-Tests`. Always cap `--parallel`
+(see `AGENTS.md` → *Build & run*) — though the lock rewrites the number anyway, from measured
+free memory, in either direction.
+
+**Why the lock.** One clean Debug build peaks at **~47 GiB** on this 64 GB host (issue #759), and
+an agent session running unattended cannot rely on the "check for live MSBuild/ninja processes
+first" rule, because two sessions checking at the same moment both see "clear". The lock lives in
+the shared `git-common-dir`, which every worktree resolves to the same path, so it coordinates
+across worktrees with no communication between the sessions. A build that cannot start
+**queues**; it does not fail.
+
+**Why you might get a second slot — or not.** Serialising everything was measured costing 43
+minutes of waiting against 58 minutes of building across three worktrees. A second concurrent
+build is now admitted, but only for a cached tree, only when every current holder is also a
+cached tree, and only above a free-memory floor; the lane ceiling is then split between them. A
+`build/` (Visual Studio) tree never qualifies, because that generator ignores the linker launcher,
+the Ninja job pool and the compiler cache alike, so nothing bounds its link steps. If the lock
+prints *"not starting a 2nd concurrent build — …"*, the reason it gives is the actual reason.
+
+Behaviour worth knowing:
+
+- It returns the **build's** exit code, never the release's.
+- Ownership is an **exclusive OS file handle**, not the lock file's existence. Acquiring is one
+  atomic operation, and a holder that crashes or is killed releases automatically because Windows
+  closes handles on process exit. There is no dead-PID special case and no stale-steal heuristic
+  to get wrong. A holder that is *hung but alive* keeps the lock until `-TimeoutMinutes` (default
+  180) expires and the waiter reports rather than stealing — silently starting a second build
+  next to a live one is the exact failure this exists to prevent.
+- It **kills its own build if the session that launched it dies**. The build runs as a child
+  process; the launching process is pinned by (pid, StartTime) and polled, and after
+  `-ParentGracePolls` consecutive absences the whole build tree is killed and the lock released.
+  That closes the case a held handle cannot: a build that outlives its window keeps running,
+  keeps the lock, and keeps eating ~47 GiB. Every ambiguous reading fails open, so a healthy
+  build is never killed by a momentary hiccup. `-NoParentWatch` opts out.
+- Bypassing it is **blocked, not just discouraged**: a `PreToolUse` hook in
+  `.Codex/settings.json` (`.Codex/hooks/Codex-build-lock-guard.py`) denies any agent tool call that
+  runs `cmake --build`, `ninja` or `msbuild` without going through this script, and tells you the
+  wrapped command to use instead. A permission rule could not do this — `deny` degrades to a
+  prompt, which an unattended session in auto mode approves. Two markers opt out and mean
+  different things: `OLO_NOT_A_BUILD` for a command that only *mentions* a build tool (silent
+  allow), and `OLO_BUILD_LOCK_OVERRIDE` for a build you are deliberately running unlocked —
+  allowed, but **audited** to `olo-build-metrics.jsonl` in the shared `git-common-dir`, and by policy it needs the user's
+  explicit permission for that build. Splitting them matters: while one marker covered both, a
+  real unlocked build went through as a "merely mentions" case. The check is a substring test a
+  comment satisfies, so it stops accidents, not intent. (`OLO_BUILD_LOCK_BYPASS` still works and
+  is audited around a real build.) A human typing `cmake --build` in their own terminal still
+  bypasses everything, which is fine.
+- The lock also sets the **job count** from measured free memory at acquire time, rewriting
+  `--parallel N` / `-jN` in your command. `-Jobs N` pins it; `-Jobs -1` runs the command verbatim.
+- Waiting is a **ticket queue** (`olo-build-queue/` in that same shared `git-common-dir`), not a race: tickets sort by priority then
+  arrival, only the head attempts the lock, and it reports your position. `-Priority` jumps the
+  queue but never preempts a running build. An identical re-queue from the same worktree supersedes
+  the older waiter. Everything fails **open** — an unreadable queue falls back to racing.
+- Serialising builds also reduces the per-user `mspdbsrv` contention that stalls `/Zi` compilation
+  across every worktree.
+
+Other notes:
+
+- OloEditor links to `bin\Debug\OloEditor\OloEditor.exe` (note: `bin\`, not `build\`).
+- A first full editor build is long; here only the editor + networking objects were stale, so it linked in a few minutes off the 899 prebuilt engine objects.
+
+## Run the editor (agent path)
+
+One shot — launch, wait out the 42-shader warmup, screenshot, kill:
+
+```powershell
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action capture
+```
+
+The PNG lands at `.Codex\skills\run-oloengine\shots\OloEditor-Debug.png` and the
+driver prints its size + a luminance mean/spread (a near-zero `StdLum` warns that
+the frame is blank — see Gotchas). **Open the PNG and look at it** — a good
+capture shows the menu bar, Scene Hierarchy (left), the 3D Viewport, and the
+docked Console/Content Browser.
+
+The driver also **snapshots `OloEngine.log` next to the PNG** (`OloEditor-Debug.png`
+→ `OloEditor-Debug.log`) on every `capture`/`shot`, because the editor truncates
+that file on the *next* launch. If the editor crashes during init (no window
+appears), the driver prints the last 30 log lines inline and points you at the
+snapshot — read it for shader compile/link errors.
+
+Interactive — leave it running and shoot it repeatedly (e.g. after poking the UI):
+
+```powershell
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action launch   # detached; stores the PID
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action shot -Out .Codex\skills\run-oloengine\shots\after.png
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action stop
+```
+
+Driver options:
+
+| flag | meaning |
+|---|---|
+| `-Action capture\|launch\|shot\|stop\|attach` | one-shot capture (default), detached launch / shoot / kill, or `attach` (launch + auto-start MCP + register with Codex) |
+| `-Target OloEditor\|OloRuntime` | which GUI binary (default `OloEditor`) |
+| `-Config Debug\|Release\|Dist` | build config to launch (default `Debug`) |
+| `-SettleSeconds <n>` | render-settle before capture (default 30 — covers the shader warmup) |
+| `-WaitSeconds <n>` | max wait for the window to appear (default 60) |
+| `-Method print\|screen` | `print` (default) = `PrintWindow`, captures the window even when occluded. `screen` = desktop BitBlt at the window rect, **only** correct if OloEditor is the top-most window |
+| `-Out <path>` | output PNG (default `shots\<Target>-<Config>.png`) |
+| `-KeepOpen` | with `capture`: leave the app running after the shot |
+| `-McpPort <n>` | with `attach`: override the per-worktree MCP port (default: derived from the worktree path) |
+| `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<port>`) |
+| `-AllowWrites` | with `attach`: start the session at MCP write consent **Allow all** (`OLO_MCP_ALLOW_WRITES=1`). Required for any mutating `olo_*` tool — see below. |
+
+## Attach the MCP diagnostics server (live frame inspection)
+
+OloEditor hosts a localhost-only, **read-only** MCP diagnostics server (issue #285/#316):
+`olo_log_tail`, `olo_scene_summary`, `olo_screenshot`, the `olo_camera_*` controls,
+`olo_shader_errors`, `olo_render_capture_target`, perf/memory/asset tools, etc. `attach`
+makes those tools available to **this** Codex session against a running editor —
+so you can inspect the *live* frame (multi-angle screenshots, intermediate render
+targets) without touching the user's viewport.
+
+```powershell
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action attach
+# ... use the olo_* tools ...
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action stop   # kills the editor + deregisters
+```
+
+`attach` launches the editor detached with `OLO_MCP_AUTOSTART=1`, a **per-worktree
+port** (`OLO_MCP_PORT`, derived from a hash of the worktree path so parallel worktree
+sessions never collide), and a **per-worktree discovery file**
+(`OLO_MCP_DISCOVERY_FILE = %TEMP%\oloengine-mcp-<port>.json`). It waits for that file,
+reads the URL + bearer token, and runs `Codex mcp add --transport http
+oloeditor-<port> <url> --header "Authorization: Bearer <token>"`. The discovery file
+and server name are keyed on the **port** (itself a full-path hash), not the worktree
+folder name, so two worktrees that happen to share a leaf directory name still get
+distinct identities and don't clobber each other's registration.
+
+**Write tools need `-AllowWrites`.** The `olo_*` surface is read-only by default: every
+mutating tool (`olo_scene_open`, `olo_renderer_settings_set`, `olo_scene_play`,
+`olo_entity_set_field`, …) is gated by the MCP panel's three-way **Agent writes**
+control, which is off on every launch and never persisted. That control is an ImGui
+radio group, so a detached `attach` has nobody to click it and the tools come back with
+*"Write tools are disabled"*. Pass `-AllowWrites` and the driver sets
+`OLO_MCP_ALLOW_WRITES=1` alongside `OLO_MCP_AUTOSTART=1` before launching:
+
+```powershell
+pwsh -NoProfile -File .Codex\skills\run-oloengine\driver.ps1 -Action attach -AllowWrites
+```
+
+The variable is read **only inside the editor's autostart block, after the server
+starts**, so it has to be set before launch — exporting it against an already-running
+editor does nothing, and that failure looks identical to the gate being closed. If a
+write is refused, relaunch with `-AllowWrites` rather than hunting for a second gate.
+
+Read-only work (screenshots, camera moves, `olo_render_capture_target`,
+`olo_shader_errors`, the stats tools) needs none of this — leave writes off unless you
+actually intend to mutate the project.
+
+Notes:
+
+- A fresh Codex session/reconnect may be needed before the newly registered
+  `olo_*` tools surface in the tool list — `attach` prints the registration result.
+- If the `Codex` CLI isn't on PATH, `attach` prints the exact `Codex mcp add` line to
+  run manually (same as the editor's `Window ▸ MCP Server` panel "Copy command" button).
+- `stop` runs `Codex mcp remove <name>` and deletes the discovery file. The editor's
+  MCP panel still works for a manually started server (default port 7345, legacy
+  `%TEMP%\oloengine-mcp.json` discovery file) — `attach` only adds the per-worktree path.
+- To verify the full round-trip without depending on session tool surfacing, run
+  [mcp-smoke-test.ps1](mcp-smoke-test.ps1) (set
+  `$env:OLO_MCP_DISCOVERY_FILE` to the per-worktree path first, or pass `-DiscoveryPath`).
+
+## Run the server (headless)
+
+No window — it binds a UDP port and reads stdin console commands. Run from the
+`OloEditor\` working directory (assets resolve relative to it):
+
+```powershell
+$p = Start-Process bin\Debug\OloServer\OloServer.exe -WorkingDirectory OloEditor `
+       -RedirectStandardOutput "$env:TEMP\oloserver.log" -PassThru
+Start-Sleep 5; Stop-Process -Id $p.Id -Force
+Select-String "Listening on port" "$env:TEMP\oloserver.log"
+```
+
+Expected: `[Server] Listening on port 7777` (defaults: port 7777, 64 players,
+60 Hz). Override with CLI args parsed by `ServerConfigSerializer::ParseCommandLine`.
+
+## Test
+
+The test binary runs from the **repo root** (not `OloEditor\`):
+
+```powershell
+build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=FastRandomTest.*:ContainerSmoke.*
+```
+
+→ `[ PASSED ] 13 tests.` Drop the filter to run the whole suite. List suites with
+`--gtest_list_tests`. Note: a guessed filter that matches nothing exits 0 with a
+`did not match any test` warning — confirm tests actually ran.
+
+## Run the editor (human path)
+
+```powershell
+# from a normal terminal; a 1280x720 window opens, Ctrl-C or close it to quit
+cd OloEditor; ..\bin\Debug\OloEditor\OloEditor.exe
+```
+
+Useless from a non-interactive/disconnected session (no visible window to see).
+
+## Gotchas
+
+- **`SetForegroundWindow` from a background process is silently blocked by Windows.** So `-Method screen` (desktop BitBlt at the window rect) captures whatever is actually on top — in testing it grabbed the VS Code window sitting over OloEditor, not OloEditor. The driver defaults to `-Method print` (`PrintWindow` with `PW_RENDERFULLCONTENT`), which copies the window's *own* surface regardless of z-order/occlusion. Only use `-Method screen` if you've confirmed the "correct" OloEditor is the visible top-most window.
+- **The editor shows a warmup splash for loading shaders for ~10–25 s before the real dockspace UI renders.** Capturing too early gets the splash, not the editor. Default `-SettleSeconds 30` clears it. First launch is slowest (SPIR-V cross-compile + GL link of 42 PBR variants); later launches hit the mesh/shader cache and are faster.
+- **`-Action launch` must detach the process** (the driver uses `UseShellExecute=$true` for it). An earlier version started the editor as a console child of the launching `pwsh`; when that `pwsh` exited, the editor died with it ("Renderer Memory Tracker shutdown" right after launch) and the follow-up `shot` found no window. `capture` is immune because one `pwsh` owns the whole launch→shot→kill sequence.
+- **Working directory must be `OloEditor\`.** Editor, runtime, and server resolve shaders, assets, and Mono assemblies relative to it. The driver sets this for you; the raw exe will fail to find shaders if run from elsewhere.
+- **The editor and server both write `OloEngine.log` to the cwd (`OloEditor\OloEngine.log`), truncating on open** — a server run clobbers the editor's log and vice-versa, and the *next* editor launch wipes the previous run's log. That's why the driver snapshots it to `shots\<name>.log` per run; for the server, use `-RedirectStandardOutput` instead of relying on the shared file.
+- **Captured PNG size varies** (1924×1127 vs 3840×2088 here) because the window opens at whatever size `OloEditor\imgui.ini` last saved — sometimes 1280×720, sometimes maximized to the desktop.
+- **After a successful build of the cached tree, the lock runs `scripts/Check-NinjaHeaderDeps.ps1`** and prints a `[deps-check]` line. It fails on any zero-dependency record it cannot account for — the issue #858 failure, where a compiler-cache hit restored the object but not its dependency file and the TU then never rebuilt on a header change (measured at 699 of 701 objects). A zero-dependency record is not automatically a defect: clang-cl's `/showIncludes` omits headers reached through system search paths, so a source with no quoted include and no angle include resolving inside the repo — `tools/OloHeaderTool/main.cpp` is the one such file today — legitimately records none, and the check says so by name rather than allowlisting it. It costs about a second and never changes the build's exit status. If it ever says FAIL, do not trust that tree's incremental build after a header edit until it is fixed — see [docs/agent-rules/build-trees-and-windows-asan.md](../../../docs/agent-rules/build-trees-and-windows-asan.md) §6.
+- **Editing any `CMakeLists.txt` forces a full CMake reconfigure on the next build** (~60 s here — `cmake --preset msvc` reported "Configuring done (59.4s)" — and FetchContent re-checks several vendored repos). A reconfigure also relinks the editor/tests on the next build even with no source change, so the "no-op" build after a configure isn't instant. Expected, not an error.
+
+## Troubleshooting
+
+- **`Could not find OloEditor.exe`**: it isn't built. Run the `cmake --build ... --target OloEditor` line above. The driver also searches `bin\` and `build\` for the freshest matching exe as a fallback.
+- **Capture is black / `StdLum` < 3 (driver warns)**: the session is non-interactive or RDP-disconnected, so the DWM never composited the window. Run from an interactive desktop session; `PrintWindow` needs the window to have been drawn at least once.
+- **`Process exited early ... before a window appeared`**: the editor crashed during init. The driver prints the last 30 log lines inline; read the full `shots\<name>.log` snapshot for shader compile/link errors or a missing asset.
+- **The *first* `capture` after a fresh editor build occasionally exits 1 with no PNG** (only the `.log` snapshot is written). Observed this session: the failing run was still recompiling shaders from source when the 30 s settle elapsed — the snapshot showed `[Vulkan SPIR-V] Compiling …` / `[OpenGL SPIR-V] Compiling …` lines (the mtime-based `Shader source or include newer than cache, recompiling: …` trace this originally quoted no longer exists — issue #906 replaced it with a content-hash cache key, so the symptom is now a plain cache MISS on a still-cold cache, not staleness). The immediate re-run hit the warm shader cache and captured cleanly (`StdLum 40.1`), as did every subsequent `launch`/`shot`. **Just re-run `capture`**, or bump `-SettleSeconds` for the first shot after a build.
+- **Server exits a few seconds after `Listening on port 7777` when launched non-interactively**: its console reads stdin EOF and shuts down. Fine for a smoke check; for a real session launch it in an interactive terminal.

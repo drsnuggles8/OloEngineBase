@@ -223,8 +223,14 @@ namespace OloEngine
       private:
         // Shared ctor tail: compile-or-load every stage, reflect, create
         // modules. Returns false on failure (m_Status = Failed).
+        // |readsMaterialHeapOffsets| is decided by the CALLER from the entry shader's
+        // own, pre-include text (ADR 0011 amendment (96)): `sources` here has had its
+        // includes spliced in, and PBRCommon.glsl mentions the arm's token in an
+        // `#ifdef`, so this function cannot ask the question for itself. Committed
+        // with the rest of the state, so a failed build leaves it describing the
+        // modules still in use.
         [[nodiscard]] bool BuildFromSources(const std::unordered_map<VkShaderStageFlagBits, std::string>& sources,
-                                            bool useCache);
+                                            bool useCache, bool readsMaterialHeapOffsets);
         void DestroyModules();
         void ReflectStage(VkShaderStageFlagBits stage, const std::vector<u32>& spirv);
 

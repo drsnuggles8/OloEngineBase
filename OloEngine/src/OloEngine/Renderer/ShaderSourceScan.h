@@ -86,6 +86,78 @@ namespace OloEngine::ShaderSourceScan
         return false;
     }
 
+    // True when `token` is the MACRO NAME of a `#define` in `source`, outside every
+    // comment.
+    //
+    // STRICTLY NARROWER THAN MentionsOutsideComments, and the difference is a bug this
+    // caught in review. A shared header TESTS a route token — PBRCommon.glsl carries
+    // `#ifdef OLO_MATERIAL_VULKAN_HEAP_READER` to pick its OLO_MAT_* spelling — and the
+    // Vulkan backend scans source whose includes have already been SPLICED IN
+    // (`OpenGLShader::ProcessIncludes` runs before `BuildFromSources`). So "mentions the
+    // token" was true for all 14 PBRCommon includers while only 2 opt in, and the other
+    // 12 had their five material binds withheld from programs whose SPIR-V still
+    // declares them. A `#ifdef` cannot be mistaken for an opt-in; only a `#define`
+    // grants one.
+    //
+    // The `#` must be the first non-space on its line, and only spaces or tabs may
+    // separate `#`, `define` and the name — never a newline, so this cannot walk off the
+    // directive it is checking onto an earlier line.
+    [[nodiscard]] constexpr bool PrecededByDefineDirective(std::string_view source, sizet tokenStart) noexcept
+    {
+        const auto skipBlanksBackwards = [&source](sizet i)
+        {
+            while (i > 0 && (source[i - 1u] == ' ' || source[i - 1u] == '\t'))
+            {
+                --i;
+            }
+            return i;
+        };
+
+        constexpr std::string_view kDefine = "define";
+        sizet i = skipBlanksBackwards(tokenStart);
+        if (i < kDefine.size() || source.compare(i - kDefine.size(), kDefine.size(), kDefine) != 0)
+        {
+            return false;
+        }
+        i = skipBlanksBackwards(i - kDefine.size());
+        if (i == 0 || source[i - 1u] != '#')
+        {
+            return false;
+        }
+        i = skipBlanksBackwards(i - 1u);
+        return i == 0 || source[i - 1u] == '\n' || source[i - 1u] == '\r';
+    }
+
+    [[nodiscard]] constexpr bool DefinesOutsideComments(std::string_view source, std::string_view token) noexcept
+    {
+        for (sizet i = 0; i < source.size();)
+        {
+            if (source.compare(i, 2, "//") == 0)
+            {
+                i = std::min(source.find('\n', i), source.size());
+                continue;
+            }
+            if (source.compare(i, 2, "/*") == 0)
+            {
+                const sizet end = source.find("*/", i + 2u);
+                i = (end == std::string_view::npos) ? source.size() : end + 2u;
+                continue;
+            }
+            if (source.compare(i, token.size(), token) == 0)
+            {
+                const bool leftOk = (i == 0) || !IsIdentifierChar(source[i - 1u]);
+                const sizet after = i + token.size();
+                const bool rightOk = (after >= source.size()) || !IsIdentifierChar(source[after]);
+                if (leftOk && rightOk && PrecededByDefineDirective(source, i))
+                {
+                    return true;
+                }
+            }
+            ++i;
+        }
+        return false;
+    }
+
     // The token a material shader defines to take the Vulkan heap arm (ADR 0011
     // amendment (96)). Named here rather than spelled at each site because THREE
     // places must agree on it and they live in different layers: the shader
@@ -93,5 +165,10 @@ namespace OloEngine::ShaderSourceScan
     // VulkanShader scans for it to decide that the program reads per-material
     // offsets — which is what makes CommandDispatch skip the five material binds.
     // A typo in any one of them is a silently wrong image, not a build error.
+    //
+    // DETECT IT WITH DefinesOutsideComments, ON THE ENTRY SHADER'S OWN SOURCE — never
+    // with MentionsOutsideComments, and never after includes are spliced. The second
+    // consumer above puts the token in a SHARED HEADER, so either mistake opts in every
+    // shader that merely includes PBRCommon.glsl.
     inline constexpr std::string_view kVulkanMaterialHeapReaderToken = "OLO_MATERIAL_VULKAN_HEAP_READER";
 } // namespace OloEngine::ShaderSourceScan
