@@ -1620,8 +1620,12 @@ namespace OloEngine
             // state it is in — the Detaching delay is m_CollapseDelay per hop, so
             // it has no fixed ceiling of its own and a flat clamp would quietly
             // rewrite the collapse ordering this field exists to preserve.
+            // Widen before the +1: a corrupt UINT32_MAX hop count would wrap to
+            // zero, collapse the ceiling to zero, and drop the timer to zero —
+            // detaching the piece instantly, which is the opposite of the
+            // conservative thing to do with an untrusted value.
             const f32 ceiling = (c.m_State == StructuralState::Detaching)
-                                    ? c.m_CollapseDelay * static_cast<f32>(c.m_CollapseHops + 1u)
+                                    ? c.m_CollapseDelay * static_cast<f32>(static_cast<u64>(c.m_CollapseHops) + 1ull)
                                     : ((c.m_State == StructuralState::Falling) ? c.m_FallDuration : 0.0f);
             c.m_StateTimer = (!std::isfinite(c.m_StateTimer) || c.m_StateTimer < 0.0f) ? 0.0f
                                                                                        : std::min(c.m_StateTimer, ceiling);

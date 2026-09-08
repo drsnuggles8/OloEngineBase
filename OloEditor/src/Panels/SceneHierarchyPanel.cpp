@@ -7211,6 +7211,47 @@ namespace OloEngine
                     ImGui::SetTooltip("Chip resistance: hits weaker than this are ignored entirely. 0 = every hit lands.");
 
                 ImGui::SeparatorText("Debris");
+
+                // Pre-fractured chunk mesh (ADR 0013). Same generic
+                // CONTENT_BROWSER_ITEM + type-filter idiom as the Weather Map /
+                // Tileset slots. Empty is a valid, documented choice: the break
+                // path then reuses the object's own mesh scaled down, and failing
+                // that a cube primitive.
+                std::string chunkMeshLabel = component.m_ChunkMesh != 0
+                    ? "Chunk Mesh: " + std::to_string(static_cast<u64>(component.m_ChunkMesh))
+                    : "Chunk Mesh: None (reuse this object's mesh)";
+                ImGui::Button(chunkMeshLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Drag a MeshSource asset here to spawn pre-fractured debris.
+None = reuse this object's own mesh scaled down, else a cube.");
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                        {
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::MeshSource)
+                            {
+                                component.m_ChunkMesh = handle;
+                            }
+                            else if (handle != 0)
+                            {
+                                OLO_WARN("Dropped asset is not a MeshSource (type: {0})",
+                                         AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (component.m_ChunkMesh != 0)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear##ChunkMesh"))
+                        component.m_ChunkMesh = 0;
+                }
+
                 int chunkCount = static_cast<int>(component.m_ChunkCount);
                 if (ImGui::DragInt("Chunk Count", &chunkCount, 1.0f, 0, 64))
                     component.m_ChunkCount = static_cast<u32>(std::clamp(chunkCount, 0, 64));

@@ -115,12 +115,30 @@ The **solve** is: a break re-floods only the connected components that lost a pi
 columns. Scratch is stamped rather than cleared, and the in-scope set comes from a per-island node
 list, so neither scoping nor resetting is O(scene).
 
-The **build** is not, and the header says so: it is a full O(N log N) pass that re-runs whenever the
-scene's structural-piece count changes — which during a collapse means the ticks on which pieces are
-destroyed. Rebuilding is idempotent because aliveness is derived from each piece's own `m_State`, not
-from the previous graph, so a rebuild mid-collapse reconstructs the standing structure rather than
+The **build** is not, and the header says so: it is a full O(N log N) pass. What triggers it is an
+**order-independent signature**, computed each tick, over every structural piece's UUID mixed with
+the authored fields the build caches — `m_Anchor`, `m_ContactMargin`, `m_MaxLateralSpan`. Two
+consequences worth stating outright:
+
+- **A same-count swap rebuilds.** Destroy one piece and create another in the same tick and a count
+  is unchanged while the graph is thoroughly wrong; the signature is not fooled. Pinned by
+  `AddingAndRemovingAPieceInOneTickStillInvalidatesTheGraph`.
+- **Retuning a piece rebuilds.** Toggling `m_Anchor` from the inspector, or a Lua script setting
+  `anchor` / `maxLateralSpan` mid-Play, changes an input the graph has cached. Lua, the editor, MCP
+  and C# can all reach those fields and none of them know the graph exists, so the signature has to
+  notice — do not replace it with invalidation calls at each mutation site, because the next site
+  will forget.
+- **Detaching does not rebuild.** `m_State` is deliberately outside the signature; a piece leaving
+  the structure is tracked in place by `MarkRemoved`, and folding state in would force a full
+  rebuild on every tick of a collapse.
+
+Rebuilding is idempotent because aliveness is derived from each piece's own `m_State`, not from the
+previous graph, so a rebuild mid-collapse reconstructs the standing structure rather than
 resurrecting what already fell. Do not "optimise" that by carrying the old `Alive` array across a
 rebuild.
+
+One input is **not** covered: a standing piece's transform. Nothing moves a standing structural
+piece at runtime today, and folding transforms in would rebuild every tick while debris falls.
 
 ## Cross-binding: what `StructuralNodeComponent` needed
 

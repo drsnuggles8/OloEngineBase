@@ -115,10 +115,19 @@ the structure — an unanchored structure is an authoring mistake, and it says s
 - `StructuralNodeComponent` is all-trivial. Scene YAML is generated; the save-game serializer is
   hand-written (it persists the collapse state, so a half-collapsed structure reloads
   half-collapsed) and the Lua usertype and editor inspector are hand-written as this repo requires.
-- The graph is rebuilt whenever the scene's structural-piece count changes, and *re-solved* only
-  over the connected components that lost a piece. The solve is the part that has to stay cheap as
-  scenes grow, and it is O(island) rather than O(scene); `StructuralGraph::LastSolveVisitedNodes`
-  reports it and `StructuralCollapseTest` pins it.
+- The graph is invalidated by an **order-independent signature over the pieces' identities and
+  their authored solver inputs** — each piece's UUID mixed with its `m_Anchor`, `m_ContactMargin`
+  and `m_MaxLateralSpan` — not by a piece count. A count cannot see a create and a destroy in the
+  same tick cancelling out, which would leave a destroyed piece still holding up its neighbours;
+  and it cannot see a piece being *retuned*, which every one of Lua, the editor inspector, MCP and
+  C# can do at runtime without knowing the graph exists. So: **replacing a piece with a different
+  one rebuilds even though the count is unchanged, and leaving the identities and their inputs
+  alone does not rebuild.** A piece merely *detaching* is deliberately outside the signature —
+  `m_State` is tracked in place, or a collapse would rebuild every tick.
+- Re-solving is scoped separately and more tightly: only the connected components that lost a piece
+  are re-flooded. The solve is the part that has to stay cheap as scenes grow, and it is O(island)
+  rather than O(scene); `StructuralGraph::LastSolveVisitedNodes` reports it and
+  `StructuralCollapseTest` pins it against untouched structures.
 - A destructible with no `StructuralNodeComponent` keeps the #459 behaviour untouched: it shatters
   in isolation. Collapse composes with the existing break trigger, the `DEBRIS` layer and the global
   live-debris budget rather than replacing any of them.

@@ -9,6 +9,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 
 namespace OloEngine
@@ -91,6 +92,28 @@ namespace OloEngine
             return x;
         }
 
+        // The graph's INPUT identity for one piece: its id plus every authored
+        // field Rebuild caches. Folding only the id would leave the graph a stale
+        // answer the moment anyone retunes a piece, and m_Anchor / m_ContactMargin
+        // / m_MaxLateralSpan are all reachable at runtime from Lua, the editor
+        // inspector, MCP and C# — none of which know this graph exists. Making the
+        // signature notice is the only version of that which cannot be forgotten
+        // at a new mutation site.
+        //
+        // m_State is deliberately NOT here: a piece leaving the structure is
+        // tracked in place by MarkRemoved, and folding it would force a full
+        // rebuild on every tick of a collapse.
+        [[nodiscard]] u64 StructuralInputSignature(UUID id, const StructuralNodeComponent& node)
+        {
+            u64 h = MixID(static_cast<u64>(id));
+            h = MixID(h ^ (node.m_Anchor ? 0x9E3779B97F4A7C15ull : 0ull));
+            // Hash the BITS, not the value — no float comparison, and a NaN margin
+            // still produces a stable signature (Rebuild sanitizes the value).
+            h = MixID(h ^ static_cast<u64>(std::bit_cast<u32>(node.m_ContactMargin)));
+            h = MixID(h ^ (static_cast<u64>(node.m_MaxLateralSpan) * 0xD1B54A32D192ED03ull));
+            return h;
+        }
+
         // Build a CSR (offsets, targets [, weights]) from an unsorted edge list.
         // `weights` may be null when the caller does not care about edge kind.
         void BuildCSR(u32 nodeCount, const std::vector<Edge>& edges,
@@ -170,7 +193,10 @@ namespace OloEngine
 
         u64 signature = 0;
         for (auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>(); auto e : view)
-            signature += MixID(static_cast<u64>(Entity{ e, scene }.GetUUID()));
+        {
+            Entity entity{ e, scene };
+            signature += StructuralInputSignature(entity.GetUUID(), entity.GetComponent<StructuralNodeComponent>());
+        }
 
         if (Built && signature == BuiltSignature)
             return;
@@ -198,8 +224,10 @@ namespace OloEngine
         for (auto view = scene->GetAllEntitiesWith<StructuralNodeComponent>(); auto e : view)
         {
             Entity entity{ e, scene };
-            signature += MixID(static_cast<u64>(entity.GetUUID()));
             const auto& node = entity.GetComponent<StructuralNodeComponent>();
+            // Must fold exactly what EnsureBuilt folds, or the two disagree and
+            // the graph either never rebuilds or rebuilds every tick.
+            signature += StructuralInputSignature(entity.GetUUID(), node);
 
             // Aliveness is derived from the piece's own state, never from the
             // previous graph — that is what makes a mid-collapse rebuild
@@ -266,16 +294,11 @@ namespace OloEngine
         }
 
         // ── Adjacency ────────────────────────────────────────────────────────
-        // A uniform hash over the piece centres. The cell size is the widest
-        // query any piece will make, so every query sweeps at most 3x3x3 cells.
+        // A uniform hash over the piece centres.
         std::vector<f32> extentRadii;
         extentRadii.reserve(nodeCount);
-        f32 maxExtentRadius = 0.0f;
         for (const glm::vec3& he : HalfExtents)
-        {
             extentRadii.push_back(glm::length(he));
-            maxExtentRadius = std::max(maxExtentRadius, extentRadii.back());
-        }
 
         // The pair test is per-axis, so the widest centre distance that can still
         // overlap is |he_i + he_j + margin*(1,1,1)| — the margin enters on the
@@ -283,80 +306,122 @@ namespace OloEngine
         // drop corner-touching pairs.
         const f32 marginReach = maxContactMargin * 1.7320509f;
 
-        // Size the cells from the TYPICAL piece, not the largest. Sizing them
-        // from the largest lets a single oversized piece — a ground slab modelled
-        // as a structural node, say — collapse the whole scene into a handful of
-        // cells, and the adjacency pass silently degenerates to O(N^2) on every
-        // rebuild, i.e. most ticks of a collapse. Each node then queries with its
-        // OWN radius, so a small piece sweeps a small neighbourhood and only the
-        // oversized one pays for being oversized.
+        // Size the cells from the TYPICAL piece, not the largest, and take
+        // OVERSIZED pieces out of the grid pass entirely.
+        //
+        // Both halves are needed. A query has to reach the largest partner it
+        // could possibly overlap, so as long as one giant piece — a ground slab
+        // modelled as a structural node, say — is in the grid, EVERY query is
+        // widened to reach it and the pass degenerates towards O(N^2) on every
+        // rebuild, i.e. most ticks of a collapse. Median-sized cells alone do not
+        // fix that; they only change the constant.
+        //
+        // So: normal pieces pair with normal pieces through the grid, bounded by
+        // the largest NORMAL radius, and anything involving an oversized piece is
+        // paired by a linear scan below. Oversized pieces are rare by
+        // construction, so paying O(N) for each of them is far cheaper than
+        // making every other piece pay for their existence.
         std::vector<f32> sortedRadii(extentRadii);
         std::nth_element(sortedRadii.begin(), sortedRadii.begin() + sortedRadii.size() / 2, sortedRadii.end());
         const f32 medianExtentRadius = sortedRadii[sortedRadii.size() / 2];
-        const f32 cellSize = std::max(2.0f * medianExtentRadius + marginReach, FlockSpatialHash::kMinCellSize);
 
+        const f32 oversizeThreshold = kOversizeFactor * std::max(medianExtentRadius, 1.0e-4f);
+        std::vector<u8> isOversized(nodeCount, 0u);
+        std::vector<u32> oversized;
+        f32 maxNormalRadius = 0.0f;
+        for (u32 i = 0; i < nodeCount; ++i)
+        {
+            if (extentRadii[i] > oversizeThreshold)
+            {
+                isOversized[i] = 1u;
+                oversized.push_back(i);
+            }
+            else
+            {
+                maxNormalRadius = std::max(maxNormalRadius, extentRadii[i]);
+            }
+        }
+
+        const f32 cellSize = std::max(2.0f * medianExtentRadius + marginReach, FlockSpatialHash::kMinCellSize);
         FlockSpatialHash grid;
         grid.Rebuild(Centers, cellSize);
 
         std::vector<Edge> supportPairs;    // (supporter, supported, lateral?)
         std::vector<Edge> undirectedEdges; // both directions, for islands
+        // The pair test, in one place: both the grid pass and the oversized scan
+        // below feed it, so there is exactly one copy of the adjacency rule.
+        // Callers guarantee i < j, which is what makes each unordered pair land
+        // here once.
+        const auto considerPair = [&](u32 i, u32 j)
+        {
+            // Two pieces are connected when they share a FACE, not merely a
+            // corner. `overlap` is the un-slackened penetration per axis: all
+            // three must be within the contact margin (they are close enough to
+            // touch), and at least two must genuinely overlap (the third axis is
+            // the contact normal).
+            //
+            // Without the second condition, two unit cubes meeting only along an
+            // edge count as load-bearing, and a diagonal staircase of
+            // corner-touching blocks holds up a wall.
+            const f32 margin = std::max(margins[i], margins[j]);
+            const glm::vec3 delta = glm::abs(Centers[j] - Centers[i]);
+            const glm::vec3 overlap = HalfExtents[i] + HalfExtents[j] - delta;
+            if (overlap.x + margin <= 0.0f || overlap.y + margin <= 0.0f || overlap.z + margin <= 0.0f)
+                return;
+            const int faceAxes = (overlap.x > 0.0f ? 1 : 0) + (overlap.y > 0.0f ? 1 : 0) + (overlap.z > 0.0f ? 1 : 0);
+            if (faceAxes < 2)
+                return;
+
+            undirectedEdges.push_back({ i, j, 0u });
+            undirectedEdges.push_back({ j, i, 0u });
+
+            const f32 dy = Centers[j].y - Centers[i].y;
+            const f32 tolerance = kLevelToleranceFraction * (HalfExtents[i].y + HalfExtents[j].y);
+            if (dy > tolerance)
+            {
+                supportPairs.push_back({ i, j, 0u }); // j rests on i
+            }
+            else if (dy < -tolerance)
+            {
+                supportPairs.push_back({ j, i, 0u });
+            }
+            else
+            {
+                // Same course: a bonded row shares load both ways, which is what
+                // lets a lintel stand on its end supports — but each sideways
+                // step costs the piece one of its m_MaxLateralSpan, so the
+                // sharing has a reach rather than being free.
+                supportPairs.push_back({ i, j, 1u });
+                supportPairs.push_back({ j, i, 1u });
+            }
+        };
+
+        // Normal x normal, through the grid. The bound reaches the largest NORMAL
+        // partner, so no query is widened by a piece that is not in this pass.
         for (u32 i = 0; i < nodeCount; ++i)
         {
-            // Tight per-node bound: nothing further than this can overlap node i.
-            const f32 queryRadius = extentRadii[i] + maxExtentRadius + marginReach;
+            if (isOversized[i])
+                continue;
+            const f32 queryRadius = extentRadii[i] + maxNormalRadius + marginReach;
             grid.ForEachInRadius(Centers[i], queryRadius,
                                  [&](u32 j, const glm::vec3&, f32)
                                  {
-                                     // Visit each unordered pair exactly once.
-                                     if (j <= i)
-                                         return;
-
-                                     // Two pieces are connected when they share a
-                                     // FACE, not merely a corner. `overlap` is
-                                     // the un-slackened penetration per axis: all
-                                     // three must be within the contact margin
-                                     // (they are close enough to touch), and at
-                                     // least two must genuinely overlap (the
-                                     // third axis is the contact normal).
-                                     //
-                                     // Without the second condition, two unit
-                                     // cubes meeting only along an edge count as
-                                     // load-bearing, and a diagonal staircase of
-                                     // corner-touching blocks holds up a wall.
-                                     const f32 margin = std::max(margins[i], margins[j]);
-                                     const glm::vec3 delta = glm::abs(Centers[j] - Centers[i]);
-                                     const glm::vec3 overlap = HalfExtents[i] + HalfExtents[j] - delta;
-                                     if (overlap.x + margin <= 0.0f || overlap.y + margin <= 0.0f || overlap.z + margin <= 0.0f)
-                                         return;
-                                     const int faceAxes = (overlap.x > 0.0f ? 1 : 0) + (overlap.y > 0.0f ? 1 : 0) + (overlap.z > 0.0f ? 1 : 0);
-                                     if (faceAxes < 2)
-                                         return;
-
-                                     undirectedEdges.push_back({ i, j, 0u });
-                                     undirectedEdges.push_back({ j, i, 0u });
-
-                                     const f32 dy = Centers[j].y - Centers[i].y;
-                                     const f32 tolerance = kLevelToleranceFraction * (HalfExtents[i].y + HalfExtents[j].y);
-                                     if (dy > tolerance)
-                                     {
-                                         supportPairs.push_back({ i, j, 0u }); // j rests on i
-                                     }
-                                     else if (dy < -tolerance)
-                                     {
-                                         supportPairs.push_back({ j, i, 0u });
-                                     }
-                                     else
-                                     {
-                                         // Same course: a bonded row shares load
-                                         // both ways, which is what lets a lintel
-                                         // stand on its end supports — but each
-                                         // sideways step costs the piece one of
-                                         // its m_MaxLateralSpan, so the sharing
-                                         // has a reach rather than being free.
-                                         supportPairs.push_back({ i, j, 1u });
-                                         supportPairs.push_back({ j, i, 1u });
-                                     }
+                                     if (j <= i || isOversized[j])
+                                         return; // each pair once; oversized handled below
+                                     considerPair(i, j);
                                  });
+        }
+
+        // Anything involving an oversized piece, linearly. An oversized/oversized
+        // pair is visited from the lower index only, so it still lands once.
+        for (u32 o : oversized)
+        {
+            for (u32 j = 0; j < nodeCount; ++j)
+            {
+                if (j == o || (isOversized[j] && j < o))
+                    continue;
+                considerPair(std::min(o, j), std::max(o, j));
+            }
         }
 
         BuildCSR(nodeCount, supportPairs, SupportOffsets, SupportEdges, &SupportEdgeIsLateral);

@@ -949,21 +949,29 @@ namespace OloEngine
         const bool allowLaterMotion = motionType != JPH::EMotionType::Dynamic && m_Entity && m_Entity.HasComponent<StructuralNodeComponent>();
         bodySettings.mAllowDynamicOrKinematic = allowLaterMotion;
 
-        if (motionType == JPH::EMotionType::Dynamic)
+        // Honour the authored mass — on a Dynamic body, and on a Static piece that
+        // is going to BECOME one, where otherwise the mass properties come from
+        // the shape's density and a heavy block falls as if it were made of the
+        // default material.
+        //
+        // The finiteness guard covers both: CalculateInertia with a zero or NaN
+        // mass is a Jolt assert, and nothing validates m_Mass on the way in. An
+        // invalid value is an authoring error, so it is reported rather than
+        // silently substituted, and the body falls back to shape-derived mass so
+        // it still simulates.
+        if (motionType == JPH::EMotionType::Dynamic || allowLaterMotion)
         {
-            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
-        }
-        else if (allowLaterMotion && std::isfinite(rigidBodyComponent.m_Mass) && rigidBodyComponent.m_Mass > 0.0f)
-        {
-            // Honour the authored mass on the body this piece will BECOME.
-            // Without it the mass properties come from the shape's density, and
-            // a heavy block would fall as if it were made of the default
-            // material. Guarded because a Static body's m_Mass is never
-            // validated by anything today, and CalculateInertia with a zero or
-            // NaN mass is a Jolt assert.
-            bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
+            if (std::isfinite(rigidBodyComponent.m_Mass) && rigidBodyComponent.m_Mass > 0.0f)
+            {
+                bodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+                bodySettings.mMassPropertiesOverride.mMass = rigidBodyComponent.m_Mass;
+            }
+            else if (motionType == JPH::EMotionType::Dynamic)
+            {
+                OLO_CORE_WARN("Rigidbody3D on entity {} is Dynamic with a non-positive or non-finite mass ({}); "
+                              "falling back to shape-derived mass properties",
+                              static_cast<u64>(m_Entity.GetUUID()), rigidBodyComponent.m_Mass);
+            }
         }
 
         return bodySettings;

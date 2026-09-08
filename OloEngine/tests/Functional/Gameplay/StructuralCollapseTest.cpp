@@ -542,6 +542,40 @@ TEST_F(StructuralCollapseTest, AddingAndRemovingAPieceInOneTickStillInvalidatesT
     EXPECT_TRUE(HasLeftStructure(column[2]));
 }
 
+// Retuning a piece is an input change, not just a cosmetic one: the graph caches
+// m_Anchor / m_ContactMargin / m_MaxLateralSpan at build time, and Lua, the
+// editor inspector, MCP and C# can all write them mid-Play without knowing the
+// graph exists. The staleness signature has to notice, or the solver keeps
+// answering with the values the piece used to have.
+TEST_F(StructuralCollapseTest, RetuningAPieceMidPlayInvalidatesTheGraph)
+{
+    // Anchored base, two blocks stacked on it.
+    std::vector<UUID> column = MakeColumn(0.0f, 3, "C");
+    RunFrames(1);
+
+    StructuralGraph& graph = GetScene().GetStructuralGraph();
+    ASSERT_EQ(graph.NodeIDs.size(), 3u);
+    const u64 rebuildsAfterBuild = graph.TotalRebuilds;
+
+    // A tick that changes nothing must not rebuild.
+    RunFrames(1);
+    EXPECT_EQ(graph.TotalRebuilds, rebuildsAfterBuild) << "an unchanged scene must not rebuild the graph";
+
+    // Un-anchor the base — the exact edit the inspector's Anchor checkbox makes.
+    Resolve(column[0])->GetComponent<StructuralNodeComponent>().m_Anchor = false;
+    RunFrames(1);
+    EXPECT_GT(graph.TotalRebuilds, rebuildsAfterBuild) << "toggling m_Anchor must invalidate the graph";
+
+    // And the solver must act on the NEW value: with no anchor left, breaking
+    // the top piece brings the rest down. If the graph had kept the stale
+    // anchored base, the column would have stood.
+    ASSERT_TRUE(Damage(column[2], 500.0f));
+    RunFrames(8);
+    EXPECT_TRUE(HasLeftStructure(column[0]))
+        << "the un-anchored base must collapse — the solver is still using the stale m_Anchor";
+    EXPECT_TRUE(HasLeftStructure(column[1]));
+}
+
 // The save-game serializer for StructuralNodeComponent is hand-written and
 // unguarded, and it carries the collapse state on purpose: a structure saved
 // half-down must reload half-down, with a piece already falling kept out of the

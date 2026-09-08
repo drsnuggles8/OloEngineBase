@@ -84,6 +84,12 @@ namespace OloEngine
         // (dy ≈ a full piece height) is unambiguously one-way.
         static constexpr f32 kLevelToleranceFraction = 0.25f;
 
+        // A piece whose extent radius exceeds this multiple of the scene's median
+        // is paired by a linear scan instead of through the spatial hash. Keeping
+        // it in the grid would widen EVERY other piece's query to reach it, which
+        // is the O(N^2) cliff median-sized cells exist to avoid.
+        static constexpr f32 kOversizeFactor = 4.0f;
+
         // Bound on the build: past this many pieces the adjacency pass refuses
         // the rest rather than silently costing a frame. Structures here are
         // tens of pieces; this exists so a pathological scene fails loudly.
