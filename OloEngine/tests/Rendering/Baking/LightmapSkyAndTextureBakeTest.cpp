@@ -153,7 +153,7 @@ namespace OloEngine::Tests
         }
 
         // Mean baked irradiance over every texel job the predicate accepts.
-        template <typename Predicate>
+        template<typename Predicate>
         [[nodiscard]] glm::vec3 RegionMean(const BakeOutcome& baked, Predicate&& accept, u32& outCount)
         {
             const auto& texels = baked.Result.Asset->GetTexelData();
@@ -228,8 +228,10 @@ namespace OloEngine::Tests
 
         u32 redSideCount = 0;
         u32 greenSideCount = 0;
-        const auto nearMinusX = [](const LightmapTexelJob& job) { return IsFloorTop(job) && job.WorldPos.x < -2.0f; };
-        const auto nearPlusX = [](const LightmapTexelJob& job) { return IsFloorTop(job) && job.WorldPos.x > 2.0f; };
+        const auto nearMinusX = [](const LightmapTexelJob& job)
+        { return IsFloorTop(job) && job.WorldPos.x < -2.0f; };
+        const auto nearPlusX = [](const LightmapTexelJob& job)
+        { return IsFloorTop(job) && job.WorldPos.x > 2.0f; };
 
         const glm::vec3 flatMinusX = RegionMean(factorOnly, nearMinusX, redSideCount);
         const glm::vec3 flatPlusX = RegionMean(factorOnly, nearPlusX, greenSideCount);
@@ -291,7 +293,8 @@ namespace OloEngine::Tests
 
         ReferenceSceneBuildOptions defaulted;
         ReferenceSceneBuildOptions explicitlyEmpty;
-        explicitlyEmpty.MaterialMapProvider = [](const Material&) { return ReferenceMaterialMaps{}; };
+        explicitlyEmpty.MaterialMapProvider = [](const Material&)
+        { return ReferenceMaterialMaps{}; };
 
         const BakeOutcome a = BakeRoom(pieces, &light, { 0.0f, 1.6f, 0.0f }, defaulted, 32);
         const BakeOutcome b = BakeRoom(pieces, &light, { 0.0f, 1.6f, 0.0f }, explicitlyEmpty, 32);

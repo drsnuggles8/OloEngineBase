@@ -71,16 +71,28 @@ namespace OloEngine::PathTracing
             return out.Width == width && out.Height == height;
         }
         // One sky component type, resolved the way the renderer resolves it.
-        // Returns whether such a component exists at all — see the call site
-        // for why that is not the same question as "did it capture".
-        template <typename SkyComponent>
+        // Returns whether this tier DRIVES THE SCENE, which is not the same
+        // question as "did it capture" — see the call site.
+        //
+        // The `continue` below is load-bearing and mirrors
+        // Scene::LoadAndRenderSkybox exactly: each tier there skips a component
+        // whose cubemap has not been baked (or whose bake failed and dropped
+        // the stale one) and FALLS THROUGH to the next tier. Returning true for
+        // such a component would report "no sky" while an EnvironmentMapComponent
+        // further down was actually lighting the scene. Note the asymmetry that
+        // makes this subtle: a sky with m_EnableIBL false still stops the
+        // fall-through over there — it draws and clears the global IBL — so the
+        // predicate is "has a cached EnvironmentMap", not "contributes light".
+        template<typename SkyComponent>
         [[nodiscard]] bool TakeFirstSky(Scene& scene, CapturedSky& captured)
         {
             auto view = scene.GetAllEntitiesWith<SkyComponent>();
             for (auto entity : view)
             {
                 const SkyComponent& sky = view.template get<SkyComponent>(entity);
-                if (sky.m_EnableIBL && sky.m_EnvironmentMap && sky.m_EnvironmentMap->GetEnvironmentMap())
+                if (!sky.m_EnvironmentMap)
+                    continue;
+                if (sky.m_EnableIBL && sky.m_EnvironmentMap->GetEnvironmentMap())
                 {
                     captured.Cubemap = CaptureEnvironmentCubemap(sky.m_EnvironmentMap->GetEnvironmentMap());
                     if (captured.Cubemap)
@@ -158,14 +170,24 @@ namespace OloEngine::PathTracing
 
         std::vector<u8> bytes;
         if (!cubemap->GetData(bytes, 0))
+        {
+            OLO_CORE_WARN("CaptureEnvironmentCubemap: the backend could not read back a {}x{} sky cubemap "
+                          "in format {} — the bake will run with no sky contribution",
+                          cubemap->GetWidth(), cubemap->GetHeight(), static_cast<i32>(spec.Format));
             return nullptr;
+        }
 
         const sizet faceTexels = static_cast<sizet>(faceSize) * faceSize;
         const sizet totalTexels = faceTexels * ReferenceEnvironmentCubemap::kFaceCount;
 
-        // RGBA32F and RGBA16F both come back as four f32 per texel (the
-        // readback asks for GL_FLOAT either way), and both are linear
-        // radiance — no transfer function to undo.
+        // RGBA32F is what every generated sky and HDR load produces, and it
+        // comes back as four linear f32 per texel — no transfer function to
+        // undo. RGBA16F is accepted here for a backend that can hand it back,
+        // but note that the GL one CANNOT: OpenGLTextureCubemap's format table
+        // has no RGBA16F entry, so GetData fails above and a 16F sky never
+        // reaches this branch. That is why the failure below names the format
+        // rather than shrugging — an unexplained "no sky" in a bake log is the
+        // hard version of this bug to find.
         std::vector<f32> rgba;
         if (spec.Format == ImageFormat::RGBA32F || spec.Format == ImageFormat::RGBA16F)
         {

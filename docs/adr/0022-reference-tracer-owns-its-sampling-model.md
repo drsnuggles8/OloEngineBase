@@ -133,7 +133,12 @@ unused. Confirming that precedent and finishing it is cheaper than writing down 
 - The reference gained a GPU dependency **at capture time only**. `ReferenceScene`,
   `ReferenceSceneBuilder` and the integrator stay GL-free: the builder takes an injectable texture
   provider and a pre-captured cubemap, so every headless test supplies synthetic images and the
-  editor supplies a readback. A null provider reproduces the pre-#869 factor-only world exactly.
+  editor supplies a readback. A null provider leaves every material factor-only.
+- **One behaviour change is deliberately not opt-in**: the builder mirrors the material's glTF
+  alpha mode whether or not maps were supplied. A cut-out material traced as a solid quad is not
+  "less bounce than reality", it is a *wrong occluder* casting a shadow the raster path does not,
+  so opting out of maps must not opt out of the cutout. It is a no-op for an opaque material —
+  which every parity fixture in the repo uses — and the no-op is pinned by `memcmp`.
 - The units ledger in `baked-lightmap-pipeline.md` §3 is unchanged. Sky enters the lightmap the same
   way an emissive surface does — through a path vertex, never through a delta light — so the atlas
   still stores indirect-only irradiance E by construction.

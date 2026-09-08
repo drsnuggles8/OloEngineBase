@@ -40,11 +40,17 @@ Read this before validating a GI / lighting / BRDF change against it, and before
 
   **Whether a given scene has any of that is the caller's choice, and the default is no.**
   `ReferenceSceneBuildOptions::MaterialMapProvider` and `::EnvironmentCubemap` both default to
-  absent, and absent reproduces the pre-#869 factor-only, uniform-environment world *bit-exactly*
-  (`LightmapSkyAndTextureBake.AProviderThatSuppliesNoMapsChangesNothingBitForBit`). A build that will be
-  COMPARED against a raster path leaves them absent — it must stay inside the subset both worlds
-  express, or it starts measuring the scene description instead of the transport. A BAKE, whose
-  output is consumed rather than compared, takes them.
+  absent, and absent traces the factor-only, uniform-environment world
+  (`LightmapSkyAndTextureBake.AProviderThatSuppliesNoMapsChangesNothingBitForBit` pins the hook
+  itself as a memcmp-exact no-op). A build that will be COMPARED against a raster path leaves them
+  absent — it must stay inside the subset both worlds express, or it starts measuring the scene
+  description instead of the transport. A BAKE, whose output is consumed rather than compared,
+  takes them.
+
+  **The one thing that is NOT opt-in** is the material'''s glTF alpha mode, which the builder mirrors
+  either way. A cut-out material traced as a solid quad is a wrong occluder, not a dimmer one, and
+  catching that is worth more than an unqualified "nothing changed" claim. It is a no-op for an
+  opaque material, which is what every parity fixture here uses.
 
 ---
 

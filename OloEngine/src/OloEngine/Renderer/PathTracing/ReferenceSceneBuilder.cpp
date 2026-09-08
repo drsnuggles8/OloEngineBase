@@ -687,9 +687,10 @@ namespace OloEngine::PathTracing
             // So are the texture maps (issue #869): decoding a Texture2D needs
             // a GPU readback, so the caller injects a provider rather than the
             // builder reaching for one. A null provider leaves every slot
-            // empty and the emitted scene factor-only — bit-identical to the
-            // pre-#869 builder, which is what keeps the parity fixtures
-            // pinning what they always pinned (ADR 0022).
+            // empty and the emitted scene factor-only, which is what keeps the
+            // parity fixtures pinning what they always pinned (ADR 0022). The
+            // alpha-mode mirroring above is deliberately NOT gated on it — see
+            // ReferenceSceneBuildOptions::MaterialMapProvider for why.
             if (options.MaterialMapProvider && i < m_MaterialSources.size() && m_MaterialSources[i] != nullptr)
             {
                 const ReferenceMaterialMaps maps = options.MaterialMapProvider(*m_MaterialSources[i]);

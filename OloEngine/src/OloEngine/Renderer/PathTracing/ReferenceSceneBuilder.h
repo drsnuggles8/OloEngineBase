@@ -112,7 +112,7 @@ namespace OloEngine::PathTracing
     // readback, and ReferenceSceneBuilder must stay GL-free: a headless test
     // supplies synthetic images, the editor supplies
     // ReferenceTextureCapture::MakeMaterialMapProvider(), and a null provider
-    // reproduces the pre-#869 factor-only world exactly.
+    // leaves every material factor-only.
     //
     // Called at most once per distinct resolved Material (the builder caches
     // by pointer identity), so caching one image shared by many materials is
@@ -136,8 +136,17 @@ namespace OloEngine::PathTracing
         f32 EnvironmentIntensity = 1.0f;
 
         // Fills each material's texture slots. Null (the default) leaves every
-        // material factor-only, so a fixture that does not opt in is
-        // bit-identical to the pre-#869 builder.
+        // material factor-only, so a fixture that does not opt in traces the
+        // pre-#869 world.
+        //
+        // ONE deliberate exception to that, and it is not gated on this
+        // provider: the builder now mirrors the material's glTF alpha mode. A
+        // cut-out material traced as a SOLID quad is not "less bounce than
+        // reality", it is a wrong occluder casting a shadow the raster path
+        // does not — so opting out of maps must not opt out of the cutout. It
+        // changes nothing for an opaque material, which every parity fixture
+        // in the repo uses, and `AProviderThatSuppliesNoMapsChangesNothingBitForBit`
+        // pins the no-op memcmp-exactly for those.
         ReferenceMaterialMapProvider MaterialMapProvider;
 
         // Forwarded to EVERY emitted material. Transport-isolation mode: see

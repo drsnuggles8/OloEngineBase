@@ -138,7 +138,14 @@ namespace OloEngine::PathTracing
     {
         ReferenceEnvironmentCubemap cube;
         cube.FaceSize = 1;
-        cube.Texels.assign(kFaceCount, radiance);
+        // The SAME guard FromFacesRgba32F applies, and for the same reason: a
+        // NaN here would otherwise pass IsValid(), sail past the builder's
+        // malformed-cubemap fallback, and NaN every texel of the atlas. A
+        // constructor that validates one way in and not the other is a hole
+        // whose only symptom is a poisoned bake.
+        const auto clean = [](f32 c)
+        { return std::isfinite(c) && c > 0.0f ? c : 0.0f; };
+        cube.Texels.assign(kFaceCount, glm::vec3(clean(radiance.x), clean(radiance.y), clean(radiance.z)));
         return cube;
     }
 

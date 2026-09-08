@@ -698,6 +698,20 @@ namespace OloEngine::Tests
                                  "'parity' would mean nothing";
                 return false;
             }
+            // Intensity is the other half of the same hole. The CPU side reads
+            // the environment through Evaluate(), which returns
+            // Intensity * Radiance; the upload below takes Radiance RAW. At the
+            // default 1.0 those agree, and at anything else they silently do
+            // not — which is exactly the divergence the check above exists to
+            // stop, arriving through the field nobody thinks to look at.
+            if (rig.Fixture.Scene.GetEnvironment().Intensity != 1.0f)
+            {
+                ADD_FAILURE() << "this fixture scales its environment by "
+                              << rig.Fixture.Scene.GetEnvironment().Intensity
+                              << ", which the GPU upload below does not apply — teach it to, or the two "
+                                 "sides trace different environments";
+                return false;
+            }
             if (!BuildTwin(rig.Fixture, rig.Twin))
             {
                 ADD_FAILURE() << "could not upload the Cornell box twin";

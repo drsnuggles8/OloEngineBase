@@ -161,8 +161,12 @@ namespace OloEngine::Tests
         ASSERT_TRUE(cubemap);
 
         const glm::vec3 faceColours[6] = {
-            { 4.0f, 0.0f, 0.0f }, { 0.5f, 0.0f, 0.0f }, { 0.0f, 4.0f, 0.0f },
-            { 0.0f, 0.5f, 0.0f }, { 0.0f, 0.0f, 4.0f }, { 0.0f, 0.0f, 0.5f },
+            { 4.0f, 0.0f, 0.0f },
+            { 0.5f, 0.0f, 0.0f },
+            { 0.0f, 4.0f, 0.0f },
+            { 0.0f, 0.5f, 0.0f },
+            { 0.0f, 0.0f, 4.0f },
+            { 0.0f, 0.0f, 0.5f },
         };
         for (u32 face = 0; face < 6; ++face)
         {
@@ -184,8 +188,12 @@ namespace OloEngine::Tests
         EXPECT_EQ(captured->FaceSize, kFaceSize);
 
         const glm::vec3 axes[6] = {
-            { 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f },
-            { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f },
+            { 1.0f, 0.0f, 0.0f },
+            { -1.0f, 0.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, -1.0f },
         };
         for (u32 face = 0; face < 6; ++face)
         {

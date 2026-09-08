@@ -70,16 +70,22 @@ namespace OloEngine::Tests
             const f32 tc = 2.0f * t - 1.0f;
             switch (face)
             {
-                case 0: return glm::normalize(glm::vec3(1.0f, -tc, -sc));  // +X
-                case 1: return glm::normalize(glm::vec3(-1.0f, -tc, sc));  // -X
-                case 2: return glm::normalize(glm::vec3(sc, 1.0f, tc));    // +Y
-                case 3: return glm::normalize(glm::vec3(sc, -1.0f, -tc));  // -Y
-                case 4: return glm::normalize(glm::vec3(sc, -tc, 1.0f));   // +Z
-                default: return glm::normalize(glm::vec3(-sc, -tc, -1.0f)); // -Z
+                case 0:
+                    return glm::normalize(glm::vec3(1.0f, -tc, -sc)); // +X
+                case 1:
+                    return glm::normalize(glm::vec3(-1.0f, -tc, sc)); // -X
+                case 2:
+                    return glm::normalize(glm::vec3(sc, 1.0f, tc)); // +Y
+                case 3:
+                    return glm::normalize(glm::vec3(sc, -1.0f, -tc)); // -Y
+                case 4:
+                    return glm::normalize(glm::vec3(sc, -tc, 1.0f)); // +Z
+                default:
+                    return glm::normalize(glm::vec3(-sc, -tc, -1.0f)); // -Z
             }
         }
 
-        template <typename Fn>
+        template<typename Fn>
         [[nodiscard]] ReferenceEnvironmentCubemap MakeCubemap(u32 faceSize, Fn&& radiance)
         {
             std::vector<f32> rgba(static_cast<sizet>(ReferenceEnvironmentCubemap::kFaceCount) * faceSize * faceSize * 4u);
@@ -108,8 +114,12 @@ namespace OloEngine::Tests
         {
             std::vector<f32> rgba(ReferenceEnvironmentCubemap::kFaceCount * 4u);
             const glm::vec3 colours[6] = {
-                { 1.0f, 0.0f, 0.0f }, { 0.5f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f },
-                { 0.0f, 0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.5f },
+                { 1.0f, 0.0f, 0.0f },
+                { 0.5f, 0.0f, 0.0f },
+                { 0.0f, 1.0f, 0.0f },
+                { 0.0f, 0.5f, 0.0f },
+                { 0.0f, 0.0f, 1.0f },
+                { 0.0f, 0.0f, 0.5f },
             };
             for (u32 face = 0; face < 6; ++face)
             {
@@ -225,7 +235,8 @@ namespace OloEngine::Tests
         // Deep into each quadrant so bilinear clamping lands on that texel
         // exactly (the texel centres are at s, t = 0.25 and 0.75; anything
         // outside that range clamps).
-        const auto probe = [&cube](f32 x, f32 y) { return cube.Sample(glm::vec3(x, y, 1.0f)).r; };
+        const auto probe = [&cube](f32 x, f32 y)
+        { return cube.Sample(glm::vec3(x, y, 1.0f)).r; };
         EXPECT_FLOAT_EQ(probe(-0.9f, 0.9f), 0.1f) << "x < 0, y > 0 must be s small, t small";
         EXPECT_FLOAT_EQ(probe(0.9f, 0.9f), 0.2f) << "x > 0, y > 0 must be s large, t small";
         EXPECT_FLOAT_EQ(probe(-0.9f, -0.9f), 0.3f) << "x < 0, y < 0 must be s small, t large";
@@ -286,8 +297,14 @@ namespace OloEngine::Tests
         // stops holding, the reduction argument this file rests on has moved
         // and should fail loudly rather than pass within a tolerance.
         const glm::vec3 directions[] = {
-            { 1.0f, 0.0f, 0.0f },   { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f },
-            { 0.0f, 0.0f, 1.0f },   { 0.0f, 0.0f, -1.0f }, { 0.3f, 0.7f, -0.2f }, { -0.9f, 0.1f, 0.4f },
+            { 1.0f, 0.0f, 0.0f },
+            { -1.0f, 0.0f, 0.0f },
+            { 0.0f, 1.0f, 0.0f },
+            { 0.0f, -1.0f, 0.0f },
+            { 0.0f, 0.0f, 1.0f },
+            { 0.0f, 0.0f, -1.0f },
+            { 0.3f, 0.7f, -0.2f },
+            { -0.9f, 0.1f, 0.4f },
         };
         for (const glm::vec3& d : directions)
         {
