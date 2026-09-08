@@ -2124,6 +2124,10 @@ namespace OloEngine
             DisplayAddComponentEntry<DiscoverableComponent>("Discoverable");
             DisplayAddComponentEntry<DiscoveredSetComponent>("Discovered Set");
 
+            // Destructible (issue #459). Shipped without an editor entry, so the
+            // component could only be attached through YAML or a script.
+            DisplayAddComponentEntry<DestructibleComponent>("Destructible");
+
             ImGui::Separator();
 
             // Audio Components
@@ -7191,6 +7195,39 @@ namespace OloEngine
                                               {
                 ImGui::Text("Discovered: %d", static_cast<int>(component.m_Discovered.size()));
                 ImGui::TextDisabled("Populated at runtime by the discovery system; not hand-authored."); });
+
+        // Destructible (issue #459) — shatters into pre-authored debris chunks on
+        // damage. The chunk mesh is optional: without one the object's own mesh is
+        // reused scaled down, and without that a cube primitive (ADR 0013).
+        DrawComponent<DestructibleComponent>("Destructible", entity, [](auto& component)
+                                             {
+                ImGui::SeparatorText("Integrity");
+                ImGui::DragFloat("Health", &component.m_Health, 1.0f, 0.0f, 1.0e9f, "%.1f");
+                ImGui::DragFloat("Max Health", &component.m_MaxHealth, 1.0f, 0.0f, 1.0e9f, "%.1f");
+                ImGui::DragFloat("Damage Threshold", &component.m_DamageThreshold, 0.5f, 0.0f, 1.0e9f, "%.1f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Chip resistance: hits weaker than this are ignored entirely. 0 = every hit lands.");
+
+                ImGui::SeparatorText("Debris");
+                int chunkCount = static_cast<int>(component.m_ChunkCount);
+                if (ImGui::DragInt("Chunk Count", &chunkCount, 1.0f, 0, 64))
+                    component.m_ChunkCount = static_cast<u32>(std::clamp(chunkCount, 0, 64));
+                ImGui::DragFloat("Chunk Scale", &component.m_ChunkScale, 0.01f, 0.01f, 10.0f, "%.3f");
+                ImGui::DragFloat("Chunk Mass", &component.m_ChunkMass, 0.05f, 0.001f, 1.0e6f, "%.3f kg");
+                ImGui::DragFloat("Explosion Impulse", &component.m_ExplosionImpulse, 0.1f, 0.0f, 1.0e6f, "%.2f");
+                ImGui::DragFloat("Debris Lifetime", &component.m_DebrisLifetime, 0.1f, 0.0f, 600.0f, "%.2f s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 uses the engine default. Live debris is capped globally; a burst past the cap evicts the oldest pieces.");
+
+                ImGui::SeparatorText("Triggers");
+                ImGui::Checkbox("Break On Joint Break", &component.m_BreakOnJointBreak);
+                ImGui::Checkbox("Destroy On Break", &component.m_DestroyOnBreak);
+
+                ImGui::BeginDisabled();
+                bool broken = component.m_Broken;
+                ImGui::Checkbox("Broken (runtime)", &broken);
+                ImGui::EndDisabled(); });
+
 
         // Aircraft (issue #438) — a force-based fixed-wing flight model.
         DrawComponent<AircraftComponent>("Aircraft", entity, [](auto& component)
