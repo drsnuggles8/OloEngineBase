@@ -357,3 +357,45 @@ Two things worth carrying forward:
   of all of them.
 
 Found on #1057, fixed in `EditorLayer::OnImGuiRender`'s framebuffer-size computation.
+
+## Three of the "graph panels" are not canvases — rank by what a panel draws, not by line count
+
+Before migrating a panel onto `EditorUI::GraphCanvas` (issue #1070), check that it *has* a canvas.
+Three of the seven panels the issue lists have no viewport maths at all, so there is nothing to
+migrate and the honest outcome for each is a comment, not a PR:
+
+| Panel | Lines | Pan | Zoom | Grid | Bezier wire | What it actually is |
+|---|---|---|---|---|---|---|
+| `SoundGraphEditorPanel` | 2515 | yes | yes | yes | yes | a real canvas, unmigrated |
+| `DialogueEditorPanel` | 2042 | yes | yes | yes | yes | a real canvas, unmigrated |
+| `SkillTreeEditorPanel` | 1406 | yes | yes | yes | yes | a real canvas, unmigrated |
+| `AnimationGraphEditorPanel` | 990 | no | no | no | no | tabbed form; states are `ImGui::Selectable` rows |
+| `FSMEditorPanel` | 114 | no | no | no | no | read-only `TreeNode` inspector |
+| `BehaviorTreeEditorPanel` | 104 | no | no | no | no | read-only `TreeNode` inspector |
+
+`AnimationGraphEditorPanel`'s single `ImDrawList` use is a 1D blend-space bar anchored to the ImGui
+cursor — a progress bar with tick marks, not a node graph. `FSMEditorPanel` and
+`BehaviorTreeEditorPanel` list entities carrying a component and print their blackboards; neither
+edits anything despite the name.
+
+The census, three greps — a panel with a private canvas declares a zoom, a panel with wires calls
+`AddBezierCubic`, and a migrated panel names the widget:
+
+```bash
+grep -rln -E "m_[A-Za-z]*Zoom" OloEditor/src/     # the 3 above + GraphCanvas + AnimationPanel
+grep -rln "AddBezierCubic" OloEditor/src/         # the 3 above + GraphCanvas
+grep -rln "GraphCanvas" OloEditor/src/Panels/     # ShaderGraph + VisualScript, already migrated
+```
+
+**`AnimationPanel` is the one false positive in the zoom grep**, and it is not in #1070's list at
+all: its `m_TimelineZoom` scales a 1D keyframe timeline (a playhead and tick marks, `AddLine`
+only — no bezier, no 2D pan, no grid). Treat the `AddBezierCubic` grep as the decisive one; a
+zoom on its own only means the panel scales *something*.
+
+**Why the count was wrong.** Issue #1070's table (and the context section of
+[ADR 0014](../adr/0014-visual-script-execution-model.md), which it inherited) ordered the panels by
+`.cpp` line count and assumed every panel named `*EditorPanel` over a graph-shaped asset drew one.
+Line count tracks how much *form* a panel puts on screen, not whether it has a viewport. The three
+that are not canvases are `Editor` panels over graph-shaped **data**, which is a different thing.
+Migrating one anyway would mean *adding* a canvas to a panel that never had one. That is a new
+feature rather than a migration, and it is the kind of change ADR 0014 set out to avoid.
