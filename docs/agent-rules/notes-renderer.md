@@ -514,10 +514,19 @@ if the local-memory shape changed, the new SPIR-V reached the GPU.
 fetched tree by `cmake/fsr2-apply-patches.cmake`. It is [upstream PR
 #14](https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL/pull/14), **still open** — drop the
 file when the pin moves past it, and the applier fails the configure loudly if it ever stops applying.
-The applier is idempotent because FetchContent re-runs its patch step on every configure. One
-consequence worth knowing before you debug a shader: **a hand edit to
-`OloEngine/vendor/clang/fsr2gl-src` that collides with the patch is reverted on the next configure.**
-Investigate in the patch file, not in the fetched tree.
+
+The applier enforces **tree == pin + patches** by restoring the tracked files to the pin *before*
+applying, which buys three things an apply-only script gets wrong: it is idempotent (FetchContent
+re-runs its patch step on every configure), deleting a patch actually un-patches the tree rather than
+stranding edits that exist in no tracked file, and **every hand edit under
+`OloEngine/vendor/clang/fsr2gl-src` is silently reverted on the next configure.** Investigate in the
+patch file, not in the fetched tree.
+
+**Bumping the pin while a patch is carried has one sharp edge.** The tree is permanently dirty
+between configures, so ExternalProject's update step stashes, checks out and pops — and that pops
+into a conflict exactly when the patched hunks are the ones that moved, which is the day the fix
+lands upstream. The recovery is to delete `OloEngine/vendor/clang/fsr2gl-src` and re-configure, after
+deleting the patch file if its change is now in the pin.
 
 **The alternative we did not take.** [Upstream PR
 #13](https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL/pull/13) attacks the same root cause

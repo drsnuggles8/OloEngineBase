@@ -2046,15 +2046,21 @@ namespace OloEngine::Tests
     // with resolution is fixed overhead, which is a different and much less
     // alarming story than a flat one.
     //
-    // This test is what found, and now guards, the NVIDIA private-array spill
-    // (#925): the GL SPIR-V front end lowered three fixed-size arrays in the
-    // depth-clip and accumulate passes to local memory, which is device memory,
-    // and that WAS the upstream "3x slower than expected" VRAM-throughput
-    // problem (https://juandiegomontoya.github.io/porting_fsr2.html#performance).
-    // With cmake/fsr2-patches/0001 applied this reads ~0.10-0.12 ms/MPix on an
-    // RTX 4090; without it, ~0.19-0.23. A reading back up at the high figure
-    // means the patch stopped applying or the permutations went stale — see
-    // docs/agent-rules/notes-renderer.md for the one-grep driver-IR check.
+    // This test is what found the NVIDIA private-array spill (#925): the GL
+    // SPIR-V front end lowered three fixed-size arrays in the depth-clip and
+    // accumulate passes to local memory, which is device memory, and that WAS
+    // the upstream "3x slower than expected" VRAM-throughput problem
+    // (https://juandiegomontoya.github.io/porting_fsr2.html#performance).
+    //
+    // It does NOT guard the fix, and cannot: the only assertion here is that a
+    // timing was published at all, for the reason the sibling test below spells
+    // out — a GPU timing on this box is not a gate. With
+    // cmake/fsr2-patches/0001 applied the number READS ~0.10-0.12 ms/MPix on an
+    // RTX 4090 and ~0.19-0.23 without it, so a regression is visible to a human
+    // reading the log and invisible to CI. What actually fails loudly if the
+    // patch stops applying is the configure, in cmake/fsr2-apply-patches.cmake.
+    // To confirm which shader really ran, grep the driver IR — see
+    // docs/agent-rules/notes-renderer.md.
     TEST_F(FSR2Perf, UpscaleCostPerMegapixelAcrossOutputResolutions)
     {
         OLO_ENSURE_GPU_OR_SKIP();

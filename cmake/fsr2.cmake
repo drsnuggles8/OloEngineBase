@@ -52,9 +52,18 @@ include(FetchContent)
 # -----------------------------------------------------------------------------
 # Local patches on top of the pin.
 #
-# The pinned tree is patched in place by cmake/fsr2-apply-patches.cmake, which is
-# idempotent because FetchContent re-runs its patch step on every configure. Each
-# patch file names the upstream PR it carries and says when to drop it.
+# The pinned tree is patched in place by cmake/fsr2-apply-patches.cmake, which
+# restores the tree to the pin before applying so that "tree == pin + patches"
+# holds however the tree got to its current state. Each patch file names the
+# upstream PR it carries and says when to drop it.
+#
+# THE SHARP EDGE IS BUMPING THE PIN while a patch is carried. The tree is
+# permanently dirty between configures, so ExternalProject's update step
+# stashes / checks out / pops — and that pops into a conflict exactly when the
+# patched hunks are the ones that moved, which is the day the fix lands
+# upstream. It fails inside the update step, BEFORE the applier gets a chance to
+# say anything useful. Recovery: delete OloEngine/vendor/clang/fsr2gl-src and
+# re-configure, having first deleted any patch whose change is now in the pin.
 #
 # CMAKE_CONFIGURE_DEPENDS on the patch files, not just CONFIGURE_DEPENDS on the
 # glob: adding or removing a patch has to re-configure, and so does EDITING one,
