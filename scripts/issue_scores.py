@@ -113,6 +113,10 @@ def render_section(d):
     lines.append(f"kano: {d.get('kano', 'table-stakes')}")
     lines.append(f"blocked_by: {json.dumps(d.get('blocked_by', []))}")
     lines.append(f"blocks: {json.dumps(d.get('blocks', []))}")
+    # Emitted only when set: an empty list on every issue would be noise, and the
+    # absent-means-empty default already reads correctly in parse_block.
+    if d.get("blocked_by_external"):
+        lines.append(f"blocked_by_external: {json.dumps(d['blocked_by_external'])}")
     block = "\n".join(lines)
     caption = ("<sub>Rated per [issue-scoring](" + DOC_URL + ") · "
                "score = confidence × (capability + craft + stability + decay) / effort, "
@@ -141,7 +145,21 @@ def score(d):
 
 
 def is_blocked(d):
-    return bool(d.get("blocked_by"))
+    """Blocked = cannot be started today, whatever holds it up.
+
+    `blocked_by` models the in-repo tech tree (issue numbers). `blocked_by_external`
+    models everything the tech tree cannot express: an upstream release we are waiting
+    on, a compiler feature that has not shipped, a vendor fix. Both drop the issue from
+    the picker, because the picker's question is "can I start this now?" and the answer
+    is no either way.
+
+    Before this existed, an externally-blocked issue carried an empty `blocked_by` and
+    therefore ranked as startable — #815 sat at rank 7 while waiting on two upstream
+    repowise releases, and had to be skipped by hand on every sweep. A human silently
+    re-deriving the same "oh, not that one" every time is exactly the cost this file
+    exists to remove.
+    """
+    return bool(d.get("blocked_by")) or bool(d.get("blocked_by_external"))
 
 
 def is_low_value(d):
@@ -186,8 +204,10 @@ def cmd_rank(args):
         flags = []
         if d.get("fun", 0) >= 8 and not is_blocked(d):
             flags.append("PULL")
-        if is_blocked(d):
+        if d.get("blocked_by"):
             flags.append("blocked:" + ",".join(map(str, d["blocked_by"])))
+        if d.get("blocked_by_external"):
+            flags.append("external")
         if floor and is_low_value(d):
             flags.append(f"low-value:{cod(d)}")
         print(f"{num:>5} {s:>5} {' '.join(flags):<20} {title[:64]}")
