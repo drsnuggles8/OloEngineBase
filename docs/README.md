@@ -33,6 +33,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.
 - [guides/mcp-diagnostics-server.md](guides/mcp-diagnostics-server.md) — the read-only MCP diagnostics server (tools, resources, prompts, attach flow).
+- [guides/oloctl.md](guides/oloctl.md) — `oloctl`, the CLI frontend generated from the automation registry (spelling rules, arguments, exit codes, the closed write path).
 - [guides/perf-stress-scenes.md](guides/perf-stress-scenes.md) — perf stress-scene generator + measurement runbook.
 - [guides/player-camera-rigs.md](guides/player-camera-rigs.md) — reusable player + camera rigs (first-person / third-person follow spring arm).
 - [guides/procedural-terrain.md](guides/procedural-terrain.md) — procedural terrain generation.

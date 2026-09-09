@@ -9,6 +9,8 @@
 		# type, the registry that owns them, the host seam they run against, and
 		# the input-schema validator. Nothing in here knows what MCP is.
 		"Automation/AutomationAudienceReport.h"
+		"Automation/AutomationCatalogue.cpp"
+		"Automation/AutomationCatalogue.h"
 		"Automation/AutomationCommand.h"
 		"Automation/AutomationHost.h"
 		"Automation/AutomationRegistry.cpp"

@@ -649,9 +649,14 @@ if(CMAKE_GENERATOR MATCHES "Visual Studio")
 endif()
 
 add_subdirectory(OloServer)
+# oloctl (#1125): the CLI frontend over the automation registry. Placed after
+# OloEngine so nlohmann_json::nlohmann_json and httplib::httplib exist, and it
+# links NOTHING else -- see OloCtl/CMakeLists.txt for why that is a constraint.
+add_subdirectory(OloCtl)
 
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloServer PROPERTIES FOLDER "Applications")
+set_target_properties(oloctl PROPERTIES FOLDER "Applications")
 
 # App-launch smoke test wiring (issue #303). Hand OloEngine-Tests the on-disk
 # paths of the three shipped executables so AppLaunchSmokeTest can spawn each one
@@ -662,7 +667,7 @@ set_target_properties(OloServer PROPERTIES FOLDER "Applications")
 # stays a valid C string literal on Windows. A target absent on this platform
 # simply leaves its macro undefined and the matching test SKIPs at runtime.
 if(TARGET OloEngine-Tests)
-    foreach(_olo_app OloServer OloEditor OloRuntime)
+    foreach(_olo_app OloServer OloEditor OloRuntime oloctl)
         if(TARGET ${_olo_app})
             string(TOUPPER ${_olo_app} _olo_app_uc)
             target_compile_definitions(OloEngine-Tests PRIVATE

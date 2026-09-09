@@ -7,6 +7,7 @@
 #include <httplib.h>
 
 #include "MCP/McpServer.h"
+#include "Automation/AutomationCatalogue.h"
 #include "Automation/AutomationSchemaValidation.h"
 #include "MCP/McpAudienceReport.h"
 #include "MCP/McpEventStream.h"
@@ -71,13 +72,6 @@ namespace OloEngine::MCP
                          { "id", id },
                          { "error", { { "code", code }, { "message", message } } } };
         }
-
-        // Reverse-DNS-namespaced `_meta` key carrying a tool's toolset (grouping
-        // category) in tools/list / tools/search entries. `_meta` is the MCP-blessed
-        // extension point (spec 2025-06-18), so surfacing the category there keeps
-        // tools/list conformant — a strict client validating the Tool schema won't
-        // reject an unknown top-level field.
-        constexpr const char* kToolsetMetaKey = "io.oloengine/toolset";
 
         // ---- per-call progress/cancellation scope (issue #357) ----------
         //
@@ -235,45 +229,6 @@ namespace OloEngine::MCP
                            [](unsigned char c)
                            { return static_cast<char>(std::tolower(c)); });
             return out;
-        }
-
-        // Serialize one registered tool into its MCP tools/list entry. Shared by
-        // tools/list, the custom tools/search and the discovery gateway (#1124) so
-        // all three present byte-identical entries; the only optional field beyond
-        // the spec basics is the toolset, carried under `_meta` (omitted for
-        // uncategorized tools). Exposed to the gateway's own TU as the public static
-        // McpServer::BuildToolEntry, which forwards here.
-        Json BuildToolEntryImpl(const ToolDef& tool)
-        {
-            Json entry;
-            entry["name"] = tool.Name;
-            // Top-level display title (spec 2025-06-18); omitted when unset so the
-            // client falls back to the name.
-            if (!tool.Title.empty())
-                entry["title"] = tool.Title;
-            entry["description"] = tool.Description;
-            entry["inputSchema"] = tool.InputSchema.is_null()
-                                       ? Json{ { "type", "object" } }
-                                       : tool.InputSchema;
-            // JSON Schema for the structured result (spec 2025-06-18); omitted unless
-            // a non-empty object so text-only tools stay clean.
-            if (tool.OutputSchema.is_object() && !tool.OutputSchema.empty())
-                entry["outputSchema"] = tool.OutputSchema;
-            // Behavioural hints (readOnlyHint, etc.); omitted unless a non-empty object.
-            if (tool.Annotations.is_object() && !tool.Annotations.empty())
-                entry["annotations"] = tool.Annotations;
-            // Display icons (SEP-973, spec 2025-11-25). Emitted ONLY when the array is
-            // non-empty: the spec models `icons` as an optional field, and an empty
-            // array would advertise "this tool has icons" while carrying none, which a
-            // client may render as a broken/blank slot. RegisterTool already rejected a
-            // malformed value, so a present array is well-formed here.
-            if (tool.Icons.is_array() && !tool.Icons.empty())
-                entry["icons"] = tool.Icons;
-            // Grouping category under the spec's `_meta` extension point; omitted for
-            // uncategorized tools so their entry is unchanged from before toolsets.
-            if (!tool.Toolset.empty())
-                entry["_meta"] = Json{ { kToolsetMetaKey, tool.Toolset } };
-            return entry;
         }
 
         // Random lowercase-hex string of `bytes` bytes (so 2*bytes characters).
@@ -1685,7 +1640,10 @@ namespace OloEngine::MCP
 
     Json McpServer::BuildToolEntry(const ToolDef& tool)
     {
-        return BuildToolEntryImpl(tool);
+        // The one serializer, shared with every other frontend (#1125). Kept as a
+        // static on the server so the ~100 existing call sites and the gateway's own
+        // TU are unchanged by the move.
+        return Automation::DescribeCommand(tool);
     }
 
     void McpServer::SetExposurePolicy(ExposurePolicy policy)
@@ -2081,18 +2039,12 @@ namespace OloEngine::MCP
             return MakeError(id, kRequestCancelledCode, "Request cancelled");
 
         // Audience-tagged content blocks for a tool that declared them (#673 Tier
-        // 2). Rebuilding from StructuredContent — rather than annotating what the
-        // handler returned — is what makes the machine block compact; the
-        // single-block guard means a handler that appended its own extra block (a
-        // resource_link) or already emitted the pair itself is left alone, so this
-        // is idempotent and never drops content. Runs BEFORE redaction so the
-        // human report is scrubbed on exactly the same terms as the JSON mirror.
-        if (tool->DualAudienceContent && !result.IsError && !result.StructuredContent.is_null() &&
-            result.Content.is_array() && result.Content.size() == 1)
-        {
-            result = ToolResult::StructuredDualAudience(result.StructuredContent,
-                                                        tool->Title.empty() ? tool->Name : tool->Title);
-        }
+        // 2). Shared with every other frontend (#1125) because the adoption is
+        // declared on the COMMAND: two frontends that disagreed about applying it
+        // would return different `content` for the same command. Runs BEFORE
+        // redaction so the human report is scrubbed on exactly the same terms as
+        // the JSON mirror.
+        Automation::ApplyDualAudienceContent(*tool, result);
 
         if (RedactPaths())
         {
@@ -2101,12 +2053,10 @@ namespace OloEngine::MCP
                 RedactStructuredContent(result.StructuredContent);
         }
 
-        Json resultObj = Json{ { "content", std::move(result.Content) }, { "isError", result.IsError } };
-        // Typed result alongside the text mirror (spec 2025-06-18); omitted for
-        // text-only tools so their result shape is unchanged.
-        if (!result.StructuredContent.is_null())
-            resultObj["structuredContent"] = std::move(result.StructuredContent);
-        return MakeResult(id, std::move(resultObj));
+        // The one result-envelope builder, shared with every other frontend (#1125),
+        // so a caller that invokes through the registry directly and this one cannot
+        // disagree about what a tools/call result looks like.
+        return MakeResult(id, Automation::DescribeResult(std::move(result)));
     }
 
     const ToolDef* McpServer::FindTool(const ToolList& tools, const std::string& name)

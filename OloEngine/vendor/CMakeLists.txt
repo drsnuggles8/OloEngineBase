@@ -141,8 +141,11 @@ find_package(httplib CONFIG REQUIRED)
 # header drop with NO compile definitions at all, so the move to the port
 # switched this on silently. It is not a knob anyone here asked for: it makes
 # getaddrinfo_with_timeout() bound DNS resolution by the client's connection
-# timeout, and nothing in this repo sets a connection timeout (grep
-# set_connection_timeout — there are no call sites).
+# timeout. The one call site that sets a connection timeout is oloctl's MCP
+# client (OloCtl/src/OloCtl/McpHttpCommandSource.cpp, #1125), and it is bounding
+# a CONNECT to 127.0.0.1 from a discovery file — a numeric address, so the
+# resolver path this option changes is never entered. Nothing else in the repo
+# calls set_connection_timeout, and the reasoning below is unaffected either way.
 #
 # On glibc it routes every resolve through getaddrinfo_a(), which runs the
 # lookup on a thread glibc creates INSIDE libc (resolv/gai_misc.c

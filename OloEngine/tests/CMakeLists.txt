@@ -16,6 +16,11 @@
 #
 # Compile TIME is a poor proxy for this and is how the first three were missed: they rank
 # 15th, 18th and 13th by duration. The pool is what bounds how many run at once.
+# oloctl's transport-free core (#1125), listed once in OloCtl/CoreSources.cmake and
+# compiled by both the `oloctl` executable and this target. Included here rather
+# than restated, so a new core source cannot reach one of the two and not the other.
+include(${CMAKE_SOURCE_DIR}/OloCtl/CoreSources.cmake)
+
 set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
 set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
 set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
@@ -791,6 +796,18 @@ add_executable(OloEngine-Tests
 		ContentBrowser/ContentBrowserItemTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
+		# oloctl, the generated CLI frontend over the automation registry (#1125).
+		# Its transport-free core is pulled in by path, the same way the editor MCP
+		# dispatch core above is: the tests then drive the REAL RunCli against a bare
+		# AutomationRegistry (OloCtl/RegistryCommandSource.h, header-only) and assert
+		# that registering a command makes it appear in the CLI. McpHttpCommandSource
+		# is deliberately NOT here -- it is the one TU that needs a socket.
+		OloCtl/OloCtlCatalogueTest.cpp
+		OloCtl/OloCtlCommandTreeTest.cpp
+		OloCtl/OloCtlArgumentBinderTest.cpp
+		OloCtl/OloCtlRunnerTest.cpp
+		OloCtl/OloCtlGeneratedSurfaceTest.cpp
+		${OLOCTL_CORE_SOURCES}
 		# MCP JSON-RPC dispatch / framing tests (issue #306 item D). The dispatch
 		# core lives in the OloEditor target, so pull its single httplib-free-at-
 		# the-seam translation unit into the test binary (cpp_httplib is linked
@@ -803,6 +820,10 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationRegistry.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationResult.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSchemaValidation.cpp
+		# The one command/result serializer every frontend goes through (#1125):
+		# tools/list, tools/search, the gateway and oloctl all call it, so none of
+		# them can drift on what a command looks like or what a result looks like.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationCatalogue.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —
@@ -1382,6 +1403,8 @@ target_include_directories(OloEngine-Tests PRIVATE
 	${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser
 	# MCP dispatch test includes the editor's MCP headers as "MCP/McpServer.h".
 	${CMAKE_SOURCE_DIR}/OloEditor/src
+	# oloctl sources include each other as "OloCtl/...".
+	${OLOCTL_INCLUDE_DIR}
 )
 
 # Register tests with CTest so `ctest` discovers them. The WORKING_DIRECTORY

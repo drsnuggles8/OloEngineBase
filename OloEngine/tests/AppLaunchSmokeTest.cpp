@@ -48,6 +48,9 @@
 #ifndef OLO_TEST_OLORUNTIME_EXE
 #define OLO_TEST_OLORUNTIME_EXE ""
 #endif
+#ifndef OLO_TEST_OLOCTL_EXE
+#define OLO_TEST_OLOCTL_EXE ""
+#endif
 #ifndef OLO_TEST_EDITOR_ROOT
 #define OLO_TEST_EDITOR_ROOT ""
 #endif
@@ -351,4 +354,13 @@ TEST(AppLaunchSmoke, OloEditorLaunchesCleanly)
 TEST(AppLaunchSmoke, OloRuntimeLaunchesCleanly)
 {
     RunLaunchSmoke(OLO_TEST_OLORUNTIME_EXE, { "--smoke-test" });
+}
+
+// oloctl has no --smoke-test: it is not an engine app and starts no subsystems.
+// `version` is its equivalent -- the one subcommand that returns without touching
+// the network -- so a clean exit proves the target links and runs. This is the
+// check that would have caught a new app target broken on master with CI green.
+TEST(AppLaunchSmoke, OloCtlLaunchesCleanly)
+{
+    RunLaunchSmoke(OLO_TEST_OLOCTL_EXE, { "version" });
 }
