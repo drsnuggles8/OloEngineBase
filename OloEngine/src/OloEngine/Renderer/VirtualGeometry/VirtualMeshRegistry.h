@@ -201,6 +201,18 @@ namespace OloEngine
             // draw this part. False for meshes cooked with an oversized
             // VirtualMeshBuildConfig — those stay on the classic MDI path.
             bool MeshletCompatible = false;
+            // Mesh-local AABB of this part, from the union of its cluster cull
+            // spheres (issue #1149). Computed ONCE at registration because the
+            // only alternative — deriving it per frame — is a walk over every
+            // cluster of every instance on the render thread.
+            //
+            // Conservative by construction: a cull sphere bounds its cluster, so
+            // the union of centre +- radius bounds the part. Callers use it for
+            // coarse per-view rejection and for shadow-page invalidation, both of
+            // which want a cheap over-estimate rather than a tight fit.
+            glm::vec3 LocalBoundsMin{ 0.0f };
+            glm::vec3 LocalBoundsMax{ 0.0f };
+            bool HasBounds = false;
         };
 
         // The contiguous run of MeshEntry parts belonging to one mesh asset.
@@ -277,6 +289,31 @@ namespace OloEngine
             bool CastShadows = true;
             bool TwoSided = false;          // material is TwoSided — the hardware draw must not backface-cull
             bool MeshletCompatible = false; // copied from MeshEntry — mesh-shader path eligibility (#813)
+            // RENDER-ORIGIN-RELATIVE world AABB of this instance, and the same
+            // for its previous-frame pose (issue #1149). The registry's per-
+            // instance bounds were GPU-only until now — the cluster cull does
+            // its own culling, so nothing on the CPU needed them.
+            //
+            // Two consumers need them, and both are CPU-side decisions the GPU
+            // cannot make for them:
+            //   * the VSM route picks which clip levels are worth a cluster-cull
+            //     dispatch at all, and a level whose frustum no instance touches
+            //     is a whole dispatch saved;
+            //   * shadow-page invalidation needs the pages a MOVER left as well
+            //     as the ones it arrived on, which is what PrevBounds is for —
+            //     invalidating only the new pose leaves the old silhouette baked
+            //     into a cached page.
+            //
+            // HasBounds is false only for a part that carried no cluster spheres
+            // at all — which is a part with no clusters, so it draws nothing and
+            // consumers skip it. (Such a part fails MeshEntry::Valid and never
+            // reaches a frame instance in the first place; the flag is a guard,
+            // not a live case.)
+            glm::vec3 BoundsMin{ 0.0f };
+            glm::vec3 BoundsMax{ 0.0f };
+            glm::vec3 PrevBoundsMin{ 0.0f };
+            glm::vec3 PrevBoundsMax{ 0.0f };
+            bool HasBounds = false;
         };
 
         static VirtualMeshRegistry& Get();

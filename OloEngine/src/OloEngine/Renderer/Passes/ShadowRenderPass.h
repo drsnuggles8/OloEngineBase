@@ -220,6 +220,28 @@ namespace OloEngine
         // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
         [[nodiscard]] static bool AnyVirtualShadowCaster();
 
+        // ---- Virtual geometry into the Virtual Shadow Map (issue #1149) ------
+        //
+        // Both read this frame's prepared virtual-mesh instances, so both require
+        // VirtualGeometryShadow::PrepareViews to have run first.
+
+        // Both read m_VsmVirtualBounds, which CollectVirtualCasterBounds fills
+        // once per frame — the list is immutable for the frame and walking the
+        // registry twice for it bought nothing.
+        [[nodiscard]] bool CollectVirtualCasterBounds();
+
+        // Fills m_VsmClipViews with the clip levels at least one shadow-casting
+        // virtual instance reaches. The GPU would reject the rest anyway; doing
+        // it here is what stops an untouched level from costing a dispatch per
+        // instance.
+        void BuildVirtualClipViews(const VirtualShadowMap& vsm);
+
+        // Re-dirties the pages a MOVING virtual caster covers, at both its old
+        // and its new pose. Without it a cached page keeps the mover's previous
+        // silhouette — the page cache's characteristic artefact, and one that
+        // looks like a lighting bug rather than a caching one.
+        void SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm);
+
         // Records every caster category of one view using item-owned uploads
         // and cull outputs. All shader lookups and resource growth precede it.
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
@@ -257,6 +279,20 @@ namespace OloEngine
         std::vector<VirtualGeometryShadow::ViewResources> m_VirtualItemResources;
         std::vector<ItemProfilerTally> m_ItemTallies;
         std::vector<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
+
+        // ---- Virtual geometry into the Virtual Shadow Map (issue #1149) ------
+        //
+        // ONE set of cull outputs, not one per view like m_VirtualItemResources
+        // above: the VSM raster is a single sequential region, so its clip levels
+        // are drawn one after another and can reuse the same command / args /
+        // visible buffers. The cascade region forks, which is the only reason
+        // that one is a vector.
+        VirtualGeometryShadow::ViewResources m_VsmVirtualResources;
+        std::vector<VirtualGeometryShadow::VsmClipView> m_VsmClipViews;
+        // Scratch for this frame's virtual shadow casters, kept as a member so
+        // the allocation survives across frames (cleared, never read across a
+        // frame boundary, render thread only).
+        std::vector<VirtualGeometryShadow::ShadowCasterBounds> m_VsmVirtualBounds;
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;

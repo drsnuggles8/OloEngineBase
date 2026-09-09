@@ -380,10 +380,20 @@ namespace OloEngine
     // rest of the shadow configuration.
     struct VirtualShadowMapSettings
     {
-        // Off by default: VSM covers static + skinned MESH casters only. Terrain,
-        // foliage, voxel and virtualized-geometry casters still render through the
-        // CSM path, so a scene that relies on those must keep CSM. Turning this on
-        // replaces the directional CSM and leaves the local-light atlas untouched.
+        // Off by default: VSM covers static + skinned MESH casters, and since
+        // issue #1149 VIRTUALIZED-GEOMETRY casters too — the last go in through
+        // ExternalCasterRenderer, one cull + replay per clip level, gated on the
+        // dirty-page pyramid. Terrain, foliage and voxel casters still render
+        // through the CSM path, so a scene that relies on THOSE must keep CSM.
+        // Turning this on replaces the directional CSM and leaves the local-light
+        // atlas untouched.
+        //
+        // Virtual geometry reaches the CLIP LEVELS only, not the local-light
+        // LAYERS below: a layer is a perspective projection with a per-texel mip,
+        // and the current cluster cull is per view, so covering the layers means
+        // one dispatch per (instance, layer) — affordable only once #1143 makes
+        // the cull multi-view. With LocalLights on, a virtual caster therefore
+        // casts the sun's shadow but not a lamp's.
         //
         // Backend-neutral: the only difference between the GL and Vulkan routes is
         // one line in include/VirtualShadowRasterStage.glsl that undoes Vulkan's
@@ -690,10 +700,35 @@ namespace OloEngine
         // draw, to publish that caster's bone palette into the supplied item-owned
         // upload buffer. The callback resolves the frame's immutable bone data.
         using BoneUploader = std::function<void(const ShadowSkinnedCaster&, UniformBuffer&)>;
+
+        // A caster family this class does not know how to draw (issue #1149).
+        //
+        // Virtual geometry is the first: its casters are not meshCasters at all —
+        // they have no VAO, no index range and no CPU-side transform list, only a
+        // GPU-driven cluster pipeline that writes its own indirect commands. So
+        // it cannot be batched into the cull above, and teaching VSM about
+        // VirtualMeshRegistry would put the whole virtual-geometry stack inside
+        // the shadow system.
+        //
+        // Instead it is invoked INSIDE the raster scope — framebuffer, viewport,
+        // render state, physical-pool image and the page-table working set are
+        // all bound and stay bound — and returns how many draws it issued, which
+        // is folded into this function's own "did anything render" answer.
+        // GetClipProjections() is what lets it decide which levels to draw.
+        using ExternalCasterRenderer = std::function<u32()>;
+
         bool RenderCasters(const std::vector<ShadowMeshCaster>& meshCasters,
                            const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                            const glm::vec3& renderOrigin,
-                           const BoneUploader& uploadBones);
+                           const BoneUploader& uploadBones,
+                           const ExternalCasterRenderer& renderExternalCasters = {});
+
+        // This frame's clip projections, for an external caster route that has to
+        // project into the same levels (issue #1149). Valid after BeginFrame().
+        [[nodiscard]] const std::array<VSM::ClipProjection, VSM::kClipLevels>& GetClipProjections() const
+        {
+            return m_Globals.Clips;
+        }
 
         // --- Step 8: end of the shadow pass ----------------------------------
         void EndFrame();
@@ -762,6 +797,15 @@ namespace OloEngine
             return m_HasStatistics;
         }
 
+        // Binds the physical pool on image unit 0. MUST be called with the
+        // consuming shader already bound — see the definition.
+        //
+        // Public because an ExternalCasterRenderer binds its own program and
+        // therefore has to re-issue this: the bind forks on whether the program
+        // currently in flight is bindless, so it cannot be hoisted out of the
+        // shader switch.
+        void BindPhysicalPoolImage() const;
+
         // Render-graph resource name of the physical pool, so
         // olo_render_list_targets / olo_render_capture_target can reach it.
         static constexpr const char* kPhysicalPoolTargetName = "VSMPhysicalPages";
@@ -796,6 +840,20 @@ namespace OloEngine
         [[nodiscard]] static bool WorldPointToWrappedPage(const VSM::ClipProjection& clip,
                                                           const glm::vec3& worldPosRelative,
                                                           glm::ivec2& outWrappedPage);
+
+        // Does a render-relative world AABB reach inside a clip level's frustum?
+        //
+        // `viewProjection` is the level's MATH-flavour VP. Exact rather than
+        // conservative: a clip level is orthographic, so the map is linear and
+        // the projected extent of the eight corners IS the projected extent of
+        // the box. The GLSL twin is the frustum half of VSM_CullCasters.comp.
+        //
+        // Extracted because it is what the virtual-geometry route uses to decide
+        // whether a level is worth a cluster-cull dispatch at all (issue #1149),
+        // and a false negative there is a shadow that silently never renders.
+        [[nodiscard]] static bool BoundsReachClipLevel(const glm::mat4& viewProjection,
+                                                       const glm::vec3& boundsMin,
+                                                       const glm::vec3& boundsMax);
 
         // Clamps a requested physical resolution to a whole number of pages inside
         // the range the page-entry encoding can address.
@@ -909,10 +967,6 @@ namespace OloEngine
         u32 RenderSkinnedCasters(const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                                  const glm::vec3& renderOrigin, u32 instanceBase,
                                  const BoneUploader& uploadBones);
-
-        // Binds the physical pool on image unit 0. MUST be called with the
-        // consuming VSM shader already bound — see the definition.
-        void BindPhysicalPoolImage() const;
 
         // Step 7b — the local-light half of the cull + raster. Split out rather
         // than folded into RenderCasters so the two rasters' GL state changes stay

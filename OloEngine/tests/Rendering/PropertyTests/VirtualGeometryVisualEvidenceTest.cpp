@@ -41,6 +41,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/Components.h"
@@ -51,6 +52,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -370,15 +372,20 @@ namespace OloEngine::Tests
 
         // Renders one pose and returns the composite pixels (also writes the
         // evidence PNG). Bottom-up GL row order — fine for counting.
+        // `settleFrames` is 3 for every classic-path capture and higher for the
+        // Virtual Shadow Map: VSM consumes pages the PREVIOUS frame's marking
+        // pass requested (marking needs the scene depth buffer, which does not
+        // exist when the shadow pass runs), so a three-frame capture photographs
+        // a page table that is still filling.
         std::vector<u8> CaptureFrame(const char* name, const glm::vec3& position, f32 yaw, f32 pitch,
-                                     f32 thresholdPixels)
+                                     f32 thresholdPixels, u32 settleFrames = 3)
         {
             m_SphereEntity.GetComponent<VirtualMeshComponent>().m_ErrorThresholdPixels = thresholdPixels;
 
             EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
             camera.SetPose(position, yaw, pitch);
-            RunEditorFrames(camera, 3);
+            RunEditorFrames(camera, settleFrames);
 
             std::vector<u8> rgba;
             u32 w = 0;
@@ -1417,5 +1424,296 @@ namespace OloEngine::Tests
         EXPECT_GT(vgAtlasDarkens, static_cast<sizet>(150))
             << "toggling VirtualMeshComponent::m_CastShadows changed no pixels under the spot light — "
                "the virtualized-geometry shadow replay is not reaching the local-light atlas tile";
+    }
+
+    // -- Virtual geometry through the VIRTUAL SHADOW MAP (issue #1149) ---------
+    //
+    // The route this covers is the one whose failure mode the issue names: "a
+    // shadow regression renders a plausible frame with subtly wrong contact
+    // shadows." Before #1149 a virtualized caster simply did not exist as far as
+    // VSM was concerned - turn VSM on and the Nanite mesh's shadow vanished while
+    // every classic mesh kept its own, which is a frame that looks entirely
+    // reasonable unless you know what should be in it.
+    //
+    // Four contracts, all differential and golden-free so they survive a driver
+    // change and need no committed reference image:
+    //
+    //   1. with VSM on, toggling the virtual mesh's cast flag changes ground
+    //      pixels - the cluster cull and the page raster reach the pages at all;
+    //   2. the page counters are sane while it does - resident, requested and
+    //      drawn all non-zero, which is the issue's `olo_virtual_shadow_map_stats`
+    //      acceptance bullet asked of the same numbers the MCP tool reports;
+    //   3. the shadow lands where VSM and CSM agree it should. A wrong clip
+    //      level, a wrong page wrap or a flipped raster origin all still produce
+    //      "a shadow", just not there - and the centroid is what tells them apart
+    //      (VirtualShadowMapVisualEvidenceTest makes the same argument at length);
+    //   4. the classic CSM path still casts after the VSM frames have run, so the
+    //      second route did not quietly become the only one.
+    //
+    // Captured from THREE poses, because a route that is right from one camera
+    // and wrong from another is exactly what a page-cached shadow map produces
+    // when the clip-level selection is off by one.
+    TEST_F(VirtualGeometryVisualEvidence, VirtualMeshCastsThroughTheVirtualShadowMapPages)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        // Restore the process-wide shadow settings whatever happens below: an
+        // ASSERT_* firing mid-test would otherwise leave VSM enabled for every
+        // later test in this binary.
+        struct SettingsRestore
+        {
+            ShadowSettings Saved;
+            ~SettingsRestore()
+            {
+                Renderer3D::GetShadowMap().SetSettings(Saved);
+            }
+        } restore{ shadowMap.GetSettings() };
+
+        const auto setVsm = [](bool enabled)
+        {
+            auto& map = Renderer3D::GetShadowMap();
+            ShadowSettings settings = map.GetSettings();
+            settings.Enabled = true;
+            settings.VSM.Enabled = enabled;
+            map.SetSettings(settings);
+            // VirtualShadowMap::Init clears its own Enabled flag when a shader
+            // fails to load, so asking the shadow map is the only honest way to
+            // know which technique the next frame actually runs.
+            return map.IsVirtualShadowMapActive() == enabled;
+        };
+
+        // Drop every cached page, so the next frames redraw the scene as it is
+        // NOW rather than showing what was cached before.
+        //
+        // A page cache does not notice a caster that stopped casting: nothing
+        // dirties the pages it was drawn into, so they keep its shadow and a
+        // cast-flag differential measures zero on a settled table. That is the
+        // feature working, and it is why this test flushes between the two
+        // captures instead of just flipping the flag.
+        //
+        // Nudging ClipSelectionBias and putting it straight back is the cheapest
+        // lever that does it: VirtualShadowMap::SetSettings raises its full-
+        // invalidate flag for any change to the shape of light space, and the
+        // second call restores the authored value before a frame ever sees the
+        // nudged one. Toggling VSM off/on would work too, but that destroys and
+        // rebuilds the whole 64 MB pool.
+        const auto flushVsmPages = []()
+        {
+            auto& map = Renderer3D::GetShadowMap();
+            ShadowSettings settings = map.GetSettings();
+            const f32 authored = settings.VSM.ClipSelectionBias;
+            settings.VSM.ClipSelectionBias = authored + 0.01f; // past the 1e-6 epsilon
+            map.SetSettings(settings);
+            settings.VSM.ClipSelectionBias = authored;
+            map.SetSettings(settings);
+        };
+
+        // Float the sphere for the same reason the CSM cast test does: the depth
+        // bias is worth ~2 world units along the light, so a caster resting on
+        // its receiver cancels its own shadow.
+        struct HomeRestore
+        {
+            Entity Sphere;
+            glm::vec3 Home;
+            ~HomeRestore()
+            {
+                Sphere.GetComponent<TransformComponent>().Translation = Home;
+            }
+        } homeRestore{ m_SphereEntity, m_SphereEntity.GetComponent<TransformComponent>().Translation };
+        m_SphereEntity.GetComponent<TransformComponent>().Translation = { 0.0f, 4.0f, 0.0f };
+
+        constexpr u32 kVsmSettleFrames = 8;
+
+        const auto luma = [](const u8* p) -> f64
+        { return 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]; };
+
+        // Darkness-weighted centroid over the pixels `lit` shows bright and
+        // `shadowed` shows meaningfully darker. Rows are GL bottom-up here, which
+        // is fine: both frames are read the same way, and only the DIFFERENCE
+        // between two centroids is ever compared.
+        struct Centroid
+        {
+            sizet Count = 0;
+            f64 X = 0.0;
+            f64 Y = 0.0;
+            bool Valid = false;
+        };
+        const auto darkCentroid = [&](const std::vector<u8>& lit, const std::vector<u8>& shadowed)
+        {
+            Centroid c;
+            f64 mass = 0.0;
+            const sizet n = std::min(lit.size(), shadowed.size());
+            for (sizet i = 0; i + 3 < n; i += 4)
+            {
+                const f64 lLit = luma(lit.data() + i);
+                const f64 lShadow = luma(shadowed.data() + i);
+                if (lLit <= 40.0 || lShadow >= lLit - 20.0)
+                {
+                    continue;
+                }
+                const sizet pixel = i / 4;
+                const f64 weight = lLit - lShadow;
+                c.X += weight * static_cast<f64>(pixel % kWidth);
+                c.Y += weight * static_cast<f64>(pixel / kWidth);
+                mass += weight;
+                ++c.Count;
+            }
+            if (mass <= 0.0)
+            {
+                return c;
+            }
+            c.X /= mass;
+            c.Y /= mass;
+            c.Valid = true;
+            return c;
+        };
+
+        struct Pose
+        {
+            const char* Name;
+            glm::vec3 Position;
+            f32 Yaw;
+            f32 Pitch;
+        };
+        const std::array<Pose, 3> poses = { {
+            { "Angled", { 7.0f, 6.5f, 7.0f }, glm::radians(-45.0f), glm::radians(26.0f) },
+            { "Side", { 9.5f, 5.0f, 0.5f }, glm::radians(-85.0f), glm::radians(20.0f) },
+            { "High", { 5.0f, 10.0f, 5.5f }, glm::radians(-42.0f), glm::radians(45.0f) },
+        } };
+
+        for (const Pose& pose : poses)
+        {
+            SCOPED_TRACE(pose.Name);
+            auto& virtualMesh = m_SphereEntity.GetComponent<VirtualMeshComponent>();
+
+            // ---- CSM baseline: where does this scene put the shadow? --------
+            ASSERT_TRUE(setVsm(false)) << "could not return to the CSM path";
+            const std::vector<u8> csmCastOn =
+                CaptureFrame((std::string("VsmCsmCastOn_") + pose.Name).c_str(), pose.Position,
+                             pose.Yaw, pose.Pitch, 1.0f);
+            ASSERT_FALSE(csmCastOn.empty());
+            virtualMesh.m_CastShadows = false;
+            const std::vector<u8> csmCastOff =
+                CaptureFrame((std::string("VsmCsmCastOff_") + pose.Name).c_str(), pose.Position,
+                             pose.Yaw, pose.Pitch, 1.0f);
+            virtualMesh.m_CastShadows = true;
+            ASSERT_FALSE(csmCastOff.empty());
+
+            const Centroid csmShadow = darkCentroid(csmCastOff, csmCastOn);
+            ASSERT_TRUE(csmShadow.Valid)
+                << "the CSM baseline itself casts no virtual-geometry shadow from this pose - the "
+                   "comparison below would be vacuous";
+
+            // ---- VSM --------------------------------------------------------
+            if (!setVsm(true))
+            {
+                GTEST_SKIP() << "Virtual Shadow Maps refused to initialise on this backend/driver";
+            }
+
+            // (2) The page counters — sampled ONE FRAME AT A TIME and kept as a
+            // PEAK, which is the idiom VirtualShadowMapVisualEvidenceTest already
+            // established for exactly this reason: "never drawn" and "drawn once
+            // then cached" both settle to PagesDrawn == 0, so a single read of
+            // the end state passes just as happily when the raster is completely
+            // broken. (Measured here: after eight settle frames this scene
+            // reports resident=749, drawn=0, requested=0 — a fully cached table,
+            // not a broken one. The peak is what separates the two.)
+            u32 peakDrawn = 0;
+            u32 peakResident = 0;
+            u32 peakRequested = 0;
+            u32 peakFailed = 0;
+            {
+                EditorCamera statsCamera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+                statsCamera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+                statsCamera.SetPose(pose.Position, pose.Yaw, pose.Pitch);
+                flushVsmPages();
+                for (u32 frame = 0; frame < 10; ++frame)
+                {
+                    RunEditorFrames(statsCamera, 1);
+                    const VSM::Statistics s = shadowMap.GetVirtualShadowMap().GetStatistics();
+                    peakDrawn = std::max(peakDrawn, s.PagesDrawn);
+                    peakResident = std::max(peakResident, s.PagesResident);
+                    peakRequested = std::max(peakRequested, s.PagesRequested);
+                    peakFailed = std::max(peakFailed, s.PagesFailed);
+                }
+            }
+            GTEST_LOG_(INFO) << "[" << pose.Name << "] vsm peak: resident=" << peakResident
+                             << " drawn=" << peakDrawn << " requested=" << peakRequested
+                             << " failed=" << peakFailed;
+            EXPECT_GT(peakResident, 0u) << "no physical page ever backed a virtual page";
+            EXPECT_GT(peakDrawn, 0u) << "no page was ever redrawn";
+            EXPECT_EQ(peakFailed, 0u)
+                << "the physical pool could not satisfy every request in a scene this small";
+            // PagesRequested is LOGGED, not asserted, and that is a property of
+            // the harness rather than of this feature: the counter is written by
+            // VSM_MarkRequiredPages, which runs in the LATE graph node, and it
+            // reads back as 0 in every headless sample in this suite — including
+            // the ones VirtualShadowMapVisualEvidenceTest takes on a scene with
+            // no virtual geometry in it at all. Asserting it here would fail for
+            // a reason that has nothing to do with virtual geometry. The live
+            // `olo_virtual_shadow_map_stats` reading is in the PR body.
+            (void)peakRequested;
+
+            const std::vector<u8> vsmCastOn =
+                CaptureFrame((std::string("VsmCastOn_") + pose.Name).c_str(), pose.Position,
+                             pose.Yaw, pose.Pitch, 1.0f, kVsmSettleFrames);
+            ASSERT_FALSE(vsmCastOn.empty());
+
+            // The flush is what makes this differential mean anything — see
+            // flushVsmPages. Without it both captures show the cached shadow and
+            // the measurement is silently vacuous.
+            virtualMesh.m_CastShadows = false;
+            flushVsmPages();
+            const std::vector<u8> vsmCastOff =
+                CaptureFrame((std::string("VsmCastOff_") + pose.Name).c_str(), pose.Position,
+                             pose.Yaw, pose.Pitch, 1.0f, kVsmSettleFrames);
+            virtualMesh.m_CastShadows = true;
+            flushVsmPages();
+            ASSERT_FALSE(vsmCastOff.empty());
+
+            const Centroid vsmShadow = darkCentroid(vsmCastOff, vsmCastOn);
+
+            // (1) It casts at all.
+            ASSERT_TRUE(vsmShadow.Valid)
+                << "with Virtual Shadow Maps ON, toggling VirtualMeshComponent::m_CastShadows "
+                   "changed NO ground pixels - the virtual-geometry route into the VSM pages is "
+                   "not running. The classic CSM frames from the same pose DID change "
+                << csmShadow.Count << " pixels, so the scene and the caster are fine.";
+            EXPECT_GT(vsmShadow.Count, static_cast<sizet>(150))
+                << "the VSM frame changed only " << vsmShadow.Count << " pixels against "
+                << csmShadow.Count << " on CSM - a fragment of the shadow, not the shadow";
+
+            // (3) ...and in the same place. A quarter of the frame's width is
+            // generous on purpose: CSM and VSM genuinely differ in penumbra and
+            // in bias, so the tolerance is sized to catch a WRONG PLACE (a clip
+            // level off by one moves the shadow by its own extent) rather than to
+            // police a few pixels of filtering difference.
+            const f64 tolerance = static_cast<f64>(kWidth) * 0.25;
+            EXPECT_NEAR(vsmShadow.X, csmShadow.X, tolerance)
+                << "VSM puts the virtual mesh's shadow somewhere else than CSM does (x)";
+            EXPECT_NEAR(vsmShadow.Y, csmShadow.Y, tolerance)
+                << "VSM puts the virtual mesh's shadow somewhere else than CSM does (y)";
+        }
+
+        // (4) The classic route still works after everything above. Not
+        // ceremonial: the two routes share the cluster cull, the command buffer
+        // and the args buffer, and the gate that keeps the VSM page test off for
+        // the classic path is one field of a shared block.
+        ASSERT_TRUE(setVsm(false));
+        const std::vector<u8> classicOn =
+            CaptureFrame("VsmClassicAfter_CastOn", poses[0].Position, poses[0].Yaw, poses[0].Pitch, 1.0f);
+        m_SphereEntity.GetComponent<VirtualMeshComponent>().m_CastShadows = false;
+        const std::vector<u8> classicOff =
+            CaptureFrame("VsmClassicAfter_CastOff", poses[0].Position, poses[0].Yaw, poses[0].Pitch, 1.0f);
+        m_SphereEntity.GetComponent<VirtualMeshComponent>().m_CastShadows = true;
+        ASSERT_FALSE(classicOn.empty());
+        ASSERT_FALSE(classicOff.empty());
+        EXPECT_TRUE(darkCentroid(classicOff, classicOn).Valid)
+            << "after a VSM frame, the CLASSIC cascade route no longer casts a virtual-geometry "
+               "shadow - the two routes are not independent";
     }
 } // namespace OloEngine::Tests

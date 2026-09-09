@@ -28,6 +28,32 @@ namespace OloEngine
         constexpr u32 kStateRequested = 1u << 1;
         constexpr u32 kStateTouched = 1u << 2;
         constexpr u64 kUploadRingBytes = 8ull * 1024 * 1024;
+
+        // World AABB of a local AABB under an affine transform (issue #1149).
+        //
+        // The eight corners rather than centre + MaxScale * extent: the cheap
+        // form over-estimates by up to sqrt(3) under rotation, and these bounds
+        // decide which shadow pages a mover invalidates — an over-estimate there
+        // costs redraws on every page around the object, every frame it moves.
+        void TransformedBounds(const glm::mat4& transform, const glm::vec3& localMin, const glm::vec3& localMax,
+                               glm::vec3& outMin, glm::vec3& outMax)
+        {
+            for (i32 corner = 0; corner < 8; ++corner)
+            {
+                const glm::vec3 local((corner & 1) != 0 ? localMax.x : localMin.x,
+                                      (corner & 2) != 0 ? localMax.y : localMin.y,
+                                      (corner & 4) != 0 ? localMax.z : localMin.z);
+                const glm::vec3 world(transform * glm::vec4(local, 1.0f));
+                if (corner == 0)
+                {
+                    outMin = world;
+                    outMax = world;
+                    continue;
+                }
+                outMin = glm::min(outMin, world);
+                outMax = glm::max(outMax, world);
+            }
+        }
     } // namespace
 
     VirtualMeshRegistry& VirtualMeshRegistry::Get()
@@ -86,6 +112,24 @@ namespace OloEngine
                 // packed data is incompatible by IsMeshletCompatible's own
                 // IsValid() guard — no external pre-check needed.)
                 entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
+                // Mesh-local AABB (issue #1149) — the union of the cluster cull
+                // spheres. Done here and not per frame: this is the only place
+                // that already holds the packed cluster array, and the answer
+                // never changes for a registered part.
+                for (const VirtualClusterGpuRecord& cluster : entry.Packed.Clusters)
+                {
+                    const glm::vec3 centre(cluster.CullSphere);
+                    const glm::vec3 radius(cluster.CullSphere.w);
+                    if (!entry.HasBounds)
+                    {
+                        entry.LocalBoundsMin = centre - radius;
+                        entry.LocalBoundsMax = centre + radius;
+                        entry.HasBounds = true;
+                        continue;
+                    }
+                    entry.LocalBoundsMin = glm::min(entry.LocalBoundsMin, centre - radius);
+                    entry.LocalBoundsMax = glm::max(entry.LocalBoundsMax, centre + radius);
+                }
             }
             parts.Valid = parts.Valid || entry.Valid;
             m_PoolsDirty = m_PoolsDirty || entry.Valid;
@@ -1133,6 +1177,19 @@ namespace OloEngine
                 if (instance.TwoSided)
                 {
                     gpu.Flags |= VirtualInstanceGpuRecord::kFlagTwoSided;
+                }
+
+                // Render-origin-relative world AABB (issue #1149), for both this
+                // pose and the previous one. Transforming the eight corners is
+                // exact for an affine transform, unlike scaling the local extent
+                // by MaxScale, which over-estimates badly under rotation.
+                instance.HasBounds = entry.HasBounds;
+                if (entry.HasBounds)
+                {
+                    TransformedBounds(gpu.Transform, entry.LocalBoundsMin, entry.LocalBoundsMax,
+                                      instance.BoundsMin, instance.BoundsMax);
+                    TransformedBounds(gpu.PrevTransform, entry.LocalBoundsMin, entry.LocalBoundsMax,
+                                      instance.PrevBoundsMin, instance.PrevBoundsMax);
                 }
 
                 m_TotalFrameClusterCount += gpu.ClusterCount;

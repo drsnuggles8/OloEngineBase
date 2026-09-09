@@ -408,6 +408,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualShadowMapVulkanShaderTest.cpp
 		Rendering/VirtualShadowMapTest.cpp
 		Rendering/VirtualShadowMapLocalTest.cpp
+		Rendering/VirtualGeometryVirtualShadowTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp

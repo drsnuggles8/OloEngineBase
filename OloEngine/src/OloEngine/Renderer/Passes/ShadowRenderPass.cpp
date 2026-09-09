@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 namespace OloEngine
 {
@@ -206,10 +207,26 @@ namespace OloEngine
             }
 
             auto& vsm = m_ShadowMap->GetVirtualShadowMap();
+
+            // ── Virtual geometry into the VSM pages (issue #1149) ──
+            //
+            // Prepared FIRST, ahead of everything else in this block, because it
+            // is what runs VirtualMeshRegistry::PrepareFrame — and the swept
+            // bounds the invalidation below needs come out of that frame's
+            // instance list. One ViewResources for every clip level: the VSM
+            // raster is sequential, so the levels reuse one set.
+            const bool vsmVirtualCasters =
+                VirtualGeometryShadow::PrepareViews(
+                    std::span<VirtualGeometryShadow::ViewResources>(&m_VsmVirtualResources, 1)) &&
+                CollectVirtualCasterBounds() &&
+                VirtualGeometryShadow::PrepareVirtualShadowMapRoute(m_VsmVirtualResources);
+
             // BEFORE UpdatePages, which consumes the invalidations: running it
             // after would allocate and clear this frame's pages first, leaving a
             // mover's old silhouette baked into a page now marked clean.
             vsm.SubmitDynamicInvalidations(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin());
+            if (vsmVirtualCasters)
+                SubmitVirtualDynamicInvalidations(vsm);
             vsm.UpdatePages();
 
             const auto uploadBones = [](const ShadowSkinnedCaster& caster, UniformBuffer& animUBO)
@@ -225,7 +242,30 @@ namespace OloEngine
                 animUBO.SetData(boneMatrices, count * sizeof(glm::mat4));
             };
 
-            vsm.RenderCasters(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin(), uploadBones);
+            // The clip levels worth a cluster-cull dispatch: those whose ortho
+            // frustum any shadow-casting virtual instance actually reaches. A
+            // level nothing touches is dropped here rather than dispatched and
+            // rejected thread by thread on the GPU — sixteen levels against four
+            // cascades is the one place this route could cost more than the one
+            // it replaces, and this is what keeps it from doing so.
+            VirtualShadowMap::ExternalCasterRenderer renderVirtualCasters;
+            if (vsmVirtualCasters)
+            {
+                BuildVirtualClipViews(vsm);
+                if (!m_VsmClipViews.empty())
+                {
+                    renderVirtualCasters = [this, &vsm]()
+                    {
+                        return VirtualGeometryShadow::RenderVirtualShadowMapLevels(
+                            m_VsmClipViews, VSM::kVirtualResolution,
+                            [&vsm]()
+                            { vsm.BindPhysicalPoolImage(); }, m_VsmVirtualResources);
+                    };
+                }
+            }
+
+            vsm.RenderCasters(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin(), uploadBones,
+                              renderVirtualCasters);
             vsm.EndFrame();
 
             // RenderCasters binds a framebuffer of its own (the virtual-resolution
@@ -839,9 +879,70 @@ namespace OloEngine
             VirtualGeometryShadow::RenderCascade(lightVPRel, shadowViewResolution, *virtualResources);
     }
 
-    // Returns true when the caster has valid world bounds AND those bounds lie
-    // entirely outside the frustum, meaning it can safely be skipped.
-    // Casters with NoBounds (Min.x == FLT_MAX) are never culled.
+    bool ShadowRenderPass::CollectVirtualCasterBounds()
+    {
+        OLO_PROFILE_FUNCTION();
+        m_VsmVirtualBounds.clear();
+        return VirtualGeometryShadow::CollectShadowCasterBounds(m_VsmVirtualBounds);
+    }
+
+    void ShadowRenderPass::BuildVirtualClipViews(const VirtualShadowMap& vsm)
+    {
+        OLO_PROFILE_FUNCTION();
+        m_VsmClipViews.clear();
+        if (m_VsmVirtualBounds.empty())
+            return;
+
+        // The same eight-corner NDC test VSM_CullCasters.comp runs per caster,
+        // asked once per level over the virtual instances. The SWEPT bounds, so
+        // a level a mover is leaving still gets the dispatch that redraws the
+        // pages it is vacating.
+        const auto reachesLevel = [this](const glm::mat4& viewProjection)
+        {
+            for (const auto& caster : m_VsmVirtualBounds)
+            {
+                const glm::vec3 sweptMin = glm::min(caster.Min, caster.PrevMin);
+                const glm::vec3 sweptMax = glm::max(caster.Max, caster.PrevMax);
+                if (VirtualShadowMap::BoundsReachClipLevel(viewProjection, sweptMin, sweptMax))
+                    return true;
+            }
+            return false;
+        };
+
+        const auto& clips = vsm.GetClipProjections();
+        for (u32 level = 0; level < VSM::kClipLevels; ++level)
+        {
+            if (!reachesLevel(clips[level].ViewProjection))
+                continue;
+            VirtualGeometryShadow::VsmClipView view;
+            view.ViewProjection = clips[level].ViewProjection;
+            view.PageOffset = clips[level].PageOffset;
+            view.ClipLevel = level;
+            m_VsmClipViews.push_back(view);
+        }
+    }
+
+    void ShadowRenderPass::SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm)
+    {
+        OLO_PROFILE_FUNCTION();
+        for (const auto& caster : m_VsmVirtualBounds)
+        {
+            // ShadowCasterBounds::Moved compares the TRANSFORMS, not these
+            // boxes: a rotation about the centre of a symmetric caster leaves the
+            // world AABB bit-identical while changing the silhouette the shadow
+            // map holds, and comparing the boxes would freeze such a caster's
+            // shadow at its first angle.
+            if (!caster.Moved)
+                continue;
+
+            // The SWEPT volume, not the two poses separately: a caster that moved
+            // further than its own size in one frame leaves pages dirty between
+            // the two, and those are exactly the ones holding its old silhouette.
+            vsm.AddDynamicInvalidation(glm::min(caster.Min, caster.PrevMin),
+                                       glm::max(caster.Max, caster.PrevMax));
+        }
+    }
+
     bool ShadowRenderPass::AnyVirtualShadowCaster()
     {
         // Read SUBMISSIONS, not frame instances.
@@ -866,6 +967,9 @@ namespace OloEngine
                                    { return s.CastShadows; });
     }
 
+    // Returns true when the caster has valid world bounds AND those bounds lie
+    // entirely outside the frustum, meaning it can safely be skipped.
+    // Casters with NoBounds (Min.x == FLT_MAX) are never culled.
     bool ShadowRenderPass::ShouldCull(const BoundingBox& worldBounds, const Frustum& frustum)
     {
         if (worldBounds.Min.x >= std::numeric_limits<f32>::max())

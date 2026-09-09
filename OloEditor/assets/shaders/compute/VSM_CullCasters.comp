@@ -18,10 +18,8 @@
 //      under this caster is being redrawn, so the caster has nothing to
 //      contribute. This is where a static scene's cost collapses.
 //
-// The footprint is translated into WRAPPED page space before the lookup, because
-// that is the space the pyramid was reduced in. A footprint that straddles the
-// wrap seam widens to the full axis — conservative, and rare enough (it needs a
-// caster spanning most of a clip level) not to be worth splitting into two rects.
+// The wrapped-page translation the HPB lookup needs lives in
+// include/VirtualShadowPageFootprint.glsl, shared with the virtual-geometry cull.
 //
 // Overflow cannot happen by construction: the dispatch emits at most one record
 // per (caster, level) and the CPU sizes each batch run at exactly
@@ -36,54 +34,10 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 // x = caster count. Rides the pass block so the kernel needs no second UBO.
 #define VSM_CULL_INSTANCE_COUNT (u_VSMPassParams.x)
 
-bool vsmFootprintHasDirtyPage(int clipLevel, ivec2 pageMin, ivec2 pageMax)
-{
-    ivec2 offset = u_VSMClips[clipLevel].PageOffset;
-    ivec2 wrappedMin = pageMin + offset;
-    ivec2 wrappedMax = pageMax + offset;
-
-    // Straddling the seam: widen to the whole axis rather than test two rects.
-    if ((wrappedMin.x >> VSM_PAGE_TABLE_RES_LOG2) != (wrappedMax.x >> VSM_PAGE_TABLE_RES_LOG2))
-    {
-        wrappedMin.x = 0;
-        wrappedMax.x = VSM_PAGE_TABLE_MASK;
-    }
-    else
-    {
-        wrappedMin.x &= VSM_PAGE_TABLE_MASK;
-        wrappedMax.x &= VSM_PAGE_TABLE_MASK;
-    }
-    if ((wrappedMin.y >> VSM_PAGE_TABLE_RES_LOG2) != (wrappedMax.y >> VSM_PAGE_TABLE_RES_LOG2))
-    {
-        wrappedMin.y = 0;
-        wrappedMax.y = VSM_PAGE_TABLE_MASK;
-    }
-    else
-    {
-        wrappedMin.y &= VSM_PAGE_TABLE_MASK;
-        wrappedMax.y &= VSM_PAGE_TABLE_MASK;
-    }
-
-    int mip = 0;
-    while (mip < VSM_HPB_MIP_COUNT - 1 &&
-           (((wrappedMax.x >> mip) - (wrappedMin.x >> mip) > 1) ||
-            ((wrappedMax.y >> mip) - (wrappedMin.y >> mip) > 1)))
-    {
-        ++mip;
-    }
-
-    ivec2 lo = wrappedMin >> mip;
-    ivec2 hi = wrappedMax >> mip;
-    for (int y = lo.y; y <= hi.y; ++y)
-    {
-        for (int x = lo.x; x <= hi.x; ++x)
-        {
-            if (b_HPB[vsmHPBIndex(clipLevel, mip, ivec2(x, y))] != 0u)
-                return true;
-        }
-    }
-    return false;
-}
+// The footprint test and the sphere-to-page-rect helper live in the include
+// because the VIRTUAL-GEOMETRY cull asks the same question of the same
+// pyramid (issue #1149), and two copies of a page-space wrap would drift.
+#include "../include/VirtualShadowPageFootprint.glsl"
 
 void main()
 {
@@ -125,7 +79,7 @@ void main()
         ivec2 pageMin = ivec2(floor(uvMin * float(VSM_PAGE_TABLE_RESOLUTION)));
         ivec2 pageMax = ivec2(floor(uvMax * float(VSM_PAGE_TABLE_RESOLUTION)));
 
-        if (!vsmFootprintHasDirtyPage(clipLevel, pageMin, pageMax))
+        if (!vsmFootprintHasDirtyPage(clipLevel, u_VSMClips[clipLevel].PageOffset, pageMin, pageMax))
             return;
     }
 
