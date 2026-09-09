@@ -237,11 +237,19 @@ namespace
 
         // Cancel by the SAME id value, once the tool is provably running —
         // see WaitUntilSlowToolIsRunning for why this is not a sleep.
-        ASSERT_TRUE(WaitUntilSlowToolIsRunning()) << "fake_slow never started; nothing to cancel";
+        //
+        // The startup result is CAPTURED rather than asserted here: a gtest
+        // ASSERT_* returns from the test body, and returning while `worker` is
+        // still joinable destroys a joinable std::thread, which calls
+        // std::terminate. That would abort the whole binary on exactly the path
+        // meant to report a clean failure. Cancel, join, then assert.
+        const bool toolStarted = WaitUntilSlowToolIsRunning();
         const Json response = m_Server.HandleMessage(MakeCancelNotification("req-9"));
-        EXPECT_TRUE(response.is_null()) << "a notification gets no response";
 
         worker.join();
+
+        ASSERT_TRUE(toolStarted) << "fake_slow never started; nothing to cancel";
+        EXPECT_TRUE(response.is_null()) << "a notification gets no response";
 
         EXPECT_TRUE(m_ObservedCancel.load()) << "tool must observe IsCurrentCallCancelled()";
         EXPECT_LT(m_StepsCompleted.load(), 50) << "tool must stop early";
@@ -426,16 +434,25 @@ namespace
                                   });
             });
 
-        ASSERT_TRUE(WaitUntilSlowToolIsRunning())
-            << "fake_slow never started over HTTP; a cancel now would hit nothing and the call would "
-               "complete normally";
+        // Captured, not asserted, for the reason spelled out in the in-process
+        // test above: an ASSERT_* here would return with `caller` still
+        // joinable and std::terminate the binary. That applies to the POST
+        // result too, which had the same hazard before this test grew a
+        // startup check. Join first; assert after.
+        const bool toolStarted = WaitUntilSlowToolIsRunning();
         httplib::Client canceller("127.0.0.1", port);
         auto res = canceller.Post("/mcp", headers, MakeCancelNotification("http-3").dump(),
                                   "application/json");
-        ASSERT_TRUE(res);
-        EXPECT_EQ(res->status, 202) << "a notification returns 202 Accepted with no body";
 
+        // Also the point at which `streamed` stops being written by the caller
+        // thread and becomes safe to read below.
         caller.join();
+
+        ASSERT_TRUE(toolStarted)
+            << "fake_slow never started over HTTP; a cancel now would hit nothing and the call would "
+               "complete normally";
+        ASSERT_TRUE(res) << "cancel POST failed: " << httplib::to_string(res.error());
+        EXPECT_EQ(res->status, 202) << "a notification returns 202 Accepted with no body";
 
         EXPECT_TRUE(m_ObservedCancel.load());
         const std::vector<Json> frames = ParseSseData(streamed);
