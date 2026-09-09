@@ -38,6 +38,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpSceneOpenResult;
     using OloEngine::MCP::McpScenePlayResult;
     using OloEngine::MCP::McpServer;
@@ -77,7 +78,7 @@ namespace
                 tool.Description = "Open/switch scene (fake; test wiring).";
                 tool.ProjectWrite = true;
                 tool.InputSchema = SceneControl::OpenInputSchema();
-                tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+                tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
                 {
                     const std::string path = args.value("path", std::string{});
                     if (const auto error = SceneControl::ValidateScenePath(path))
@@ -94,7 +95,7 @@ namespace
                 tool.Description = "Enter Play mode (fake; test wiring).";
                 tool.ProjectWrite = true;
                 tool.InputSchema = SceneControl::PlayStopInputSchema();
-                tool.Handler = [this](McpServer&, const Json&) -> ToolResult
+                tool.Handler = [this](IAutomationHost&, const Json&) -> ToolResult
                 {
                     ++m_PlayCount;
                     return ToolResult::Text(SceneControl::ToJson(m_FakePlayResult).dump());
@@ -107,7 +108,7 @@ namespace
                 tool.Description = "Enter Simulate mode (fake; test wiring).";
                 tool.ProjectWrite = true;
                 tool.InputSchema = SceneControl::PlayStopInputSchema();
-                tool.Handler = [this](McpServer&, const Json&) -> ToolResult
+                tool.Handler = [this](IAutomationHost&, const Json&) -> ToolResult
                 {
                     ++m_SimulateCount;
                     return ToolResult::Text(SceneControl::ToJson(m_FakeSimulateResult).dump());
@@ -120,7 +121,7 @@ namespace
                 tool.Description = "Stop Play mode (fake; test wiring).";
                 tool.ProjectWrite = true;
                 tool.InputSchema = SceneControl::PlayStopInputSchema();
-                tool.Handler = [this](McpServer&, const Json&) -> ToolResult
+                tool.Handler = [this](IAutomationHost&, const Json&) -> ToolResult
                 {
                     ++m_StopCount;
                     return ToolResult::Text(SceneControl::ToJson(m_FakeStopResult).dump());

@@ -12,6 +12,13 @@ inputs:
     # and ignore this default. Bumping it mints new
     # `<OS>-vulkan-prebuilt-sdk-true-<version>` cache entries; the old ones
     # age out through cache-prune.yml's 30-day rule.
+    #
+    # IT IS ONE OF THREE LITERALS THAT NAME ONE TOOLCHAIN (#1139, ADR 0011
+    # amendment (97)): this default, `setup-shader-toolchain-linux`'s `version` (shaderc
+    # v2026.3, whose DEPS pins the glslang revision that IS this SDK's tag), and
+    # `ShaderToolchainFloor.h`'s kMinimumVulkanSdk / kMinimumShadercTag. Bump
+    # them together — moving one splits the arms, and the split is invisible on
+    # PR CI by construction.
     description: 'Vulkan SDK version'
     required: false
     default: '1.4.357.0'

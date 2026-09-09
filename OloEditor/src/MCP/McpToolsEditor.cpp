@@ -57,58 +57,58 @@ namespace OloEngine::MCP
                 .Required({ "setting", "group", "description", "type", "value" });
         }
 
-        ToolResult Handle_EditorPanelList(McpServer& server, const Json&)
+        ToolResult Handle_EditorPanelList(IAutomationHost& host, const Json&)
         {
-            if (!server.Context().GetEditorPanels)
+            if (!host.Context().GetEditorPanels)
                 return ToolResult::Error("Editor panel control is not available in this host.");
-            const Json result = server.MarshalRead([&server]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([&host]() -> Json
+                                                 {
                 Json panels = Json::array();
-                for (const auto& state : server.Context().GetEditorPanels())
+                for (const auto& state : host.Context().GetEditorPanels())
                     panels.push_back(EditorPanels::ToJson(state));
                 return Json{ { "count", panels.size() }, { "panels", std::move(panels) } }; });
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_EditorPanelSet(McpServer& server, const Json& args)
+        ToolResult Handle_EditorPanelSet(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().SetEditorPanel)
+            if (!host.Context().SetEditorPanel)
                 return ToolResult::Error("Editor panel control is not available in this host.");
             if (!args.contains("panel") || !args["panel"].is_string() ||
                 !args.contains("open") || !args["open"].is_boolean())
                 return ToolResult::Error("Expected 'panel' (string) and 'open' (boolean).");
             const std::string panel = args["panel"].get<std::string>();
             const bool open = args["open"].get<bool>();
-            const Json result = server.MarshalRead([&server, panel, open]() -> Json
-                                                   { return EditorPanels::ToJson(server.Context().SetEditorPanel(panel, open)); });
+            const Json result = host.MarshalRead([&host, panel, open]() -> Json
+                                                 { return EditorPanels::ToJson(host.Context().SetEditorPanel(panel, open)); });
             if (!result.value("ok", false))
                 return ToolResult::Error(result.value("message", "Could not change editor panel state."));
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_EditorDebugDrawSet(McpServer& server, const Json& args)
+        ToolResult Handle_EditorDebugDrawSet(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().SetEditorDebugDraw)
+            if (!host.Context().SetEditorDebugDraw)
                 return ToolResult::Error("Editor debug-draw control is not available in this host.");
             if (!args.contains("category") || !args["category"].is_string() ||
                 !args.contains("enabled") || !args["enabled"].is_boolean())
                 return ToolResult::Error("Expected 'category' (string) and 'enabled' (boolean).");
             const std::string category = args["category"].get<std::string>();
             const bool enabled = args["enabled"].get<bool>();
-            const Json result = server.MarshalRead([&server, category, enabled]() -> Json
-                                                   { return EditorDebugDraw::ToJson(server.Context().SetEditorDebugDraw(category, enabled)); });
+            const Json result = host.MarshalRead([&host, category, enabled]() -> Json
+                                                 { return EditorDebugDraw::ToJson(host.Context().SetEditorDebugDraw(category, enabled)); });
             if (!result.value("ok", false))
                 return ToolResult::Error(result.value("message", "Could not change editor debug-draw state."));
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_AccessibilityGet(McpServer& server, const Json& args)
+        ToolResult Handle_AccessibilityGet(IAutomationHost& host, const Json& args)
         {
             const AccessibilitySettingsTool::FieldInfo* field = nullptr;
             if (const auto error = AccessibilitySettingsTool::ParseGetArgs(args, field))
                 return ToolResult::Error(*error);
-            const Json result = server.MarshalRead([field]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([field]() -> Json
+                                                 {
                 if (field != nullptr)
                     return Json{ { "scope", "process" },
                                  { "settings", Json::array({ AccessibilitySettingsTool::DescribeField(
@@ -117,14 +117,14 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_AccessibilitySet(McpServer& server, const Json& args)
+        ToolResult Handle_AccessibilitySet(IAutomationHost& host, const Json& args)
         {
             const AccessibilitySettingsTool::FieldInfo* field = nullptr;
             Json value;
             if (const auto error = AccessibilitySettingsTool::ParseSetArgs(args, field, value))
                 return ToolResult::Error(*error);
-            const Json result = server.MarshalRead([field, value]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([field, value]() -> Json
+                                                 {
                 auto applied = AccessibilitySettingsTool::ApplyGlobal(*field, value);
                 if (!applied.Ok)
                     return Json{ { "__error", applied.Error } };
@@ -136,39 +136,39 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_TerrainPick(McpServer& server, const Json& args)
+        ToolResult Handle_TerrainPick(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().TerrainPick)
+            if (!host.Context().TerrainPick)
                 return ToolResult::Error("Terrain GPU picking is not available in this host.");
             TerrainPick::Request request;
             if (const auto error = TerrainPick::ParseRequest(args, request))
                 return ToolResult::Error(*error);
 
-            Json result = server.MarshalRead([&server, request]() -> Json
-                                             { return TerrainPick::BuildResult(server.Context().TerrainPick(request, true)); });
-            if (result.value("status", "") == "pending" && server.Context().GetFrameIndex)
+            Json result = host.MarshalRead([&host, request]() -> Json
+                                           { return TerrainPick::BuildResult(host.Context().TerrainPick(request, true)); });
+            if (result.value("status", "") == "pending" && host.Context().GetFrameIndex)
             {
-                const u64 baseFrame = server.MarshalRead([&server]() -> Json
-                                                         { return Json(server.Context().GetFrameIndex()); })
+                const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                       { return Json(host.Context().GetFrameIndex()); })
                                           .get<u64>();
-                (void)AwaitRenderedFrames(server, baseFrame, 5, std::chrono::seconds(8));
-                result = server.MarshalRead([&server, request]() -> Json
-                                            { return TerrainPick::BuildResult(server.Context().TerrainPick(request, false)); });
+                (void)AwaitRenderedFrames(host, baseFrame, 5, std::chrono::seconds(8));
+                result = host.MarshalRead([&host, request]() -> Json
+                                          { return TerrainPick::BuildResult(host.Context().TerrainPick(request, false)); });
             }
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_LightmapBake(McpServer& server, const Json& args)
+        ToolResult Handle_LightmapBake(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().LightmapBake)
+            if (!host.Context().LightmapBake)
                 return ToolResult::Error("Lightmap baking is not available in this host.");
             LightmapBake::Request request;
             if (const auto error = LightmapBake::ParseRequest(args, request))
                 return ToolResult::Error(*error);
 
             const bool starts = request.RequestMode != LightmapBake::Mode::Poll;
-            Json response = server.MarshalRead([&server, request, starts]() -> Json
-                                               { return LightmapBake::BuildResponse(server.Context().LightmapBake(request, starts)); });
+            Json response = host.MarshalRead([&host, request, starts]() -> Json
+                                             { return LightmapBake::BuildResponse(host.Context().LightmapBake(request, starts)); });
             if (request.RequestMode != LightmapBake::Mode::Blocking ||
                 response.value("status", "failed") != "running")
                 return ToolResult::Structured(response);
@@ -180,16 +180,16 @@ namespace OloEngine::MCP
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(30);
             while (std::chrono::steady_clock::now() < deadline)
             {
-                if (server.IsCurrentCallCancelled())
+                if (host.IsCurrentCallCancelled())
                     return ToolResult::Error("Lightmap bake wait was cancelled; the bake continues and can be polled with operationId '" + poll.OperationId + "'.");
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
-                response = server.MarshalRead([&server, poll]() -> Json
-                                              { return LightmapBake::BuildResponse(server.Context().LightmapBake(poll, false)); });
+                response = host.MarshalRead([&host, poll]() -> Json
+                                            { return LightmapBake::BuildResponse(host.Context().LightmapBake(poll, false)); });
                 const std::string status = response.value("status", "failed");
                 const f64 progress = response.value("progress", 0.0);
                 if (progress > lastEmittedProgress)
                 {
-                    server.EmitProgress(progress, 1.0, "baking lightmaps");
+                    host.EmitProgress(progress, 1.0, "baking lightmaps");
                     lastEmittedProgress = progress;
                 }
                 if (status == "succeeded" || status == "failed")
@@ -199,7 +199,7 @@ namespace OloEngine::MCP
         }
     } // namespace
 
-    void RegisterEditorTools(McpServer& server)
+    void RegisterEditorTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -215,7 +215,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "panels" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EditorPanelList;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -235,7 +235,7 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "changed", "panel", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EditorPanelSet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -248,7 +248,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object().Prop("scope", Schema::String()).Prop("settings", Schema::Array(AccessibilityFieldSchema())).Required({ "scope", "settings" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AccessibilityGet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -272,7 +272,7 @@ namespace OloEngine::MCP
                                     .Required({ "scope", "setting", "previousValue", "value", "changed", "restoreWith" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AccessibilitySet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -294,7 +294,7 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "changed", "category", "enabled", "state", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EditorDebugDrawSet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -308,7 +308,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = LightmapBake::OutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_LightmapBake;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
         {
             ToolDef tool;
@@ -332,7 +332,7 @@ namespace OloEngine::MCP
                                     .Required({ "status", "rayId", "input", "overflow" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_TerrainPick;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

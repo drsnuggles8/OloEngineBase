@@ -362,6 +362,9 @@ include(cmake/CommonProperties.cmake)
 # requirement of its own and can sit here with the other pure-configuration includes.
 include(cmake/Steamworks.cmake)
 include(cmake/Sanitizers.cmake)
+# Defines olo_verify_shader_toolchain_floor(); OloEngine/CMakeLists.txt calls it once
+# the shaderc it is going to link has been resolved (issue #1139, amendment (97)).
+include(cmake/ShaderToolchainFloor.cmake)
 # Must come AFTER SetupConfigurations.cmake (it overrides that file's MSVC
 # debug-info default) and BEFORE the target subdirectories below (it sets the
 # compiler-launcher variables that initialize each target's property).

@@ -42,6 +42,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpInputEvent;
     using OloEngine::MCP::McpInputInjectResult;
     using OloEngine::MCP::McpInputPlan;
@@ -134,7 +135,7 @@ namespace
             tool.Description = "Inject synthetic input (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = Inject::InputSchema();
-            tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
             {
                 Inject::Request request;
                 if (const auto error = Inject::ParseRequest(args, request))

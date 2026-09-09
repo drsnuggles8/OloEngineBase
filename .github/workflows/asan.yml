@@ -1323,9 +1323,18 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # THE SHADER TOOLCHAIN IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8
+        # cannot compile GL_EXT_descriptor_heap, which seven production shaders
+        # declare `: require`, and apt's SPIRV-Cross 2021.01.15 cannot PARSE the
+        # SPIR-V 1.6 a conforming glslang emits -- so `shader-toolchain-floor`
+        # (default on) provisions both, at matched revisions, at their own
+        # prefixes. Each is a (headers, libraries) set from one build, which is
+        # what the line above is really about: #1009 was a mismatched pair, not
+        # the SDK path as such.
         vulkan-sdk: 'false'
         cache-name: asan-lsan
 
@@ -1448,16 +1457,29 @@ jobs:
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
     - name: Build tests
-      # Pinned to --parallel 2 on the hosted arm: higher concurrency has been
-      # observed to exhaust runner memory (clang++ under sanitizer
-      # instrumentation uses ~3 GB per translation unit), causing `The hosted
-      # runner lost communication with the server` failures. 4 on the
-      # self-hosted box (16 threads, 31 GiB, a persistent ccache): two of these
-      # jobs run there at once, and 4 + 4 compiles is ~24 GB peak. The same
-      # width is used for ctest below -- with --olo-gl-backend=none the test
-      # phase is CPU-only there, and the box has the memory for four
-      # instrumented processes per job.
-      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
+      # Pinned to --parallel 2 on both arms: higher concurrency exhausts runner
+      # memory, which on the hosted arm surfaces as `The hosted runner lost
+      # communication with the server`. The self-hosted box is the tighter of
+      # the two constraints despite being the larger machine, because two of
+      # these jobs run on it at once.
+      #
+      # This was 4 on self-hosted until 2026-09-09, justified as "16 threads,
+      # 31 GiB, a persistent ccache ... 4 + 4 compiles is ~24 GB peak". Both
+      # halves of that were wrong. The ~3 GB per translation unit it assumed is
+      # 9.0 GB measured, with a single TU observed at 13.9 GB; and the runner
+      # account is capped by cgroup at MemoryMax=19G, so a 24 GB budget was
+      # never satisfiable. What actually happened was five OOM kills in 36
+      # hours and a 2 h 13 min outage of all three self-hosted runners, when
+      # systemd-oomd resolved the pressure by killing their systemd user
+      # manager.
+      #
+      # So 2 here is the affordable width, not a conservative one: 2 + 2
+      # concurrent instrumented compiles against a 19 G cap. Raising it again
+      # means raising that cap first (the host's
+      # /etc/systemd/system/user-1004.slice.d/50-resource-caps.conf) and
+      # measuring per-TU RSS rather than assuming it. The same width is used
+      # for ctest below, which bounds test RSS rather than compiler RSS.
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -1630,10 +1652,10 @@ jobs:
       # 4-wide risks the OOM reaper killing the runner mid-test.
       #
       # NOTE: this is unrelated to the build step's `--parallel 2` above. That pin is
-      # a *compile-time* constraint (~3 GB per TU under clang+sanitizer) and does NOT
-      # transfer to the test phase — don't "reconcile" the two numbers; they bound
-      # different resources (peak compiler RSS vs. peak instrumented-test RSS).
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
+      # a *compile-time* constraint (~9 GB per TU under clang+sanitizer, measured) and
+      # does NOT transfer to the test phase — don't "reconcile" the two numbers; they
+      # bound different resources (peak compiler RSS vs. peak instrumented-test RSS).
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -1745,9 +1767,18 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # THE SHADER TOOLCHAIN IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8
+        # cannot compile GL_EXT_descriptor_heap, which seven production shaders
+        # declare `: require`, and apt's SPIRV-Cross 2021.01.15 cannot PARSE the
+        # SPIR-V 1.6 a conforming glslang emits -- so `shader-toolchain-floor`
+        # (default on) provisions both, at matched revisions, at their own
+        # prefixes. Each is a (headers, libraries) set from one build, which is
+        # what the line above is really about: #1009 was a mismatched pair, not
+        # the SDK path as such.
         vulkan-sdk: 'false'
         cache-name: ubsan
 
@@ -1855,9 +1886,9 @@ jobs:
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
-      # ~3 GB per translation unit), causing `The hosted runner lost
+      # ~9 GB per translation unit, measured), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -2021,7 +2052,7 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -2142,9 +2173,18 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # THE SHADER TOOLCHAIN IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8
+        # cannot compile GL_EXT_descriptor_heap, which seven production shaders
+        # declare `: require`, and apt's SPIRV-Cross 2021.01.15 cannot PARSE the
+        # SPIR-V 1.6 a conforming glslang emits -- so `shader-toolchain-floor`
+        # (default on) provisions both, at matched revisions, at their own
+        # prefixes. Each is a (headers, libraries) set from one build, which is
+        # what the line above is really about: #1009 was a mismatched pair, not
+        # the SDK path as such.
         vulkan-sdk: 'false'
         cache-name: tsan
 
@@ -2252,9 +2292,9 @@ jobs:
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
-      # ~3 GB per translation unit), causing `The hosted runner lost
+      # ~9 GB per translation unit, measured), causing `The hosted runner lost
       # communication with the server` failures.
-      run: cmake --build build --target OloEngine-Tests --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }}
+      run: cmake --build build --target OloEngine-Tests --parallel 2
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -2435,7 +2475,7 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
@@ -2508,6 +2548,13 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shader-toolchain-floor` stays ON here even though this job never
+        # configures anything (#1139). The instrumented binary the build job
+        # packaged links libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by
+        # absolute path, so that is its RPATH; a shard runner without the prefix
+        # cannot start it at all. (SPIRV-Cross is static and needs nothing at run
+        # time, but it rides the same cache entry.) The restore is a cache hit the
+        # build job already warmed.
         cache-name: asan-lsan-shard
 
     - name: Download the instrumented test tree
@@ -2582,7 +2629,7 @@ jobs:
 
     - name: Run tests under ASan + LSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
+      run: ctest --parallel 2 --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -2739,6 +2786,13 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shader-toolchain-floor` stays ON here even though this job never
+        # configures anything (#1139). The instrumented binary the build job
+        # packaged links libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by
+        # absolute path, so that is its RPATH; a shard runner without the prefix
+        # cannot start it at all. (SPIRV-Cross is static and needs nothing at run
+        # time, but it rides the same cache entry.) The restore is a cache hit the
+        # build job already warmed.
         cache-name: ubsan-shard
 
     - name: Download the instrumented test tree
@@ -2813,7 +2867,7 @@ jobs:
 
     - name: Run tests under UBSan
       working-directory: ${{github.workspace}}/build/OloEngine/tests
-      run: ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
+      run: ctest --parallel 2 --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -2969,6 +3023,13 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shader-toolchain-floor` stays ON here even though this job never
+        # configures anything (#1139). The instrumented binary the build job
+        # packaged links libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by
+        # absolute path, so that is its RPATH; a shard runner without the prefix
+        # cannot start it at all. (SPIRV-Cross is static and needs nothing at run
+        # time, but it rides the same cache entry.) The restore is a cache hit the
+        # build job already warmed.
         cache-name: tsan-shard
 
     - name: Download the instrumented test tree
@@ -3061,7 +3122,7 @@ jobs:
           done
         ) &
         sampler=$!
-        ctest --parallel ${{ runner.environment == 'github-hosted' && 2 || 4 }} --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+        ctest --parallel 2 --output-on-failure --timeout 600 -I "${{ matrix.shard }},,${OLO_CTEST_SHARDS}" --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
         rc=$?
         kill "$sampler" 2>/dev/null || true
         exit "$rc"

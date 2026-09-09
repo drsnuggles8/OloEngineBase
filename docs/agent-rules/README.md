@@ -18,7 +18,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Code and review standards
 
 - [cpp-coding-quality.md](cpp-coding-quality.md): the coding rules, including float comparison, `auto`, IWYU, and the defaulted `operator==` MSVC quirk.
-- [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated).
+- [glsl-shaders.md](glsl-shaders.md): the SPIR-V rules a shader must follow to compile: no bare uniforms, UBO bindings, MRT outputs, and never `.length()` on a storage buffer (§6b — Vulkan rejects it at pipeline creation, long after the SPIR-V validated). §1a: run `scripts/check_shader_extension_floor.py` after adding any `#extension` — the shader toolchain floor is Vulkan SDK 1.4.357.0 and Ubuntu's apt packages are a year short of it.
 - [technique-selection-seams.md](technique-selection-seams.md): when a subsystem grows a second way of computing the same number, the choice is a value carrying the reason it is not what was asked for — not another shader `if`, and not a new row in a path enum.
 - [sonarqube-review-alignment.md](sonarqube-review-alignment.md): read before `/code-review` so local findings match the cloud profile.
 
@@ -186,6 +186,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md) | An A/B visual assertion reads BACKWARDS in one test ordering, from frames that are identical to the byte. |
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md) | Every directional shadow in the project sat metres away from its caster, and the tests pinned the constant's VALUE, which had not changed. |
+| [glsl-shaders.md](glsl-shaders.md) §1a | A new `#extension` is green on every PR check and red on the next nightly: same-repo PRs route the Linux sanitizer jobs to the box that has the current SDK, so the arm with the older toolchain is only ever reached by the nightly — which then fails ~4,000 tests in, as `'descriptor_heap' : unrecognized layout identifier` against a line in an include file. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer, so a new format fails as a corrupt version of the old one rather than as an unsupported format. |

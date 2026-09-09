@@ -36,6 +36,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpScriptReloadResult;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -70,7 +71,7 @@ namespace
             tool.Description = "Reload the C# script assembly (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = ReloadScript::InputSchema();
-            tool.Handler = [this](McpServer&, const Json&) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json&) -> ToolResult
             {
                 ++m_ReloadCount;
                 return ToolResult::Text(ReloadScript::ToJson(m_FakeResult).dump());

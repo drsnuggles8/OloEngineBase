@@ -25,6 +25,10 @@
 // registry is NOT thread-safe, so any Scene / entity read must be marshaled onto
 // the main (game) thread at a frame boundary via MarshalRead() ("main-marshaled").
 
+#include "Automation/AutomationCommand.h"
+#include "Automation/AutomationRegistry.h"
+#include "Automation/AutomationResult.h"
+
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpExposure.h"
 #include "MCP/McpLightmapBake.h"
@@ -142,92 +146,23 @@ namespace OloEngine::MCP
         Cancel = 5, // a notifications/cancelled reached the call while it was parked on the modal.
     };
 
-    // Result of a tool invocation. `Content` is the MCP content array
-    // (e.g. [{ "type": "text", "text": "..." }]); `IsError` maps to the
-    // tools/call `isError` flag (a tool-level error, not a JSON-RPC protocol error).
+    // ---- the command types, now owned by the automation layer (#1123) -------
     //
-    // `StructuredContent` is the optional typed result (MCP `structuredContent`,
-    // spec 2025-06-18): a JSON object an agent can parse directly instead of
-    // scraping the `content` text. It is null (omitted) for inherently-textual
-    // tools; a tool that sets it should also declare a matching `ToolDef::OutputSchema`.
-    // Per the spec, when `structuredContent` is present `content` must still carry a
-    // backward-compatible serialized mirror — `Structured()` builds both at once.
-    struct ToolResult
-    {
-        Json Content = Json::array();
-        bool IsError = false;
-        Json StructuredContent; // null => omitted; must be a JSON object when set.
-
-        [[nodiscard]] static ToolResult Text(const std::string& text);
-        [[nodiscard]] static ToolResult Error(const std::string& message);
-        // Typed success result: sets `StructuredContent` to `data` (must be a JSON
-        // object) and mirrors it into `content` as pretty-printed text for clients
-        // that don't read structured output. `IsError` stays false.
-        [[nodiscard]] static ToolResult Structured(const Json& data);
-        // Build one `resource_link` content block (MCP spec 2025-06-18): a URI
-        // reference to a server resource the client fetches on demand via
-        // resources/read, instead of an inline base64 `image`/`blob` payload.
-        // Append it to `Content` by hand — capture tools offer this as an opt-in
-        // delivery mode for large captures (issue #673). `sizeBytes` is
-        // emitted as `size` only when non-zero.
-        [[nodiscard]] static Json ResourceLinkBlock(const std::string& uri, const std::string& name,
-                                                    const std::string& description, const std::string& mimeType,
-                                                    u64 sizeBytes = 0);
-
-        // ---- audience-tagged content blocks (#673) ---------------------
-        //
-        // Which side of the session one CONTENT BLOCK is meant for (MCP spec
-        // 2025-06-18 `Annotations.audience`). This is a different spec field on a
-        // different object from ToolDef::Annotations, which carries the tool-level
-        // readOnlyHint / openWorldHint hints — don't conflate the two.
-        //
-        // Absent annotations already mean "no preference", so there is deliberately
-        // no `Both`: a block for everyone is simply left unannotated.
-        enum class Audience : u8
-        {
-            Assistant, // the model driving the session: compact and parseable.
-            User,      // the human watching it: formatted and glanceable.
-        };
-
-        // Spec priority is an importance hint in [0,1] — 1 is "effectively
-        // required", 0 "entirely optional". The machine block IS the result, so it
-        // is required; the human rendering is presentation over the same data, so a
-        // client under pressure may drop it first.
-        static constexpr f64 kAssistantBlockPriority = 1.0;
-        static constexpr f64 kUserBlockPriority = 0.3;
-
-        // Stamp `annotations` onto one content block in place and return it, so it
-        // composes with the block factories (e.g. AnnotateBlock(ResourceLinkBlock(...),
-        // Audience::User)). A negative `priority` omits the field rather than
-        // emitting a meaningless 0 (the same omit-when-unset rule as `size` on a
-        // resource link). `audience` is always written, so `annotations` is never
-        // emitted as an empty object.
-        static Json& AnnotateBlock(Json& block, Audience audience, f64 priority = -1.0);
-
-        // Typed success result that renders its payload TWICE, each block tagged
-        // for one audience: a compact `data.dump()` for the assistant and a
-        // Markdown report (McpAudienceReport.h) for the human. `StructuredContent`
-        // is `data`, exactly as with Structured(), so the outputSchema contract is
-        // unchanged and only the `content` array differs. The assistant block stays
-        // at index 0 — content[0] remains the machine-readable JSON mirror.
-        //
-        // WHEN TO ADOPT THIS OVER Structured(): only when a human watching the
-        // session would genuinely read the payload differently from how the model
-        // parses it — i.e. it is multi-field or tabular AND is something you'd stare
-        // at while debugging (a per-pass timing table, a per-channel stats table, an
-        // explainer's check list). For a one-scalar result, a status echo, or a
-        // payload that is already a sentence, a second rendering is noise: keep
-        // Structured(). Blanket adoption across the whole tool surface would be
-        // bloat, not spec parity.
-        [[nodiscard]] static ToolResult StructuredDualAudience(const Json& data, std::string_view title);
-    };
+    // `ToolResult`, `ToolDef` and `ToolHandler` used to be declared here, next to
+    // the JSON-RPC dispatch loop that was their only caller. They moved to
+    // OloEditor/src/Automation/, where a command exists on its own and the MCP
+    // server is one adapter over the registry that holds them.
+    //
+    // These are aliases, not new spellings: `ToolDef` is the same declaration with
+    // the same field names, and the ONLY signature change is that a handler now
+    // takes `IAutomationHost&` instead of `McpServer&`. That is the extraction.
+    using ToolResult = Automation::AutomationResult;
+    using ToolDef = Automation::AutomationCommand;
+    using ToolHandler = Automation::AutomationHandler;
+    using Automation::AutomationRegistry;
+    using Automation::IAutomationHost;
 
     class McpServer;
-
-    // A tool handler runs on a cpp-httplib worker thread. Lock-safe tools read
-    // guarded diagnostics directly; main-marshaled tools wrap their registry/Scene
-    // reads in server.MarshalRead(...).
-    using ToolHandler = std::function<ToolResult(McpServer& server, const Json& arguments)>;
 
     // ---- outbound MCP client (issue #673; see McpClient.h) --------------
 
@@ -285,90 +220,6 @@ namespace OloEngine::MCP
     };
 
     class McpClientConnection;
-
-    // A registered MCP tool. `MainMarshaled` is informational (documents that the
-    // handler reads main-thread-only state); it does not change dispatch.
-    struct ToolDef
-    {
-        std::string Name;
-        // Optional human-friendly display name (MCP Tool.title, spec 2025-06-18).
-        // Clients prefer it over `Name` for display (precedence: title >
-        // annotations.title > name). Emitted as the top-level `title` only when
-        // non-empty.
-        std::string Title;
-        std::string Description;
-        Json InputSchema;
-        // Optional JSON Schema for the tool's structured result (MCP `outputSchema`,
-        // spec 2025-06-18). Emitted under `outputSchema` in tools/list only when it is
-        // a non-empty object; pairs with a handler that returns ToolResult::Structured.
-        // Default-null tools stay text-only and omit the field.
-        Json OutputSchema;
-        // Optional MCP ToolAnnotations object — behavioural hints the client may
-        // use to e.g. auto-approve a read-only tool: `readOnlyHint`,
-        // `destructiveHint`, `idempotentHint`, `openWorldHint`. Defaults to null;
-        // emitted under `annotations` only when it is a non-empty object.
-        Json Annotations;
-        // Lightweight grouping category (e.g. "render", "physics", "shader") so the
-        // tool surface can be browsed/filtered instead of paged through flat — it was
-        // 39 tools when this was introduced (#385) and is 96 now, which is what made
-        // exposure profiles necessary (#1124). Used by `tools/search` (filter +
-        // catalogue), surfaced under each tool's `_meta` in `tools/list`, and read by
-        // ExposurePolicy under the `toolset` profile. Empty => uncategorized (omitted
-        // from the metadata, and not listed under `toolset`). It does not affect
-        // dispatch or tool resolution.
-        std::string Toolset;
-        ToolHandler Handler;
-        bool MainMarshaled = false;
-        // True for a tool that MUTATES the user's project (scene / ECS components /
-        // assets) — as opposed to the read-only diagnostics and the ephemeral
-        // editor-only camera/viewport/render-override tools. A project-write tool is
-        // gated behind the session "Allow writes" toggle: HandleToolsCall rejects it
-        // with a clean JSON-RPC error when writes are disabled (the default). Issue
-        // #306; should be paired with `readOnlyHint:false` annotations.
-        bool ProjectWrite = false;
-        // True for a tool registered from a project Lua script (McpScriptTools,
-        // issue #357 / ADR 0005) rather than compiled-in. Script tools are
-        // replaced wholesale by LoadScriptTools — now safely even while the
-        // server is RUNNING, via the copy-on-write tool snapshot (issue #607
-        // live-reload item); see ReplaceScriptTools / UnregisterScriptTools.
-        bool ScriptOwned = false;
-        // Non-empty for a tool BRIDGED from an outbound MCP client connection
-        // (issue #673): the alias of the external server it proxies to.
-        // Foreign provenance is deliberately a separate discriminator from
-        // ScriptOwned — ReplaceScriptTools wipes every ScriptOwned tool on a
-        // script rescan, and the two trust tiers are different (ADR 0005: a
-        // script tool's read-only hint is a sandbox-backed GUARANTEE; a foreign
-        // tool's behaviour lives in another process, so it is ALWAYS treated as
-        // an open-world write — ReplaceClientTools forces ProjectWrite=true).
-        std::string ClientAlias;
-        // Optional MCP `icons` array (SEP-973, spec 2025-11-25): display icons a
-        // client may show next to the tool. Each element is an object with a
-        // required string `src` (an http(s) or data: URI) plus optional
-        // `mimeType` and `sizes` (an array of "48x48"-style strings). Null /
-        // empty => omitted from tools/list entirely (never emit an empty
-        // `icons` key). Validated by McpServer::IsValidIcons at registration.
-        Json Icons;
-        // Opt in to AUDIENCE-TAGGED content blocks for this tool's typed results
-        // (#673). When true, HandleToolsCall re-shapes a successful
-        // ToolResult::Structured() into the dual-audience pair via
-        // ToolResult::StructuredDualAudience — a compact JSON block tagged
-        // audience ["assistant"] plus a Markdown report tagged ["user"], headed by
-        // `Title` (falling back to `Name`). The handler stays a plain
-        // `ToolResult::Structured(...)`; adoption is declared HERE, next to
-        // OutputSchema and Annotations, so the adopter set is inspectable from
-        // registration alone — which is what McpAudienceBlocksTest ratchets
-        // without ever issuing a tools/call.
-        //
-        // THE INCLUSION RULE — set this only when a human watching the session
-        // would genuinely read the payload differently from how the model parses
-        // it: the result is multi-field or tabular AND is something you'd stare at
-        // while debugging (a per-pass timing table, per-channel target stats, an
-        // explainer's check list). For a one-scalar result, a status echo, or a
-        // payload that is already a sentence, the second rendering is pure noise —
-        // leave this false. Blanket adoption across the tool surface would be
-        // bloat, not spec parity.
-        bool DualAudienceContent = false;
-    };
 
     // Snapshot of the editor camera's full pose, returned by GetCameraPose and
     // accepted by RestoreCameraPose. Angles are radians (EditorCamera's units);
@@ -873,11 +724,16 @@ namespace OloEngine::MCP
         std::string Text;
     };
 
-    class McpServer
+    // The MCP ADAPTER over an AutomationRegistry (issue #1123). It owns a
+    // registry, implements IAutomationHost so the commands in it can run, and adds
+    // everything that is genuinely about the transport: JSON-RPC framing, sessions,
+    // the bearer/origin gate, exposure profiles, resources, prompts, the SSE push
+    // stream, and the write-consent modal.
+    class McpServer final : public Automation::IAutomationHost
     {
       public:
         explicit McpServer(EditorMcpContext context);
-        ~McpServer();
+        ~McpServer() override;
 
         McpServer(const McpServer&) = delete;
         McpServer& operator=(const McpServer&) = delete;
@@ -986,36 +842,43 @@ namespace OloEngine::MCP
         {
             m_ConsentTimeoutMs.store(timeout.count());
         }
-        [[nodiscard]] const EditorMcpContext& Context() const
+        [[nodiscard]] const EditorMcpContext& Context() const override
         {
             return m_Context;
         }
 
-        // ---- the tool registry: a copy-on-write, atomically swapped snapshot ----
+        // ---- the registry this server adapts (issue #1123) ---------------------
         //
-        // Dispatch worker threads read the tool vector LOCK-FREE on the hot path,
-        // and script-tool live reload (issue #607) must be able to REPLACE that
-        // vector while the server is serving. Both hold only because the vector is
-        // immutable once published: every writer (RegisterTool / ReplaceScriptTools,
-        // serialized by m_ToolsWriteMutex) builds a fresh vector and atomically
-        // stores it; every reader takes a `shared_ptr` snapshot and holds it for as
-        // long as it needs the ToolDefs (a whole tools/call, in HandleToolsCall) —
-        // which also keeps a *replaced* script tool's Lua runtime alive until the
-        // call using it finishes. There is NO lock on the read path.
+        // The commands, and the copy-on-write snapshot contract they are published
+        // under, live in AutomationRegistry now; see its header for that contract in
+        // full. The accessors below are unchanged spellings over it, kept because
+        // "the tools this server serves" is what the transport, the panel and the
+        // gateway all ask for.
         //
-        // Never hand out a reference into the snapshot's vector: a concurrent swap
+        // Never hand out a reference into a snapshot's vector: a concurrent swap
         // would leave it dangling the moment the temporary shared_ptr dies. Take a
         // ToolSnapshot and keep it in scope instead.
-        using ToolList = std::vector<ToolDef>;
-        using ToolSnapshot = std::shared_ptr<const ToolList>;
+        using ToolList = AutomationRegistry::CommandList;
+        using ToolSnapshot = AutomationRegistry::CommandSnapshot;
+
+        // The registry itself, for a caller that wants the commands rather than the
+        // transport over them.
+        [[nodiscard]] AutomationRegistry& Registry()
+        {
+            return m_Registry;
+        }
+        [[nodiscard]] const AutomationRegistry& Registry() const
+        {
+            return m_Registry;
+        }
 
         [[nodiscard]] ToolSnapshot ToolsSnapshot() const
         {
-            return m_Tools.load(std::memory_order_acquire);
+            return m_Registry.Snapshot();
         }
         [[nodiscard]] sizet ToolCount() const
         {
-            return ToolsSnapshot()->size();
+            return m_Registry.Count();
         }
         // Monotonic counter bumped on every tool-list swap (ReplaceScriptTools).
         // The GET /mcp SSE stream polls it and emits a
@@ -1240,36 +1103,26 @@ namespace OloEngine::MCP
         // simply calls these on its `server` argument; one that doesn't pays
         // nothing.
 
-        // Emit a `notifications/progress` for the CURRENTLY EXECUTING tool call.
-        // A no-op unless the call carried `params._meta.progressToken` AND the
-        // transport provided a notification sink (the SSE-upgraded POST path, or
-        // a ProcessRequestBody caller that passed one). `progress` must increase
-        // monotonically per call; `total` < 0 omits the field; `message` empty
-        // omits the field. Call from the handler (worker) thread — a MarshalRead
-        // job runs on the game thread, where the call scope is not visible.
-        void EmitProgress(f64 progress, f64 total = -1.0, const std::string& message = {}) const;
+        // ---- IAutomationHost: cancellation and artifact publication ------------
+        //
+        // The public entry points a handler calls for marshalling and progress
+        // (MarshalRead / EmitProgress) are the non-virtual wrappers on
+        // IAutomationHost, so their default arguments are declared in exactly one
+        // place; what this class supplies is the private implementation of each,
+        // down with the members. These two have no defaults to share.
 
         // True when the CURRENTLY EXECUTING tool call has been cancelled via a
         // `notifications/cancelled` (matched by exact request-id value). Long-
         // running handlers poll this between frames/steps and abort cleanly; the
         // dispatch layer then discards their result per spec. False outside any
         // call scope.
-        [[nodiscard]] bool IsCurrentCallCancelled() const;
+        [[nodiscard]] bool IsCurrentCallCancelled() const override;
 
-        // Marshal a read onto the main (game) thread at the next frame boundary,
-        // blocking the calling (handler) thread on the result. The job runs before
-        // the scene is stepped that frame, so it observes a consistent snapshot.
-        //
-        // Contract / snapshot freshness: the job is serviced by the game thread's
-        // per-frame task drain (Application::Run), which ticks every frame in both
-        // Edit and Play modes. If the game thread does not service the job within
-        // `timeout` (editor stalled / shutting down), this throws std::runtime_error
-        // and the caller surfaces it as a tool error.
-        //
-        // MUST NOT be called from the game thread (it would deadlock). Tools only
-        // run on handler threads, so this holds.
-        [[nodiscard]] Json MarshalRead(const std::function<Json()>& readJob,
-                                       std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
+        // Publish `artifact` as an EPHEMERAL olo://... resource the client fetches
+        // with resources/read, charged against the ephemeral byte budget. Always
+        // succeeds here — this server always has a resource registry — so the false
+        // branch of the contract only ever fires on a host that has none.
+        [[nodiscard]] bool PublishArtifact(Automation::AutomationArtifact artifact) override;
 
         // ---- Dispatch / framing seam (httplib-free; transport-agnostic) --------
         //
@@ -1455,12 +1308,41 @@ namespace OloEngine::MCP
         // (the SSE streams pick it up by polling the generation).
         void NotifyResourcesListChanged();
 
+        // IAutomationHost. Marshal a read onto the main (game) thread at the next
+        // frame boundary, blocking the calling (handler) thread on the result. The
+        // job runs before the scene is stepped that frame, so it observes a
+        // consistent snapshot.
+        //
+        // Contract / snapshot freshness: the job is serviced by the game thread's
+        // per-frame task drain (Application::Run), which ticks every frame in both
+        // Edit and Play modes. If the game thread does not service the job within
+        // `timeout` (editor stalled / shutting down), this throws std::runtime_error
+        // and the caller surfaces it as a tool error.
+        //
+        // MUST NOT be called from the game thread (it would deadlock). Tools only
+        // run on handler threads, so this holds.
+        [[nodiscard]] Json MarshalReadOnMainThread(const std::function<Json()>& readJob,
+                                                   std::chrono::milliseconds timeout) override;
+
+        // IAutomationHost. Emit a `notifications/progress` for the CURRENTLY
+        // EXECUTING tool call. A no-op unless the call carried
+        // `params._meta.progressToken` AND the transport provided a notification
+        // sink (the SSE-upgraded POST path, or a ProcessRequestBody caller that
+        // passed one). `progress` must increase monotonically per call; `total` < 0
+        // omits the field; an empty `message` omits it. Called from the handler
+        // (worker) thread — a MarshalRead job runs on the game thread, where the
+        // call scope is not visible.
+        void EmitProgressUpdate(f64 progress, f64 total, const std::string& message) const override;
+
         EditorMcpContext m_Context;
-        // Copy-on-write, atomically published (see ToolsSnapshot). Writers serialize
-        // on m_ToolsWriteMutex; readers are lock-free.
-        std::atomic<ToolSnapshot> m_Tools{ std::make_shared<const ToolList>() };
-        std::mutex m_ToolsWriteMutex;
+        // The commands this server serves. Registration, the copy-on-write publish
+        // and the script/client replace paths all live in there now; the server keeps
+        // only the transport-side generation counter below, which ALSO moves when the
+        // exposure profile changes (the catalogue a client sees can change without
+        // the registry changing).
+        AutomationRegistry m_Registry;
         std::atomic<u64> m_ToolsGeneration{ 0 };
+
         // Which tools tools/list advertises (issue #1124). Immutable once published,
         // swapped wholesale by SetExposurePolicy — so a worker thread mid-tools/list
         // reads one consistent policy rather than a half-updated toolset vector.

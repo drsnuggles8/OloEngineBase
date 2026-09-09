@@ -43,7 +43,7 @@ namespace OloEngine::MCP
         // Wraps Log::GetRecentLogMessages (spdlog's mutex-guarded ring-buffer sink —
         // safe from the handler thread). Parses each line's level + [tag] from the
         // "[time] [level] logger: payload" pattern to support minLevel/tag filtering.
-        ToolResult Handle_LogTail(McpServer& /*server*/, const Json& arguments)
+        ToolResult Handle_LogTail(IAutomationHost& /*host*/, const Json& arguments)
         {
             std::size_t count = 50;
             if (arguments.contains("count") && arguments["count"].is_number_integer())
@@ -154,7 +154,7 @@ namespace OloEngine::MCP
             }
         }
 
-        ToolResult Handle_DebugLevers(McpServer& /*server*/, const Json& args)
+        ToolResult Handle_DebugLevers(IAutomationHost& /*host*/, const Json& args)
         {
             const bool activeOnly = args.value("activeOnly", false);
 
@@ -205,7 +205,7 @@ namespace OloEngine::MCP
         // Type names come from CVars::CVarTypeName, not a local copy: this
         // tool's schema `enum` and the editor console must not be free to drift.
 
-        ToolResult Handle_CVarSet(McpServer& server, const Json& args)
+        ToolResult Handle_CVarSet(IAutomationHost& host, const Json& args)
         {
             if (!args.contains("name") || !args["name"].is_string())
                 return ToolResult::Error("Missing 'name': the console variable to set.");
@@ -218,8 +218,8 @@ namespace OloEngine::MCP
             // Marshaled to the main thread: the write itself is thread-safe, but
             // the observers run from the game thread's dispatch and a caller
             // reading the result back wants the two in a defined order.
-            const Json result = server.MarshalRead([&name, &value]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([&name, &value]() -> Json
+                                                 {
                 const CVars::SetResult set = CVars::SetFromString(name, value);
                 if (!set.Ok)
                     return Json{ { "__error", set.Error } };
@@ -255,7 +255,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_CrashList(McpServer& /*server*/, const Json& /*args*/)
+        ToolResult Handle_CrashList(IAutomationHost& /*host*/, const Json& /*args*/)
         {
             const std::filesystem::path dir = CrashReportsDir();
             std::error_code ec;
@@ -282,7 +282,7 @@ namespace OloEngine::MCP
             return ToolResult::Structured(out);
         }
 
-        ToolResult Handle_CrashGet(McpServer& /*server*/, const Json& args)
+        ToolResult Handle_CrashGet(IAutomationHost& /*host*/, const Json& args)
         {
             if (!args.contains("id") || !args["id"].is_string())
                 return ToolResult::Error("Missing required argument 'id' (a crash report filename from olo_crash_list).");
@@ -328,7 +328,7 @@ namespace OloEngine::MCP
         // event ring buffer (Debug/DiagnosticsEventLog.h, mutex-guarded — safe from the
         // handler thread). Supports incremental polling via sinceId: pass back the
         // returned lastId to get only events that happened since the previous call.
-        ToolResult Handle_EventsTail(McpServer& /*server*/, const Json& args)
+        ToolResult Handle_EventsTail(IAutomationHost& /*host*/, const Json& args)
         {
             DiagnosticEventQuery query;
             if (args.contains("count") && args["count"].is_number_integer())
@@ -389,7 +389,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterDiagnosticsTools(McpServer& server)
+    void RegisterDiagnosticsTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -409,7 +409,7 @@ namespace OloEngine::MCP
             // No outputSchema: raw spdlog lines are free text, which an outputSchema cannot constrain.
             tool.MainMarshaled = false;
             tool.Handler = Handle_LogTail;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -444,7 +444,7 @@ namespace OloEngine::MCP
                     .Required({ "count", "activeCount", "summary", "levers" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_DebugLevers;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -491,7 +491,7 @@ namespace OloEngine::MCP
                                     .Required({ "name", "value", "previous", "changed", "restoreWith" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CVarSet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -513,7 +513,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "directory", "crashes" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashList;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -536,7 +536,7 @@ namespace OloEngine::MCP
                                     .Required({ "id", "truncated", "content" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_CrashGet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -574,7 +574,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "lastId", "events" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_EventsTail;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

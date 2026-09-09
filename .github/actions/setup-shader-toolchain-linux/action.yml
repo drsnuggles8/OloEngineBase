@@ -1,0 +1,298 @@
+name: 'Install a pinned shader toolchain (Linux)'
+description: >
+  Build and install the shader toolchain the engine's Vulkan tier REQUIRES --
+  shaderc AND SPIRV-Cross, at matched revisions -- on a GitHub-hosted Linux
+  runner, at prefixes that carry nothing else.
+
+  WHY IT EXISTS (#1139). Ubuntu 24.04 ships libshaderc-dev 2023.8, glslang-dev
+  15.1.0 and libspirv-cross-c-shared-dev 2021.01.15. `GL_EXT_descriptor_heap`
+  landed in glslang on 2026-01-22, so the first two are below the floor seven
+  production shaders declare (ADR 0011 amendments (95)/(96), and (97) for the
+  floor itself). The Sanitizers nightly was red on all three Linux jobs because
+  of it.
+
+  WHY SPIRV-CROSS IS HERE TOO, which cost a CI round trip to learn. Staging
+  shaderc alone fixed the COMPILE and moved the failure one step later:
+  `ShaderCompilation.AllProductionShadersCompileUnderVulkanTarget` went green
+  while `ShaderStageContract.FullGBufferWriters...` began throwing
+
+      C++ exception with description "Currently no block to insert opcode."
+
+  which is SPIRV-Cross's `spirv_parser.cpp`, not glslang. A 2021 SPIRV-Cross
+  cannot parse the SPIR-V 1.6 a 2026 glslang emits, and the engine reflects every
+  shader it compiles (VulkanShaderReflection), so this is not a test-only
+  problem. The two components are a PAIR: whoever compiles decides what the
+  reflector must understand.
+
+  WHY NOT `setup-vulkan`. That is the trap #1009 sprang, recorded at length in
+  setup-linux-build's `vulkan-sdk` input: the LunarG SDK's include tree carries
+  spirv_cross/, it wins the <spirv_cross/spirv_cross.hpp> lookup over apt's while
+  the build still LINKS apt's SPIRV-Cross, and the header/library skew SEGVs
+  under TSan inside `spirv_cross::Resource::~Resource`. Note what that fault
+  actually was: a MISMATCHED PAIR, plus a prebuilt binary the action's own note
+  later pinned on "the HOSTED SDK build (1.4.321.0 + clang-19)". Neither survives
+  here -- each component is built from source, from a pinned revision, and its
+  headers and its libraries are installed and consumed together.
+
+  WHY FROM SOURCE, AND WHY THESE PINS. shaderc v2026.3's DEPS pins glslang
+  168d452a and SPIRV-Tools b707790a -- and 168d452a is glslang's own
+  `vulkan-sdk-1.4.357.0` tag. SPIRV-Cross is pinned to its matching
+  `vulkan-sdk-1.4.357.0` tag. So this is not "close to" the SDK the dev box,
+  Windows CI and the self-hosted Linux box carry: it is the same revisions. A git
+  tag also holds still in a way a continuous-build artifact URL does not, which
+  is why setup-llvm-linux takes a release tarball rather than an apt snapshot.
+
+  THE CACHE ENTRY IS DELIBERATELY TINY. Pruned to the shared library, glslc, the
+  SPIRV-Cross archives and the headers -- tens of MB, against a repo cache store
+  measured at 7.8 GiB of a 10 GiB cap that turns READ-ONLY when breached
+  (docs/agent-rules/actions-cache-budget.md). A 291 MiB LunarG SDK entry for a
+  third consumer was not affordable; this is.
+
+  HOSTED ONLY. The self-hosted box takes its whole shader toolchain from
+  $VULKAN_SDK (docs/ops/self-hosted-gpu-runner.md §1b) and is already above the
+  floor; setup-linux-build's convention is that a self-hosted step VERIFIES and
+  never installs.
+
+inputs:
+  shaderc-version:
+    description: >
+      shaderc git tag to build. Moving it moves glslang and SPIRV-Tools with it,
+      because DEPS pins both -- that is the point. Keep it in step with
+      `.github/actions/setup-vulkan`'s SDK default, with `spirv-cross-version`
+      below, and with `ShaderToolchainFloor.h`'s kMinimumShadercTag: they name
+      ONE toolchain, and a bump that moves one of them splits the arms silently.
+    required: false
+    default: 'v2026.3'
+  spirv-cross-version:
+    description: >
+      SPIRV-Cross git tag. `vulkan-sdk-<v>` tags are cut from the same SDK
+      release as glslang's, so this is how the reflector is kept able to read
+      what the compiler above emits.
+    required: false
+    default: 'vulkan-sdk-1.4.357.0'
+  cache:
+    description: 'Restore/save the built prefixes from the Actions cache.'
+    required: false
+    default: 'true'
+
+outputs:
+  shaderc-root:
+    description: 'Prefix supplying include/shaderc and lib/libshaderc_shared.so — pass as -DOLO_SHADERC_ROOT.'
+    value: ${{ steps.prefix.outputs.shaderc-root }}
+  spirv-cross-root:
+    description: 'Prefix supplying include/spirv_cross and the SPIRV-Cross archives — pass as -DOLO_SPIRV_CROSS_ROOT.'
+    value: ${{ steps.prefix.outputs.spirv-cross-root }}
+  glslc:
+    description: 'Absolute path to the matching glslc, for shader checks that need no engine build.'
+    value: ${{ steps.prefix.outputs.glslc }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Made and handed over BEFORE the cache step, because actions/cache restores
+    # as the runner user and /opt is root-owned: without this the restore fails
+    # and, under `set -e` in a later step, takes the job with it.
+    - name: Reserve the prefixes
+      id: prefix
+      shell: bash
+      env:
+        OLO_SHADERC_TAG: ${{ inputs.shaderc-version }}
+        OLO_SPIRV_CROSS_TAG: ${{ inputs.spirv-cross-version }}
+      run: |
+        set -euo pipefail
+        # /opt, matching setup-llvm-linux: an absolute, predictable prefix is what
+        # lets a hosted/self-hosted A/B read one path in both logs.
+        #
+        # TWO PREFIXES, NOT ONE, and that separation is the invariant rather than
+        # tidiness: each is a matched (headers, libraries) set from one build, and
+        # OloEngine/CMakeLists.txt refuses a shaderc prefix that carries
+        # spirv_cross headers precisely so the two can never half-merge into the
+        # mismatch #1009 was.
+        shaderc_root="/opt/olo-shaderc-${OLO_SHADERC_TAG}"
+        cross_root="/opt/olo-spirv-cross-${OLO_SPIRV_CROSS_TAG}"
+        sudo mkdir -p "$shaderc_root" "$cross_root"
+        sudo chown "$(id -u):$(id -g)" "$shaderc_root" "$cross_root"
+        {
+          echo "shaderc-root=${shaderc_root}"
+          echo "spirv-cross-root=${cross_root}"
+          echo "glslc=${shaderc_root}/bin/glslc"
+        } >> "$GITHUB_OUTPUT"
+        # BELT AND BRACES FOR THE LOADER. CMake links libshaderc_shared.so by
+        # absolute path, so it puts the directory in the build RPATH and the test
+        # binary normally finds it unaided -- including on the shard runners,
+        # which execute a binary another job linked. This is here so that a binary
+        # CMake did NOT rpath fails at its own first shader compile instead of at
+        # `error while loading shared libraries` before main(). SPIRV-Cross is
+        # static and needs nothing at run time.
+        echo "LD_LIBRARY_PATH=${shaderc_root}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "$GITHUB_ENV"
+
+    # A STABLE, IMMUTABLE KEY — no -<run_id>-<attempt> tail. The content is fully
+    # determined by the two tags (DEPS pins everything under shaderc), so one
+    # entry per pair is correct and the append-only churn `save-cache-pruned`
+    # exists to clean up never happens here.
+    - name: Restore the pinned shader toolchain
+      id: cache
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ${{ steps.prefix.outputs.shaderc-root }}
+          ${{ steps.prefix.outputs.spirv-cross-root }}
+        key: olo-shader-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ inputs.shaderc-version }}-${{ inputs.spirv-cross-version }}-v1
+
+    - name: Build and install shaderc ${{ inputs.shaderc-version }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        OLO_SHADERC_TAG: ${{ inputs.shaderc-version }}
+        OLO_SHADERC_ROOT: ${{ steps.prefix.outputs.shaderc-root }}
+      run: |
+        set -euo pipefail
+        work="${RUNNER_TEMP}/olo-shaderc-src"
+        rm -rf "$work"
+        git clone --depth 1 --branch "${OLO_SHADERC_TAG}" https://github.com/google/shaderc.git "$work"
+
+        # git-sync-deps reads DEPS and checks out the EXACT pinned revisions of
+        # glslang, SPIRV-Tools, SPIRV-Headers and abseil. This is the step that
+        # makes "shaderc v2026.3" mean one specific glslang rather than whatever
+        # its branch has drifted to.
+        python3 "${work}/utils/git-sync-deps"
+        grep -E "glslang_revision|spirv_tools_revision" "${work}/DEPS"
+
+        # THE IMAGE'S DEFAULT COMPILER, on purpose, and NOT the pinned clang the
+        # sanitizer jobs build with. libshaderc's interface is a C API with a
+        # header-only C++ wrapper over it (shaderc.hpp constructs nothing that
+        # crosses the boundary), so there is no C++ ABI surface here and no
+        # reason to hash a compiler into the cache key — one entry then serves
+        # every Linux job. It is also NOT sanitizer-instrumented, exactly as
+        # apt's libshaderc was not.
+        #
+        # No -G: the image's default generator. Ninja is not guaranteed present
+        # on a hosted runner and this step runs BEFORE the apt install that could
+        # provide one, deliberately — it needs nothing from apt.
+        cmake -S "$work" -B "${work}/build" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX="${OLO_SHADERC_ROOT}" \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DSHADERC_SKIP_TESTS=ON \
+          -DSHADERC_SKIP_EXAMPLES=ON \
+          -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+          -DSPIRV_SKIP_TESTS=ON \
+          -DENABLE_CTEST=OFF
+        cmake --build "${work}/build" --target install --parallel "$(nproc)"
+        rm -rf "$work"
+
+        # Prune to what the engine and the shader checks actually use. The static
+        # archives are the bulk of the tree and nothing links them: when
+        # OLO_SHADERC_ROOT is set, OloEngine/CMakeLists.txt asks this prefix for
+        # shaderc alone.
+        #
+        # `find <root> -path ...` rather than naming lib/ and bin/ directly:
+        # under `set -e` a missing directory would make find exit non-zero and
+        # kill the step ahead of the verification below that would have named
+        # what was actually wrong.
+        find "${OLO_SHADERC_ROOT}" -type f -name '*.a' -delete
+        find "${OLO_SHADERC_ROOT}" -path "${OLO_SHADERC_ROOT}/bin/*" -type f ! -name 'glslc' -delete
+        du -sh "${OLO_SHADERC_ROOT}"
+
+    - name: Build and install SPIRV-Cross ${{ inputs.spirv-cross-version }}
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        OLO_SPIRV_CROSS_TAG: ${{ inputs.spirv-cross-version }}
+        OLO_SPIRV_CROSS_ROOT: ${{ steps.prefix.outputs.spirv-cross-root }}
+      run: |
+        set -euo pipefail
+        work="${RUNNER_TEMP}/olo-spirv-cross-src"
+        rm -rf "$work"
+        git clone --depth 1 --branch "${OLO_SPIRV_CROSS_TAG}" \
+          https://github.com/KhronosGroup/SPIRV-Cross.git "$work"
+
+        # STATIC, and no C API. The engine includes <spirv_cross/spirv_cross.hpp>
+        # and nothing else (`grep -rn spirv_cross_c src/` is empty), so building
+        # the shared C wrapper would only create a second thing that could be
+        # found half-staged: `find_library(SPIRV_CROSS_C_LIB)` falling back to
+        # apt's while core and glsl came from here is the same mismatch by
+        # another route. Static archives also need no LD_LIBRARY_PATH on the
+        # shard runners.
+        #
+        # THE CLI IS ON, and it is not a convenience. `spirv-cross` PARSES a
+        # module, which is the exact operation that threw "Currently no block to
+        # insert opcode." — so it gives the floor check a way to prove the
+        # compile→reflect PAIR without building the engine. Staging shaderc alone
+        # and checking only that shaders compile is how this was missed once.
+        #
+        # PIC is required: these link into OloEngine, which links into shared
+        # objects on this platform.
+        cmake -S "$work" -B "${work}/build" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX="${OLO_SPIRV_CROSS_ROOT}" \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          -DSPIRV_CROSS_STATIC=ON \
+          -DSPIRV_CROSS_SHARED=OFF \
+          -DSPIRV_CROSS_CLI=ON \
+          -DSPIRV_CROSS_ENABLE_TESTS=OFF
+        cmake --build "${work}/build" --target install --parallel "$(nproc)"
+        rm -rf "$work"
+        du -sh "${OLO_SPIRV_CROSS_ROOT}"
+
+    # VERIFY, always — cache hit or fresh build. A restored entry from a moved tag
+    # or a half-written save would otherwise be indistinguishable from a good one
+    # until 4,000 tests later, which is the failure mode #1139 IS.
+    - name: Prove the prefixes meet the floor
+      shell: bash
+      env:
+        OLO_SHADERC_ROOT: ${{ steps.prefix.outputs.shaderc-root }}
+        OLO_SPIRV_CROSS_ROOT: ${{ steps.prefix.outputs.spirv-cross-root }}
+      run: |
+        set -euo pipefail
+        test -e "${OLO_SHADERC_ROOT}/include/shaderc/shaderc.hpp" \
+          || { echo "::error::no shaderc headers under ${OLO_SHADERC_ROOT}"; exit 1; }
+        lib=$(find "${OLO_SHADERC_ROOT}/lib" -name 'libshaderc_shared.so*' -print -quit)
+        [ -n "$lib" ] || { echo "::error::no libshaderc_shared.so under ${OLO_SHADERC_ROOT}"; exit 1; }
+        # The structural half of the #1009 guarantee, asserted where the tree is
+        # made rather than only where it is consumed.
+        if [ -e "${OLO_SHADERC_ROOT}/include/spirv_cross" ]; then
+          echo "::error::${OLO_SHADERC_ROOT} carries spirv_cross headers — see issue #1009"
+          exit 1
+        fi
+
+        test -e "${OLO_SPIRV_CROSS_ROOT}/include/spirv_cross/spirv_cross.hpp" \
+          || { echo "::error::no spirv_cross headers under ${OLO_SPIRV_CROSS_ROOT}"; exit 1; }
+        for archive in libspirv-cross-core.a libspirv-cross-glsl.a; do
+          find "${OLO_SPIRV_CROSS_ROOT}" -name "$archive" -print -quit | grep -q . \
+            || { echo "::error::no $archive under ${OLO_SPIRV_CROSS_ROOT}"; exit 1; }
+        done
+
+        "${OLO_SHADERC_ROOT}/bin/glslc" --version
+        # The behavioural check, not a version string: the same qualifiers
+        # DescriptorHeapTextures.glsl declares.
+        cat > "${RUNNER_TEMP}/olo-floor-probe.frag" <<'GLSL'
+        #version 460 core
+        #extension GL_EXT_descriptor_heap : require
+        #extension GL_EXT_nonuniform_qualifier : require
+        layout(descriptor_heap, descriptor_stride = 1) uniform texture2D g_T[];
+        layout(descriptor_heap, descriptor_stride = 1) uniform sampler g_S[];
+        layout(location = 0) out vec4 o_Color;
+        void main()
+        {
+            o_Color = textureLod(sampler2D(g_T[nonuniformEXT(0)], g_S[nonuniformEXT(0)]), vec2(0.0), 0.0);
+        }
+        GLSL
+        "${OLO_SHADERC_ROOT}/bin/glslc" --target-env=vulkan1.4 --target-spv=spv1.6 \
+          -fshader-stage=fragment "${RUNNER_TEMP}/olo-floor-probe.frag" \
+          -o "${RUNNER_TEMP}/olo-floor-probe.spv"
+
+        # ...AND REFLECT WHAT WAS JUST COMPILED. Compiling proves half the
+        # contract; the engine reflects every module it builds
+        # (VulkanShaderReflection), and it was the REFLECT half that broke when
+        # only shaderc was staged — a 2021 SPIRV-Cross parsing SPIR-V 1.6 threw
+        # "Currently no block to insert opcode." from spirv_parser.cpp. Checking
+        # the pair here is what makes that a five-minute red instead of a
+        # forty-minute one.
+        # INPUT FIRST: `spirv-cross <input> --reflect`; the other order prints usage.
+        "${OLO_SPIRV_CROSS_ROOT}/bin/spirv-cross" "${RUNNER_TEMP}/olo-floor-probe.spv" --reflect >/dev/null
+        echo "compile→reflect round trip ok on the descriptor-heap probe"
+        echo "shader toolchain meets the floor:"
+        echo "  shaderc:      ${OLO_SHADERC_ROOT}"
+        echo "  SPIRV-Cross:  ${OLO_SPIRV_CROSS_ROOT}"

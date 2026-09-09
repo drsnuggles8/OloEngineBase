@@ -18,7 +18,7 @@ namespace OloEngine::MCP
     namespace
     {
         // ---- olo_assets_list (main-marshaled; reads the project asset registry) -
-        ToolResult Handle_AssetsList(McpServer& server, const Json& args)
+        ToolResult Handle_AssetsList(IAutomationHost& host, const Json& args)
         {
             std::string typeFilter;
             if (args.contains("typeFilter") && args["typeFilter"].is_string())
@@ -30,8 +30,8 @@ namespace OloEngine::MCP
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
-            const Json result = server.MarshalRead([typeFilter, page, pageSize]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([typeFilter, page, pageSize]() -> Json
+                                                 {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
                     return Json{ { "__error", "No active project / asset manager." } };
@@ -91,10 +91,10 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_assets_problems (main-marshaled; failed/missing/invalid assets) -
-        ToolResult Handle_AssetsProblems(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_AssetsProblems(IAutomationHost& host, const Json& /*args*/)
         {
-            const Json result = server.MarshalRead([]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
                     return Json{ { "__error", "No active project / asset manager." } };
@@ -126,7 +126,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterAssetTools(McpServer& server)
+    void RegisterAssetTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -155,7 +155,7 @@ namespace OloEngine::MCP
                                     .Required({ "total", "page", "pageSize", "returned", "assets" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsList;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -178,7 +178,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "problems" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_AssetsProblems;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

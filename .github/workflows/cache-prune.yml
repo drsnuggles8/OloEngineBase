@@ -1,4 +1,6 @@
-# Keep the Actions cache under the 10 GB repository cap (#1009 item D).
+# Keep the Actions cache under the repository cache cap (#1009 item D).
+# The cap was 10 GB until 2026-09-09 and is 25 GB now; the working-ceiling block in the
+# sweep step carries the wall arithmetic and why the margin is the size it is.
 #
 # WHY THIS EXISTS
 # ---------------
@@ -319,28 +321,48 @@ jobs:
 
           # FAIL WHEN THE STORE IS STILL NEARLY FULL (#1073). Everything above deletes
           # only what is provably superseded or unread; if what remains still does not
-          # leave room for a night of saves, the fleet has outgrown the 10 GB cap and a
+          # leave room for a night of saves, the fleet has outgrown the cap and a
           # human has to shrink something -- an SCCACHE_CACHE_SIZE, a job's cache, or the
           # cap itself. The alternative is what actually happened: the store sat read-only
           # for weeks, every save was refused with a warning nobody read, and the only
           # visible symptom was a Windows build that had quietly stopped caching. This
           # job failing is the alarm that was missing.
           #
-          # WHERE THE NUMBER COMES FROM. The cap is 10 GB DECIMAL, not 10 GiB, and that
-          # is measured rather than read off the docs: saves were being refused with the
-          # store at 9,713,535,876 bytes = 9264 MiB. Had the cap been 10 GiB (10737 MiB)
-          # there would have been 1.4 GiB free and the 706 MiB vcpkg save in the same run
-          # would have landed. It did not. So the wall is ~9537 MiB.
+          # WHERE THE NUMBER COMES FROM. The cap is DECIMAL GB, not GiB, and that is
+          # measured rather than read off the docs: under the old 10 GB cap saves were
+          # refused with the store at 9,713,535,876 bytes = 9264 MiB. Had it been 10 GiB
+          # (10737 MiB) there would have been 1.4 GiB free and the 706 MiB vcpkg save in
+          # the same run would have landed. It did not.
           #
-          # Post-sweep the steady set measures ~7.9 GiB (2.0 Windows sccache, 3.7 across
-          # the three Linux sanitizer sccaches, 0.7 vcpkg, 0.5 Vulkan SDKs, and 0.9 of
-          # `sccache-flaky-281` which ages out now that its nightly is gone). 8800 MiB
-          # leaves that a working margin and still fires ~700 MiB before the wall --
-          # early enough that a human can act before the store goes read-only.
+          # THE CAP IS 25 GB SINCE 2026-09-09, so the wall is 25e9 / 1048576 = ~23841 MiB,
+          # where it used to be ~9537. This constant did not move with it, which made the
+          # raise inert: six sweeps a day went on enforcing a limit that no longer existed
+          # (#1084). Settings -> Actions -> General -> Cache settings; the mechanism and
+          # its billing are in docs/agent-rules/actions-cache-budget.md, "The cap moved".
           #
-          # Raise it only together with a re-measurement of the steady set. Raising it to
-          # silence the alarm is how #1073 happened.
-          headroom_floor_mib=8800
+          # THE MARGIN IS SIZED OFF THE LARGEST SINGLE ENTRY, not off a percentage, and
+          # that is the part the old number got wrong. 8800 against a 9537 MiB wall left
+          # 737 MiB -- less than `sccache-windows-2025-release` alone (2044 MiB measured),
+          # so one save landing after a sweep could clear the wall before the next sweep
+          # ever looked. A margin has to be bigger than what can arrive inside one sweep
+          # interval or it is not a margin. 20000 leaves 3841 MiB, ~1.9x that entry.
+          #
+          # Post-sweep the steady set measured 7968 MiB on 2026-09-09 (2044 Windows
+          # sccache, 3440 across the three Linux sanitizer sccaches at their 1300M caps,
+          # 1033 vcpkg, 776 Vulkan SDKs, 667 Windows ASan sccache). 20000 leaves that room
+          # to roughly double -- deliberate, because raising `SCCACHE_CACHE_SIZE` on the
+          # Windows build is a live proposal that the old cap made impossible.
+          #
+          # A BUDGET CAN BIND BEFORE THE CAP DOES. The read-only failure this alarm exists
+          # for quotes "you have reached your configured BUDGET"; storage above 10 GiB is
+          # billed hourly at $0.07/GiB-month, so a budget set too low goes read-only with
+          # the cap nowhere in sight. If that is ever the tighter of the two, this number
+          # has to be derived from the budget instead. It is not today.
+          #
+          # Raise it only together with a re-measurement of the steady set AND a cap that
+          # really moved. Raising it to silence the alarm under a FIXED cap is how #1073
+          # happened, and that is a different act from following a cap that moved.
+          headroom_floor_mib=20000
 
           # SUM THE LISTING, NOT `/actions/cache/usage` -- that endpoint LAGS behind
           # deletions, badly. Measured on run 34039757109: this sweep freed 5567 MiB and
@@ -356,7 +378,7 @@ jobs:
           used_mib=$((kept_bytes / 1048576))
           if [ "${used_mib}" -gt "${headroom_floor_mib}" ]; then
             echo "::error::Actions cache store is ${used_mib} MiB after pruning, over the ${headroom_floor_mib} MiB working ceiling."
-            echo "::error::Past the 10 GB cap GitHub does not evict -- it makes the whole store READ-ONLY and refuses every save in the repo, silently (actions/cache/save warns and exits 0). Nothing left here is superseded, so this needs a human: docs/agent-rules/actions-cache-budget.md."
+            echo "::error::Past the cap (25 GB, ~23841 MiB) GitHub does not evict -- it makes the whole store READ-ONLY and refuses every save in the repo, silently (actions/cache/save warns and exits 0). Nothing left here is superseded, so this needs a human: docs/agent-rules/actions-cache-budget.md."
             exit 1
           fi
           echo "headroom: $((headroom_floor_mib - used_mib)) MiB below the working ceiling."

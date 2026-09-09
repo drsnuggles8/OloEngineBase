@@ -23,6 +23,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ResourceDef;
     using OloEngine::MCP::ToolDef;
@@ -282,7 +283,7 @@ TEST(McpResourceLink, ToolCallPassesResourceLinkBlockThroughAndRedactsIt)
     ToolDef tool;
     tool.Name = "fake_capture";
     tool.Description = "Returns a resource_link block.";
-    tool.Handler = [](McpServer&, const Json&)
+    tool.Handler = [](IAutomationHost&, const Json&)
     {
         ToolResult result;
         result.Content = Json::array(

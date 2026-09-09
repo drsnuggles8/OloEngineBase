@@ -17,7 +17,7 @@ namespace OloEngine::MCP
     namespace
     {
         // ---- olo_script_get_api (lock-safe; reads the scripting bindings) -------
-        ToolResult Handle_ScriptGetApi(McpServer& /*server*/, const Json& args)
+        ToolResult Handle_ScriptGetApi(IAutomationHost& /*host*/, const Json& args)
         {
             std::string language = "csharp";
             if (args.contains("language") && args["language"].is_string())
@@ -33,7 +33,7 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_script_get_last_errors (lock-safe; script error ring buffer) --
-        ToolResult Handle_ScriptGetLastErrors(McpServer& /*server*/, const Json& args)
+        ToolResult Handle_ScriptGetLastErrors(IAutomationHost& /*host*/, const Json& args)
         {
             std::size_t count = 20;
             if (args.contains("count") && args["count"].is_number_integer())
@@ -72,16 +72,16 @@ namespace OloEngine::MCP
         // (ToolDef::ProjectWrite): reloading runs the user's freshly-built assembly
         // code, so it crosses the read-only line by design. The reload runs inside the
         // MarshalRead job, i.e. on the main thread, since it touches the Mono domain.
-        ToolResult Handle_ReloadScript(McpServer& server, const Json&)
+        ToolResult Handle_ReloadScript(IAutomationHost& host, const Json&)
         {
-            if (!server.Context().ReloadScriptAssembly)
+            if (!host.Context().ReloadScriptAssembly)
                 return ToolResult::Error("Script reload is not available in this editor build.");
 
-            const Json result = server.MarshalRead([&server]() -> Json
-                                                   {
-                if (!server.Context().ReloadScriptAssembly)
+            const Json result = host.MarshalRead([&host]() -> Json
+                                                 {
+                if (!host.Context().ReloadScriptAssembly)
                     return Json{ { "__error", "Script reload is not available in this editor build." } };
-                const McpScriptReloadResult reloaded = server.Context().ReloadScriptAssembly();
+                const McpScriptReloadResult reloaded = host.Context().ReloadScriptAssembly();
                 return ReloadScript::ToJson(reloaded); });
 
             if (result.is_object() && result.contains("__error"))
@@ -91,7 +91,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterScriptingTools(McpServer& server)
+    void RegisterScriptingTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -126,7 +126,7 @@ namespace OloEngine::MCP
                                     .Required({ "language", "engineVersion", "typeCount", "types" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetApi;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -155,7 +155,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "errors" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_ScriptGetLastErrors;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -192,7 +192,7 @@ namespace OloEngine::MCP
                                     .Required({ "language", "available", "ok", "scriptClassCount", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReloadScript;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

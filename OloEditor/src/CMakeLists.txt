@@ -5,6 +5,19 @@
 		"GameplayEventLogger.h"
 		"GameplayEventLogger.cpp"
 
+		# The transport-independent automation layer (issue #1123): the command
+		# type, the registry that owns them, the host seam they run against, and
+		# the input-schema validator. Nothing in here knows what MCP is.
+		"Automation/AutomationAudienceReport.h"
+		"Automation/AutomationCommand.h"
+		"Automation/AutomationHost.h"
+		"Automation/AutomationRegistry.cpp"
+		"Automation/AutomationRegistry.h"
+		"Automation/AutomationResult.cpp"
+		"Automation/AutomationResult.h"
+		"Automation/AutomationSchemaValidation.cpp"
+		"Automation/AutomationSchemaValidation.h"
+
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"
 		"MCP/McpClient.cpp"
