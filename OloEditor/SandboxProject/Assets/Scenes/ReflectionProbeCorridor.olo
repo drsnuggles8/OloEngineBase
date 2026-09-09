@@ -147,7 +147,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 705000000000011
     TagComponent:
       Tag: Point Light B
@@ -162,4 +162,4 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01

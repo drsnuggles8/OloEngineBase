@@ -169,8 +169,8 @@ Entities:
       Color: [1, 0.82, 0.6]
       Intensity: 3.2
       CastShadows: true
-      ShadowBias: 0.008
-      ShadowNormalBias: 0.05
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 400
       CascadeSplitLambda: 0.5
       CascadeDebugVisualization: false

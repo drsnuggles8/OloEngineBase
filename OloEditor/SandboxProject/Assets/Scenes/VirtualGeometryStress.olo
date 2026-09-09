@@ -105,7 +105,7 @@ Entities:
       Color: [1, 0.96, 0.9]
       Intensity: 4
       CastShadows: true
-      ShadowBias: 0.0015
+      ShadowDepthBiasTexels: 2
   - Entity: 820000000000004
     TagComponent:
       Tag: Ground

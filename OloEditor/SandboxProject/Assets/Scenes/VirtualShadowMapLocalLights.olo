@@ -271,7 +271,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000101
     TagComponent:
       Tag: NearLamp1
@@ -286,7 +286,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000102
     TagComponent:
       Tag: NearLamp2
@@ -301,7 +301,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000103
     TagComponent:
       Tag: NearLamp3
@@ -316,7 +316,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000104
     TagComponent:
       Tag: NearLamp4
@@ -331,7 +331,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000105
     TagComponent:
       Tag: NearLamp5
@@ -346,7 +346,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000106
     TagComponent:
       Tag: NearLamp6
@@ -361,7 +361,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000107
     TagComponent:
       Tag: NearLamp7
@@ -376,7 +376,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── FAR pylons + FAR lamps: identical authored Range and Intensity to the near
   #    ring, 60-140 m out. Acceptance criterion 2 is exactly the difference this
   #    pair makes: same authored priority, wildly different page cost. ──
@@ -446,7 +446,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000111
     TagComponent:
       Tag: FarLamp1
@@ -461,7 +461,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000112
     TagComponent:
       Tag: FarLamp2
@@ -476,7 +476,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000113
     TagComponent:
       Tag: FarLamp3
@@ -491,7 +491,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000114
     TagComponent:
       Tag: FarLamp4
@@ -506,7 +506,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000115
     TagComponent:
       Tag: FarLamp5
@@ -521,7 +521,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000116
     TagComponent:
       Tag: FarLamp6
@@ -536,7 +536,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000117
     TagComponent:
       Tag: FarLamp7
@@ -551,7 +551,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── Six shadow-casting SPOT lights aimed down the aisle. Spots are one layer
   #    each, so they are also the cheap half of the "flat pool" claim: the same
   #    256 layers that hold 42 point lights hold 256 spots. ──
@@ -572,7 +572,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000201
     TagComponent:
       Tag: Spot1
@@ -590,7 +590,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000202
     TagComponent:
       Tag: Spot2
@@ -608,7 +608,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000203
     TagComponent:
       Tag: Spot3
@@ -626,7 +626,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000204
     TagComponent:
       Tag: Spot4
@@ -644,7 +644,7 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 703000000000205
     TagComponent:
       Tag: Spot5
@@ -662,4 +662,4 @@ Entities:
       Attenuation: 0.03
       CastShadows: true
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01

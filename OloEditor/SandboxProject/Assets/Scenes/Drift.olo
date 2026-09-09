@@ -390,8 +390,8 @@ Entities:
       # CSM now applies this world-space normal bias to the receiver before
       # sampling. Keep the sail casting rather than hiding its self-shadowing.
       CastShadows: true
-      ShadowBias: 0.008
-      ShadowNormalBias: 0.05
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 35
       CascadeSplitLambda: 0.4
       CascadeDebugVisualization: false

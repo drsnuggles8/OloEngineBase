@@ -15,7 +15,7 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 2
       CastShadows: true
-      ShadowBias: 0.02
+      ShadowDepthBiasTexels: 2
   - Entity: 760000000000002
     TagComponent:
       Tag: Camera

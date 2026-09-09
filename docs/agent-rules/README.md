@@ -78,6 +78,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [lazy-static-release-ownership.md](lazy-static-release-ownership.md): release a shared lazy static from an unconditional teardown, not from `Renderer3D::Shutdown`.
 - [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md): a process-wide registry a destructor unregisters from must be a deliberately leaked singleton, never a plain static.
 - [gpu-debug-draws.md](gpu-debug-draws.md): any shader can draw a primitive into the viewport; read the overflow protocol before concluding "it drew nothing".
+- [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md): give every authored render constant a unit that does not change with camera range, cascade or resolution, and rename the field when its unit changes; the CSM depth bias was normalized cascade depth, so the engine default was 2-13 metres of world offset.
 - [observer-camera.md](observer-camera.md): the frozen culling camera decides what is drawn, never how it looks.
 - [gpu-scan-compaction.md](gpu-scan-compaction.md): no early return in front of a work-group scan; test compaction order, not sets.
 - [variable-rate-compute-shading.md](variable-rate-compute-shading.md): measure departure from a plane, not depth range, and read the heatmap first.
@@ -183,6 +184,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard, because it encoded the previous test's residue. |
 | [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md) | An A/B visual assertion reads BACKWARDS in one test ordering, from frames that are identical to the byte. |
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
+| [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md) | Every directional shadow in the project sat metres away from its caster, and the tests pinned the constant's VALUE, which had not changed. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer, so a new format fails as a corrupt version of the old one rather than as an unsupported format. |

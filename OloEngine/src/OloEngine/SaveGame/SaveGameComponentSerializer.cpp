@@ -1540,7 +1540,23 @@ namespace OloEngine
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DirectionalLightComponent& c)
     {
         ar << c.m_Direction << c.m_Color << c.m_Intensity;
-        ar << c.m_CastShadows << c.m_ShadowBias << c.m_ShadowNormalBias;
+        ar << c.m_CastShadows;
+        // v28 (#1119): the slot is the same float in the same place, but its
+        // UNIT changed - a normalized-cascade-depth number became a count of
+        // shadow-map texels. A pre-v28 save therefore holds a value that is
+        // meaningless here (0.005 texels is no bias at all), so it is read to
+        // keep the stream in step and then discarded for the component's
+        // default. Nothing is silently reinterpreted.
+        if (HasFieldsSince(ar, 28))
+        {
+            ar << c.m_ShadowDepthBiasTexels;
+        }
+        else
+        {
+            f32 legacyNormalizedDepthBias = 0.0f;
+            ar << legacyNormalizedDepthBias;
+        }
+        ar << c.m_ShadowNormalBias;
         ar << c.m_MaxShadowDistance << c.m_CascadeSplitLambda << c.m_CascadeDebugVisualization;
         // #1056, save v27. v26 and older have no byte here; reading one
         // unconditionally would consume the next component's first byte and

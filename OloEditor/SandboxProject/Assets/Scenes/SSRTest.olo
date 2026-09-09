@@ -83,8 +83,8 @@ Entities:
       Color: [1, 0.97, 0.92]
       Intensity: 2.5
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 50
       CascadeSplitLambda: 0.95
   # -- Mirror floor (the SSR surface): metallic + very low roughness --

@@ -94,7 +94,7 @@ Entities:
       Color: [1, 0.97, 0.92]
       Intensity: 5
       CastShadows: true
-      ShadowBias: 0.005
+      ShadowDepthBiasTexels: 2
       # The engine's own default (DirectionalLightComponent::m_ShadowNormalBias).
       # Most sample scenes copy 0.1 from each other, which is ten times this and
       # pushes the ground shadow clean off its caster — a wall ends up floating

@@ -2886,8 +2886,23 @@ namespace OloEngine
         OLO_SERIALIZE(Skip)
         u8 Pad0 = 0;
 
-        // Shadow settings
-        f32 m_ShadowBias = 0.005f;
+        // Shadow settings.
+        //
+        // Constant depth bias in SHADOW-MAP TEXELS of the cascade doing the
+        // lookup (issue #1119). Renamed from m_ShadowBias, which held a raw
+        // normalized-cascade-depth number: the cascade's orthographic range is
+        // 400 m of z-padding plus its own extent, so 0.005 there meant 2-13 m
+        // of world depth and every sample scene rendered its ground shadows
+        // clear of their casters. The rename is deliberate - a scene file that
+        // still carries the old `ShadowBias` key gets the (correct) default
+        // rather than having its number silently reinterpreted in a new unit.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
+        f32 m_ShadowDepthBiasTexels = 2.0f;
+        // Receiver offset along the shading normal, in WORLD METRES, applied
+        // before the light-space projection. It does NOT scale with the
+        // cascade, and it is not what detaches a shadow from its caster: at a
+        // 52-degree sun, 0.1 m moves the shadow 0.13 m.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_ShadowNormalBias = 0.01f;
         f32 m_MaxShadowDistance = 200.0f;
         f32 m_CascadeSplitLambda = 0.5f;

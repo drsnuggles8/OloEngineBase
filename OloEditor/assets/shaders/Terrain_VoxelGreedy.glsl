@@ -131,7 +131,7 @@ layout(std140, binding = 6) uniform ShadowData {
     int u_AtlasResolution;
     int u_CascadeDebugEnabled;
     int u_SoftShadowMode;
-    int _shadowPad1;
+    float u_AtlasDepthBias; // local-light atlas constant depth bias, normalized [0,1] (#1119)
     int _shadowPad2;
 };
 
@@ -329,7 +329,7 @@ void main()
                     u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_ShadowParams.x,
+                    u_AtlasDepthBias,
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z
@@ -350,7 +350,7 @@ void main()
                     u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas,
                     u_ShadowAtlasRaw,
-                    u_ShadowParams.x,
+                    u_AtlasDepthBias,
                     u_AtlasResolution,
                     0,
                     u_ShadowParams.z

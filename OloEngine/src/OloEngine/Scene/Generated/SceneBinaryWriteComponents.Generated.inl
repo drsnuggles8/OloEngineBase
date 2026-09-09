@@ -231,7 +231,7 @@ if (entity.HasComponent<DirectionalLightComponent>())
     SceneBinIO::Write(out, comp.m_CastShadows);
     SceneBinIO::Write(out, comp.m_CascadeDebugVisualization);
     SceneBinIO::Write(out, comp.m_RayTracedShadows);
-    SceneBinIO::Write(out, comp.m_ShadowBias);
+    SceneBinIO::Write(out, comp.m_ShadowDepthBiasTexels);
     SceneBinIO::Write(out, comp.m_ShadowNormalBias);
     SceneBinIO::Write(out, comp.m_MaxShadowDistance);
     SceneBinIO::Write(out, comp.m_CascadeSplitLambda);

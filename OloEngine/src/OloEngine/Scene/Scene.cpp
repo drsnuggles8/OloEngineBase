@@ -7448,7 +7448,7 @@ namespace OloEngine
                     {
                         auto& shadowMap = Renderer3D::GetShadowMap();
                         auto settings = shadowMap.GetSettings();
-                        settings.Bias = dirLight.m_ShadowBias;
+                        settings.DepthBiasTexels = dirLight.m_ShadowDepthBiasTexels;
                         settings.NormalBias = dirLight.m_ShadowNormalBias;
                         settings.MaxShadowDistance = dirLight.m_MaxShadowDistance;
                         settings.CascadeSplitLambda = dirLight.m_CascadeSplitLambda;

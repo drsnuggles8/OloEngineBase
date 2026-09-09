@@ -96,8 +96,8 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 3
       CastShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
   # ── The one uniform receiver every decal projects onto ──

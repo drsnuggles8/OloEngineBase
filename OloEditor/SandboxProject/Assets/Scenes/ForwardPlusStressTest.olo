@@ -180,7 +180,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351835
     TagComponent:
       Tag: Spot 14
@@ -198,7 +198,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351834
     TagComponent:
       Tag: Spot 13
@@ -216,7 +216,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351833
     TagComponent:
       Tag: Spot 12
@@ -234,7 +234,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351832
     TagComponent:
       Tag: Spot 11
@@ -252,7 +252,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351831
     TagComponent:
       Tag: Spot 10
@@ -270,7 +270,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351830
     TagComponent:
       Tag: Spot 09
@@ -288,7 +288,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351829
     TagComponent:
       Tag: Spot 08
@@ -306,7 +306,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351828
     TagComponent:
       Tag: Spot 07
@@ -324,7 +324,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351827
     TagComponent:
       Tag: Spot 06
@@ -342,7 +342,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351826
     TagComponent:
       Tag: Spot 05
@@ -360,7 +360,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351825
     TagComponent:
       Tag: Spot 04
@@ -378,7 +378,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351824
     TagComponent:
       Tag: Spot 03
@@ -396,7 +396,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351823
     TagComponent:
       Tag: Spot 02
@@ -414,7 +414,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351822
     TagComponent:
       Tag: Spot 01
@@ -432,7 +432,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351821
     TagComponent:
       Tag: Spot 00
@@ -450,7 +450,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351820
     TagComponent:
       Tag: PL 255
@@ -465,7 +465,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351819
     TagComponent:
       Tag: PL 254
@@ -480,7 +480,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351818
     TagComponent:
       Tag: PL 253
@@ -495,7 +495,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351817
     TagComponent:
       Tag: PL 252
@@ -510,7 +510,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351816
     TagComponent:
       Tag: PL 251
@@ -525,7 +525,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351815
     TagComponent:
       Tag: PL 250
@@ -540,7 +540,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351814
     TagComponent:
       Tag: PL 249
@@ -555,7 +555,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351813
     TagComponent:
       Tag: PL 248
@@ -570,7 +570,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351812
     TagComponent:
       Tag: PL 247
@@ -585,7 +585,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351811
     TagComponent:
       Tag: PL 246
@@ -600,7 +600,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351810
     TagComponent:
       Tag: PL 245
@@ -615,7 +615,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351809
     TagComponent:
       Tag: PL 244
@@ -630,7 +630,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351808
     TagComponent:
       Tag: PL 243
@@ -645,7 +645,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351807
     TagComponent:
       Tag: PL 242
@@ -660,7 +660,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351806
     TagComponent:
       Tag: PL 241
@@ -675,7 +675,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351805
     TagComponent:
       Tag: PL 240
@@ -690,7 +690,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351804
     TagComponent:
       Tag: PL 239
@@ -705,7 +705,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351803
     TagComponent:
       Tag: PL 238
@@ -720,7 +720,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351802
     TagComponent:
       Tag: PL 237
@@ -735,7 +735,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351801
     TagComponent:
       Tag: PL 236
@@ -750,7 +750,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351800
     TagComponent:
       Tag: PL 235
@@ -765,7 +765,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351799
     TagComponent:
       Tag: PL 234
@@ -780,7 +780,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351798
     TagComponent:
       Tag: PL 233
@@ -795,7 +795,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351797
     TagComponent:
       Tag: PL 232
@@ -810,7 +810,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351796
     TagComponent:
       Tag: PL 231
@@ -825,7 +825,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351795
     TagComponent:
       Tag: PL 230
@@ -840,7 +840,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351794
     TagComponent:
       Tag: PL 229
@@ -855,7 +855,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351793
     TagComponent:
       Tag: PL 228
@@ -870,7 +870,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351792
     TagComponent:
       Tag: PL 227
@@ -885,7 +885,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351791
     TagComponent:
       Tag: PL 226
@@ -900,7 +900,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351790
     TagComponent:
       Tag: PL 225
@@ -915,7 +915,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351789
     TagComponent:
       Tag: PL 224
@@ -930,7 +930,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351788
     TagComponent:
       Tag: PL 223
@@ -945,7 +945,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351787
     TagComponent:
       Tag: PL 222
@@ -960,7 +960,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351786
     TagComponent:
       Tag: PL 221
@@ -975,7 +975,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351785
     TagComponent:
       Tag: PL 220
@@ -990,7 +990,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351784
     TagComponent:
       Tag: PL 219
@@ -1005,7 +1005,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351783
     TagComponent:
       Tag: PL 218
@@ -1020,7 +1020,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351782
     TagComponent:
       Tag: PL 217
@@ -1035,7 +1035,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351781
     TagComponent:
       Tag: PL 216
@@ -1050,7 +1050,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351780
     TagComponent:
       Tag: PL 215
@@ -1065,7 +1065,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351779
     TagComponent:
       Tag: PL 214
@@ -1080,7 +1080,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351778
     TagComponent:
       Tag: PL 213
@@ -1095,7 +1095,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351777
     TagComponent:
       Tag: PL 212
@@ -1110,7 +1110,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351776
     TagComponent:
       Tag: PL 211
@@ -1125,7 +1125,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351775
     TagComponent:
       Tag: PL 210
@@ -1140,7 +1140,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351774
     TagComponent:
       Tag: PL 209
@@ -1155,7 +1155,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351773
     TagComponent:
       Tag: PL 208
@@ -1170,7 +1170,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351772
     TagComponent:
       Tag: PL 207
@@ -1185,7 +1185,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351771
     TagComponent:
       Tag: PL 206
@@ -1200,7 +1200,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351770
     TagComponent:
       Tag: PL 205
@@ -1215,7 +1215,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351769
     TagComponent:
       Tag: PL 204
@@ -1230,7 +1230,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351768
     TagComponent:
       Tag: PL 203
@@ -1245,7 +1245,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351767
     TagComponent:
       Tag: PL 202
@@ -1260,7 +1260,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351766
     TagComponent:
       Tag: PL 201
@@ -1275,7 +1275,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351765
     TagComponent:
       Tag: PL 200
@@ -1290,7 +1290,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351764
     TagComponent:
       Tag: PL 199
@@ -1305,7 +1305,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351763
     TagComponent:
       Tag: PL 198
@@ -1320,7 +1320,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351762
     TagComponent:
       Tag: PL 197
@@ -1335,7 +1335,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351761
     TagComponent:
       Tag: PL 196
@@ -1350,7 +1350,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351760
     TagComponent:
       Tag: PL 195
@@ -1365,7 +1365,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351759
     TagComponent:
       Tag: PL 194
@@ -1380,7 +1380,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351758
     TagComponent:
       Tag: PL 193
@@ -1395,7 +1395,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351757
     TagComponent:
       Tag: PL 192
@@ -1410,7 +1410,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351756
     TagComponent:
       Tag: PL 191
@@ -1425,7 +1425,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351755
     TagComponent:
       Tag: PL 190
@@ -1440,7 +1440,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351754
     TagComponent:
       Tag: PL 189
@@ -1455,7 +1455,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351753
     TagComponent:
       Tag: PL 188
@@ -1470,7 +1470,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351752
     TagComponent:
       Tag: PL 187
@@ -1485,7 +1485,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351751
     TagComponent:
       Tag: PL 186
@@ -1500,7 +1500,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351750
     TagComponent:
       Tag: PL 185
@@ -1515,7 +1515,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351749
     TagComponent:
       Tag: PL 184
@@ -1530,7 +1530,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351748
     TagComponent:
       Tag: PL 183
@@ -1545,7 +1545,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351747
     TagComponent:
       Tag: PL 182
@@ -1560,7 +1560,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351746
     TagComponent:
       Tag: PL 181
@@ -1575,7 +1575,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351745
     TagComponent:
       Tag: PL 180
@@ -1590,7 +1590,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351744
     TagComponent:
       Tag: PL 179
@@ -1605,7 +1605,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351743
     TagComponent:
       Tag: PL 178
@@ -1620,7 +1620,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351742
     TagComponent:
       Tag: PL 177
@@ -1635,7 +1635,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351741
     TagComponent:
       Tag: PL 176
@@ -1650,7 +1650,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351740
     TagComponent:
       Tag: PL 175
@@ -1665,7 +1665,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351739
     TagComponent:
       Tag: PL 174
@@ -1680,7 +1680,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351738
     TagComponent:
       Tag: PL 173
@@ -1695,7 +1695,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351737
     TagComponent:
       Tag: PL 172
@@ -1710,7 +1710,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351736
     TagComponent:
       Tag: PL 171
@@ -1725,7 +1725,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351735
     TagComponent:
       Tag: PL 170
@@ -1740,7 +1740,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351734
     TagComponent:
       Tag: PL 169
@@ -1755,7 +1755,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351733
     TagComponent:
       Tag: PL 168
@@ -1770,7 +1770,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351732
     TagComponent:
       Tag: PL 167
@@ -1785,7 +1785,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351731
     TagComponent:
       Tag: PL 166
@@ -1800,7 +1800,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351730
     TagComponent:
       Tag: PL 165
@@ -1815,7 +1815,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351729
     TagComponent:
       Tag: PL 164
@@ -1830,7 +1830,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351728
     TagComponent:
       Tag: PL 163
@@ -1845,7 +1845,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351727
     TagComponent:
       Tag: PL 162
@@ -1860,7 +1860,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351726
     TagComponent:
       Tag: PL 161
@@ -1875,7 +1875,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351725
     TagComponent:
       Tag: PL 160
@@ -1890,7 +1890,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351724
     TagComponent:
       Tag: PL 159
@@ -1905,7 +1905,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351723
     TagComponent:
       Tag: PL 158
@@ -1920,7 +1920,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351722
     TagComponent:
       Tag: PL 157
@@ -1935,7 +1935,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351721
     TagComponent:
       Tag: PL 156
@@ -1950,7 +1950,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351720
     TagComponent:
       Tag: PL 155
@@ -1965,7 +1965,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351719
     TagComponent:
       Tag: PL 154
@@ -1980,7 +1980,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351718
     TagComponent:
       Tag: PL 153
@@ -1995,7 +1995,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351717
     TagComponent:
       Tag: PL 152
@@ -2010,7 +2010,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351716
     TagComponent:
       Tag: PL 151
@@ -2025,7 +2025,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351715
     TagComponent:
       Tag: PL 150
@@ -2040,7 +2040,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351714
     TagComponent:
       Tag: PL 149
@@ -2055,7 +2055,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351713
     TagComponent:
       Tag: PL 148
@@ -2070,7 +2070,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351712
     TagComponent:
       Tag: PL 147
@@ -2085,7 +2085,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351711
     TagComponent:
       Tag: PL 146
@@ -2100,7 +2100,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351710
     TagComponent:
       Tag: PL 145
@@ -2115,7 +2115,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351709
     TagComponent:
       Tag: PL 144
@@ -2130,7 +2130,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351708
     TagComponent:
       Tag: PL 143
@@ -2145,7 +2145,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351707
     TagComponent:
       Tag: PL 142
@@ -2160,7 +2160,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351706
     TagComponent:
       Tag: PL 141
@@ -2175,7 +2175,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351705
     TagComponent:
       Tag: PL 140
@@ -2190,7 +2190,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351704
     TagComponent:
       Tag: PL 139
@@ -2205,7 +2205,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351703
     TagComponent:
       Tag: PL 138
@@ -2220,7 +2220,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351702
     TagComponent:
       Tag: PL 137
@@ -2235,7 +2235,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351701
     TagComponent:
       Tag: PL 136
@@ -2250,7 +2250,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351700
     TagComponent:
       Tag: PL 135
@@ -2265,7 +2265,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351699
     TagComponent:
       Tag: PL 134
@@ -2280,7 +2280,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351698
     TagComponent:
       Tag: PL 133
@@ -2295,7 +2295,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351697
     TagComponent:
       Tag: PL 132
@@ -2310,7 +2310,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351696
     TagComponent:
       Tag: PL 131
@@ -2325,7 +2325,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351695
     TagComponent:
       Tag: PL 130
@@ -2340,7 +2340,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351694
     TagComponent:
       Tag: PL 129
@@ -2355,7 +2355,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351693
     TagComponent:
       Tag: PL 128
@@ -2370,7 +2370,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351692
     TagComponent:
       Tag: PL 127
@@ -2385,7 +2385,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351691
     TagComponent:
       Tag: PL 126
@@ -2400,7 +2400,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351690
     TagComponent:
       Tag: PL 125
@@ -2415,7 +2415,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351689
     TagComponent:
       Tag: PL 124
@@ -2430,7 +2430,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351688
     TagComponent:
       Tag: PL 123
@@ -2445,7 +2445,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351687
     TagComponent:
       Tag: PL 122
@@ -2460,7 +2460,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351686
     TagComponent:
       Tag: PL 121
@@ -2475,7 +2475,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351685
     TagComponent:
       Tag: PL 120
@@ -2490,7 +2490,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351684
     TagComponent:
       Tag: PL 119
@@ -2505,7 +2505,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351683
     TagComponent:
       Tag: PL 118
@@ -2520,7 +2520,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351682
     TagComponent:
       Tag: PL 117
@@ -2535,7 +2535,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351681
     TagComponent:
       Tag: PL 116
@@ -2550,7 +2550,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351680
     TagComponent:
       Tag: PL 115
@@ -2565,7 +2565,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351679
     TagComponent:
       Tag: PL 114
@@ -2580,7 +2580,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351678
     TagComponent:
       Tag: PL 113
@@ -2595,7 +2595,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351677
     TagComponent:
       Tag: PL 112
@@ -2610,7 +2610,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351676
     TagComponent:
       Tag: PL 111
@@ -2625,7 +2625,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351675
     TagComponent:
       Tag: PL 110
@@ -2640,7 +2640,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351674
     TagComponent:
       Tag: PL 109
@@ -2655,7 +2655,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351673
     TagComponent:
       Tag: PL 108
@@ -2670,7 +2670,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351672
     TagComponent:
       Tag: PL 107
@@ -2685,7 +2685,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351671
     TagComponent:
       Tag: PL 106
@@ -2700,7 +2700,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351670
     TagComponent:
       Tag: PL 105
@@ -2715,7 +2715,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351669
     TagComponent:
       Tag: PL 104
@@ -2730,7 +2730,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351668
     TagComponent:
       Tag: PL 103
@@ -2745,7 +2745,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351667
     TagComponent:
       Tag: PL 102
@@ -2760,7 +2760,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351666
     TagComponent:
       Tag: PL 101
@@ -2775,7 +2775,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351665
     TagComponent:
       Tag: PL 100
@@ -2790,7 +2790,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351664
     TagComponent:
       Tag: PL 099
@@ -2805,7 +2805,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351663
     TagComponent:
       Tag: PL 098
@@ -2820,7 +2820,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351662
     TagComponent:
       Tag: PL 097
@@ -2835,7 +2835,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351661
     TagComponent:
       Tag: PL 096
@@ -2850,7 +2850,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351660
     TagComponent:
       Tag: PL 095
@@ -2865,7 +2865,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351659
     TagComponent:
       Tag: PL 094
@@ -2880,7 +2880,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351658
     TagComponent:
       Tag: PL 093
@@ -2895,7 +2895,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351657
     TagComponent:
       Tag: PL 092
@@ -2910,7 +2910,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351656
     TagComponent:
       Tag: PL 091
@@ -2925,7 +2925,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351655
     TagComponent:
       Tag: PL 090
@@ -2940,7 +2940,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351654
     TagComponent:
       Tag: PL 089
@@ -2955,7 +2955,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351653
     TagComponent:
       Tag: PL 088
@@ -2970,7 +2970,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351652
     TagComponent:
       Tag: PL 087
@@ -2985,7 +2985,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351651
     TagComponent:
       Tag: PL 086
@@ -3000,7 +3000,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351650
     TagComponent:
       Tag: PL 085
@@ -3015,7 +3015,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351649
     TagComponent:
       Tag: PL 084
@@ -3030,7 +3030,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351648
     TagComponent:
       Tag: PL 083
@@ -3045,7 +3045,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351647
     TagComponent:
       Tag: PL 082
@@ -3060,7 +3060,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351646
     TagComponent:
       Tag: PL 081
@@ -3075,7 +3075,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351645
     TagComponent:
       Tag: PL 080
@@ -3090,7 +3090,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351644
     TagComponent:
       Tag: PL 079
@@ -3105,7 +3105,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351643
     TagComponent:
       Tag: PL 078
@@ -3120,7 +3120,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351642
     TagComponent:
       Tag: PL 077
@@ -3135,7 +3135,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351641
     TagComponent:
       Tag: PL 076
@@ -3150,7 +3150,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351640
     TagComponent:
       Tag: PL 075
@@ -3165,7 +3165,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351639
     TagComponent:
       Tag: PL 074
@@ -3180,7 +3180,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351638
     TagComponent:
       Tag: PL 073
@@ -3195,7 +3195,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351637
     TagComponent:
       Tag: PL 072
@@ -3210,7 +3210,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351636
     TagComponent:
       Tag: PL 071
@@ -3225,7 +3225,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351635
     TagComponent:
       Tag: PL 070
@@ -3240,7 +3240,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351634
     TagComponent:
       Tag: PL 069
@@ -3255,7 +3255,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351633
     TagComponent:
       Tag: PL 068
@@ -3270,7 +3270,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351632
     TagComponent:
       Tag: PL 067
@@ -3285,7 +3285,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351631
     TagComponent:
       Tag: PL 066
@@ -3300,7 +3300,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351630
     TagComponent:
       Tag: PL 065
@@ -3315,7 +3315,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351629
     TagComponent:
       Tag: PL 064
@@ -3330,7 +3330,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351628
     TagComponent:
       Tag: PL 063
@@ -3345,7 +3345,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351627
     TagComponent:
       Tag: PL 062
@@ -3360,7 +3360,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351626
     TagComponent:
       Tag: PL 061
@@ -3375,7 +3375,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351625
     TagComponent:
       Tag: PL 060
@@ -3390,7 +3390,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351624
     TagComponent:
       Tag: PL 059
@@ -3405,7 +3405,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351623
     TagComponent:
       Tag: PL 058
@@ -3420,7 +3420,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351622
     TagComponent:
       Tag: PL 057
@@ -3435,7 +3435,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351621
     TagComponent:
       Tag: PL 056
@@ -3450,7 +3450,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351620
     TagComponent:
       Tag: PL 055
@@ -3465,7 +3465,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351619
     TagComponent:
       Tag: PL 054
@@ -3480,7 +3480,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351618
     TagComponent:
       Tag: PL 053
@@ -3495,7 +3495,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351617
     TagComponent:
       Tag: PL 052
@@ -3510,7 +3510,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351616
     TagComponent:
       Tag: PL 051
@@ -3525,7 +3525,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351615
     TagComponent:
       Tag: PL 050
@@ -3540,7 +3540,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351614
     TagComponent:
       Tag: PL 049
@@ -3555,7 +3555,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351613
     TagComponent:
       Tag: PL 048
@@ -3570,7 +3570,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351612
     TagComponent:
       Tag: PL 047
@@ -3585,7 +3585,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351611
     TagComponent:
       Tag: PL 046
@@ -3600,7 +3600,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351610
     TagComponent:
       Tag: PL 045
@@ -3615,7 +3615,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351609
     TagComponent:
       Tag: PL 044
@@ -3630,7 +3630,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351608
     TagComponent:
       Tag: PL 043
@@ -3645,7 +3645,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351607
     TagComponent:
       Tag: PL 042
@@ -3660,7 +3660,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351606
     TagComponent:
       Tag: PL 041
@@ -3675,7 +3675,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351605
     TagComponent:
       Tag: PL 040
@@ -3690,7 +3690,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351604
     TagComponent:
       Tag: PL 039
@@ -3705,7 +3705,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351603
     TagComponent:
       Tag: PL 038
@@ -3720,7 +3720,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351602
     TagComponent:
       Tag: PL 037
@@ -3735,7 +3735,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351601
     TagComponent:
       Tag: PL 036
@@ -3750,7 +3750,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351600
     TagComponent:
       Tag: PL 035
@@ -3765,7 +3765,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351599
     TagComponent:
       Tag: PL 034
@@ -3780,7 +3780,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351598
     TagComponent:
       Tag: PL 033
@@ -3795,7 +3795,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351597
     TagComponent:
       Tag: PL 032
@@ -3810,7 +3810,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351596
     TagComponent:
       Tag: PL 031
@@ -3825,7 +3825,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351595
     TagComponent:
       Tag: PL 030
@@ -3840,7 +3840,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351594
     TagComponent:
       Tag: PL 029
@@ -3855,7 +3855,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351593
     TagComponent:
       Tag: PL 028
@@ -3870,7 +3870,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351592
     TagComponent:
       Tag: PL 027
@@ -3885,7 +3885,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351591
     TagComponent:
       Tag: PL 026
@@ -3900,7 +3900,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351590
     TagComponent:
       Tag: PL 025
@@ -3915,7 +3915,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351589
     TagComponent:
       Tag: PL 024
@@ -3930,7 +3930,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351588
     TagComponent:
       Tag: PL 023
@@ -3945,7 +3945,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351587
     TagComponent:
       Tag: PL 022
@@ -3960,7 +3960,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351586
     TagComponent:
       Tag: PL 021
@@ -3975,7 +3975,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351585
     TagComponent:
       Tag: PL 020
@@ -3990,7 +3990,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351584
     TagComponent:
       Tag: PL 019
@@ -4005,7 +4005,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351583
     TagComponent:
       Tag: PL 018
@@ -4020,7 +4020,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351582
     TagComponent:
       Tag: PL 017
@@ -4035,7 +4035,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351581
     TagComponent:
       Tag: PL 016
@@ -4050,7 +4050,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351580
     TagComponent:
       Tag: PL 015
@@ -4065,7 +4065,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351579
     TagComponent:
       Tag: PL 014
@@ -4080,7 +4080,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351578
     TagComponent:
       Tag: PL 013
@@ -4095,7 +4095,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351577
     TagComponent:
       Tag: PL 012
@@ -4110,7 +4110,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351576
     TagComponent:
       Tag: PL 011
@@ -4125,7 +4125,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351575
     TagComponent:
       Tag: PL 010
@@ -4140,7 +4140,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351574
     TagComponent:
       Tag: PL 009
@@ -4155,7 +4155,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351573
     TagComponent:
       Tag: PL 008
@@ -4170,7 +4170,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351572
     TagComponent:
       Tag: PL 007
@@ -4185,7 +4185,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351571
     TagComponent:
       Tag: PL 006
@@ -4200,7 +4200,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351570
     TagComponent:
       Tag: PL 005
@@ -4215,7 +4215,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351569
     TagComponent:
       Tag: PL 004
@@ -4230,7 +4230,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351568
     TagComponent:
       Tag: PL 003
@@ -4245,7 +4245,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351567
     TagComponent:
       Tag: PL 002
@@ -4260,7 +4260,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351566
     TagComponent:
       Tag: PL 001
@@ -4275,7 +4275,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351565
     TagComponent:
       Tag: PL 000
@@ -4290,7 +4290,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 648518346341351564
     TagComponent:
       Tag: Pillar R5 C5
@@ -6084,8 +6084,8 @@ Entities:
       Color: [0.8, 0.85, 1]
       Intensity: 0.1
       CastShadows: false
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
       CascadeDebugVisualization: false

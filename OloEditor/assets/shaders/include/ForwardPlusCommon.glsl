@@ -201,7 +201,7 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                 radiance *= calculateAtlasEntryShadow(
                     worldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_ShadowParams.x, u_AtlasResolution, 0, u_ShadowParams.z);
+                    u_AtlasDepthBias, u_AtlasResolution, 0, u_ShadowParams.z);
             }
 #endif
 
@@ -235,7 +235,7 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                 contribution *= calculateAtlasEntryShadow(
                     worldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_ShadowParams.x, u_AtlasResolution, 0, u_ShadowParams.z);
+                    u_AtlasDepthBias, u_AtlasResolution, 0, u_ShadowParams.z);
             }
 #endif
 
@@ -283,7 +283,7 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                 radiance *= calculateAtlasEntryShadow(
                     worldPos, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
-                    u_ShadowParams.x, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
+                    u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode, u_ShadowParams.z);
             }
 #endif
 

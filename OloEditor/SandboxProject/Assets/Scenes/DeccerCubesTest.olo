@@ -72,8 +72,8 @@ Entities:
       Color: [1, 1, 1]
       Intensity: 2
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
   # ── Fill point light ──
@@ -91,7 +91,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── Ground Plane ──
   - Entity: 740000000000004
     TagComponent:

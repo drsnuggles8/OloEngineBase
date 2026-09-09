@@ -35,8 +35,25 @@ namespace OloEngine
         // Maximum number of bones for skeletal animation - centralized from ShaderBindingLayout
         constexpr int MAX_BONES = UBOStructures::AnimationConstants::MAX_BONES;
 
-        // Shadow mapping constants
+        // Shadow mapping constants.
+        //
+        // SHADOW_BIAS is a constant depth offset in the shadow map's own
+        // NORMALIZED [0,1] depth. That unit is only meaningful for the LOCAL
+        // LIGHT ATLAS, whose spot / point entries have a bounded perspective
+        // range; the directional CSM's orthographic range is 400 m of fixed
+        // z-padding plus the cascade's own extent (404-1300 m in the sample
+        // scenes), so the same number there means 2-26 metres of world depth
+        // and detaches every shadow from its caster. Issue #1119: the CSM's
+        // bias is authored in SHADOW-MAP TEXELS instead and converted per
+        // cascade in the shader — see SHADOW_CSM_DEPTH_BIAS_TEXELS.
         constexpr float SHADOW_BIAS = 0.005f;
+        // Directional CSM constant depth bias, in shadow-map texels of the
+        // cascade doing the lookup. Scale-free by construction: one texel is
+        // one texel whether the cascade covers 4 m or 260 m, so the same
+        // authored number behaves the same in every cascade, at every
+        // MaxShadowDistance, and in every scene. Two texels comfortably
+        // exceeds the depth slope a 3x3 PCF kernel (±1 texel) can see.
+        constexpr float SHADOW_CSM_DEPTH_BIAS_TEXELS = 2.0f;
         constexpr int SHADOW_MAP_SIZE = 1024;
 
         // =============================================================================

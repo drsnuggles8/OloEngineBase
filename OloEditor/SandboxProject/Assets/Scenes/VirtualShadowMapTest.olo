@@ -102,8 +102,8 @@ Entities:
       Color: [1, 0.98, 0.94]
       Intensity: 2.6
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 600
       CascadeSplitLambda: 0.92
   # -- The receiver. Large enough that the far props' shadows still land on it. --

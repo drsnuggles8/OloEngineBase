@@ -91,8 +91,8 @@ Entities:
       Color: [1, 0.95, 0.85]
       Intensity: 6
       CastShadows: true
-      ShadowBias: 0.0015
-      ShadowNormalBias: 0.15
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 2000
       CascadeSplitLambda: 0.92
   # ── A handful of colored point lights — exercises tiled deferred light culling ──
@@ -110,7 +110,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 790000000000005
     TagComponent:
       Tag: PLight Warm R
@@ -125,7 +125,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 790000000000006
     TagComponent:
       Tag: PLight Cool L
@@ -140,7 +140,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   - Entity: 790000000000007
     TagComponent:
       Tag: PLight Cool R
@@ -155,7 +155,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── Sponza ──
   - Entity: 790000000000010
     TagComponent:

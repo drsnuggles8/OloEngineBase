@@ -81,13 +81,14 @@ namespace OloEngine
         // Initialize UBO data to defaults
         m_UBOData = {};
         m_UBOData.ShadowParams = glm::vec4(
-            m_Settings.Bias,
+            m_Settings.DepthBiasTexels,
             m_Settings.NormalBias,
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         m_UBOData.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         m_UBOData.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         m_UBOData.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
+        m_UBOData.AtlasDepthBias = m_Settings.AtlasBias;
 
         // The directional VSM (issue #702). Init is a no-op while disabled, so the
         // default path allocates nothing extra; when enabled it replaces the CSM
@@ -399,13 +400,14 @@ namespace OloEngine
         // Update shadow params from current settings
         auto data = m_UBOData;
         data.ShadowParams = glm::vec4(
-            m_Settings.Bias,
+            m_Settings.DepthBiasTexels,
             m_Settings.NormalBias,
             m_Settings.Softness,
             m_Settings.MaxShadowDistance);
         data.ShadowMapResolution = static_cast<i32>(m_Settings.Resolution);
         data.AtlasResolution = static_cast<i32>(m_Settings.AtlasResolution);
         data.SoftShadowMode = m_Settings.SoftShadows ? 1 : 0;
+        data.AtlasDepthBias = m_Settings.AtlasBias;
 
         // The ray-traced routing goes up INACTIVE every frame (issue #1056).
         // This is what makes the fallback structural rather than a flag: the

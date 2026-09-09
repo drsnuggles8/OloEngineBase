@@ -60,8 +60,8 @@ Entities:
       Color: [1, 0.95, 0.9]
       Intensity: 1.2
       CastShadows: true
-      ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 200
       CascadeSplitLambda: 0.95
   # ── Red Point Light (left) ──
@@ -79,7 +79,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── Blue Point Light (right) ──
   - Entity: 810000000000004
     TagComponent:
@@ -95,7 +95,7 @@ Entities:
       Attenuation: 1
       CastShadows: false
       ShadowBias: 0.005
-      ShadowNormalBias: 0.1
+      ShadowNormalBias: 0.01
   # ── Floor plane ──
   - Entity: 810000000000005
     TagComponent:
