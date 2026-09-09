@@ -159,6 +159,27 @@ def main():
         print(f"error: no `#extension` directives found under {shader_root} — the scan is broken", file=sys.stderr)
         return 2
 
+    # BASELINE FIRST, and this is not defensive padding — it is the whole point
+    # of the exercise applied to this script. Run against Ubuntu 24.04's glslc
+    # (shaderc 2023.8), every one of the 13 extensions below "REJECTED", and
+    # every diagnostic read `glslc: error: invalid value 'vulkan1.4' in
+    # '--target-env=vulkan1.4'`: ONE toolchain-level failure, reported thirteen
+    # times as if each extension were the problem. That is the same shape of
+    # misleading diagnostic #1139 was, so it gets caught here and named once.
+    ok, diagnostic = compile_source(glslc, "#version 460 core\nvoid main() {}\n", "baseline")
+    if not ok:
+        print("\n" + "=" * 78, file=sys.stderr)
+        print(
+            f"This toolchain cannot compile a TRIVIAL shader at {' '.join(TARGET_ARGS)}, so it cannot\n"
+            "be asked about extensions at all — the engine's Vulkan tier compiles every production\n"
+            f"shader at that target.\n\n  {glslc} says:\n    {diagnostic}\n\n"
+            "Ubuntu 24.04's glslc (shaderc 2023.8) fails exactly here: it predates Vulkan 1.4.\n"
+            "Install Vulkan SDK 1.4.357.0 or newer, or point --glslc at the prefix\n"
+            ".github/actions/setup-shaderc-linux builds. See ADR 0011 amendment (97).",
+            file=sys.stderr,
+        )
+        return 1
+
     failures = []
     width = max(len(name) for name in declarations)
     for name, files in declarations.items():
