@@ -238,6 +238,26 @@ void main()
         // therefore cannot be converted per-shader; its slot has to be bound
         // unconditionally instead. Adding an entry without one of the two
         // mechanisms above turns this allowlist into a way to silence the test.
+        // THE FIVE MATERIAL-LOCAL SLOTS, in ONE place because two tests ask about
+        // exactly this set and both must keep meaning the set
+        // `CommandDispatch::BindPBRTextures` skips when
+        // `Shader::ReadsMaterialHeapOffsets()` is true. Named from
+        // ShaderBindingLayout rather than written out, so if the set moves it moves
+        // here too; kept out of the tests themselves so the two cannot drift apart
+        // and leave one of them measuring a slot it was not written for.
+        // (TEX_SPECULAR is repurposed as metallic-roughness on the PBR families.)
+        const std::set<u32>& MaterialLocalSlots()
+        {
+            static const std::set<u32> s_Slots{
+                ShaderBindingLayout::TEX_DIFFUSE,
+                ShaderBindingLayout::TEX_SPECULAR,
+                ShaderBindingLayout::TEX_NORMAL,
+                ShaderBindingLayout::TEX_AMBIENT,
+                ShaderBindingLayout::TEX_EMISSIVE,
+            };
+            return s_Slots;
+        }
+
         [[nodiscard]] bool SlotAlwaysReceivesARealBind(u32 binding)
         {
             return
@@ -1233,13 +1253,6 @@ void main()
         ASSERT_TRUE(fs::exists(includeRoot)) << "include root not found: " << includeRoot.string();
 
         constexpr std::string_view kToken = ShaderSourceScan::kVulkanMaterialHeapReaderToken;
-        static const std::set<u32> kMaterialLocalSlots{
-            ShaderBindingLayout::TEX_DIFFUSE,
-            ShaderBindingLayout::TEX_SPECULAR,
-            ShaderBindingLayout::TEX_NORMAL,
-            ShaderBindingLayout::TEX_AMBIENT,
-            ShaderBindingLayout::TEX_EMISSIVE,
-        };
 
         // A "material stage body": a shared header that DECLARES one of the five.
         // Found rather than named, so the rule keeps holding as the tree moves.
@@ -1258,7 +1271,7 @@ void main()
                 ActiveSamplerDeclarations(text, +[](const std::string&)
                                                 { return false; }),
                 [](const SamplerDecl& d)
-                { return kMaterialLocalSlots.contains(d.Binding); });
+                { return MaterialLocalSlots().contains(d.Binding); });
             if (declaresFive)
             {
                 stageBodies.insert(entry.path().lexically_normal().string());
@@ -1378,16 +1391,6 @@ void main()
         const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
         ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
 
-        // The set CommandDispatch::BindPBRTextures withholds when
-        // Shader::ReadsMaterialHeapOffsets() is true.
-        static const std::set<u32> kMaterialLocalSlots{
-            ShaderBindingLayout::TEX_DIFFUSE,
-            ShaderBindingLayout::TEX_SPECULAR,
-            ShaderBindingLayout::TEX_NORMAL,
-            ShaderBindingLayout::TEX_AMBIENT,
-            ShaderBindingLayout::TEX_EMISSIVE,
-        };
-
         std::vector<std::string> offenders;
         std::vector<std::string> unresolved;
         u32 onArm = 0;
@@ -1429,7 +1432,7 @@ void main()
 
             for (const SamplerDecl& decl : ActiveSamplerDeclarations(resolved, &MentionsVulkanMaterialHeapArm))
             {
-                if (!kMaterialLocalSlots.contains(decl.Binding))
+                if (!MaterialLocalSlots().contains(decl.Binding))
                 {
                     continue;
                 }
