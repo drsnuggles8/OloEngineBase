@@ -106,6 +106,157 @@ namespace OloEngine::PathTracing
         return glm::mix(glm::mix(t00, t10, fx), glm::mix(t01, t11, fx), fy);
     }
 
+    // =========================================================================
+    // ReferenceEnvironmentCubemap
+    // =========================================================================
+
+    ReferenceEnvironmentCubemap ReferenceEnvironmentCubemap::FromFacesRgba32F(u32 faceSize, std::span<const f32> rgbaFaces)
+    {
+        ReferenceEnvironmentCubemap cube;
+        const sizet needed = static_cast<sizet>(kFaceCount) * faceSize * faceSize * 4u;
+        if (faceSize == 0 || rgbaFaces.size() < needed)
+            return cube;
+        cube.FaceSize = faceSize;
+        cube.Texels.resize(static_cast<sizet>(kFaceCount) * faceSize * faceSize);
+        for (sizet i = 0; i < cube.Texels.size(); ++i)
+        {
+            // A non-finite or negative texel is dropped to zero rather than
+            // carried into the integrator: one NaN in a sky would poison every
+            // baked texel in the scene, and an .hdr with a stray negative is a
+            // real thing. Clamping here rather than at every escape keeps the
+            // hot path branch-free.
+            const f32 r = rgbaFaces[i * 4 + 0];
+            const f32 g = rgbaFaces[i * 4 + 1];
+            const f32 b = rgbaFaces[i * 4 + 2];
+            cube.Texels[i] = glm::vec3(std::isfinite(r) && r > 0.0f ? r : 0.0f, std::isfinite(g) && g > 0.0f ? g : 0.0f,
+                                       std::isfinite(b) && b > 0.0f ? b : 0.0f);
+        }
+        return cube;
+    }
+
+    ReferenceEnvironmentCubemap ReferenceEnvironmentCubemap::Constant(const glm::vec3& radiance)
+    {
+        ReferenceEnvironmentCubemap cube;
+        cube.FaceSize = 1;
+        // The SAME guard FromFacesRgba32F applies, and for the same reason: a
+        // NaN here would otherwise pass IsValid(), sail past the builder's
+        // malformed-cubemap fallback, and NaN every texel of the atlas. A
+        // constructor that validates one way in and not the other is a hole
+        // whose only symptom is a poisoned bake.
+        const auto clean = [](f32 c)
+        { return std::isfinite(c) && c > 0.0f ? c : 0.0f; };
+        cube.Texels.assign(kFaceCount, glm::vec3(clean(radiance.x), clean(radiance.y), clean(radiance.z)));
+        return cube;
+    }
+
+    glm::vec3 ReferenceEnvironmentCubemap::Sample(const glm::vec3& direction) const
+    {
+        if (!IsValid())
+            return glm::vec3(0.0f);
+        if (!std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z))
+            return glm::vec3(0.0f);
+
+        const glm::vec3 a(std::abs(direction.x), std::abs(direction.y), std::abs(direction.z));
+        const f32 ma = std::max({ a.x, a.y, a.z });
+        if (!(ma > 0.0f))
+            return glm::vec3(0.0f);
+
+        // The GL cubemap face table, verbatim (OpenGL 4.6 spec, table 8.19).
+        // `sc`/`tc` are the coordinates within the face and `ma` the major
+        // axis' magnitude; s and t are (coord/ma + 1) / 2.
+        u32 face = 0;
+        f32 sc = 0.0f;
+        f32 tc = 0.0f;
+        if (a.x >= a.y && a.x >= a.z)
+        {
+            if (direction.x > 0.0f)
+            {
+                face = 0; // +X
+                sc = -direction.z;
+                tc = -direction.y;
+            }
+            else
+            {
+                face = 1; // -X
+                sc = direction.z;
+                tc = -direction.y;
+            }
+        }
+        else if (a.y >= a.z)
+        {
+            if (direction.y > 0.0f)
+            {
+                face = 2; // +Y
+                sc = direction.x;
+                tc = direction.z;
+            }
+            else
+            {
+                face = 3; // -Y
+                sc = direction.x;
+                tc = -direction.z;
+            }
+        }
+        else
+        {
+            if (direction.z > 0.0f)
+            {
+                face = 4; // +Z
+                sc = direction.x;
+                tc = -direction.y;
+            }
+            else
+            {
+                face = 5; // -Z
+                sc = -direction.x;
+                tc = -direction.y;
+            }
+        }
+
+        const f32 s = 0.5f * (sc / ma + 1.0f);
+        const f32 t = 0.5f * (tc / ma + 1.0f);
+
+        // Bilinear with CLAMP at the face borders — no seam filtering, on
+        // purpose (see the header). Texel centres at (i + 0.5) / size.
+        const f32 x = s * static_cast<f32>(FaceSize) - 0.5f;
+        const f32 y = t * static_cast<f32>(FaceSize) - 0.5f;
+        const f32 x0f = std::floor(x);
+        const f32 y0f = std::floor(y);
+        const f32 fx = x - x0f;
+        const f32 fy = y - y0f;
+        const auto clampIndex = [this](f32 index) -> u32
+        {
+            const f32 clamped = std::clamp(index, 0.0f, static_cast<f32>(FaceSize - 1u));
+            return static_cast<u32>(clamped);
+        };
+        const u32 ix0 = clampIndex(x0f);
+        const u32 ix1 = clampIndex(x0f + 1.0f);
+        const u32 iy0 = clampIndex(y0f);
+        const u32 iy1 = clampIndex(y0f + 1.0f);
+
+        const sizet faceBase = static_cast<sizet>(face) * FaceSize * FaceSize;
+        // All four taps are the same texel — a 1x1 face, or a coordinate that
+        // clamped into a corner. Returning it directly is not an optimisation:
+        // `mix(v, v, a)` is `v * (1 - a) + v * a`, which is v mathematically
+        // and up to an ulp off in f32. The reduction "a constant cubemap
+        // behaves exactly like the uniform environment" is asserted bit-exactly
+        // (ReferenceEnvironment.ConstantCubemapEvaluatesLikeTheUniformEnvironment)
+        // and this is what makes that true rather than nearly true.
+        if (ix0 == ix1 && iy0 == iy1)
+            return Texels[faceBase + static_cast<sizet>(iy0) * FaceSize + ix0];
+
+        const glm::vec3& t00 = Texels[faceBase + static_cast<sizet>(iy0) * FaceSize + ix0];
+        const glm::vec3& t10 = Texels[faceBase + static_cast<sizet>(iy0) * FaceSize + ix1];
+        const glm::vec3& t01 = Texels[faceBase + static_cast<sizet>(iy1) * FaceSize + ix0];
+        const glm::vec3& t11 = Texels[faceBase + static_cast<sizet>(iy1) * FaceSize + ix1];
+        return glm::mix(glm::mix(t00, t10, fx), glm::mix(t01, t11, fx), fy);
+    }
+
+    glm::vec3 ReferenceEnvironment::Evaluate(const glm::vec3& direction) const
+    {
+        return Intensity * (Cubemap ? Cubemap->Sample(direction) : Radiance);
+    }
+
     bool ReferenceGeometry::GetTriangleVertices(u32 triangleIndex, u32& i0, u32& i1, u32& i2) const
     {
         const sizet base = static_cast<sizet>(triangleIndex) * 3;

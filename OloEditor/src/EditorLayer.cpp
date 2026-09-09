@@ -67,6 +67,7 @@
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+#include "OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 #include "OloEngine/Scene/SceneLightmap.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
@@ -5980,9 +5981,30 @@ namespace OloEngine
         // MeshComponent to match, so the old predicate would have baked those
         // surfaces against a world they were missing from — no occlusion, no
         // bounce, and nothing to say so.
+        // The bake takes the RICHER population (issue #869, ADR 0022): albedo
+        // and friends sampled from the materials' own maps, and the scene's
+        // sky as a real directional environment. Both are captured HERE, on
+        // the GL thread, because both are readbacks — the background stage
+        // that follows touches no GPU. A parity fixture would leave both out;
+        // a bake's output is consumed rather than compared, so it takes them.
         PathTracing::ReferenceSceneBuilder builder;
         builder.AddLightmapReceivers(*scene, receivers);
-        auto world = std::make_shared<PathTracing::ReferenceScene>(builder.Build(PathTracing::ReferenceSceneBuildOptions{}));
+
+        PathTracing::ReferenceTextureCaptor captor;
+        const PathTracing::CapturedSky sky = PathTracing::CaptureSceneSky(*scene);
+
+        PathTracing::ReferenceSceneBuildOptions buildOptions;
+        buildOptions.MaterialMapProvider = captor.MakeMaterialMapProvider();
+        buildOptions.EnvironmentCubemap = sky.Cubemap;
+        buildOptions.EnvironmentIntensity = sky.Intensity;
+        auto world = std::make_shared<PathTracing::ReferenceScene>(builder.Build(buildOptions));
+
+        // Say what the bake will actually trace. A slot that failed to read
+        // back bakes factor-only and a missing sky bakes with no sky bounce;
+        // both are quiet fidelity changes that read as transport bugs later.
+        OLO_CORE_INFO("Lightmap bake reference world: {} material texture(s) captured, {} unreadable, sky {}",
+                      captor.GetStats().Captured, captor.GetStats().Failed,
+                      sky.Cubemap ? "captured" : "absent (no sky bounce in this bake)");
 
         // ── Stage 2 in the background: the texel bake reads only `prepared`
         // and `world`, both frozen from here on ──

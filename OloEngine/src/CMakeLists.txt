@@ -557,6 +557,8 @@
 		"OloEngine/Renderer/PathTracing/ReferenceScene.h"
 		"OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.cpp"
 		"OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
+		"OloEngine/Renderer/PathTracing/ReferenceTextureCapture.cpp"
+		"OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 		"OloEngine/Renderer/Baking/LightmapBaker.cpp"
 		"OloEngine/Renderer/Baking/LightmapBaker.h"
 		"OloEngine/Renderer/Baking/LightmapUnwrap.cpp"
@@ -1726,6 +1728,7 @@
 		# GPUResourceInspector's GL machinery (ADR 0011 s1.6 relocation).
 		"Platform/OpenGL/OpenGLResourceInspectorBackend.cpp"
 		"Platform/OpenGL/OpenGLResourceInspectorBackend.h"
+		"Platform/OpenGL/OpenGLPixelStoreGuard.h"
 		"Platform/OpenGL/OpenGLTexture.cpp"
 		"Platform/OpenGL/OpenGLTexture.h"
 		"Platform/OpenGL/OpenGLTextureCubemap.cpp"

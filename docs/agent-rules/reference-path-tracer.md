@@ -28,7 +28,30 @@ Read this before validating a GI / lighting / BRDF change against it, and before
   (geometry + BVH, instances with a top-level BVH, punctual lights, emissive geometry, a uniform
   environment) so a fixture is twenty lines and every consumer runs headless.
 - **`PathTracer`** is a unidirectional integrator with next-event estimation, power-heuristic MIS,
-  Russian roulette and a uniform environment.
+  Russian roulette and an environment collected on ray escape.
+- **The scene description may be richer than a fixture, but the SAMPLING MODEL is the reference's
+  own** ([ADR 0022](../adr/0022-reference-tracer-owns-its-sampling-model.md), issue #869). Materials
+  carry albedo / metallic-roughness / normal / emissive maps and the environment may be a sky
+  cubemap; both are sampled at **level 0** with the reference's own filter, never through the
+  raster's mip chain, anisotropy or wrap state. That is not a compromise: a path tracer's hit points
+  are already spread over the surface, so level-0 sampling converges to the footprint-averaged
+  albedo while a mip lookup would pre-average it a second time. Declining the mip chain is what
+  keeps a raster *filtering* bug visible as raster-vs-reference divergence.
+
+  **Whether a given scene has any of that is the caller's choice, and the default is no.**
+  `ReferenceSceneBuildOptions::MaterialMapProvider` and `::EnvironmentCubemap` both default to
+  absent, and absent traces the factor-only, uniform-environment world
+  (`LightmapSkyAndTextureBake.AProviderThatSuppliesNoMapsChangesNothingBitForBit` pins the hook
+  itself as a memcmp-exact no-op). A build that will be COMPARED against a raster path leaves them
+  absent — it must stay inside the subset both worlds express, or it starts measuring the scene
+  description instead of the transport. A BAKE, whose output is consumed rather than compared,
+  MAY take them — and does so only because its call site passes them, which is what lets the bake
+  tests still build the plain world when that is the thing being measured.
+
+  **The one thing that is NOT opt-in** is the material'''s glTF alpha mode, which the builder mirrors
+  either way. A cut-out material traced as a solid quad is a wrong occluder, not a dimmer one, and
+  catching that is worth more than an unqualified "nothing changed" claim. It is a no-op for an
+  opaque material, which is what every parity fixture here uses.
 
 ---
 
@@ -321,6 +344,24 @@ different BRDF than the renderer is not a reference.
 - **A furnace scene needs `MaxBounces >= 2`.** The environment is only collected when a ray
   *escapes*, so `MaxBounces == 1` (direct lighting only) renders a furnace pitch black. Conversely
   `MaxBounces == 1` is exactly how you get a direct-only reference to difference against.
+- **The environment is never next-event-estimated**, uniform or cubemap. That is unbiased for any
+  environment and low-variance only for a *smooth* one, which is what this engine puts there: the
+  sun is a `DirectionalLightComponent` and the cubemap is the ambient source, the same decomposition
+  the raster path uses. An environment carrying a concentrated emitter — a sun disc painted into an
+  HDRI — needs environment NEE and MIS before anything traced under it is evidence. Nothing warns
+  you; the image just converges slowly to a noisy answer that looks like a plausible bake.
+- **An 8-bit sky cubemap is LINEAR here, not sRGB.** `OpenGLTextureCubemap` creates face-path
+  cubemaps with `GL_RGB8` / `GL_RGBA8` internal formats, never the sRGB variants, so the skybox and
+  the IBL bake read those bytes as linear values — and the reference must match the raster path's
+  *light model*, so `CaptureEnvironmentCubemap` reads them the same way. Decoding sRGB there would
+  make every 8-bit sky darker in the bake than on screen: a convention divergence dressed up as a
+  transport result. Material textures are the opposite case and for the same reason — they DO carry
+  an `SRGB` specification flag, the GPU picks an sRGB internal format from it, and a readback hands
+  back the *stored* bytes undecoded, so `ReferenceTexture::FromRgba8` applies the EOTF itself.
+- **A texture that cannot be read back bakes factor-only, and that is counted, not shrugged off.**
+  Block-compressed maps (a BC7 albedo out of a packed asset) cannot be read back at all;
+  `ReferenceTextureCaptor::GetStats().Failed` tallies them and both bake buttons log the count.
+  A silent fall-through here is exactly the kind of thing that reads as a transport bug weeks later.
 - **The emitter's winding decides whether the room is lit.** `AddQuadGeometry` derives the normal
   from `cross(p1-p0, p2-p0)`, and a one-sided emitter facing the wrong way renders a completely
   black scene — which reads as an integrator bug. The fixture helpers in

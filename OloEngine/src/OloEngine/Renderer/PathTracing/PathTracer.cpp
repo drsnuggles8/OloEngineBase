@@ -537,9 +537,12 @@ namespace OloEngine::PathTracing
 
             if (!hitGeometry)
             {
-                // The environment is uniform and is never NEE-sampled, so it
-                // always arrives at full weight.
-                radiance += throughput * scene.GetEnvironment().Radiance;
+                // The environment — uniform, or the scene's sky cubemap — is
+                // never NEE-sampled, so it always arrives at full weight. That
+                // is unbiased for any environment and low-variance only for a
+                // smooth one; ReferenceEnvironmentCubemap's header says what
+                // that costs and when it stops being enough.
+                radiance += throughput * scene.GetEnvironment().Evaluate(ray.Direction);
                 break;
             }
 

@@ -45,6 +45,7 @@
 
 #include "ReferenceSceneFixtures.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
@@ -684,6 +685,33 @@ namespace OloEngine::Tests
                 case RigScene::Plain:
                     rig.Fixture = MakeCornellBoxScene(18.0f, PBRModel::ClosureV2);
                     break;
+            }
+            // The GPU tracer's environment is a single uniform radiance
+            // (OloPtParams::Environment.xyz reads GetEnvironment().Radiance
+            // below), so a fixture carrying a DIRECTIONAL sky would have the
+            // two tracers integrating different worlds while this test kept
+            // reporting parity — the silent-fallback failure ADR 0022 §5
+            // forbids. Checked once, here, rather than per frame.
+            if (rig.Fixture.Scene.GetEnvironment().IsDirectional())
+            {
+                ADD_FAILURE() << "this fixture has a sky cubemap, which the GPU path tracer cannot "
+                                 "represent — the two sides would trace different environments and "
+                                 "'parity' would mean nothing";
+                return false;
+            }
+            // Intensity is the other half of the same hole. The CPU side reads
+            // the environment through Evaluate(), which returns
+            // Intensity * Radiance; the upload below takes Radiance RAW. At the
+            // default 1.0 those agree, and at anything else they silently do
+            // not — which is exactly the divergence the check above exists to
+            // stop, arriving through the field nobody thinks to look at.
+            if (!Math::BitwiseEqual(rig.Fixture.Scene.GetEnvironment().Intensity, 1.0f))
+            {
+                ADD_FAILURE() << "this fixture scales its environment by "
+                              << rig.Fixture.Scene.GetEnvironment().Intensity
+                              << ", which the GPU upload below does not apply — teach it to, or the two "
+                                 "sides trace different environments";
+                return false;
             }
             if (!BuildTwin(rig.Fixture, rig.Twin))
             {
