@@ -230,10 +230,21 @@ namespace OloEngine::Automation
         {
             return AutomationResult::Error(std::string("Tool failed: ") + e.what());
         }
+        catch (...)
+        {
+            // A handler is an arbitrary callable — a Lua bridge, a proxy to another
+            // process, a native lambda — and nothing stops one throwing something
+            // that does not derive from std::exception. This is the boundary that
+            // promised to turn any throw into a command error, so it has to mean
+            // ANY: letting one escape would unwind out of a transport worker thread
+            // and take the process with it.
+            return AutomationResult::Error("Tool failed: handler threw a non-standard exception");
+        }
     }
 
     AutomationInvocation AutomationRegistry::Invoke(IAutomationHost& host, const std::string& name,
-                                                    const Json& arguments) const
+                                                    const Json& arguments,
+                                                    AutomationWriteConsent consent) const
     {
         // Pin the snapshot for the whole invocation, exactly as the MCP adapter does:
         // a concurrent script reload may swap the registry while the handler runs, and
@@ -260,6 +271,19 @@ namespace OloEngine::Automation
         {
             outcome.Outcome = AutomationInvocation::Status::NoHandler;
             outcome.Message = "Tool '" + name + "' has no handler.";
+            return outcome;
+        }
+
+        // The authority class, enforced at the only door that does not have a
+        // transport in front of it. The registry does not ask the human anything —
+        // it cannot, it has no UI and no session — so it refuses unless the caller
+        // states it already did. See AutomationWriteConsent.
+        if (command->ProjectWrite && consent != AutomationWriteConsent::Granted)
+        {
+            outcome.Outcome = AutomationInvocation::Status::WriteConsentWithheld;
+            outcome.Message = "Tool '" + name +
+                              "' mutates the project and was invoked without write consent. Obtain the user's "
+                              "consent and pass AutomationWriteConsent::Granted.";
             return outcome;
         }
 

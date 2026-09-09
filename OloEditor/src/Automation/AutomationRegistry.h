@@ -30,6 +30,23 @@
 
 namespace OloEngine::Automation
 {
+    // Whether the CALLER has obtained the user's consent for a project-mutating
+    // command on this invocation.
+    //
+    // A ProjectWrite command mutates the user's project, and the decision to allow
+    // that belongs to whatever is facing the human — under MCP, the session
+    // write-consent mode and its modal. The registry has no consent model of its
+    // own and must not invent one (#1123 leaves the consent model exactly as it
+    // was), but it must not be a way AROUND the one that exists either. So Invoke
+    // default-denies: a caller that has not thought about consent gets a clean
+    // refusal instead of a silent mutation, and one that has says so at the call
+    // site, where a reader can see it.
+    enum class AutomationWriteConsent : u8
+    {
+        Withheld = 0, // a ProjectWrite command is refused. The default.
+        Granted,      // the caller has already obtained consent for THIS call.
+    };
+
     // Outcome of running one command through the registry. The MCP adapter does
     // NOT go through this — it needs to distinguish a protocol error from a
     // command error, and it interleaves the consent gate and the cancellation
@@ -39,11 +56,12 @@ namespace OloEngine::Automation
     {
         enum class Status : u8
         {
-            Ok = 0,           // the handler ran; Result is what it returned (which may itself be an error).
-            UnknownCommand,   // no command of that name is registered.
-            Unavailable,      // registered, but its availability predicate said no on this host.
-            NoHandler,        // registered with a null handler — a registration bug, never a runtime condition.
-            InvalidArguments, // `arguments` did not satisfy the declared InputSchema.
+            Ok = 0,               // the handler ran; Result is what it returned (which may itself be an error).
+            UnknownCommand,       // no command of that name is registered.
+            Unavailable,          // registered, but its availability predicate said no on this host.
+            NoHandler,            // registered with a null handler — a registration bug, never a runtime condition.
+            InvalidArguments,     // `arguments` did not satisfy the declared InputSchema.
+            WriteConsentWithheld, // a ProjectWrite command, and the caller did not assert consent.
         };
 
         Status Outcome = Status::UnknownCommand;
@@ -141,8 +159,12 @@ namespace OloEngine::Automation
         // InputSchema, honours its availability predicate, and turns a handler that
         // throws into a command-level error result — the same three things the MCP
         // adapter does, because it calls RunHandler() below for the last of them.
-        [[nodiscard]] AutomationInvocation Invoke(IAutomationHost& host, const std::string& name,
-                                                  const nlohmann::json& arguments) const;
+        //
+        // A ProjectWrite command is REFUSED unless `consent` is Granted; see
+        // AutomationWriteConsent for why the default is deny.
+        [[nodiscard]] AutomationInvocation Invoke(
+            IAutomationHost& host, const std::string& name, const nlohmann::json& arguments,
+            AutomationWriteConsent consent = AutomationWriteConsent::Withheld) const;
 
         // Run `command`'s handler, converting an escaping exception into an error
         // result. The single place a handler is entered, so the registry path and the

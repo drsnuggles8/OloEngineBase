@@ -48,6 +48,7 @@ using OloEngine::Automation::AutomationCommand;
 using OloEngine::Automation::AutomationInvocation;
 using OloEngine::Automation::AutomationRegistry;
 using OloEngine::Automation::AutomationResult;
+using OloEngine::Automation::AutomationWriteConsent;
 using OloEngine::Automation::IAutomationHost;
 
 namespace
@@ -203,6 +204,56 @@ TEST(McpAutomationRegistry, ArgumentsAreValidatedAgainstTheDeclaredInputSchema)
     EXPECT_EQ(wrongType.Outcome, AutomationInvocation::Status::InvalidArguments);
 }
 
+// ---- the authority class, at the door with no transport in front of it ------
+
+TEST(McpAutomationRegistry, AProjectWriteCommandIsRefusedWhenTheCallerAssertsNoConsent)
+{
+    AutomationCommand writer = MakeEchoCommand("olo_fake_write");
+    writer.ProjectWrite = true;
+    bool ran = false;
+    writer.Handler = [&ran](IAutomationHost&, const Json&)
+    {
+        ran = true;
+        return AutomationResult::Text("mutated");
+    };
+
+    AutomationRegistry registry;
+    registry.Register(std::move(writer));
+
+    HeadlessHost host;
+    const AutomationInvocation outcome = registry.Invoke(host, "olo_fake_write", Json{ { "text", "x" } });
+
+    EXPECT_EQ(outcome.Outcome, AutomationInvocation::Status::WriteConsentWithheld);
+    EXPECT_FALSE(ran) << "the handler must not run: the registry has no way to ask the human";
+}
+
+TEST(McpAutomationRegistry, AProjectWriteCommandRunsWhenTheCallerAssertsConsent)
+{
+    AutomationCommand writer = MakeEchoCommand("olo_fake_write");
+    writer.ProjectWrite = true;
+
+    AutomationRegistry registry;
+    registry.Register(std::move(writer));
+
+    HeadlessHost host;
+    const AutomationInvocation outcome =
+        registry.Invoke(host, "olo_fake_write", Json{ { "text", "x" } }, AutomationWriteConsent::Granted);
+
+    ASSERT_TRUE(outcome.Ran()) << outcome.Message;
+    EXPECT_EQ(outcome.Result.StructuredContent["echo"], "x");
+}
+
+TEST(McpAutomationRegistry, AReadOnlyCommandNeedsNoConsent)
+{
+    AutomationRegistry registry;
+    registry.Register(MakeEchoCommand());
+
+    HeadlessHost host;
+    // The default argument, i.e. what a caller that never thought about writes gets.
+    const AutomationInvocation outcome = registry.Invoke(host, "olo_fake_echo", Json{ { "text", "x" } });
+    EXPECT_TRUE(outcome.Ran()) << outcome.Message;
+}
+
 TEST(McpAutomationRegistry, AHandlerThatThrowsBecomesAnErrorResultNotAnEscapingException)
 {
     AutomationCommand boom = MakeEchoCommand("olo_fake_boom");
@@ -221,6 +272,26 @@ TEST(McpAutomationRegistry, AHandlerThatThrowsBecomesAnErrorResultNotAnEscapingE
     ASSERT_TRUE(outcome.Result.Content.is_array());
     ASSERT_FALSE(outcome.Result.Content.empty());
     EXPECT_NE(outcome.Result.Content[0]["text"].get<std::string>().find("kaboom"), std::string::npos);
+}
+
+TEST(McpAutomationRegistry, AHandlerThatThrowsANonStandardExceptionAlsoBecomesAnErrorResult)
+{
+    // A handler is an arbitrary callable, and nothing makes it throw something
+    // derived from std::exception. Letting one escape would unwind out of a
+    // transport worker thread; this boundary promised ANY throw, so it must mean it.
+    AutomationCommand boom = MakeEchoCommand("olo_fake_boom");
+    boom.InputSchema = Json{ { "type", "object" } };
+    boom.Handler = [](IAutomationHost&, const Json&) -> AutomationResult
+    { throw 42; };
+
+    AutomationRegistry registry;
+    registry.Register(std::move(boom));
+
+    HeadlessHost host;
+    AutomationInvocation outcome;
+    ASSERT_NO_THROW(outcome = registry.Invoke(host, "olo_fake_boom", Json::object()));
+    ASSERT_TRUE(outcome.Ran());
+    EXPECT_TRUE(outcome.Result.IsError);
 }
 
 // ---- the availability predicate ---------------------------------------------
