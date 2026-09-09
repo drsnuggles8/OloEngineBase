@@ -390,6 +390,25 @@ namespace OloEngine
             return s_RendererAPI && s_RendererAPI->SubmitRenderGraphFenceSegment();
         }
 
+        // Async compute batches (issue #808) — see RendererAPI. Begin returns
+        // false whenever the batch stays on the graphics queue, which every
+        // caller must be able to take.
+        [[nodiscard]] static bool BeginAsyncComputeBatch(u32 batchIndex)
+        {
+            return s_RendererAPI && s_RendererAPI->BeginAsyncComputeBatch(batchIndex);
+        }
+        static void EndAsyncComputeBatch(u32 batchIndex)
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->EndAsyncComputeBatch(batchIndex);
+            }
+        }
+        [[nodiscard]] static RendererAPI::AsyncComputeFrameStats GetAsyncComputeStats()
+        {
+            return s_RendererAPI ? s_RendererAPI->GetAsyncComputeStats() : RendererAPI::AsyncComputeFrameStats{};
+        }
+
         // Parallel command recording (issue #806) — see RendererAPI::RecordParallel.
         [[nodiscard]] static bool SupportsParallelRecording()
         {

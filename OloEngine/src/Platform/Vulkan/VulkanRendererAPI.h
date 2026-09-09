@@ -357,6 +357,52 @@ namespace OloEngine
         void IssueBarrierBatch(MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers) override;
         [[nodiscard]] bool SupportsRenderGraphFenceSubmission() const override;
         [[nodiscard]] bool SubmitRenderGraphFenceSegment() override;
+
+        // --- Async compute batches (issue #808) --------------------------
+        // The facade half; VulkanContext owns the command buffers, the
+        // submits and the timeline semaphore, because that is where the frame
+        // slot and the swapchain acquire semaphore live (the same division as
+        // SubmitRenderGraphFenceSegment).
+        [[nodiscard]] bool BeginAsyncComputeBatch(u32 batchIndex) override;
+        void EndAsyncComputeBatch(u32 batchIndex) override;
+        [[nodiscard]] AsyncComputeFrameStats GetAsyncComputeStats() const override;
+
+        // Backend-internal, driven by VulkanContext around the queue switch.
+        //
+        // A region is open for exactly the span of one async batch. While it
+        // is, IssueBarrierBatch turns the FIRST barrier it issues for each
+        // resource into a queue-family ownership PAIR: the release half goes
+        // into `releaseCmd` — the graphics command buffer, parked open by the
+        // context precisely so it has somewhere to go — and the acquire half
+        // into the live (compute) one. Later barriers for the same resource
+        // are ordinary same-queue barriers.
+        void BeginQueueOwnershipRegion(VkCommandBuffer releaseCmd, u32 fromFamily, u32 toFamily);
+        // Mirror every transfer back: release each resource to `fromFamily` on
+        // the LIVE (compute) command buffer and stash the matching acquires.
+        // Call before the compute buffer is ended.
+        void EndQueueOwnershipRegionReleases();
+        // Record the stashed acquires. Call after recording has resumed on the
+        // fresh graphics command buffer. Leaves no region open.
+        void RecordPendingQueueOwnershipAcquires();
+        // Counted decline, with the reason (a string literal). This is what
+        // keeps "the batch stayed on graphics" from being a silent no-op.
+        void NoteAsyncComputeBatchDeclined(std::string_view reason);
+        // Tell the render thread's recording context which queue family its
+        // command buffer belongs to. TRUE makes every barrier recorded through
+        // it legal on a compute-only queue (see
+        // VulkanRecordingContext::RecordBarrier).
+        void SetRecordingOnComputeOnlyQueue(bool onComputeOnlyQueue)
+        {
+            m_Main.OnComputeOnlyQueue = onComputeOnlyQueue;
+        }
+
+      private:
+        // Turn the first barrier a batch issues for each resource into a
+        // queue-family ownership pair, in place. No-op outside a region.
+        void SplitOwnershipTransfersForRegion(std::vector<VkImageMemoryBarrier2>& imageBarriers,
+                                              std::vector<VkBufferMemoryBarrier2>& bufferBarriers);
+
+      public:
         void BindDefaultFramebuffer() override;
         void BlitFramebufferToDefault(RHI::ResourceHandle srcFramebuffer, u32 width, u32 height) override;
         void BindTexture(u32 slot, RHI::ResourceHandle texture) override;
@@ -676,6 +722,38 @@ namespace OloEngine
         // region joined) and a test reading after EndRecording both see this
         // frame's numbers.
         ParallelRecordingFrameStats m_ParallelStats{};
+
+        // --- Async compute (issue #808) ------------------------------------
+        // Reset at the NEXT BeginRecording, exactly like m_ParallelStats, so
+        // the profiler's EndFrame and a test reading after EndRecording both
+        // see this frame's numbers.
+        AsyncComputeFrameStats m_AsyncComputeStats{};
+
+        // One async batch's ownership bookkeeping. It lives only for the span
+        // of a batch, and that is the point: because EndQueueOwnershipRegion‐
+        // Releases mirrors every transfer back, ownership is ALWAYS with the
+        // graphics family outside a batch. There is no persistent owner map to
+        // keep correct across frames, swapchain recreation or device loss.
+        struct QueueOwnershipRegion
+        {
+            struct TransferredImage
+            {
+                VkImage Image = VK_NULL_HANDLE;
+                VkImageSubresourceRange Range{};
+            };
+
+            bool Active = false;
+            VkCommandBuffer ReleaseCmd = VK_NULL_HANDLE; ///< The parked graphics command buffer.
+            u32 FromFamily = 0;
+            u32 ToFamily = 0;
+            // Images only: buffers a compute dispatch can reach are
+            // created CONCURRENT and need no transfer (VulkanQueueSelection.h).
+            std::vector<TransferredImage> Images;
+        };
+        QueueOwnershipRegion m_OwnershipRegion;
+        // Built by EndQueueOwnershipRegionReleases, recorded by
+        // RecordPendingQueueOwnershipAcquires into the next graphics buffer.
+        std::vector<VkImageMemoryBarrier2> m_PendingOwnershipImageAcquires;
 
         [[nodiscard]] VulkanRecordingContext& Ctx()
         {

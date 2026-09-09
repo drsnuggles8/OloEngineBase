@@ -262,6 +262,10 @@ namespace OloEngine
         // The parallel recorder's tallies are per recording (#806); they stay
         // readable until the next bracket opens.
         m_ParallelStats = {};
+        // #808, same rule. `ResetForCommandBuffer` cleared ctx.Cmd's queue
+        // flag; a frame always starts on the graphics queue.
+        m_AsyncComputeStats = {};
+        ctx.OnComputeOnlyQueue = false;
         m_BackbufferWritten = false;
     }
 
@@ -420,7 +424,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
 
         VkBufferImageCopy region{};
         region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u };
@@ -506,7 +510,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
     }
 
     void VulkanRendererAPI::IssueBarrierBatch(const MemoryBarrierFlags flags, std::span<const RHI::Barrier> barriers)
@@ -716,12 +720,236 @@ namespace OloEngine
             dep.memoryBarrierCount = 1;
             dep.pMemoryBarriers = &globalBarrier;
         }
+        // #808. Inside an async-compute batch the resources this barrier names
+        // are still owned by the graphics family, so each one's FIRST barrier
+        // here has to become an ownership pair. Splitting happens after the
+        // barriers are fully built — one source of truth for the masks, the
+        // layouts and the ranges — and the release halves go into the parked
+        // graphics command buffer, which is submitted before the compute one.
+        SplitOwnershipTransfersForRegion(imageBarriers, bufferBarriers);
+
         dep.imageMemoryBarrierCount = static_cast<u32>(imageBarriers.size());
         dep.pImageMemoryBarriers = imageBarriers.empty() ? nullptr : imageBarriers.data();
         dep.bufferMemoryBarrierCount = static_cast<u32>(bufferBarriers.size());
         dep.pBufferMemoryBarriers = bufferBarriers.empty() ? nullptr : bufferBarriers.data();
 
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
+    }
+
+    // --- Async compute queue: ownership transfers (#808) ---------------------
+
+    void VulkanRendererAPI::SplitOwnershipTransfersForRegion(std::vector<VkImageMemoryBarrier2>& imageBarriers,
+                                                             std::vector<VkBufferMemoryBarrier2>& bufferBarriers)
+    {
+        if (!m_OwnershipRegion.Active)
+            return;
+
+        const u32 from = m_OwnershipRegion.FromFamily;
+        const u32 to = m_OwnershipRegion.ToFamily;
+
+        std::vector<VkImageMemoryBarrier2> releaseImages;
+
+        // Same-subresource-range equality; VkImageSubresourceRange has no
+        // operator== and the aspect is fixed per image here.
+        const auto sameRange = [](const VkImageSubresourceRange& a, const VkImageSubresourceRange& b)
+        {
+            return a.baseMipLevel == b.baseMipLevel && a.levelCount == b.levelCount &&
+                   a.baseArrayLayer == b.baseArrayLayer && a.layerCount == b.layerCount;
+        };
+
+        for (auto& barrier : imageBarriers)
+        {
+            // Transfers are tracked per (image, RANGE), not per image. The
+            // caller has already split this batch into runs of equal layout,
+            // and each half of a transfer pair must state the layout its range
+            // really is in: widening one run's barrier to the whole image
+            // claims that run's layout for every other mip, which the
+            // validation layers reject the moment the mips disagree (a
+            // freshly-cleared mip 0 beside UNDEFINED mips 1..n is the case
+            // that found this). The mirror at batch end re-queries the
+            // tracker over the same ranges, so the two stay in step.
+            const bool alreadyTransferred = std::ranges::any_of(
+                m_OwnershipRegion.Images,
+                [&](const QueueOwnershipRegion::TransferredImage& entry)
+                { return entry.Image == barrier.image && sameRange(entry.Range, barrier.subresourceRange); });
+            if (alreadyTransferred)
+                continue;
+
+            const auto pair = VulkanBarrierLowering::SplitImageOwnershipTransfer(barrier, from, to);
+            releaseImages.push_back(pair.Release);
+            m_OwnershipRegion.Images.push_back({ barrier.image, barrier.subresourceRange });
+            barrier = pair.Acquire;
+            ++m_AsyncComputeStats.OwnershipTransfers;
+        }
+
+        // Buffers get NO ownership transfer, deliberately: every buffer a
+        // compute dispatch can reach is created CONCURRENT over the two
+        // families (VulkanQueueSelection.h explains why that is forced rather
+        // than chosen), and naming queue families in a barrier for a CONCURRENT
+        // resource is invalid usage
+        // (VUID-VkBufferMemoryBarrier2-buffer-04089). Their ordinary
+        // same-queue barrier below is complete on its own.
+        static_cast<void>(bufferBarriers);
+
+        if (releaseImages.empty())
+            return;
+
+        // Straight into the parked graphics buffer: a release half carries the
+        // graphics producer's source scope and an EMPTY destination scope, so
+        // it is legal on the graphics queue by construction and needs none of
+        // RecordBarrier's compute-queue clamping (which reads ctx.Cmd anyway).
+        VkDependencyInfo releaseDep{};
+        releaseDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        releaseDep.imageMemoryBarrierCount = static_cast<u32>(releaseImages.size());
+        releaseDep.pImageMemoryBarriers = releaseImages.data();
+        vkCmdPipelineBarrier2(m_OwnershipRegion.ReleaseCmd, &releaseDep);
+    }
+
+    void VulkanRendererAPI::BeginQueueOwnershipRegion(const VkCommandBuffer releaseCmd, const u32 fromFamily,
+                                                      const u32 toFamily)
+    {
+        OLO_CORE_ASSERT(!m_OwnershipRegion.Active, "Nested queue-family ownership regions");
+        m_OwnershipRegion.Active = true;
+        m_OwnershipRegion.ReleaseCmd = releaseCmd;
+        m_OwnershipRegion.FromFamily = fromFamily;
+        m_OwnershipRegion.ToFamily = toFamily;
+        m_OwnershipRegion.Images.clear();
+        m_PendingOwnershipImageAcquires.clear();
+    }
+
+    void VulkanRendererAPI::EndQueueOwnershipRegionReleases()
+    {
+        if (!m_OwnershipRegion.Active)
+            return;
+
+        auto& ctx = Ctx();
+        // The region's transfers, mirrored. Layouts are read from the tracker
+        // NOW — a resource the batch acquired as SHADER_READ_ONLY may have been
+        // written since — and the same value is used for both halves, so the
+        // pair states no transition at all: this hands ownership back, nothing
+        // else. Whatever the next graphics consumer needs is then an ordinary
+        // same-queue barrier.
+        std::vector<VkImageMemoryBarrier2> releaseImages;
+        const u32 from = m_OwnershipRegion.ToFamily; // giving it back
+        const u32 to = m_OwnershipRegion.FromFamily;
+
+        for (const auto& entry : m_OwnershipRegion.Images)
+        {
+            ctx.Tracker.ForEachLayoutRun(
+                entry.Image, entry.Range,
+                [&](const VkImageSubresourceRange& run, const VkImageLayout layout)
+                {
+                    VkImageMemoryBarrier2 barrier{};
+                    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                    // Conservative on purpose: this is once per resource at a
+                    // boundary that already costs a semaphore round trip, and
+                    // ALL_COMMANDS is legal on both families.
+                    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                    barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+                    barrier.oldLayout = layout;
+                    barrier.newLayout = layout;
+                    barrier.image = entry.Image;
+                    barrier.subresourceRange = run;
+                    const auto pair = VulkanBarrierLowering::SplitImageOwnershipTransfer(barrier, from, to);
+                    releaseImages.push_back(pair.Release);
+                    m_PendingOwnershipImageAcquires.push_back(pair.Acquire);
+                });
+        }
+        if (!releaseImages.empty())
+        {
+            // Into the LIVE (compute) buffer. A rendering scope cannot be open
+            // here — nothing draws on this queue — but EndRenderingScope is
+            // cheap and keeps the invariant local rather than assumed.
+            EndRenderingScope();
+            VkDependencyInfo releaseDep{};
+            releaseDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            releaseDep.imageMemoryBarrierCount = static_cast<u32>(releaseImages.size());
+            releaseDep.pImageMemoryBarriers = releaseImages.data();
+            ctx.RecordBarrier(releaseDep);
+        }
+
+        // The region is over for barrier-splitting purposes the moment the
+        // releases are recorded; only the stashed acquires remain.
+        m_OwnershipRegion.Active = false;
+        m_OwnershipRegion.ReleaseCmd = VK_NULL_HANDLE;
+        m_OwnershipRegion.Images.clear();
+    }
+
+    void VulkanRendererAPI::RecordPendingQueueOwnershipAcquires()
+    {
+        if (m_PendingOwnershipImageAcquires.empty())
+            return;
+
+        auto& ctx = Ctx();
+        if (ctx.Cmd == VK_NULL_HANDLE)
+        {
+            // Nothing can acquire what was released, which would leave the
+            // resources owned by a family the frame no longer records for.
+            // There is no recovery here, so say it loudly rather than dropping
+            // the barriers on the floor.
+            OLO_CORE_ERROR("[RHI/Vulkan] async compute: {} image ownership acquire(s) had no command buffer "
+                           "to record into — those images stay released to the compute family",
+                           m_PendingOwnershipImageAcquires.size());
+            m_PendingOwnershipImageAcquires.clear();
+            return;
+        }
+
+        EndRenderingScope();
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = static_cast<u32>(m_PendingOwnershipImageAcquires.size());
+        dep.pImageMemoryBarriers = m_PendingOwnershipImageAcquires.data();
+        ctx.RecordBarrier(dep);
+        m_PendingOwnershipImageAcquires.clear();
+    }
+
+    void VulkanRendererAPI::NoteAsyncComputeBatchDeclined(const std::string_view reason)
+    {
+        ++m_AsyncComputeStats.BatchesDeclined;
+        m_AsyncComputeStats.DeclineReason = reason;
+        // Warn once per process, not per frame: a device with no compute-only
+        // family would otherwise log this every frame forever.
+        static std::atomic<bool> s_Warned{ false };
+        if (!s_Warned.exchange(true, std::memory_order_relaxed))
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] async-compute batch stayed on the graphics queue ({}). "
+                          "Counted in AsyncComputeFrameStats::BatchesDeclined.",
+                          reason);
+        }
+    }
+
+    bool VulkanRendererAPI::BeginAsyncComputeBatch(const u32 batchIndex)
+    {
+        VulkanContext* context = VulkanContext::Get();
+        if (context == nullptr)
+        {
+            // Every headless fixture: a bare VulkanRendererAPI with no frame
+            // owner. Not a defect, but still counted.
+            NoteAsyncComputeBatchDeclined("no Vulkan frame context (headless recording)");
+            return false;
+        }
+        if (context->BeginAsyncComputeSegment(batchIndex))
+        {
+            ++m_AsyncComputeStats.BatchesOnComputeQueue;
+            return true;
+        }
+        NoteAsyncComputeBatchDeclined(context->GetAsyncComputeDeclineReason());
+        return false;
+    }
+
+    void VulkanRendererAPI::EndAsyncComputeBatch(const u32 batchIndex)
+    {
+        if (VulkanContext* context = VulkanContext::Get(); context != nullptr)
+        {
+            m_AsyncComputeStats.ComputeSubmits += context->EndAsyncComputeSegment(batchIndex) ? 1u : 0u;
+        }
+    }
+
+    RendererAPI::AsyncComputeFrameStats VulkanRendererAPI::GetAsyncComputeStats() const
+    {
+        return m_AsyncComputeStats;
     }
 
     bool VulkanRendererAPI::WriteBufferDeviceAddress(const RHI::ResourceHandle destination, const u32 destinationOffset,
@@ -878,7 +1106,7 @@ namespace OloEngine
         dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dependency.bufferMemoryBarrierCount = 1u;
         dependency.pBufferMemoryBarriers = &rootBarrier;
-        vkCmdPipelineBarrier2(ctx.Cmd, &dependency);
+        ctx.RecordBarrier(dependency);
 
         ctx.NextDrawRootDataAddress = rootAddress;
         return true;
@@ -972,7 +1200,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
         ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         if (aspect == RHI::TextureAspect::Color)
@@ -1056,7 +1284,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
         ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         // Designated init ACTIVATES the union's uint32 member — value-init
@@ -1095,9 +1323,9 @@ namespace OloEngine
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &global;
 
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
         vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), 0, VK_WHOLE_SIZE, std::bit_cast<u32>(value));
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
     }
 
     void VulkanRendererAPI::ClearBufferUInt(const RHI::ResourceHandle buffer, const u32 value, const u64 offset,
@@ -1127,10 +1355,10 @@ namespace OloEngine
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &global;
 
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
         // ~0ull is VK_WHOLE_SIZE, so the default covers the whole buffer.
         vkCmdFillBuffer(ctx.Cmd, reinterpret_cast<VkBuffer>(native), offset, size == ~0ull ? VK_WHOLE_SIZE : size, value);
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
     }
 
     // --- Debug labels / device queries -------------------------------------
@@ -1789,7 +2017,7 @@ namespace OloEngine
                     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                     dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
                     dep.pImageMemoryBarriers = toTransfer.data();
-                    vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+                    ctx.RecordBarrier(dep);
                     ctx.Tracker.SetLayout(pending.DepthArrayImage, range, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
                     VkClearDepthStencilValue clear{};
@@ -3466,7 +3694,7 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(barriers.size());
             dep.pImageMemoryBarriers = barriers.data();
-            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+            ctx.RecordBarrier(dep);
             for (const auto& b : barriers)
             {
                 ctx.Tracker.SetLayout(image, b.subresourceRange, target);
@@ -3586,7 +3814,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
 
         VkImageCopy region{};
         region.srcSubresource = { srcAspect, 0u, 0u, 1u };
@@ -3712,7 +3940,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
 
         // z means different things per dimensionality, and Vulkan checks it:
         // for a 3D image baseArrayLayer MUST be 0 and the slice is the copy's
@@ -3797,7 +4025,7 @@ namespace OloEngine
             restingDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             restingDep.imageMemoryBarrierCount = static_cast<u32>(toResting.size());
             restingDep.pImageMemoryBarriers = toResting.data();
-            vkCmdPipelineBarrier2(ctx.Cmd, &restingDep);
+            ctx.RecordBarrier(restingDep);
         }
         ctx.Tracker.SetLayout(dstImage, dstWholeRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         VulkanImageInfoRegistry::Get().SetInitialLayout(dstImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -4461,7 +4689,7 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
             dep.pImageMemoryBarriers = toTransfer.data();
-            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+            ctx.RecordBarrier(dep);
 
             VkImageCopy region{};
             region.srcSubresource = { aspectMask, 0u, 0u, 1u };
@@ -4705,7 +4933,7 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.memoryBarrierCount = 1;
             dep.pMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+            ctx.RecordBarrier(dep);
         };
         globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -4833,7 +5061,7 @@ namespace OloEngine
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.memoryBarrierCount = 1;
             dep.pMemoryBarriers = &barrier;
-            vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+            ctx.RecordBarrier(dep);
         };
         globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -5526,7 +5754,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
         dep.pImageMemoryBarriers = toTransfer.data();
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
 
         vkCmdCopyBufferToImage(ctx.Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
 
@@ -6316,7 +6544,7 @@ namespace OloEngine
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(ctx.Cmd, &dep);
+        ctx.RecordBarrier(dep);
     }
 
     // =========================================================================

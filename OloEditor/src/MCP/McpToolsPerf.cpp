@@ -342,6 +342,14 @@ namespace OloEngine::MCP
                         region.SelectionSeedMs, region.AttachmentPrepareMs, region.SampledImagePrepareMs, region.PipelineLookupMs,
                         region.FrontendPrepareMs });
                 }
+                // Async compute queue telemetry (#808), pulled from the same
+                // completed-frame record so it describes the same frame.
+                const RendererAPI::AsyncComputeFrameStats& ac = f.m_AsyncCompute;
+                totals.AsyncCompute.BatchesOnComputeQueue = ac.BatchesOnComputeQueue;
+                totals.AsyncCompute.BatchesDeclined = ac.BatchesDeclined;
+                totals.AsyncCompute.OwnershipTransfers = ac.OwnershipTransfers;
+                totals.AsyncCompute.ComputeSubmits = ac.ComputeSubmits;
+                totals.AsyncCompute.DeclineReason = std::string(ac.DeclineReason);
                 totals.GpuResultsAgeFrames =
                     (pool.GetLastResolvedFrameNumber() > 0 && pool.GetCurrentFrameNumber() >= pool.GetLastResolvedFrameNumber())
                         ? pool.GetCurrentFrameNumber() - pool.GetLastResolvedFrameNumber()

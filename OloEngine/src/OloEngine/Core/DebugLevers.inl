@@ -58,6 +58,12 @@ OLO_LEVER_TRISTATE(VulkanParallelRecording, "OLO_VK_PARALLEL_RECORDING",
                    "command buffers (#806). \"0\" runs every RecordParallel region inline on the render thread — "
                    "the one-thread A/B for a frame or validation difference; unset or \"1\" forks wherever the "
                    "device and the frame allow.")
+OLO_LEVER_TRISTATE(VulkanAsyncCompute, "OLO_VK_ASYNC_COMPUTE",
+                   "Submit the render graph's async-compute batches to a dedicated compute queue on a device "
+                   "with a compute-only queue family (#808). \"0\" keeps every batch on the graphics queue — "
+                   "the A/B for attributing a frame, validation-layer or timing difference to the second queue, "
+                   "and the only way to exercise the no-async-queue degrade path on hardware that HAS one; "
+                   "unset or \"1\" crosses to the compute queue wherever the device and the frame allow.")
 OLO_LEVER_EXACT(VulkanRecordingCosts, "OLO_VK_RECORDING_COSTS",
                 "Time the caller-side micro-costs of a RecordParallel fork — the per-item selection copy, the "
                 "attachment and sampled-image pre-transitions, the frontend context seeding and the pipeline "

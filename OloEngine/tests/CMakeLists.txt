@@ -301,6 +301,12 @@ add_executable(OloEngine-Tests
 		# tables + the image-layout tracker. Headless (no device — fabricated
 		# handles); compiles to a single SKIP when OLO_WITH_VULKAN=OFF.
 		Rendering/VulkanBarrierLoweringTest.cpp
+		# #808: the async-compute queue — the queue-family selection policy
+		# (including every reason a device has no async queue, which is what
+		# CI hardware exercises) and the queue-family ownership-transfer
+		# pair. Pure CPU; the device-gated round trip is in the same file
+		# behind the usual SKIP ladder.
+		Rendering/VulkanAsyncComputeTest.cpp
 		# #806: parallel command recording — the layout-overlay merge rule
 		# (pure CPU, fabricated handles) and the device-gated fork/join
 		# (N items into N targets through one vkCmdExecuteCommands).

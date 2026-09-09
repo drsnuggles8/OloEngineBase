@@ -1825,6 +1825,8 @@
 		"Platform/Vulkan/VulkanPipelineBuilder.h"
 		"Platform/Vulkan/VulkanPipelineCache.cpp"
 		"Platform/Vulkan/VulkanPipelineCache.h"
+		"Platform/Vulkan/VulkanQueueSelection.cpp"
+		"Platform/Vulkan/VulkanQueueSelection.h"
 		"Platform/Vulkan/VulkanRawResourceRegistries.cpp"
 		"Platform/Vulkan/VulkanRawResourceRegistries.h"
 		"Platform/Vulkan/VulkanRendererAPI.cpp"

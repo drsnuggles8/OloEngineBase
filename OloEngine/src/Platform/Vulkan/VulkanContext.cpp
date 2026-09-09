@@ -107,9 +107,38 @@ namespace OloEngine
             std::vector<VkCommandBuffer> CommandBuffers;
             u32 CommandBufferCursor = 0;
             bool AcquireWaitConsumed = false;
+            // #808: the async compute family's own buffers for this slot,
+            // allocated lazily from VulkanDevice::GetAsyncComputeCommandPool.
+            // A pool is bound to one queue family for the life of every buffer
+            // allocated from it, so these cannot come from the pool above.
+            // Reset alongside the graphics ones at the frame fence, which is
+            // sound because the frame's LAST graphics submit waits on the
+            // compute timeline: the fence therefore also proves the compute
+            // work retired.
+            std::vector<VkCommandBuffer> ComputeCommandBuffers;
+            u32 ComputeCommandBufferCursor = 0;
         };
         Frame Frames[kFramesInFlight]{};
         u32 FrameIndex = 0;
+
+        // --- Async compute (issue #808) ------------------------------------
+        // ONE timeline semaphore for the whole context, with a monotonically
+        // increasing value, rather than one per frame slot: a timeline's whole
+        // point is that a single counter orders an unbounded number of
+        // submissions, and per-slot semaphores would need their own reuse
+        // rules on top of the frame fence that already exists.
+        VkSemaphore AsyncComputeTimeline = VK_NULL_HANDLE;
+        u64 AsyncComputeTimelineValue = 0;
+        // Set when a compute submission signalled a value the NEXT graphics
+        // submission must wait on; consumed by whichever graphics submit comes
+        // first (another fence segment, or the frame's final one).
+        u64 PendingGraphicsWaitValue = 0;
+        // The graphics command buffer parked by BeginAsyncComputeSegment, and
+        // the fence ops staged before the batch that belong to IT rather than
+        // to the compute submission that follows.
+        VkCommandBuffer ParkedGraphicsCmd = VK_NULL_HANDLE;
+        std::vector<VkSemaphoreSubmitInfo> ParkedGraphicsWaits;
+        std::vector<VkSemaphoreSubmitInfo> ParkedGraphicsSignals;
         // The frame arena, the deferred reclaim and the parallel recorder's
         // secondary pools all key their per-slot resets on this count; a
         // context running more slots than they know would alias two live
@@ -182,6 +211,14 @@ namespace OloEngine
                 {
                     vkDestroyFence(device, frame.InFlight, nullptr);
                 }
+            }
+            // #808. The compute command buffers are freed with their pool by
+            // VulkanDevice::Shutdown (after its vkDeviceWaitIdle, which covers
+            // every queue), so only the semaphore is this context's to destroy.
+            if (d.AsyncComputeTimeline != VK_NULL_HANDLE)
+            {
+                vkDestroySemaphore(device, d.AsyncComputeTimeline, nullptr);
+                d.AsyncComputeTimeline = VK_NULL_HANDLE;
             }
         }
         // The surface is this context's to destroy, and it must go BEFORE the
@@ -267,6 +304,22 @@ namespace OloEngine
             frame.CommandBuffers.push_back(frame.Cmd);
             VkCheck(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.ImageAvailable), "vkCreateSemaphore");
             VkCheck(vkCreateFence(device, &fenceInfo, nullptr, &frame.InFlight), "vkCreateFence");
+        }
+
+        // #808: the graphics <-> compute ordering primitive. Created only when
+        // the device actually has a second queue, so a context on hardware
+        // without one carries no semaphore and no reset path for it.
+        if (d.Device.HasAsyncComputeQueue())
+        {
+            VkSemaphoreTypeCreateInfo timelineInfo{};
+            timelineInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+            timelineInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            timelineInfo.initialValue = 0;
+            VkSemaphoreCreateInfo timelineSemaphoreInfo{};
+            timelineSemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            timelineSemaphoreInfo.pNext = &timelineInfo;
+            VkCheck(vkCreateSemaphore(device, &timelineSemaphoreInfo, nullptr, &d.AsyncComputeTimeline),
+                    "vkCreateSemaphore(async compute timeline)");
         }
 
         // --- Swapchain (+ its per-image semaphores) ---------------------------
@@ -492,6 +545,20 @@ namespace OloEngine
         std::vector<VkSemaphoreSubmitInfo> waitInfos;
         std::vector<VkSemaphoreSubmitInfo> signalInfos;
         VulkanGpuFence::DrainPendingSubmitOps(waitInfos, signalInfos);
+        // #808: an async-compute segment earlier in this frame signalled a
+        // timeline value that the next GRAPHICS work must wait on — it reads
+        // what that batch produced. Whichever graphics submission comes first
+        // owns the wait; this is one of the two that can.
+        if (d.PendingGraphicsWaitValue != 0u)
+        {
+            VkSemaphoreSubmitInfo computeWait{};
+            computeWait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            computeWait.semaphore = d.AsyncComputeTimeline;
+            computeWait.value = d.PendingGraphicsWaitValue;
+            computeWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            waitInfos.push_back(computeWait);
+            d.PendingGraphicsWaitValue = 0u;
+        }
         m_RenderGraphTimelineWaitCountThisFrame += static_cast<u32>(waitInfos.size());
         m_RenderGraphTimelineSignalCountThisFrame += static_cast<u32>(signalInfos.size());
 
@@ -552,8 +619,270 @@ namespace OloEngine
         return true;
     }
 
+    // --- Async compute batches (issue #808) ---------------------------------
+
+    namespace
+    {
+        // Next free primary from the async compute family's pool for this
+        // frame slot, growing the slot's list on demand. Null when the driver
+        // refuses the allocation, which declines the batch rather than
+        // failing the frame.
+        VkCommandBuffer AcquireAsyncComputeCommandBuffer(VulkanContextData& d)
+        {
+            VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
+            if (frame.ComputeCommandBufferCursor == frame.ComputeCommandBuffers.size())
+            {
+                VkCommandBufferAllocateInfo allocate{};
+                allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+                allocate.commandPool = d.Device.GetAsyncComputeCommandPool();
+                allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                allocate.commandBufferCount = 1;
+                VkCommandBuffer next = VK_NULL_HANDLE;
+                if (vkAllocateCommandBuffers(d.Device.GetDevice(), &allocate, &next) != VK_SUCCESS)
+                    return VK_NULL_HANDLE;
+                frame.ComputeCommandBuffers.push_back(next);
+            }
+            return frame.ComputeCommandBuffers[frame.ComputeCommandBufferCursor++];
+        }
+    } // namespace
+
+    bool VulkanContext::BeginAsyncComputeSegment([[maybe_unused]] const u32 batchIndex)
+    {
+        VulkanContextData& d = *m_Data;
+        if (m_AsyncComputeSegmentOpen)
+        {
+            // A batch inside a batch. The plan never emits one, so this is a
+            // contract failure rather than a device limitation.
+            m_AsyncComputeDeclineReason = "an async-compute segment is already open";
+            return false;
+        }
+        if (!d.Device.HasAsyncComputeQueue())
+        {
+            // The degrade path CI runs, carrying the device's own reason —
+            // "no compute-only family" reads very differently from
+            // "disabled by OLO_VK_ASYNC_COMPUTE=0".
+            m_AsyncComputeDeclineReason =
+                VulkanQueueSelection::Describe(d.Device.GetAsyncComputeUnavailableReason());
+            return false;
+        }
+        if (!CanSubmitRenderGraphFenceSegments() || d.AsyncComputeTimeline == VK_NULL_HANDLE)
+        {
+            // Same owner rule as SubmitRenderGraphFenceSegment: the swapchain
+            // acquire semaphore and the frame-slot fence only exist inside the
+            // SwapBuffers callback.
+            m_AsyncComputeDeclineReason = "outside the SwapBuffers frame callback";
+            return false;
+        }
+
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+        // Take the compute command buffer BEFORE detaching the graphics one:
+        // a failure here must leave the frame exactly as it was.
+        const VkCommandBuffer computeCmd = AcquireAsyncComputeCommandBuffer(d);
+        if (computeCmd == VK_NULL_HANDLE)
+        {
+            m_AsyncComputeDeclineReason = "no async-compute command buffer could be allocated";
+            return false;
+        }
+
+        // PARK, don't submit. The ownership release halves for everything this
+        // batch reads have to be recorded into the graphics buffer, and they
+        // are not known until the batch issues its barriers.
+        const VkCommandBuffer graphicsCmd = api.SuspendRecordingForFlush();
+        if (graphicsCmd == VK_NULL_HANDLE)
+        {
+            // A parallel-recording region in flight, or an open occlusion
+            // query — a query span cannot cross command buffers. Hand the
+            // compute buffer back so a frame that declines every batch does
+            // not allocate a fresh one per batch.
+            --d.Frames[d.FrameIndex].ComputeCommandBufferCursor;
+            m_AsyncComputeDeclineReason = "the graphics recording could not be suspended";
+            return false;
+        }
+
+        // Fence ops staged BEFORE the batch describe producers in the parked
+        // buffer, so they belong to ITS submission, not to the compute one.
+        // Draining them here is what keeps the two straight.
+        d.ParkedGraphicsWaits.clear();
+        d.ParkedGraphicsSignals.clear();
+        VulkanGpuFence::DrainPendingSubmitOps(d.ParkedGraphicsWaits, d.ParkedGraphicsSignals);
+        d.ParkedGraphicsCmd = graphicsCmd;
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VkCheck(vkResetCommandBuffer(computeCmd, 0), "vkResetCommandBuffer(async compute)");
+        VkCheck(vkBeginCommandBuffer(computeCmd, &begin), "vkBeginCommandBuffer(async compute)");
+
+        api.ResumeRecordingAfterFlush(computeCmd);
+        // From here every barrier this context records is clamped to the
+        // stages a compute-only family supports.
+        api.SetRecordingOnComputeOnlyQueue(true);
+        api.BeginQueueOwnershipRegion(graphicsCmd, d.Device.GetQueueFamily(),
+                                      d.Device.GetAsyncComputeQueueFamily());
+        m_AsyncComputeSegmentOpen = true;
+        m_AsyncComputeDeclineReason = {};
+        return true;
+    }
+
+    bool VulkanContext::EndAsyncComputeSegment([[maybe_unused]] const u32 batchIndex)
+    {
+        if (!m_AsyncComputeSegmentOpen)
+            return false;
+
+        VulkanContextData& d = *m_Data;
+        VulkanContextData::Frame& frame = d.Frames[d.FrameIndex];
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        const VkDevice device = d.Device.GetDevice();
+
+        // Hand every resource the batch took back to the graphics family. The
+        // releases go into the compute buffer (still live); the matching
+        // acquires are stashed for the graphics buffer opened below.
+        api.EndQueueOwnershipRegionReleases();
+
+        const VkCommandBuffer computeCmd = api.SuspendRecordingForFlush();
+        m_AsyncComputeSegmentOpen = false;
+        api.SetRecordingOnComputeOnlyQueue(false);
+        if (computeCmd == VK_NULL_HANDLE)
+        {
+            // Nothing can recover this: the parked graphics buffer is open and
+            // detached, the compute buffer is open, and the ownership releases
+            // are recorded into a buffer we can no longer end. Fail loudly
+            // rather than presenting a frame whose resources are owned by a
+            // queue nothing will submit to.
+            OLO_CORE_ERROR("[Vulkan] async compute: the compute recording could not be suspended at batch end");
+            throw std::runtime_error("Vulkan async compute: EndAsyncComputeSegment could not detach its recording");
+        }
+
+        VkCheck(vkEndCommandBuffer(d.ParkedGraphicsCmd), "vkEndCommandBuffer(async compute: graphics segment)");
+        VkCheck(vkEndCommandBuffer(computeCmd), "vkEndCommandBuffer(async compute: compute segment)");
+
+        const auto semaphoreOp = [](const VkSemaphore semaphore, const u64 value)
+        {
+            VkSemaphoreSubmitInfo info{};
+            info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            info.semaphore = semaphore;
+            info.value = value;
+            info.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            return info;
+        };
+
+        // --- 1. The graphics segment: the releases, then signal N -----------
+        const u64 entryValue = ++d.AsyncComputeTimelineValue;
+        std::vector<VkSemaphoreSubmitInfo> graphicsWaits = std::move(d.ParkedGraphicsWaits);
+        std::vector<VkSemaphoreSubmitInfo> graphicsSignals = std::move(d.ParkedGraphicsSignals);
+        d.ParkedGraphicsWaits.clear();
+        d.ParkedGraphicsSignals.clear();
+        // A prior compute segment's value, if the frame has more than one batch.
+        if (d.PendingGraphicsWaitValue != 0u)
+        {
+            graphicsWaits.push_back(semaphoreOp(d.AsyncComputeTimeline, d.PendingGraphicsWaitValue));
+            d.PendingGraphicsWaitValue = 0u;
+        }
+        // The binary acquire semaphore may be waited exactly once, and it must
+        // be waited on the GRAPHICS queue: queue-submit order carries the
+        // image's availability along that queue only. Letting the compute
+        // submission take it would leave every graphics access unordered
+        // against the acquire.
+        if (!frame.AcquireWaitConsumed)
+        {
+            VkSemaphoreSubmitInfo acquire{};
+            acquire.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            acquire.semaphore = frame.ImageAvailable;
+            acquire.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            graphicsWaits.push_back(acquire);
+        }
+        graphicsSignals.push_back(semaphoreOp(d.AsyncComputeTimeline, entryValue));
+
+        VkCommandBufferSubmitInfo graphicsCmdInfo{};
+        graphicsCmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        graphicsCmdInfo.commandBuffer = d.ParkedGraphicsCmd;
+        VkSubmitInfo2 graphicsSubmit{};
+        graphicsSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        graphicsSubmit.waitSemaphoreInfoCount = static_cast<u32>(graphicsWaits.size());
+        graphicsSubmit.pWaitSemaphoreInfos = graphicsWaits.empty() ? nullptr : graphicsWaits.data();
+        graphicsSubmit.commandBufferInfoCount = 1;
+        graphicsSubmit.pCommandBufferInfos = &graphicsCmdInfo;
+        graphicsSubmit.signalSemaphoreInfoCount = static_cast<u32>(graphicsSignals.size());
+        graphicsSubmit.pSignalSemaphoreInfos = graphicsSignals.data();
+        VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &graphicsSubmit, VK_NULL_HANDLE),
+                "vkQueueSubmit2(async compute: graphics segment)");
+        ++m_RenderGraphFenceSegmentSubmitCountThisFrame;
+        m_RenderGraphTimelineWaitCountThisFrame += static_cast<u32>(graphicsWaits.size());
+        m_RenderGraphTimelineSignalCountThisFrame += static_cast<u32>(graphicsSignals.size());
+        frame.AcquireWaitConsumed = true;
+        d.ParkedGraphicsCmd = VK_NULL_HANDLE;
+
+        // --- 2. The compute segment: wait N, signal N+1 ----------------------
+        // Fence ops staged DURING the batch belong here: their producers are
+        // the batch's own passes.
+        std::vector<VkSemaphoreSubmitInfo> computeWaits;
+        std::vector<VkSemaphoreSubmitInfo> computeSignals;
+        VulkanGpuFence::DrainPendingSubmitOps(computeWaits, computeSignals);
+        const u64 exitValue = ++d.AsyncComputeTimelineValue;
+        computeWaits.push_back(semaphoreOp(d.AsyncComputeTimeline, entryValue));
+        computeSignals.push_back(semaphoreOp(d.AsyncComputeTimeline, exitValue));
+
+        VkCommandBufferSubmitInfo computeCmdInfo{};
+        computeCmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        computeCmdInfo.commandBuffer = computeCmd;
+        VkSubmitInfo2 computeSubmit{};
+        computeSubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        computeSubmit.waitSemaphoreInfoCount = static_cast<u32>(computeWaits.size());
+        computeSubmit.pWaitSemaphoreInfos = computeWaits.data();
+        computeSubmit.commandBufferInfoCount = 1;
+        computeSubmit.pCommandBufferInfos = &computeCmdInfo;
+        computeSubmit.signalSemaphoreInfoCount = static_cast<u32>(computeSignals.size());
+        computeSubmit.pSignalSemaphoreInfos = computeSignals.data();
+        VkCheck(vkQueueSubmit2(d.Device.GetAsyncComputeQueue(), 1, &computeSubmit, VK_NULL_HANDLE),
+                "vkQueueSubmit2(async compute: compute segment)");
+        ++m_AsyncComputeSubmitCountThisFrame;
+        m_RenderGraphTimelineWaitCountThisFrame += static_cast<u32>(computeWaits.size());
+        m_RenderGraphTimelineSignalCountThisFrame += static_cast<u32>(computeSignals.size());
+        // Both segments have reached the queue, so what they recorded is now
+        // the images' EXECUTED layout (issue #800's distinction).
+        api.MarkSuspendedRecordingSubmitted();
+
+        // --- 3. Back to graphics, waiting N+1 -------------------------------
+        ++frame.CommandBufferCursor;
+        if (frame.CommandBufferCursor == frame.CommandBuffers.size())
+        {
+            VkCommandBufferAllocateInfo allocate{};
+            allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocate.commandPool = d.Device.GetCommandPool();
+            allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocate.commandBufferCount = 1;
+            VkCommandBuffer next = VK_NULL_HANDLE;
+            VkCheck(vkAllocateCommandBuffers(device, &allocate, &next),
+                    "vkAllocateCommandBuffers(async compute continuation)");
+            frame.CommandBuffers.push_back(next);
+        }
+        frame.Cmd = frame.CommandBuffers[frame.CommandBufferCursor];
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VkCheck(vkResetCommandBuffer(frame.Cmd, 0), "vkResetCommandBuffer(async compute continuation)");
+        VkCheck(vkBeginCommandBuffer(frame.Cmd, &begin), "vkBeginCommandBuffer(async compute continuation)");
+        api.ResumeRecordingAfterFlush(frame.Cmd);
+        // The acquire halves, first thing in the continuation: until they are
+        // recorded the resources are owned by the compute family and no
+        // graphics access to them is defined.
+        api.RecordPendingQueueOwnershipAcquires();
+        // Whichever graphics submission comes next owns the wait.
+        d.PendingGraphicsWaitValue = exitValue;
+        return true;
+    }
+
     bool VulkanContext::FlushFrameRecordingAndWait()
     {
+        if (m_AsyncComputeSegmentOpen)
+        {
+            // A mid-frame flush inside a batch would submit and WAIT on the
+            // compute buffer while the parked graphics one — which carries its
+            // ownership releases — has not been submitted at all: the wait
+            // could never be satisfied. Callers take their previous-frame arm.
+            return false;
+        }
         if (!m_InSwapBuffers)
         {
             return false;
@@ -620,10 +949,29 @@ namespace OloEngine
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
             submit.commandBufferInfoCount = 1;
             submit.pCommandBufferInfos = &cmdInfo;
-            // Deliberately NO semaphores: the acquire wait and the present signal
-            // belong to the frame's final submit, and any staged RHI::GpuFence
-            // queue ops stay staged for it too — this submission is an ordering
-            // detail inside the frame, invisible to frame pacing.
+            // Deliberately NO semaphores, with ONE exception: the acquire wait
+            // and the present signal belong to the frame's final submit, and any
+            // staged RHI::GpuFence queue ops stay staged for it too — this
+            // submission is an ordering detail inside the frame, invisible to
+            // frame pacing.
+            //
+            // The exception is an async-compute batch (#808) earlier in this
+            // frame. Submit order on the graphics queue orders this flush after
+            // that batch's GRAPHICS segment, but says nothing about what ran on
+            // the COMPUTE queue — and this flush exists precisely so a readback
+            // sees the frame's own writes. Without the wait it can read the
+            // batch's output before the batch produced it.
+            VkSemaphoreSubmitInfo computeWait{};
+            if (d.PendingGraphicsWaitValue != 0u)
+            {
+                computeWait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                computeWait.semaphore = d.AsyncComputeTimeline;
+                computeWait.value = d.PendingGraphicsWaitValue;
+                computeWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                submit.waitSemaphoreInfoCount = 1;
+                submit.pWaitSemaphoreInfos = &computeWait;
+                d.PendingGraphicsWaitValue = 0u;
+            }
             result = vkQueueSubmit2(d.Device.GetQueue(), 1, &submit, fence);
             if (result != VK_SUCCESS)
             {
@@ -759,6 +1107,7 @@ namespace OloEngine
         m_RenderGraphFenceSegmentSubmitCountThisFrame = 0u;
         m_RenderGraphTimelineSignalCountThisFrame = 0u;
         m_RenderGraphTimelineWaitCountThisFrame = 0u;
+        m_AsyncComputeSubmitCountThisFrame = 0u;
 
         // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
         // until the window has area again.
@@ -826,6 +1175,16 @@ namespace OloEngine
         frame.CommandBufferCursor = 0;
         frame.Cmd = frame.CommandBuffers.front();
         frame.AcquireWaitConsumed = false;
+        // #808: the same argument covers the async-compute buffers. The
+        // frame's LAST graphics submit waits on the compute timeline, so the
+        // InFlight fence above proves the compute work of this slot retired
+        // too — nothing here is still in flight.
+        frame.ComputeCommandBufferCursor = 0;
+        // A timeline value from the PREVIOUS frame has been waited on by that
+        // frame's final submit; carrying it into this one would make the first
+        // graphics submit wait on work that is already done. Harmless, but it
+        // would also hide a missing wait, so clear it explicitly.
+        d.PendingGraphicsWaitValue = 0u;
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -985,6 +1344,21 @@ namespace OloEngine
         std::vector<VkSemaphoreSubmitInfo> waitInfos;
         std::vector<VkSemaphoreSubmitInfo> signalInfos;
         VulkanGpuFence::DrainPendingSubmitOps(waitInfos, signalInfos);
+
+        // #808: the last async-compute segment's value, if no intervening
+        // graphics submission took it. This wait is also what makes the frame
+        // fence below cover the compute work — the fence signals after this
+        // submission completes, which cannot happen before the wait clears.
+        if (d.PendingGraphicsWaitValue != 0u)
+        {
+            VkSemaphoreSubmitInfo computeWait{};
+            computeWait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            computeWait.semaphore = d.AsyncComputeTimeline;
+            computeWait.value = d.PendingGraphicsWaitValue;
+            computeWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            waitInfos.push_back(computeWait);
+            d.PendingGraphicsWaitValue = 0u;
+        }
 
         VkSemaphoreSubmitInfo waitInfo{};
         waitInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
