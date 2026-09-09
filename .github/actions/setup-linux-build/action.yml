@@ -62,6 +62,31 @@ inputs:
       opt-out: the two arms are different for a measured reason.
     required: false
     default: 'true'
+  shaderc-floor:
+    description: >
+      Provision the pinned shaderc toolchain on a GITHUB-HOSTED runner and point
+      the configure at it (`-DOLO_SHADERC_ROOT=...`). Pass 'false' only for a job
+      that does not compile Vulkan-tier shaders at all.
+
+      IT IS ON BY DEFAULT BECAUSE APT IS BELOW THE FLOOR (#1139). Ubuntu 24.04's
+      libshaderc-dev is 2023.8 and its glslang-dev is 15.1.0; `GL_EXT_descriptor_heap`
+      landed in glslang on 2026-01-22, and seven production shaders declare it
+      `: require` (ADR 0011 amendments (95)/(96)). Without this the hosted arm
+      cannot compile them, which is what turned the Sanitizers nightly red on all
+      three Linux jobs for a day and a half while every PR stayed green -- the
+      hosted arm being the one PR CI never routes to.
+
+      THIS IS NOT `vulkan-sdk: 'true'` BY ANOTHER NAME, and the difference is the
+      whole reason it is a separate input. That one hands the build a LunarG SDK
+      whose include tree also carries spirv_cross/, which is #1009's SEGV. The
+      prefix this provisions contains shaderc and nothing else -- shaderc does not
+      depend on SPIRV-Cross -- so the skew cannot recur, and both the action and
+      OloEngine/CMakeLists.txt assert it rather than assume it.
+
+      Ignored on self-hosted, where $VULKAN_SDK already supplies a toolchain above
+      the floor and the convention is that a step VERIFIES rather than installs.
+    required: false
+    default: 'true'
   cache-name:
     description: >
       Names this job in the self-hosted compiler-cache log line. Purely diagnostic:
@@ -127,6 +152,15 @@ runs:
     - name: Setup Vulkan SDK (hosted)
       if: runner.environment == 'github-hosted' && inputs.vulkan-sdk == 'true'
       uses: ./.github/actions/setup-vulkan
+
+    # AFTER setup-vulkan and BEFORE the apt install, so a job that takes both gets
+    # the SDK's environment first and this prefix is still the one the configure
+    # is pointed at. It needs nothing from apt: cmake, ninja, git and python3 are
+    # on the image.
+    - name: Setup pinned shaderc (hosted)
+      id: shaderc
+      if: runner.environment == 'github-hosted' && inputs.shaderc-floor == 'true'
+      uses: ./.github/actions/setup-shaderc-linux
 
     - name: Add LLVM apt repository (hosted)
       if: runner.environment == 'github-hosted'
@@ -300,6 +334,7 @@ runs:
       env:
         OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         OLO_HOSTED_PYTHON: ${{ steps.py.outputs.python-path }}
+        OLO_SHADERC_ROOT: ${{ steps.shaderc.outputs.root }}
       run: |
         set -euo pipefail
         if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
@@ -328,7 +363,16 @@ runs:
             exit 1
           fi
           python_exe="$OLO_HOSTED_PYTHON"
+          # THE SHADER TOOLCHAIN FLOOR (#1139). Empty when the caller opted out,
+          # in which case the configure resolves apt's libshaderc 2023.8 and
+          # OloEngine/CMakeLists.txt's floor probe fails the configure by name --
+          # which is the intended outcome, not an accident: a hosted job that
+          # compiles Vulkan-tier shaders on apt's toolchain has no green to
+          # report.
           extra=""
+          if [ -n "$OLO_SHADERC_ROOT" ]; then
+            extra="-DOLO_SHADERC_ROOT=${OLO_SHADERC_ROOT}"
+          fi
         else
           # A PINNED clang-23 AT AN ABSOLUTE PATH, with the system clang as a
           # warn-and-carry-on fallback. Both halves are load-bearing.

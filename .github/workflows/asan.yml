@@ -1323,9 +1323,15 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # SHADERC IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8 cannot compile
+        # GL_EXT_descriptor_heap, which seven production shaders declare `: require`,
+        # so `shaderc-floor` (default on) provisions the pinned shaderc v2026.3 at
+        # its own prefix and the configure is pointed at it. That prefix carries no
+        # spirv_cross headers, which is why it does not re-open the line above.
         vulkan-sdk: 'false'
         cache-name: asan-lsan
 
@@ -1745,9 +1751,15 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # SHADERC IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8 cannot compile
+        # GL_EXT_descriptor_heap, which seven production shaders declare `: require`,
+        # so `shaderc-floor` (default on) provisions the pinned shaderc v2026.3 at
+        # its own prefix and the configure is pointed at it. That prefix carries no
+        # spirv_cross headers, which is why it does not re-open the line above.
         vulkan-sdk: 'false'
         cache-name: ubsan
 
@@ -2142,9 +2154,15 @@ jobs:
       id: linux
       uses: ./.github/actions/setup-linux-build
       with:
-        # No LunarG SDK on the hosted arm: these jobs take spirv-cross, glslang and
-        # shaderc from apt, and the SDK's PREBUILT spirv-cross SEGVs under sanitizer
-        # instrumentation. See the input's own comment for the stack.
+        # No LunarG SDK on the hosted arm: these jobs take SPIRV-Cross from apt,
+        # and the SDK's PREBUILT spirv-cross SEGVs under sanitizer instrumentation.
+        # See the input's own comment for the stack.
+        #
+        # SHADERC IS NO LONGER APT'S (#1139). apt's libshaderc 2023.8 cannot compile
+        # GL_EXT_descriptor_heap, which seven production shaders declare `: require`,
+        # so `shaderc-floor` (default on) provisions the pinned shaderc v2026.3 at
+        # its own prefix and the configure is pointed at it. That prefix carries no
+        # spirv_cross headers, which is why it does not re-open the line above.
         vulkan-sdk: 'false'
         cache-name: tsan
 
@@ -2508,6 +2526,11 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shaderc-floor` stays ON here even though this job never configures
+        # anything (#1139). The instrumented binary the build job packaged links
+        # libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by absolute path,
+        # so that is its RPATH; a shard runner without the prefix cannot start it
+        # at all. The restore is a cache hit the build job already warmed.
         cache-name: asan-lsan-shard
 
     - name: Download the instrumented test tree
@@ -2739,6 +2762,11 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shaderc-floor` stays ON here even though this job never configures
+        # anything (#1139). The instrumented binary the build job packaged links
+        # libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by absolute path,
+        # so that is its RPATH; a shard runner without the prefix cannot start it
+        # at all. The restore is a cache hit the build job already warmed.
         cache-name: ubsan-shard
 
     - name: Download the instrumented test tree
@@ -2969,6 +2997,11 @@ jobs:
       uses: ./.github/actions/setup-linux-build
       with:
         vulkan-sdk: 'false'
+        # `shaderc-floor` stays ON here even though this job never configures
+        # anything (#1139). The instrumented binary the build job packaged links
+        # libshaderc_shared.so from /opt/olo-shaderc-<tag>/lib by absolute path,
+        # so that is its RPATH; a shard runner without the prefix cannot start it
+        # at all. The restore is a cache hit the build job already warmed.
         cache-name: tsan-shard
 
     - name: Download the instrumented test tree
