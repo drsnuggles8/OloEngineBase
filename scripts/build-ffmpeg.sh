@@ -237,4 +237,16 @@ if [ "$OLO_OS" = windows ]; then
     done
 fi
 
+# COMPLETION MARKER, and it must stay the last thing this script writes.
+#
+# CI caches "$PREFIX" and the save step runs `if: always()`, so it also runs when the
+# job was CANCELLED -- which, mid-build, means a half-installed tree. An Actions cache
+# entry is immutable: bank a partial tree once and every later run restores it, finds
+# libraries missing, rebuilds them, and then SKIPS the save because the key already hit.
+# The bad entry would outlive every attempt to repair it, until the key changes or the
+# 30-day age-out collects it. Existence of this file is what tells the save step the
+# tree is worth keeping. `cmake/ffmpeg.cmake` does not read it -- it checks for every
+# consumed library, which is a stronger test locally and needs no cooperation here.
+touch "$PREFIX/.olo-ffmpeg-complete"
+
 echo "=== FFmpeg build + install complete: $PREFIX ==="

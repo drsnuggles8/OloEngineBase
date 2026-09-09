@@ -235,8 +235,27 @@ jobs:
       # made the NEXT run pay for it again. Skipped on a hit: the key is content-
       # addressed by build-ffmpeg.sh, so re-saving it would only log 'cache already
       # exists' on every warm run.
+      # The save above runs `if: always()`, so it also runs on a CANCEL -- and now that the
+      # cached path is the one CMake really installs into, a cancel mid-build would bank a
+      # HALF-INSTALLED tree. Actions cache entries are immutable, so that entry would then
+      # be restored by every later run, fail ffmpeg.cmake's completeness check, get rebuilt,
+      # and never be replaced -- the save is skipped on a key hit. Permanent, and silent.
+      # `scripts/build-ffmpeg.sh` writes this marker as its very last action, so it exists
+      # only for a tree that finished installing.
+      - name: Check the FFmpeg tree is complete
+        id: ffcomplete
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "${OLO_FFMPEG_CACHE_DIR}/install/.olo-ffmpeg-complete" ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            echo "FFmpeg install tree has no completion marker - not caching it."
+          fi
+
       - name: Save FFmpeg build
-        if: always() && steps.ffcache.outputs.cache-hit != 'true'
+        if: always() && steps.ffcache.outputs.cache-hit != 'true' && steps.ffcomplete.outputs.complete == 'true'
         # A cache save must never fail the job it is attached to. `if: always()`
         # means this runs on a CANCEL, where the path it is asked to save may not
         # exist yet -- and actions/cache/save treats a missing path as a validation
