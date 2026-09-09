@@ -121,8 +121,12 @@ namespace OloCtl
         }
 
       private:
-        // Never null after Build(); a default-constructed CommandTree is not a
-        // thing the API hands out.
+        // PRIVATE, so Build() is the only way to get a CommandTree and m_Catalogue is
+        // never null in one. Making the invariant structural rather than documented:
+        // Resolve/EntryAt dereference it, and a default-constructed tree would give a
+        // caller a null-deref for free.
+        CommandTree() = default;
+
         const Catalogue* m_Catalogue = nullptr;
         std::vector<TreeGroup> m_Groups;
         std::vector<std::string> m_AmbiguousPaths;
