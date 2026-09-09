@@ -55,6 +55,13 @@ namespace
         {
             m_Dir = OloEngine::Tests::TempDir("scripts");
 
+            // tools/list defaults to the `core` exposure profile (#1124). Script tools
+            // are listed under every profile (they exist only because the user wrote
+            // them), but the NATIVE fakes below are not core, and this fixture asserts
+            // that a script rescan leaves them alone — so it needs the full listing.
+            m_Server.SetExposurePolicy(
+                OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
+
             // A native read-only tool + a native write tool, for the bridge tests.
             ToolDef echo;
             echo.Name = "fake_echo";

@@ -75,6 +75,18 @@ namespace
         }
         return nullptr;
     }
+
+    // tools/list defaults to the `core` exposure profile (#1124), which lists a
+    // curated set of REAL tool names plus the discovery gateway — a fake tool
+    // registered by a test is not in it. These tests assert on the listing
+    // MECHANICS, not on exposure, so they opt into the full surface explicitly.
+    // The filter itself is covered by McpExposureProfileTest.cpp.
+    void ListEverything(McpServer& server)
+    {
+        server.SetExposurePolicy(
+            OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
+    }
+
 } // namespace
 
 // ---- tools/list: title + annotations serialization -------------------------
@@ -82,6 +94,7 @@ namespace
 TEST(McpToolAnnotations, ToolsListEmitsTitleAndReadOnlyAnnotations)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     AddTool(server, "olo_fake_read", "Read something", ReadOnly());
 
     const Json resp = server.HandleMessage(MakeRequest(1, "tools/list"));
@@ -101,6 +114,7 @@ TEST(McpToolAnnotations, ToolsListEmitsTitleAndReadOnlyAnnotations)
 TEST(McpToolAnnotations, ToolsListOmitsTitleWhenEmpty)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     // No title set, but annotations present.
     AddTool(server, "olo_fake_notitle", "", ReadOnly());
 
@@ -115,6 +129,7 @@ TEST(McpToolAnnotations, ToolsListOmitsTitleWhenEmpty)
 TEST(McpToolAnnotations, ToolsListOmitsAnnotationsWhenEmpty)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     // Default-constructed Annotations is JSON null -> must be omitted entirely.
     ToolDef tool;
     tool.Name = "olo_fake_noann";
@@ -133,6 +148,7 @@ TEST(McpToolAnnotations, ToolsListOmitsAnnotationsWhenEmpty)
 TEST(McpToolAnnotations, ToolsListOmitsAnnotationsWhenEmptyObject)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     // An explicitly empty object is also "no annotations" — must be omitted, not
     // serialized as "annotations": {}.
     AddTool(server, "olo_fake_emptyobj", "Empty obj", Json::object());
@@ -148,6 +164,7 @@ TEST(McpToolAnnotations, ToolsListOmitsAnnotationsWhenEmptyObject)
 TEST(McpToolAnnotations, ReadOnlyAndMutatingClassificationRoundTrip)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     AddTool(server, "olo_fake_read", "Read", ReadOnly());
     AddTool(server, "olo_fake_write", "Write", MutatingIdempotent());
 
@@ -203,6 +220,7 @@ TEST(McpToolNameValidation, RejectsDisallowedCharacters)
 TEST(McpToolNameValidation, RegisterToolAcceptsValidNameAndListsIt)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     AddTool(server, "olo_valid.name-1", "Valid", ReadOnly());
 
     const Json resp = server.HandleMessage(MakeRequest(6, "tools/list"));

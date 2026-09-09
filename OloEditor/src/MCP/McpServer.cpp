@@ -425,11 +425,13 @@ namespace OloEngine::MCP
             result["cacheScope"] = cacheScope;
         }
 
-        // tools/list: the catalogue is static for a server run EXCEPT
-        // olo_script_tools_reload (issue #607), which rescans <project>/McpTools and
-        // fires notifications/tools/list_changed on every live SSE stream. Because that
-        // push is the authoritative invalidation (capabilities.tools.listChanged is
-        // true), a generous TTL is honest — it only bridges the gap between reloads.
+        // tools/list: the catalogue is static for a server run except for two things,
+        // and BOTH fire notifications/tools/list_changed on every live SSE stream —
+        // olo_script_tools_reload (issue #607), which rescans <project>/McpTools, and
+        // SetExposurePolicy (issue #1124), which changes how much of the registry is
+        // listed. Because that push is the authoritative invalidation
+        // (capabilities.tools.listChanged is true), a generous TTL is honest — it only
+        // bridges the gap between changes.
         // 5 min matches the spec's own worked example.
         constexpr i64 kToolsListTtlMs = 300000;
 
@@ -495,10 +497,12 @@ namespace OloEngine::MCP
         }
 
         // Serialize one registered tool into its MCP tools/list entry. Shared by
-        // tools/list and the custom tools/search so both present byte-identical
-        // entries; the only optional field beyond the spec basics is the toolset,
-        // carried under `_meta` (omitted for uncategorized tools).
-        Json BuildToolEntry(const ToolDef& tool)
+        // tools/list, the custom tools/search and the discovery gateway (#1124) so
+        // all three present byte-identical entries; the only optional field beyond
+        // the spec basics is the toolset, carried under `_meta` (omitted for
+        // uncategorized tools). Exposed to the gateway's own TU as the public static
+        // McpServer::BuildToolEntry, which forwards here.
+        Json BuildToolEntryImpl(const ToolDef& tool)
         {
             Json entry;
             entry["name"] = tool.Name;
@@ -1267,6 +1271,20 @@ namespace OloEngine::MCP
         WriteDiscoveryFile(DiscoveryFilePath(m_Port), m_Port, m_Token);
 
         OLO_CORE_INFO("[MCP] Read-only diagnostics server listening on http://127.0.0.1:{}/mcp", port);
+
+        // What this session's catalogue actually costs (issue #1124). Logged once at
+        // Start rather than left to be re-measured by hand in a year: the number grew
+        // 15k -> 66k tokens between #673 and #1124 with nothing recording it, which is
+        // how the regression stayed invisible. The byte counts are exact; the token
+        // figure is bytes/4 and says so.
+        {
+            const ToolRegistryMetrics metrics = ComputeRegistryMetrics();
+            OLO_CORE_INFO("[MCP] tools/list profile '{}': {} of {} tools, {} bytes (~{} tokens); "
+                          "full surface {} bytes (~{} tokens). Hidden tools stay callable by name.",
+                          ToStringView(metrics.Profile), metrics.ListedTools, metrics.TotalTools,
+                          metrics.ListedBytes, metrics.ApproxListedTokens(), metrics.FullBytes,
+                          metrics.ApproxFullTokens());
+        }
         return true;
     }
 
@@ -2139,19 +2157,92 @@ namespace OloEngine::MCP
             "to see the most recent engine log messages, olo_events_tail for a 'what just "
             "happened?' timeline (scene load, play/stop, entity spawn/destroy, asset reload, "
             "script error — poll incrementally with sinceId), and olo_scene_summary to inspect "
-            "the active scene. Everything exposed here is read-only — no tool mutates the project.";
+            "the active scene. Everything exposed here is read-only — no tool mutates the project. "
+            "tools/list shows a curated core set by default, not the whole surface: there are far "
+            "more tools (rendering, physics, shaders, perf, assets, scripting, the editor panels) "
+            "and they are all still callable by name. Call olo_capability first to see what exists, "
+            "olo_tool_search to find one, and olo_tool_describe for its input schema.";
         return MakeResult(id, result);
+    }
+
+    Json McpServer::BuildToolEntry(const ToolDef& tool)
+    {
+        return BuildToolEntryImpl(tool);
+    }
+
+    void McpServer::SetExposurePolicy(ExposurePolicy policy)
+    {
+        m_ExposurePolicy.store(std::make_shared<const ExposurePolicy>(std::move(policy)),
+                               std::memory_order_release);
+        // The catalogue a client sees just changed, which is exactly what
+        // tools/list_changed exists to announce — a connected agent that cached the
+        // narrowed list would otherwise never learn the host widened it.
+        NotifyToolsListChanged();
+    }
+
+    ToolExposureFacts McpServer::ExposureFactsOf(const ToolDef& tool)
+    {
+        // A tool is "user-provided" when it exists only because this user configured
+        // it: a project Lua script tool (ScriptOwned) or one bridged from an outbound
+        // client connection (ClientAlias). Those stay listed under every profile.
+        // Public and single-sited on purpose — McpToolsGateway's per-hit `listed` flag
+        // calls this too, so the gateway can never disagree with tools/list about what
+        // is listed.
+        return ToolExposureFacts{ tool.Name, tool.Toolset, tool.ScriptOwned || !tool.ClientAlias.empty() };
     }
 
     Json McpServer::HandleToolsList(const Json& id) const
     {
         const ToolSnapshot snapshot = ToolsSnapshot();
+        const std::shared_ptr<const ExposurePolicy> policy = m_ExposurePolicy.load(std::memory_order_acquire);
         Json tools = Json::array();
         for (const auto& tool : *snapshot)
-            tools.push_back(BuildToolEntry(tool));
+        {
+            // Exposure is a LISTING filter only (issue #1124): a tool skipped here is
+            // still resolvable by HandleToolsCall, still returned by tools/search, and
+            // still describable through the gateway. Nothing is unregistered.
+            if (policy->ShouldList(ExposureFactsOf(tool)))
+                tools.push_back(BuildToolEntry(tool));
+        }
         Json result{ { "tools", std::move(tools) } };
         AddCacheHints(result, kToolsListTtlMs, kCacheScopePublic);
         return MakeResult(id, std::move(result));
+    }
+
+    ToolRegistryMetrics McpServer::ComputeRegistryMetrics() const
+    {
+        const ToolSnapshot snapshot = ToolsSnapshot();
+        const std::shared_ptr<const ExposurePolicy> policy = m_ExposurePolicy.load(std::memory_order_acquire);
+        return ComputeRegistryMetrics(snapshot, *policy);
+    }
+
+    ToolRegistryMetrics McpServer::ComputeRegistryMetrics(const ToolSnapshot& snapshot,
+                                                          const ExposurePolicy& policy) const
+    {
+        ToolRegistryMetrics metrics;
+        metrics.Profile = policy.Profile;
+        metrics.TotalTools = snapshot->size();
+
+        // Measure the two catalogues the way a client actually receives them: the
+        // `tools` array of a tools/list result, dumped compactly (the transport does
+        // not pretty-print). Anything else — summing per-entry sizes, estimating from
+        // schema lengths — drifts from the payload it claims to describe, which is the
+        // failure mode this metric exists to prevent.
+        Json full = Json::array();
+        Json listed = Json::array();
+        for (const auto& tool : *snapshot)
+        {
+            Json entry = BuildToolEntry(tool);
+            if (policy.ShouldList(ExposureFactsOf(tool)))
+            {
+                ++metrics.ListedTools;
+                listed.push_back(entry);
+            }
+            full.push_back(std::move(entry));
+        }
+        metrics.FullBytes = Json{ { "tools", std::move(full) } }.dump().size();
+        metrics.ListedBytes = Json{ { "tools", std::move(listed) } }.dump().size();
+        return metrics;
     }
 
     Json McpServer::HandleToolsSearch(const Json& id, const Json& params) const
@@ -2236,10 +2327,74 @@ namespace OloEngine::MCP
         return MakeResult(id, Json{ { "tools", std::move(matched) }, { "toolsets", std::move(toolsets) } });
     }
 
+    std::optional<std::string> McpServer::RewriteGatewayExecuteParams(const Json& params, Json& rewritten)
+    {
+        const Json arguments = params.contains("arguments") ? params["arguments"] : Json::object();
+        if (!arguments.is_object())
+            return "Invalid arguments for '" + std::string(kGatewayExecuteTool) + "': 'arguments' must be an object.";
+
+        if (!arguments.contains("tool") || !arguments["tool"].is_string())
+            return "Invalid arguments for '" + std::string(kGatewayExecuteTool) +
+                   "': 'tool' is required and must be the name of the tool to run (e.g. \"olo_shader_errors\"). "
+                   "Use olo_tool_search to find one.";
+
+        const std::string target = arguments["tool"].get<std::string>();
+        if (target.empty())
+            return "Invalid arguments for '" + std::string(kGatewayExecuteTool) + "': 'tool' must not be empty.";
+        // No nesting. Allowing it would buy nothing and would turn a client bug into
+        // unbounded recursion through HandleToolsCall.
+        if (target == std::string(kGatewayExecuteTool))
+            return "'" + std::string(kGatewayExecuteTool) + "' cannot execute itself; pass the target tool's name.";
+
+        // Mirror tools/call's own contract: an absent `arguments` means {}, a
+        // present-but-non-object one is malformed rather than coerced.
+        if (arguments.contains("arguments") && !arguments["arguments"].is_object())
+            return "Invalid arguments for '" + std::string(kGatewayExecuteTool) +
+                   "': the nested 'arguments' must be an object.";
+
+        rewritten = Json::object();
+        rewritten["name"] = target;
+        rewritten["arguments"] = arguments.contains("arguments") ? arguments["arguments"] : Json::object();
+        // Carry the request's `_meta` through untouched: it is where a progressToken
+        // lives, so dropping it would silently disable progress notifications for
+        // every call made through the gateway.
+        if (params.contains("_meta"))
+            rewritten["_meta"] = params["_meta"];
+        return std::nullopt;
+    }
+
     Json McpServer::HandleToolsCall(const Json& id, const Json& params)
     {
         if (!params.contains("name") || !params["name"].is_string())
             return MakeError(id, kInvalidParams, "Invalid params: 'name' is required");
+
+        // ---- the gateway's execute verb (issue #1124) -------------------------
+        //
+        // olo_tool_execute is an ALIAS for tools/call, not a tool with a handler: it
+        // rewrites its `{tool, arguments}` payload into a plain tools/call envelope
+        // and re-enters here. Doing it as a rewrite rather than as a handler that
+        // invokes the target is the whole point — the target then passes through the
+        // SAME inputSchema validation, the SAME write-consent gate and the SAME
+        // progress/cancellation scope as a direct call, instead of a second
+        // implementation of all three that could disagree with this one. (Its
+        // registered ToolDef carries a handler that can never run; see
+        // McpToolsGateway.cpp for why it is registered at all.)
+        //
+        // Recursion is bounded at one level: the rewrite rejects an inner name equal
+        // to the gateway's own, so the re-entered call cannot take this branch again.
+        if (params["name"].get<std::string>() == std::string(kGatewayExecuteTool))
+        {
+            Json rewritten;
+            if (const std::optional<std::string> error = RewriteGatewayExecuteParams(params, rewritten))
+            {
+                // A tool-execution error, not a protocol one: the model chose these
+                // arguments and can correct them (SEP-1303), the same reasoning
+                // ValidateArguments' failure path below is written against.
+                const ToolResult invalid = ToolResult::Error(*error);
+                return MakeResult(id, Json{ { "content", invalid.Content }, { "isError", true } });
+            }
+            return HandleToolsCall(id, rewritten);
+        }
 
         // Pin the tool snapshot for the WHOLE call (see the ToolsSnapshot contract):
         // a concurrent script-tool reload may swap the registry mid-dispatch, and

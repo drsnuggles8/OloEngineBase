@@ -152,6 +152,12 @@ TEST(McpClientTools, AuthorityPostureIsForcedRegardlessOfChildClaims)
 TEST(McpClientTools, ReplaceIsScopedToItsAliasAndCoexistsWithScriptTools)
 {
     McpServer server{ EditorMcpContext{} };
+    // `fake_native` below is a compiled-in fake, so the default `core` exposure
+    // profile (#1124) would not list it — and this test's point is that a per-alias
+    // replace leaves it alone. Bridged and script tools are listed under every
+    // profile; only the native one needs this.
+    server.SetExposurePolicy(
+        OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
 
     ToolDef native;
     native.Name = "fake_native";

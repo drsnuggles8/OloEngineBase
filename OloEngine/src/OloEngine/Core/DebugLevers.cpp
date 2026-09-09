@@ -6,13 +6,10 @@
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Core/Log.h"
 
-#include <algorithm>
-#include <array>
 #include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
-#include <cstring>
 #include <format>
 #include <limits>
 #include <mutex>
@@ -153,38 +150,28 @@ namespace OloEngine::Levers
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
         //
-        // Fixed capacity rather than a std::vector<std::string> because this
-        // sink must be constant-initialised for the same reason the four
-        // objects above are: Seed() can run from ANOTHER TU's global
-        // initialiser, and a dynamically-initialised container may not exist
-        // yet at that point. A std::vector cannot be constinit under the MSVC
-        // STL: its default constructor allocates the debug _Container_proxy
-        // (xmemory's _Alloc_proxy, unguarded by is_constant_evaluated), so the
-        // object would have to retain a pointer to heap storage. cl.exe does
-        // not diagnose that; clang-cl does, and is right — which is how this
-        // shape reached master compiling under one Windows compiler only.
-        constexpr sizet kMaxSeedWarnings = 16;
-        constexpr sizet kMaxSeedWarningLength = 256;
-        constinit std::array<std::array<char, kMaxSeedWarningLength>, kMaxSeedWarnings> s_SeedWarnings{};
-        constinit sizet s_SeedWarningCount = 0;
-        // Dropping a warning is itself reported — a lever the environment set
-        // to garbage must never go unmentioned.
-        constinit sizet s_SeedWarningsDropped = 0;
-
-        // Records one seed-time warning. Truncates rather than allocating; the
-        // messages are single-line lever diagnostics well under the cap.
-        void AddSeedWarning(std::string_view message)
+        // NOT `constinit std::vector`, and that is a hard toolchain limit rather
+        // than a relaxation of the rule above. Under the MSVC Debug STL
+        // (`_ITERATOR_DEBUG_LEVEL != 0`, i.e. /MDd — every Debug build here)
+        // `std::vector`'s default constructor HEAP-ALLOCATES a `_Container_proxy`,
+        // so it is not a constant expression and `constinit` is a hard error:
+        // clang-cl "variable does not have a constant initializer", MSVC C2127.
+        // Both reject it; both accept it under /MD, where there is no proxy —
+        // which is why it reached master. The clang-cl CI job is the ASan one and
+        // that tree is Release-only, so no configuration CI builds has the Debug
+        // STL and a Debug-only break was invisible.
+        //
+        // A LEAKED FUNCTION-LOCAL, which keeps the property the `constinit` was
+        // there for and does not depend on the STL's constexpr-ness. The guard
+        // variable IS constant-initialized, so the storage is reachable at any
+        // point in static initialisation — the seed can still run arbitrarily
+        // early — and never destroyed, so a late `LogActive()` cannot read a
+        // destroyed vector. Same shape, and the same reasoning, as
+        // `Shader.cpp`'s deliberately-leaked program sets (issue #1088).
+        [[nodiscard]] std::vector<std::string>& SeedWarnings()
         {
-            if (s_SeedWarningCount >= kMaxSeedWarnings)
-            {
-                ++s_SeedWarningsDropped;
-                return;
-            }
-            std::array<char, kMaxSeedWarningLength>& slot = s_SeedWarnings[s_SeedWarningCount];
-            const sizet length = (std::min)(message.size(), kMaxSeedWarningLength - 1);
-            std::memcpy(slot.data(), message.data(), length);
-            slot[length] = '\0';
-            ++s_SeedWarningCount;
+            static auto* s_Warnings = new std::vector<std::string>();
+            return *s_Warnings;
         }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
@@ -220,8 +207,8 @@ namespace OloEngine::Levers
             {
                 return *parsed;
             }
-            AddSeedWarning(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
-                           std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
+            SeedWarnings().push_back(std::string(name) + "='" + *raw + "' ignored (must be finite and within [" +
+                                     std::to_string(minValue) + ", " + std::to_string(maxValue) + "])");
             return kUnsetNumber;
         }
 
@@ -445,17 +432,11 @@ namespace OloEngine::Levers
     {
         Seed();
         // Deferred from the seed, which can run before the logger exists.
-        for (sizet i = 0; i < s_SeedWarningCount; ++i)
+        for (const std::string& warning : SeedWarnings())
         {
-            OLO_CORE_WARN("[Levers] {}", s_SeedWarnings[i].data());
+            OLO_CORE_WARN("[Levers] {}", warning);
         }
-        if (s_SeedWarningsDropped > 0)
-        {
-            OLO_CORE_WARN("[Levers] {} further seed warning(s) dropped (sink holds {})", s_SeedWarningsDropped,
-                          kMaxSeedWarnings);
-        }
-        s_SeedWarningCount = 0;
-        s_SeedWarningsDropped = 0;
+        SeedWarnings().clear();
 
         if (const std::string summary = ActiveSummary(); !summary.empty())
         {
