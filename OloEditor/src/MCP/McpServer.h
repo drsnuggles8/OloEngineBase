@@ -309,10 +309,13 @@ namespace OloEngine::MCP
         // emitted under `annotations` only when it is a non-empty object.
         Json Annotations;
         // Lightweight grouping category (e.g. "render", "physics", "shader") so the
-        // 39-tool surface can be browsed/filtered instead of paged through flat. Used
-        // by `tools/search` (filter + catalogue) and surfaced under each tool's `_meta`
-        // in `tools/list`. Empty => uncategorized (omitted from the metadata). Purely
-        // descriptive — it does not affect dispatch or tool resolution.
+        // tool surface can be browsed/filtered instead of paged through flat — it was
+        // 39 tools when this was introduced (#385) and is 96 now, which is what made
+        // exposure profiles necessary (#1124). Used by `tools/search` (filter +
+        // catalogue), surfaced under each tool's `_meta` in `tools/list`, and read by
+        // ExposurePolicy under the `toolset` profile. Empty => uncategorized (omitted
+        // from the metadata, and not listed under `toolset`). It does not affect
+        // dispatch or tool resolution.
         std::string Toolset;
         ToolHandler Handler;
         bool MainMarshaled = false;

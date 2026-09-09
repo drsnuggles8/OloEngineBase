@@ -425,11 +425,13 @@ namespace OloEngine::MCP
             result["cacheScope"] = cacheScope;
         }
 
-        // tools/list: the catalogue is static for a server run EXCEPT
-        // olo_script_tools_reload (issue #607), which rescans <project>/McpTools and
-        // fires notifications/tools/list_changed on every live SSE stream. Because that
-        // push is the authoritative invalidation (capabilities.tools.listChanged is
-        // true), a generous TTL is honest — it only bridges the gap between reloads.
+        // tools/list: the catalogue is static for a server run except for two things,
+        // and BOTH fire notifications/tools/list_changed on every live SSE stream —
+        // olo_script_tools_reload (issue #607), which rescans <project>/McpTools, and
+        // SetExposurePolicy (issue #1124), which changes how much of the registry is
+        // listed. Because that push is the authoritative invalidation
+        // (capabilities.tools.listChanged is true), a generous TTL is honest — it only
+        // bridges the gap between changes.
         // 5 min matches the spec's own worked example.
         constexpr i64 kToolsListTtlMs = 300000;
 
