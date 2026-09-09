@@ -111,6 +111,25 @@ env:
   # failure is silent until it is fatal and costs a whole ~3 h round to diagnose, so
   # spend the one line.
   SCCACHE_IDLE_TIMEOUT: "0"
+  # WHERE THE FFmpeg BUILD ACTUALLY LANDS, pinned so the cache steps and CMake spell
+  # it the same way. They did not. `cmake/ffmpeg.cmake` installs into a per-USER shared
+  # tree -- `$LOCALAPPDATA/OloEngine/ffmpeg-<tag>` on Windows -- while the cache steps
+  # named `OloEngine/vendor/ffmpeg-install`, which that file's own STATUS message calls
+  # "the pre-cache per-worktree tree and is no longer used". So every save logged
+  # "Path Validation Error: Path(s) specified in the action for caching do(es) not
+  # exist, hence no cache is being saved" and exited zero, every restore reported
+  # "Cache not found for input keys", and every run rebuilt FFmpeg from source --
+  # measured at 5.3 min on run 34321473157, on the job that binds the PR wait.
+  #
+  # Same class of bug as the vcpkg cache in #1073 (restore and save spelled one
+  # directory two ways) and it stayed invisible for the same reason: a cache save
+  # reports a missing path as a WARNING, not a failure.
+  #
+  # Pointed inside the workspace rather than at $LOCALAPPDATA so the path is the same
+  # on a hosted and a self-hosted runner, and so nothing outside the workspace is
+  # cached. Only `install/` is cached; `src/` is the ~440 MB FFmpeg checkout and has
+  # no business in a 10 GB shared store.
+  OLO_FFMPEG_CACHE_DIR: ${{ github.workspace }}/.ffmpeg-cache
 
 jobs:
   build:
@@ -233,13 +252,20 @@ jobs:
       if: runner.environment == 'github-hosted'
       run: choco install nasm -y --no-progress
 
-    # Cache the built FFmpeg so only the first (or post-bump) run pays the ~10-15 min build.
+    # Cache the built FFmpeg so only the first (or post-bump) run pays the ~5 min build.
+    #
+    # The key hashes `cmake/ffmpeg.cmake` as well as the build script, because that file
+    # -- not this one -- owns `OLO_FFMPEG_TAG` and the consumed-library list. The old key
+    # spelled the tag as a literal `n7.1` here and hashed only the script, so bumping the
+    # tag where it is actually defined would have left the key unchanged and restored an
+    # install tree of the wrong FFmpeg. Pin whatever the key is hashed over
+    # (docs/agent-rules/actions-cache-budget.md).
     - name: Restore FFmpeg build
       id: ffcache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: OloEngine/vendor/ffmpeg-install
-        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+        path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+        key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
     # Provisions sccache and wires it to the GitHub Actions cache backend
     # (SCCACHE_GHA_ENABLED above). Must run before Configure so the launcher
@@ -345,8 +371,14 @@ jobs:
         triplet: x64-windows-static-md
 
     - name: Configure CMake
-      # On a cache hit, point CMake at the prebuilt FFmpeg (ffmpeg.cmake's OLO_FFMPEG_PREFIX
-      # fast path) so the build step doesn't rebuild it; on a miss it builds from source.
+      # -DOLO_FFMPEG_CACHE_DIR: point ffmpeg.cmake's shared install tree at the same
+      #   directory the restore/save steps above cache. On a hit its "cache complete"
+      #   fast path finds every consumed library and skips the ExternalProject build
+      #   entirely; on a miss it builds into that directory, which the save then banks.
+      #   This replaces a conditional -DOLO_FFMPEG_PREFIX that was passed only on a hit
+      #   -- redundant now that both sides name one directory, and weaker: the PREFIX
+      #   fast path accepts a tree containing only avcodec, while the cache-complete
+      #   check requires ALL of FFMPEG_LIBS and falls through to a real build otherwise.
       #
       # -G "Ninja Multi-Config": required for the sccache compiler launcher to
       #   engage (see the MSVC dev-env step above). -C Release still selects the
@@ -360,10 +392,6 @@ jobs:
       #   sccache unable to cache the object files.
       shell: bash
       run: |
-        PREFIX_ARG=""
-        if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
-          PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
-        fi
         cmake -S . -B "${GITHUB_WORKSPACE}/build" \
           -G "Ninja Multi-Config" \
           -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl \
@@ -371,8 +399,8 @@ jobs:
           -DOLO_ENABLE_LTO=OFF \
           -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
-          ${{ steps.vcpkg.outputs.toolchain-args }} \
-          $PREFIX_ARG
+          -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
+          ${{ steps.vcpkg.outputs.toolchain-args }}
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -450,8 +478,31 @@ jobs:
     # made the NEXT run pay for it again. Skipped on a hit: the key is content-
     # addressed by build-ffmpeg.sh, so re-saving it would only log 'cache already
     # exists' on every warm run.
+    #
+    # Ungated on `pull_request`, unlike every sccache save here: the entry is ~19 MB
+    # uncompressed, and it is skipped outright on a hit, so once a default-branch run
+    # has banked one, PR runs restore it and save nothing.
+    # The save above runs `if: always()`, so it also runs on a CANCEL -- and now that the
+    # cached path is the one CMake really installs into, a cancel mid-build would bank a
+    # HALF-INSTALLED tree. Actions cache entries are immutable, so that entry would then
+    # be restored by every later run, fail ffmpeg.cmake's completeness check, get rebuilt,
+    # and never be replaced -- the save is skipped on a key hit. Permanent, and silent.
+    # `scripts/build-ffmpeg.sh` writes this marker as its very last action, so it exists
+    # only for a tree that finished installing.
+    - name: Check the FFmpeg tree is complete
+      id: ffcomplete
+      if: always()
+      shell: bash
+      run: |
+        if [ -f "${OLO_FFMPEG_CACHE_DIR}/install/.olo-ffmpeg-complete" ]; then
+          echo "complete=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "complete=false" >> "$GITHUB_OUTPUT"
+          echo "FFmpeg install tree has no completion marker - not caching it."
+        fi
+
     - name: Save FFmpeg build
-      if: always() && steps.ffcache.outputs.cache-hit != 'true'
+      if: always() && steps.ffcache.outputs.cache-hit != 'true' && steps.ffcomplete.outputs.complete == 'true'
       # A cache save must never fail the job it is attached to. `if: always()`
       # means this runs on a CANCEL, where the path it is asked to save may not
       # exist yet -- and actions/cache/save treats a missing path as a validation
@@ -460,8 +511,8 @@ jobs:
       continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: OloEngine/vendor/ffmpeg-install
-        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+        path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+        key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
     # App-launch smoke test (issue #303). Run each shipped binary with
     # `--smoke-test`: it performs full startup (runtime-DLL load, subsystem init,

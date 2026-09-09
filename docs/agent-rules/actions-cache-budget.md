@@ -16,9 +16,11 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
 3. **A key that embeds a content hash needs the hash stripped when you group entries for
    pruning.** Otherwise every dependency bump starts a new group whose single member is
    immortal — and so is the entry it superseded.
-4. **Before redesigning a cache, add up what the fleet already stores.** The cap is
-   ~9537 MiB. If the steady set does not leave room for the largest single snapshot, no
-   key design will help.
+4. **Before redesigning a cache, add up what the fleet already stores.** The cap was
+   ~9537 MiB until 2026-09-09 and is **25 GB** now (see *The cap moved* below); the
+   binding number today is `cache-prune.yml`'s 8800 MiB working ceiling, not the cap. If
+   the steady set does not leave room for the largest single snapshot, no key design
+   will help.
 5. **The store exists to speed up GITHUB-HOSTED jobs on a PULL REQUEST. Nothing else has
    a claim on it.** Everything else either has a better cache or has no one waiting:
    a self-hosted job caches on local disk, which has no save step to refuse, no ref
@@ -104,6 +106,30 @@ were being refused with the store at 9,713,535,876 bytes = 9264 MiB. Had the cap
 10 GiB (10737 MiB) there was 1.4 GiB free and the 706 MiB vcpkg save in the very same run
 would have landed. It did not. The wall is ~9537 MiB.
 
+### The cap moved: 25 GB from 2026-09-09
+
+The 10 GB cap is no longer the constraint. It is [configurable since
+2025-11-20](https://github.blog/changelog/2025-11-20-github-actions-cache-size-can-now-exceed-10-gb-per-repository/)
+for a repository with a payment method on file — **not** a plan upgrade, which is what
+the changelog's "requires a valid Pro, Team, or Enterprise account" reads like and the
+reference docs contradict ("only available to users with a payment method on file who
+opt in by configuring cache settings"). Set at Settings → Actions → General → Cache
+settings; user-owned repos go to 10 TB. Billing is hourly **peak** above 10 GiB at
+$0.07/GiB-month, so the ceiling itself is free — this repo's measured peak bills about
+$0.04/month.
+
+This repo: **25 GB**, with an Actions budget, from 2026-09-09.
+
+Two things that do NOT follow from the raise:
+
+* **The read-only failure above is still real, and the budget is now a second way to
+  reach it.** The warning this file quotes says "you have reached your **configured
+  budget**" — that is the budget path, which goes read-only. Plain overflow of the free
+  10 GB evicts LRU instead. A budget of $0 against a raised cap reproduces the original
+  bug exactly, which is why the budget is set rather than merely the cap.
+* **`cache-prune.yml`'s 8800 MiB working ceiling did not move with it**, so the raise is
+  inert until that constant does. See the note on it below.
+
 ### The janitor could not collect the biggest orphan
 
 `cache-prune.yml` kept the newest entry per `(ref, prefix)`, where the prefix was the key
@@ -147,20 +173,22 @@ cold.** They now restore and never save.
 
 ## The arithmetic, so the next person does not have to re-derive it
 
-Measured 2026-09-06, after the sweep. Sizes are the **compressed tarball**, which is what
+Re-measured 2026-09-09 (#1084). Sizes are the **compressed tarball**, which is what
 counts against the cap — not `SCCACHE_CACHE_SIZE`, which bounds the local directory
 before compression:
 
 | Entry | Size |
 |---|---|
-| `sccache-asan-lsan-linux-llvm-23.1.0` / `-ubsan-` / `-tsan-` | **686 + 727 + 818 = 2231 MiB measured** 2026-09-08, banked by nightly run 34177309834 at the 900M cap. The reservation this row used to carry (~800 each) was close. **Their cap is 1300M as of 2026-09-08, raised from 900M**, which measured UNDER all three object sets — `du` puts those at 945 / 994 / 1084 MiB, and that is what the 93.88 / 69.89 / 30.62 % hit rates were, against a same-day control at the same cap. Clearing them costs ~200 MiB and buys 35 min on the UBSan arm. Both halves of that decision: [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). Removed entirely 2026-09-06 by #1082 at 1252 / 1231 / 1258 MiB returning 0.00 % (see *A cache can be worth removing*), and re-added by #1095 once the compiler underneath the key stopped rolling — those 1500M-era sizes are **not** evidence about the object set, because a rolling compiler was banking a fresh object set nightly into one dir. |
-| `vcpkg-Windows-x64-windows-static-md` | **706 MiB measured** 2026-09-08 (was 692 MiB on 2026-09-06) |
-| `Linux-` / `Windows-vulkan-prebuilt-sdk` | 291 + 229 MiB |
-| `ffmpeg-Windows-n7.1` | 4 MiB |
-| **measured subtotal** | **1557 MiB** (4 + 229 + 291 + 327 + 706, measured 2026-09-08; `vcpkg-Linux-x64-linux` at 327 MiB is a row this table did not have) |
-| `sccache-windows-2025-release` | **2044 MiB** — measured 2026-09-08. It was 1825 MiB on 2026-09-06, the day the fix landed, against a 2 G cap; it is growing into that cap, so treat 2 G (~1700-1850 MiB compressed) as the bill. |
-| `sccache-asan-windows-2025` | **1230 MiB** — measured 2026-09-08. It *looks* like it fills its 1500M cap (82 % of it, and the stats print `Cache size 1 GiB / Max cache size 1 GiB`), and it does not: `du -sm` puts the object set at **1241 MiB**, and dispatches at 1500M and at 3G on identical source both returned **99.87 %** and 12–13 min. Its cap has ~259 MiB spare and raising it buys nothing. The 42.17 % / 2 h 06 seen on PR #1112 was an SDK bump under a key that did not carry the SDK version; the key now does. This row is the worked example for rule 6's warning about `--show-stats` rounding. |
-| **steady set** | **7062 MiB measured** 2026-09-08 (1557 + 2044 + 1230 + 2231), by summing the API listing — every row above is now measured, none reserved. Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **1738 MiB of headroom to the ceiling**. That headroom, not any object set, is what a cap has to be sized against — see [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). |
+| `sccache-asan-lsan-linux-llvm-23.1.0` / `-ubsan-` / `-tsan-` | **1114 + 1137 + 1189 = 3440 MiB measured** 2026-09-09, the first full-size banking at the **1300M** cap #1118 raised them to (from 900M, which measured under all three object sets — `du` put those at 945 / 994 / 1084 MiB and returned 93.88 / 69.89 / 30.62 % hit rates). They land at 86–91 % of the cap, as rule 6 predicts. The 2231 MiB this row carried on 2026-09-08 was the 900M-era set and is not comparable. Both halves of the cap decision: [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). Removed entirely 2026-09-06 by #1082 at 0.00 % (see *A cache can be worth removing*), re-added by #1095 once the compiler underneath the key stopped rolling. |
+| `vcpkg-Windows-x64-windows-static-md` | **706 MiB measured** 2026-09-09 (692 MiB on 2026-09-06) |
+| `vcpkg-Linux-x64-linux` | **327 MiB measured** 2026-09-09 |
+| `Linux-vulkan-prebuilt-sdk-true-1.4.321.0` | **291 MiB.** No 1.4.357.0 Linux entry exists; only `video-ffmpeg.yml`'s linux arm creates this, and it is weekly. |
+| `Windows-vulkan-prebuilt-sdk-true-1.4.357.0` **and** `-1.4.321.0` | **256 + 229 MiB measured** 2026-09-09 — **one dependency, two live entries.** This is the version-in-the-key case rule 6's bullet list warns about: `cache-prune.yml` strips a trailing *hex* hash, and `1.4.321.0` is not hex, so the bump superseded nothing and the old entry sits until the 30-day age-out collects it (created 2026-07-07, last read 2026-09-08). 485 MiB for one SDK is the measured price of that key shape. |
+| `ffmpeg-Windows-n7.1-637be53f…` | **4 MiB, and dead.** Its hash no longer matches any workflow, so nothing will ever restore it; the age-out collects it. The FFmpeg cache had in fact **never been saved on any run** — the path cached was not the path CMake installs into, so every save exited zero on a `Path Validation Error` (#1141). The working lineage that replaces it is keyed `ffmpeg-<os>-<hash of build-ffmpeg.sh + cmake/ffmpeg.cmake>` and banks ~19 MB uncompressed. |
+| **measured subtotal** | **1813 MiB** (4 + 229 + 256 + 291 + 327 + 706), measured 2026-09-09 |
+| `sccache-windows-2025-release` | **2044 MiB** — measured 2026-09-08 and again 2026-09-09. At its 2 G cap and evicting. Warm PR runs return 94.77 / 95.01 / 98.49 %, so the cap is not currently costing much, but it has no headroom left either. |
+| `sccache-asan-windows-2025-vk1.4.357.0` | **667 MiB measured** 2026-09-09 — down from **1230 MiB** on 2026-09-08, and the drop is the useful part. #1118 renamed the key to carry the SDK version, which started a **fresh lineage**: this entry holds one build's objects, where the old one had accumulated objects from many source generations in a single dir. **So an object set measured off a long-lived entry overstates what one build needs** — the `du -sm` 1241 MiB that rule 6's arithmetic used for this job was such a measurement. Its 1500M cap now has ~830 MiB spare. |
+| **steady set** | **7968 MiB measured** 2026-09-09 by summing `size_in_bytes` over the API listing, 11 entries (the floored rows above sum to 7964). Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **832 MiB of headroom to the ceiling** — down from 1738 MiB on 2026-09-08, because #1118's 1300M cap cost the sanitizer trio ~1200 MiB and the Vulkan SDK bump stranded another 229. **Against the 25 GB cap set the same day it is ~17 GB, and the 8800 MiB ceiling is the only thing still binding** (see *The cap moved*): the measurement stands, the "nothing sizeable can be added" conclusion it carried does not. That headroom, not any object set, is what a cap has to be sized against — see [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). |
 
 `SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
 entry size — but do not read that as "the entry will be much smaller". Every sccache entry
@@ -181,6 +209,13 @@ the post-sweep store is over 8800 MiB: everything it deletes is provably superse
 unread, so if what remains is still that close to the wall, the fleet has outgrown the
 cap and a human has to shrink something. Raising the ceiling to silence the alarm
 re-creates this bug.
+
+**That ceiling is now the binding constraint, and it is stale.** 8800 MiB was sized
+against a ~9537 MiB wall; the cap is 25 GB as of 2026-09-09, so six sweeps a day still
+enforce a limit that no longer exists. Raising it to track a cap that actually moved is
+not the mistake the paragraph above warns about — that mistake is raising it *under a
+fixed cap* to quiet an alarm that is telling the truth. Keep the ceiling a fixed margin
+below the real cap so the alarm still fires before saves start being refused.
 
 ## A cache can be worth removing, and this one was worth 3741 MiB
 
