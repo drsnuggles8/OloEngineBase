@@ -56,6 +56,11 @@ oloctl scene list-entities --arguments-json '{"limit":10}'
 - A property whose schema declares no type takes JSON when the text parses as JSON, and the
   raw string otherwise.
 - `--arguments-json` seeds the whole object; named options override its keys.
+- An argument whose flag spelling is one of `oloctl`'s own options (`--port`, `--url`,
+  `--token`, `--timeout`, `--json`, `--structured`, `--compact`, `--verbose`, `--help`,
+  `--version`, `--arguments-json`) can only be given through `--arguments-json`. `oloctl`
+  says so, and **refuses the call** rather than running it with the argument quietly
+  missing. No command collides today.
 
 **`oloctl` validates nothing beyond the type.** `required`, `enum`, ranges and
 `additionalProperties` are enforced by the editor, through the same validator an MCP
@@ -81,7 +86,11 @@ on one line; `--structured` prints just `structuredContent`.
 | 2 | usage: unknown group/command/option, ambiguous spelling, bad value |
 | 3 | the editor could not be reached, or stopped answering mid-call |
 | 4 | refused: the command mutates the project (see below) |
-| 5 | `--structured`, and the result carried none |
+| 5 | `--structured`, and the command SUCCEEDED but returned no typed payload |
+
+Exit 5 means only that: a command that *failed* has its message in `content` and no
+`structuredContent`, so under `--structured` it exits 1 with the message on stderr rather
+than reporting a missing payload.
 
 `oloctl` resolves nothing against the working directory, so it can be run from anywhere. A
 **path in an argument is resolved by the editor**, relative to the editor's own working
@@ -89,19 +98,28 @@ directory (`OloEditor/`) — the same as for an MCP call.
 
 ## Finding the editor
 
-The editor writes a discovery file (host, port, token, URL) when its MCP server starts. With
-no connection options, `oloctl` looks in the system temp directory for exactly one:
+The editor writes a discovery file (host, port, token, URL) when its MCP server starts, and
+`oloctl` reads it. Precedence, in order:
+
+1. `--url` + `--token` — bypasses discovery entirely; both are in the editor's MCP panel.
+2. `--discovery-file <path>`
+3. `--port <n>` — the per-worktree port the `run-oloengine` skill derives.
+4. `OLO_MCP_DISCOVERY_FILE`
+5. the system temp directory, searched.
+
+**Everything you type beats the environment**, and that ordering is load-bearing: the
+`run-oloengine` driver exports `OLO_MCP_DISCOVERY_FILE` in the shell it attaches from, so a
+worktree session inherits it. If the variable came first, `oloctl --port <other editor>` would
+quietly attach to *this* worktree's editor and answer about the wrong scene with exit 0.
+
+The search in (5) never picks between candidates:
 
 - **one** `oloengine-mcp*.json` → it attaches to that editor;
-- **several** → it lists them all and stops. It never picks. Attaching to the wrong editor
-  answers every question about the wrong scene, and the answer looks correct.
+- **several** → it lists them all and stops. Attaching to the wrong editor answers every
+  question about the wrong scene, and the answer looks correct.
 - **none** → it says so and how to fix it.
 
-Narrow it with `--port <n>` (the per-worktree port the `run-oloengine` skill derives) or
-`--discovery-file <path>`. `OLO_MCP_DISCOVERY_FILE` is honoured too. Bypass discovery entirely
-with `--url http://127.0.0.1:<port>/mcp --token <token>`, both from the editor's MCP panel.
-
-`--verbose` reports which editor was attached to, on stderr.
+`--verbose` reports which editor was attached to, and via which route, on stderr.
 
 ## Why the whole registry, not the listed profile
 
