@@ -181,6 +181,16 @@ add_executable(OloEngine-Tests
 		# table against the reference emitter set, the accumulation-restart
 		# rules, and the vertex layout the ray-query helpers hard-code.
 		Rendering/PathTracing/GpuPathTracerContractTest.cpp
+		# #1140: ReSTIR DI's headless half — the shift Jacobian pinned by the
+		# area/solid-angle measure identity, RIS unbiasedness, both bias modes'
+		# normalisers, the corruption guards, and the GLSL constants scanned out of
+		# the shader source.
+		Rendering/ReSTIR/ReSTIRDIContractTest.cpp
+		# #1140: does the assembled estimator compute the right number? Measured
+		# against the ANALYTIC sum for a many-light set and against dense
+		# quadrature for an area emitter, with a negative control that fails if
+		# dropping the Jacobian does NOT bias the result.
+		Rendering/ReSTIR/ReSTIRDIOracleTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
@@ -371,6 +381,7 @@ add_executable(OloEngine-Tests
 		# every rendered-frame check in this repo happens to sit.
 		Rendering/Shadow/RayTracedShadowSpaceTest.cpp
 		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ReSTIRDIVisualEvidenceTest.cpp
 		# #1055: the GPU path tracer on a device that cannot trace — the path
 		# every CI runner takes. Drives the real pipeline on the GL fixture and
 		# demonstrates a byte-identical frame plus a named reason.

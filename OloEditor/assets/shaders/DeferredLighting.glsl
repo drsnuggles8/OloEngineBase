@@ -147,6 +147,7 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
 #define u_ShadowAtlasRaw  OLO_HEAP_TEX_2D_ARRAY(34)        // TEX_SHADOW_ATLAS_RAW
 // Ray-traced shadow visibility mask (issue #1056) — one channel per light.
 #define u_RayTracedShadowMask OLO_HEAP_TEX_2D(72)          // TEX_RAY_TRACED_SHADOW
+#define u_ReSTIRDIRadiance OLO_HEAP_TEX_2D(73)            // TEX_RESTIR_DI_RADIANCE (#1140)
 #else
 // IBL cubemaps.
 layout(binding = 10) uniform samplerCube u_IrradianceMap;
@@ -164,6 +165,7 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 // the sampler can never dangle; the ROUTING above, not the texture, is what
 // says whether it is meaningful.
 layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
+layout(binding = 73) uniform sampler2D u_ReSTIRDIRadiance; // ReSTIR DI resolved direct lighting (#1140)
 #endif
 
 // Clustered light lists (issue #435) — included after the ShadowData block +

@@ -6662,6 +6662,24 @@ namespace OloEngine
             out << YAML::Key << "GpuPathTracerDebugView" << YAML::Value << static_cast<u32>(pp.GpuPathTracer.DebugView);
             out << YAML::Key << "GpuPathTracerSampleCountDisplayScale" << YAML::Value << pp.GpuPathTracer.SampleCountDisplayScale;
             out << YAML::Key << "GpuPathTracerVarianceDisplayScale" << YAML::Value << pp.GpuPathTracer.VarianceDisplayScale;
+            // ReSTIR DI (#1140). Every knob, because a scene that reproduces a
+            // measured comparison against the oracle has to reproduce the
+            // ESTIMATOR too — a bias mode or a candidate count that reverted to
+            // its default on load would silently change what the frame is.
+            out << YAML::Key << "ReSTIRDIEnabled" << YAML::Value << pp.ReSTIRDI.Enabled;
+            out << YAML::Key << "ReSTIRDIInitialCandidates" << YAML::Value << pp.ReSTIRDI.InitialCandidates;
+            out << YAML::Key << "ReSTIRDIVisibilityReuse" << YAML::Value << pp.ReSTIRDI.VisibilityReuse;
+            out << YAML::Key << "ReSTIRDITemporalReuse" << YAML::Value << pp.ReSTIRDI.TemporalReuse;
+            out << YAML::Key << "ReSTIRDITemporalMCap" << YAML::Value << pp.ReSTIRDI.TemporalMCap;
+            out << YAML::Key << "ReSTIRDISpatialReuse" << YAML::Value << pp.ReSTIRDI.SpatialReuse;
+            out << YAML::Key << "ReSTIRDISpatialNeighbours" << YAML::Value << pp.ReSTIRDI.SpatialNeighbours;
+            out << YAML::Key << "ReSTIRDISpatialRadiusPixels" << YAML::Value << pp.ReSTIRDI.SpatialRadiusPixels;
+            out << YAML::Key << "ReSTIRDISpatialPasses" << YAML::Value << pp.ReSTIRDI.SpatialPasses;
+            out << YAML::Key << "ReSTIRDIBiasMode" << YAML::Value << static_cast<u32>(pp.ReSTIRDI.BiasMode);
+            out << YAML::Key << "ReSTIRDIEngagementMargin" << YAML::Value << pp.ReSTIRDI.EngagementMargin;
+            out << YAML::Key << "ReSTIRDIMaxRadianceClamp" << YAML::Value << pp.ReSTIRDI.MaxRadianceClamp;
+            out << YAML::Key << "ReSTIRDIRayOriginNormalBias" << YAML::Value << pp.ReSTIRDI.RayOriginNormalBias;
+            out << YAML::Key << "ReSTIRDIDebugView" << YAML::Value << static_cast<u32>(pp.ReSTIRDI.DebugView);
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -6915,6 +6933,42 @@ namespace OloEngine
                 TrySet(pt.MaxRayDistance, ppNode["GpuPathTracerMaxRayDistance"]);
                 TrySet(pt.UniformEnvironmentRadiance, ppNode["GpuPathTracerUniformEnvironmentRadiance"]);
                 TrySet(pt.EnvironmentCubeIntensity, ppNode["GpuPathTracerEnvironmentCubeIntensity"]);
+
+                // ReSTIR DI (#1140). Every knob the writer emits, and each through TrySet
+                // so a scene written before this tier existed loads with the defaults
+                // rather than with zeroes — a zero candidate count would arm the tier and
+                // then sample nothing.
+                auto& restir = pp.ReSTIRDI;
+                TrySet(restir.Enabled, ppNode["ReSTIRDIEnabled"]);
+                TrySet(restir.InitialCandidates, ppNode["ReSTIRDIInitialCandidates"]);
+                TrySet(restir.VisibilityReuse, ppNode["ReSTIRDIVisibilityReuse"]);
+                TrySet(restir.TemporalReuse, ppNode["ReSTIRDITemporalReuse"]);
+                TrySet(restir.TemporalMCap, ppNode["ReSTIRDITemporalMCap"]);
+                TrySet(restir.SpatialReuse, ppNode["ReSTIRDISpatialReuse"]);
+                TrySet(restir.SpatialNeighbours, ppNode["ReSTIRDISpatialNeighbours"]);
+                TrySet(restir.SpatialRadiusPixels, ppNode["ReSTIRDISpatialRadiusPixels"]);
+                TrySet(restir.SpatialPasses, ppNode["ReSTIRDISpatialPasses"]);
+                if (const auto biasNode = ppNode["ReSTIRDIBiasMode"])
+                {
+                    u32 biasMode = 0;
+                    TrySet(biasMode, biasNode);
+                    if (biasMode < std::to_underlying(ReSTIR::BiasMode::Count))
+                        restir.BiasMode = static_cast<ReSTIR::BiasMode>(biasMode);
+                }
+                TrySet(restir.EngagementMargin, ppNode["ReSTIRDIEngagementMargin"]);
+                TrySet(restir.MaxRadianceClamp, ppNode["ReSTIRDIMaxRadianceClamp"]);
+                TrySet(restir.RayOriginNormalBias, ppNode["ReSTIRDIRayOriginNormalBias"]);
+                if (const auto viewNode = ppNode["ReSTIRDIDebugView"])
+                {
+                    u32 view = 0;
+                    TrySet(view, viewNode);
+                    if (view < std::to_underlying(ReSTIRDIDebugView::Count))
+                        restir.DebugView = static_cast<ReSTIRDIDebugView>(view);
+                }
+                // Applied on LOAD as well as before every upload: a hand-edited or
+                // downgraded scene is exactly the case the shader cannot be the backstop
+                // for.
+                restir = SanitizeReSTIRDISettings(restir);
                 u32 debugView = static_cast<u32>(pt.DebugView);
                 TrySet(debugView, ppNode["GpuPathTracerDebugView"]);
                 // An out-of-range value is turned back into Radiance by the

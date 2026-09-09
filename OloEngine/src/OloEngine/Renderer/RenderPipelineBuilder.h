@@ -42,6 +42,7 @@ namespace OloEngine
         RenderGraphNode* GTAO = nullptr;
         RenderGraphNode* SphereProxyAO = nullptr;   // #710 analytic sphere-proxy AO (after the AO producer)
         RenderGraphNode* RayTracedShadow = nullptr; // #1056 ray-query shadow mask (before DeferredLighting)
+        RenderGraphNode* ReSTIRDI = nullptr;        // #1140 ReSTIR DI direct lighting (before DeferredLighting)
         RenderGraphNode* Particle = nullptr;
         RenderGraphNode* OITPrepare = nullptr;
         RenderGraphNode* OITResolve = nullptr;

@@ -161,25 +161,6 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;          // TEX_USER_1:
 #include "include/GPUSceneLights.glsl"
 #include "include/PathTracerSampler.glsl"
 
-// One emissive triangle, in the render-relative frame the TLAS is built in.
-// Mirrors OloEngine::EmissiveTriangleRecord (EmissiveTriangleTable.h): five
-// vec4 so the C++ side uploads the struct verbatim with no packing step.
-struct OloPtEmissiveTriangle
-{
-    vec4 V0;              // xyz vertex 0, w = area
-    vec4 V1;              // xyz vertex 1, w = uv2.x
-    vec4 V2;              // xyz vertex 2, w = uv2.y
-    vec4 NormalAndCdf;    // xyz winding normal, w = cumulative area fraction (last entry exactly 1)
-    vec4 RadianceAndFlags; // rgb emitted radiance FACTOR, w = 1 when the emitter is two-sided
-    vec4 Uv01;            // xy = uv0, zw = uv1 — with the map below, NEE sees the textured radiance
-    uvec4 Texture;        // x = emissive map heap byte offset (OLO_HEAP_OFFSET_INVALID = none), yzw pad
-};
-
-layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloPtEmissiveTable
-{
-    OloPtEmissiveTriangle Triangles[];
-};
-
 // UBO_RAY_TRACING (65). Mirrored on the CPU by
 // UBOStructures::RayTracingPathTracerUBO.
 layout(std140, binding = 65) uniform RayTracingPathTracerParams
@@ -273,6 +254,18 @@ vec4 PtSampleMaterialTexture(uint textureByteOffset, vec2 uv)
 {
     return oloHeapSampleLod(textureByteOffset, u_MaterialTable.w, uv, 0.0);
 }
+
+// Light sampling and its densities are SHARED with the ReSTIR DI tier
+// (include/LightSampling.glsl, issue #1140): the emissive triangle table and
+// its area sampler, the sphere-light view / cone pdf / point distance, the
+// punctual view, and the sphere-light ray intersection all moved there
+// verbatim. The tier that is VALIDATED against this oracle must not carry its
+// own copy of the oracle's measure — a second copy is how the comparison stops
+// proving anything. The heap uniforms stay here, handed to the include as
+// macros the way RayTracingAlphaTest.glsl takes OLO_RT_SAMPLE_ALPHA.
+#define OLO_LIGHT_SAMPLE_EMISSIVE_TEXTURE(byteOffset, uv) PtSampleMaterialTexture(byteOffset, uv)
+#define OLO_LIGHT_EMISSIVE_TEXTURES_ENABLED PtTexturesEnabled()
+#include "include/LightSampling.glsl"
 
 // glTF MASK alpha: baseColorFactor.a times the albedo map's alpha — the
 // raster path's own definition (PBR_GBuffer.glsl).
@@ -399,22 +392,6 @@ float PowerHeuristic(float pdfA, float pdfB)
     if (!(denom > 0.0))
         return 0.0;
     return a2 / denom;
-}
-
-// ReferenceBRDF.h's CalculateSpotIntensity rather than PBRCommon's
-// calculateSpotIntensity: the CPU twin guards a zero-width cone (inner ==
-// outer) and PBRCommon's divides by it. The oracle has to agree with the
-// oracle, so the guarded form is the one transcribed here.
-float PtSpotIntensity(vec3 l, vec3 spotDir, vec4 spotParams)
-{
-    const float innerCutoff = spotParams.x;
-    const float outerCutoff = spotParams.y;
-    const float theta = dot(l, normalize(-spotDir));
-    const float epsilon = innerCutoff - outerCutoff;
-    if (!(abs(epsilon) > 0.0))
-        return theta >= innerCutoff ? 1.0 : 0.0;
-    const float intensity = clamp((theta - outerCutoff) / epsilon, 0.0, 1.0);
-    return intensity * intensity;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,88 +539,6 @@ ClosureV2Sample PtSampleBRDF(PtHit hit, vec3 n, vec3 v, float lobeXi, vec2 xi)
 // emitter whose radiance reproduces the raster's diffuse irradiance at the
 // receiver, sampled by uniform solid angle over the cone it subtends.
 // ---------------------------------------------------------------------------
-struct PtSphereLightView
-{
-    bool Valid;
-    float Distance;
-    float CosThetaMax;
-    vec3 Radiance;
-};
-
-PtSphereLightView PtViewSphereLight(GPUSceneLight light, vec3 from)
-{
-    PtSphereLightView view;
-    view.Valid = false;
-    view.Distance = 0.0;
-    view.CosThetaMax = 1.0;
-    view.Radiance = vec3(0.0);
-    const vec3 toCenter = light.PositionAndRange.xyz - from;
-    const float distance = length(toCenter);
-    const float radius = light.DirectionAndRadius.w;
-    const float range = light.PositionAndRange.w;
-    if (!(radius > 0.0) || !(distance > radius) || distance > range)
-        return view;
-    const float distRatio = distance / max(range, 1e-6);
-    const float window = max(1.0 - distRatio * distRatio, 0.0);
-    const float attenuation = window * window / (distance * distance + 1.0);
-    view.Valid = true;
-    view.Distance = distance;
-    view.CosThetaMax = sqrt(max(0.0, 1.0 - (radius * radius) / (distance * distance)));
-    view.Radiance = light.ColorAndIntensity.rgb * light.ColorAndIntensity.w * attenuation * (distance * distance) /
-                    (PI * radius * radius);
-    return view;
-}
-
-float PtSphereConePdf(float cosThetaMax)
-{
-    const float solidAngle = 2.0 * PI * (1.0 - cosThetaMax);
-    return solidAngle > 0.0 ? 1.0 / solidAngle : 0.0;
-}
-
-float PtSphereLightPointDistance(float distance, float radius, float cosTheta)
-{
-    const float sinThetaSq = max(0.0, 1.0 - cosTheta * cosTheta);
-    return distance * cosTheta - sqrt(max(0.0, radius * radius - distance * distance * sinThetaSq));
-}
-
-// The nearest sphere light the ray reaches before tMax: its light slot, or -1.
-int PtIntersectSphereLights(vec3 origin, vec3 direction, float tMax, out float outT)
-{
-    int found = -1;
-    outT = tMax;
-    const uint lightCount = u_SlotCounts.w;
-    for (uint i = 0u; i < OLO_PT_MAX_LIGHTS; ++i)
-    {
-        if (i >= lightCount)
-            break;
-        const GPUSceneLight light = g_GPUSceneLights[i];
-        if ((light.Flags & OLO_GPU_SCENE_LIGHT_ACTIVE) == 0u || light.Type != OLO_GPU_SCENE_LIGHT_SPHERE_AREA)
-            continue;
-        const float radius = light.DirectionAndRadius.w;
-        if (!(radius > 0.0))
-            continue;
-        // Inside or past the range: transparent (PathTracer.cpp's rule).
-        const vec3 oc = origin - light.PositionAndRange.xyz;
-        const float centreDistance = length(oc);
-        if (!(centreDistance > radius) || centreDistance > light.PositionAndRange.w)
-            continue;
-        const float b = dot(oc, direction);
-        const float c = dot(oc, oc) - radius * radius;
-        const float discriminant = b * b - c;
-        if (discriminant < 0.0)
-            continue;
-        const float root = sqrt(discriminant);
-        float t = -b - root;
-        if (!(t > 0.0))
-            t = -b + root;
-        if (!(t > 0.0) || !(t < outT))
-            continue;
-        found = int(i);
-        outT = t;
-    }
-    return found;
-}
-
 // A committed intersection whose instance, geometry or material record is
 // out of range, tombstoned or inactive: geometry the TLAS still holds but the
 // tables no longer describe (a slot retired the same frame the structure was
@@ -844,7 +739,7 @@ bool TraceClosest(vec3 origin, vec3 direction, float tMax, out PtHit hit)
 {
     const bool hitGeometry = TraceClosestGeometry(origin, direction, tMax, hit);
     float sphereT;
-    const int sphereLight = PtIntersectSphereLights(origin, direction, hitGeometry ? hit.Distance : tMax, sphereT);
+    const int sphereLight = OloIntersectSphereLights(origin, direction, hitGeometry ? hit.Distance : tMax, u_SlotCounts.w, sphereT);
     if (sphereLight < 0)
         return hitGeometry;
     hit.Hit = true;
@@ -888,61 +783,7 @@ bool IsOccluded(vec3 from, vec3 to, float epsilon)
     if (!(dist > 2.0 * epsilon))
         return false;
     float sphereT;
-    return PtIntersectSphereLights(from + delta / dist * epsilon, delta / dist, dist - 2.0 * epsilon, sphereT) >= 0;
-}
-
-// ---------------------------------------------------------------------------
-// Emissive geometry — ReferenceScene::SampleEmissive.
-//
-// Area-proportional triangle selection through the table's cumulative area
-// fraction, then a uniform barycentric point (Turk's square-root warp). Uniform
-// over AREA rather than over triangles is what makes the density the single
-// constant u_Environment.a, which the BSDF-hit MIS side reuses without knowing
-// which triangle it hit.
-// ---------------------------------------------------------------------------
-bool SampleEmissive(float xiSelect, vec2 xiPoint, out vec3 position, out vec3 normal, out vec3 radiance,
-                    out bool twoSided)
-{
-    const uint count = u_EmissiveTable.z;
-    if (count == 0u || !(u_Environment.a > 0.0))
-        return false;
-
-    OloPtEmissiveTable table = OloPtEmissiveTable(u_EmissiveTable.xy);
-
-    // std::lower_bound on the CDF: the first entry whose cumulative fraction
-    // is >= xiSelect. A bounded binary search; 2^32 entries would need 32 steps.
-    uint lo = 0u;
-    uint hi = count;
-    for (uint step = 0u; step < OLO_PT_MAX_EMISSIVE_SEARCH; ++step)
-    {
-        if (lo >= hi)
-            break;
-        const uint mid = lo + (hi - lo) / 2u;
-        if (table.Triangles[mid].NormalAndCdf.w < xiSelect)
-            lo = mid + 1u;
-        else
-            hi = mid;
-    }
-    const uint triangleIndex = min(lo, count - 1u);
-    const OloPtEmissiveTriangle emitter = table.Triangles[triangleIndex];
-
-    const float sqrtU = sqrt(clamp(xiPoint.x, 0.0, 1.0));
-    const float b0 = 1.0 - sqrtU;
-    const float b1 = clamp(xiPoint.y, 0.0, 1.0) * sqrtU;
-    const float b2 = 1.0 - b0 - b1;
-
-    position = emitter.V0.xyz * b0 + emitter.V1.xyz * b1 + emitter.V2.xyz * b2;
-    normal = emitter.NormalAndCdf.xyz;
-    radiance = emitter.RadianceAndFlags.rgb;
-    // The emitter's map at the sampled point, so NEE and the emitter-hit path
-    // see one radiance and MIS weights the same integrand twice.
-    if (emitter.Texture.x != OLO_HEAP_OFFSET_INVALID && PtTexturesEnabled())
-    {
-        const vec2 uv = emitter.Uv01.xy * b0 + emitter.Uv01.zw * b1 + vec2(emitter.V1.w, emitter.V2.w) * b2;
-        radiance *= PtSampleMaterialTexture(emitter.Texture.x, uv).rgb;
-    }
-    twoSided = emitter.RadianceAndFlags.w > 0.5;
-    return true;
+    return OloIntersectSphereLights(from + delta / dist * epsilon, delta / dist, dist - 2.0 * epsilon, u_SlotCounts.w, sphereT) >= 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -992,7 +833,7 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
                                                vec4(1.0, 0.0, light.ShapeParams.z, light.PositionAndRange.w));
             if (light.Type == OLO_GPU_SCENE_LIGHT_SPOT)
             {
-                attenuation *= PtSpotIntensity(l, light.DirectionAndRadius.xyz,
+                attenuation *= OloSpotIntensity(l, light.DirectionAndRadius.xyz,
                                                vec4(light.ShapeParams.x, light.ShapeParams.y, light.ShapeParams.w, 1.0));
             }
             shadowTarget = lightPos;
@@ -1028,10 +869,14 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         const float xiSelect = oloPtGet1D(pathSampler);
         const vec2 xiPoint = oloPtGet2D(pathSampler);
 
-        vec3 lightPosition, lightNormal, lightRadiance;
-        bool twoSided;
-        if (SampleEmissive(xiSelect, xiPoint, lightPosition, lightNormal, lightRadiance, twoSided))
+        const OloEmissiveSample emissive = OloSampleEmissiveTriangle(
+            OloEmissiveTable(u_EmissiveTable.xy), u_EmissiveTable.z, u_Environment.a, xiSelect, xiPoint);
+        if (emissive.Valid)
         {
+            const vec3 lightPosition = emissive.Position;
+            const vec3 lightNormal = emissive.Normal;
+            const vec3 lightRadiance = emissive.Radiance;
+            const bool twoSided = emissive.TwoSided;
             const vec3 toLight = lightPosition - hit.Position;
             const float distanceSq = dot(toLight, toLight);
             if (distanceSq > 1e-12)
@@ -1074,10 +919,10 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         if ((light.Flags & OLO_GPU_SCENE_LIGHT_ACTIVE) == 0u || light.Type != OLO_GPU_SCENE_LIGHT_SPHERE_AREA)
             continue;
         const vec2 xi = oloPtGet2D(pathSampler);
-        const PtSphereLightView view = PtViewSphereLight(light, hit.Position);
+        const OloSphereLightView view = OloViewSphereLight(light, hit.Position);
         if (!view.Valid)
             continue;
-        const float pdfSolidAngle = PtSphereConePdf(view.CosThetaMax);
+        const float pdfSolidAngle = OloSphereConePdf(view.CosThetaMax);
         if (!(pdfSolidAngle > 0.0))
             continue;
         const float cosTheta = 1.0 - xi.x * (1.0 - view.CosThetaMax);
@@ -1090,7 +935,7 @@ vec3 SampleDirectLighting(PtHit hit, vec3 geometricNormal, vec3 n, vec3 v, float
         const float nDotL = dot(n, l);
         if (!(nDotL > 0.0))
             continue;
-        const float t = PtSphereLightPointDistance(view.Distance, light.DirectionAndRadius.w, cosTheta);
+        const float t = OloSphereLightPointDistance(view.Distance, light.DirectionAndRadius.w, cosTheta);
         if (!(t > 0.0))
             continue;
         const vec3 shadowOrigin = OffsetOrigin(hit.Position, geometricNormal, l, rayEpsilon);
@@ -1162,12 +1007,12 @@ vec3 TracePath(vec3 origin, vec3 direction, inout OloPathSampler pathSampler, ou
         if (hit.SphereLight >= 0)
         {
             const GPUSceneLight sphereLight = g_GPUSceneLights[hit.SphereLight];
-            const PtSphereLightView view = PtViewSphereLight(sphereLight, previousVertex);
+            const OloSphereLightView view = OloViewSphereLight(sphereLight, previousVertex);
             if (view.Valid)
             {
                 const float misWeight = (previousScatterWasDelta || !nee)
                                             ? 1.0
-                                            : PowerHeuristic(previousBsdfPdf, PtSphereConePdf(view.CosThetaMax));
+                                            : PowerHeuristic(previousBsdfPdf, OloSphereConePdf(view.CosThetaMax));
                 radiance += throughput * view.Radiance * misWeight;
             }
             if (bounce == 0u)

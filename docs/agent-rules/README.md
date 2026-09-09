@@ -29,6 +29,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
 - [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
 - [reference-path-tracer.md](reference-path-tracer.md): the ground-truth oracle for "is it correct", where a golden can only say "did it change".
+- [resampled-estimator-measure-convention.md](resampled-estimator-measure-convention.md): write a resampled estimator's measure convention into the header that owns the sample, pin its Jacobian by an identity rather than an expected value, and add a negative control that fails if the term is removed.
 - [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md): measure the noise floor and audit a recording before baking a per-vendor baseline.
 - [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md): give a visual-test scene a ground plane, then look at the PNG.
 - [live-verification-noise-floor.md](live-verification-noise-floor.md): measure frame-to-frame noise before attributing a pixel change, and confirm the editor is drawing at all.
@@ -242,6 +243,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Three light evaluators that can render the same scene. |
 | [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md) | The cascade-shift invalidation is derived independently on CPU and GPU, on purpose. |
 | [reference-path-tracer.md](reference-path-tracer.md) | A C++ BRDF port against the GLSL it mirrors. |
+| [resampled-estimator-measure-convention.md](resampled-estimator-measure-convention.md) | A missing change-of-measure Jacobian in a resampled estimator produces a smooth geometric brightness gradient across a wall, and a double-applied normaliser divides the whole image by the candidate count; both read as "the new tier looks a bit off" and both survive a golden image, a unit test on the Jacobian's own value, and CPU/GPU agreement — because the two implementations were written from the same misunderstanding. |
 | [gpu-path-tracer.md](gpu-path-tracer.md) | A GLSL path tracer against the C++ one it mirrors: the same Sobol'-Owen sampler to the bit, the same NEE + MIS structure, the same closure, pinned on the device by a written-down disagreement budget. |
 | [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md) | The GI stores' units ledger, and bake-time unwrap parameters mirrored by the runtime resolve. |
 | [lightmap-receiver-identity.md](lightmap-receiver-identity.md) | Four walks that must gather the same lightmap receivers; a mismatch renders with no baked GI and no error. |

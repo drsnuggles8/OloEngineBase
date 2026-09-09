@@ -91,6 +91,11 @@ namespace OloEngine
             // the technique fell back, which is what makes the fallback a fact
             // the graph carries rather than a flag a shader has to be told.
             RGTextureHandle RayTracedShadowMask;
+            // ReSTIR DI's resolved direct lighting (issue #1140). Invalid
+            // whenever the tier stood down, which is what makes the fallback a
+            // fact the GRAPH carries rather than a flag a shader has to be told;
+            // the shader's own per-pixel alpha test is the second half.
+            RGTextureHandle ReSTIRDIRadiance;
             // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
             RHI::ResourceHandle ShadowMapCSMRawID{};
             RHI::ResourceHandle ShadowMapAtlasRawID{};

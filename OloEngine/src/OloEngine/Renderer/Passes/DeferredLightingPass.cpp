@@ -98,6 +98,7 @@ namespace OloEngine
         // Raw-depth views alias the array storage tracked via the handles below,
         // so they need no separate Read()/barrier — just carry the GL ids.
         m_SelectedInputs.RayTracedShadowMask = {};
+        m_SelectedInputs.ReSTIRDIRadiance = {};
         m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
         m_SelectedInputs.ShadowMapAtlasRawID = blackboard.Shadows.ShadowMapAtlasRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
@@ -115,6 +116,12 @@ namespace OloEngine
             m_SelectedInputs.RayTracedShadowMask = blackboard.Shadows.RayTracedShadowMaskTexture;
             [[maybe_unused]] const auto rtShadowRead =
                 builder.Read(blackboard.Shadows.RayTracedShadowMaskTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Lighting.ReSTIRDIRadianceTexture.IsValid())
+        {
+            m_SelectedInputs.ReSTIRDIRadiance = blackboard.Lighting.ReSTIRDIRadianceTexture;
+            [[maybe_unused]] const auto restirRead =
+                builder.Read(blackboard.Lighting.ReSTIRDIRadianceTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
         {
@@ -286,7 +293,14 @@ namespace OloEngine
         // which is the single source of truth across forward and deferred paths.
         controls.Controls.w = Renderer3D::GetShadowMap().IsCascadeDebugEnabled() ? 1.0f : 0.0f;
         controls.MSAAParams.x = static_cast<f32>(useMSAAShading ? sampleCount : 1u);
-        controls.MSAAParams.y = 0.0f;
+        // The ReSTIR DI tier's "I answer for the direct term" lane (issue
+        // #1140). Raised only when the pass actually produced a radiance target
+        // this frame, so a tier that stood down for ANY reason — no RT device,
+        // an empty TLAS, too few lights — leaves the clustered loop running by
+        // construction rather than by remembering to clear a flag. The shader
+        // additionally tests the target's alpha per pixel, which is what covers
+        // sky and unlit pixels inside a live frame.
+        controls.MSAAParams.y = m_SelectedInputs.ReSTIRDIRadiance.IsValid() ? 1.0f : 0.0f;
         controls.MSAAParams.z = 0.0f;
         controls.MSAAParams.w = 0.0f;
         m_ControlsUBO->SetData(&controls, sizeof(controls));
@@ -423,6 +437,27 @@ namespace OloEngine
                 : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
                                                  : RHI::ResourceHandle{});
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RAY_TRACED_SHADOW, rayTracedShadowMaskID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+
+        // ReSTIR DI's resolved direct lighting (issue #1140). Bound to the
+        // white placeholder when the tier stood down, the same stand-in the mask
+        // above uses, and for the same narrow reason: a dangling sampler is
+        // undefined behaviour, not a zero read.
+        //
+        // WHITE IS NOT A SAFE VALUE HERE and that is worth stating rather than
+        // trusting: its alpha is 1, so if it were ever sampled the shader would
+        // read it as "the tier produced full white direct lighting". What stops
+        // that is the ORDER of the two guards in oloReSTIRDIDirectLighting — the
+        // MSAAParams.y lane is tested FIRST and is raised only when this handle
+        // is valid, so the placeholder is never reached by a sample. The
+        // per-pixel alpha test is the second guard and covers sky and unlit
+        // pixels inside a live frame.
+        const RHI::ResourceHandle restirRadianceID =
+            m_SelectedInputs.ReSTIRDIRadiance.IsValid()
+                ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRDIRadiance)
+                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                 : RHI::ResourceHandle{});
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_DI_RADIANCE, restirRadianceID,
                                         RHI::HeapSlotLifetime::FrameTransient);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain

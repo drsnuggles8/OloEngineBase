@@ -35,6 +35,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/VirtualShadowMapMarkPass.h"
 #include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
@@ -152,6 +153,11 @@ namespace OloEngine
         // DeferredLightingPass (which samples the mask it produces), with a
         // by-name execution edge on RayTracingScenePass.
         Ref<RayTracedShadowPass> RayTracedShadow;
+        // ReSTIR DI (#1140). Registered after the last G-Buffer writer and
+        // before DeferredLightingPass, which samples the radiance it produces
+        // INSTEAD of running its own punctual / area light loop. Same by-name
+        // execution edge on RayTracingScenePass, for the same reason.
+        Ref<ReSTIRDIPass> ReSTIRDI;
         Ref<ParticleRenderPass> Particle;
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
@@ -166,6 +172,7 @@ namespace OloEngine
             GTAO.Reset();
             SphereProxyAO.Reset();
             RayTracedShadow.Reset();
+            ReSTIRDI.Reset();
             Particle.Reset();
             OITPrepare.Reset();
             OITResolve.Reset();
@@ -316,6 +323,7 @@ namespace OloEngine
             m_ReportedRayTracedShadowGateVerdict = kNoRayTracedShadowVerdict;
             m_ReportedRayTracedShadowMaskVerdict = kNoRayTracedShadowVerdict;
             m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
+            m_ReportedReSTIRDIVerdict = kNoReSTIRDIVerdict;
             InvalidateBlackboardCache();
         }
 
@@ -351,6 +359,9 @@ namespace OloEngine
         // anywhere else, because a tier whose target is never declared is
         // culled before it can count anything about itself.
         u32 m_ReportedRayTracedReflectionVerdict = kNoRayTracedShadowVerdict;
+        // Same latch, same reason, for the ReSTIR DI tier (#1140).
+        static constexpr u32 kNoReSTIRDIVerdict = ~0u;
+        u32 m_ReportedReSTIRDIVerdict = kNoReSTIRDIVerdict;
 
       private:
         void ApplyGlobalResources(Renderer3DData& data) const;

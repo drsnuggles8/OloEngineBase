@@ -22,6 +22,7 @@ namespace OloEngine
         Cloudscape,
         RayTracedShadow, ///< Hybrid ray-traced shadow visibility mask (issue #1056)
         PathTracer,      ///< GPU reference path tracer's progressive accumulation (issue #1055)
+        ReSTIRDI,        ///< ReSTIR DI screen-space reservoirs (issue #1140)
     };
 
     enum class TemporalHistoryPlane : u8
@@ -34,6 +35,14 @@ namespace OloEngine
         MomentsSecond,
         Diagnostics,
         Albedo, ///< First-hit albedo AOV accumulation (issue #1055)
+        // The three planes one packed ReSTIR DI reservoir occupies (issue
+        // #1140). Named rather than folded into Signal/Diagnostics because
+        // the LayoutVersion on their descriptor is what stops a reservoir
+        // written by an older packing from being reinterpreted as a newer
+        // one — which is not a crash, it is a plausible wrong image.
+        ReservoirSample,   ///< xyz = emitter point / direction, w = packed kind + light index
+        ReservoirRadiance, ///< xyz = emitter radiance, w = oct-packed emitter normal
+        ReservoirState,    ///< x = W, y = M, z = target pdf, w = packed diagnostics
     };
 
     enum class TemporalHistoryResolution : u8

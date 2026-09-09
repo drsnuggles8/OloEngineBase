@@ -613,6 +613,41 @@ namespace OloEngine
         // from the CPU film's pixel index, not from a backend texture
         // coordinate, so the CPU reference camera's matrix is the right one on
         // both backends (GpuPathTracer.glsl's GenerateRay).
+        // ReSTIR DI (issue #1140, #979 Phase 3) — the block all FOUR reservoir
+        // draws share, so one upload feeds the chain. Mirrors the GLSL
+        // ReSTIRDIParams block in include/ReSTIRDIParams.glsl at
+        // UBO_RAY_TRACING (65); ReSTIRDIContractTest pins the size and the
+        // lane meanings.
+        //
+        // It sits on binding 65 with the path tracer's and the shadow tier's
+        // blocks because UBO_TERRAIN_BRUSH (83) is the last engine binding and
+        // UBO_BINDING_LIMIT (84) is the GL 4.6 guaranteed floor: there is no
+        // free binding to take, so the per-dispatch refill (#691) is a
+        // requirement rather than a style choice.
+        struct ReSTIRDIUBO
+        {
+            glm::mat4 InvView;              //   0 — view -> render-relative world
+            glm::mat4 InvProjection;        //  64 — clip -> view, for the depth reconstruction
+            glm::mat4 View;                 // 128
+            glm::mat4 PrevViewProjection;   // 192 — the temporal draw's reprojection fallback
+            glm::uvec4 TlasAddressAndFrame; // 256 — xy = TLAS device address, z = instance mask, w = frame index
+            glm::uvec4 SlotCounts;          // 272 — x = instances, y = geometries, z = materials, w = LIVE lights
+            glm::uvec4 EmissiveTable;       // 288 — xy = table address, z = triangle count, w = OLO_RESTIR_FLAG_*
+            glm::uvec4 MaterialTable;       // 304 — xy = table address, z = record count, w = sampler heap offset
+            glm::uvec4 ResamplingCounts;    // 320 — x = initial candidates, y = spatial neighbours, z = pass index, w = bias mode
+            glm::vec4 ReuseParams;          // 336 — x = temporal M cap, y = spatial radius px, z = ray epsilon, w = normal bias
+            glm::vec4 EstimatorParams;      // 352 — x = emissive area pdf, y = max ray distance, z = radiance clamp, w = debug view
+            glm::vec4 ScreenParams;         // 368 — x = width, y = height, z = 1/width, w = 1/height
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(ReSTIRDIUBO);
+            }
+        };
+        static_assert(sizeof(ReSTIRDIUBO) % 16 == 0, "ReSTIRDIUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ReSTIRDIUBO) == 384,
+                      "ReSTIRDIUBO std140 size drifted from the GLSL ReSTIRDIParams block (384 B)");
+
         struct RayTracingPathTracerUBO
         {
             glm::mat4 InvViewProjection; //   0 — clip -> render-relative world, GL clip convention
@@ -2681,7 +2716,19 @@ namespace OloEngine
         // shifts up by one, per the established procedure for new engine slots.
         static constexpr u32 TEX_RAY_TRACED_SHADOW = 72;
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 73; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // ReSTIR DI's resolved direct-lighting radiance (issue #1140). The
+        // deferred lighting shader samples it INSTEAD of running its own
+        // punctual / area light loop when the tier is live; alpha 0 means the
+        // tier produced no value at this pixel, which is the distinction a
+        // black texel alone cannot carry.
+        static constexpr u32 TEX_RESTIR_DI_RADIANCE = 73;
+
+        // First shader graph user texture slot — must stay after every
+        // engine-reserved slot, which is why it MOVES when one is added rather
+        // than the new slot being wedged in above it. It has moved three times
+        // now; MAX_ENGINE_TEXTURE_SLOTS derives from it so nothing has to be
+        // updated alongside.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 74;
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -3719,6 +3766,10 @@ namespace OloEngine
                     return name == "u_TerrainVTIndirection";
                 case TEX_TERRAIN_VT_CACHE:
                     return name == "u_TerrainVTCache";
+                case TEX_RESTIR_DI_RADIANCE:
+                    // ReSTIR DI's resolved direct lighting (issue #1140).
+                    // Declared once, in include/DeferredLightingShared.glsl.
+                    return name == "u_ReSTIRDIRadiance";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

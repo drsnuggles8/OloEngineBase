@@ -129,6 +129,7 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 // the sampler can never dangle; the ROUTING in ShadowData, not the texture, is
 // what says whether it is meaningful.
 layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
+layout(binding = 73) uniform sampler2D u_ReSTIRDIRadiance; // ReSTIR DI resolved direct lighting (#1140)
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.

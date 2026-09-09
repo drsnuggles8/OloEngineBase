@@ -13,6 +13,8 @@
 //   - sampler2D u_BRDFLutMap (12)
 //   - sampler2DArrayShadow u_ShadowMapCSM (8), u_ShadowAtlas (13)
 //   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowAtlasRaw (34) — PCSS blocker search
+//   - sampler2D u_ReSTIRDIRadiance (73) — ReSTIR DI's resolved direct lighting
+//     (issue #1140), plus u_MSAAParams.y as the "the tier is live" lane
 //   - sampler2D u_RayTracedShadowMask (72) — hybrid ray-traced visibility mask,
 //     plus the ShadowData block's u_RayTracedShadowLightIndices /
 //     u_RayTracedShadowParams routing lanes (issue #1056)
@@ -105,6 +107,42 @@ bool oloRayTracedShadowFactor(int lightIndex, out float visibility)
     return true;
 }
 
+// -----------------------------------------------------------------------------
+// The direct-lighting tier seam (issue #1140).
+//
+// ReSTIR DI answers for every punctual light, every sphere-area light and all
+// emissive geometry when it is live, so the loop below is TRUNCATED to the
+// directional lights rather than added to. IBL, light probes, baked GI and
+// emissive are untouched: those are different terms, and adding a resampled
+// direct estimate on top of a clustered one would double-count every light in
+// the scene.
+//
+// Directional lights are deliberately NOT in it — see ComputeDeferredLit.
+//
+// Two conditions, and both are load-bearing. u_MSAAParams.y is only raised when
+// OloEngine::SelectReSTIRDITechnique returned ReSTIRDI, so the CPU has already
+// counted the reason if it did not. The ALPHA test is the second half: the
+// resolve writes alpha 1 only where it produced a value, so a sky pixel, an
+// unlit pixel and a pixel the tier stood down on all fall through to the
+// clustered loop per-pixel rather than going black.
+//
+// texelFetch, not texture(): the radiance target is declared at the scene band,
+// the resolution this pass shades at, so there is exactly one texel per shaded
+// pixel and filtering would only smear the estimator's own edges.
+bool oloReSTIRDIDirectLighting(out vec3 radiance)
+{
+    radiance = vec3(0.0);
+    if (u_MSAAParams.y < 0.5)
+        return false;
+    vec4 resolved = texelFetch(u_ReSTIRDIRadiance, ivec2(gl_FragCoord.xy), 0);
+    if (resolved.a < 0.5)
+        return false;
+    if (any(isnan(resolved.rgb)) || any(isinf(resolved.rgb)))
+        return false;
+    radiance = max(resolved.rgb, vec3(0.0));
+    return true;
+}
+
 // Apply cascade-debug tint on top of the lit color. Shared between variants.
 vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 {
@@ -193,15 +231,40 @@ vec3 ComputeDeferredLit(
 
     vec3 Lo = vec3(0.0);
 
-    bool fplusActive = (fplus_Params.z != 0u);
+    // The ReSTIR DI tier owns the direct term for every light EXCEPT the
+    // directional ones (issue #1140).
+    //
+    // WHY DIRECTIONAL LIGHTS STAY ON THE LOOP. A directional light is one delta
+    // light: there is no variance for resampling to remove, and routing it
+    // through the reservoir would silently drop three things the loop below
+    // applies and a reservoir cannot — the CSM / VSM cascades, the ray-traced
+    // shadow mask channel, and the cloud shadow. Each would go missing as "the
+    // sun looks flat", which is precisely the silent regression this tier must
+    // not cause. So the split is the one the Forward+ arm already uses: the loop
+    // runs over the directional lights, the tier owns the rest.
+    //
+    // Everything after the loop — IBL, probes, baked GI, emissive — runs either
+    // way, because those are different terms.
+    vec3 restirDirect;
+    bool restirActive = oloReSTIRDIDirectLighting(restirDirect);
+    if (restirActive)
+    {
+        Lo += restirDirect;
+    }
+
+    bool fplusActive = !restirActive && (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
         Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness, fplusViewDepth, pbrModel);
     }
 
-    int loopCount = fplusActive ? min(u_DirectionalLightCount, MAX_LIGHTS)
-                                : min(u_LightCount, MAX_LIGHTS);
+    // DIRECTIONAL-ONLY when either ReSTIR DI or Forward+ answered for the rest:
+    // the multi-light array is ordered directional-first, so the truncated count
+    // walks exactly the lights the other mechanism did NOT cover. Walking all of
+    // them would double-count every punctual and area light.
+    int loopCount = (restirActive || fplusActive) ? min(u_DirectionalLightCount, MAX_LIGHTS)
+                                                  : min(u_LightCount, MAX_LIGHTS);
     for (int i = 0; i < loopCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);

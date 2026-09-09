@@ -268,6 +268,17 @@ namespace OloEngine::MCP::PostProcess
     {                                                                                                                                                                                                                                          \
         token, "pathtracer", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, &SetPpNested<&PostProcessSettings::GpuPathTracer, &GpuPathTracerSettings::name>, nullptr, nullptr \
     }
+// ReSTIR DI's settings (#1140), nested the same way.
+#define OLO_RESTIR_BOOL(token, name, desc)                                                                                                                                                                                            \
+    FieldInfo                                                                                                                                                                                                                         \
+    {                                                                                                                                                                                                                                 \
+        token, "restirdi", FieldType::Bool, 0.0, 1.0, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, nullptr, nullptr \
+    }
+#define OLO_RESTIR_NUM(token, name, type, lo, hi, desc)                                                                                                                                                                  \
+    FieldInfo                                                                                                                                                                                                            \
+    {                                                                                                                                                                                                                    \
+        token, "restirdi", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, nullptr, nullptr \
+    }
 #define OLO_FOG_BOOL(token, name, desc)                                                                                                      \
     FieldInfo                                                                                                                                \
     {                                                                                                                                        \
@@ -500,6 +511,56 @@ namespace OloEngine::MCP::PostProcess
         OLO_PT_NUM("GpuPathTracerVarianceDisplayScale", VarianceDisplayScale, FieldType::Float, 0.0,
                    static_cast<double>(GpuPathTracerLimits::kMaxVarianceDisplayScale),
                    "Display scale for the variance view."),
+
+        // ReSTIR DI (#1140). Every field the estimator's behaviour depends on is
+        // writable from MCP, because the oracle comparison and the in-motion
+        // checks both need to drive the tier from a script rather than by hand —
+        // and because a knob only reachable through the editor panel cannot be
+        // part of a reproducible measurement.
+        OLO_RESTIR_BOOL("ReSTIRDIEnabled", Enabled,
+                        "Arm the ReSTIR DI tier. It still stands down unless the scene's emitter count clears "
+                        "the engagement margin; the reason is in the renderer statistics."),
+        OLO_RESTIR_NUM("ReSTIRDIInitialCandidates", InitialCandidates, FieldType::Int, 1.0,
+                       static_cast<double>(kReSTIRDIMaxInitialCandidates),
+                       "RIS candidates drawn per pixel per frame from the whole emitter set. This is the knob the "
+                       "tier exists for: it decouples cost from light count."),
+        OLO_RESTIR_BOOL("ReSTIRDIVisibilityReuse", VisibilityReuse,
+                        "Trace one shadow ray on the surviving candidate. Off leaks light through occluders and is "
+                        "for isolating the resampling cost when profiling, not for shipping."),
+        OLO_RESTIR_BOOL("ReSTIRDITemporalReuse", TemporalReuse,
+                        "Merge last frame's reservoir, gated on the #976 history-validity layer."),
+        OLO_RESTIR_NUM("ReSTIRDITemporalMCap", TemporalMCap, FieldType::Float, 1.0,
+                       static_cast<double>(kReSTIRDIMaxTemporalMCap),
+                       "Cap on the confidence weight M. Bounds how long a stale sample survives a change in the "
+                       "scene; too high reads as lighting that lags the scene."),
+        OLO_RESTIR_BOOL("ReSTIRDISpatialReuse", SpatialReuse,
+                        "Merge neighbouring pixels' reservoirs through the shift Jacobian."),
+        OLO_RESTIR_NUM("ReSTIRDISpatialNeighbours", SpatialNeighbours, FieldType::Int, 0.0,
+                       static_cast<double>(kReSTIRDIMaxSpatialNeighbours),
+                       "Neighbours sampled per spatial pass. The unbiased mode costs one target-function "
+                       "evaluation per neighbour PAIR, so this is quadratic there."),
+        OLO_RESTIR_NUM("ReSTIRDISpatialRadiusPixels", SpatialRadiusPixels, FieldType::Float, 1.0, 128.0,
+                       "Neighbour search radius in pixels. Larger finds more independent samples and puts more "
+                       "strain on the Jacobian."),
+        OLO_RESTIR_NUM("ReSTIRDISpatialPasses", SpatialPasses, FieldType::Int, 1.0, 4.0,
+                       "Spatial passes run in sequence. Two passes at a small radius reach further than one at a "
+                       "large radius and keep the Jacobian better conditioned."),
+        OLO_RESTIR_NUM("ReSTIRDIBiasMode", BiasMode, FieldType::Int, 0.0,
+                       static_cast<double>(std::to_underlying(ReSTIR::BiasMode::Count) - 1u),
+                       "0 = biased (1/M), cheap and darkens where reuse helps most; 1 = unbiased "
+                       "(MIS-weighted, the generalised balance heuristic)."),
+        OLO_RESTIR_NUM("ReSTIRDIEngagementMargin", EngagementMargin, FieldType::Int, 0.0, 4096.0,
+                       "How many emitters beyond what clustered lighting samples the scene needs before the tier "
+                       "engages. The hysteresis that stops it toggling frame to frame."),
+        OLO_RESTIR_NUM("ReSTIRDIMaxRadianceClamp", MaxRadianceClamp, FieldType::Float, 0.0, 1000000.0,
+                       "Firefly clamp on the resolved radiance. A clamp is a BIAS: leave it at 0 for anything "
+                       "compared against the path tracer."),
+        OLO_RESTIR_NUM("ReSTIRDIRayOriginNormalBias", RayOriginNormalBias, FieldType::Float, 0.0, 1.0,
+                       "World-space offset along the geometric normal before the visibility ray, metres."),
+        OLO_RESTIR_NUM("ReSTIRDIDebugView", DebugView, FieldType::Int, 0.0,
+                       static_cast<double>(std::to_underlying(ReSTIRDIDebugView::Count) - 1u),
+                       "0 radiance, 1 raw candidate, 2 history validity, 3 variance, 4 reservoir M, "
+                       "5 reservoir W, 6 sample kind, 7 bias/clamp state."),
 
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),

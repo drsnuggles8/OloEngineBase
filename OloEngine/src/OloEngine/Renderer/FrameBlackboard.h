@@ -242,6 +242,23 @@ namespace OloEngine
             RGFramebufferHandle RayTracedShadowSignal;
             RGFramebufferHandle RayTracedShadowResolved;
             RGTextureHandle RayTracedShadowMoments;
+
+            // ReSTIR DI's four reservoir framebuffers (issue #1140), all
+            // scene-band RGBA32F. Initial is draw A (three reservoir planes
+            // plus the #976 surface record and the raw un-reused candidate),
+            // Temporal is draw B (three planes plus the validity verdict), and
+            // Spatial0 / Spatial1 PING-PONG for draw C so SpatialPasses can run
+            // it more than once. All four live inside one Execute, the same
+            // idiom RayTracedShadowSignal / RayTracedShadowResolved use.
+            //
+            // 32-bit on purpose: a reservoir's WeightSum and its emitter
+            // POSITION both lose meaningful precision in half, and a position
+            // that drifts moves the Jacobian, which is the one term whose error
+            // is invisible in the image.
+            RGFramebufferHandle ReSTIRDIInitial;
+            RGFramebufferHandle ReSTIRDITemporal;
+            RGFramebufferHandle ReSTIRDISpatial0;
+            RGFramebufferHandle ReSTIRDISpatial1;
         };
 
         // -----------------------------------------------------------------------
@@ -276,6 +293,30 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         // Post-process chain outputs
         // -----------------------------------------------------------------------
+        // -----------------------------------------------------------------------
+        // Direct lighting produced by a TIER rather than by the lighting shader
+        // -----------------------------------------------------------------------
+
+        // Its own slot rather than a corner of Shadows or Scratch, because the
+        // blackboard's grouping is how a reader finds out which pass owns a
+        // resource — and this one is neither a shadow nor pass-local scratch: it
+        // is a lighting RESULT that DeferredLightingPass consumes in place of
+        // work it would otherwise do itself.
+        struct LightingSlot
+        {
+            // ReSTIR DI's resolved direct lighting (issue #1140). RGBA16F at the
+            // scene band; attachment 1 carries the variance moments. Sampled by
+            // the deferred lighting shader at TEX_RESTIR_DI_RADIANCE INSTEAD of
+            // its own punctual / area light loop, and alpha 0 marks a pixel the
+            // tier produced no value for.
+            //
+            // Invalid whenever the tier stood down — which is what makes the
+            // fallback visible to the GRAPH rather than only to the shader, and
+            // is the half of the guard that cannot be forgotten.
+            RGFramebufferHandle ReSTIRDIRadiance;
+            RGTextureHandle ReSTIRDIRadianceTexture;
+        };
+
         struct PostProcessSlot
         {
             RGFramebufferHandle SSSColor;        // Full-resolution SSS output when the blur stage is enabled and ready
@@ -372,6 +413,16 @@ namespace OloEngine
             RGTextureHandle RayTracedShadowHistory;
             RGTextureHandle RayTracedShadowSurfaceHistory;
             RGTextureHandle RayTracedShadowMomentsHistory;
+            // ReSTIR DI temporal state (issue #1140): last frame's three
+            // reservoir planes, the #976 surface record they were selected
+            // against, and the resolved moments the Variance view reads.
+            // Invalid on the first frame and after any invalidation, in which
+            // case the temporal draw passes this frame's reservoir through.
+            RGTextureHandle ReSTIRDIReservoirSampleHistory;
+            RGTextureHandle ReSTIRDIReservoirRadianceHistory;
+            RGTextureHandle ReSTIRDIReservoirStateHistory;
+            RGTextureHandle ReSTIRDISurfaceHistory;
+            RGTextureHandle ReSTIRDIMomentsHistory;
             // GPU path tracer accumulation (issue #1055): last frame's running
             // sums, all RGBA32F. Invalid on the first frame and after any
             // invalidation, in which case the pass restarts its sample count.
@@ -401,6 +452,7 @@ namespace OloEngine
         AOSlot AO;
         ScratchSlot Scratch;
         ShadowSlot Shadows;
+        LightingSlot Lighting;
         PostProcessSlot Post;
         OITSlot OIT;
         TemporalHistorySlot Temporal;
