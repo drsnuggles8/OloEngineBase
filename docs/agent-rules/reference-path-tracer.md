@@ -45,7 +45,8 @@ Read this before validating a GI / lighting / BRDF change against it, and before
   itself as a memcmp-exact no-op). A build that will be COMPARED against a raster path leaves them
   absent — it must stay inside the subset both worlds express, or it starts measuring the scene
   description instead of the transport. A BAKE, whose output is consumed rather than compared,
-  takes them.
+  MAY take them — and does so only because its call site passes them, which is what lets the bake
+  tests still build the plain world when that is the thing being measured.
 
   **The one thing that is NOT opt-in** is the material'''s glTF alpha mode, which the builder mirrors
   either way. A cut-out material traced as a solid quad is a wrong occluder, not a dimmer one, and

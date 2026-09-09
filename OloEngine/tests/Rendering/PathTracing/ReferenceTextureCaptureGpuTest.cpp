@@ -124,9 +124,13 @@ namespace OloEngine::Tests
         // bytes per row if that alignment applied — and glGetTextureImage
         // would reject the buffer it was handed, silently costing every such
         // albedo its texture. 3x2 is the smallest case that asks the question.
-        // The engine sets GL_UNPACK_ALIGNMENT on the upload side but never
-        // GL_PACK_ALIGNMENT, so whether this passes is a fact about the
-        // driver's defaults rather than something the code arranges.
+        // Written before the fix, when it measured a driver default and FAILED.
+        // It now pins the guards that make it pass: SetData holds a
+        // Utils::GLUnpackAlignmentScope and GetData a GLPackAlignmentScope, so
+        // removing or bypassing either turns this red — for a different reason
+        // each time. Without the pack guard the readback fails outright (GL
+        // error 1282); without the unpack guard it succeeds and returns the
+        // wrong texels, because a sheared upload raises no error at all.
         TextureSpecification spec;
         spec.Width = 3;
         spec.Height = 2;

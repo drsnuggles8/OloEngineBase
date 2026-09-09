@@ -9,6 +9,8 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <glm/gtc/packing.hpp>
+
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -202,21 +204,50 @@ namespace OloEngine::PathTracing
         const sizet faceTexels = static_cast<sizet>(faceSize) * faceSize;
         const sizet totalTexels = faceTexels * ReferenceEnvironmentCubemap::kFaceCount;
 
-        // RGBA32F is what every generated sky and HDR load produces, and it
-        // comes back as four linear f32 per texel — no transfer function to
-        // undo. RGBA16F is accepted here for a backend that can hand it back,
-        // but note that the GL one CANNOT: OpenGLTextureCubemap's format table
-        // has no RGBA16F entry, so GetData fails above and a 16F sky never
-        // reaches this branch. That is why the failure below names the format
-        // rather than shrugging — an unexplained "no sky" in a bake log is the
-        // hard version of this bug to find.
+        // A readback hands back the texture's NATIVE texels, so the element
+        // width is per format and not per backend convenience:
+        //
+        //   RGBA32F -> 16 bytes/texel, four linear f32. What every generated
+        //              sky and HDR load produces.
+        //   RGBA16F ->  8 bytes/texel, four HALF floats, which must be decoded
+        //              rather than reinterpreted. Vulkan reports exactly this
+        //              (VulkanTransientUpload's EngineFormatClientBpp returns 8
+        //              for RGBA16F against 16 for RGBA32F); the GL cubemap path
+        //              cannot read 16F back at all, because its format table
+        //              has no entry, so GetData fails above and says so.
+        //
+        // Treating the 16F case as f32 does not merely read half the image —
+        // the earlier draft sized the buffer at 16 bytes/texel, found 8, and
+        // returned null with no message, which is a sky that silently is not
+        // there. Both branches below therefore end in a NAMED failure.
         std::vector<f32> rgba;
-        if (spec.Format == ImageFormat::RGBA32F || spec.Format == ImageFormat::RGBA16F)
+        if (spec.Format == ImageFormat::RGBA32F)
         {
             if (bytes.size() < totalTexels * 4u * sizeof(f32))
+            {
+                OLO_CORE_WARN("CaptureEnvironmentCubemap: RGBA32F readback returned {} bytes, needed {} — "
+                              "tracing with no sky",
+                              bytes.size(), totalTexels * 4u * sizeof(f32));
                 return nullptr;
+            }
             rgba.resize(totalTexels * 4u);
             std::memcpy(rgba.data(), bytes.data(), rgba.size() * sizeof(f32));
+        }
+        else if (spec.Format == ImageFormat::RGBA16F)
+        {
+            if (bytes.size() < totalTexels * 4u * sizeof(u16))
+            {
+                OLO_CORE_WARN("CaptureEnvironmentCubemap: RGBA16F readback returned {} bytes, needed {} — "
+                              "tracing with no sky",
+                              bytes.size(), totalTexels * 4u * sizeof(u16));
+                return nullptr;
+            }
+            rgba.resize(totalTexels * 4u);
+            const u16* halves = reinterpret_cast<const u16*>(bytes.data());
+            for (sizet i = 0; i < rgba.size(); ++i)
+            {
+                rgba[i] = glm::unpackHalf1x16(halves[i]);
+            }
         }
         else if (spec.Format == ImageFormat::RGBA8 || spec.Format == ImageFormat::RGB8)
         {

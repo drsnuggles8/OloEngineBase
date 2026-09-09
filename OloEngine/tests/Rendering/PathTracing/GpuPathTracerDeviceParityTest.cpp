@@ -45,6 +45,7 @@
 
 #include "ReferenceSceneFixtures.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
@@ -704,7 +705,7 @@ namespace OloEngine::Tests
             // default 1.0 those agree, and at anything else they silently do
             // not — which is exactly the divergence the check above exists to
             // stop, arriving through the field nobody thinks to look at.
-            if (rig.Fixture.Scene.GetEnvironment().Intensity != 1.0f)
+            if (!Math::BitwiseEqual(rig.Fixture.Scene.GetEnvironment().Intensity, 1.0f))
             {
                 ADD_FAILURE() << "this fixture scales its environment by "
                               << rig.Fixture.Scene.GetEnvironment().Intensity
