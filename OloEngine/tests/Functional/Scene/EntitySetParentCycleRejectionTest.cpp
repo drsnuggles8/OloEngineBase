@@ -45,6 +45,10 @@ TEST_F(EntitySetParentCycleRejectionTest, ParentingCycleIsRejectedAndHierarchySt
     m_B.SetParent(m_A);
     m_C.SetParent(m_B);
 
+    // Root filtering and serialization use the UUID itself, not whether the
+    // referenced entity happens to resolve. An unrelated random UUID hides A.
+    EXPECT_EQ(static_cast<u64>(m_A.GetParentUUID()), 0u);
+
     ASSERT_TRUE(m_B.GetParent());
     ASSERT_TRUE(m_C.GetParent());
     ASSERT_EQ(m_B.GetParent().GetUUID(), m_A.GetUUID());

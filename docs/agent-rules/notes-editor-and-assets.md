@@ -435,3 +435,13 @@ Deliberate behaviour changes, all of them the widget's rules rather than a panel
 everywhere (so `DialogueEditorPanel` lost Alt+left-drag panning), zoom anchors on the cursor and is
 multiplicative over [0.15, 3.0], wire thickness is screen pixels rather than `2 * zoom`, grid majors
 land every 5 in graph space, and a context menu opens on right-**release**-without-drag.
+
+## Use an explicit zero UUID for absent relationships
+
+Initialize absent parent/asset references with `UUID(0)` or `{ 0 }`; `UUID{}` generates a
+new identity. Test both the stored UUID and whether it resolves to an entity. During live
+verification of #1126, adding a child constructed its parent's `RelationshipComponent`
+with a random parent UUID. `GetParent()` returned an empty entity, so the existing cycle
+test passed, while the hierarchy's zero-UUID root filter hid the whole branch and the
+serializer persisted the dangling reference. The default now uses zero, and hierarchy
+and automation round-trip tests assert that root identity directly.
