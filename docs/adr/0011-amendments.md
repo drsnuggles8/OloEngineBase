@@ -2666,16 +2666,35 @@ have reproduced the bug rather than caught it: the hosted arm that broke had job
 `glslc` on PATH accepted the extension while the engine linked apt's libshaderc, which did not.
 The refusal is counted (`ShaderToolchainFloor::RefusalCount`), not merely logged.
 
+**THE FLOOR IS A PAIR, AND THAT IS THE PART THAT WAS LEARNED RATHER THAN DESIGNED.** A conforming
+compiler is half of it: the engine *reflects* every module it compiles
+(`VulkanShaderReflection`), so the reflector must be able to read what the compiler emits. Staging
+shaderc alone was tried and measured on run 34356689815 — every production shader compiled,
+`ShaderCompilation.AllProductionShadersCompileUnderVulkanTarget` went green, and
+`ShaderStageContract.FullGBufferWriters…` began throwing
+
+```
+C++ exception with description "Currently no block to insert opcode."
+```
+
+which is **SPIRV-Cross's** `spirv_parser.cpp`, not glslang: Ubuntu's SPIRV-Cross is 2021.01.15 and
+cannot parse the SPIR-V 1.6 a 2026 glslang produces. So the floor names two revisions cut from one
+SDK release — shaderc `v2026.3` and SPIRV-Cross `vulkan-sdk-1.4.357.0` — and they move together or
+not at all. **A fix that advances a failure one step is not a fix**, and a check that only compiles
+cannot tell the difference; the floor check therefore compiles the probe *and* reflects the result.
+
 **What CI owes this contract, and the trap it must not re-open.**
-`.github/actions/setup-shaderc-linux` builds the pinned shaderc for the hosted Linux arm at its own
-prefix. It is deliberately **not** `setup-vulkan`: a LunarG SDK's include tree also carries
-`spirv_cross/`, which wins the `<spirv_cross/spirv_cross.hpp>` lookup over apt's while the build
-still links apt's SPIRV-Cross — the header/library skew that SEGVs under TSan inside
-`spirv_cross::Resource::~Resource` (#1009, recorded in `setup-linux-build`'s `vulkan-sdk` input).
-shaderc does not depend on SPIRV-Cross, so a shaderc-only prefix cannot carry those headers; both the
-action and `OloEngine/CMakeLists.txt` assert it rather than trust it. `OLO_SHADERC_ROOT` is the only
-sanctioned way to move shaderc off the system: it redirects the header **and** the library together,
-and refuses a prefix that can supply only one.
+`.github/actions/setup-shader-toolchain-linux` builds both components for the hosted Linux arm, each
+at its own prefix. It is deliberately **not** `setup-vulkan`, and the reason is worth stating
+precisely because the obvious reading of #1009 is wrong: that fault was a **mismatched pair** —
+the SDK's `spirv_cross/` headers winning the `<spirv_cross/spirv_cross.hpp>` lookup over apt's while
+the build still linked apt's archives — plus a prebuilt binary the action's own note later pinned on
+"the HOSTED SDK build (1.4.321.0 + clang-19)". It was not "the SDK path is poison". Neither half
+survives here: each component is built from source at a pinned revision, and its headers and its
+libraries are installed and consumed together. `OLO_SHADERC_ROOT` and `OLO_SPIRV_CROSS_ROOT` are the
+only sanctioned way to move either off the system; each redirects the header **and** the library,
+each refuses a prefix that can supply only one, and the shaderc prefix additionally refuses to carry
+`spirv_cross` headers so the two can never half-merge back into #1009's shape.
 
 **And a PR-level guard, because the hole was structural.** Same-repo PRs route the Linux sanitizer
 jobs to the self-hosted box, so the hosted arm is exercised only by the nightly, by fork PRs and by
@@ -2687,13 +2706,12 @@ second of compiling, no engine build. Its unit is the extension NAME rather than
 carries no copy of `ShaderCompilationTest`'s per-stage tier rules and cannot drift from them.
 
 **What this does NOT decide.** Whether a future toolchain floor could be met by something other than
-the LunarG SDK on Windows (today the SDK is also where the engine's SPIRV-Cross comes from, and that
-pairing is not part of this amendment); whether the hosted `vulkan-off` and `steam-stub` jobs, which
-still take a full SDK include tree beside apt's SPIRV-Cross libraries, should adopt `OLO_SHADERC_ROOT`
-too — they run no tests, so the latent skew has never bitten, and closing it means resolving every
-shader-toolchain component as a (header, library) pair, which is a larger change than this one; and
-the exact SDK version at which the floor first becomes satisfiable, which would take a bisect across
-five SDK releases that nothing currently needs.
+the LunarG SDK on Windows — there the SDK supplies headers and libraries as one matched set already,
+so there is nothing to skew and nothing to fix; whether the two staged prefixes should eventually
+replace the SDK on the self-hosted arm as well (it is above the floor today, and the convention there
+is verify-never-install); and the exact SDK version at which the floor first becomes satisfiable,
+which would take a bisect across five SDK releases that nothing currently needs. The floor names the
+version that is TESTED, not a boundary.
 
 Rules and evidence: [glsl-shaders.md](../agent-rules/glsl-shaders.md),
 [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md).

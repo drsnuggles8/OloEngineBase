@@ -62,11 +62,12 @@ inputs:
       opt-out: the two arms are different for a measured reason.
     required: false
     default: 'true'
-  shaderc-floor:
+  shader-toolchain-floor:
     description: >
-      Provision the pinned shaderc toolchain on a GITHUB-HOSTED runner and point
-      the configure at it (`-DOLO_SHADERC_ROOT=...`). Pass 'false' only for a job
-      that does not compile Vulkan-tier shaders at all.
+      Provision the pinned shader toolchain -- shaderc AND SPIRV-Cross, at matched
+      revisions -- on a GITHUB-HOSTED runner and point the configure at both
+      (`-DOLO_SHADERC_ROOT=...`, `-DOLO_SPIRV_CROSS_ROOT=...`). Pass 'false' only
+      for a job that does not compile Vulkan-tier shaders at all.
 
       IT IS ON BY DEFAULT BECAUSE APT IS BELOW THE FLOOR (#1139). Ubuntu 24.04's
       libshaderc-dev is 2023.8 and its glslang-dev is 15.1.0; `GL_EXT_descriptor_heap`
@@ -76,12 +77,21 @@ inputs:
       three Linux jobs for a day and a half while every PR stayed green -- the
       hosted arm being the one PR CI never routes to.
 
+      IT PROVISIONS BOTH HALVES, and that was learned the hard way (run
+      34356689815). Staging shaderc alone fixed the compile and moved the failure
+      one step later: every shader compiled and `ShaderStageContract` then threw
+      `Currently no block to insert opcode.` out of SPIRV-Cross's spirv_parser.cpp,
+      because Ubuntu's SPIRV-Cross is 2021.01.15 and cannot read the SPIR-V 1.6 a
+      2026 glslang emits. Whoever compiles decides what the reflector must
+      understand, so the two move together or not at all.
+
       THIS IS NOT `vulkan-sdk: 'true'` BY ANOTHER NAME, and the difference is the
       whole reason it is a separate input. That one hands the build a LunarG SDK
-      whose include tree also carries spirv_cross/, which is #1009's SEGV. The
-      prefix this provisions contains shaderc and nothing else -- shaderc does not
-      depend on SPIRV-Cross -- so the skew cannot recur, and both the action and
-      OloEngine/CMakeLists.txt assert it rather than assume it.
+      whose include tree carries spirv_cross/ headers that win over apt's while the
+      build still LINKS apt's archives -- a MISMATCHED PAIR, which is #1009's SEGV.
+      Here each component is built from a pinned revision and its headers and
+      libraries are installed and consumed together; OloEngine/CMakeLists.txt
+      refuses a half-redirect rather than assuming one cannot happen.
 
       Ignored on self-hosted, where $VULKAN_SDK already supplies a toolchain above
       the floor and the convention is that a step VERIFIES rather than installs.
@@ -157,10 +167,10 @@ runs:
     # the SDK's environment first and this prefix is still the one the configure
     # is pointed at. It needs nothing from apt: cmake, ninja, git and python3 are
     # on the image.
-    - name: Setup pinned shaderc (hosted)
+    - name: Setup pinned shader toolchain (hosted)
       id: shaderc
-      if: runner.environment == 'github-hosted' && inputs.shaderc-floor == 'true'
-      uses: ./.github/actions/setup-shaderc-linux
+      if: runner.environment == 'github-hosted' && inputs['shader-toolchain-floor'] == 'true'
+      uses: ./.github/actions/setup-shader-toolchain-linux
 
     - name: Add LLVM apt repository (hosted)
       if: runner.environment == 'github-hosted'
@@ -334,7 +344,8 @@ runs:
       env:
         OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         OLO_HOSTED_PYTHON: ${{ steps.py.outputs.python-path }}
-        OLO_SHADERC_ROOT: ${{ steps.shaderc.outputs.root }}
+        OLO_SHADERC_ROOT: ${{ steps.shaderc.outputs.shaderc-root }}
+        OLO_SPIRV_CROSS_ROOT: ${{ steps.shaderc.outputs.spirv-cross-root }}
       run: |
         set -euo pipefail
         if [ "$OLO_RUNNER_ENVIRONMENT" = "github-hosted" ]; then
@@ -371,7 +382,11 @@ runs:
           # report.
           extra=""
           if [ -n "$OLO_SHADERC_ROOT" ]; then
-            extra="-DOLO_SHADERC_ROOT=${OLO_SHADERC_ROOT}"
+            # BOTH ROOTS OR NEITHER. shaderc decides what SPIRV-Cross has to be
+            # able to parse, so passing only the first is the same version skew
+            # one step later -- measured on run 34356689815, where every shader
+            # compiled and reflection then threw out of SPIRV-Cross's parser.
+            extra="-DOLO_SHADERC_ROOT=${OLO_SHADERC_ROOT} -DOLO_SPIRV_CROSS_ROOT=${OLO_SPIRV_CROSS_ROOT}"
           fi
         else
           # A PINNED clang-23 AT AN ABSOLUTE PATH, with the system clang as a

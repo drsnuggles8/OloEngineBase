@@ -47,13 +47,14 @@ jobs:
       # The same action, and therefore the same cache entry, the hosted sanitizer
       # jobs use. That is the point: this job's verdict is only worth something if
       # its toolchain IS theirs.
-      - name: Setup pinned shaderc
+      - name: Setup pinned shader toolchain
         id: shaderc
-        uses: ./.github/actions/setup-shaderc-linux
+        uses: ./.github/actions/setup-shader-toolchain-linux
 
-      - name: Probe every declared extension
+      - name: Probe every declared extension, and reflect what it compiles
         env:
           GLSLC: ${{ steps.shaderc.outputs.glslc }}
+          SPIRV_CROSS: ${{ steps.shaderc.outputs.spirv-cross-root }}/bin/spirv-cross
         run: python3 scripts/check_shader_extension_floor.py
 
       # A SECOND OPINION FROM apt, reported and never enforced. It records, on
@@ -75,6 +76,8 @@ jobs:
           echo "::group::apt toolchain"
           "$apt_glslc" --version || true
           echo "::endgroup::"
-          python3 scripts/check_shader_extension_floor.py --glslc "$apt_glslc" || {
+          # The STAGED spirv-cross, deliberately: this comparison is about apt's
+          # COMPILER, and apt ships no spirv-cross binary to reflect with at all.
+          python3 scripts/check_shader_extension_floor.py --glslc "$apt_glslc"             --spirv-cross "${{ steps.shaderc.outputs.spirv-cross-root }}/bin/spirv-cross" || {
             echo "::notice title=apt's shader toolchain is below the floor::Expected — see ADR 0011 amendment (97). The pinned prefix above is what the build uses."
           }

@@ -228,6 +228,28 @@ if(OLO_SHADERC_ROOT AND NOT MSVC)
 	set(OLO_VULKAN_SDK_INCLUDE_DIR "")
 endif()
 
+# ...AND ITS OTHER HALF. Whoever compiles decides what the reflector must
+# understand, so a staged shaderc that is newer than the system SPIRV-Cross is
+# not a fix, it is the same skew one step later — measured: with shaderc v2026.3
+# staged and Ubuntu's SPIRV-Cross 2021.01.15 left in place, every production
+# shader COMPILED and `ShaderStageContract` then threw
+# `Currently no block to insert opcode.` out of SPIRV-Cross's spirv_parser.cpp
+# on the SPIR-V 1.6 it had just produced. The engine reflects every module it
+# compiles (VulkanShaderReflection), so this is not a test-only property.
+set(OLO_SPIRV_CROSS_ROOT "" CACHE PATH
+	"Prefix supplying SPIRV-Cross's headers and archives (include/spirv_cross, lib/libspirv-cross-*.a). \
+Leave empty to take SPIRV-Cross from the system. Pair it with OLO_SHADERC_ROOT — see issue #1139.")
+set(OLO_SPIRV_CROSS_STAGED_INCLUDE_DIR "")
+if(OLO_SPIRV_CROSS_ROOT AND NOT MSVC)
+	if(NOT EXISTS "${OLO_SPIRV_CROSS_ROOT}/include/spirv_cross/spirv_cross.hpp")
+		message(FATAL_ERROR
+			"OLO_SPIRV_CROSS_ROOT='${OLO_SPIRV_CROSS_ROOT}' has no include/spirv_cross/spirv_cross.hpp. "
+			"It must be a prefix that supplies SPIRV-Cross's headers AND its archives; see "
+			".github/actions/setup-shader-toolchain-linux.")
+	endif()
+	set(OLO_SPIRV_CROSS_STAGED_INCLUDE_DIR "${OLO_SPIRV_CROSS_ROOT}/include")
+endif()
+
 # Only the dependencies still fetched in-tree need an explicit include directory —
 # everything vcpkg provides carries its own through its IMPORTED target (issue #773).
 target_include_directories(OloEngine PUBLIC
@@ -266,6 +288,7 @@ target_include_directories(OloEngine PUBLIC
 	# of the implicit system directories so its shaderc/ wins; it carries nothing
 	# else (enforced above), so nothing else moves.
 	${OLO_SHADERC_STAGED_INCLUDE_DIR}
+	${OLO_SPIRV_CROSS_STAGED_INCLUDE_DIR}
 	${OLO_VULKAN_SDK_INCLUDE_DIR}
 	${Vulkan_INCLUDE_DIRS}
 )
@@ -558,9 +581,28 @@ else()
 	else()
 		find_library(SHADERC_LIB NAMES shaderc_shared shaderc)
 	endif()
-	find_library(SPIRV_CROSS_CORE_LIB NAMES spirv-cross-core)
-	find_library(SPIRV_CROSS_GLSL_LIB NAMES spirv-cross-glsl)
-	find_library(SPIRV_CROSS_C_LIB NAMES spirv-cross-c-shared)
+	if(OLO_SPIRV_CROSS_ROOT)
+		# NO_DEFAULT_PATH for the same reason as shaderc above: half a redirect —
+		# staged headers with the system archives — is precisely the mismatch this
+		# mechanism exists to prevent, so a staged root that cannot supply the
+		# archives must FAIL rather than quietly fall back to apt's.
+		find_library(SPIRV_CROSS_CORE_LIB NAMES spirv-cross-core
+			HINTS "${OLO_SPIRV_CROSS_ROOT}/lib" "${OLO_SPIRV_CROSS_ROOT}/lib64" NO_DEFAULT_PATH)
+		find_library(SPIRV_CROSS_GLSL_LIB NAMES spirv-cross-glsl
+			HINTS "${OLO_SPIRV_CROSS_ROOT}/lib" "${OLO_SPIRV_CROSS_ROOT}/lib64" NO_DEFAULT_PATH)
+		# The C wrapper is looked for ONLY in the staged root, never on the system.
+		# The engine includes <spirv_cross/spirv_cross.hpp> and no C header, so this
+		# is optional everywhere — but letting it resolve to apt's shared library
+		# beside staged core/glsl archives would reintroduce the skew by the one
+		# route the two find_library calls above have closed.
+		find_library(SPIRV_CROSS_C_LIB NAMES spirv-cross-c-shared
+			HINTS "${OLO_SPIRV_CROSS_ROOT}/lib" "${OLO_SPIRV_CROSS_ROOT}/lib64" NO_DEFAULT_PATH)
+		message(STATUS "SPIRV-Cross: ${SPIRV_CROSS_CORE_LIB} (staged, OLO_SPIRV_CROSS_ROOT)")
+	else()
+		find_library(SPIRV_CROSS_CORE_LIB NAMES spirv-cross-core)
+		find_library(SPIRV_CROSS_GLSL_LIB NAMES spirv-cross-glsl)
+		find_library(SPIRV_CROSS_C_LIB NAMES spirv-cross-c-shared)
+	endif()
 	find_library(GLSLANG_LIB NAMES glslang)
 	find_library(SPIRV_LIB NAMES SPIRV)
 	find_library(SPIRV_TOOLS_LIB NAMES SPIRV-Tools)
@@ -576,7 +618,19 @@ else()
 	# glslang and SPIRV-Tools linked INTO it, so requiring them there would
 	# demand libraries that correctly do not exist — and, worse, would pull
 	# apt's glslang 15.1.0 in beside the staged one.
-	set(_olo_shader_libs ${SHADERC_LIB} ${SPIRV_CROSS_CORE_LIB} ${SPIRV_CROSS_GLSL_LIB})
+	# GLSL BEFORE CORE when the archives are staged, and the asymmetry is
+	# deliberate rather than an oversight. `spirv-cross-glsl` depends on
+	# `spirv-cross-core`, and GNU ld resolves a static archive only against
+	# undefined symbols it has already seen — so a dependent must precede its
+	# dependency. The system order below is left exactly as it was because it
+	# links today and a reorder there buys nothing but a chance to break the
+	# self-hosted arm; a fresh from-source pair gets the order that is actually
+	# correct.
+	if(OLO_SPIRV_CROSS_ROOT)
+		set(_olo_shader_libs ${SHADERC_LIB} ${SPIRV_CROSS_GLSL_LIB} ${SPIRV_CROSS_CORE_LIB})
+	else()
+		set(_olo_shader_libs ${SHADERC_LIB} ${SPIRV_CROSS_CORE_LIB} ${SPIRV_CROSS_GLSL_LIB})
+	endif()
 	set(_olo_required_libs SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB)
 	if(NOT OLO_SHADERC_ROOT)
 		list(APPEND _olo_shader_libs

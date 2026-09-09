@@ -23,11 +23,21 @@ It also compiles ShaderToolchainFloor.h's own layout probe, read out of the
 header rather than copied, so the qualifiers half of #1139's diagnostic is
 covered by the same run.
 
-Usage:
-    python scripts/check_shader_extension_floor.py [--glslc PATH] [--shaders DIR]
+It also compiles ShaderToolchainFloor.h's own layout probe -- read out of the
+header rather than copied -- and then REFLECTS the result with `spirv-cross`,
+because the engine reflects every module it compiles and "it compiles" is half an
+answer. Staging a conforming shaderc while leaving an older SPIRV-Cross in place
+is the same version skew one step later, and it looks green to a compile-only
+check.
 
-`--glslc` defaults to $GLSLC, then to the SDK's binary via $VULKAN_SDK, then to
-whatever is on PATH. Exit status is 1 if any declared extension is rejected.
+Usage:
+    python scripts/check_shader_extension_floor.py [--glslc PATH] [--spirv-cross PATH]
+                                                   [--shaders DIR]
+
+Both binaries default to $GLSLC / $SPIRV_CROSS, then to the SDK's via
+$VULKAN_SDK, then to PATH. Exit status is 1 if any declared extension is rejected
+or the round trip fails, and 2 if a binary could not be run at all -- never 0,
+because a guard that passes when it could not ask is worse than no guard.
 """
 import argparse
 import os
@@ -117,13 +127,27 @@ def read_layout_probe():
     return text[start:end]
 
 
-def compile_source(glslc, source, label):
+def find_spirv_cross(explicit):
+    if explicit:
+        return explicit
+    from_env = os.environ.get("SPIRV_CROSS")
+    if from_env:
+        return from_env
+    sdk = os.environ.get("VULKAN_SDK")
+    if sdk:
+        for candidate in (Path(sdk) / "Bin" / "spirv-cross.exe", Path(sdk) / "bin" / "spirv-cross"):
+            if candidate.exists():
+                return str(candidate)
+    return "spirv-cross"
+
+
+def compile_source(glslc, source, label, out=None):
     """Run glslc on `source` as a fragment shader. Returns (ok, diagnostic)."""
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "probe.frag"
         src.write_text(source, encoding="utf-8")
         proc = subprocess.run(
-            [glslc, *TARGET_ARGS, "-fshader-stage=fragment", str(src), "-o", os.devnull],
+            [glslc, *TARGET_ARGS, "-fshader-stage=fragment", str(src), "-o", str(out) if out else os.devnull],
             capture_output=True,
             text=True,
         )
@@ -133,10 +157,39 @@ def compile_source(glslc, source, label):
     return False, diagnostic.replace(str(src), label) if diagnostic else "glslc failed with no output"
 
 
+def reflect_round_trip(glslc, spirv_cross, source):
+    """Compile `source`, then PARSE the result — the pair, not just the compile.
+
+    THIS HALF WAS MISSING AND IT COST A CI ROUND TRIP. Staging a conforming
+    shaderc while leaving Ubuntu's 2021 SPIRV-Cross in place made every shader
+    compile and then made `ShaderStageContract` throw `Currently no block to
+    insert opcode.` out of SPIRV-Cross's spirv_parser.cpp — a guard that only
+    compiled reported green through it. The engine reflects every module it
+    compiles (VulkanShaderReflection), so "it compiles" is half an answer.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        spv = Path(tmp) / "probe.spv"
+        ok, diagnostic = compile_source(glslc, source, "layout probe", out=spv)
+        if not ok:
+            return False, f"compile: {diagnostic}"
+        # INPUT FIRST: `spirv-cross <input> --reflect`. The other order prints
+        # usage and exits non-zero, which reads as a reflection failure.
+        proc = subprocess.run([spirv_cross, str(spv), "--reflect"], capture_output=True, text=True)
+    if proc.returncode == 0:
+        return True, ""
+    return False, f"reflect: {(proc.stderr or proc.stdout).strip() or 'spirv-cross failed with no output'}"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--glslc", default=None, help="glslc to probe with (default: $GLSLC, $VULKAN_SDK, PATH)")
     parser.add_argument("--shaders", default=str(DEFAULT_SHADER_ROOT), help="production shader root")
+    parser.add_argument(
+        "--spirv-cross",
+        default=None,
+        help="spirv-cross to reflect with (default: $SPIRV_CROSS, $VULKAN_SDK, PATH). Must match the "
+        "SPIRV-Cross the engine links — see issue #1139.",
+    )
     args = parser.parse_args()
 
     glslc = find_glslc(args.glslc)
@@ -175,7 +228,7 @@ def main():
             f"shader at that target.\n\n  {glslc} says:\n    {diagnostic}\n\n"
             "Ubuntu 24.04's glslc (shaderc 2023.8) fails exactly here: it predates Vulkan 1.4.\n"
             "Install Vulkan SDK 1.4.357.0 or newer, or point --glslc at the prefix\n"
-            ".github/actions/setup-shaderc-linux builds. See ADR 0011 amendment (97).",
+            ".github/actions/setup-shader-toolchain-linux builds. See ADR 0011 amendment (97).",
             file=sys.stderr,
         )
         return 1
@@ -190,10 +243,37 @@ def main():
             failures.append((name, files, diagnostic))
 
     # The qualifiers, not just the names — #1139's diagnostic had both halves.
-    ok, diagnostic = compile_source(glslc, read_layout_probe(), "ShaderToolchainFloor.h:kLayoutProbeSource")
+    layout_probe = read_layout_probe()
+    ok, diagnostic = compile_source(glslc, layout_probe, "ShaderToolchainFloor.h:kLayoutProbeSource")
     print(f"  {'descriptor_heap layout qualifiers':<{width}}  {'ok' if ok else 'REJECTED'}")
     if not ok:
         failures.append(("the descriptor_heap / descriptor_stride layout qualifiers", [str(FLOOR_HEADER)], diagnostic))
+
+    # ...and then REFLECT it, because the engine does.
+    spirv_cross = find_spirv_cross(args.spirv_cross)
+    try:
+        subprocess.run([spirv_cross, "--help"], capture_output=True, text=True)
+    except OSError as exc:
+        print(f"error: cannot run '{spirv_cross}': {exc}", file=sys.stderr)
+        print(
+            "This check needs a spirv-cross binary from the SAME build as the SPIRV-Cross the\n"
+            "engine links, so that 'it reflects' here means 'it reflects there'. Pass\n"
+            "--spirv-cross, or set $SPIRV_CROSS / $VULKAN_SDK. Skipping it silently is not an\n"
+            "option: the reflect half is what #1139's fix broke first.",
+            file=sys.stderr,
+        )
+        return 2
+    if ok:
+        round_ok, round_diagnostic = reflect_round_trip(glslc, spirv_cross, layout_probe)
+        print(f"  {'compile→reflect round trip':<{width}}  {'ok' if round_ok else 'REJECTED'}")
+        if not round_ok:
+            failures.append(
+                (
+                    "reflecting the descriptor-heap module (SPIRV-Cross is older than the compiler)",
+                    [str(FLOOR_HEADER)],
+                    round_diagnostic,
+                )
+            )
 
     if not failures:
         print(f"\nAll {len(declarations)} declared extensions compile on this toolchain.")
@@ -208,9 +288,9 @@ def main():
         print(f"    {glslc} says:\n      {diagnostic}", file=sys.stderr)
     print(
         "\nEither the toolchain is too old (install Vulkan SDK 1.4.357.0 or newer;\n"
-        "CI's hosted Linux arm gets it from .github/actions/setup-shaderc-linux), or a\n"
+        "CI's hosted Linux arm gets it from .github/actions/setup-shader-toolchain-linux), or a\n"
         "shader has just started declaring an extension newer than the pinned floor —\n"
-        "in which case raise the pin in setup-vulkan / setup-shaderc-linux and\n"
+        "in which case raise the pin in setup-vulkan / setup-shader-toolchain-linux and\n"
         "ShaderToolchainFloor.h together. See ADR 0011 amendment (97).",
         file=sys.stderr,
     )

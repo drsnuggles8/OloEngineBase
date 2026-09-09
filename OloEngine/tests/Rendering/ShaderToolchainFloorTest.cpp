@@ -126,7 +126,7 @@ namespace OloEngine::Tests
             << ShaderToolchainFloor::kMinimumVulkanSdk << " or newer (equivalently shaderc "
             << ShaderToolchainFloor::kMinimumShadercTag << "). Ubuntu 24.04's libshaderc-dev is 2023.8 and is "
                                                            "below the floor; CI's hosted Linux arm gets a conforming one from "
-                                                           ".github/actions/setup-shaderc-linux. See ADR 0011 amendment (97).";
+                                                           ".github/actions/setup-shader-toolchain-linux. See ADR 0011 amendment (97).";
     }
 
     // A satisfied toolchain must refuse NOTHING. The counter is the countable

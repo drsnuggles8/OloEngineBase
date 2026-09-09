@@ -100,5 +100,5 @@ function(olo_verify_shader_toolchain_floor)
 		"built from shaderc v2026.3, whose glslang pin is glslang's own vulkan-sdk-1.4.357.0 tag), "
 		"and configure a fresh build tree so the shaderc paths are re-resolved.\n"
 		"Ubuntu 24.04's libshaderc-dev (2023.8) and glslang-dev (15.1.0) are both below the floor; "
-		"this is what CI hits without .github/actions/setup-shaderc-linux.")
+		"this is what CI hits without .github/actions/setup-shader-toolchain-linux.")
 endfunction()
