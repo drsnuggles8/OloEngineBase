@@ -39,9 +39,11 @@
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <regex>
@@ -236,6 +238,26 @@ void main()
         // therefore cannot be converted per-shader; its slot has to be bound
         // unconditionally instead. Adding an entry without one of the two
         // mechanisms above turns this allowlist into a way to silence the test.
+        // THE FIVE MATERIAL-LOCAL SLOTS, in ONE place because two tests ask about
+        // exactly this set and both must keep meaning the set
+        // `CommandDispatch::BindPBRTextures` skips when
+        // `Shader::ReadsMaterialHeapOffsets()` is true. Named from
+        // ShaderBindingLayout rather than written out, so if the set moves it moves
+        // here too; kept out of the tests themselves so the two cannot drift apart
+        // and leave one of them measuring a slot it was not written for.
+        // (TEX_SPECULAR is repurposed as metallic-roughness on the PBR families.)
+        const std::set<u32>& MaterialLocalSlots()
+        {
+            static const std::set<u32> s_Slots{
+                ShaderBindingLayout::TEX_DIFFUSE,
+                ShaderBindingLayout::TEX_SPECULAR,
+                ShaderBindingLayout::TEX_NORMAL,
+                ShaderBindingLayout::TEX_AMBIENT,
+                ShaderBindingLayout::TEX_EMISSIVE,
+            };
+            return s_Slots;
+        }
+
         [[nodiscard]] bool SlotAlwaysReceivesARealBind(u32 binding)
         {
             return
@@ -1093,6 +1115,247 @@ void main()
     }
 
     // =========================================================================
+    // THE CONVERTED SET IS RECORDED, AND CHECKED IN BOTH DIRECTIONS (issue #805,
+    // ADR 0011 amendment (96)).
+    //
+    // The test above proves the arm is decided by the entry shader; it does not
+    // say WHICH entry shaders take it, and its floor is only "at least one". So
+    // a shader could lose its `#define` — a bad merge, a refactor that moves the
+    // stage header — and nothing would fail: it falls back to classic bindings,
+    // CommandDispatch issues the five binds again, and the frame is CORRECT. The
+    // conversion just quietly stops existing. That is precisely the failure a
+    // recorded set catches and a behavioural test cannot.
+    //
+    // BOTH DIRECTIONS, for the reason kSlotBasedByDesign is checked both ways
+    // further down this file: a list that only grows is a way to silence a test.
+    // Converting a family is a deliberate act under an amendment that scopes it,
+    // so adding the name here is part of the conversion, not paperwork after it.
+    //
+    // Note what is NOT here and is not an oversight: `VirtualGBufferFragment.glsl`
+    // is a shared stage BODY, not an entry shader. It carries the declarations and
+    // the two entry shaders that include it carry the opt-in — see the next test.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, TheMaterialHeapArmCoversExactlyTheRecordedFamilies)
+    {
+        namespace fs = std::filesystem;
+
+        // Every entry shader converted under amendment (96), by relative path.
+        // #1120 landed the first two; this issue's second slice added the rest.
+        static const std::set<std::string> kOnTheMaterialHeapArm{
+            "PBR_GBuffer.glsl",
+            "PBR_GBuffer_Skinned.glsl",
+            "PBR_MultiLight.glsl",
+            "PBR_MultiLight_Skinned.glsl",
+            "VirtualMeshGBuffer.glsl",
+            "VirtualMeshletGBuffer.glsl",
+        };
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
+
+        constexpr std::string_view kToken = ShaderSourceScan::kVulkanMaterialHeapReaderToken;
+
+        std::set<std::string> actual;
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            const std::string ext = p.extension().string();
+            if ((ext != ".glsl" && ext != ".comp") || p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+            // The engine's own question, asked the engine's own way: the entry
+            // shader's OWN text, a #define rather than a mention.
+            if (ShaderSourceScan::DefinesOutsideComments(ReadWholeFile(p), kToken))
+            {
+                actual.insert(fs::relative(p, shaderRoot).generic_string());
+            }
+        }
+
+        std::vector<std::string> unrecorded;
+        std::set_difference(actual.begin(), actual.end(), kOnTheMaterialHeapArm.begin(),
+                            kOnTheMaterialHeapArm.end(), std::back_inserter(unrecorded));
+        std::vector<std::string> missing;
+        std::set_difference(kOnTheMaterialHeapArm.begin(), kOnTheMaterialHeapArm.end(), actual.begin(),
+                            actual.end(), std::back_inserter(missing));
+
+        std::string added;
+        for (const std::string& s : unrecorded)
+        {
+            added += "\n    " + s;
+        }
+        EXPECT_TRUE(unrecorded.empty())
+            << "These shaders take the Vulkan material heap arm and are not in the recorded set. If the\n"
+               "conversion is deliberate, add the name here — that is what makes the reverse check below\n"
+               "able to notice a conversion silently disappearing (ADR 0011 amendment (96))."
+            << added;
+
+        std::string gone;
+        for (const std::string& s : missing)
+        {
+            gone += "\n    " + s;
+        }
+        EXPECT_TRUE(missing.empty())
+            << "These shaders are recorded as converted but no longer define "
+            << kToken
+            << ".\n"
+               "Losing the #define is SILENT: the shader falls back to classic bindings, CommandDispatch\n"
+               "issues the five material binds again and the frame renders correctly — the conversion just\n"
+               "stops existing. Either restore the opt-in or remove the name here deliberately."
+            << gone;
+    }
+
+    // =========================================================================
+    // ENTRY SHADERS THAT SHARE A MATERIAL STAGE BODY MUST AGREE ON THE ARM
+    // (issue #805, ADR 0011 amendment (96)).
+    //
+    // A SHAPE THE FIRST SLICE DID NOT HAVE. PBR_MultiLight and PBR_GBuffer each
+    // own their declarations, so "the entry shader decides" and "the declarations
+    // convert with it" are the same statement. The virtualized-geometry raster
+    // paths are not like that: VirtualMeshGBuffer.glsl (MDI) and
+    // VirtualMeshletGBuffer.glsl (VK_EXT_mesh_shader) include ONE shared fragment
+    // stage body, include/VirtualGBufferFragment.glsl, which holds the five
+    // declarations — deliberately, so the two pipelines cannot drift. The opt-in
+    // cannot live there (VulkanShader asks the entry shader's own pre-include text,
+    // and the `#extension` directives must precede every token), so it is stated
+    // twice, once per entry point. Two statements of one fact is a drift hazard,
+    // and this is the check that removes it.
+    //
+    // WHY DISAGREEMENT IS A BUG AND NOT MERELY UNTIDY. Each program on its own
+    // stays self-consistent — an unconverted one declares the five and gets the
+    // five binds. The damage is at the CALL SITE: VirtualGeometryPass picks
+    // between the two pipelines PER INSTANCE inside one RecordParallel loop,
+    // rebinding and then calling CommandDispatch::UploadMaterialForDirectDraw.
+    // Shader::ReadsMaterialHeapOffsets() reads a process-wide flag published by
+    // the last Bind on ANY thread, so while the two programs agree the value is
+    // the same whoever wrote it, and while they disagree a recording thread can
+    // read the other route's answer — the five binds withheld from a slot-based
+    // program, or issued for a converted one. It renders a plausible frame either
+    // way. Keeping the two in agreement is what makes the shared flag safe here.
+    //
+    // GENERAL, NOT A HARD-CODED PAIR. The rule is "a shared header that declares
+    // one of the five forces its includers to agree", so a third consumer of
+    // VirtualGBufferFragment.glsl — or a second shared stage body — is covered
+    // the day it is written. PBRCommon.glsl is NOT such a header: it reads the
+    // token to pick its OLO_MAT_* spelling but declares no sampler, which is
+    // exactly the distinction that matters.
+    // =========================================================================
+    TEST(BindlessShaderPipeline, EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm)
+    {
+        namespace fs = std::filesystem;
+
+        const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
+        const fs::path includeRoot = shaderRoot / "include";
+        ASSERT_TRUE(fs::exists(includeRoot)) << "include root not found: " << includeRoot.string();
+
+        constexpr std::string_view kToken = ShaderSourceScan::kVulkanMaterialHeapReaderToken;
+
+        // A "material stage body": a shared header that DECLARES one of the five.
+        // Found rather than named, so the rule keeps holding as the tree moves.
+        std::set<std::string> stageBodies;
+        for (const auto& entry : fs::recursive_directory_iterator(includeRoot))
+        {
+            if (!entry.is_regular_file() || entry.path().extension() != ".glsl")
+            {
+                continue;
+            }
+            // Every branch of every fork, deliberately: a declaration behind an
+            // `#else` still belongs to this header, and the question here is which
+            // header OWNS the five, not which arm is live.
+            const std::string text = BlankComments(ReadWholeFile(entry.path()));
+            const bool declaresFive = std::ranges::any_of(
+                ActiveSamplerDeclarations(text, +[](const std::string&)
+                                                { return false; }),
+                [](const SamplerDecl& d)
+                { return MaterialLocalSlots().contains(d.Binding); });
+            if (declaresFive)
+            {
+                stageBodies.insert(entry.path().lexically_normal().string());
+            }
+        }
+
+        // The floor: this test is about a shape that exists. If no shared header
+        // declares the five any more, the shape is gone and so is the guarantee
+        // this test reports — say so rather than passing vacuously.
+        EXPECT_FALSE(stageBodies.empty())
+            << "no shared header under include/ declares one of the five material-local samplers, so this "
+               "test is measuring nothing. Either the shared stage body was inlined into its includers "
+               "(delete this test with it) or the scan is broken.";
+
+        // includer -> (relative name, defines the token)
+        std::map<std::string, std::vector<std::pair<std::string, bool>>> consumers;
+        std::vector<std::string> unresolved;
+
+        for (const auto& entry : fs::recursive_directory_iterator(shaderRoot))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& p = entry.path();
+            const std::string ext = p.extension().string();
+            if ((ext != ".glsl" && ext != ".comp") || p.parent_path().filename() == "include")
+            {
+                continue;
+            }
+
+            // `seen` is the include CLOSURE, which is what makes this transitive:
+            // an entry shader reaching a stage body through an intermediate header
+            // is still its consumer.
+            std::set<std::string> seen;
+            (void)ResolveIncludes(p, shaderRoot, seen, unresolved);
+
+            const bool defines = ShaderSourceScan::DefinesOutsideComments(ReadWholeFile(p), kToken);
+            for (const std::string& body : stageBodies)
+            {
+                if (seen.contains(body))
+                {
+                    consumers[body].emplace_back(p.filename().string(), defines);
+                }
+            }
+        }
+
+        std::string missing;
+        for (const std::string& u : unresolved)
+        {
+            missing += "\n    " + u;
+        }
+        EXPECT_TRUE(unresolved.empty())
+            << "unresolvable #include(s) — the include closure is incomplete and this scan under-reports:"
+            << missing;
+
+        std::string report;
+        for (const auto& [body, users] : consumers)
+        {
+            const bool anyOn = std::ranges::any_of(users, [](const auto& u)
+                                                   { return u.second; });
+            const bool allOn = std::ranges::all_of(users, [](const auto& u)
+                                                   { return u.second; });
+            if (anyOn == allOn)
+            {
+                continue;
+            }
+            report += "\n    " + fs::path(body).filename().string() + " is included by:";
+            for (const auto& [name, on] : users)
+            {
+                report += "\n        " + name + (on ? "  [on the arm]" : "  [NOT on the arm]");
+            }
+        }
+        EXPECT_TRUE(report.empty())
+            << "Entry shaders sharing one material stage body DISAGREE about the Vulkan material heap arm.\n"
+               "The shared body's five declarations then compile one way for one program and the other way\n"
+               "for the other, while VirtualGeometryPass switches between them per instance inside a single\n"
+               "recording loop and reads Shader::ReadsMaterialHeapOffsets() — a process-wide flag — after\n"
+               "each rebind. Give every includer the same opt-in, or take them all off the arm\n"
+               "(ADR 0011 amendment (96), issue #805)."
+            << report;
+    }
+
+    // =========================================================================
     // THE §5c GUARD'S VULKAN TWIN (issue #805, ADR 0011 amendment (96)).
     //
     // The test above asks whether a GL-bindless shader left a slot declaration
@@ -1127,16 +1390,6 @@ void main()
 
         const fs::path shaderRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders";
         ASSERT_TRUE(fs::exists(shaderRoot)) << "shader root not found: " << shaderRoot.string();
-
-        // The set CommandDispatch::BindPBRTextures withholds when
-        // Shader::ReadsMaterialHeapOffsets() is true.
-        static const std::set<u32> kMaterialLocalSlots{
-            ShaderBindingLayout::TEX_DIFFUSE,
-            ShaderBindingLayout::TEX_SPECULAR,
-            ShaderBindingLayout::TEX_NORMAL,
-            ShaderBindingLayout::TEX_AMBIENT,
-            ShaderBindingLayout::TEX_EMISSIVE,
-        };
 
         std::vector<std::string> offenders;
         std::vector<std::string> unresolved;
@@ -1179,7 +1432,7 @@ void main()
 
             for (const SamplerDecl& decl : ActiveSamplerDeclarations(resolved, &MentionsVulkanMaterialHeapArm))
             {
-                if (!kMaterialLocalSlots.contains(decl.Binding))
+                if (!MaterialLocalSlots().contains(decl.Binding))
                 {
                     continue;
                 }
