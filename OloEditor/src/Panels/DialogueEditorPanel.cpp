@@ -96,9 +96,12 @@ namespace OloEngine
 
         if (!ImGui::Begin(windowTitle.c_str(), &m_IsOpen, ImGuiWindowFlags_MenuBar))
         {
+            m_IsFocused = false;
             ImGui::End();
             return;
         }
+
+        m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
         DrawToolbar();
 
@@ -691,6 +694,15 @@ namespace OloEngine
 
     void DialogueEditorPanel::HandleShortcuts()
     {
+        // Every one of these is a GLOBAL ImGui::IsKeyPressed read, so they all
+        // need the focus gate: an open-but-unfocused Dialogue Editor would
+        // otherwise answer a Ctrl+S meant for the scene, or delete the node it
+        // has selected when Delete was aimed at another panel's list.
+        if (!m_IsFocused)
+        {
+            return;
+        }
+
         // Delete selected node
         if (m_SelectedNodeID != 0 && ImGui::IsKeyPressed(ImGuiKey_Delete) && !ImGui::IsAnyItemActive())
         {

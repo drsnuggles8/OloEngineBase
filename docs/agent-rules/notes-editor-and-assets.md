@@ -391,8 +391,10 @@ grep -rln "AddBezierCubic" OloEditor/src/         # now GraphCanvas.cpp alone
 grep -rln --include='*EditorPanel.*' "GraphCanvas" OloEditor/src/Panels/   # all five consumers
 ```
 
-Those are still the census: if a new panel ever appears in the first two greps, it grew a private
-canvas instead of using the widget.
+Those are still the census, and the `AddBezierCubic` grep is the decisive one: a new panel there
+grew a private wire-rendering path instead of using the widget. A hit in the zoom grep alone is not
+evidence -- `AnimationPanel` is a standing false positive (below) -- so check what that panel draws
+before believing it.
 
 **`AnimationPanel` is the one false positive in the zoom grep**, and it is not in #1070's list at
 all: its `m_TimelineZoom` scales a 1D keyframe timeline (a playhead and tick marks, `AddLine`

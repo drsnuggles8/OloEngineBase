@@ -481,19 +481,26 @@ namespace OloEngine
 
     void SkillTreeEditorPanel::HandleShortcuts()
     {
+        // Gated on window focus, because these are GLOBAL ImGui::IsKeyPressed
+        // reads: a background panel must not answer a Ctrl+S meant for another,
+        // nor delete its selected node when Delete was aimed elsewhere. Delete
+        // was outside this gate and is now inside it.
+        if (!m_IsFocused)
+        {
+            return;
+        }
+
         // Delete selected node
         if (!m_SelectedNodeID.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete) && !ImGui::IsAnyItemActive())
         {
             DeleteNode(m_SelectedNodeID);
         }
 
-        // Keyboard shortcuts (gated on window focus so a background panel
-        // can't steal a global Ctrl+S)
-        if (m_IsFocused && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
         {
             SaveTree();
         }
-        if (m_IsFocused && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N))
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N))
         {
             NewTree();
         }

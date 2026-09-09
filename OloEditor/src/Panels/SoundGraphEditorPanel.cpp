@@ -923,7 +923,16 @@ namespace OloEngine
         // The canvas' own hover state, not ImGui's last-item one: everything the
         // panel draws goes straight to the draw list, so "the last item" is
         // whatever GraphCanvas::Begin submitted and depends on draw order.
-        if (!m_Canvas.IsHovered() && !m_IsDraggingNode)
+        //
+        // Every gesture whose RELEASE this function handles has to be exempt from
+        // the hover test, not just the node drag: a drag that starts on the canvas
+        // and leaves it turns IsHovered() false, and returning here would strand
+        // the gesture with its flag set -- a marquee that keeps drawing, or a
+        // pseudo-node still attached to the cursor on re-entry. The connection
+        // drag is not listed because HandleConnectionDrag owns its own release.
+        const bool gestureInFlight = m_IsDraggingNode || m_IsBoxSelecting ||
+                                     m_DraggingGraphOutputNode || m_DraggingGraphInputNode;
+        if (!m_Canvas.IsHovered() && !gestureInFlight)
             return;
 
         ImVec2 const mousePos = ImGui::GetIO().MousePos;

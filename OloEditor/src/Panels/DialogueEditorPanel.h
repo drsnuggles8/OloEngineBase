@@ -41,6 +41,10 @@ namespace OloEngine
         {
             return m_IsOpen;
         }
+        [[nodiscard]] bool IsFocused() const
+        {
+            return m_IsFocused;
+        }
 
         // Reset the panel to a clean state (e.g. on project switch)
         void NewDialogue();
@@ -124,6 +128,10 @@ namespace OloEngine
 
       private:
         bool m_IsOpen = true;
+        /// Whether this panel (or a child of it) has keyboard focus. The panel's
+        /// shortcuts are global ImGui::IsKeyPressed reads, so without this a
+        /// background Dialogue Editor answers a Ctrl+S meant for another panel.
+        bool m_IsFocused = false;
 
         // Asset state
         std::filesystem::path m_CurrentFilePath;

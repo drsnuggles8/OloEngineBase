@@ -320,10 +320,13 @@ Mark a namespace-scope global `constinit` only when the type really is constant-
 initialisable on every toolchain the repo builds with. `std::vector` is not:
 under `_ITERATOR_DEBUG_LEVEL != 0` (which `/MDd`, i.e. every Debug build here,
 turns on) its default constructor allocates an iterator-debug proxy, so
-`constinit std::vector<std::string> s_Warnings;` fails outright with
-*"variable does not have a constant initializer"*. `DebugLevers.cpp` shipped
-exactly that in #1122 and broke the whole `dev-cached` Debug tree at
-`OloEngine.lib`, well before anything that reads a lever.
+a namespace-scope `constinit std::vector` fails outright with *"variable does
+not have a constant initializer"*. `DebugLevers.cpp` shipped exactly that in
+#1122 -- `constinit std::vector<std::string> s_SeedWarnings;` -- and broke the
+whole `dev-cached` Debug tree at `OloEngine.lib`, well before anything that
+reads a lever. The storage is now the function-local `static` behind
+`Levers::SeedWarnings()`; there is no `s_SeedWarnings` symbol to grep for any
+more.
 
 The four levers globals (`Storage`, `Overridden`, `Handles`, `std::once_flag`)
 **do** need `constinit`, and keep it: `SystemScheduler.cpp` and
