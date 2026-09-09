@@ -1,0 +1,80 @@
+name: Shader toolchain floor
+
+# THE GUARD THAT FIRES ON A PR (issue #1139, ADR 0011 amendment (97)).
+#
+# WHAT IT CLOSES. Same-repo PRs route the Linux sanitizer jobs to the self-hosted
+# box, which carries the LunarG SDK; the HOSTED arm -- the one whose shader
+# toolchain used to come from apt -- is reached only by the nightly, by fork PRs
+# and by `force_hosted` dispatches. So a shader that declared an extension the
+# hosted toolchain did not know was green on every PR check and red on the next
+# nightly, two hours into a sanitizer build, in a diagnostic that named a line in
+# an include file. That is exactly how #1135 and the path tracer's textured-hit
+# work landed `GL_EXT_descriptor_heap` and left `master` red for a day and a half.
+#
+# WHY IT IS CHEAP ENOUGH TO RUN UNCONDITIONALLY. It builds no engine. It
+# provisions the pinned shaderc (a cache hit in the normal case) and asks its
+# `glslc` one question per declared extension -- about a second of compiling
+# after setup. There is deliberately NO `paths:` filter: a filter is one more
+# thing that can be wrong, and the whole point of this file is that the failure
+# it catches was invisible for reasons nobody predicted.
+#
+# WHY HOSTED, PINNED TO ubuntu-24.04, WITH NO SELF-HOSTED ROUTING. It is testing
+# the arm that broke. Sending it to the box would test the toolchain that was
+# never the problem, which is the shape of the hole it exists to close.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  extension-floor:
+    name: Declared shader extensions compile on the PR-CI toolchain
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The same action, and therefore the same cache entry, the hosted sanitizer
+      # jobs use. That is the point: this job's verdict is only worth something if
+      # its toolchain IS theirs.
+      - name: Setup pinned shaderc
+        id: shaderc
+        uses: ./.github/actions/setup-shaderc-linux
+
+      - name: Probe every declared extension
+        env:
+          GLSLC: ${{ steps.shaderc.outputs.glslc }}
+        run: python3 scripts/check_shader_extension_floor.py
+
+      # A SECOND OPINION FROM apt, reported and never enforced. It records, on
+      # every run, how far below the floor Ubuntu's own packages are -- the fact
+      # #1139 turned on, and the one a reader six months from now will want
+      # measured rather than remembered. `continue-on-error` because a green
+      # gate here would mean the engine had lost the capability.
+      - name: Record where Ubuntu's own toolchain stands (informational)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslc glslang-dev libshaderc-dev 2>/dev/null || true
+          apt_glslc=$(command -v glslc || true)
+          if [ -z "$apt_glslc" ]; then
+            echo "apt provides no glslc on this image — nothing to compare."
+            exit 0
+          fi
+          echo "::group::apt toolchain"
+          "$apt_glslc" --version || true
+          echo "::endgroup::"
+          python3 scripts/check_shader_extension_floor.py --glslc "$apt_glslc" || {
+            echo "::notice title=apt's shader toolchain is below the floor::Expected — see ADR 0011 amendment (97). The pinned prefix above is what the build uses."
+          }
