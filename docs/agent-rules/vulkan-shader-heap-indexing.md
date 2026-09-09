@@ -42,6 +42,12 @@ frames. `EmissiveTriangleTable` follows the same rule ([gpu-path-tracer.md](gpu-
 
 - **The extension directives go at the shader's top.** GLSL requires every `#extension` to precede
   all other tokens; an include mid-file cannot satisfy that (the BindlessHeap.glsl lesson).
+- **The toolchain is a hard requirement, not a target.** `GL_EXT_descriptor_heap` needs Vulkan SDK
+  1.4.357.0 or newer (glslang implemented it on 2026-01-22); below that the configure refuses by
+  name and the two Vulkan shader tiers refuse per shader, counted. Do not gate the declarations
+  behind an `#ifdef` to make an older toolchain build — a converted material shader without them
+  samples nothing. Amendment (97), and `glsl-shaders.md` §1a for the check to run after adding any
+  `#extension`.
 - **Reflection ignores the heap arrays.** SPIRV-Cross reports no resource for a `descriptor_heap`
   declaration, so the pipeline builder's binding mapping needs nothing and cannot be told anything.
   The heap is bound per recording already (`VulkanRendererAPI::PrepareDraw`).

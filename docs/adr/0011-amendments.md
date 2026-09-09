@@ -2625,3 +2625,75 @@ textures gain nothing, so it would not be *worth it*); and GPU-driven material s
 merging and the indirect payoff, which stay open under #805.
 
 Rules and evidence: [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md).
+
+## Amendments from issue #1139 (2026-09-09) — the toolchain the shaders assume
+
+### (97) The heap arms declare a shader-toolchain FLOOR, and a toolchain below it is refused rather than worked around
+
+**A toolchain that cannot compile `GL_EXT_descriptor_heap` is refused, by name, at the earliest point
+that can see it.** The floor is **Vulkan SDK 1.4.357.0** — equivalently a shader toolchain built from
+**shaderc `v2026.3`**, whose `DEPS` pins glslang `168d452a`, which is glslang's own
+`vulkan-sdk-1.4.357.0` tag. There is no gated arm, no capability `#ifdef`, and no fallback. This is
+the compiler-side mirror of ADR 0010's device contract: `VulkanCapabilities::Evaluate` refuses a
+device missing `VK_EXT_descriptor_heap` all-or-nothing, and the same capability reached from the
+shader side gets the same treatment.
+
+**Why not gate the extension**, which is the obvious cheaper answer and was on the table in #1139.
+Amendment (96) converted the five material-local maps *whole* on Vulkan; there is no non-heap arm
+left in `PBR_GBuffer` and its four siblings to fall back to. A shader compiled without the heap
+declarations does not run slower, it samples nothing — a wrong image, produced silently, on exactly
+the build least likely to be looked at. `CLAUDE.md`'s no-silent-fallbacks rule and (96)'s
+per-declaration conversion point the same way: the loud failure is the correct one, and the work is
+in making it early and legible rather than in avoiding it.
+
+**The measured split that made this an issue rather than a preference.** Ubuntu 24.04 ships
+`libshaderc-dev` **2023.8** and `glslang-dev` **15.1.0**; `GL_EXT_descriptor_heap` was implemented in
+glslang on **2026-01-22** (`c8d3e0661`). Debian/Ubuntu build libshaderc against the *system* glslang,
+so the effective compiler on a hosted runner was 15.1.0 — about a year short. The dev box, Windows
+CI and the self-hosted Linux box all carry SDK 1.4.357.0 and compile it. Nothing between 1.4.321.0
+(known to reject) and 1.4.357.0 has been tried, and the floor deliberately does not pretend
+otherwise: it names the version that is *tested*, and the authority is a behavioural probe, not the
+number.
+
+**The refusal is a probe against the artefact that actually compiles, in three places.**
+`ShaderToolchainFloor::Report()` hands the **linked** shaderc the extensions and the
+`descriptor_heap` / `descriptor_stride` qualifiers once per process; `VulkanShader` and
+`VulkanComputeShader` consult it after the SPIR-V cache and only for a source that declares one of
+them, so a warm cache still builds and an unaffected shader is never refused for someone else's
+reason. `cmake/ShaderToolchainFloor.cmake` runs the same probe, built against the same library, at
+configure time and fails with glslang's own diagnostic attached. Asking a *different* artefact would
+have reproduced the bug rather than caught it: the hosted arm that broke had jobs where an SDK
+`glslc` on PATH accepted the extension while the engine linked apt's libshaderc, which did not.
+The refusal is counted (`ShaderToolchainFloor::RefusalCount`), not merely logged.
+
+**What CI owes this contract, and the trap it must not re-open.**
+`.github/actions/setup-shaderc-linux` builds the pinned shaderc for the hosted Linux arm at its own
+prefix. It is deliberately **not** `setup-vulkan`: a LunarG SDK's include tree also carries
+`spirv_cross/`, which wins the `<spirv_cross/spirv_cross.hpp>` lookup over apt's while the build
+still links apt's SPIRV-Cross — the header/library skew that SEGVs under TSan inside
+`spirv_cross::Resource::~Resource` (#1009, recorded in `setup-linux-build`'s `vulkan-sdk` input).
+shaderc does not depend on SPIRV-Cross, so a shaderc-only prefix cannot carry those headers; both the
+action and `OloEngine/CMakeLists.txt` assert it rather than trust it. `OLO_SHADERC_ROOT` is the only
+sanctioned way to move shaderc off the system: it redirects the header **and** the library together,
+and refuses a prefix that can supply only one.
+
+**And a PR-level guard, because the hole was structural.** Same-repo PRs route the Linux sanitizer
+jobs to the self-hosted box, so the hosted arm is exercised only by the nightly, by fork PRs and by
+`force_hosted` dispatches — any shader feature newer than that arm's toolchain was invisible on
+every PR check and red on the next nightly, ~4,000 tests into a two-hour build.
+`.github/workflows/shader-floor.yml` runs `scripts/check_shader_extension_floor.py` on the hosted
+toolchain on every PR: one `glslc` question per `#extension` any production shader declares, about a
+second of compiling, no engine build. Its unit is the extension NAME rather than the shader, so it
+carries no copy of `ShaderCompilationTest`'s per-stage tier rules and cannot drift from them.
+
+**What this does NOT decide.** Whether a future toolchain floor could be met by something other than
+the LunarG SDK on Windows (today the SDK is also where the engine's SPIRV-Cross comes from, and that
+pairing is not part of this amendment); whether the hosted `vulkan-off` and `steam-stub` jobs, which
+still take a full SDK include tree beside apt's SPIRV-Cross libraries, should adopt `OLO_SHADERC_ROOT`
+too — they run no tests, so the latent skew has never bitten, and closing it means resolving every
+shader-toolchain component as a (header, library) pair, which is a larger change than this one; and
+the exact SDK version at which the floor first becomes satisfiable, which would take a bisect across
+five SDK releases that nothing currently needs.
+
+Rules and evidence: [glsl-shaders.md](../agent-rules/glsl-shaders.md),
+[vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md).

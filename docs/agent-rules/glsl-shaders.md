@@ -16,6 +16,40 @@ The engine compiles all GLSL through **shaderc → SPIR-V**, which imposes stric
 
 ---
 
+## 1a. A new `#extension` must be within the toolchain floor — check it before you commit
+
+**Run `python scripts/check_shader_extension_floor.py` after adding any `#extension` directive.** It
+asks `glslc` one question per extension every production shader declares, takes about a second, and
+names the file and the diagnostic when one is rejected. The floor is **Vulkan SDK 1.4.357.0** /
+shaderc `v2026.3` (ADR 0011 amendment (97)); the same script runs on the hosted CI toolchain in
+`.github/workflows/shader-floor.yml` on every PR.
+
+**The reason it needs its own step is that the toolchains in play are not the same age**, and the
+newest one is the one you are typing on:
+
+| where | shader toolchain |
+|---|---|
+| dev box, Windows CI, self-hosted Linux box | LunarG SDK 1.4.357.0 — shaderc `v2026.3`, glslang `168d452a` |
+| hosted Linux CI | the same, from `.github/actions/setup-shaderc-linux` (since #1139) |
+| Ubuntu 24.04 apt, if anything ever falls back to it | `libshaderc-dev` 2023.8 + `glslang-dev` 15.1.0 — **about a year short** |
+
+`GL_EXT_descriptor_heap` landed in glslang on 2026-01-22. It reached `master` in PR #1135 green on
+every PR check, because same-repo PRs route the Linux sanitizer jobs to the self-hosted box and the
+hosted arm — then on apt's toolchain — is reached only by the nightly. The nightly went red on all
+three Linux jobs for a day and a half, ~4,000 tests into a two-hour build, reporting
+`'descriptor_heap' : unrecognized layout identifier` against a line in an include file. Every word of
+that reads like a shader bug.
+
+**Raising the floor is three literals that must move together**: `setup-vulkan`'s `version`,
+`setup-shaderc-linux`'s `version`, and `ShaderToolchainFloor.h`'s `kMinimumVulkanSdk` /
+`kMinimumShadercTag`. Moving one splits the arms silently.
+
+**Do not gate an extension behind an `#ifdef` to make an old toolchain compile.** A material shader
+that loses its heap declarations samples nothing — a wrong image, produced quietly. The engine
+refuses instead, at configure time and again per shader, and counts the refusals.
+
+---
+
 ## 2. File structure
 
 One `.glsl` file contains multiple stages separated by `#type` markers:

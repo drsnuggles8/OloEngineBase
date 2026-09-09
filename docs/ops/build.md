@@ -16,7 +16,7 @@
 | CMake       | 3.25 (raw) / **4.2+ for `CMakePresets.json`** | Root `CMakeLists.txt` requires 3.25. The shipped presets (`msvc`, `clangcl`, `clangcl-asan`) use the `Visual Studio 18 2026` generator and require CMake 4.2+. Plain `cmake -B build -G "Visual Studio 17 2022"` (no preset) still works at 3.25. |
 | Git         | 2.x             | vcpkg registry + FetchContent clones   |
 | **vcpkg**   | bootstrapped    | **`VCPKG_ROOT` env var must be set** — see below |
-| Vulkan SDK  | 1.4.357+        | `VULKAN_SDK` env var must be set; older SDKs lack glslang's `GL_EXT_descriptor_heap` and fail the shader compile test |
+| Vulkan SDK  | **1.4.357.0+, enforced** | `VULKAN_SDK` env var must be set. An older SDK's glslang lacks `GL_EXT_descriptor_heap`, which seven production shaders declare `: require` — since #1139 the configure REFUSES it by name (`Shader toolchain is BELOW the floor this engine requires`) instead of failing two tests 4,000 cases in. There is no fallback: ADR 0011 amendment (97). |
 | C++ compiler| C++23 support   | Known-working: MSVC 17.x / GCC 14+ / Clang 17+. CMake enforces `CMAKE_CXX_STANDARD = 23` (required) but does not enforce specific compiler versions; older compilers with full C++23 support may work but are untested. |
 | Steamworks SDK | 1.65+ | **Optional, and not in this repo — you download it yourself.** Only needed to work on Steam features (#644); everything builds and tests without it. `STEAMWORKS_SDK_ROOT` env var. [See below](#steamworks-sdk-optional--you-must-obtain-it-yourself). |
 
