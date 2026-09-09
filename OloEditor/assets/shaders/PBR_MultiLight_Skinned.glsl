@@ -138,6 +138,31 @@ void main()
 #type fragment
 #version 460 core
 
+// THE VULKAN MATERIAL-HEAP ARM (ADR 0011 amendment (96), issue #805). The twin
+// of PBR_MultiLight.glsl's block, which carries the fuller note. Skinning is a
+// VERTEX stage concern, so the fragment-side binding story here is the unskinned
+// one exactly: the five material-local maps are reached by runtime heap index on
+// this backend, and everything else — the environment probe, the IBL trio, the
+// shadow arrays, the reflection probes — keeps its classic binding on BOTH
+// backends, which is what (96) scopes.
+//
+// THE DIRECTIVES MUST SIT HERE, before any other token: GLSL requires every
+// `#extension` to precede all non-preprocessor tokens, and an include below
+// cannot satisfy that (BindlessHeap.glsl's note). Guarded by `#ifdef OLO_VULKAN`
+// so the GL tier — which compiles this same source at vulkan_1_2 WITHOUT the
+// macro — never sees them; a conditional is not a token, so the rule still holds.
+//
+// OLO_MATERIAL_VULKAN_HEAP_READER is read twice: PBRCommon.glsl's OLO_MAT_*
+// wrappers switch on it (a combined sampler cannot cross a function call), and
+// VulkanShader scans this stage's OWN pre-include text for a `#define` of it to
+// decide that the program reads per-material offsets — which is what makes
+// CommandDispatch skip the five binds.
+#ifdef OLO_VULKAN
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#define OLO_MATERIAL_VULKAN_HEAP_READER 1
+#endif
+
 #include "include/PBRCommon.glsl"
 // Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table
 // SSBO 54, sampler 65). BindForSampling publishes a DISABLED globals block
@@ -215,14 +240,64 @@ layout(std140, binding = 13) uniform SnowParams {
 // IBL trio and shadow arrays come from the shared published table. Skinning
 // changes only the vertex stage, so the fragment-side binding story is the same.
 #include "include/BindlessHeap.glsl"
-#ifdef OLO_BINDLESS
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+// The heap arrays and OLO_HEAP_MATERIAL_TEX_2D. Guarded internally by
+// `#ifdef OLO_VULKAN`, so it contributes nothing on any other route.
+#include "include/DescriptorHeapTextures.glsl"
+
+// THE VULKAN ARM (amendment (96)). Only the five material-local maps convert:
+// they are asset-owned Texture2D resting in SHADER_READ_ONLY_OPTIMAL, which is
+// the one thing HeapBinding::ResolveShaderHeapTexture can describe. The
+// environment cubemap, the IBL trio and BOTH shadow arrays are baked into render
+// targets; they stay on their classic bindings below, on BOTH backends.
+//
+// ONE SAMPLER LANE FOR ALL FIVE: every material 2D descriptor is minted with
+// HeapBinding::MaterialTexture2DSampler(), so the sampler offset is frame-
+// uniform rather than per-material.
+//
+// NO `OLO_MATERIAL_HEAP_READER` HERE, and that is not an oversight: that token
+// is the GL raw-GLSL route's marker, scanned by CreateProgramFromRawGLSL, and a
+// shader carrying it takes the ARB_bindless_texture arm. This arm's marker is
+// the one defined at the top of the stage.
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+
+#elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
 #define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
 #define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
 #define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
 #define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#else
+layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
+layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
+layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
+layout(binding = 4) uniform sampler2D u_AOMap;              // TEX_AMBIENT
+layout(binding = 5) uniform sampler2D u_EmissiveMap;        // TEX_EMISSIVE
+#endif
 
+// THE PUBLISHED ENVIRONMENT, IBL AND SHADOW SET, and it is a SEPARATE fork on
+// purpose — the same split PBR_MultiLight.glsl makes, for the same reasons.
+//
+// Amendment (96) converts the five material-local maps and nothing else, so
+// these eight are classic on the Vulkan arm exactly as they are on the
+// slot-based one; writing them out inside the Vulkan arm above would be a SECOND
+// copy of the same declarations. That copy is not merely redundant: the §5c scan
+// evaluates the file with OLO_BINDLESS defined, reads a fork whose leading
+// condition does not mention OLO_BINDLESS as pass-through, and would then see
+// these declarations survive on the GL bindless route — where they genuinely
+// would read black, because there the seam withholds every bind. One fork keyed
+// on OLO_BINDLESS keeps the GL arm's macros and the shared classic declarations
+// mutually exclusive, which is what both the compiler and the scan need.
+//
+// A heap array carries no Binding decoration, so these keep their
+// VkDescriptorSetAndBindingMappingEXT entries untouched next to the converted
+// five — the property (96) rests on, measured on SDK 1.4.357.0.
+#ifdef OLO_BINDLESS
 #define u_EnvironmentMap OLO_HEAP_TEX_CUBE(9)
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)
 #define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)
@@ -233,11 +308,6 @@ layout(std140, binding = 13) uniform SnowParams {
 #define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)
 #define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)
 #else
-layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
-layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
-layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
-layout(binding = 4) uniform sampler2D u_AOMap;              // TEX_AMBIENT
-layout(binding = 5) uniform sampler2D u_EmissiveMap;        // TEX_EMISSIVE
 layout(binding = 9) uniform samplerCube u_EnvironmentMap;   // TEX_ENVIRONMENT
 
 // IBL textures (if available)
@@ -339,21 +409,21 @@ void main()
             discard;
     }
 
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
-    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
-                                                     u_MetallicFactor, u_RoughnessFactor,
-                                                     bool(u_UseMetallicRoughnessMap));
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
+                                                        u_MetallicFactor, u_RoughnessFactor,
+                                                        bool(u_UseMetallicRoughnessMap));
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
 
-    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
-    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
+    float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
+    vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
     // Calculate normal
     vec3 N = normalize(v_Normal);
     if (u_UseNormalMap == 1)
     {
-        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 

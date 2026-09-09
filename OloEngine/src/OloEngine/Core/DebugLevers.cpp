@@ -150,23 +150,28 @@ namespace OloEngine::Levers
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
         //
-        // NOT `constinit`, unlike its neighbours above, and it cannot be: under the
-        // MSVC DEBUG STL (_ITERATOR_DEBUG_LEVEL != 0) `std::vector`'s default
-        // constructor heap-allocates a `_Container_proxy`, so it is not a constant
-        // expression and clang-cl rejects the specifier outright ("pointer to
-        // subobject of heap-allocated object is not a constant expression"). MSVC's
-        // own front end accepts it, which is why this only ever broke the clang-cl
-        // Debug trees.
+        // NOT `constinit std::vector`, and that is a hard toolchain limit rather
+        // than a relaxation of the rule above. Under the MSVC Debug STL
+        // (`_ITERATOR_DEBUG_LEVEL != 0`, i.e. /MDd — every Debug build here)
+        // `std::vector`'s default constructor HEAP-ALLOCATES a `_Container_proxy`,
+        // so it is not a constant expression and `constinit` is a hard error:
+        // clang-cl "variable does not have a constant initializer", MSVC C2127.
+        // Both reject it; both accept it under /MD, where there is no proxy —
+        // which is why it reached master. The clang-cl CI job is the ASan one and
+        // that tree is Release-only, so no configuration CI builds has the Debug
+        // STL and a Debug-only break was invisible.
         //
-        // A function-local static keeps the property the `constinit` was there for:
-        // the vector is constructed on first use, so it cannot be read before its
-        // storage exists and there is no static-init order question with the levers.
-        // The trade is a thread-safe-init guard on each access, which is free next to
-        // the string formatting these calls already do.
+        // A LEAKED FUNCTION-LOCAL, which keeps the property the `constinit` was
+        // there for and does not depend on the STL's constexpr-ness. The guard
+        // variable IS constant-initialized, so the storage is reachable at any
+        // point in static initialisation — the seed can still run arbitrarily
+        // early — and never destroyed, so a late `LogActive()` cannot read a
+        // destroyed vector. Same shape, and the same reasoning, as
+        // `Shader.cpp`'s deliberately-leaked program sets (issue #1088).
         [[nodiscard]] std::vector<std::string>& SeedWarnings()
         {
-            static std::vector<std::string> warnings;
-            return warnings;
+            static auto* s_Warnings = new std::vector<std::string>();
+            return *s_Warnings;
         }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own
