@@ -13,6 +13,7 @@ namespace
 {
     namespace Panels = OloEngine::MCP::EditorPanels;
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpEditorPanelSetResult;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -81,7 +82,7 @@ TEST(McpEditorPanels, ProjectWriteGateRejectsBeforeCallbackAndAllowsAfterConsent
     tool.Name = "olo_editor_panel_set";
     tool.ProjectWrite = true;
     tool.InputSchema = Panels::SetInputSchema();
-    tool.Handler = [&calls](McpServer&, const Json& args)
+    tool.Handler = [&calls](IAutomationHost&, const Json& args)
     {
         ++calls;
         McpEditorPanelSetResult result;
@@ -114,7 +115,7 @@ TEST(McpEditorPanels, SchemaRejectsUnknownPropertiesBeforeCallback)
     tool.Name = "olo_editor_panel_set";
     tool.ProjectWrite = true;
     tool.InputSchema = Panels::SetInputSchema();
-    tool.Handler = [&calls](McpServer&, const Json&)
+    tool.Handler = [&calls](IAutomationHost&, const Json&)
     {
         ++calls;
         return ToolResult::Text("unexpected");

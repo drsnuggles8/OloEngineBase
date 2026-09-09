@@ -23,6 +23,7 @@
 namespace
 {
     using OloEngine::MCP::ConsentDecision;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::EditorMcpContext;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -46,7 +47,7 @@ namespace
         tool.Name = name;
         tool.Description = "Bridged from a fake external server.";
         tool.InputSchema = Json{ { "type", "object" } };
-        tool.Handler = [](McpServer&, const Json&)
+        tool.Handler = [](IAutomationHost&, const Json&)
         { return ToolResult::Text("external ran"); };
         return tool;
     }
@@ -162,7 +163,7 @@ TEST(McpClientTools, ReplaceIsScopedToItsAliasAndCoexistsWithScriptTools)
     ToolDef native;
     native.Name = "fake_native";
     native.Description = "A native tool.";
-    native.Handler = [](McpServer&, const Json&)
+    native.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Text("native"); };
     server.RegisterTool(std::move(native));
 
@@ -170,7 +171,7 @@ TEST(McpClientTools, ReplaceIsScopedToItsAliasAndCoexistsWithScriptTools)
     scripted.Name = "script_fake";
     scripted.Description = "A script tool.";
     scripted.ScriptOwned = true;
-    scripted.Handler = [](McpServer&, const Json&)
+    scripted.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Text("script"); };
     server.RegisterTool(std::move(scripted));
 

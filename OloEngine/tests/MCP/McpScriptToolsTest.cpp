@@ -40,6 +40,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::LoadScriptTools;
     using OloEngine::MCP::McpScriptToolsReport;
     using OloEngine::MCP::McpServer;
@@ -68,7 +69,7 @@ namespace
             echo.Description = "Echo back the 'text' argument.";
             echo.InputSchema = Json{ { "type", "object" },
                                      { "properties", { { "text", { { "type", "string" } } } } } };
-            echo.Handler = [](McpServer&, const Json& args)
+            echo.Handler = [](IAutomationHost&, const Json& args)
             { return ToolResult::Structured(Json{ { "echoed", args.value("text", std::string{}) } }); };
             m_Server.RegisterTool(std::move(echo));
 
@@ -76,7 +77,7 @@ namespace
             write.Name = "fake_write";
             write.Description = "A project-mutating tool.";
             write.ProjectWrite = true;
-            write.Handler = [](McpServer&, const Json&)
+            write.Handler = [](IAutomationHost&, const Json&)
             { return ToolResult::Text("wrote"); };
             m_Server.RegisterTool(std::move(write));
         }
@@ -428,9 +429,9 @@ RegisterMcpTool{ name = "script_revoked", description = "writes after consent is
         ToolDef revoke;
         revoke.Name = "fake_revoke_writes";
         revoke.Description = "Turn the session write consent back off (test hook).";
-        revoke.Handler = [](McpServer& server, const Json&)
+        revoke.Handler = [this](IAutomationHost&, const Json&)
         {
-            server.SetAllowWrites(false);
+            m_Server.SetAllowWrites(false);
             return ToolResult::Text("revoked");
         };
         m_Server.RegisterTool(std::move(revoke));
@@ -640,7 +641,7 @@ RegisterMcpTool{ name = "script_bad_icon", description = "malformed icons",
         external.Name = "ext.files.read_file";
         external.Description = "Bridged from a fake external server.";
         external.InputSchema = Json{ { "type", "object" } };
-        external.Handler = [](McpServer&, const Json&)
+        external.Handler = [](IAutomationHost&, const Json&)
         { return ToolResult::Text("external ran"); };
         ASSERT_EQ(m_Server.ReplaceClientTools("files", { std::move(external) }), 1u);
 

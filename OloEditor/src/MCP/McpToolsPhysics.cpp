@@ -184,7 +184,7 @@ namespace OloEngine::MCP
         // the five built-in Jolt object layers plus every user-defined
         // PhysicsLayerManager layer, with pairwise collide/no-collide from the
         // real ObjectLayerPairFilter. Works in Edit mode too (static registry).
-        ToolResult Handle_PhysicsLayerMatrix(McpServer& /*server*/, const Json& /*args*/)
+        ToolResult Handle_PhysicsLayerMatrix(IAutomationHost& /*host*/, const Json& /*args*/)
         {
             // Collect the object layers in play: built-ins 0..NUM_LAYERS-1, then
             // each valid user layer at NUM_LAYERS + layerId.
@@ -263,7 +263,7 @@ namespace OloEngine::MCP
         // Every entity with a Rigidbody3DComponent: authored body type / layer /
         // trigger / collider shapes, plus live body state (object layer, position,
         // awake/asleep) when physics is running. Paginated like list_entities.
-        ToolResult Handle_PhysicsListColliders(McpServer& server, const Json& args)
+        ToolResult Handle_PhysicsListColliders(IAutomationHost& host, const Json& args)
         {
             // Keep page/pageSize in a wide signed type end-to-end: a huge 'page'
             // narrowed to int wraps negative (well-defined but wrong in C++20), and
@@ -277,11 +277,11 @@ namespace OloEngine::MCP
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200);
 
-            Json result = server.MarshalRead([&server, page, pageSize]() -> Json
+            Json result = host.MarshalRead([&host, page, pageSize]() -> Json
                                              {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                 {
@@ -356,17 +356,17 @@ namespace OloEngine::MCP
         // ---- olo_physics_contacts (main-marshaled) -----------------------------
         // The entity pairs whose bodies are touching right now, from the contact
         // listener's active-contact set (deduplicated per entity pair).
-        ToolResult Handle_PhysicsContacts(McpServer& server, const Json& args)
+        ToolResult Handle_PhysicsContacts(IAutomationHost& host, const Json& args)
         {
             int maxResults = 200;
             if (args.contains("maxResults") && args["maxResults"].is_number_integer())
                 maxResults = static_cast<int>(std::clamp<long long>(args["maxResults"].get<long long>(), 1, 2000));
 
-            Json result = server.MarshalRead([&server, maxResults]() -> Json
+            Json result = host.MarshalRead([&host, maxResults]() -> Json
                                              {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                 {
@@ -415,7 +415,7 @@ namespace OloEngine::MCP
         // ---- olo_physics_raycast (main-marshaled) ------------------------------
         // Cast a ray through the live physics world. Origin + (direction | to).
         // Returns the closest hit by default, or up to maxHits ordered hits.
-        ToolResult Handle_PhysicsRaycast(McpServer& server, const Json& args)
+        ToolResult Handle_PhysicsRaycast(IAutomationHost& host, const Json& args)
         {
             glm::vec3 origin{ 0.0f };
             if (!args.contains("origin") || !ParseVec3(args["origin"], origin))
@@ -452,11 +452,11 @@ namespace OloEngine::MCP
             if (args.contains("maxHits") && args["maxHits"].is_number_integer())
                 maxHits = static_cast<int>(std::clamp<long long>(args["maxHits"].get<long long>(), 1, 64));
 
-            Json result = server.MarshalRead([&server, origin, direction, toPoint, hasTo, maxDistance, maxHits]() -> Json
+            Json result = host.MarshalRead([&host, origin, direction, toPoint, hasTo, maxDistance, maxHits]() -> Json
                                              {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -508,7 +508,7 @@ namespace OloEngine::MCP
 
         // ---- olo_physics_overlap (main-marshaled) ------------------------------
         // Find bodies overlapping a sphere (default) or box at a world point.
-        ToolResult Handle_PhysicsOverlap(McpServer& server, const Json& args)
+        ToolResult Handle_PhysicsOverlap(IAutomationHost& host, const Json& args)
         {
             glm::vec3 origin{ 0.0f };
             if (!args.contains("origin") || !ParseVec3(args["origin"], origin))
@@ -534,11 +534,11 @@ namespace OloEngine::MCP
             if (args.contains("maxHits") && args["maxHits"].is_number_integer())
                 maxHits = static_cast<int>(std::clamp<long long>(args["maxHits"].get<long long>(), 1, 256));
 
-            Json result = server.MarshalRead([&server, origin, halfExtents, radius, isBox, maxHits]() -> Json
+            Json result = host.MarshalRead([&host, origin, halfExtents, radius, isBox, maxHits]() -> Json
                                              {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -591,7 +591,7 @@ namespace OloEngine::MCP
         // The headline tool: explain why two entities are NOT colliding (the
         // "player falls through the floor" case). Gathers the collision-relevant
         // facts off the live sim, then runs the pure ExplainWhyNoCollision cascade.
-        ToolResult Handle_PhysicsWhyNoCollision(McpServer& server, const Json& args)
+        ToolResult Handle_PhysicsWhyNoCollision(IAutomationHost& host, const Json& args)
         {
             if (!args.contains("a") || !args.contains("b"))
                 return ToolResult::Error("Missing required arguments 'a' and 'b' (entity UUIDs).");
@@ -602,11 +602,11 @@ namespace OloEngine::MCP
             if (!ParseUuid(args["b"], idB))
                 return ToolResult::Error("Invalid 'b': expected a UUID as a string or number.");
 
-            Json result = server.MarshalRead([&server, idA, idB]() -> Json
+            Json result = host.MarshalRead([&host, idA, idB]() -> Json
                                              {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -736,9 +736,9 @@ namespace OloEngine::MCP
         // seam without this TU. The command is built + executed inside the MarshalRead
         // job, i.e. on the main thread, since it touches the EnTT registry and the
         // editor command stack.
-        ToolResult Handle_SetCollisionLayer(McpServer& server, const Json& args)
+        ToolResult Handle_SetCollisionLayer(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().GetActiveScene || !server.Context().GetCommandHistory)
+            if (!host.Context().GetActiveScene || !host.Context().GetCommandHistory)
                 return ToolResult::Error("Project writes are not available in this editor build.");
 
             u64 entityUuid = 0;
@@ -746,13 +746,13 @@ namespace OloEngine::MCP
             if (const auto error = SetCollisionLayer::ParseArgs(args, entityUuid, layer))
                 return ToolResult::Error(*error);
 
-            const Json result = server.MarshalRead([&server, entityUuid, layer]() -> Json
+            const Json result = host.MarshalRead([&host, entityUuid, layer]() -> Json
                                                    {
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
-                CommandHistory* history = server.Context().GetCommandHistory
-                                              ? server.Context().GetCommandHistory()
+                CommandHistory* history = host.Context().GetCommandHistory
+                                              ? host.Context().GetCommandHistory()
                                               : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -771,7 +771,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterPhysicsTools(McpServer& server)
+    void RegisterPhysicsTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -806,7 +806,7 @@ namespace OloEngine::MCP
                                     .Required({ "objectLayers", "collisionMatrix", "userDefinedLayers", "note" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_PhysicsLayerMatrix;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -844,7 +844,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "total", "page", "pageSize", "returned", "colliders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsListColliders;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -876,7 +876,7 @@ namespace OloEngine::MCP
                                     .Required({ "physicsRunning", "activeContactCount", "contacts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsContacts;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -914,7 +914,7 @@ namespace OloEngine::MCP
                                     .Required({ "origin", "direction", "maxDistance", "hitCount", "hits" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsRaycast;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -948,7 +948,7 @@ namespace OloEngine::MCP
                                     .Required({ "shape", "origin", "overlapCount", "overlaps" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsOverlap;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -1001,7 +1001,7 @@ namespace OloEngine::MCP
                                     .Required({ "a", "b", "reasonCode", "summary", "canCollide", "checks", "facts" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PhysicsWhyNoCollision;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -1034,7 +1034,7 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "component", "previousLayer", "layer", "changed", "undoable" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SetCollisionLayer;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

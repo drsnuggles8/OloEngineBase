@@ -103,24 +103,29 @@ namespace OloEngine::MCP
     // is stamped into `meta` under "resourceUri" BEFORE returning, so a caller that
     // mirrors meta into a text block reports the same URI. Takes `bytes` by value
     // and moves into the reader closure — pass an owned buffer with std::move.
-    inline Json PublishCaptureResourceLink(McpServer& server, std::vector<u8> bytes, const std::string& stem,
+    // Returns a NULL Json when the host has no artifact store to publish into
+    // (issue #1123). Only the MCP server has one today, so this is unreachable in
+    // the editor — but a caller that asked for link delivery must be told it did
+    // not happen rather than handed a link to nothing, so the three call sites
+    // check and report instead of quietly inlining.
+    inline Json PublishCaptureResourceLink(IAutomationHost& host, std::vector<u8> bytes, const std::string& stem,
                                            const std::string& resourceDescription,
                                            const std::string& linkDescription, Json& meta)
     {
         const u64 sizeBytes = static_cast<u64>(bytes.size());
         const u64 sequence = NextCaptureSequence();
-        const std::string uri = "olo://capture/" + std::to_string(sequence) + "/" + stem + ".png";
-        const std::string name = stem + "-" + std::to_string(sequence) + ".png";
 
-        ResourceDef capture;
-        capture.Uri = uri;
-        capture.Name = name;
+        Automation::AutomationArtifact capture;
+        capture.Uri = "olo://capture/" + std::to_string(sequence) + "/" + stem + ".png";
+        capture.Name = stem + "-" + std::to_string(sequence) + ".png";
         capture.Description = resourceDescription;
         capture.MimeType = "image/png";
-        capture.SizeBytes = sizeBytes;
-        capture.BlobReader = [bytes = std::move(bytes)](McpServer&)
-        { return bytes; };
-        server.RegisterEphemeralResource(std::move(capture));
+        capture.Bytes = std::move(bytes);
+
+        const std::string uri = capture.Uri;
+        const std::string name = capture.Name;
+        if (!host.PublishArtifact(std::move(capture)))
+            return Json();
 
         meta["resourceUri"] = uri;
         return ToolResult::ResourceLinkBlock(uri, name, linkDescription, "image/png", sizeBytes);
@@ -290,33 +295,33 @@ namespace OloEngine::MCP
     // and not mid viewport-resize transient), so a camera change is actually
     // visible in the framebuffer before a capture. Returns false on timeout —
     // and also on MCP cancellation (#357): callers that must distinguish
-    // check server.IsCurrentCallCancelled() and abort instead of capturing.
+    // check host.IsCurrentCallCancelled() and abort instead of capturing.
     // Emits notifications/progress as frames advance when the caller opted in
     // via a progressToken (a no-op otherwise).
     // `deadline` scales for callers waiting through a long declared frame
     // count (the benchmark warm-up waits 128+ frames, not a 2-3 frame
     // screenshot settle); the 5 s default is the original screenshot budget.
-    inline bool AwaitRenderedFrames(McpServer& server, u64 baseFrame, int settleFrames,
+    inline bool AwaitRenderedFrames(IAutomationHost& host, u64 baseFrame, int settleFrames,
                                     std::chrono::milliseconds deadlineBudget = std::chrono::seconds(5))
     {
-        if (!server.Context().GetFrameIndex || !server.Context().IsCaptureUnready)
+        if (!host.Context().GetFrameIndex || !host.Context().IsCaptureUnready)
             return true; // older context: best effort, capture immediately
         const u64 targetFrame = baseFrame + static_cast<u64>(settleFrames);
         const auto deadline = std::chrono::steady_clock::now() + deadlineBudget;
         u64 lastReported = 0;
         while (std::chrono::steady_clock::now() < deadline)
         {
-            if (server.IsCurrentCallCancelled())
+            if (host.IsCurrentCallCancelled())
                 return false;
-            const Json state = server.MarshalRead([&server]() -> Json
-                                                  { return Json{ { "frame", server.Context().GetFrameIndex() },
-                                                                 { "unready", server.Context().IsCaptureUnready() } }; });
+            const Json state = host.MarshalRead([&host]() -> Json
+                                                  { return Json{ { "frame", host.Context().GetFrameIndex() },
+                                                                 { "unready", host.Context().IsCaptureUnready() } }; });
             const u64 frame = state.value("frame", static_cast<u64>(0));
             if (const u64 rendered = frame > baseFrame ? frame - baseFrame : 0;
                 rendered > lastReported && rendered <= static_cast<u64>(settleFrames))
             {
                 lastReported = rendered;
-                server.EmitProgress(static_cast<f64>(rendered), static_cast<f64>(settleFrames),
+                host.EmitProgress(static_cast<f64>(rendered), static_cast<f64>(settleFrames),
                                     "settling frames before capture (" + std::to_string(rendered) + "/" +
                                         std::to_string(settleFrames) + ")");
             }
@@ -368,20 +373,25 @@ namespace OloEngine::MCP
     // domain's tools/resources in a stable within-domain order, so tools/list
     // is grouped by toolset.
 
-    void RegisterDiagnosticsTools(McpServer& server);
-    void RegisterSceneTools(McpServer& server);
-    void RegisterPerfTools(McpServer& server);
-    void RegisterRenderTools(McpServer& server);
-    void RegisterShaderTools(McpServer& server);
-    void RegisterAssetTools(McpServer& server);
-    void RegisterScriptingTools(McpServer& server);
-    void RegisterCameraTools(McpServer& server);
-    void RegisterPhysicsTools(McpServer& server);
-    void RegisterInputTools(McpServer& server);
-    void RegisterBenchmarkTools(McpServer& server);
-    void RegisterEditorTools(McpServer& server);
+    void RegisterDiagnosticsTools(AutomationRegistry& registry);
+    void RegisterSceneTools(AutomationRegistry& registry);
+    void RegisterPerfTools(AutomationRegistry& registry);
+    void RegisterRenderTools(AutomationRegistry& registry);
+    void RegisterShaderTools(AutomationRegistry& registry);
+    void RegisterAssetTools(AutomationRegistry& registry);
+    void RegisterScriptingTools(AutomationRegistry& registry);
+    void RegisterCameraTools(AutomationRegistry& registry);
+    void RegisterPhysicsTools(AutomationRegistry& registry);
+    void RegisterInputTools(AutomationRegistry& registry);
+    void RegisterBenchmarkTools(AutomationRegistry& registry);
+    void RegisterEditorTools(AutomationRegistry& registry);
     // The capability-discovery gateway (issue #1124). Registered LAST so the four
     // gateway tools sort after the domains in tools/list — they are the entry point
     // for a session that cannot see the rest, not part of any domain.
-    void RegisterGatewayTools(McpServer& server);
+    //
+    // The ONE domain that still takes the server (issue #1123): these four report
+    // on an MCP catalogue — its exposure profile and its tools/list byte sizes — so
+    // they are the adapter's own commands, registered by it into the registry.
+    // Everything above is transport-independent and registers into a bare one.
+    void RegisterGatewayTools(McpServer& host);
 } // namespace OloEngine::MCP

@@ -56,6 +56,7 @@ namespace
     using OloEngine::TransformComponent;
     using OloEngine::UUID;
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -111,7 +112,7 @@ namespace
             tool.Description = "Set any registered component field (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = GFW::InputSchema();
-            tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
             {
                 u64 entityUuid = 0;
                 std::string component;
@@ -573,7 +574,7 @@ class McpGenericFieldWritePlayModeTest : public ::testing::Test
         tool.Description = "Set any registered component field (fake; test wiring).";
         tool.ProjectWrite = true;
         tool.InputSchema = GFW::InputSchema();
-        tool.Handler = [this](McpServer& server, const Json& args) -> ToolResult
+        tool.Handler = [this](IAutomationHost& server, const Json& args) -> ToolResult
         {
             u64 entityUuid = 0;
             std::string component;

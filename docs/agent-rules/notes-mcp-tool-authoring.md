@@ -16,9 +16,16 @@ the wrong destination).
    Scene/ECS, header-only `UndoRedo/`, `nlohmann::json` and `McpSchemaBuilder.h`. Exposes
    `InputSchema()`, `ParseArgs(...)`, `Apply(...)` (or, for an "explain" tool, plain fact structs
    plus one free `inline` reasoning function).
-2. **Handler** in `McpTools.cpp` — validate args, gather live facts inside
-   `server.MarshalRead([...]{ … })` on the main thread, call the pure code, serialize to JSON.
-   Register in `RegisterBuiltinTools` with `MainMarshaled = true`.
+2. **Handler** in the domain TU (`McpTools<Domain>.cpp`) — validate args, gather live facts inside
+   `host.MarshalRead([...]{ … })` on the main thread, call the pure code, serialize to JSON.
+   Register it in that TU's `Register<Domain>Tools(AutomationRegistry& registry)` with
+   `registry.Register(std::move(tool));` and `MainMarshaled = true`.
+
+   A handler takes **`IAutomationHost&`, not `McpServer&`** (#1123). That seam is the editor
+   context, `MarshalRead`, `EmitProgress`, `IsCurrentCallCancelled` and `PublishArtifact` — and
+   nothing else. If you find yourself wanting the server, you are writing an MCP tool rather than a
+   command: the only ones that legitimately are live in `McpToolsGateway.cpp`, and they close over
+   the server they were registered on.
 3. **Unit test** `OloEngine/tests/MCP/Mcp<Name>Test.cpp` driving the pure code directly, classified
    `// OLO_TEST_LAYER: unit` and added to the explicit source list in `tests/CMakeLists.txt`.
 
@@ -26,6 +33,15 @@ the wrong destination).
 > compile the pure headers plus `McpServer.cpp` (the dispatch seam) and register *fake* tools wired
 > to the same shared code, because a real handler needs `MarshalRead`, a game thread and usually GL.
 > So all real logic must live in the pure header, or it is untested.
+>
+> **Correction (#1123): a handler CAN now be *run* from the test binary.** The registry is
+> transport-independent, so a test builds an `AutomationRegistry`, calls `RegisterBuiltinCommands`
+> on it, and invokes a real handler against a minimal `IAutomationHost` with no server anywhere —
+> `McpAutomationRegistryTest.cpp` does exactly that, and drives `olo_scene_summary` end to end.
+> What is still true is the *hard* half: against an empty editor context a main-marshaled handler
+> can only reach the "no scene" branch, and one needing a game thread or GL still cannot do its
+> real work there. The split is about where the LOGIC lives, not about linkage — that part of the
+> note was always the point.
 >
 > **Correction (#777):** an older version of this note said the test binary "deliberately does not
 > link `McpTools.cpp`". That is **false** — `McpTools.cpp` and the whole per-domain `McpTools*.cpp`
@@ -138,7 +154,8 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
 
 ## 5. Write tools: consent gate, undo, and the reflection gap
 
-- **Session gate.** Set `ToolDef::ProjectWrite = true`. `HandleToolsCall` refuses it with a clean
+- **Session gate.** Set `ToolDef::ProjectWrite = true` — the authority class, which now lives on
+  `AutomationCommand` (`ToolDef` is an alias for it). `HandleToolsCall` refuses it with a clean
   `kInvalidParams` unless `SetAllowWrites` is on — atomic, default OFF, **never persisted**. Pair
   with `MutatingAnnotations(/*idempotent*/ false)`. Read-only and ephemeral-editor-state tools
   (camera, viewport, render overrides) are not `ProjectWrite`, so the gate never touches them.

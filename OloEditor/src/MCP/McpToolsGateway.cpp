@@ -319,6 +319,11 @@ namespace OloEngine::MCP
         }
     } // namespace
 
+    // Registers into the SERVER's registry, and each handler closes over that
+    // server rather than taking it from the host seam (issue #1123): these four
+    // describe an MCP catalogue, so they are the one place the adapter legitimately
+    // needs its concrete self. `server` outlives every command it registers — it
+    // owns the registry they live in.
     void RegisterGatewayTools(McpServer& server)
     {
         {
@@ -365,7 +370,8 @@ namespace OloEngine::MCP
                     .Prop("howTo", Schema::String().Desc("How to reach a tool this profile does not list."))
                     .Required({ "profile", "registry", "howTo" });
             tool.Annotations = ReadOnlyAnnotations();
-            tool.Handler = Handle_Capability;
+            tool.Handler = [&server](IAutomationHost&, const Json& arguments)
+            { return Handle_Capability(server, arguments); };
             server.RegisterTool(std::move(tool));
         }
 
@@ -413,7 +419,8 @@ namespace OloEngine::MCP
                     .Prop("next", Schema::String())
                     .Required({ "matched", "returned", "tools" });
             tool.Annotations = ReadOnlyAnnotations();
-            tool.Handler = Handle_ToolSearch;
+            tool.Handler = [&server](IAutomationHost&, const Json& arguments)
+            { return Handle_ToolSearch(server, arguments); };
             server.RegisterTool(std::move(tool));
         }
 
@@ -448,7 +455,8 @@ namespace OloEngine::MCP
                     .Prop("hint", Schema::String())
                     .Required({ "tools" });
             tool.Annotations = ReadOnlyAnnotations();
-            tool.Handler = Handle_ToolDescribe;
+            tool.Handler = [&server](IAutomationHost&, const Json& arguments)
+            { return Handle_ToolDescribe(server, arguments); };
             server.RegisterTool(std::move(tool));
         }
 
@@ -487,7 +495,8 @@ namespace OloEngine::MCP
             // NOT ProjectWrite: the gate belongs to the TARGET, and HandleToolsCall
             // applies it after the rewrite. Setting it here would additionally refuse
             // a read-only tool routed through the gateway whenever writes are off.
-            tool.Handler = Handle_ToolExecuteUnreachable;
+            tool.Handler = [&server](IAutomationHost&, const Json& arguments)
+            { return Handle_ToolExecuteUnreachable(server, arguments); };
             server.RegisterTool(std::move(tool));
         }
     }

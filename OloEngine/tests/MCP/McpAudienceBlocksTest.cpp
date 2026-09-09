@@ -34,6 +34,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -67,7 +68,7 @@ namespace
         tool.Title = "Fake report";
         tool.Description = "A dual-audience tool.";
         tool.DualAudienceContent = true;
-        tool.Handler = [payload = std::move(payload)](McpServer&, const Json&)
+        tool.Handler = [payload = std::move(payload)](IAutomationHost&, const Json&)
         { return ToolResult::Structured(payload); };
         server.RegisterTool(std::move(tool));
     }
@@ -194,7 +195,7 @@ TEST(McpAudienceBlocks, ToolsCallLeavesAnUndeclaredToolAlone)
     ToolDef tool;
     tool.Name = "olo_fake_plain";
     tool.Description = "A plain structured tool.";
-    tool.Handler = [](McpServer&, const Json&)
+    tool.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Structured(SamplePayload()); };
     server.RegisterTool(std::move(tool));
 
@@ -217,7 +218,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     failing.Name = "olo_fake_dual_error";
     failing.Description = "Fails.";
     failing.DualAudienceContent = true;
-    failing.Handler = [](McpServer&, const Json&)
+    failing.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Error("boom"); };
     server.RegisterTool(std::move(failing));
 
@@ -225,7 +226,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     textual.Name = "olo_fake_dual_text";
     textual.Description = "Text only.";
     textual.DualAudienceContent = true;
-    textual.Handler = [](McpServer&, const Json&)
+    textual.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Text("flowchart LR"); };
     server.RegisterTool(std::move(textual));
 
@@ -233,7 +234,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     withLink.Name = "olo_fake_dual_link";
     withLink.Description = "Structured plus a resource link.";
     withLink.DualAudienceContent = true;
-    withLink.Handler = [](McpServer&, const Json&)
+    withLink.Handler = [](IAutomationHost&, const Json&)
     {
         ToolResult r = ToolResult::Structured(SamplePayload());
         r.Content.push_back(ToolResult::ResourceLinkBlock("olo://capture/1", "shot.png", "A capture.", "image/png"));

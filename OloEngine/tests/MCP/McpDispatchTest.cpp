@@ -19,6 +19,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::ExposurePolicy;
     using OloEngine::MCP::ExposureProfile;
     using OloEngine::MCP::McpServer;
@@ -82,7 +83,7 @@ namespace
             echo.Toolset = "diag";
             echo.InputSchema = Json{ { "type", "object" },
                                      { "properties", { { "text", { { "type", "string" } } } } } };
-            echo.Handler = [](McpServer&, const Json& args)
+            echo.Handler = [](IAutomationHost&, const Json& args)
             { return ToolResult::Text(args.value("text", std::string{})); };
             m_Server.RegisterTool(std::move(echo));
 
@@ -91,7 +92,7 @@ namespace
             boom.Name = "fake_boom";
             boom.Description = "Always throws.";
             boom.Toolset = "diag";
-            boom.Handler = [](McpServer&, const Json&) -> ToolResult
+            boom.Handler = [](IAutomationHost&, const Json&) -> ToolResult
             { throw std::runtime_error("kaboom"); };
             m_Server.RegisterTool(std::move(boom));
 
@@ -99,7 +100,7 @@ namespace
             toolError.Name = "fake_tool_error";
             toolError.Description = "Returns a tool-level error (isError=true).";
             // Intentionally no Toolset (uncategorized).
-            toolError.Handler = [](McpServer&, const Json&)
+            toolError.Handler = [](IAutomationHost&, const Json&)
             { return ToolResult::Error("nope"); };
             m_Server.RegisterTool(std::move(toolError));
 
@@ -421,7 +422,7 @@ TEST(McpToolsSearchCaseFold, MixedCaseToolsetCollapsesInCatalogueAndFilter)
         tool.Name = std::move(name);
         tool.Toolset = std::move(toolset);
         tool.Description = "fake";
-        tool.Handler = [](McpServer&, const Json&)
+        tool.Handler = [](IAutomationHost&, const Json&)
         { return ToolResult::Text("ok"); };
         server.RegisterTool(std::move(tool));
     };

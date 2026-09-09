@@ -52,6 +52,7 @@ namespace
     using OloEngine::Rigidbody3DComponent;
     using OloEngine::Scene;
     using OloEngine::MCP::ConsentDecision;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::EditorMcpContext;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -106,7 +107,7 @@ namespace
             tool.Description = "Set the collision layer of an entity's physics body (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = SetCollisionLayer::InputSchema();
-            tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
             {
                 // Probe: proves whether the handler was actually entered. A cancel
                 // that reaches the call before write initiation must leave this false.

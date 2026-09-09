@@ -18,6 +18,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -52,12 +53,12 @@ namespace
                      { "required", Json::array({ "count", "name" }) } };
     }
 
-    ToolResult StructuredHandler(McpServer&, const Json&)
+    ToolResult StructuredHandler(IAutomationHost&, const Json&)
     {
         return ToolResult::Structured(SamplePayload());
     }
 
-    ToolResult TextHandler(McpServer&, const Json&)
+    ToolResult TextHandler(IAutomationHost&, const Json&)
     {
         return ToolResult::Text("just text");
     }
@@ -234,7 +235,7 @@ TEST(McpStructuredOutput, ToolsCallErrorHasNoStructuredContent)
     tool.Name = "olo_fake_throws";
     tool.Description = "Throws.";
     tool.OutputSchema = SampleOutputSchema();
-    tool.Handler = [](McpServer&, const Json&) -> ToolResult
+    tool.Handler = [](IAutomationHost&, const Json&) -> ToolResult
     { throw std::runtime_error("nope"); };
     server.RegisterTool(std::move(tool));
 

@@ -39,9 +39,9 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_shader_errors (main-marshaled; GetAllShaders is unguarded) ----
-        ToolResult Handle_ShaderErrors(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_ShaderErrors(IAutomationHost& host, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([]() -> Json
+            Json j = host.MarshalRead([]() -> Json
                                         {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 Json arr = Json::array();
@@ -57,7 +57,7 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_shader_get (main-marshaled) -----------------------------------
-        ToolResult Handle_ShaderGet(McpServer& server, const Json& args)
+        ToolResult Handle_ShaderGet(IAutomationHost& host, const Json& args)
         {
             std::string name;
             if (args.contains("name") && args["name"].is_string())
@@ -79,7 +79,7 @@ namespace OloEngine::MCP
             if (name.empty() && !haveId)
                 return ToolResult::Error("Provide a shader 'name' or numeric 'id'.");
 
-            const Json result = server.MarshalRead([&name, haveId, id, includeGlsl]() -> Json
+            const Json result = host.MarshalRead([&name, haveId, id, includeGlsl]() -> Json
                                                    {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 const ShaderDebugger::ShaderInfo* found = nullptr;
@@ -138,9 +138,9 @@ namespace OloEngine::MCP
         // longer disagree: a shader is reloadable iff it is backed by a file on
         // disk, which the engine's ShaderRegistry knows for library-owned and
         // pass-owned shaders alike.
-        ToolResult Handle_ShaderList(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_ShaderList(IAutomationHost& host, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([]() -> Json
+            Json j = host.MarshalRead([]() -> Json
                                         {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 const auto& registry = ShaderRegistry::Get();
@@ -198,7 +198,7 @@ namespace OloEngine::MCP
         // Shader::Reload() re-reads the file and recompiles+links synchronously
         // (force-finishing any async link), so the post-reload status is
         // authoritative. GL work is main-thread-only, so it runs inside MarshalRead.
-        ToolResult Handle_ShaderReload(McpServer& server, const Json& args)
+        ToolResult Handle_ShaderReload(IAutomationHost& host, const Json& args)
         {
             std::string name;
             if (args.contains("name") && args["name"].is_string())
@@ -206,7 +206,7 @@ namespace OloEngine::MCP
             if (name.empty())
                 return ToolResult::Error("Provide a shader 'name' to reload (see olo_shader_list).");
 
-            const Json result = server.MarshalRead([name]() -> Json
+            const Json result = host.MarshalRead([name]() -> Json
                                                    {
                 ShaderReload::Result r;
                 r.Name = name;
@@ -323,7 +323,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterShaderTools(McpServer& server)
+    void RegisterShaderTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -343,7 +343,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "errors" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderErrors;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -384,7 +384,7 @@ namespace OloEngine::MCP
                                     .Required({ "name", "filePath", "hasErrors", "instructionCount", "compileTimeMs", "reloadCount", "uniformBuffers", "samplers", "uniforms" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderGet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -410,7 +410,7 @@ namespace OloEngine::MCP
                                     .Required({ "count", "shaders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -456,7 +456,7 @@ namespace OloEngine::MCP
                                     .Required({ "name", "found", "libraries", "kind", "status", "ok", "rendererId", "log" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderReload;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP
