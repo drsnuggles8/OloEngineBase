@@ -18,6 +18,12 @@ byte-identical (see FSR2VisualEvidenceTest).
 DROP THIS FILE when the pin in cmake/fsr2.cmake moves to a commit that already
 carries the change.
 
+DEVIATION FROM THE UPSTREAM PR: its final hunk only adds the missing newline at
+the end of ffx_fsr2_depth_clip.h. That hunk is dropped here. It changes no code,
+and a hunk anchored on the end-of-file newline state is the one most likely to
+stop applying for a reason unrelated to the fix — which, because the applier
+treats a failed patch as a hard configure error, would take the whole build down.
+
 diff --git a/src/ffx-fsr2-api/shaders/ffx_fsr2_depth_clip.h b/src/ffx-fsr2-api/shaders/ffx_fsr2_depth_clip.h
 index fa4c975..7b24904 100644
 --- a/src/ffx-fsr2-api/shaders/ffx_fsr2_depth_clip.h
@@ -222,13 +228,6 @@ index fa4c975..7b24904 100644
      }
  
      StoreDilatedReactiveMasks(iPxLrPos, fReactiveFactor);
-@@ -255,4 +290,4 @@ void DepthClip(FfxInt32x2 iPxPos)
-     PreProcessReactiveMasks(iPxPos, ffxMax(fTemporalMotionDifference, fMotionDivergence));
- }
- 
--#endif //!defined( FFX_FSR2_DEPTH_CLIPH )
-\ No newline at end of file
-+#endif //!defined( FFX_FSR2_DEPTH_CLIPH )
 diff --git a/src/ffx-fsr2-api/shaders/ffx_fsr2_upsample.h b/src/ffx-fsr2-api/shaders/ffx_fsr2_upsample.h
 index abdb888..a974794 100644
 --- a/src/ffx-fsr2-api/shaders/ffx_fsr2_upsample.h

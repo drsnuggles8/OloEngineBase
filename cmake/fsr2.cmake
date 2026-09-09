@@ -76,6 +76,20 @@ file(GLOB OLO_FSR2_PATCH_FILES CONFIGURE_DEPENDS "${OLO_FSR2_PATCH_DIR}/*.patch"
 set_property(DIRECTORY "${CMAKE_SOURCE_DIR}"
 	APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OLO_FSR2_PATCH_FILES})
 
+# FETCHCONTENT_FULLY_DISCONNECTED skips population entirely, patch step included,
+# so the fetched tree keeps whatever it happened to hold and nothing says so. Both
+# halves of that were measured here, because they do NOT behave the same way:
+# with FETCHCONTENT_UPDATES_DISCONNECTED=ON the patch step still runs (a marker
+# planted in the tree was reverted), so it needs no warning and gets none.
+if(OLO_FSR2_PATCH_FILES AND FETCHCONTENT_FULLY_DISCONNECTED)
+	message(WARNING
+		"FSR2: FETCHCONTENT_FULLY_DISCONNECTED is ON, so the patch step will NOT run and "
+		"OloEngine/vendor/clang/fsr2gl-src keeps whatever it currently holds — possibly "
+		"unpatched, possibly patched with an older version of cmake/fsr2-patches/*.patch. "
+		"The FSR2 dispatch cost is the tell (see notes-renderer.md). Turn it off for one "
+		"configure to re-sync the tree.")
+endif()
+
 # Pinned to a full commit SHA, never a tag — see the pinning discipline note in
 # OloEngine/vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a SHA pin.
 #
