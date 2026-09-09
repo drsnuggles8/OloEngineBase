@@ -352,6 +352,28 @@ TEST(McpAudienceReport, ElidesLongTablesAndListsRatherThanLosingThem)
     EXPECT_EQ(report.find("| 99 "), std::string::npos);
 }
 
+// The column union comes from the rows that are PRINTED, not from every row in
+// the payload. olo_perf_cpu_scopes can return 1000 scopes and olo_gpu_resources
+// 4096, so a key that first appears past the row cap would otherwise add a
+// column whose every visible cell is "-" — a field the reader can neither see
+// nor act on, widening the table for nothing.
+TEST(McpAudienceReport, ColumnsComeFromThePrintedRowsNotTheElidedOnes)
+{
+    Json rows = Json::array();
+    for (int i = 0; i < 100; ++i)
+    {
+        Json row{ { "i", i } };
+        if (i == 99)
+            row["lateOnly"] = "x"; // only ever on an elided row
+        rows.push_back(std::move(row));
+    }
+    const std::string report = AudienceReport::Render(Json{ { "rows", rows } }, "Big");
+
+    EXPECT_NE(report.find("| i"), std::string::npos);
+    EXPECT_EQ(report.find("lateOnly"), std::string::npos)
+        << "a column no printed row can fill must not be emitted";
+}
+
 // The truncation bound must never split a UTF-8 sequence: nlohmann's dump()
 // throws on invalid UTF-8, so a byte-wise cut through a multi-byte codepoint
 // would turn a cosmetic limit into a failed tool response.

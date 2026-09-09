@@ -158,14 +158,18 @@ namespace OloEngine::Automation::AudienceReport
         }
 
         // A Markdown table over an array of objects. Columns are the union of
-        // the rows' keys in first-appearance order, so a row that omits an
-        // optional field still lines up (missing cells render as "-").
+        // the keys of the rows it will PRINT, in first-appearance order, so a row
+        // that omits an optional field still lines up (missing cells render as
+        // "-"). Scanning past kMaxTableRows would be worse than wasted work on the
+        // 1000-scope and 4096-resource payloads that reach here: a key that first
+        // appears in an elided row would add a column of nothing but "-".
         inline void RenderTable(const Json& rows, std::string& out)
         {
+            const sizet shown = std::min<sizet>(rows.size(), kMaxTableRows);
             std::vector<std::string> columns;
-            for (const Json& row : rows)
+            for (sizet i = 0; i < shown; ++i)
             {
-                for (auto it = row.begin(); it != row.end(); ++it)
+                for (auto it = rows[i].begin(); it != rows[i].end(); ++it)
                 {
                     if (std::find(columns.begin(), columns.end(), it.key()) == columns.end())
                         columns.push_back(it.key());
@@ -186,7 +190,6 @@ namespace OloEngine::Automation::AudienceReport
             for (const std::string& column : columns)
                 headers.push_back(SanitizeText(column));
 
-            const sizet shown = std::min<sizet>(rows.size(), kMaxTableRows);
             std::vector<std::vector<std::string>> cells;
             cells.reserve(shown);
             for (sizet i = 0; i < shown; ++i)
