@@ -61,11 +61,35 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     uvec4 u_MaterialHeapOffsets[3];
 };
 
-// Converted whole (§5c) — the material five are every sampler this shader has.
-// The HZB it reads for cluster culling belongs to VirtualClusterCull.comp, not
-// here; this stage only writes G-Buffer targets.
+// Converted whole (§5c) — the material five are every sampler this shader has,
+// on either bindless arm. The HZB it reads for cluster culling belongs to
+// VirtualClusterCull.comp, not here; this stage only writes G-Buffer targets.
+//
+// THE VULKAN ARM'S OPT-IN IS NOT HERE. `OLO_MATERIAL_VULKAN_HEAP_READER` is
+// defined by each INCLUDER (VirtualMeshGBuffer.glsl, VirtualMeshletGBuffer.glsl)
+// at the top of its fragment stage, because VulkanShader asks the entry shader's
+// own pre-include text for a `#define` and because the two `#extension`
+// directives the arm needs must precede every other token. This file only READS
+// the token — which is exactly the shared-header shape ShaderSourceScan.h warns
+// about, and the reason it is read with `#ifdef` and never defined here.
 #include "BindlessHeap.glsl"
-#ifdef OLO_BINDLESS
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+// The heap arrays and OLO_HEAP_MATERIAL_TEX_2D; guarded internally by
+// `#ifdef OLO_VULKAN`, so it contributes nothing on any other route.
+#include "DescriptorHeapTextures.glsl"
+
+// ONE SAMPLER LANE FOR ALL FIVE: every material 2D descriptor is minted with
+// HeapBinding::MaterialTexture2DSampler(), so the sampler offset is
+// frame-uniform rather than per-material (amendment (96)).
+//
+// NO `OLO_MATERIAL_HEAP_READER` HERE: that token is the GL raw-GLSL route's
+// marker, and a shader carrying it takes the ARB_bindless_texture arm.
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
 #define u_MetallicRoughnessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET)
@@ -131,22 +155,22 @@ void main()
             discard;
     }
 
-    vec3 albedo = sampleAlbedo(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
-    vec2 metallicRoughness = sampleMetallicRoughness(u_MetallicRoughnessMap, v_TexCoord,
-                                                     u_MetallicFactor, u_RoughnessFactor,
-                                                     bool(u_UseMetallicRoughnessMap));
+    vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, v_TexCoord, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
+                                                        u_MetallicFactor, u_RoughnessFactor,
+                                                        bool(u_UseMetallicRoughnessMap));
     float metallic = metallicRoughness.x;
     float roughness = metallicRoughness.y;
 
-    float ao = sampleAO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
-    vec3 emissive = sampleEmissive(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
+    float ao = OLO_MAT_AO(u_AOMap, v_TexCoord, u_OcclusionStrength, bool(u_UseAOMap));
+    vec3 emissive = OLO_MAT_EMISSIVE(u_EmissiveMap, v_TexCoord, u_EmissiveFactor.rgb, bool(u_UseEmissiveMap));
 
     // sanitizeSurfaceNormal, not normalize: see PBR_GBuffer.glsl — a zero/NaN vertex normal
     // must not reach the octahedral G-Buffer encode.
     vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
     if (u_UseNormalMap == 1)
     {
-        N = getNormalFromMap(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
 
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);

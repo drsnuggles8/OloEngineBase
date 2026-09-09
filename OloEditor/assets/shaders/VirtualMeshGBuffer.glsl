@@ -62,6 +62,35 @@ void main()
 #type fragment
 #version 460 core
 
+// THE VULKAN MATERIAL-HEAP ARM (ADR 0011 amendment (96), issue #805), and it is
+// declared HERE rather than in the include below even though every declaration
+// it affects lives there. VulkanShader asks for a `#define` of this token in the
+// ENTRY SHADER'S OWN, PRE-INCLUDE text: a shared header cannot grant the arm,
+// which is the narrowing PR #1120's review put in (a header that merely TESTS a
+// token is not a shader that TAKES the route). So the stage body stays shared
+// and the opt-in is stated once per entry point.
+//
+// BOTH ENTRY SHADERS MUST CARRY IT, and that is a correctness requirement rather
+// than symmetry. VirtualGeometryPass picks between the MDI and mesh-shader
+// pipelines PER INSTANCE inside one recording loop, calling
+// CommandDispatch::UploadMaterialForDirectDraw after each rebind;
+// Shader::ReadsMaterialHeapOffsets() is program state read at that moment. Two
+// programs disagreeing about the arm would make the five material binds land for
+// one route and be withheld for the other while the shared body samples the same
+// way. Pinned by BindlessShaderPipeline.
+// EntryShadersSharingAMaterialStageBodyAgreeOnTheHeapArm — spelled whole so it
+// is greppable.
+//
+// THE DIRECTIVES MUST SIT HERE, before any other token: GLSL requires every
+// `#extension` to precede all non-preprocessor tokens, and the include below
+// cannot satisfy that. `#ifdef` is not a token, so the guard is legal and the GL
+// tier — which compiles this same source WITHOUT the macro — never sees them.
+#ifdef OLO_VULKAN
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#define OLO_MATERIAL_VULKAN_HEAP_READER 1
+#endif
+
 // The WHOLE stage body lives in the include: it is shared verbatim with
 // VirtualMeshletGBuffer.glsl (the VK_EXT_mesh_shader path, issue #813) so the
 // two raster pipelines cannot drift. Edit the include, never a copy here.

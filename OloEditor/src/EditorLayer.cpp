@@ -735,6 +735,54 @@ namespace OloEngine
             // Apply the persisted redaction preference (loaded by OpenProject above).
             m_McpServer->SetRedactPaths(m_Prefs.McpRedactPaths);
 
+            // Tool exposure (issue #1124). The default is `core`: a full tools/list is
+            // ~265 KB / ~66k tokens, a third of a 200k context window spent before the
+            // session asks anything. Nothing is unregistered — every tool stays
+            // callable by name, and olo_capability / olo_tool_search / olo_tool_describe
+            // reach the rest — so a client holding a name from the docs or a previous
+            // session is unaffected. Widen it here for a session that would rather pay
+            // the tokens than discover, or from the MCP panel at runtime.
+            {
+                MCP::ExposurePolicy exposure;
+                bool profileWasNamed = false;
+                if (const std::optional<std::string> profile = Env::Get("OLO_MCP_TOOL_PROFILE");
+                    profile && !profile->empty())
+                {
+                    if (const std::optional<MCP::ExposureProfile> parsed = MCP::ParseExposureProfile(*profile))
+                    {
+                        exposure.Profile = *parsed;
+                        profileWasNamed = true;
+                    }
+                    else
+                    {
+                        // A typo must not silently leave the session on the narrow
+                        // default and look like the variable was ignored.
+                        OLO_CORE_WARN("OLO_MCP_TOOL_PROFILE='{}' is not one of core/toolset/full - "
+                                      "keeping the default 'core' tool exposure",
+                                      *profile);
+                    }
+                }
+                if (const std::optional<std::string> toolsets = Env::Get("OLO_MCP_TOOLSETS");
+                    toolsets && !toolsets->empty())
+                {
+                    exposure.Toolsets = MCP::ParseToolsetList(*toolsets);
+                    // Naming toolsets without naming a profile is almost certainly a
+                    // request for the profile that READS them, not a request to ignore
+                    // them. But only when no profile was named: `OLO_MCP_TOOL_PROFILE=core`
+                    // is an explicit instruction, and a stale OLO_MCP_TOOLSETS left in the
+                    // environment must not quietly overrule it.
+                    if (!profileWasNamed && !exposure.Toolsets.empty())
+                        exposure.Profile = MCP::ExposureProfile::Toolset;
+                    else if (exposure.Profile != MCP::ExposureProfile::Toolset)
+                    {
+                        OLO_CORE_WARN("OLO_MCP_TOOLSETS is set but OLO_MCP_TOOL_PROFILE='{}' does not read it - "
+                                      "the named toolsets are ignored (use profile 'toolset')",
+                                      MCP::ToStringView(exposure.Profile));
+                    }
+                }
+                m_McpServer->SetExposurePolicy(exposure);
+            }
+
             // Auto-start is opt-in and explicit: either the persisted preference
             // (Window > MCP Server > "Start automatically") or the OLO_MCP_AUTOSTART
             // env var (for headless attach / the smoke test). Default stays off.

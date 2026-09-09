@@ -48,6 +48,11 @@ before launching OloEditor; the server starts during editor init. Add
 consent control is an ImGui toggle nobody is there to click. See
 [Write consent](#write-consent--disabled--prompt--allow-all-issue-306-item-c).
 
+`OLO_MCP_TOOL_PROFILE=full` (or `=toolset` with `OLO_MCP_TOOLSETS=render,physics`)
+widens what `tools/list` advertises; the default lists a core set plus the discovery
+gateway. Every tool stays callable by name under every profile — see
+[Exposure profiles](#exposure-profiles--toolslist-shows-a-core-set-by-default-issue-1124).
+
 When running, the server writes a **discovery file** containing the host, port, token, and
 URL — handy for scripts/agents that read it instead of copy-paste. It's removed when the
 server stops. The path is resolved in this order:
@@ -444,8 +449,8 @@ round-trip rather than looking like a write that quietly did nothing.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (92 built-in tools; the full `tools/list` measures
-~60 KB ≈ 15k tokens) that paging the whole flat list to find the right one is
+The tool surface is large enough (96 built-in tools; the full `tools/list` measures
+269 436 bytes ≈ 67k tokens) that paging the whole flat list to find the right one is
 wasteful. Every tool is tagged with a **toolset** (grouping category), and a custom
 `tools/search` JSON-RPC method lets an agent discover tools by keyword and/or
 category instead of pulling the entire list (project Lua script tools additionally
@@ -478,9 +483,82 @@ full category catalogue (every toolset + its tool count, regardless of the activ
 filter) so an agent can discover categories and refine. With no `query` and no
 `toolset`, it returns every tool plus the catalogue.
 
-This is **additive**: `tools/list` is unchanged (a standard MCP client that never calls
-`tools/search` keeps working) — it now also carries each tool's toolset under the
-spec's `_meta` extension key `io.oloengine/toolset`, which strict clients ignore.
+This is **additive**: `tools/list` is unchanged in *shape* (a standard MCP client that
+never calls `tools/search` keeps working) — it carries each tool's toolset under the
+spec's `_meta` extension key `io.oloengine/toolset`, which strict clients ignore. What
+it lists is decided by the exposure profile below.
+
+### Exposure profiles — `tools/list` shows a core set by default (issue #1124)
+
+**The default `tools/list` is not the whole surface.** The full catalogue is 96 tools /
+269 436 bytes / **~67k tokens** — a third of a 200k context window spent before the
+session asks its first question, on a list of which three or four entries are ever
+called. The default `core` profile lists **16 tools / 38 144 bytes / ~9.5k tokens**, a
+7x reduction, and everything else is one search away. (Both figures are measured, not
+estimated: `McpExposureProfileTest` prints them on every test run and asserts a ceiling
+on the first. Token counts are bytes/4.)
+
+**Nothing is deleted, and nothing is unreachable.** Exposure filters the *listing*
+only:
+
+- `tools/call` resolves against the **full** registry under every profile, so a client
+  that already knows a tool's name — from these docs, a prompt, or a previous session
+  — keeps working exactly as before.
+- `tools/search` is deliberately **profile-blind**: it always searches everything, or
+  the narrowed default would be a dead end.
+- The four gateway tools are listed under every profile.
+
+| Profile | Lists | Set it with |
+|---|---|---|
+| `core` | **default.** The core set below + the gateway. | — |
+| `toolset` | Core + every tool in the enabled toolsets. | `OLO_MCP_TOOLSETS=render,physics` |
+| `full` | Everything — the pre-#1124 behaviour. | `OLO_MCP_TOOL_PROFILE=full` |
+
+Both env vars are read at editor launch. Naming toolsets without naming a profile
+selects `toolset` for you; an unrecognised profile name logs a warning and keeps the
+default rather than failing silently. The **MCP Server panel** has the same three
+choices as radio buttons for a running editor — switching there fires
+`notifications/tools/list_changed`, so a connected agent picks the wider listing up
+without reconnecting. The panel also reports the measured payload size, and the same
+numbers are logged once at server start.
+
+**The core set** (`OloEditor/src/MCP/McpExposure.h`, `CoreToolNames()`) is what a
+session needs to work out what to ask next — orientation, the two eyes on the frame,
+the camera to move them, and the two error channels:
+
+| Why | Tools |
+|---|---|
+| orientation | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_events_tail` |
+| error channels | `olo_log_tail`, `olo_shader_errors` |
+| eyes on the frame | `olo_screenshot`, `olo_render_list_targets`, `olo_render_capture_target` |
+| camera | `olo_camera_get`, `olo_camera_set_pose` |
+| is it running frames? | `olo_perf_snapshot` |
+
+No write tool is core: a narrowed default should not advertise mutation.
+
+### The discovery gateway (`olo_capability` / `olo_tool_search` / `olo_tool_describe` / `olo_tool_execute`)
+
+Four tools, always listed, that let a session find and call the ~80 the profile hid
+without materialising all their schemas.
+
+| Tool | Does |
+|---|---|
+| `olo_capability` | Start here. The active profile, the toolset catalogue with per-toolset counts, how many tools are hidden, and the measured size of `tools/list` under this profile versus `full`. |
+| `olo_tool_search` | Find tools by `query` and/or `toolset` across the **full** registry. Returns names + short summaries, **not** input schemas — that omission is the entire saving. Each hit says whether it is currently `listed`. `includeSchemas: true` returns full entries when you really want them. |
+| `olo_tool_describe` | The full `tools/list` entry — description, `inputSchema`, `outputSchema`, annotations — for the `names` you ask for. Byte-identical to what `tools/list` emits, so a tool can be called straight from a describe hit. |
+| `olo_tool_execute` | Run a tool by `{tool, arguments}`. An **alias** for `tools/call`: the target's input-schema validation, write-consent gate, progress and cancellation all apply unchanged, and the result is the target's result verbatim. You only need it if your client refuses to call a name it never saw in `tools/list`. |
+
+The loop is `olo_capability` → `olo_tool_search` → `olo_tool_describe` → call, and it
+costs a few KB where listing all 96 schemas costs ~67k tokens.
+
+```jsonc
+// "how do I raycast?" without paying for the catalogue
+{"method":"tools/call","params":{"name":"olo_tool_search","arguments":{"query":"raycast"}}}
+// -> { "tools": [ { "name": "olo_physics_raycast", "toolset": "physics",
+//                   "summary": "Cast a ray through the physics world...", "listed": false } ], ... }
+{"method":"tools/call","params":{"name":"olo_tool_describe","arguments":{"names":["olo_physics_raycast"]}}}
+// -> the full entry, inputSchema included. Then just call olo_physics_raycast directly.
+```
 
 ### Multi-angle visual verification (the CLAUDE.md water pattern)
 
