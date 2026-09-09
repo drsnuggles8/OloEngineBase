@@ -233,8 +233,14 @@ jobs:
       # OloServer and OloRuntime are built alongside the tests on purpose. #762/#834 split
       # OloEngine into three static archives, and the OFF configuration changes what lands in
       # them — a link-order or missing-symbol regression can hit one consumer and not another.
+      #
+      # 2 rather than 4 since 2026-09-09, for the neighbour rather than for this job: nothing here
+      # is sanitizer-instrumented, but on the self-hosted arm this takes an olo-ci slot, and both
+      # slots share ONE cgroup-capped slice (MemoryMax=19G) with a sanitizer build whose TUs
+      # measure 9 GB each. Three targets in one invocation also makes this the widest link step
+      # of the self-hosted set. See steam-stub.yml for the same note.
       - name: Build (engine, tests, runtime, server)
-        run: cmake --build build --target OloEngine-Tests OloRuntime OloServer --parallel 4
+        run: cmake --build build --target OloEngine-Tests OloRuntime OloServer --parallel 2
 
       # Resolved once and exported rather than re-found per step: two lookups can disagree, and a
       # single failure point is easier to read in the log. Same as steam-stub.yml.

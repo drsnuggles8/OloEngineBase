@@ -561,16 +561,26 @@ jobs:
           "-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=egl;--olo-require-gpu;--olo-golden-vendor=amd"
 
       - name: Build tests
-        # --parallel 4, where the twin pins 2. The twin's 2 is sized for a
-        # 4-vCPU / 16 GB hosted VM (clang++ under sanitizer instrumentation uses
-        # ~3 GB per TU). The box has 16 threads, 31 GiB and a persistent ccache
-        # that turns most of a warm build into hits; 4 leaves room for the other
-        # CI slot to be compiling at the same time (two arms of this job will
-        # be, 4 + 4 compiles ~ 24 GB peak) and for the conformance nightly's
-        # runner, should the schedules ever overlap. Links are capped separately
-        # at 1 per tree by OLO_LINK_JOBS above. Ninja's default without a
-        # width is cores + 2 = 18, so the flag is not optional.
-        run: cmake --build build --target OloEngine-Tests --parallel 4
+        # --parallel 2, matching the twin in asan.yml.
+        #
+        # This was 4 until 2026-09-09, on a rationale copied verbatim from that
+        # twin: "~3 GB per TU ... 16 threads, 31 GiB and a persistent ccache ...
+        # 4 + 4 compiles ~ 24 GB peak". Both numbers are wrong. A clang++ TU
+        # under sanitizer instrumentation measures 9.0 GB, with one observed at
+        # 13.9 GB, and this runner account is capped by cgroup at MemoryMax=19G
+        # -- the 24 GB it was sized against was never available.
+        #
+        # This job IS the overlap the old comment waved at ("should the
+        # schedules ever overlap"). It takes the same
+        # [self-hosted, linux, x64, olo-ci] slots, and so the same 19 G slice, as
+        # the asan.yml sanitizer jobs. On 2026-09-09 two concurrent sanitizer
+        # jobs on those slots ended with systemd-oomd killing the runners'
+        # systemd user manager and a 2 h 13 min outage of all three runners.
+        #
+        # Links are capped separately at 1 per tree by OLO_LINK_JOBS above.
+        # Ninja's default without a width is cores + 2 = 18, so the flag is not
+        # optional.
+        run: cmake --build build --target OloEngine-Tests --parallel 2
 
       # The number a cache is judged on: a cache that restores and hits on
       # nothing looks exactly like a working one, and the hit rate is the only
