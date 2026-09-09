@@ -1663,16 +1663,21 @@ namespace OloEngine::Tests
                              pose.Yaw, pose.Pitch, 1.0f, kVsmSettleFrames);
             ASSERT_FALSE(vsmCastOn.empty());
 
-            // The flush is what makes this differential mean anything — see
-            // flushVsmPages. Without it both captures show the cached shadow and
-            // the measurement is silently vacuous.
+            // NO FLUSH around this toggle, deliberately — that is the point of
+            // the check. Unticking CastShadows takes the instance out of the
+            // frame's caster list entirely, and it is
+            // ShadowRenderPass::SubmitVirtualDynamicInvalidations' DEPARTURE half
+            // that notices and re-dirties the pages its silhouette was drawn
+            // into. Without that half a page cache has no reason to redraw
+            // anything, both captures show the cached shadow, and this
+            // differential silently measures zero. So a failure here is either
+            // "the route does not draw" or "a caster that stopped casting keeps
+            // its shadow forever" — and the CSM assertion above separates them.
             virtualMesh.m_CastShadows = false;
-            flushVsmPages();
             const std::vector<u8> vsmCastOff =
                 CaptureFrame((std::string("VsmCastOff_") + pose.Name).c_str(), pose.Position,
                              pose.Yaw, pose.Pitch, 1.0f, kVsmSettleFrames);
             virtualMesh.m_CastShadows = true;
-            flushVsmPages();
             ASSERT_FALSE(vsmCastOff.empty());
 
             const Centroid vsmShadow = darkCentroid(vsmCastOff, vsmCastOn);

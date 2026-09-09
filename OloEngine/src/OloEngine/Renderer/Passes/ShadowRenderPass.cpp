@@ -18,6 +18,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include <algorithm>
+#include <ranges>
 #include <cstdio>
 #include <cstring>
 
@@ -215,19 +216,27 @@ namespace OloEngine
             // bounds the invalidation below needs come out of that frame's
             // instance list. One ViewResources for every clip level: the VSM
             // raster is sequential, so the levels reuse one set.
-            const bool vsmVirtualCasters =
-                VirtualGeometryShadow::PrepareViews(
-                    std::span<VirtualGeometryShadow::ViewResources>(&m_VsmVirtualResources, 1)) &&
-                CollectVirtualCasterBounds() &&
-                VirtualGeometryShadow::PrepareVirtualShadowMapRoute(m_VsmVirtualResources);
+            const bool virtualPrepared = VirtualGeometryShadow::PrepareViews(
+                std::span<VirtualGeometryShadow::ViewResources>(&m_VsmVirtualResources, 1));
+            // Collected whether or not anything is left to draw: this also
+            // CLEARS the list, and the departure half of the invalidation below
+            // has to run on a frame with NO virtual casters at all — which is
+            // precisely the frame the last one was deleted on.
+            const bool haveVirtualCasters = CollectVirtualCasterBounds();
 
             // BEFORE UpdatePages, which consumes the invalidations: running it
             // after would allocate and clear this frame's pages first, leaving a
             // mover's old silhouette baked into a page now marked clean.
             vsm.SubmitDynamicInvalidations(m_MeshCasters, m_SkinnedCasters, Renderer3D::GetRenderOrigin());
-            if (vsmVirtualCasters)
-                SubmitVirtualDynamicInvalidations(vsm);
+            // Unconditional, for the same reason: with both lists empty it does
+            // nothing, and with only the PREVIOUS list populated it is the only
+            // thing that retires a deleted caster's shadow.
+            SubmitVirtualDynamicInvalidations(vsm);
             vsm.UpdatePages();
+
+            const bool vsmVirtualCasters =
+                virtualPrepared && haveVirtualCasters &&
+                VirtualGeometryShadow::PrepareVirtualShadowMapRoute(m_VsmVirtualResources);
 
             const auto uploadBones = [](const ShadowSkinnedCaster& caster, UniformBuffer& animUBO)
             {
@@ -925,22 +934,55 @@ namespace OloEngine
     void ShadowRenderPass::SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm)
     {
         OLO_PROFILE_FUNCTION();
+
+        // ---- Movers and arrivals --------------------------------------------
         for (const auto& caster : m_VsmVirtualBounds)
         {
-            // ShadowCasterBounds::Moved compares the TRANSFORMS, not these
-            // boxes: a rotation about the centre of a symmetric caster leaves the
-            // world AABB bit-identical while changing the silhouette the shadow
-            // map holds, and comparing the boxes would freeze such a caster's
-            // shadow at its first angle.
-            if (!caster.Moved)
+            const auto previous = m_PrevVirtualCasters.find(caster.Key);
+            const bool isNew = previous == m_PrevVirtualCasters.end();
+
+            // ShadowCasterBounds::Moved compares the TRANSFORMS, not these boxes:
+            // a rotation about the centre of a symmetric caster leaves the world
+            // AABB bit-identical while changing the silhouette the shadow map
+            // holds, and comparing the boxes would freeze such a caster's shadow
+            // at its first angle.
+            if (!isNew && !caster.Moved)
                 continue;
 
-            // The SWEPT volume, not the two poses separately: a caster that moved
+            // The SWEPT volume, not the poses separately: a caster that moved
             // further than its own size in one frame leaves pages dirty between
             // the two, and those are exactly the ones holding its old silhouette.
-            vsm.AddDynamicInvalidation(glm::min(caster.Min, caster.PrevMin),
-                                       glm::max(caster.Max, caster.PrevMax));
+            // Last frame's footprint joins the sweep as well, because a caster
+            // can be re-enabled somewhere else entirely.
+            glm::vec3 sweptMin = glm::min(caster.Min, caster.PrevMin);
+            glm::vec3 sweptMax = glm::max(caster.Max, caster.PrevMax);
+            if (!isNew)
+            {
+                sweptMin = glm::min(sweptMin, previous->second.Min);
+                sweptMax = glm::max(sweptMax, previous->second.Max);
+            }
+            vsm.AddDynamicInvalidation(sweptMin, sweptMax);
         }
+
+        // ---- Departures ------------------------------------------------------
+        //
+        // A caster that was deleted, or had CastShadows unticked, is simply GONE
+        // from this frame's list — there is nothing to compare it against, so the
+        // loop above can never reach it and its silhouette would sit in a cached
+        // page until something else happened to evict it. Its LAST known
+        // footprint is the only record of where that silhouette is.
+        for (const auto& [key, footprint] : m_PrevVirtualCasters)
+        {
+            const bool stillPresent = std::ranges::any_of(m_VsmVirtualBounds,
+                                                          [key](const auto& caster)
+                                                          { return caster.Key == key; });
+            if (!stillPresent)
+                vsm.AddDynamicInvalidation(footprint.Min, footprint.Max);
+        }
+
+        m_PrevVirtualCasters.clear();
+        for (const auto& caster : m_VsmVirtualBounds)
+            m_PrevVirtualCasters.emplace(caster.Key, VirtualCasterFootprint{ caster.Min, caster.Max });
     }
 
     bool ShadowRenderPass::AnyVirtualShadowCaster()

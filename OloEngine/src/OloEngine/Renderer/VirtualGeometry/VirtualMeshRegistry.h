@@ -314,6 +314,17 @@ namespace OloEngine
             glm::vec3 PrevBoundsMin{ 0.0f };
             glm::vec3 PrevBoundsMax{ 0.0f };
             bool HasBounds = false;
+            // Identity that survives a frame, for consumers that must notice a
+            // caster APPEARING or DISAPPEARING rather than merely moving
+            // (issue #1149). The frame list is rebuilt from scratch every frame
+            // and its ORDER is not stable — a submission dropped in the middle
+            // shifts every instance after it — so a positional index cannot say
+            // "this is the same caster as last frame".
+            //
+            // (entity, part) is what makes it stable: ClusterBase is the pooled
+            // base of this part's DAG, so two parts of one entity differ by it
+            // and two entities sharing a mesh differ by EntityID.
+            u64 CasterKey = 0;
         };
 
         static VirtualMeshRegistry& Get();

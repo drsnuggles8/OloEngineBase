@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <glm/glm.hpp>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -236,10 +237,18 @@ namespace OloEngine
         // instance.
         void BuildVirtualClipViews(const VirtualShadowMap& vsm);
 
-        // Re-dirties the pages a MOVING virtual caster covers, at both its old
-        // and its new pose. Without it a cached page keeps the mover's previous
-        // silhouette — the page cache's characteristic artefact, and one that
-        // looks like a lighting bug rather than a caching one.
+        // Re-dirties the pages a virtual caster covers when what it draws there
+        // changed: it MOVED, it APPEARED, or it DISAPPEARED. Without this a
+        // cached page keeps the old silhouette — the page cache's characteristic
+        // artefact, and one that looks like a lighting bug rather than a caching
+        // one.
+        //
+        // All three matter and only the first is a transform question. A caster
+        // that is deleted, or has CastShadows unticked, simply stops appearing in
+        // the frame list; nothing compares against it, so without the departure
+        // half its shadow stays on screen forever. An arrival is the mirror case:
+        // a freshly spawned instance has Transform == PrevTransform, reads as
+        // "did not move", and lands on pages that are already clean.
         void SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm);
 
         // Records every caster category of one view using item-owned uploads
@@ -293,6 +302,16 @@ namespace OloEngine
         // the allocation survives across frames (cleared, never read across a
         // frame boundary, render thread only).
         std::vector<VirtualGeometryShadow::ShadowCasterBounds> m_VsmVirtualBounds;
+        // Last frame's virtual casters, by stable key, so a caster that vanished
+        // can still have its pages invalidated — it is not in this frame's list
+        // to be compared against. Keyed rather than indexed because the frame
+        // list is rebuilt each frame and its order is not stable.
+        struct VirtualCasterFootprint
+        {
+            glm::vec3 Min{ 0.0f };
+            glm::vec3 Max{ 0.0f };
+        };
+        std::unordered_map<u64, VirtualCasterFootprint> m_PrevVirtualCasters;
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;

@@ -1183,6 +1183,8 @@ namespace OloEngine
                 // pose and the previous one. Transforming the eight corners is
                 // exact for an affine transform, unlike scaling the local extent
                 // by MaxScale, which over-estimates badly under rotation.
+                instance.CasterKey = (static_cast<u64>(static_cast<u32>(gpu.EntityID)) << 32) |
+                                     static_cast<u64>(gpu.ClusterBase);
                 instance.HasBounds = entry.HasBounds;
                 if (entry.HasBounds)
                 {

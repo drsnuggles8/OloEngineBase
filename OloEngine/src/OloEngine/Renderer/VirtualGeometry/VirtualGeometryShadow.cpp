@@ -343,6 +343,7 @@ namespace OloEngine::VirtualGeometryShadow
             // cpp-coding-quality.md for why it is not `!=` on a glm type.
             bounds.Moved = std::memcmp(&instance.Gpu.Transform, &instance.Gpu.PrevTransform,
                                        sizeof(glm::mat4)) != 0;
+            bounds.Key = instance.CasterKey;
             out.push_back(bounds);
             any = true;
         }

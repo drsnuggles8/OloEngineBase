@@ -149,6 +149,10 @@ namespace OloEngine
             // the shadow map holds changes completely. Comparing the boxes would
             // call that "did not move" and freeze its shadow at the first angle.
             bool Moved = false;
+            // VirtualMeshRegistry::FrameInstance::CasterKey — stable across
+            // frames, so the caller can tell an ARRIVAL and a DEPARTURE from a
+            // move. Both dirty pages that no transform comparison would catch.
+            u64 Key = 0;
         };
 
         // This frame's shadow-casting virtual instances, appended to `out`.

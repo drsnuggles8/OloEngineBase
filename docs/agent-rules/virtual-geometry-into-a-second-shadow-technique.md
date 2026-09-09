@@ -102,18 +102,36 @@ A movement test on the boxes calls that "did not move" and freezes the shadow at
 the first angle. `ShadowCasterBounds::Moved` memcmps the two matrices, which is
 also what the mesh path does.
 
-**What still goes stale, for both caster families.** Invalidation is driven by
-movement, so anything else that changes what a caster draws — unticking
-`CastShadows`, deleting the entity, editing `ErrorThresholdPixels`, a streaming
-page arriving and refining the cut — changes the silhouette with no page dirtied,
-and the level keeps the old one until something else evicts it. This is not
-specific to virtual geometry: `VirtualShadowMap::SubmitDynamicInvalidations` walks
-the casters that ARE submitted, so a mesh caster that disappears has exactly the
-same hole. Fixing it means tracking the previous frame's caster SET, not just its
-poses. Until then, a test that toggles a cast flag and measures the difference
-must flush the page table between the two captures or it measures nothing —
-`VirtualGeometryVisualEvidence.VirtualMeshCastsThroughTheVirtualShadowMapPages`
-does, and says so.
+**Movement is only one of the three things that dirty a page.** A caster can also
+APPEAR or DISAPPEAR, and neither is a transform question:
+
+- a caster that is deleted, or has `CastShadows` unticked, stops appearing in the
+  frame list — so nothing compares against it, and its silhouette stays in a
+  cached page until something else evicts it;
+- a freshly spawned one has `Transform == PrevTransform`, reads as "did not move",
+  and lands on pages that are already clean.
+
+Both halves are handled, and the departure half is why `ShadowCasterBounds` carries
+a **stable key** (`FrameInstance::CasterKey`, `(entity, part)`) rather than a list
+position: the frame list is rebuilt every frame and a submission dropped in the
+middle shifts everything after it, so a positional index cannot say "this is the
+same caster as last frame". `ShadowRenderPass` keeps the previous frame's
+footprints by that key and invalidates the ones that did not come back.
+
+The mesh path had the same departure hole and it is fixed the same way, though
+positionally: `SubmitDynamicInvalidations` invalidates the tail it is about to trim
+off `m_PrevCasterPoses`. Only the tail needs it — a removal from the middle shifts
+every later caster, and those already read as moved.
+
+**What is still open:** changes that alter the drawn cut without touching the
+transform or the caster set — editing `ErrorThresholdPixels`, or a streaming page
+arriving and refining the cut. Those change the silhouette with no page dirtied.
+
+The test for all this is
+`VirtualGeometryVisualEvidence.VirtualMeshCastsThroughTheVirtualShadowMapPages`,
+and it deliberately does **not** flush the page table around its cast-flag toggle:
+with the departure half missing, both captures show the cached shadow and the
+differential silently measures zero. It is the flush's absence that makes it a test.
 
 ## 5. Verifying it
 
