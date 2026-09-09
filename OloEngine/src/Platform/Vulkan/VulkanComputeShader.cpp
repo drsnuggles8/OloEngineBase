@@ -13,6 +13,7 @@
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
+#include "OloEngine/Renderer/ShaderToolchainFloor.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
@@ -156,6 +157,15 @@ namespace OloEngine
 
         if (!loaded)
         {
+            // The toolchain floor, on the same terms as the graphics tier
+            // (issue #1139, amendment (97)): after the cache, and only for a
+            // source that declares one of the required extensions.
+            if (ShaderToolchainFloor::RefuseIfBelowFloor(preprocessedSource,
+                                                         m_FilePath.empty() ? m_Name : m_FilePath))
+            {
+                return false;
+            }
+
             // Options mirror VulkanShader::BuildFromSources exactly — same
             // tier, same OLO_VULKAN switch, same suppress-warnings rule.
             shaderc::Compiler compiler;
