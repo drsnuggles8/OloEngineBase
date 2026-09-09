@@ -31,7 +31,7 @@ namespace OloEngine::MCP
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
             const Json result = host.MarshalRead([typeFilter, page, pageSize]() -> Json
-                                                   {
+                                                 {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
                     return Json{ { "__error", "No active project / asset manager." } };
@@ -94,7 +94,7 @@ namespace OloEngine::MCP
         ToolResult Handle_AssetsProblems(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   {
+                                                 {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
                     return Json{ { "__error", "No active project / asset manager." } };

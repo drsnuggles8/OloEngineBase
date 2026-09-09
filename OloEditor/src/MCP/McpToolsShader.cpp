@@ -42,7 +42,7 @@ namespace OloEngine::MCP
         ToolResult Handle_ShaderErrors(IAutomationHost& host, const Json& /*args*/)
         {
             Json j = host.MarshalRead([]() -> Json
-                                        {
+                                      {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 Json arr = Json::array();
                 for (const auto& [id, info] : shaders)
@@ -80,7 +80,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Provide a shader 'name' or numeric 'id'.");
 
             const Json result = host.MarshalRead([&name, haveId, id, includeGlsl]() -> Json
-                                                   {
+                                                 {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 const ShaderDebugger::ShaderInfo* found = nullptr;
                 for (const auto& [sid, info] : shaders)
@@ -141,7 +141,7 @@ namespace OloEngine::MCP
         ToolResult Handle_ShaderList(IAutomationHost& host, const Json& /*args*/)
         {
             Json j = host.MarshalRead([]() -> Json
-                                        {
+                                      {
                 const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
                 const auto& registry = ShaderRegistry::Get();
                 Json arr = Json::array();
@@ -207,7 +207,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Provide a shader 'name' to reload (see olo_shader_list).");
 
             const Json result = host.MarshalRead([name]() -> Json
-                                                   {
+                                                 {
                 ShaderReload::Result r;
                 r.Name = name;
 

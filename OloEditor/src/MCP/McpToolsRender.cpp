@@ -180,7 +180,7 @@ namespace OloEngine::MCP
             // were already retained, so we can detect the new one (identical to
             // Handle_PerfCaptureFrame).
             const Json trigger = host.MarshalRead([]() -> Json
-                                                    {
+                                                  {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
                 const auto before = static_cast<u64>(fcm.GetCapturedFramesCopy().size());
                 fcm.CaptureNextFrame();
@@ -220,7 +220,7 @@ namespace OloEngine::MCP
             FrameBreakdown::GraphAttribution attribution;
             attribution.CaptureSourcePass = cap.SourcePassName;
             const Json gathered = host.MarshalRead([&attribution]() -> Json
-                                                     {
+                                                   {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "haveGraph", false } };
@@ -494,7 +494,7 @@ namespace OloEngine::MCP
         ToolResult Handle_RenderListTargets(IAutomationHost& host, const Json& /*args*/)
         {
             Json result = host.MarshalRead([]() -> Json
-                                             {
+                                           {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -613,7 +613,7 @@ namespace OloEngine::MCP
             }
 
             Json result = host.MarshalRead([]
-                                             { return GpuReadbackStatsReportJson(); });
+                                           { return GpuReadbackStatsReportJson(); });
             return ToolResult::Structured(result);
         }
 
@@ -635,7 +635,7 @@ namespace OloEngine::MCP
             }
 
             Json transport = host.MarshalRead([format]() -> Json
-                                                {
+                                              {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -1236,7 +1236,7 @@ namespace OloEngine::MCP
             if (!host.Context().GetFrameIndex)
                 return true; // older context: best effort
             const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                     { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                   { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                       .value("frame", static_cast<u64>(0));
             return AwaitRenderedFrames(host, baseFrame, settleFrames);
         }
@@ -1319,9 +1319,9 @@ namespace OloEngine::MCP
             }
 
             Json result = host.MarshalRead([&host, name, mipLevel, hasLayerSelector, requestedLayer,
-                                              normalizeMode, maxWidth, region, afterPass, afterPassFrameRendered,
-                                              deliverLink]() -> Json
-                                             {
+                                            normalizeMode, maxWidth, region, afterPass, afterPassFrameRendered,
+                                            deliverLink]() -> Json
+                                           {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -1551,7 +1551,7 @@ namespace OloEngine::MCP
             if (!hasName)
             {
                 const Json result = host.MarshalRead([]() -> Json
-                                                       {
+                                                     {
                     PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                     FogSettings& fog = Renderer3D::GetFogSettings();
                     Json passes = DescribePasses();
@@ -1583,7 +1583,7 @@ namespace OloEngine::MCP
             const bool desired = hasEnabled && args["enabled"].get<bool>();
 
             const Json result = host.MarshalRead([pass, hasEnabled, desired]() -> Json
-                                                   {
+                                                 {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                 FogSettings& fog = Renderer3D::GetFogSettings();
                 bool* field = ResolvePassField(pass, pp, fog);
@@ -1807,7 +1807,7 @@ namespace OloEngine::MCP
             if (!hasMode && !disableViaEnabled)
             {
                 const Json result = host.MarshalRead([]() -> Json
-                                                       {
+                                                     {
                     const PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                     Json j;
                     j["modes"] = DescribeDebugViews();
@@ -1829,7 +1829,7 @@ namespace OloEngine::MCP
             }
 
             Json result = host.MarshalRead([view]() -> Json
-                                             {
+                                           {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                 // Exactly one debug view active at a time (or none) — including the
                 // virtual-geometry ones, which is why selecting a non-vg mode also
@@ -1865,7 +1865,7 @@ namespace OloEngine::MCP
             {
                 (void)ForceFreshFrame(host, kVirtualDebugSettleFrames);
                 result = host.MarshalRead([view]() -> Json
-                                            { return ToJson(BuildDebugViewResult(Renderer3D::GetPostProcessSettings(), view)); });
+                                          { return ToJson(BuildDebugViewResult(Renderer3D::GetPostProcessSettings(), view)); });
             }
             return ToolResult::Structured(result);
         }
@@ -1938,7 +1938,7 @@ namespace OloEngine::MCP
         ToolResult LegacySunClearResult(IAutomationHost& host)
         {
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 Json j;
                 Ref<Scene> scene = host.Context().GetActiveScene
                                        ? host.Context().GetActiveScene()
@@ -2081,7 +2081,7 @@ namespace OloEngine::MCP
                                          "(90 = straight up, 0 = horizon, negative = below the horizon).");
 
             const Json result = host.MarshalRead([&host, yaw, pitch]() -> Json
-                                                   {
+                                                 {
                 Ref<Scene> scene = host.Context().GetActiveScene
                                        ? host.Context().GetActiveScene()
                                        : nullptr;
@@ -2246,7 +2246,7 @@ namespace OloEngine::MCP
         ToolResult Handle_SceneGetAtmosphere(IAutomationHost& host, const Json&)
         {
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 Ref<Scene> scene = host.Context().GetActiveScene
                                        ? host.Context().GetActiveScene()
                                        : nullptr;
@@ -2427,7 +2427,7 @@ namespace OloEngine::MCP
             if (hasCamera || hasOrbit)
             {
                 const Json applied = host.MarshalRead([&host, request]() -> Json
-                                                        {
+                                                      {
                     const McpCameraPose prior = host.Context().GetCameraPose();
                     ApplyCameraRequest(host.Context(), request);
                     Json j;
@@ -2463,7 +2463,7 @@ namespace OloEngine::MCP
                 if (posed)
                     waitTimedOut = !AwaitRenderedFrames(host, savedPose.value("frame", static_cast<u64>(0)), settleFrames);
                 const Json cap = host.MarshalRead([&host, maxWidth, posed, &restorePriorPose, &capturedPng]() -> Json
-                                                    {
+                                                  {
                     // Whole viewport, never a region: a golden was recorded whole,
                     // so comparing a sub-rect against it would be meaningless.
                     capturedPng = host.Context().CaptureViewportPng(maxWidth, McpCaptureRegion{});
@@ -2482,7 +2482,7 @@ namespace OloEngine::MCP
                     try
                     {
                         (void)host.MarshalRead([&restorePriorPose]() -> Json
-                                                 {
+                                               {
                             restorePriorPose();
                             return Json{}; });
                     }
@@ -2689,12 +2689,12 @@ namespace OloEngine::MCP
             if (introspect)
             {
                 const Json result = host.MarshalRead([&snapshotLever]() -> Json
-                                                       { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
+                                                     { return Describe(Renderer3D::GetPostProcessSettings(), Renderer3D::GetRendererSettings(), snapshotLever()); });
                 return ToolResult::Structured(result);
             }
 
             const Json result = host.MarshalRead([setting, value, &snapshotLever]() -> Json
-                                                   {
+                                                 {
                 PostProcessSettings& pp = Renderer3D::GetPostProcessSettings();
                 // Fully qualified: `using namespace RendererSettings` is in scope, so
                 // unqualified `RendererSettings` would name that MCP namespace, not the
@@ -2848,7 +2848,7 @@ namespace OloEngine::MCP
             if (host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
                 AwaitRenderedFrames(host, baseFrame, kSettingsSettleFrames);
             }
@@ -2897,8 +2897,8 @@ namespace OloEngine::MCP
                     return ToolResult::Error(message);
                 }
                 const Json result = host.MarshalRead([field]() -> Json
-                                                       { return PostProcess::DescribeField(*field, Renderer3D::GetPostProcessSettings(),
-                                                                                           Renderer3D::GetFogSettings()); });
+                                                     { return PostProcess::DescribeField(*field, Renderer3D::GetPostProcessSettings(),
+                                                                                         Renderer3D::GetFogSettings()); });
                 return ToolResult::Structured(result);
             }
 
@@ -2908,7 +2908,7 @@ namespace OloEngine::MCP
 
             bool unknownGroup = false;
             const Json result = host.MarshalRead([&group, &unknownGroup]() -> Json
-                                                   { return DescribePostProcess(group, unknownGroup); });
+                                                 { return DescribePostProcess(group, unknownGroup); });
             if (unknownGroup)
                 return ToolResult::Error("Unknown group '" + group + "'. Valid groups: " + PostProcess::JoinGroupTokens() + ".");
             return ToolResult::Structured(result);
@@ -2926,12 +2926,12 @@ namespace OloEngine::MCP
             {
                 bool unknownGroup = false;
                 const Json result = host.MarshalRead([&unknownGroup]() -> Json
-                                                       { return DescribePostProcess({}, unknownGroup); });
+                                                     { return DescribePostProcess({}, unknownGroup); });
                 return ToolResult::Structured(result);
             }
 
             const Json result = host.MarshalRead([field, &value]() -> Json
-                                                   {
+                                                 {
                 const PostProcess::ApplyResult applied =
                     PostProcess::Apply(*field, value, Renderer3D::GetPostProcessSettings(), Renderer3D::GetFogSettings());
                 if (!applied.Ok)
@@ -2956,7 +2956,7 @@ namespace OloEngine::MCP
             if (host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
                 AwaitRenderedFrames(host, baseFrame, kSettingsSettleFrames);
             }
@@ -3011,7 +3011,7 @@ namespace OloEngine::MCP
                 filter = args["resource"].get<std::string>();
 
             const Json result = host.MarshalRead([includePool, includeAcquireOrder, filter]() -> Json
-                                                   {
+                                                 {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -3197,7 +3197,7 @@ namespace OloEngine::MCP
 
             const bool aliasingChanged = wanted.DisableAliasing != before.DisableAliasing;
             const Json result = host.MarshalRead([wanted, before, anyRequested, aliasingChanged]() -> Json
-                                                   {
+                                                 {
                 if (anyRequested)
                 {
                     RenderGraph::SetTransientDebugFlags(wanted);
@@ -3256,7 +3256,7 @@ namespace OloEngine::MCP
             if (anyRequested && host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
                 AwaitRenderedFrames(host, baseFrame, 2);
             }
@@ -3657,7 +3657,7 @@ namespace OloEngine::MCP
                 host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json(host.Context().GetFrameIndex()); })
+                                                       { return Json(host.Context().GetFrameIndex()); })
                                           .get<u64>();
                 (void)AwaitRenderedFrames(host, baseFrame, 2, std::chrono::seconds(8));
                 result = host.MarshalRead(gather);
@@ -3833,7 +3833,7 @@ namespace OloEngine::MCP
                                          bool& outFrameRendered)
         {
             const Json armed = host.MarshalRead([passName, resources]() -> Json
-                                                  {
+                                                {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -3980,8 +3980,8 @@ namespace OloEngine::MCP
             }
 
             const Json result = host.MarshalRead([&host, x, y, target, space, mip, hasLayer, layer,
-                                                    afterPass, afterPassFrameRendered]() -> Json
-                                                   {
+                                                  afterPass, afterPassFrameRendered]() -> Json
+                                                 {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -4214,9 +4214,9 @@ namespace OloEngine::MCP
             }
 
             const Json result = host.MarshalRead([&host, name, mip, hasLayer, requestedLayer, hasRect,
-                                                    rectX, rectY, rectW, rectH, afterPass,
-                                                    afterPassFrameRendered]() -> Json
-                                                   {
+                                                  rectX, rectY, rectW, rectH, afterPass,
+                                                  afterPassFrameRendered]() -> Json
+                                                 {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -4487,7 +4487,7 @@ namespace OloEngine::MCP
             }
 
             const Json result = host.MarshalRead([&host, hasCompare, compare, afterPassFrameRendered]() -> Json
-                                                   {
+                                                 {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -4938,7 +4938,7 @@ namespace OloEngine::MCP
                 (void)ForceFreshFrame(host, kVirtualDebugSettleFrames);
 
             const Json current = host.MarshalRead([]() -> Json
-                                                    { return VirtualGeometrySettingsJson(); });
+                                                  { return VirtualGeometrySettingsJson(); });
 
             Json j;
             j["changed"] = anyChange;
@@ -5083,7 +5083,7 @@ namespace OloEngine::MCP
                 (void)ForceFreshFrame(host, kVirtualDebugSettleFrames);
 
             const Json current = host.MarshalRead([]() -> Json
-                                                    { return ShaderDebugDrawStateJson(); });
+                                                  { return ShaderDebugDrawStateJson(); });
 
             Json j;
             j["changed"] = anyChange;
@@ -5108,7 +5108,7 @@ namespace OloEngine::MCP
         ToolResult Handle_VirtualGeometryStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   {
+                                                 {
                 auto& registry = VirtualMeshRegistry::Get();
 
                 // A small blocking GPU readback of the cull args buffer (staged
@@ -5258,7 +5258,7 @@ namespace OloEngine::MCP
         ToolResult Handle_TerrainVirtualTextureStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 const Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -5410,7 +5410,7 @@ namespace OloEngine::MCP
             }
 
             const Json result = host.MarshalRead([&host, id, requestedSubmesh]() -> Json
-                                                   {
+                                                 {
                 const Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
@@ -5561,7 +5561,7 @@ namespace OloEngine::MCP
         ToolResult Handle_ClusterGridStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 const auto& forwardPlus = Renderer3D::GetForwardPlus();
                 const LightGrid& lightGrid = forwardPlus.GetLightGrid();
                 if (!lightGrid.IsInitialized())
@@ -5640,7 +5640,7 @@ namespace OloEngine::MCP
         ToolResult Handle_ShadowAtlasLayout(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   {
+                                                 {
                 const ShadowMap& shadowMap = Renderer3D::GetShadowMap();
                 const auto& layout = shadowMap.GetAtlasLayout();
                 const u32 atlasResolution = shadowMap.GetAtlasResolution();
@@ -5817,7 +5817,7 @@ namespace OloEngine::MCP
                 (void)ForceFreshFrame(host, /*settleFrames*/ 2);
 
             const Json result = host.MarshalRead([&host, hasFroxel, requested]() -> Json
-                                                   {
+                                                 {
                 const Ref<RenderGraph>& graph = RenderGraphDebugRuntime::GetActiveGraph();
                 if (!graph)
                     return Json{ { "__error", "No active render graph (the editor is not in 3D mode, or no frame has been rendered yet)." } };
@@ -5947,7 +5947,7 @@ namespace OloEngine::MCP
                                                : std::string{};
 
             Json result = host.MarshalRead([typeFilter, nameFilter, limit]() -> Json
-                                             {
+                                           {
                 auto& inspector = GPUResourceInspector::GetInstance();
                 // Vulkan discovers its live set from RHI::ResourceRegistry on
                 // demand rather than being pushed into by registration macros,
@@ -6112,7 +6112,7 @@ namespace OloEngine::MCP
         ToolResult Handle_VirtualShadowMapStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   { return BuildVirtualShadowMapStatsReport(); });
+                                                 { return BuildVirtualShadowMapStatsReport(); });
 
             return ToolResult::Structured(result);
         }
@@ -6136,7 +6136,7 @@ namespace OloEngine::MCP
         ToolResult Handle_RenderLODStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   { return BuildRenderLODStatsReport(); });
+                                                 { return BuildRenderLODStatsReport(); });
 
             return ToolResult::Structured(result);
         }
@@ -6172,7 +6172,7 @@ namespace OloEngine::MCP
         ToolResult Handle_RayTracingStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   { return BuildRayTracingStatsReport(); });
+                                                 { return BuildRayTracingStatsReport(); });
 
             return ToolResult::Structured(result);
         }
@@ -6249,7 +6249,7 @@ namespace OloEngine::MCP
         ToolResult Handle_GpuPathTracerStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   { return BuildGpuPathTracerStatsReport(); });
+                                                 { return BuildGpuPathTracerStatsReport(); });
             return ToolResult::Structured(result);
         }
 
@@ -6311,7 +6311,7 @@ namespace OloEngine::MCP
         ToolResult Handle_DDGIProbeStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
-                                                   { return BuildDDGIProbeStatsReport(); });
+                                                 { return BuildDDGIProbeStatsReport(); });
 
             return ToolResult::Structured(result);
         }

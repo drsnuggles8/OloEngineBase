@@ -24,7 +24,7 @@ namespace OloEngine::MCP
             if (!host.Context().GetCameraPose)
                 return ToolResult::Error("Camera control is not available in this editor build.");
             const Json pose = host.MarshalRead([&host]() -> Json
-                                                 { return PoseToJson(host.Context().GetCameraPose()); });
+                                               { return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
         }
 
@@ -38,7 +38,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(error);
 
             const Json pose = host.MarshalRead([&host, request]() -> Json
-                                                 {
+                                               {
                 ApplyCameraRequest(host.Context(), request);
                 return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
@@ -54,7 +54,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(error);
 
             const Json pose = host.MarshalRead([&host, request]() -> Json
-                                                 {
+                                               {
                 ApplyCameraRequest(host.Context(), request);
                 return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
@@ -72,7 +72,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Invalid 'id': expected a UUID as a string or number.");
 
             const Json result = host.MarshalRead([&host, idValue]() -> Json
-                                                   {
+                                                 {
                 if (!host.Context().FrameEntity(idValue))
                     return Json{ { "__error", "No entity with that UUID in the active scene." } };
                 Json j = PoseToJson(host.Context().GetCameraPose());
@@ -102,7 +102,7 @@ namespace OloEngine::MCP
             }
 
             const Json result = host.MarshalRead([&host, width, height, reset]() -> Json
-                                                   {
+                                                 {
                 host.Context().SetViewportSizeOverride(width, height);
                 Json j;
                 j["override"] = !reset;
@@ -169,7 +169,7 @@ namespace OloEngine::MCP
             if (host.Context().IsPlaying)
             {
                 isPlaying = host.MarshalRead([&host]() -> Json
-                                               { return Json{ { "playing", host.Context().IsPlaying() } }; })
+                                             { return Json{ { "playing", host.Context().IsPlaying() } }; })
                                 .value("playing", false);
             }
             if (isPlaying && (hasCamera || hasOrbit))
@@ -223,7 +223,7 @@ namespace OloEngine::MCP
                     // 1. Save the user's pose and apply the requested one — inside the
                     // try so a marshal timeout here is caught and restored below.
                     const Json applied = host.MarshalRead([&host, request, poseState]() -> Json
-                                                            {
+                                                          {
                         poseState->Prior = host.Context().GetCameraPose();
                         ApplyCameraRequest(host.Context(), request);
                         // Publish LAST: `Applied` release-fences the Prior store so any
@@ -248,7 +248,7 @@ namespace OloEngine::MCP
                 else if (args.value("forceFrame", false) && host.Context().GetFrameIndex)
                 {
                     const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                             { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                           { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                               .value("frame", static_cast<u64>(0));
                     waitTimedOut = !AwaitRenderedFrames(host, baseFrame, settleFrames);
                 }
@@ -259,7 +259,7 @@ namespace OloEngine::MCP
                 // so the sceneState meta below describes the frame actually captured
                 // even if Play/Stop flipped between the early guard and this job.
                 marshaled = host.MarshalRead([&host, maxWidth, region, restorePriorPose, deliverLink]() -> Json
-                                               {
+                                             {
                     std::vector<u8> png = host.Context().CaptureViewportPng(maxWidth, region);
                     restorePriorPose();
                     if (png.empty())
@@ -308,7 +308,7 @@ namespace OloEngine::MCP
                     try
                     {
                         (void)host.MarshalRead([restorePriorPose]() -> Json
-                                                 {
+                                               {
                             restorePriorPose();
                             return Json{}; });
                     }

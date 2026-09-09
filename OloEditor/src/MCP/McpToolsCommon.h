@@ -314,16 +314,16 @@ namespace OloEngine::MCP
             if (host.IsCurrentCallCancelled())
                 return false;
             const Json state = host.MarshalRead([&host]() -> Json
-                                                  { return Json{ { "frame", host.Context().GetFrameIndex() },
-                                                                 { "unready", host.Context().IsCaptureUnready() } }; });
+                                                { return Json{ { "frame", host.Context().GetFrameIndex() },
+                                                               { "unready", host.Context().IsCaptureUnready() } }; });
             const u64 frame = state.value("frame", static_cast<u64>(0));
             if (const u64 rendered = frame > baseFrame ? frame - baseFrame : 0;
                 rendered > lastReported && rendered <= static_cast<u64>(settleFrames))
             {
                 lastReported = rendered;
                 host.EmitProgress(static_cast<f64>(rendered), static_cast<f64>(settleFrames),
-                                    "settling frames before capture (" + std::to_string(rendered) + "/" +
-                                        std::to_string(settleFrames) + ")");
+                                  "settling frames before capture (" + std::to_string(rendered) + "/" +
+                                      std::to_string(settleFrames) + ")");
             }
             if (frame >= targetFrame && !state.value("unready", false))
                 return true;

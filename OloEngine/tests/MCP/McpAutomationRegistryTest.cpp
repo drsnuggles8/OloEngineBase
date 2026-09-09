@@ -1,3 +1,5 @@
+// OLO_TEST_LAYER: unit
+//
 // The transport-independent automation registry (issue #1123).
 //
 // Two things are pinned here, and they are the two the extraction exists for:

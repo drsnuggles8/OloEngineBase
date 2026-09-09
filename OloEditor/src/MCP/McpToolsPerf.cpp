@@ -99,7 +99,7 @@ namespace OloEngine::MCP
         ToolResult Handle_PerfSnapshot(IAutomationHost& host, const Json& /*args*/)
         {
             Json j = host.MarshalRead([&host]() -> Json
-                                        {
+                                      {
                 // GetLastCompletedFrameData(), not GetCurrentFrameData(): the
                 // latter's FrameTime is only a live estimate carried over
                 // from the previous frame, while CPUTime/GPUTime describe the
@@ -157,7 +157,7 @@ namespace OloEngine::MCP
         ToolResult Handle_PerfBottlenecks(IAutomationHost& host, const Json& /*args*/)
         {
             Json j = host.MarshalRead([]() -> Json
-                                        {
+                                      {
                 const RendererProfiler::BottleneckInfo b = RendererProfiler::GetInstance().AnalyzeBottlenecks();
                 Json o;
                 o["bottleneck"] = BottleneckTypeName(b.m_Type);
@@ -176,7 +176,7 @@ namespace OloEngine::MCP
                 points = static_cast<int>(std::clamp<long long>(args["points"].get<long long>(), 1, 300));
 
             Json j = host.MarshalRead([points]() -> Json
-                                        {
+                                      {
                 const std::vector<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
                 const std::size_t n = hist.size();
@@ -215,7 +215,7 @@ namespace OloEngine::MCP
             // commit. FrameCaptureManager is FMutex-guarded, but marshaling keeps the
             // trigger ordered with the loop.
             const Json trigger = host.MarshalRead([]() -> Json
-                                                    {
+                                                  {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
                 const auto beforeGen = fcm.GetCaptureGeneration();
                 fcm.CaptureNextFrame();
@@ -301,7 +301,7 @@ namespace OloEngine::MCP
         ToolResult Handle_PerfPassTimings(IAutomationHost& host, const Json& /*args*/)
         {
             Json j = host.MarshalRead([]() -> Json
-                                        {
+                                      {
                 const auto& pool = GPUPassTimerPool::GetInstance();
 
                 std::vector<PassTimings::GpuPassEntry> gpuPasses;
@@ -372,7 +372,7 @@ namespace OloEngine::MCP
 #endif
 
             Json j = host.MarshalRead([limit]() -> Json
-                                        {
+                                      {
                 std::vector<CpuScopes::ScopeEntry> entries;
                 if (Application* app = Application::TryGet())
                 {

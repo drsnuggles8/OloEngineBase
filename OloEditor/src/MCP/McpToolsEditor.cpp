@@ -62,7 +62,7 @@ namespace OloEngine::MCP
             if (!host.Context().GetEditorPanels)
                 return ToolResult::Error("Editor panel control is not available in this host.");
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 Json panels = Json::array();
                 for (const auto& state : host.Context().GetEditorPanels())
                     panels.push_back(EditorPanels::ToJson(state));
@@ -80,7 +80,7 @@ namespace OloEngine::MCP
             const std::string panel = args["panel"].get<std::string>();
             const bool open = args["open"].get<bool>();
             const Json result = host.MarshalRead([&host, panel, open]() -> Json
-                                                   { return EditorPanels::ToJson(host.Context().SetEditorPanel(panel, open)); });
+                                                 { return EditorPanels::ToJson(host.Context().SetEditorPanel(panel, open)); });
             if (!result.value("ok", false))
                 return ToolResult::Error(result.value("message", "Could not change editor panel state."));
             return ToolResult::Structured(result);
@@ -96,7 +96,7 @@ namespace OloEngine::MCP
             const std::string category = args["category"].get<std::string>();
             const bool enabled = args["enabled"].get<bool>();
             const Json result = host.MarshalRead([&host, category, enabled]() -> Json
-                                                   { return EditorDebugDraw::ToJson(host.Context().SetEditorDebugDraw(category, enabled)); });
+                                                 { return EditorDebugDraw::ToJson(host.Context().SetEditorDebugDraw(category, enabled)); });
             if (!result.value("ok", false))
                 return ToolResult::Error(result.value("message", "Could not change editor debug-draw state."));
             return ToolResult::Structured(result);
@@ -108,7 +108,7 @@ namespace OloEngine::MCP
             if (const auto error = AccessibilitySettingsTool::ParseGetArgs(args, field))
                 return ToolResult::Error(*error);
             const Json result = host.MarshalRead([field]() -> Json
-                                                   {
+                                                 {
                 if (field != nullptr)
                     return Json{ { "scope", "process" },
                                  { "settings", Json::array({ AccessibilitySettingsTool::DescribeField(
@@ -124,7 +124,7 @@ namespace OloEngine::MCP
             if (const auto error = AccessibilitySettingsTool::ParseSetArgs(args, field, value))
                 return ToolResult::Error(*error);
             const Json result = host.MarshalRead([field, value]() -> Json
-                                                   {
+                                                 {
                 auto applied = AccessibilitySettingsTool::ApplyGlobal(*field, value);
                 if (!applied.Ok)
                     return Json{ { "__error", applied.Error } };
@@ -145,15 +145,15 @@ namespace OloEngine::MCP
                 return ToolResult::Error(*error);
 
             Json result = host.MarshalRead([&host, request]() -> Json
-                                             { return TerrainPick::BuildResult(host.Context().TerrainPick(request, true)); });
+                                           { return TerrainPick::BuildResult(host.Context().TerrainPick(request, true)); });
             if (result.value("status", "") == "pending" && host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json(host.Context().GetFrameIndex()); })
+                                                       { return Json(host.Context().GetFrameIndex()); })
                                           .get<u64>();
                 (void)AwaitRenderedFrames(host, baseFrame, 5, std::chrono::seconds(8));
                 result = host.MarshalRead([&host, request]() -> Json
-                                            { return TerrainPick::BuildResult(host.Context().TerrainPick(request, false)); });
+                                          { return TerrainPick::BuildResult(host.Context().TerrainPick(request, false)); });
             }
             return ToolResult::Structured(result);
         }
@@ -168,7 +168,7 @@ namespace OloEngine::MCP
 
             const bool starts = request.RequestMode != LightmapBake::Mode::Poll;
             Json response = host.MarshalRead([&host, request, starts]() -> Json
-                                               { return LightmapBake::BuildResponse(host.Context().LightmapBake(request, starts)); });
+                                             { return LightmapBake::BuildResponse(host.Context().LightmapBake(request, starts)); });
             if (request.RequestMode != LightmapBake::Mode::Blocking ||
                 response.value("status", "failed") != "running")
                 return ToolResult::Structured(response);
@@ -184,7 +184,7 @@ namespace OloEngine::MCP
                     return ToolResult::Error("Lightmap bake wait was cancelled; the bake continues and can be polled with operationId '" + poll.OperationId + "'.");
                 std::this_thread::sleep_for(std::chrono::milliseconds(250));
                 response = host.MarshalRead([&host, poll]() -> Json
-                                              { return LightmapBake::BuildResponse(host.Context().LightmapBake(poll, false)); });
+                                            { return LightmapBake::BuildResponse(host.Context().LightmapBake(poll, false)); });
                 const std::string status = response.value("status", "failed");
                 const f64 progress = response.value("progress", 0.0);
                 if (progress > lastEmittedProgress)

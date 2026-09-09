@@ -278,7 +278,7 @@ namespace OloEngine::MCP
                 pageSize = std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200);
 
             Json result = host.MarshalRead([&host, page, pageSize]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -363,7 +363,7 @@ namespace OloEngine::MCP
                 maxResults = static_cast<int>(std::clamp<long long>(args["maxResults"].get<long long>(), 1, 2000));
 
             Json result = host.MarshalRead([&host, maxResults]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -453,7 +453,7 @@ namespace OloEngine::MCP
                 maxHits = static_cast<int>(std::clamp<long long>(args["maxHits"].get<long long>(), 1, 64));
 
             Json result = host.MarshalRead([&host, origin, direction, toPoint, hasTo, maxDistance, maxHits]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -535,7 +535,7 @@ namespace OloEngine::MCP
                 maxHits = static_cast<int>(std::clamp<long long>(args["maxHits"].get<long long>(), 1, 256));
 
             Json result = host.MarshalRead([&host, origin, halfExtents, radius, isBox, maxHits]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -603,7 +603,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Invalid 'b': expected a UUID as a string or number.");
 
             Json result = host.MarshalRead([&host, idA, idB]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -747,7 +747,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(*error);
 
             const Json result = host.MarshalRead([&host, entityUuid, layer]() -> Json
-                                                   {
+                                                 {
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
                                              : nullptr;

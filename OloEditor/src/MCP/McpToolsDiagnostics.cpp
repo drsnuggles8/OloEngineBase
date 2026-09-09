@@ -219,7 +219,7 @@ namespace OloEngine::MCP
             // the observers run from the game thread's dispatch and a caller
             // reading the result back wants the two in a defined order.
             const Json result = host.MarshalRead([&name, &value]() -> Json
-                                                   {
+                                                 {
                 const CVars::SetResult set = CVars::SetFromString(name, value);
                 if (!set.Ok)
                     return Json{ { "__error", set.Error } };

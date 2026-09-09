@@ -19,9 +19,9 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
-    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::ExposurePolicy;
     using OloEngine::MCP::ExposureProfile;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::PromptDef;
     using OloEngine::MCP::ResourceDef;

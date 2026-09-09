@@ -23,8 +23,8 @@
 namespace
 {
     using OloEngine::MCP::ConsentDecision;
-    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;

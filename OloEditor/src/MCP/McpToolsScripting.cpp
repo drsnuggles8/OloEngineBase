@@ -78,7 +78,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Script reload is not available in this editor build.");
 
             const Json result = host.MarshalRead([&host]() -> Json
-                                                   {
+                                                 {
                 if (!host.Context().ReloadScriptAssembly)
                     return Json{ { "__error", "Script reload is not available in this editor build." } };
                 const McpScriptReloadResult reloaded = host.Context().ReloadScriptAssembly();

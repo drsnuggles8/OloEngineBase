@@ -34,7 +34,7 @@ namespace OloEngine::MCP
         ToolResult Handle_SceneSummary(IAutomationHost& host, const Json& /*arguments*/)
         {
             Json summary = host.MarshalRead([&host]() -> Json
-                                              {
+                                            {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -69,7 +69,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Invalid 'id': expected a UUID as a string or number.");
 
             Json result = host.MarshalRead([&host, idValue]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -125,7 +125,7 @@ namespace OloEngine::MCP
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
             Json result = host.MarshalRead([&host, namePattern, page, pageSize]() -> Json
-                                             {
+                                           {
                 Json j;
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
@@ -215,7 +215,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error(*error);
 
             const Json result = host.MarshalRead([&host, entityUuid, component, field, value]() -> Json
-                                                   {
+                                                 {
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
                                              : nullptr;
@@ -268,7 +268,7 @@ namespace OloEngine::MCP
                 (args.contains("component") && args["component"].is_string()) ? args["component"].get<std::string>() : std::string();
 
             const Json result = host.MarshalRead([&host, entityUuid, componentFilter]() -> Json
-                                                   {
+                                                 {
                 const Ref<Scene> scene = host.Context().GetActiveScene
                                              ? host.Context().GetActiveScene()
                                              : nullptr;
@@ -328,12 +328,12 @@ namespace OloEngine::MCP
             // long-lived object (owned by EditorLayer for the whole session) so a
             // reference capture there is safe.
             const Json result = host.MarshalRead([&host, path]() -> Json
-                                                   {
+                                                 {
                 if (!host.Context().OpenSceneFromMcp)
                     return Json{ { "__error", "Scene open is not available in this editor build." } };
                 const McpSceneOpenResult opened = host.Context().OpenSceneFromMcp(path);
                 return ToJson(opened); },
-                                                   kSceneControlTimeout);
+                                                 kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -355,7 +355,7 @@ namespace OloEngine::MCP
             if (host.Context().GetFrameIndex)
             {
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                         { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
                 AwaitRenderedFrames(host, baseFrame, kPostLoadSettleFrames);
             }
@@ -390,7 +390,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Scene-mode control is not available in this editor build.");
 
             const Json result = host.MarshalRead([&host, request]() -> Json
-                                                   {
+                                                 {
                 McpScenePlayResult r;
                 if (request == SceneModeRequest::Simulate)
                 {
@@ -405,7 +405,7 @@ namespace OloEngine::MCP
                     r = host.Context().SetScenePlayState(request == SceneModeRequest::Play);
                 }
                 return ToJson(r); },
-                                                   kSceneControlTimeout);
+                                                 kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -431,7 +431,7 @@ namespace OloEngine::MCP
                 {
                     constexpr int kPostTransitionSettleFrames = 2;
                     const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                             { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                                           { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                               .value("frame", static_cast<u64>(0));
                     AwaitRenderedFrames(host, baseFrame, kPostTransitionSettleFrames);
                 }
@@ -546,7 +546,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Entity selection is not available in this editor build.");
 
             const Json result = host.MarshalRead([&host, request]() -> Json
-                                                   {
+                                                 {
                 if (!host.Context().SelectEntityInEditor)
                     return Json{ { "__error", "Entity selection is not available in this editor build." } };
                 return ToJson(host.Context().SelectEntityInEditor(request.EntityUuid, request.Clear)); });
