@@ -131,6 +131,24 @@ Two things that a number can't express but the picker needs:
   dependency graph WSJF cannot model. **A `blocked_by` that isn't empty
   excludes the issue from the picker entirely, regardless of score** — you
   can't pick what you can't start.
+- **External blockers** — `blocked_by_external: ["…", …]`, a list of free-text
+  reasons. Same effect on the picker as `blocked_by`, for everything the
+  in-repo tech tree cannot name: an upstream release we are waiting on, a
+  compiler feature that has not shipped, a vendor fix. Omit the field entirely
+  when there is none — an empty list on every issue is noise.
+
+  The picker's question is *"can I start this today?"*, and an issue waiting on
+  someone else's release answers no just as firmly as one waiting on a sibling
+  issue. Without this the two looked different: **#815 sat at rank 7** with an
+  empty `blocked_by` while waiting on two upstream `repowise` fixes, so every
+  sweep re-derived "oh, not that one" by hand and then discarded the finding.
+  Ranked rows carry an `external` flag so the demotion is visible rather than
+  mysterious.
+
+  Use it for a genuine external dependency, **not** to park work you simply do
+  not want — that is what the low-value floor and the axes are for (§6.3: fix
+  the inputs, don't hide the issue). A standing `Track:` watch item, which can
+  never be "done" and only ever waits on someone else, is the archetypal case.
 
 ---
 
