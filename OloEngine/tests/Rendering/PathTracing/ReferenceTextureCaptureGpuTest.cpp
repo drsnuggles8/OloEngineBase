@@ -115,6 +115,49 @@ namespace OloEngine::Tests
         EXPECT_EQ(captor.GetStats().Failed, 0u);
     }
 
+    TEST(ReferenceTextureCaptureGpu, AnRgb8TextureWhoseRowIsNotFourByteAlignedStillReadsBack)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // GL's default PACK alignment is 4 and the readback allocates a
+        // TIGHTLY packed buffer, so a 3-wide RGB8 row (9 bytes) would need 12
+        // bytes per row if that alignment applied — and glGetTextureImage
+        // would reject the buffer it was handed, silently costing every such
+        // albedo its texture. 3x2 is the smallest case that asks the question.
+        // The engine sets GL_UNPACK_ALIGNMENT on the upload side but never
+        // GL_PACK_ALIGNMENT, so whether this passes is a fact about the
+        // driver's defaults rather than something the code arranges.
+        TextureSpecification spec;
+        spec.Width = 3;
+        spec.Height = 2;
+        spec.Format = ImageFormat::RGB8;
+        spec.SRGB = false;
+        spec.GenerateMips = false;
+        Ref<Texture2D> texture = Texture2D::Create(spec);
+        ASSERT_TRUE(texture);
+
+        std::vector<u8> pixels;
+        for (u32 i = 0; i < 6; ++i)
+        {
+            pixels.push_back(static_cast<u8>(10 * i));
+            pixels.push_back(static_cast<u8>(20 * i));
+            pixels.push_back(static_cast<u8>(30 * i));
+        }
+        texture->SetData(pixels.data(), static_cast<u32>(pixels.size()));
+
+        ReferenceTextureCaptor captor;
+        const std::shared_ptr<const ReferenceTexture> image = captor.Capture(texture);
+        ASSERT_NE(image, nullptr) << "an RGB8 readback with a 9-byte row failed — GL_PACK_ALIGNMENT bites";
+        EXPECT_EQ(image->Width, 3u);
+        EXPECT_EQ(image->Height, 2u);
+
+        // Texel (2, 1) is index 5 -> (50, 100, 150). Sampled at its centre.
+        const glm::vec4 last = image->SampleBilinear(glm::vec2(5.0f / 6.0f, 3.0f / 4.0f));
+        EXPECT_NEAR(last.r, 50.0f / 255.0f, 1e-4f);
+        EXPECT_NEAR(last.g, 100.0f / 255.0f, 1e-4f);
+        EXPECT_NEAR(last.b, 150.0f / 255.0f, 1e-4f);
+    }
+
     TEST(ReferenceTextureCaptureGpu, OneImageSharedByManyMaterialsIsReadBackOnce)
     {
         OLO_ENSURE_GPU_OR_SKIP();

@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
+
+#include "Platform/OpenGL/OpenGLPixelStoreGuard.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/TextureCompression.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -918,6 +920,13 @@ namespace OloEngine
 
         OLO_CORE_ASSERT(size == m_Width * m_Height * bpp, "Data must be entire texture! Expected: {}, Got: {}", m_Width * m_Height * bpp, size);
 
+        // The assert above says the caller's buffer is TIGHTLY packed, and GL's
+        // default unpack alignment is 4 — so an RGB8 row whose byte count is not
+        // a multiple of 4 would be read with a padded stride and the image would
+        // come out sheared. Unlike the readback's mirror of this, it raises no GL
+        // error at all: the upload simply succeeds with the wrong pixels.
+        const Utils::GLUnpackAlignmentScope unpackAlignment;
+
         // Streaming path: route the upload through a double-buffered PBO ring so the
         // CPU copy and the GPU DMA overlap instead of stalling the render thread.
         bool uploadedViaPbo = false;
@@ -1278,6 +1287,12 @@ namespace OloEngine
         // Drain leaked GL errors so the check below reflects only this readback
         // (see OpenGLTextureCubemap::GetFaceData for the spurious-failure this prevents).
         Utils::DrainGLErrors();
+
+        // `dataSize` above is TIGHTLY packed, and GL's default pack alignment
+        // is 4 — so without this an RGB8 row whose byte count is not a multiple
+        // of 4 (any width not divisible by 4) fails GL_INVALID_OPERATION and
+        // this returns false. See the header for the measurement.
+        const Utils::GLPackAlignmentScope packAlignment;
 
         // Use DSA glGetTextureImage for readback
         glGetTextureImage(m_RendererID, static_cast<GLint>(mipLevel), m_DataFormat, dataType,

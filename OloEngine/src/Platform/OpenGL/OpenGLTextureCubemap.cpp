@@ -1,5 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLTextureCubemap.h"
+
+#include "Platform/OpenGL/OpenGLPixelStoreGuard.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
@@ -627,6 +629,11 @@ namespace OloEngine
         // making GetFaceData wrongly return false and callers such as
         // IBLPrecompute::ProjectCubemapToSH see a spurious "black" cubemap.
         Utils::DrainGLErrors();
+
+        // `faceSize` is TIGHTLY packed and GL's default pack alignment is 4, so
+        // an RGB8 face whose row is not a multiple of 4 bytes would fail
+        // GL_INVALID_OPERATION here. Same guard, same reason, as the 2D path.
+        const Utils::GLPackAlignmentScope packAlignment;
 
         // For cubemap face readback, we need to use glGetTextureSubImage (OpenGL 4.5+)
         // which allows reading a single layer/face from a cubemap
