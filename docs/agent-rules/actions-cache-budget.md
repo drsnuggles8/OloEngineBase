@@ -18,7 +18,7 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
    immortal — and so is the entry it superseded.
 4. **Before redesigning a cache, add up what the fleet already stores.** The cap was
    ~9537 MiB until 2026-09-09 and is **25 GB** now (see *The cap moved* below); the
-   binding number today is `cache-prune.yml`'s 8800 MiB working ceiling, not the cap. If
+   binding number today is `cache-prune.yml`'s 20000 MiB working ceiling, not the cap. If
    the steady set does not leave room for the largest single snapshot, no key design
    will help.
 5. **The store exists to speed up GITHUB-HOSTED jobs on a PULL REQUEST. Nothing else has
@@ -127,8 +127,9 @@ Two things that do NOT follow from the raise:
   budget**" — that is the budget path, which goes read-only. Plain overflow of the free
   10 GB evicts LRU instead. A budget of $0 against a raised cap reproduces the original
   bug exactly, which is why the budget is set rather than merely the cap.
-* **`cache-prune.yml`'s 8800 MiB working ceiling did not move with it**, so the raise is
-  inert until that constant does. See the note on it below.
+* **`cache-prune.yml`'s working ceiling had to move with it**, and did not at first — for
+  a few hours the raise was inert, because six sweeps a day went on enforcing the old
+  limit. It is 20000 MiB as of 2026-09-09. See the note on it below.
 
 ### The janitor could not collect the biggest orphan
 
@@ -188,7 +189,7 @@ before compression:
 | **measured subtotal** | **1813 MiB** (4 + 229 + 256 + 291 + 327 + 706), measured 2026-09-09 |
 | `sccache-windows-2025-release` | **2044 MiB** — measured 2026-09-08 and again 2026-09-09. At its 2 G cap and evicting. Warm PR runs return 94.77 / 95.01 / 98.49 %, so the cap is not currently costing much, but it has no headroom left either. |
 | `sccache-asan-windows-2025-vk1.4.357.0` | **667 MiB measured** 2026-09-09 — down from **1230 MiB** on 2026-09-08, and the drop is the useful part. #1118 renamed the key to carry the SDK version, which started a **fresh lineage**: this entry holds one build's objects, where the old one had accumulated objects from many source generations in a single dir. **So an object set measured off a long-lived entry overstates what one build needs** — the `du -sm` 1241 MiB that rule 6's arithmetic used for this job was such a measurement. Its 1500M cap now has ~830 MiB spare. |
-| **steady set** | **7968 MiB measured** 2026-09-09 by summing `size_in_bytes` over the API listing, 11 entries (the floored rows above sum to 7964). Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **832 MiB of headroom to the ceiling** — down from 1738 MiB on 2026-09-08, because #1118's 1300M cap cost the sanitizer trio ~1200 MiB and the Vulkan SDK bump stranded another 229. **Against the 25 GB cap set the same day it is ~17 GB, and the 8800 MiB ceiling is the only thing still binding** (see *The cap moved*): the measurement stands, the "nothing sizeable can be added" conclusion it carried does not. That headroom, not any object set, is what a cap has to be sized against — see [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). |
+| **steady set** | **7968 MiB measured** 2026-09-09 by summing `size_in_bytes` over the API listing, 11 entries (the floored rows above sum to 7964). Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **832 MiB of headroom to the ceiling** — down from 1738 MiB on 2026-09-08, because #1118's 1300M cap cost the sanitizer trio ~1200 MiB and the Vulkan SDK bump stranded another 229. **Against the 25 GB cap set the same day it is ~17 GB** (see *The cap moved*): the measurement stands, the "nothing sizeable can be added" conclusion it carried does not. What binds is `cache-prune.yml`'s working ceiling, **20000 MiB**, leaving this set **12032 MiB** of room. That headroom, not any object set, is what a cap has to be sized against — see [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). |
 
 `SCCACHE_CACHE_SIZE` bounds the local directory **before** compression, so it is not the
 entry size — but do not read that as "the entry will be much smaller". Every sccache entry
@@ -205,17 +206,28 @@ with `du`, not `--show-stats`: if the sccache server has exited, the client sile
 a fresh one and reports its zeros (#1082).
 
 That is why `cache-prune.yml` now **fails** when
-the post-sweep store is over 8800 MiB: everything it deletes is provably superseded or
+the post-sweep store is over its working ceiling: everything it deletes is provably superseded or
 unread, so if what remains is still that close to the wall, the fleet has outgrown the
 cap and a human has to shrink something. Raising the ceiling to silence the alarm
 re-creates this bug.
 
-**That ceiling is now the binding constraint, and it is stale.** 8800 MiB was sized
-against a ~9537 MiB wall; the cap is 25 GB as of 2026-09-09, so six sweeps a day still
-enforce a limit that no longer exists. Raising it to track a cap that actually moved is
-not the mistake the paragraph above warns about — that mistake is raising it *under a
-fixed cap* to quiet an alarm that is telling the truth. Keep the ceiling a fixed margin
-below the real cap so the alarm still fires before saves start being refused.
+**That ceiling is the binding constraint, so it tracks the cap.** It was 8800 MiB against
+a ~9537 MiB wall; the cap became 25 GB on 2026-09-09 and the constant is **20000 MiB**
+since the same day. Moving it to follow a cap that really moved is not the mistake the paragraph
+above warns about — that mistake is raising it *under a fixed cap* to quiet an alarm that
+is telling the truth.
+
+**Size the margin off the largest single entry, not off a percentage.** That is what the
+old number got wrong: 8800 against 9537 left 737 MiB, which is less than
+`sccache-windows-2025-release` alone (2044 MiB), so one save landing after a sweep could
+clear the wall before the next sweep looked. 20000 against ~23841 leaves 3841 MiB, ~1.9x
+that entry. A margin smaller than what can arrive inside one sweep interval is not a
+margin.
+
+**And a budget can bind before the cap does.** The read-only failure quoted above says
+"you have reached your configured **budget**"; storage over 10 GiB bills hourly, so a
+budget set too low goes read-only with the cap nowhere in sight. If the budget is ever
+the tighter of the two, the ceiling has to be derived from it instead.
 
 ## A cache can be worth removing, and this one was worth 3741 MiB
 
