@@ -58,14 +58,14 @@ namespace OloEngine::VulkanQueueSelection
     // telemetry and the test assertion cannot drift from each other.
     enum class AsyncComputeUnavailableReason : u8
     {
-        None = 0,              ///< An async compute family was selected.
-        NoDeviceQueueFamilies, ///< The driver reported no families at all (a broken ICD).
-        NoComputeOnlyFamily,   ///< Every compute-capable family also does graphics.
-        FamilyHasNoQueues,     ///< A compute-only family exists but reports queueCount == 0.
-        FamilyHasNoTimestamps, ///< A compute-only family exists but cannot write GPU timestamps.
+        None = 0,                  ///< An async compute family was selected.
+        NoDeviceQueueFamilies,     ///< The driver reported no families at all (a broken ICD).
+        NoComputeOnlyFamily,       ///< Every compute-capable family also does graphics.
+        FamilyHasNoQueues,         ///< A compute-only family exists but reports queueCount == 0.
+        FamilyHasNoTimestamps,     ///< A compute-only family exists but cannot write GPU timestamps.
         CommandPoolCreationFailed, ///< The queue exists; its command pool could not be created.
-        DisabledByLever,       ///< OLO_VK_ASYNC_COMPUTE=0 — the deliberate A/B arm.
-        NoDevice,              ///< Asked before (or after) the device existed.
+        DisabledByLever,           ///< OLO_VK_ASYNC_COMPUTE=0 — the deliberate A/B arm.
+        NoDevice,                  ///< Asked before (or after) the device existed.
     };
 
     [[nodiscard]] std::string_view Describe(AsyncComputeUnavailableReason reason);
