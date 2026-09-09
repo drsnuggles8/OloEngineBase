@@ -3,9 +3,9 @@
 #
 # OLO_VIDEO_FFMPEG now defaults to ON, so the regular Windows/Linux builds also compile
 # FFmpeg from source (they need nasm + a bash on the runner). This workflow exists to
-# (a) give the FFmpeg build a cached, nasm-provisioned home so the slow (~10-15 min cold)
-# build is paid once, and (b) exercise the end-to-end decode test with a fixture. The
-# built FFmpeg (vendor/ffmpeg-install) is cached and reused via OLO_FFMPEG_PREFIX.
+# (a) give the FFmpeg build a cached, nasm-provisioned home so the slow (~5 min cold on
+# windows-2025, measured) build is paid once, and (b) exercise the end-to-end decode test
+# with a fixture. The built FFmpeg is cached at OLO_FFMPEG_CACHE_DIR (see the env block).
 name: Video (FFmpeg backend)
 
 on:
@@ -16,6 +16,16 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  # See Windows.yml's env block for the full story. Short version: the cache steps
+  # named `OloEngine/vendor/ffmpeg-install`, which `cmake/ffmpeg.cmake` stopped using
+  # when the install tree moved to a per-user shared directory. Every save here logged
+  # "Path Validation Error ... hence no cache is being saved" and exited zero, and every
+  # restore missed -- so the workflow whose stated purpose is "give the FFmpeg build a
+  # cached home so the slow build is paid once" rebuilt it from source every week.
+  # Pinning the directory in one place is what makes both sides spell it alike.
+  OLO_FFMPEG_CACHE_DIR: ${{ github.workspace }}/.ffmpeg-cache
 
 jobs:
   build:
@@ -100,12 +110,12 @@ jobs:
         id: ffcache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: OloEngine/vendor/ffmpeg-install
-          key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+          path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
-      # On a cache hit, point CMake at the prebuilt tree (skips the ExternalProject
-      # rebuild via ffmpeg.cmake's OLO_FFMPEG_PREFIX fast path). On a miss, the
-      # ExternalProject builds FFmpeg from source and the cache step saves it.
+      # On a cache hit, ffmpeg.cmake's "cache complete" fast path finds every consumed
+      # library under OLO_FFMPEG_CACHE_DIR and skips the ExternalProject entirely. On a
+      # miss it builds FFmpeg from source into that directory and the save step banks it.
       # Third-party deps come from the vcpkg manifest (issue #773). The triplet
       # follows the matrix runner; FFmpeg itself deliberately stays on its own
       # ExternalProject + actions/cache (see cmake/ffmpeg.cmake).
@@ -118,11 +128,6 @@ jobs:
       - name: Configure (FFmpeg ON)
         shell: bash
         run: |
-          PREFIX_ARG=""
-          if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
-            PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
-          fi
-
           # Linux-only toolchain pins. Windows keeps its defaults: the VS generator is
           # multi-config (build type comes from --config at build time) and MSVC is
           # already the right compiler there.
@@ -153,7 +158,8 @@ jobs:
             )
           fi
 
-          cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON $PREFIX_ARG \
+          cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON \
+            -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             "${TOOLCHAIN_ARGS[@]}" \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
@@ -239,8 +245,8 @@ jobs:
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: OloEngine/vendor/ffmpeg-install
-          key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+          path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
       # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
       # errors and --retry rides out transient flakes; the existence check surfaces a genuine

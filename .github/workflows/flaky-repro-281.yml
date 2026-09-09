@@ -59,6 +59,12 @@ env:
   # prior runs only. See Windows.yml for the full rationale.
   SCCACHE_DIR: ${{ github.workspace }}/.sccache
   SCCACHE_CACHE_SIZE: "2G"
+  # The directory ffmpeg.cmake actually installs into, pinned so the cache steps and
+  # CMake agree. They did not: the steps named `OloEngine/vendor/ffmpeg-install`, which
+  # that file abandoned when the install tree moved to a per-user shared directory, so
+  # every save here logged "Path Validation Error ... hence no cache is being saved" and
+  # exited zero. Fixed with Windows.yml's copy; see its env block for the full note.
+  OLO_FFMPEG_CACHE_DIR: ${{ github.workspace }}/.ffmpeg-cache
 
 jobs:
   hunt:
@@ -103,8 +109,8 @@ jobs:
       id: ffcache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: OloEngine/vendor/ffmpeg-install
-        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+        path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+        key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
@@ -133,10 +139,6 @@ jobs:
     - name: Configure CMake
       shell: bash
       run: |
-        PREFIX_ARG=""
-        if [ "${{ steps.ffcache.outputs.cache-hit }}" = "true" ]; then
-          PREFIX_ARG="-DOLO_FFMPEG_PREFIX=${GITHUB_WORKSPACE}/OloEngine/vendor/ffmpeg-install"
-        fi
         # MSYS_NO_PATHCONV=1: stop Git Bash from rewriting the leading-slash
         # linker flag `/DEBUG` into a Windows path (C:/Program Files/Git/DEBUG),
         # which then split at the space and broke the link (LNK1181 'C:\Program.obj').
@@ -148,8 +150,8 @@ jobs:
           -DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG \
           -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" \
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
-          ${{ steps.vcpkg.outputs.toolchain-args }} \
-          $PREFIX_ARG
+          -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
+          ${{ steps.vcpkg.outputs.toolchain-args }}
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
     # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -213,8 +215,8 @@ jobs:
       continue-on-error: true
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: OloEngine/vendor/ffmpeg-install
-        key: ffmpeg-${{ runner.os }}-n7.1-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+        path: ${{ env.OLO_FFMPEG_CACHE_DIR }}/install
+        key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
     # Locate cdb for the harness's stack capture. windows-2025 ships the
     # Windows SDK Debugging Tools; fall back to installing WinDbg if absent.
