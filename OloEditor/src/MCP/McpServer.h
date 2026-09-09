@@ -1098,11 +1098,15 @@ namespace OloEngine::MCP
         // (olo_capability, the startup log line, the regression test), never per
         // request.
         [[nodiscard]] ToolRegistryMetrics ComputeRegistryMetrics() const;
-        // Same, over a snapshot the caller already holds — for a report that must
-        // describe ONE registry (olo_capability pairs these numbers with a toolset
-        // table it derives itself, and a concurrent script reload between two
-        // snapshots would make the two halves disagree).
-        [[nodiscard]] ToolRegistryMetrics ComputeRegistryMetrics(const ToolSnapshot& snapshot) const;
+        // Same, over the registry AND policy the caller already holds. Both have to be
+        // passed, not just the snapshot: a report that reads the policy a second time
+        // can mix two of them, e.g. announcing `profile: "full"` with full-surface byte
+        // counts while the toolset table it derived from its own earlier read still
+        // describes `core`. olo_capability builds exactly that pairing, so it pins both
+        // and hands them here. (Pinning only the snapshot fixes the registry axis and
+        // leaves the policy axis open — which is the shape this bug actually had.)
+        [[nodiscard]] ToolRegistryMetrics ComputeRegistryMetrics(const ToolSnapshot& snapshot,
+                                                                 const ExposurePolicy& policy) const;
 
         // The facts one ToolDef contributes to the exposure decision. The single
         // definition of "user-provided" (a project Lua tool or a bridged external

@@ -335,6 +335,84 @@ TEST(McpExposureGateway, CapabilityReportsTheProfileTheHiddenCountAndHowToReachT
     EXPECT_TRUE(sawPartiallyHiddenToolset);
 }
 
+TEST(McpExposureGateway, CapabilityReportIsInternallyConsistentAcrossOneProfile)
+{
+    // The consistency INVARIANT a mixed-policy report would violate: every listed tool
+    // sits in exactly one toolset bucket, so the buckets must sum to
+    // registry.listedTools, and hiddenTools must be the complement.
+    //
+    // Honest scope: single-threaded, both policy reads would return the same value, so
+    // this does NOT by itself prove the mixed-policy fix -- it would pass without it.
+    // What rules the mixed report out is structural (ComputeRegistryMetrics no longer
+    // reads the policy at all; it takes one), and that property is pinned by
+    // MetricsHonourThePassedPolicyRatherThanRereadingServerState below. This test earns
+    // its place as the ratchet for the arithmetic itself, including an uncategorized
+    // tool escaping the buckets.
+    for (const ExposureProfile profile : { ExposureProfile::Core, ExposureProfile::Full })
+    {
+        McpServer server{ EditorMcpContext{} };
+        OloEngine::MCP::RegisterBuiltinTools(server);
+        server.SetExposurePolicy(ExposurePolicy{ profile, {} });
+
+        const Json resp =
+            server.HandleMessage(MakeRequest(1, "tools/call", Json{ { "name", "olo_capability" } }));
+        ASSERT_TRUE(resp.contains("result")) << resp.dump(2);
+        const Json& data = resp["result"]["structuredContent"];
+
+        EXPECT_EQ(data["profile"], std::string(OloEngine::MCP::ToStringView(profile)));
+
+        sizet bucketTotal = 0;
+        sizet bucketListed = 0;
+        for (const Json& toolset : data["toolsets"])
+        {
+            bucketTotal += toolset["count"].get<sizet>();
+            bucketListed += toolset["listed"].get<sizet>();
+        }
+        // Precondition, and a useful ratchet in its own right: every builtin tool
+        // carries a Toolset, so nothing escapes the buckets. A new uncategorized tool
+        // fails here and should either be categorized or this test taught about it.
+        EXPECT_EQ(bucketTotal, data["registry"]["totalTools"].get<sizet>())
+            << "an uncategorized builtin tool exists, so the toolset buckets no longer "
+               "cover the surface";
+        EXPECT_EQ(bucketListed, data["registry"]["listedTools"].get<sizet>())
+            << "toolset `listed` counts and registry.listedTools disagree - the report "
+               "mixed two exposure policies";
+        EXPECT_EQ(data["hiddenTools"].get<sizet>(),
+                  data["registry"]["totalTools"].get<sizet>() - data["registry"]["listedTools"].get<sizet>());
+    }
+}
+
+TEST(McpExposureProfile, MetricsHonourThePassedPolicyRatherThanRereadingServerState)
+{
+    // THE structural pin for the mixed-policy bug (CodeRabbit, PR #1136).
+    // ComputeRegistryMetrics used to load m_ExposurePolicy itself, so a caller that had
+    // already read the policy could end up describing two different ones in a single
+    // report. It now takes the policy as a parameter, and this asserts it actually uses
+    // that one: the server is left on `core` while `full` is passed in, and vice versa.
+    // If the function ever goes back to reading server state, these disagree.
+    McpServer server{ EditorMcpContext{} };
+    OloEngine::MCP::RegisterBuiltinTools(server);
+    const McpServer::ToolSnapshot snapshot = server.ToolsSnapshot();
+
+    server.SetExposurePolicy(ExposurePolicy{ ExposureProfile::Core, {} });
+    const OloEngine::MCP::ToolRegistryMetrics asFull =
+        server.ComputeRegistryMetrics(snapshot, ExposurePolicy{ ExposureProfile::Full, {} });
+    EXPECT_EQ(asFull.Profile, ExposureProfile::Full);
+    EXPECT_EQ(asFull.ListedTools, asFull.TotalTools) << "server is on core, but `full` was passed in";
+    EXPECT_EQ(asFull.ListedBytes, asFull.FullBytes);
+
+    server.SetExposurePolicy(ExposurePolicy{ ExposureProfile::Full, {} });
+    const OloEngine::MCP::ToolRegistryMetrics asCore =
+        server.ComputeRegistryMetrics(snapshot, ExposurePolicy{ ExposureProfile::Core, {} });
+    EXPECT_EQ(asCore.Profile, ExposureProfile::Core);
+    EXPECT_LT(asCore.ListedTools, asCore.TotalTools) << "server is on full, but `core` was passed in";
+    EXPECT_LT(asCore.ListedBytes, asCore.FullBytes);
+
+    // Same registry both times, so the full-surface totals must agree exactly.
+    EXPECT_EQ(asFull.TotalTools, asCore.TotalTools);
+    EXPECT_EQ(asFull.FullBytes, asCore.FullBytes);
+}
+
 TEST(McpExposureGateway, SearchThenDescribeReachesAToolTheProfileHid)
 {
     McpServer server{ EditorMcpContext{} };

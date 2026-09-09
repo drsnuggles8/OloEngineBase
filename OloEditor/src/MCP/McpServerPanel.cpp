@@ -231,7 +231,10 @@ namespace OloEngine::MCP
             if (const u64 generation = server.ToolsGeneration();
                 generation != s_MetricsGeneration || exposure.Profile != s_MetricsProfile)
             {
-                s_Metrics = server.ComputeRegistryMetrics();
+                // Same pinning as olo_capability: the radio group above already read
+                // `exposure`, so hand that same policy in rather than letting the
+                // metrics load a second one and render a mismatched line.
+                s_Metrics = server.ComputeRegistryMetrics(server.ToolsSnapshot(), exposure);
                 s_MetricsGeneration = generation;
                 s_MetricsProfile = exposure.Profile;
             }

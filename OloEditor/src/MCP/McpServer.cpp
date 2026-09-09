@@ -2211,15 +2211,16 @@ namespace OloEngine::MCP
 
     ToolRegistryMetrics McpServer::ComputeRegistryMetrics() const
     {
-        return ComputeRegistryMetrics(ToolsSnapshot());
+        const ToolSnapshot snapshot = ToolsSnapshot();
+        const std::shared_ptr<const ExposurePolicy> policy = m_ExposurePolicy.load(std::memory_order_acquire);
+        return ComputeRegistryMetrics(snapshot, *policy);
     }
 
-    ToolRegistryMetrics McpServer::ComputeRegistryMetrics(const ToolSnapshot& snapshot) const
+    ToolRegistryMetrics McpServer::ComputeRegistryMetrics(const ToolSnapshot& snapshot,
+                                                          const ExposurePolicy& policy) const
     {
-        const std::shared_ptr<const ExposurePolicy> policy = m_ExposurePolicy.load(std::memory_order_acquire);
-
         ToolRegistryMetrics metrics;
-        metrics.Profile = policy->Profile;
+        metrics.Profile = policy.Profile;
         metrics.TotalTools = snapshot->size();
 
         // Measure the two catalogues the way a client actually receives them: the
@@ -2232,7 +2233,7 @@ namespace OloEngine::MCP
         for (const auto& tool : *snapshot)
         {
             Json entry = BuildToolEntry(tool);
-            if (policy->ShouldList(ExposureFactsOf(tool)))
+            if (policy.ShouldList(ExposureFactsOf(tool)))
             {
                 ++metrics.ListedTools;
                 listed.push_back(entry);

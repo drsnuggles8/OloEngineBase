@@ -112,13 +112,16 @@ namespace OloEngine::MCP
 
         ToolResult Handle_Capability(McpServer& server, const Json& /*arguments*/)
         {
-            // ONE snapshot for the whole report: a concurrent script-tool reload
-            // between two ToolsSnapshot() calls would leave `toolsets` describing a
-            // different registry from `registry`/`hiddenTools`, and the totals would
-            // not reconcile.
+            // ONE snapshot AND ONE policy for the whole report. Both axes matter and
+            // they fail differently: re-reading the registry would leave `toolsets`
+            // describing different tools from `registry`/`hiddenTools`, and re-reading
+            // the policy would let the response announce `profile: "full"` with
+            // full-surface byte counts while the toolset table below still reports the
+            // `core` counts it computed a moment earlier. Pin both here and hand them
+            // to ComputeRegistryMetrics rather than letting it load the policy again.
             const McpServer::ToolSnapshot snapshot = server.ToolsSnapshot();
             const ExposurePolicy policy = server.GetExposurePolicy();
-            const ToolRegistryMetrics metrics = server.ComputeRegistryMetrics(snapshot);
+            const ToolRegistryMetrics metrics = server.ComputeRegistryMetrics(snapshot, policy);
 
             // Toolset catalogue over the FULL registry — the point of this tool is to
             // describe what exists, including what the profile is not listing.
