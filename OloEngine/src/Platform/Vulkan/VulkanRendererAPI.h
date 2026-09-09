@@ -401,6 +401,11 @@ namespace OloEngine
         // queue-family ownership pair, in place. No-op outside a region.
         void SplitOwnershipTransfersForRegion(std::vector<VkImageMemoryBarrier2>& imageBarriers,
                                               std::vector<VkBufferMemoryBarrier2>& bufferBarriers);
+        // One ownership-only release/acquire pair per run of equal layout in
+        // `range`; used in both directions (see the definition).
+        void AppendOwnershipTransfer(VkImage image, const VkImageSubresourceRange& range, u32 fromFamily,
+                                     u32 toFamily, std::vector<VkImageMemoryBarrier2>& releases,
+                                     std::vector<VkImageMemoryBarrier2>& acquires);
 
       public:
         void BindDefaultFramebuffer() override;
@@ -736,18 +741,26 @@ namespace OloEngine
         // keep correct across frames, swapchain recreation or device loss.
         struct QueueOwnershipRegion
         {
-            struct TransferredImage
-            {
-                VkImage Image = VK_NULL_HANDLE;
-                VkImageSubresourceRange Range{};
-            };
-
             bool Active = false;
             VkCommandBuffer ReleaseCmd = VK_NULL_HANDLE; ///< The parked graphics command buffer.
             u32 FromFamily = 0;
             u32 ToFamily = 0;
-            // Images only: buffers a compute dispatch can reach are
-            // created CONCURRENT and need no transfer (VulkanQueueSelection.h).
+            // Images only, at WHOLE-IMAGE granularity: buffers a compute
+            // dispatch can reach are created CONCURRENT and need no transfer
+            // (VulkanQueueSelection.h), and a per-subresource-range record
+            // cannot be deduplicated against a later barrier whose runs merged
+            // differently.
+            //
+            // The aspect travels with the image because the batch-end mirror
+            // has only this record to work from, and a barrier's aspectMask
+            // must match the image's real format — a hardcoded
+            // COLOR|DEPTH|STENCIL is invalid on a single-plane colour image
+            // (VUID-VkImageMemoryBarrier2-image-09241).
+            struct TransferredImage
+            {
+                VkImage Image = VK_NULL_HANDLE;
+                VkImageAspectFlags Aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+            };
             std::vector<TransferredImage> Images;
         };
         QueueOwnershipRegion m_OwnershipRegion;

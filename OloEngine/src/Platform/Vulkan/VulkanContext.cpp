@@ -525,6 +525,21 @@ namespace OloEngine
 
     bool VulkanContext::SubmitRenderGraphFenceSegment()
     {
+        // Never while an async-compute batch is open. The plan usually hoists a
+        // batch's fence ops to its boundaries, but only when every edge proves
+        // an outside producer or consumer (amendment (94)); otherwise the
+        // executor reaches a FenceWait mid-batch and asks for a segment submit
+        // here. That would end the COMPUTE command buffer and submit it to the
+        // GRAPHICS queue — a wrong-family submit — while leaving the parked
+        // graphics buffer unsubmitted and its EndAsyncComputeSegment ending a
+        // buffer that has already gone. Declining makes the executor drop
+        // split submission for the frame and keep its full barriers, which is
+        // the conservative path it is written to take.
+        if (m_AsyncComputeSegmentOpen)
+        {
+            return false;
+        }
+
         // The render graph reaches this only after it staged at least one
         // GpuFence signal. Keeping the operation inside SwapBuffers is
         // essential: that is where the swapchain acquire semaphore and the

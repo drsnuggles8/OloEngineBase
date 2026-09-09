@@ -738,6 +738,43 @@ namespace OloEngine
 
     // --- Async compute queue: ownership transfers (#808) ---------------------
 
+    // One ownership-only transfer per run of equal layout inside `range`.
+    //
+    // Ownership-ONLY: each pair states oldLayout == newLayout, so it moves the
+    // subresources between families and transitions nothing. That is what lets
+    // the transfer cover a whole image whose mips are in different layouts —
+    // the alternative, one barrier claiming a single layout for the lot, is
+    // invalid the moment they disagree.
+    //
+    // The scopes are deliberately blunt (ALL_COMMANDS, MEMORY_READ|WRITE):
+    // this runs once per image at a boundary that is already paying for a
+    // semaphore round trip, and ALL_COMMANDS is legal on both families.
+    void VulkanRendererAPI::AppendOwnershipTransfer(VkImage image, const VkImageSubresourceRange& range,
+                                                    u32 fromFamily, u32 toFamily,
+                                                    std::vector<VkImageMemoryBarrier2>& releases,
+                                                    std::vector<VkImageMemoryBarrier2>& acquires)
+    {
+        Ctx().Tracker.ForEachLayoutRun(
+            image, range,
+            [&](const VkImageSubresourceRange& run, const VkImageLayout layout)
+            {
+                VkImageMemoryBarrier2 barrier{};
+                barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+                barrier.oldLayout = layout;
+                barrier.newLayout = layout;
+                barrier.image = image;
+                barrier.subresourceRange = run;
+                const auto pair = VulkanBarrierLowering::SplitImageOwnershipTransfer(barrier, fromFamily, toFamily);
+                releases.push_back(pair.Release);
+                acquires.push_back(pair.Acquire);
+                ++m_AsyncComputeStats.OwnershipTransfers;
+            });
+    }
+
     void VulkanRendererAPI::SplitOwnershipTransfersForRegion(std::vector<VkImageMemoryBarrier2>& imageBarriers,
                                                              std::vector<VkBufferMemoryBarrier2>& bufferBarriers)
     {
@@ -749,37 +786,53 @@ namespace OloEngine
 
         std::vector<VkImageMemoryBarrier2> releaseImages;
 
-        // Same-subresource-range equality; VkImageSubresourceRange has no
-        // operator== and the aspect is fixed per image here.
-        const auto sameRange = [](const VkImageSubresourceRange& a, const VkImageSubresourceRange& b)
+        // Ownership moves at WHOLE-IMAGE granularity, and it is separated from
+        // the layout transition. Two things forced that split:
+        //
+        //  - Per-(image, range) records cannot be deduplicated safely. The
+        //    ranges here are ForEachLayoutRun runs, so their shape follows the
+        //    CURRENT layouts; a later barrier over a merged range matches no
+        //    earlier record, and a second release with no acquire between them
+        //    leaves the contents undefined.
+        //  - Widening one run's transitioning barrier to the whole image is
+        //    the other trap: it claims that run's oldLayout for every other
+        //    mip, which the validation layers reject the moment the mips
+        //    disagree (a freshly-cleared mip 0 beside UNDEFINED mips 1..n).
+        //
+        // So the transfer states NO transition — one pair per layout run over
+        // the image's full range, each with oldLayout == newLayout — and the
+        // pass's own barrier then performs its transition normally, on the
+        // compute queue, which by then owns the image.
+        for (const auto& barrier : imageBarriers)
         {
-            return a.baseMipLevel == b.baseMipLevel && a.levelCount == b.levelCount &&
-                   a.baseArrayLayer == b.baseArrayLayer && a.layerCount == b.layerCount;
-        };
-
-        for (auto& barrier : imageBarriers)
-        {
-            // Transfers are tracked per (image, RANGE), not per image. The
-            // caller has already split this batch into runs of equal layout,
-            // and each half of a transfer pair must state the layout its range
-            // really is in: widening one run's barrier to the whole image
-            // claims that run's layout for every other mip, which the
-            // validation layers reject the moment the mips disagree (a
-            // freshly-cleared mip 0 beside UNDEFINED mips 1..n is the case
-            // that found this). The mirror at batch end re-queries the
-            // tracker over the same ranges, so the two stay in step.
-            const bool alreadyTransferred = std::ranges::any_of(
-                m_OwnershipRegion.Images,
-                [&](const QueueOwnershipRegion::TransferredImage& entry)
-                { return entry.Image == barrier.image && sameRange(entry.Range, barrier.subresourceRange); });
-            if (alreadyTransferred)
+            if (std::ranges::any_of(m_OwnershipRegion.Images,
+                                    [&](const QueueOwnershipRegion::TransferredImage& entry)
+                                    { return entry.Image == barrier.image; }))
+            {
                 continue;
+            }
+            m_OwnershipRegion.Images.push_back({ barrier.image, barrier.subresourceRange.aspectMask });
 
-            const auto pair = VulkanBarrierLowering::SplitImageOwnershipTransfer(barrier, from, to);
-            releaseImages.push_back(pair.Release);
-            m_OwnershipRegion.Images.push_back({ barrier.image, barrier.subresourceRange });
-            barrier = pair.Acquire;
-            ++m_AsyncComputeStats.OwnershipTransfers;
+            VkImageSubresourceRange whole{};
+            whole.aspectMask = barrier.subresourceRange.aspectMask;
+            whole.baseMipLevel = 0;
+            whole.levelCount = VK_REMAINING_MIP_LEVELS;
+            whole.baseArrayLayer = 0;
+            whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
+            AppendOwnershipTransfer(barrier.image, whole, from, to, releaseImages,
+                                    m_PendingOwnershipImageAcquires);
+        }
+        // The acquires for the INCOMING direction belong in this same command
+        // buffer, immediately after the releases reach the graphics one — not
+        // in the stash, which the batch-end mirror owns.
+        if (!m_PendingOwnershipImageAcquires.empty())
+        {
+            VkDependencyInfo acquireDep{};
+            acquireDep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            acquireDep.imageMemoryBarrierCount = static_cast<u32>(m_PendingOwnershipImageAcquires.size());
+            acquireDep.pImageMemoryBarriers = m_PendingOwnershipImageAcquires.data();
+            Ctx().RecordBarrier(acquireDep);
+            m_PendingOwnershipImageAcquires.clear();
         }
 
         // Buffers get NO ownership transfer, deliberately: every buffer a
@@ -835,27 +888,13 @@ namespace OloEngine
 
         for (const auto& entry : m_OwnershipRegion.Images)
         {
-            ctx.Tracker.ForEachLayoutRun(
-                entry.Image, entry.Range,
-                [&](const VkImageSubresourceRange& run, const VkImageLayout layout)
-                {
-                    VkImageMemoryBarrier2 barrier{};
-                    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                    // Conservative on purpose: this is once per resource at a
-                    // boundary that already costs a semaphore round trip, and
-                    // ALL_COMMANDS is legal on both families.
-                    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                    barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-                    barrier.oldLayout = layout;
-                    barrier.newLayout = layout;
-                    barrier.image = entry.Image;
-                    barrier.subresourceRange = run;
-                    const auto pair = VulkanBarrierLowering::SplitImageOwnershipTransfer(barrier, from, to);
-                    releaseImages.push_back(pair.Release);
-                    m_PendingOwnershipImageAcquires.push_back(pair.Acquire);
-                });
+            VkImageSubresourceRange whole{};
+            whole.aspectMask = entry.Aspect;
+            whole.baseMipLevel = 0;
+            whole.levelCount = VK_REMAINING_MIP_LEVELS;
+            whole.baseArrayLayer = 0;
+            whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
+            AppendOwnershipTransfer(entry.Image, whole, from, to, releaseImages, m_PendingOwnershipImageAcquires);
         }
         if (!releaseImages.empty())
         {
@@ -7104,6 +7143,24 @@ namespace OloEngine
             return false; // no nesting
         }
         if (m_Main.Cmd == VK_NULL_HANDLE || VulkanDevice::Get() == nullptr)
+        {
+            return false;
+        }
+        // #808: never fork while recording onto the async compute queue. The
+        // secondaries come from VulkanSecondaryCommandPools, whose pools are
+        // created on the GRAPHICS family, and vkCmdExecuteCommands requires the
+        // secondary's pool to name the same family as the primary
+        // (VUID-vkCmdExecuteCommands-pCommandBuffers-00094). Two further
+        // reasons compound it: SetRecordingOnComputeOnlyQueue only marks
+        // m_Main, so an item's barriers would bypass the compute-stage clamp,
+        // and the ownership region is single-writer state the items would race.
+        //
+        // This is reachable, not theoretical: GTAO, VirtualShadowMapMarkPass
+        // and VolumetricFogPass are all async-compute candidates AND
+        // whole-pass-recordable, so a recording group can form entirely inside
+        // an open batch. The items then run inline on the compute primary,
+        // which is the same observable command stream (amendment (92)).
+        if (m_Main.OnComputeOnlyQueue)
         {
             return false;
         }
