@@ -126,8 +126,9 @@ The search in (5) never picks between candidates:
 `tools/list` shows a curated core set by default (#1124): the full catalogue is ~265 KB of
 schemas, and a third of an agent's context window is a real cost. A CLI has no context window,
 so `oloctl` takes the **whole registry** — via `olo_tool_search`, which reports every
-registered command regardless of the profile. A `oloctl` that silently offered 16 of 93
-commands would look exactly like a working `oloctl`.
+registered command regardless of the profile. Measured against a stock editor: `oloctl` sees
+99 commands where `tools/list` advertises 18. A CLI that silently offered 18 of 99 would look
+exactly like a working one.
 
 ## Writes are closed
 
