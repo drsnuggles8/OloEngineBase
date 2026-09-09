@@ -26,7 +26,8 @@
 //   * the clip levels a caster reaches are found, and a caster is never dropped
 //     from a level it does touch — that one IS the missing shadow.
 //
-// Pixels are covered separately: VirtualGeometryVsmVisualEvidenceTest.
+// Pixels are covered separately:
+// VirtualGeometryVisualEvidence.VirtualMeshCastsThroughTheVirtualShadowMapPages.
 
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
@@ -235,7 +236,8 @@ TEST(VirtualGeometryVirtualShadow, ACasterBeyondALevelIsDroppedThereAndKeptOnACo
         reachedSomewhere = reachedSomewhere || VirtualShadowMap::BoundsReachClipLevel(clips[level].ViewProjection, farMin, farMax);
     EXPECT_TRUE(reachedSomewhere)
         << "a caster inside the configured shadow range must reach at least one clip level; "
-           "clip 0 half extent = " << settings.Clip0HalfExtent;
+           "clip 0 half extent = "
+        << settings.Clip0HalfExtent;
 }
 
 TEST(VirtualGeometryVirtualShadow, TheLevelThatOwnsACasterIsNeverColderThanTheOneBelowIt)
@@ -256,7 +258,7 @@ TEST(VirtualGeometryVirtualShadow, TheLevelThatOwnsACasterIsNeverColderThanTheOn
         for (u32 level = 0; level < VSM::kClipLevels; ++level)
         {
             const bool reached = VirtualShadowMap::BoundsReachClipLevel(clips[level].ViewProjection,
-                                                                       boundsMin, boundsMax);
+                                                                        boundsMin, boundsMax);
             if (reached)
             {
                 seenReached = true;
