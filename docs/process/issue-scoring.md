@@ -128,9 +128,12 @@ Two things that a number can't express but the picker needs:
   favor of delighters. **Rule: the top of the ranked list must always carry
   table-stakes coverage** — completeness is a conscious budget, not an accident.
 - **Tech-tree edges** — `blocked_by: [#N, …]` / `blocks: [#N, …]`. The
-  dependency graph WSJF cannot model. **A `blocked_by` that isn't empty
-  excludes the issue from the picker entirely, regardless of score** — you
-  can't pick what you can't start.
+  dependency graph WSJF cannot model. **A `blocked_by` naming an issue that is
+  still open excludes the issue from the picker entirely, regardless of score**
+  — you can't pick what you can't start. **A closed blocker does not block**:
+  the picker resolves each number's state on every run, so an edge whose
+  blocker has merged stops holding its dependents back the moment it merges,
+  with no body edit. See §3.6.
 - **External blockers** — `blocked_by_external: ["…", …]`, a list of free-text
   reasons. Same effect on the picker as `blocked_by`, for everything the
   in-repo tech tree cannot name: an upstream release we are waiting on, a
@@ -159,7 +162,10 @@ CoD   = Capability + Craft + Stability + Decay
 Score = Confidence × CoD / Effort          # computed only over UNBLOCKED issues
 ```
 
-1. Drop every issue with a non-empty `blocked_by`.
+1. Drop every issue still held by a blocker — a `blocked_by` entry whose issue
+   is **open**, a blocker whose state could not be read, or any
+   `blocked_by_external`. A `blocked_by` entry whose issue is already **closed**
+   does not count (§3.6).
 2. Pick the **max `Score`**.
 3. Break ties with **Learning, then Fun**.
 4. **Pull override:** any issue with `Fun ≥ 8` may be pulled to the front
@@ -178,6 +184,41 @@ Score = Confidence × CoD / Effort          # computed only over UNBLOCKED issue
 
 The printed order is authoritative, and `next:` is simply the first unblocked
 row — so the recommendation can never disagree with what is printed at the top.
+
+### §3.6 — Blocker state is resolved, never assumed
+
+**A `blocked_by` entry blocks only while the issue it names is open.** The
+picker resolves every distinct blocker number on each run (one batched
+`gh api graphql` call, not one call per edge, and not cached between runs) and
+treats a closed issue — or a merged PR — as delivered. Three consequences:
+
+- **A blocker that merges unblocks its dependents immediately**, with no body
+  edit. The number stays written down; it just stops being believed.
+- **A partially-delivered tech tree stays blocked, and the `blocked:` flag names
+  only the edges still open.** An issue blocked by a closed #1123 and an open
+  #1126 prints `blocked:1126` — never the delivered one.
+- **`blocked_by_external` is unaffected** and still blocks unconditionally. It
+  is free text naming something outside this repo; there is no state to query.
+
+**If a blocker's state cannot be read, the issue stays blocked and says so.**
+An unresolvable edge — a number that does not exist, `gh` offline,
+unauthenticated or rate-limited — is flagged `blocked?:<N>` and counted in a
+banner above the table. The direction is chosen, not defaulted: assuming *open*
+recreates the bug below, and assuming *closed* invents startable work out of a
+network error, which costs a whole task slot. "We could not tell" must never
+read as "it is fine" (`CLAUDE.md` → *no silent fallbacks*).
+
+`issue_scores.py lint` reports stale edges (blocker already closed — tidy the
+body) and unresolvable ones, and exits non-zero on either, so neither waits for
+a sweep to trip over it. `issue_scores.py selftest` runs the blocker cases on
+their own; `rank` and `lint` run them too, on every invocation.
+
+Before this, a written-down number blocked forever. On 2026-09-09 the closed
+#1123 and #1139 were holding **seven** issues out of `rank` entirely, including
+#1126 and #1130, the two highest-scoring rows in the whole backlog. A stale row
+does not sort low, it is *absent* — so nothing in the picker's output could
+reveal it, and it took a `/start-work` sweep comparing the list against the
+tracker by hand to notice (#1161).
 
 ### Why the floor exists
 

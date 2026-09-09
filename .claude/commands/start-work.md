@@ -47,7 +47,7 @@ Then refresh the registry:
     gh pr list --state merged --limit 40  # recently FINISHED work — often still looks "open" in docs/TODOs
     gh issue list --state closed --limit 40     # closed issues — ditto
     python "$BASE/scripts/issue_scores.py" rank # scored, ranked backlog — canonical priority for GitHub issues (docs/process/issue-scoring.md)
-    python "$BASE/scripts/issue_scores.py" lint # UNSCORED open issues — absent from `rank`, therefore invisible to this command
+    python "$BASE/scripts/issue_scores.py" lint # UNSCORED open issues — absent from `rank`, therefore invisible to this command; also stale/unresolvable `blocked_by` edges
 Any topic represented by a worktree, a branch (local OR origin/*), an open PR, or an
 assigned issue is OFF-LIMITS as in-flight. Anything in a recently-merged PR or closed
 issue is OFF-LIMITS as already-done — this is your ground truth that a doc/TODO which
