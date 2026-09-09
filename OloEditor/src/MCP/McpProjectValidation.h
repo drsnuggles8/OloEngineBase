@@ -63,7 +63,7 @@ namespace OloEngine::MCP::ProjectValidation
         std::string Source;  // the command whose handler produced this, verbatim
         std::string Subject; // one sentence: what this section checks
         SectionStatus Status = SectionStatus::Unavailable;
-        std::string Reason;         // why, when Unavailable
+        std::string Reason; // why, when Unavailable
         Json Problems = Json::array();
     };
 

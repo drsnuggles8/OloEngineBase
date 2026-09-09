@@ -110,7 +110,7 @@ TEST(McpProjectValidation, ProblemsMakeItNotOkButStillComplete)
 {
     const Json problems = ProblemsFromShaders(Json::parse(R"({"errors": [ { "name": "PBR" } ]})"));
     const Json report = BuildReport({ CleanSection("assets"), RanSection("shaders", "olo_shader_errors", "s",
-                                                                        problems) },
+                                                                         problems) },
                                     50);
     EXPECT_FALSE(report["ok"].get<bool>());
     EXPECT_TRUE(report["complete"].get<bool>()) << "everything ran; the project simply has a problem";

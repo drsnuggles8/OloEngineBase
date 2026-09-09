@@ -29,8 +29,8 @@ namespace
     using OloEngine::MCP::TestExecution::IsDisabledName;
     using OloEngine::MCP::TestExecution::IsFilterSafeExpression;
     using OloEngine::MCP::TestExecution::IsFilterSafeName;
-    using OloEngine::MCP::TestExecution::Json;
     using OloEngine::MCP::TestExecution::JoinFilter;
+    using OloEngine::MCP::TestExecution::Json;
     using OloEngine::MCP::TestExecution::KnownLayerIds;
     using OloEngine::MCP::TestExecution::LayerCountsJson;
     using OloEngine::MCP::TestExecution::LayerMarker;
@@ -393,8 +393,10 @@ TEST(McpTestExecution, AnEmptyReportAgainstANonEmptySelectionIsIncomplete)
 TEST(McpTestExecution, CountsEachStatusAndTheBucketsAddUp)
 {
     const std::vector<CaseResult> cases{
-        MakeCase("S", "A", CaseStatus::Passed),  MakeCase("S", "B", CaseStatus::Failed),
-        MakeCase("S", "C", CaseStatus::Skipped), MakeCase("S", "D", CaseStatus::Disabled),
+        MakeCase("S", "A", CaseStatus::Passed),
+        MakeCase("S", "B", CaseStatus::Failed),
+        MakeCase("S", "C", CaseStatus::Skipped),
+        MakeCase("S", "D", CaseStatus::Disabled),
         MakeCase("S", "E", CaseStatus::Passed),
     };
     const auto counts = CountCases(cases);

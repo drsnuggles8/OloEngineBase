@@ -106,7 +106,8 @@ namespace OloEngine::MCP
                         return ToolResult::Error("Invalid entry in 'sections': expected a section name string.");
                     const std::string name = entry.get<std::string>();
                     const bool known = std::any_of(std::begin(kSections), std::end(kSections),
-                                                   [&name](const SectionSpec& spec) { return name == spec.Name; });
+                                                   [&name](const SectionSpec& spec)
+                                                   { return name == spec.Name; });
                     if (!known)
                     {
                         std::string valid;
@@ -205,7 +206,7 @@ namespace OloEngine::MCP
                                         .Prop("problemCount", Schema::Int().Min(0))
                                         .Prop("omitted", Schema::Int().Min(0))
                                         .Prop("problems", Schema::Array(Schema::Object().Desc(
-                                                  "One problem; 'kind' says which validator classed it.")))))
+                                                              "One problem; 'kind' says which validator classed it.")))))
                 .Required({ "ok", "complete", "problemCount", "sectionCount", "sectionsUnavailable", "sections" });
         tool.Handler = Handle_ProjectValidate;
         registry.Register(std::move(tool));

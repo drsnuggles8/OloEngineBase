@@ -982,7 +982,8 @@ namespace OloEngine::MCP
                 if (!args["layer"].is_string() || args["layer"].get<std::string>().empty())
                     return ToolResult::Error("Invalid 'layer': expected a classification id such as 'L1' or 'unit'.");
                 layerFilter = args["layer"].get<std::string>();
-                std::erase_if(cases, [&layerFilter](const TestCase& c) { return c.Layer != layerFilter; });
+                std::erase_if(cases, [&layerFilter](const TestCase& c)
+                              { return c.Layer != layerFilter; });
             }
 
             if (cases.empty())
@@ -1078,7 +1079,8 @@ namespace OloEngine::MCP
                 if (!args["layer"].is_string() || args["layer"].get<std::string>().empty())
                     return ToolResult::Error("Invalid 'layer': expected a classification id such as 'L1' or 'unit'.");
                 const std::string layerFilter = args["layer"].get<std::string>();
-                std::erase_if(selected, [&layerFilter](const TestCase& c) { return c.Layer != layerFilter; });
+                std::erase_if(selected, [&layerFilter](const TestCase& c)
+                              { return c.Layer != layerFilter; });
                 if (selected.empty())
                     return ToolResult::Error("No test case in the selection carries layer '" + layerFilter +
                                              "'. That is an error, not an empty run.");
