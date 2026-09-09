@@ -12,7 +12,7 @@ namespace OloEngine
 {
     namespace
     {
-        std::atomic<std::uint64_t> s_RefusalCount{0};
+        std::atomic<std::uint64_t> s_RefusalCount{ 0 };
 
         // The Vulkan tier's compile options, reduced to what the probe needs.
         // The env and dialect are hand-encoded for the reason VulkanShader.cpp
@@ -51,7 +51,8 @@ namespace OloEngine
                 return report;
             }
 
-            const auto attempt = [&compiler](const std::string& source, const char* name) {
+            const auto attempt = [&compiler](const std::string& source, const char* name)
+            {
                 return compiler.CompileGlslToSpv(source, shaderc_glsl_fragment_shader, name, ProbeOptions());
             };
 
