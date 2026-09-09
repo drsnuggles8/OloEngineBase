@@ -104,7 +104,27 @@ If a feature touches multiple surfaces, write one test per surface — and write
 - **Golden rebase** (only when a deliberate visual change lands): `<test binary> --olo-golden-rebase --gtest_filter=GoldenImage*`.
 - **Perf rebase** (only when moving to new hardware or after an intentional optimisation): `<test binary> --olo-perf-rebase --gtest_filter=PerfRegression*`.
 
-Working directory matters: run from the repo root so asset paths resolve.
+**Working directory: prefer `OloEditor/`.** That is what `ctest` uses — both
+`gtest_discover_tests` calls in [OloEngine/tests/CMakeLists.txt](../../OloEngine/tests/CMakeLists.txt)
+pass `WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor`, because many tests call
+`Shader::Create("assets/shaders/...")`.
+
+Running from the repo root also works — the engine finds those assets anyway, and
+a visual-evidence test still writes into the tracked
+`OloEditor/assets/tests/visual/` rather than creating a stray directory — but it
+is **~3x slower to start**, because the fallback search runs on every asset
+lookup. Measured 2026-09-09, `--gtest_filter=McpProjectValidation.*`, four
+interleaved pairs, Debug:
+
+| CWD | process wall time (median of 4) |
+|---|---:|
+| repo root | 2.06 s |
+| `OloEditor/` | 0.71 s |
+
+That 1.35 s is per *process*, and `ctest` spawns one per case — which is why it
+sets the working directory rather than leaving it to chance. It is also the
+"~2 s" process startup quoted in the next section. `olo_tests_run` (issue #1130)
+runs its child from `OloEditor/` for the same reason.
 
 ### Reproducing flaky CI-only core-starvation races
 
