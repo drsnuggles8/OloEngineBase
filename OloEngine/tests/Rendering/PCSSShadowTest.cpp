@@ -184,8 +184,13 @@ TEST(PCSSShadow, CSMNormalBiasOffsetsTheReceiverInWorldSpace)
     // receiver is what gets projected, in both the primary and the blended tap.
     ASSERT_NE(csm.find("mat4 M = lightSpaceMatrices[cascadeIndex];"), std::string::npos);
     ASSERT_NE(csm.find("mat4 nextM = lightSpaceMatrices[cascadeIndex + 1];"), std::string::npos);
-    const std::size_t primaryProjection = csm.find("M * vec4(biasedWorldPos, 1.0)");
-    const std::size_t nextCascadeProjection = csm.find("nextM * vec4(biasedWorldPos, 1.0)");
+    // Anchored on the whole statement, not on "M * vec4(...)": that substring
+    // also occurs inside "nextM * vec4(...)", so a primary tap that stopped
+    // projecting the offset receiver would still resolve — against the blended
+    // tap — and the ordering assertion below would pass anyway.
+    const std::size_t primaryProjection = csm.find("vec4 lightSpacePos = M * vec4(biasedWorldPos, 1.0);");
+    const std::size_t nextCascadeProjection =
+        csm.find("vec4 nextLightSpacePos = nextM * vec4(biasedWorldPos, 1.0);");
     EXPECT_NE(primaryProjection, std::string::npos)
         << "the primary CSM cascade does not project the biased receiver";
     EXPECT_NE(nextCascadeProjection, std::string::npos)
