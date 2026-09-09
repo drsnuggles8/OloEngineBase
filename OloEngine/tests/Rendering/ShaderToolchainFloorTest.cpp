@@ -24,11 +24,13 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -64,6 +66,37 @@ namespace OloEngine::Tests
             std::ostringstream oss;
             oss << f.rdbuf();
             return oss.str();
+        }
+
+        // "Does a LINE of this file begin with `#extension <name>`?" — the crude,
+        // scanner-independent question, so the test below cannot pass by agreeing
+        // with the code it is checking.
+        //
+        // LINE START IS THE WHOLE POINT, and finding that out cost a red test:
+        // DescriptorHeapTextures.glsl's header comment contains the literal text
+        // "`#extension GL_EXT_descriptor_heap`" mid-sentence, so a plain
+        // `source.find(...)` calls that include file a declaring shader — which it
+        // is not. It declares nothing; it tells its INCLUDERS to declare it, and
+        // they do, at line start, which is the only place GLSL accepts a
+        // directive anyway.
+        bool DeclaresDirectiveAtLineStart(std::string_view source, std::string_view extension)
+        {
+            const std::string needle = std::string("#extension ").append(extension);
+            for (sizet lineStart = 0; lineStart <= source.size();)
+            {
+                const sizet lineEnd = std::min(source.find('\n', lineStart), source.size());
+                std::string_view line = source.substr(lineStart, lineEnd - lineStart);
+                while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+                {
+                    line.remove_prefix(1);
+                }
+                if (line.starts_with(needle))
+                {
+                    return true;
+                }
+                lineStart = lineEnd + 1;
+            }
+            return false;
         }
 
         std::string DescribeReport(const ShaderToolchainReport& report)
@@ -167,8 +200,7 @@ namespace OloEngine::Tests
                 continue;
             }
             const std::string source = ReadWholeFile(path);
-            // The literal directive, which is what glslang acts on.
-            if (source.find("#extension GL_EXT_descriptor_heap") == std::string::npos)
+            if (!DeclaresDirectiveAtLineStart(source, "GL_EXT_descriptor_heap"))
             {
                 continue;
             }

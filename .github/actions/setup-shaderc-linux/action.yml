@@ -150,9 +150,14 @@ runs:
         # archives are the bulk of the tree and nothing links them: when
         # OLO_SHADERC_ROOT is set, OloEngine/CMakeLists.txt asks this prefix for
         # shaderc alone and takes SPIRV-Cross from the system.
-        find "${OLO_SHADERC_ROOT}/lib" -name '*.a' -delete
-        find "${OLO_SHADERC_ROOT}/bin" -type f ! -name 'glslc' -delete
+        # `-path ... -prune` rather than a bare directory argument: under
+        # `set -e` a missing lib/ or bin/ would make find exit non-zero and kill
+        # the step with "No such file or directory", ahead of the verification
+        # below that would have named what was actually wrong.
+        find "${OLO_SHADERC_ROOT}" -type f -name '*.a' -delete
+        find "${OLO_SHADERC_ROOT}" -path "${OLO_SHADERC_ROOT}/bin/*" -type f ! -name 'glslc' -delete
         du -sh "${OLO_SHADERC_ROOT}"
+        find "${OLO_SHADERC_ROOT}" -maxdepth 2 -mindepth 1 -type d | sort
 
     # VERIFY, always — cache hit or fresh build. A restored entry from a moved tag
     # or a half-written save would otherwise be indistinguishable from a good one
