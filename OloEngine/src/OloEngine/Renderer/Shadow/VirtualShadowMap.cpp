@@ -1143,6 +1143,23 @@ namespace OloEngine
             }
         }
 
+        // A caster that VANISHED still owns pages. The loop above walks the
+        // casters that ARE here, so it can never reach one that was deleted or
+        // had its shadow casting turned off — and a page cache has no other
+        // reason to redraw the region it was rasterized into, so its silhouette
+        // sits there until something else happens to evict it.
+        //
+        // Only the dropped TAIL needs this: the list is compared positionally, so
+        // removing a caster from the middle shifts every later one and those
+        // already read as moved. Trimming without invalidating is the one case
+        // that leaves no trace at all.
+        for (sizet i = meshCasters.size(); i < m_PrevCasterPoses.size(); ++i)
+        {
+            const auto& gone = m_PrevCasterPoses[i];
+            if (gone.HasBounds)
+                AddDynamicInvalidation(gone.BoundsMin, gone.BoundsMax);
+        }
+
         m_PrevCasterPoses.resize(meshCasters.size());
         for (sizet i = 0; i < meshCasters.size(); ++i)
         {
