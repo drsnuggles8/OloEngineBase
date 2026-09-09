@@ -37,6 +37,7 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 
@@ -198,18 +199,28 @@ namespace OloEngine::Tests
         const ReferenceEnvironmentCubemap cube = MakePerFaceCubemap();
         ASSERT_TRUE(cube.IsValid());
 
-        EXPECT_EQ(cube.Sample(glm::vec3(1.0f, 0.0f, 0.0f)), glm::vec3(1.0f, 0.0f, 0.0f)) << "+X";
-        EXPECT_EQ(cube.Sample(glm::vec3(-1.0f, 0.0f, 0.0f)), glm::vec3(0.5f, 0.0f, 0.0f)) << "-X";
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.0f, 1.0f, 0.0f)) << "+Y";
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, -1.0f, 0.0f)), glm::vec3(0.0f, 0.5f, 0.0f)) << "-Y";
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, 0.0f, 1.0f)), glm::vec3(0.0f, 0.0f, 1.0f)) << "+Z";
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, 0.0f, -1.0f)), glm::vec3(0.0f, 0.0f, 0.5f)) << "-Z";
+        // Per component rather than `==` on the vector: CLAUDE.md forbids
+        // float equality outright, and nothing here needs it — these values
+        // are exact only incidentally (a 1x1 face short-circuits the filter).
+        const auto expectRadiance = [](const glm::vec3& actual, const glm::vec3& expected, const char* what)
+        {
+            EXPECT_FLOAT_EQ(actual.r, expected.r) << what;
+            EXPECT_FLOAT_EQ(actual.g, expected.g) << what;
+            EXPECT_FLOAT_EQ(actual.b, expected.b) << what;
+        };
+
+        expectRadiance(cube.Sample(glm::vec3(1.0f, 0.0f, 0.0f)), glm::vec3(1.0f, 0.0f, 0.0f), "+X");
+        expectRadiance(cube.Sample(glm::vec3(-1.0f, 0.0f, 0.0f)), glm::vec3(0.5f, 0.0f, 0.0f), "-X");
+        expectRadiance(cube.Sample(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.0f, 1.0f, 0.0f), "+Y");
+        expectRadiance(cube.Sample(glm::vec3(0.0f, -1.0f, 0.0f)), glm::vec3(0.0f, 0.5f, 0.0f), "-Y");
+        expectRadiance(cube.Sample(glm::vec3(0.0f, 0.0f, 1.0f)), glm::vec3(0.0f, 0.0f, 1.0f), "+Z");
+        expectRadiance(cube.Sample(glm::vec3(0.0f, 0.0f, -1.0f)), glm::vec3(0.0f, 0.0f, 0.5f), "-Z");
 
         // Off-axis, but still in the +Y major-axis cone.
-        EXPECT_EQ(cube.Sample(glm::vec3(0.3f, 1.0f, -0.4f)), glm::vec3(0.0f, 1.0f, 0.0f));
+        expectRadiance(cube.Sample(glm::vec3(0.3f, 1.0f, -0.4f)), glm::vec3(0.0f, 1.0f, 0.0f), "off-axis +Y");
         // A direction need not be normalized — only its major axis and ratios
         // matter, which is what a cube lookup means.
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, 17.0f, 0.0f)), glm::vec3(0.0f, 1.0f, 0.0f));
+        expectRadiance(cube.Sample(glm::vec3(0.0f, 17.0f, 0.0f)), glm::vec3(0.0f, 1.0f, 0.0f), "unnormalized +Y");
     }
 
     TEST(ReferenceEnvironment, InFaceAxesFollowTheGlOrientationTable)
@@ -249,15 +260,15 @@ namespace OloEngine::Tests
         const f32 nan = std::numeric_limits<f32>::quiet_NaN();
         const f32 inf = std::numeric_limits<f32>::infinity();
 
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f)), glm::vec3(0.0f));
-        EXPECT_EQ(cube.Sample(glm::vec3(nan, 0.0f, 0.0f)), glm::vec3(0.0f));
-        EXPECT_EQ(cube.Sample(glm::vec3(0.0f, inf, 0.0f)), glm::vec3(0.0f));
+        EXPECT_TRUE(Math::BitwiseEqual(cube.Sample(glm::vec3(0.0f)), glm::vec3(0.0f)));
+        EXPECT_TRUE(Math::BitwiseEqual(cube.Sample(glm::vec3(nan, 0.0f, 0.0f)), glm::vec3(0.0f)));
+        EXPECT_TRUE(Math::BitwiseEqual(cube.Sample(glm::vec3(0.0f, inf, 0.0f)), glm::vec3(0.0f)));
 
         // An unbuilt cube answers black too, rather than reading Texels[0] of
         // an empty vector.
         const ReferenceEnvironmentCubemap empty;
         EXPECT_FALSE(empty.IsValid());
-        EXPECT_EQ(empty.Sample(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.0f));
+        EXPECT_TRUE(Math::BitwiseEqual(empty.Sample(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.0f)));
     }
 
     TEST(ReferenceEnvironment, NonFiniteAndNegativeTexelsAreDroppedAtConstruction)
@@ -308,7 +319,8 @@ namespace OloEngine::Tests
         };
         for (const glm::vec3& d : directions)
         {
-            EXPECT_EQ(directional.Evaluate(d), uniform.Evaluate(d)) << "direction " << d.x << ", " << d.y << ", " << d.z;
+            EXPECT_TRUE(Math::BitwiseEqual(directional.Evaluate(d), uniform.Evaluate(d)))
+                << "direction " << d.x << ", " << d.y << ", " << d.z;
         }
     }
 
@@ -326,8 +338,8 @@ namespace OloEngine::Tests
         directional.Intensity = 2.5f;
 
         const glm::vec3 d(0.3f, 0.7f, -0.2f);
-        EXPECT_EQ(uniform.Evaluate(d), radiance * 2.5f);
-        EXPECT_EQ(directional.Evaluate(d), uniform.Evaluate(d));
+        EXPECT_TRUE(Math::BitwiseEqual(uniform.Evaluate(d), radiance * 2.5f));
+        EXPECT_TRUE(Math::BitwiseEqual(directional.Evaluate(d), uniform.Evaluate(d)));
     }
 
     // -------------------------------------------------------------------------

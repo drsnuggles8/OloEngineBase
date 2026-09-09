@@ -39,6 +39,7 @@
 
 #include "PathTracing/ReferenceSceneFixtures.h"
 
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PathTracing/PathSampler.h"
@@ -769,7 +770,8 @@ namespace OloEngine::Tests
             EXPECT_TRUE(built.GetEnvironment().IsDirectional());
             // The cubemap OVERRIDES the uniform radiance rather than adding to
             // it, and Intensity scales the winner.
-            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(6.0f));
+            EXPECT_TRUE(Math::BitwiseEqual(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)),
+                                           glm::vec3(6.0f)));
         }
 
         {
@@ -785,7 +787,8 @@ namespace OloEngine::Tests
             const ReferenceScene built = builder.Build(options);
 
             EXPECT_FALSE(built.GetEnvironment().IsDirectional());
-            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.25f));
+            EXPECT_TRUE(Math::BitwiseEqual(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)),
+                                           glm::vec3(0.25f)));
         }
 
         {
@@ -797,7 +800,8 @@ namespace OloEngine::Tests
             options.EnvironmentRadiance = glm::vec3(0.25f);
             options.EnvironmentIntensity = std::numeric_limits<f32>::quiet_NaN();
             const ReferenceScene built = builder.Build(options);
-            EXPECT_EQ(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)), glm::vec3(0.25f));
+            EXPECT_TRUE(Math::BitwiseEqual(built.GetEnvironment().Evaluate(glm::vec3(0.0f, 1.0f, 0.0f)),
+                                           glm::vec3(0.25f)));
         }
     }
 } // namespace OloEngine::Tests

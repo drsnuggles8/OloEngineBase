@@ -165,7 +165,14 @@ namespace OloEngine::PathTracing
         // raster path does not. With no albedo map supplied the cutoff sees
         // BaseAlpha alone, which is 1.0 for every opaque import, so a scene
         // that opts out of maps is unchanged.
-        pending.BaseAlpha = material.GetBaseColorFactor().a;
+        // Sanitized on the way in: SetBaseColorFactor does not validate, and it
+        // is fed from scene YAML and the save-game restore. A non-finite alpha
+        // fails `alpha >= AlphaCutoff` at every masked hit, which does not read
+        // as a bad number — it reads as geometry that has silently stopped
+        // existing, on the primary, bounce AND shadow rays alike. (AlphaCutoff
+        // needs no twin guard: Material::SetAlphaCutoff already clamps.)
+        const f32 baseAlpha = material.GetBaseColorFactor().a;
+        pending.BaseAlpha = std::isfinite(baseAlpha) ? std::clamp(baseAlpha, 0.0f, 1.0f) : 1.0f;
         pending.AlphaMask = material.GetAlphaMode() == AlphaMode::Mask;
         pending.AlphaCutoff = material.GetAlphaCutoff();
         pending.NormalScale = material.GetNormalScale();

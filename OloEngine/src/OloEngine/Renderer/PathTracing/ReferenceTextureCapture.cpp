@@ -84,14 +84,19 @@ namespace OloEngine::PathTracing
         // fall-through over there — it draws and clears the global IBL — so the
         // predicate is "has a cached EnvironmentMap", not "contributes light".
         template<typename SkyComponent>
-        [[nodiscard]] bool TakeFirstSky(Scene& scene, CapturedSky& captured)
+        [[nodiscard]] bool TakeFirstSky(Scene& scene, CapturedSky& captured, const char* label)
         {
             auto view = scene.GetAllEntitiesWith<SkyComponent>();
+            bool taken = false;
+            u32 candidates = 0;
             for (auto entity : view)
             {
                 const SkyComponent& sky = view.template get<SkyComponent>(entity);
                 if (!sky.m_EnvironmentMap)
                     continue;
+                ++candidates;
+                if (taken)
+                    continue; // counting the rest, not using them — see below
                 if (sky.m_EnableIBL && sky.m_EnvironmentMap->GetEnvironmentMap())
                 {
                     captured.Cubemap = CaptureEnvironmentCubemap(sky.m_EnvironmentMap->GetEnvironmentMap());
@@ -102,9 +107,26 @@ namespace OloEngine::PathTracing
                                                  : 1.0f;
                     }
                 }
-                return true;
+                taken = true;
             }
-            return false;
+            // "First in the view" is not a stable choice — EnTT's iteration
+            // order follows pool packing history, so a scene carrying TWO
+            // usable skies of one type can bake against a different one after
+            // an unrelated registry change. Deliberately NOT fixed by sorting
+            // on UUID here: Scene::LoadAndRenderSkybox picks the first too, and
+            // a capture that sorted differently would light the bake with a
+            // sky the frame does not show — swapping a nondeterminism for a
+            // guaranteed mismatch. Matching the renderer is the contract
+            // (reference-path-tracer.md §4: differ in transport, never in the
+            // light model). What this CAN do is refuse to be quiet about it.
+            if (candidates > 1)
+            {
+                OLO_CORE_WARN("CaptureSceneSky: the scene has {} usable {} components; both the renderer and "
+                              "this capture take whichever the registry lists first, which is not a stable "
+                              "choice. Keep one sky per scene.",
+                              candidates, label);
+            }
+            return taken;
         }
     } // namespace
 
@@ -240,13 +262,13 @@ namespace OloEngine::PathTracing
         // whether a sky component EXISTS, not whether it captured, so a
         // procedural sky that has not baked its cubemap yet still shadows the
         // EnvironmentMapComponent behind it — exactly as it does on screen.
-        if (TakeFirstSky<StarNestSkyComponent>(scene, captured))
+        if (TakeFirstSky<StarNestSkyComponent>(scene, captured, "StarNestSky"))
             return captured;
-        if (TakeFirstSky<ProceduralSkyComponent>(scene, captured))
+        if (TakeFirstSky<ProceduralSkyComponent>(scene, captured, "ProceduralSky"))
             return captured;
         // The last rung has nothing to fall through to, so its answer is not
         // interesting — but discarding a [[nodiscard]] is a warning here.
-        static_cast<void>(TakeFirstSky<EnvironmentMapComponent>(scene, captured));
+        static_cast<void>(TakeFirstSky<EnvironmentMapComponent>(scene, captured, "EnvironmentMap"));
         return captured;
     }
 } // namespace OloEngine::PathTracing
