@@ -92,6 +92,10 @@ OPEN, CLOSED, UNRESOLVED = "OPEN", "CLOSED", "UNRESOLVED"
 # tech tree cannot silently trip the limit.
 _BLOCKER_CHUNK = 100
 
+# Per-chunk wall clock. The call normally answers in about a second; this is here
+# so a stalled connection degrades to UNRESOLVED instead of hanging `rank`.
+_BLOCKER_TIMEOUT_S = 30
+
 
 def blocker_key(raw):
     """Normalize one `blocked_by` entry to an int issue number.
@@ -104,7 +108,7 @@ def blocker_key(raw):
     take the whole chunk down with it.
     """
     try:
-        n = int(str(raw).lstrip("#").strip())
+        n = int(str(raw).strip().lstrip("#").strip())
     except ValueError:
         return str(raw)
     return n if n > 0 else str(raw)
@@ -112,6 +116,17 @@ def blocker_key(raw):
 
 def blocker_keys(d):
     return [blocker_key(raw) for raw in (d.get("blocked_by") or [])]
+
+
+def blocker_sort_key(k):
+    """Order blocker keys without ever comparing an int to a str.
+
+    A block can yield both — 1123 for a real edge, "n/a" for a malformed one —
+    and sorting the mixed list directly raises TypeError. Numbers sort first, in
+    numeric order; malformed entries follow, lexicographically. The second slot
+    is only reached when the first ties, which forces both sides to one type.
+    """
+    return (isinstance(k, str), k)
 
 
 def resolve_blocker_states(numbers):
@@ -130,7 +145,7 @@ def resolve_blocker_states(numbers):
     a number that does not exist, a `gh` that is offline, unauthenticated or
     rate-limited all land on UNRESOLVED, and every caller reports it.
     """
-    keys = sorted({k for k in numbers}, key=lambda k: (isinstance(k, str), str(k)))
+    keys = sorted(set(numbers), key=blocker_sort_key)
     # Only a positive int can become an alias. Callers normally pre-filter via
     # blocker_key, but one bad entry reaching the query text makes it invalid and
     # takes every real blocker in the chunk down with it, so re-check here.
@@ -146,11 +161,20 @@ def resolve_blocker_states(numbers):
                  f'{fields}\n  }}\n}}')
         # NOT gh_json(): a partial answer is useful and a total failure must not
         # kill the report. `gh` exits non-zero when *any* alias 404s while still
-        # writing the resolved ones to stdout, so parse stdout regardless.
-        out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                             capture_output=True, text=True, encoding="utf-8")
+        # writing the resolved ones to stdout, so parse stdout regardless
+        # (check=False, spelled out because that is load-bearing here).
+        #
+        # The timeout matters as much as the parse: a stalled connection would
+        # otherwise hang `rank` forever with no output at all. A timeout leaves
+        # this chunk's keys unset, so the setdefault below makes them UNRESOLVED
+        # — the same loud, counted answer as any other unreadable state.
         try:
+            out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 check=False, timeout=_BLOCKER_TIMEOUT_S)
             repo = (json.loads(out.stdout) or {}).get("data", {}).get("repository") or {}
+        except subprocess.TimeoutExpired:
+            repo = {}
         except (ValueError, AttributeError):
             repo = {}
         for n in chunk:
@@ -346,7 +370,8 @@ def cmd_rank(args):
     # `blocked?:` flag somebody has to spot. See is_blocked.
     unresolved_edges = [(num, k) for num, _, _, d in rows for k in split_blockers(d, states)[1]]
     if unresolved_edges:
-        listed = ", ".join(f"#{k} (blocks #{num})" for num, k in sorted(unresolved_edges))
+        listed = ", ".join(f"#{k} (blocks #{num})" for num, k in
+                           sorted(unresolved_edges, key=lambda e: (e[0], blocker_sort_key(e[1]))))
         print(f"[!] blocker state UNRESOLVED for {len(unresolved_edges)} edge(s) across "
               f"{len({num for num, _ in unresolved_edges})} issue(s): {listed}\n"
               f"    These stay blocked and are flagged `blocked?:`. An unresolvable "
@@ -466,6 +491,13 @@ SELF_TEST_CASES = (
     # which would fail the whole chunk and take real blockers down with it.
     ("a non-positive number is unresolvable, never an alias",
      {"blocked_by": [-5, 0]}, True, ["blocked?:-5,0"]),
+    ("whitespace around a #-prefixed blocker still resolves",
+     {"blocked_by": [" #1123 "]}, False, []),
+    # One issue can yield an int key and a str key at once. `rank` sorts the
+    # unresolvable edges for its banner, and sorting that mix directly raises
+    # TypeError before a single row is printed — see blocker_sort_key.
+    ("a numeric and a malformed blocker on one issue coexist",
+     {"blocked_by": [4242, "n/a"]}, True, ["blocked?:4242,n/a"]),
     ("open + unresolvable are reported separately",
      {"blocked_by": [1126, "n/a"]}, True, ["blocked:1126", "blocked?:n/a"]),
     ("closed + unresolvable: the closed one is gone, the unknown one remains",
@@ -483,9 +515,28 @@ SELF_TEST_CASES = (
 )
 
 
+# `rank` sorts the unresolvable edges for its banner. A block yielding both an
+# int key and a str key made that sort raise TypeError before a single row was
+# printed, so the guard has to cover the ordering itself, not just the flags.
+SORT_CASES = (
+    ("numbers numerically, malformed entries after them",
+     [999, "n/a", 42, "x"], [42, 999, "n/a", "x"]),
+    ("ints never sort lexicographically", [999, 4242], [999, 4242]),
+)
+
+
 def self_test():
     """Guard the picker. Returns the failure count."""
     failures = 0
+    for description, keys, want in SORT_CASES:
+        try:
+            got = sorted(keys, key=blocker_sort_key)
+        except TypeError as exc:
+            got = f"TypeError: {exc}"
+        if got != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (sort: {description}):\n"
+                  f"  want={want}\n  got ={got}", file=sys.stderr)
     for description, d, want_blocked, want_flags in SELF_TEST_CASES:
         got_blocked = is_blocked(d, _SELF_TEST_STATES)
         # floor=False: the low-value flag is orthogonal and every fragment here
@@ -502,7 +553,7 @@ def self_test():
 
 def cmd_selftest(args):
     failures = self_test()
-    print(f"{len(SELF_TEST_CASES)} case(s), {failures} failure(s)")
+    print(f"{len(SELF_TEST_CASES) + len(SORT_CASES)} case(s), {failures} failure(s)")
     sys.exit(1 if failures else 0)
 
 
