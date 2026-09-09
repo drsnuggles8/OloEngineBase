@@ -49,6 +49,47 @@ endif()
 
 include(FetchContent)
 
+# -----------------------------------------------------------------------------
+# Local patches on top of the pin.
+#
+# The pinned tree is patched in place by cmake/fsr2-apply-patches.cmake, which
+# restores the tree to the pin before applying so that "tree == pin + patches"
+# holds however the tree got to its current state. Each patch file names the
+# upstream PR it carries and says when to drop it.
+#
+# THE SHARP EDGE IS BUMPING THE PIN while a patch is carried. The tree is
+# permanently dirty between configures, so ExternalProject's update step
+# stashes / checks out / pops — and that pops into a conflict exactly when the
+# patched hunks are the ones that moved, which is the day the fix lands
+# upstream. It fails inside the update step, BEFORE the applier gets a chance to
+# say anything useful. Recovery: delete OloEngine/vendor/clang/fsr2gl-src and
+# re-configure, having first deleted any patch whose change is now in the pin.
+#
+# CMAKE_CONFIGURE_DEPENDS on the patch files, not just CONFIGURE_DEPENDS on the
+# glob: adding or removing a patch has to re-configure, and so does EDITING one,
+# or the tree keeps the previous version with nothing to warn you. Regenerating
+# the permutations then follows for free, because the patches edit shared headers
+# that OLO_FSR2_SHADER_INCLUDES already globs and every permutation DEPENDS on.
+# -----------------------------------------------------------------------------
+set(OLO_FSR2_PATCH_DIR "${CMAKE_CURRENT_LIST_DIR}/fsr2-patches")
+file(GLOB OLO_FSR2_PATCH_FILES CONFIGURE_DEPENDS "${OLO_FSR2_PATCH_DIR}/*.patch")
+set_property(DIRECTORY "${CMAKE_SOURCE_DIR}"
+	APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OLO_FSR2_PATCH_FILES})
+
+# FETCHCONTENT_FULLY_DISCONNECTED skips population entirely, patch step included,
+# so the fetched tree keeps whatever it happened to hold and nothing says so. Both
+# halves of that were measured here, because they do NOT behave the same way:
+# with FETCHCONTENT_UPDATES_DISCONNECTED=ON the patch step still runs (a marker
+# planted in the tree was reverted), so it needs no warning and gets none.
+if(OLO_FSR2_PATCH_FILES AND FETCHCONTENT_FULLY_DISCONNECTED)
+	message(WARNING
+		"FSR2: FETCHCONTENT_FULLY_DISCONNECTED is ON, so the patch step will NOT run and "
+		"OloEngine/vendor/clang/fsr2gl-src keeps whatever it currently holds — possibly "
+		"unpatched, possibly patched with an older version of cmake/fsr2-patches/*.patch. "
+		"The FSR2 dispatch cost is the tell (see notes-renderer.md). Turn it off for one "
+		"configure to re-sync the tree.")
+endif()
+
 # Pinned to a full commit SHA, never a tag — see the pinning discipline note in
 # OloEngine/vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a SHA pin.
 #
@@ -65,10 +106,13 @@ include(FetchContent)
 # would fail (or worse, succeed) inside our build. We want the sources only.
 FetchContent_Declare(fsr2gl
 	GIT_REPOSITORY https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL.git
-	GIT_TAG 7fb8c92d18e300b84975f2f609b58713b8bde4a7  # main @ 2026-05-04
+	GIT_TAG f188a0d839665cf110957c1510dfeba4e746aa98  # main @ 2026-08-26
 	GIT_SHALLOW FALSE
 	GIT_SUBMODULES ""
-	SOURCE_SUBDIR olo-does-not-build-upstream-cmake)
+	SOURCE_SUBDIR olo-does-not-build-upstream-cmake
+	PATCH_COMMAND "${CMAKE_COMMAND}"
+		"-DOLO_FSR2_PATCH_DIR=${OLO_FSR2_PATCH_DIR}"
+		-P "${CMAKE_CURRENT_LIST_DIR}/fsr2-apply-patches.cmake")
 
 FetchContent_MakeAvailable(fsr2gl)
 
