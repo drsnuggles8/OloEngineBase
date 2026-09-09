@@ -106,6 +106,36 @@ namespace
         McpServer m_Server;
         std::atomic<bool> m_ObservedCancel{ false };
         std::atomic<int> m_StepsCompleted{ 0 };
+
+        // Block until `fake_slow` is genuinely mid-flight, i.e. the server has
+        // registered the call and the handler has completed at least one step.
+        //
+        // WHY THIS EXISTS. A cancellation test has to cancel a call that is
+        // ALREADY RUNNING; cancelling one the server has not registered yet
+        // hits nothing, the call then runs to completion, and the test fails
+        // claiming the cancel was ignored. Sleeping a fixed 150-200 ms to
+        // "let it start" is a bet on thread start + TCP connect + POST +
+        // registration all fitting in that window, and on a loaded CI shard
+        // running thousands of tests in parallel it does not — measured on
+        // PR #1133, where the HTTP variant came back with the full
+        // `{"result":{"content":[{"text":"done"}]}}` frame it asserts the
+        // absence of.
+        //
+        // Bounded, so a server that never runs the handler fails fast and loud
+        // rather than hanging the suite.
+        [[nodiscard]] bool WaitUntilSlowToolIsRunning(std::chrono::milliseconds timeout = std::chrono::seconds(10))
+        {
+            const auto deadline = std::chrono::steady_clock::now() + timeout;
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                if (m_StepsCompleted.load() > 0)
+                {
+                    return true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            return false;
+        }
     };
 
     // ---- progress at the framing seam -------------------------------------------
@@ -205,8 +235,9 @@ namespace
                 framedBody = framed.Body;
             });
 
-        // Let a few steps run, then cancel by the SAME id value.
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        // Cancel by the SAME id value, once the tool is provably running —
+        // see WaitUntilSlowToolIsRunning for why this is not a sleep.
+        ASSERT_TRUE(WaitUntilSlowToolIsRunning()) << "fake_slow never started; nothing to cancel";
         const Json response = m_Server.HandleMessage(MakeCancelNotification("req-9"));
         EXPECT_TRUE(response.is_null()) << "a notification gets no response";
 
@@ -395,7 +426,9 @@ namespace
                                   });
             });
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        ASSERT_TRUE(WaitUntilSlowToolIsRunning())
+            << "fake_slow never started over HTTP; a cancel now would hit nothing and the call would "
+               "complete normally";
         httplib::Client canceller("127.0.0.1", port);
         auto res = canceller.Post("/mcp", headers, MakeCancelNotification("http-3").dump(),
                                   "application/json");
