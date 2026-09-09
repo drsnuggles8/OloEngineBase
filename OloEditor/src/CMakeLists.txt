@@ -11,6 +11,7 @@
 		"Automation/AutomationAudienceReport.h"
 		"Automation/AutomationCommand.h"
 		"Automation/AutomationHost.h"
+		"Automation/AutomationMainThreadJob.h"
 		"Automation/AutomationRegistry.cpp"
 		"Automation/AutomationRegistry.h"
 		"Automation/AutomationResult.cpp"

@@ -71,9 +71,11 @@ namespace OloEngine::Automation
         // blocking the calling (handler) thread on the result. The job runs before
         // the scene is stepped that frame, so it observes a consistent snapshot.
         //
-        // If the game thread does not service the job within `timeout` (editor
-        // stalled / shutting down), this throws std::runtime_error and the caller
-        // surfaces it as a command error.
+        // If the game thread does not start the job within `timeout` (editor
+        // stalled / shutting down), cancel it before throwing std::runtime_error.
+        // An abandoned queued job must never execute later. Once execution has
+        // started, wait for its actual result, including any exception, so a
+        // structural write cannot finish after its caller receives a timeout.
         //
         // MUST NOT be called from the game thread (it would deadlock). Commands only
         // run on handler threads, so this holds.

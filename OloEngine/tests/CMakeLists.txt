@@ -803,6 +803,7 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationRegistry.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationResult.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSchemaValidation.cpp
+		MCP/McpMainThreadMarshalTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —
