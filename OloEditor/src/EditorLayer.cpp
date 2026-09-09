@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/Environment.h"
 #include "EditorLayer.h"
+#include "Automation/AutomationSceneDocument.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
 #include "MCP/McpScriptTools.h"
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -516,6 +518,7 @@ namespace OloEngine
                 // history available") rather than mutating the runtime scene.
                 return m_SceneState == SceneState::Edit ? &m_CommandHistory : nullptr;
             };
+            mcpContext.SceneDocument = CreateSceneDocumentAccess();
             // olo_reload_script: reload the C# app assembly — the same path as the
             // Script ▸ Reload assembly menu (Ctrl+R). Main-thread-only (Mono domain),
             // so the MCP server calls it from a MarshalRead job. Reports honestly when
@@ -696,6 +699,13 @@ namespace OloEngine
             // "leave the current selection untouched on a bad uuid" contract.
             mcpContext.SelectEntityInEditor = [this](u64 entityUuid, bool clear) -> MCP::McpSelectEntityResult
             { return SelectEntityInEditor(entityUuid, clear); };
+            mcpContext.InvalidateEntityReferences = [this]()
+            {
+                m_SceneHierarchyPanel.ClearSelection();
+                m_HoveredEntity = {};
+                m_StatisticsPanel.SetHoveredEntity({});
+                m_PickingReadPending = false;
+            };
             mcpContext.GetFrameIndex = [this]() -> u64
             { return m_FrameIndex; };
             mcpContext.IsCaptureUnready = [this]() -> bool
@@ -1937,7 +1947,11 @@ namespace OloEngine
                         pixelData = framebuffer->ReadPixel(1, mouseX, mouseY);
                     }
                 }
-                m_HoveredEntity = pixelData == -1 ? Entity() : Entity(static_cast<entt::entity>(pixelData), m_ActiveScene.get());
+                // A delayed readback can refer to an entity deleted since submission.
+                const auto handle = static_cast<entt::entity>(pixelData);
+                m_HoveredEntity = pixelData != -1 && m_ActiveScene->GetAllEntitiesWith<IDComponent>().contains(handle)
+                                      ? Entity(handle, m_ActiveScene.get())
+                                      : Entity();
             }
 
             // Terrain editor: raycast from mouse into heightmap and update brush
@@ -2275,9 +2289,9 @@ namespace OloEngine
             {
                 undoLabel += " (" + m_CommandHistory.GetUndoDescription() + ")";
             }
-            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_CommandHistory.CanUndo()))
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, m_SceneState == SceneState::Edit && m_CommandHistory.CanUndo()))
             {
-                m_CommandHistory.Undo();
+                ApplyEditorHistory(false);
                 SyncWindowTitle();
             }
 
@@ -2286,9 +2300,9 @@ namespace OloEngine
             {
                 redoLabel += " (" + m_CommandHistory.GetRedoDescription() + ")";
             }
-            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_CommandHistory.CanRedo()))
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, m_SceneState == SceneState::Edit && m_CommandHistory.CanRedo()))
             {
-                m_CommandHistory.Redo();
+                ApplyEditorHistory(true);
                 SyncWindowTitle();
             }
 
@@ -3489,7 +3503,7 @@ namespace OloEngine
                     else if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         redo ? m_ShaderGraphEditorPanel.Redo() : m_ShaderGraphEditorPanel.Undo();
                     else
-                        redo ? m_CommandHistory.Redo() : m_CommandHistory.Undo();
+                        ApplyEditorHistory(redo);
                     SyncWindowTitle();
                 }
                 break;
@@ -3503,7 +3517,7 @@ namespace OloEngine
                     else if (m_ShowShaderGraphEditor && m_ShaderGraphEditorPanel.IsOpen() && m_ShaderGraphEditorPanel.IsFocused())
                         m_ShaderGraphEditorPanel.Redo();
                     else
-                        m_CommandHistory.Redo();
+                        ApplyEditorHistory(true);
                     SyncWindowTitle();
                 }
                 break;
@@ -4292,37 +4306,92 @@ namespace OloEngine
         return framed;
     }
 
+    Automation::SceneDocumentAccess EditorLayer::CreateSceneDocumentAccess()
+    {
+        Automation::SceneDocumentAccess access;
+        access.Capture = [this]()
+        {
+            auto document = Automation::CaptureSceneDocument(m_EditorScene, m_EditorScenePath);
+            for (const auto& entity : m_SceneHierarchyPanel.GetSelectedEntities())
+            {
+                if (entity)
+                    document.Selection.push_back(entity.GetUUID());
+            }
+            document.RenderedSettings = { Renderer3D::GetPostProcessSettings(), Renderer3D::GetSnowSettings(),
+                                          Renderer3D::GetWindSettings(), Renderer3D::GetSnowAccumulationSettings(),
+                                          Renderer3D::GetSnowEjectaSettings(), Renderer3D::GetPrecipitationSettings(),
+                                          Renderer3D::GetFogSettings() };
+            return document;
+        };
+        access.Install = [this](const Automation::SceneDocumentSnapshot& document)
+        {
+            Automation::ApplySceneDocument(document);
+            m_EditorScenePath = document.Path;
+            if (m_EditorScene != document.SceneRef)
+                SetEditorScene(document.SceneRef, false);
+            if (m_SceneState == SceneState::Edit)
+            {
+                m_SceneHierarchyPanel.ClearSelection();
+                for (const UUID uuid : document.Selection)
+                {
+                    if (auto entity = m_EditorScene->TryGetEntityWithUUID(uuid))
+                        m_SceneHierarchyPanel.ToggleEntitySelection(*entity);
+                }
+            }
+            const auto& settings = document.RenderedSettings;
+            Renderer3D::GetPostProcessSettings() = settings.PostProcess;
+            Renderer3D::GetSnowSettings() = settings.Snow;
+            Renderer3D::GetWindSettings() = settings.Wind;
+            Renderer3D::GetSnowAccumulationSettings() = settings.SnowAccumulation;
+            Renderer3D::GetSnowEjectaSettings() = settings.SnowEjecta;
+            Renderer3D::GetPrecipitationSettings() = settings.Precipitation;
+            Renderer3D::GetFogSettings() = settings.Fog;
+            ApplyRendererSettingsToGraph();
+            m_ShowAutoSaveRecovery = false;
+            m_CancelAutoSaveRecovery = true;
+            m_PendingRecoveryScenePath.clear();
+            m_PendingRecoveryAutoPath.clear();
+            m_TimeSinceLastAutoSave = 0.0f;
+            SyncWindowTitle();
+        };
+        access.PrepareSave = [](const Automation::SceneDocumentSnapshot& document)
+        {
+            auto prepared = document;
+            prepared.AuthoredSettings = document.RenderedSettings;
+            prepared.AuthoredSettings.PostProcess =
+                StripTieringOverlay(document.RenderedSettings.PostProcess, document.AuthoredSettings.PostProcess);
+            return prepared;
+        };
+        access.AssetDirectory = []()
+        { return Project::GetActive() ? Project::GetAssetDirectory() : std::filesystem::path{}; };
+        access.IsDirty = [this]()
+        { return m_CommandHistory.IsDirty(); };
+        return access;
+    }
+
+    bool EditorLayer::SaveSceneToPath(const std::filesystem::path& path)
+    {
+        try
+        {
+            (void)Automation::SaveSceneDocument(CreateSceneDocumentAccess(), m_CommandHistory, path);
+        }
+        catch (const std::exception& error)
+        {
+            OLO_ERROR("Failed to save scene: {}", error.what());
+            return false;
+        }
+        SyncWindowTitle();
+        SyncPrefsFromMembers();
+        if (Project::GetActive())
+            m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
+        DeleteAutoSaveFile();
+        m_TimeSinceLastAutoSave = 0.0f;
+        return true;
+    }
+
     bool EditorLayer::SaveScene()
     {
-        if (!m_EditorScenePath.empty())
-        {
-            // Strip tiering overlay so scene stores un-tiered base settings
-            m_EditorScene->SetPostProcessSettings(
-                StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
-            m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-            m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-            m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-            m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-            m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-            m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
-            SerializeScene(m_EditorScene, m_EditorScenePath);
-            m_CommandHistory.MarkSaved();
-            SyncWindowTitle();
-
-            // Save editor preferences alongside scene
-            SyncPrefsFromMembers();
-            if (Project::GetActive())
-            {
-                m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
-            }
-
-            // Clean up auto-save file on manual save
-            DeleteAutoSaveFile();
-            m_TimeSinceLastAutoSave = 0.0f;
-            return true;
-        }
-
-        return SaveSceneAs();
+        return m_EditorScenePath.empty() ? SaveSceneAs() : SaveSceneToPath({});
     }
 
     bool EditorLayer::SaveSceneAs()
@@ -4338,33 +4407,7 @@ namespace OloEngine
             return false;
         }
 
-        m_EditorScene->SetName(filepath.stem().string());
-        m_EditorScenePath = filepath;
-
-        // Strip tiering overlay so scene stores un-tiered base settings
-        m_EditorScene->SetPostProcessSettings(
-            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
-        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
-        SerializeScene(m_EditorScene, filepath);
-        m_CommandHistory.MarkSaved();
-        SyncWindowTitle();
-
-        // Save editor preferences alongside scene
-        SyncPrefsFromMembers();
-        if (Project::GetActive())
-        {
-            m_EditorPreferencesPanel.Save(m_Prefs, Project::GetProjectDirectory());
-        }
-
-        // Clean up auto-save file on manual save
-        DeleteAutoSaveFile();
-        m_TimeSinceLastAutoSave = 0.0f;
-        return true;
+        return SaveSceneToPath(filepath);
     }
 
     void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
@@ -4711,6 +4754,7 @@ namespace OloEngine
 
         // Reset hovered entity before changing scenes to prevent accessing stale registry
         m_HoveredEntity = Entity();
+        m_PickingReadPending = false;
         m_PickingReadPending = false; // Discard stale PBO data from the old scene
 
         m_ActiveScene = m_EditorScene;
@@ -4720,7 +4764,7 @@ namespace OloEngine
         m_SaveGamePanel.SetContext(nullptr, nullptr);
     }
 
-    void EditorLayer::SetEditorScene(const Ref<Scene>& scene)
+    void EditorLayer::SetEditorScene(const Ref<Scene>& scene, bool clearHistory)
     {
         OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
@@ -4754,14 +4798,34 @@ namespace OloEngine
 
         m_ActiveScene = m_EditorScene;
 
-        // Clear undo history when switching scenes
-        m_CommandHistory.Clear();
+        // UI open/new establishes a new history; an automation document command
+        // retains the stack so its scene replacement itself can be undone.
+        if (clearHistory)
+            m_CommandHistory.Clear();
 
         // (The ephemeral MCP sun-direction override clear that used to live here
         // was retired by issue #633 — the MCP time-of-day tools now edit the
         // serialized TimeOfDayComponent, which scene swaps reload normally.)
 
         SyncWindowTitle();
+    }
+
+    void EditorLayer::ApplyEditorHistory(bool redo)
+    {
+        if (m_SceneState != SceneState::Edit)
+            return;
+        try
+        {
+            if (redo)
+                m_CommandHistory.Redo();
+            else
+                m_CommandHistory.Undo();
+            SyncWindowTitle();
+        }
+        catch (const std::exception& error)
+        {
+            OLO_ERROR("Cannot {} editor operation: {}", redo ? "redo" : "undo", error.what());
+        }
     }
 
     void EditorLayer::ApplyRendererSettingsToGraph()

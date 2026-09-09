@@ -28,6 +28,7 @@
 #include "Automation/AutomationCommand.h"
 #include "Automation/AutomationRegistry.h"
 #include "Automation/AutomationResult.h"
+#include "Automation/AutomationSceneDocument.h"
 
 #include "MCP/McpCaptureRegion.h"
 #include "MCP/McpExposure.h"
@@ -599,6 +600,12 @@ namespace OloEngine::MCP
         // Null in a build that does not back the server with an editor (the dispatch
         // tests), and gated at dispatch by the "Allow writes" session toggle.
         std::function<CommandHistory*()> GetCommandHistory;
+
+        // Nonmodal authored-document lifecycle. Call only inside a marshaled
+        // main-thread job; writes also require the Edit-only command history.
+        Automation::SceneDocumentAccess SceneDocument;
+        // Clear editor-held handles before structural undo/redo destroys entities.
+        std::function<void()> InvalidateEntityReferences;
 
         // Reload the C# script assembly — the editor's Script ▸ Reload assembly
         // (Ctrl+R) path, ScriptEngine::ReloadAssembly(), so an agent can iterate on

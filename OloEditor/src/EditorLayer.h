@@ -109,6 +109,8 @@ namespace OloEngine
         bool FrameEditorCameraOnEntity(u64 entityUuid);
         bool SaveScene();
         bool SaveSceneAs();
+        bool SaveSceneToPath(const std::filesystem::path& path);
+        Automation::SceneDocumentAccess CreateSceneDocumentAccess();
 
         void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
@@ -197,7 +199,8 @@ namespace OloEngine
         void ApplyPreferences();
         void SyncPrefsFromMembers();
 
-        void SetEditorScene(const Ref<Scene>& scene);
+        void SetEditorScene(const Ref<Scene>& scene, bool clearHistory = true);
+        void ApplyEditorHistory(bool redo);
         // Push the live RendererSettings (rendering path, culling, Forward+/depth-prepass
         // derivation) into the render graph / pass state — the same call the settings
         // panel and the MCP write tool make on every edit (#534). Nothing else calls it

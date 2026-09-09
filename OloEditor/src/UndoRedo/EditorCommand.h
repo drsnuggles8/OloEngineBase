@@ -2,9 +2,12 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <cstddef>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -73,16 +76,22 @@ namespace OloEngine
       public:
         static constexpr std::size_t MaxHistorySize = 128;
 
-        void Execute(std::unique_ptr<EditorCommand> command)
+        // Document operations (new/save) establish a checkpoint that belongs to
+        // their resulting document. Undo restores the outgoing document's exact
+        // checkpoint; ordinary edits retain the existing save-point semantics.
+        void Execute(std::unique_ptr<EditorCommand> command, bool markSaved = false)
         {
             command->Execute();
             if (!m_RedoStack.empty() && m_SavePointValid && m_SavePointVersion > m_Version)
             {
                 m_SavePointValid = false;
             }
-            m_UndoStack.push_back(std::move(command));
+            const SavePoint previousSavePoint{ m_SavePointVersion, m_SavePointValid };
+            m_UndoStack.push_back({ std::move(command), markSaved ? std::optional(previousSavePoint) : std::nullopt });
             m_RedoStack.clear();
             ++m_Version;
+            if (markSaved)
+                MarkSaved();
 
             // Limit history size
             while (m_UndoStack.size() > MaxHistorySize)
@@ -99,7 +108,7 @@ namespace OloEngine
             {
                 m_SavePointValid = false;
             }
-            m_UndoStack.push_back(std::move(command));
+            m_UndoStack.push_back({ std::move(command), std::nullopt });
             m_RedoStack.clear();
             ++m_Version;
 
@@ -117,11 +126,19 @@ namespace OloEngine
                 return;
             }
 
-            auto command = std::move(m_UndoStack.back());
+            // A guarded disk restore can refuse an external modification. Do
+            // not remove its entry or alter dirty state when the command throws.
+            m_UndoStack.back().Command->Undo();
+            auto entry = std::move(m_UndoStack.back());
             m_UndoStack.pop_back();
-            command->Undo();
-            m_RedoStack.push_back(std::move(command));
             --m_Version;
+            if (entry.PreviousSavePoint)
+            {
+                m_SavePointVersion = entry.PreviousSavePoint->Version;
+                m_SavePointValid = entry.PreviousSavePoint->Valid;
+            }
+            m_RedoStack.push_back(std::move(entry));
+            TrimSavePoint();
         }
 
         void Redo()
@@ -131,11 +148,13 @@ namespace OloEngine
                 return;
             }
 
-            auto command = std::move(m_RedoStack.back());
+            m_RedoStack.back().Command->Execute();
+            auto entry = std::move(m_RedoStack.back());
             m_RedoStack.pop_back();
-            command->Execute();
-            m_UndoStack.push_back(std::move(command));
             ++m_Version;
+            if (entry.PreviousSavePoint)
+                MarkSaved();
+            m_UndoStack.push_back(std::move(entry));
         }
 
         [[nodiscard]] bool CanUndo() const
@@ -149,12 +168,12 @@ namespace OloEngine
 
         [[nodiscard]] std::string GetUndoDescription() const
         {
-            return m_UndoStack.empty() ? "" : m_UndoStack.back()->GetDescription();
+            return m_UndoStack.empty() ? "" : m_UndoStack.back().Command->GetDescription();
         }
 
         [[nodiscard]] std::string GetRedoDescription() const
         {
-            return m_RedoStack.empty() ? "" : m_RedoStack.back()->GetDescription();
+            return m_RedoStack.empty() ? "" : m_RedoStack.back().Command->GetDescription();
         }
 
         // Save-point tracking for unsaved-changes detection
@@ -183,6 +202,18 @@ namespace OloEngine
         }
 
       private:
+        struct SavePoint
+        {
+            std::size_t Version;
+            bool Valid;
+        };
+
+        struct Entry
+        {
+            std::unique_ptr<EditorCommand> Command;
+            std::optional<SavePoint> PreviousSavePoint;
+        };
+
         void TrimSavePoint()
         {
             // When oldest entry is discarded, check if save point is still reachable
@@ -197,8 +228,8 @@ namespace OloEngine
             }
         }
 
-        std::deque<std::unique_ptr<EditorCommand>> m_UndoStack;
-        std::deque<std::unique_ptr<EditorCommand>> m_RedoStack;
+        std::deque<Entry> m_UndoStack;
+        std::deque<Entry> m_RedoStack;
         std::size_t m_Version = 0;
         std::size_t m_SavePointVersion = 0;
         bool m_SavePointValid = true;

@@ -17,11 +17,13 @@
 # Compile TIME is a poor proxy for this and is how the first three were missed: they rank
 # 15th, 18th and 13th by duration. The pool is what bounds how many run at once.
 set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
+set(_olo_automation_component_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentRegistry.cpp)
 set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
 set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
 set(_olo_render_graph_test_src Rendering/RenderGraphTest.cpp)
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	set(_olo_mcp_field_registry_src "")
+	set(_olo_automation_component_registry_src "")
 	set(_olo_mcp_tools_render_src "")
 	set(_olo_component_round_trip_src "")
 	set(_olo_render_graph_test_src "")
@@ -803,6 +805,14 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationRegistry.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationResult.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSchemaValidation.cpp
+		${_olo_automation_component_registry_src}
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEntityCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
+		MCP/McpAutomationComponentsTest.cpp
+		MCP/McpAutomationEntitiesTest.cpp
+		MCP/McpAutomationSceneLifecycleTest.cpp
 		MCP/McpMainThreadMarshalTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
@@ -1297,6 +1307,7 @@ add_executable(OloEngine-Tests
 
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_SOURCE_DIR}/OloEditor/src"
+		"Automation/AutomationComponentRegistry.cpp"
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsRender.cpp"
 	)

@@ -3,6 +3,7 @@
 #include "MCP/McpEventStream.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpServer.h"
+#include "Automation/AutomationSceneAuthoring.h"
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
@@ -196,6 +197,9 @@ namespace OloEngine::MCP
         // follows each toolset's first appearance in the pre-split flat list.
         RegisterDiagnosticsTools(registry);
         RegisterSceneTools(registry);
+        Automation::RegisterEntityAuthoringCommands(registry);
+        Automation::RegisterComponentAuthoringCommands(registry);
+        Automation::RegisterSceneLifecycleCommands(registry);
         RegisterPerfTools(registry);
         RegisterRenderTools(registry);
         RegisterShaderTools(registry);

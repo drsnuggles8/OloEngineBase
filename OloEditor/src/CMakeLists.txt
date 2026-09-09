@@ -18,6 +18,16 @@
 		"Automation/AutomationResult.h"
 		"Automation/AutomationSchemaValidation.cpp"
 		"Automation/AutomationSchemaValidation.h"
+		"Automation/AutomationSceneAuthoring.h"
+		"Automation/AutomationComponentRegistry.h"
+		"Automation/AutomationComponentRegistry.cpp"
+		"Automation/AutomationComponentCommands.cpp"
+		"Automation/AutomationEntityCommands.cpp"
+		"Automation/AutomationEntityCommands.h"
+		"Automation/AutomationSceneCommands.h"
+		"Automation/AutomationSceneCommands.cpp"
+		"Automation/AutomationSceneDocument.h"
+		"Automation/AutomationSceneDocument.cpp"
 
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"
@@ -156,7 +166,7 @@ endif()
 # Heavy-TU compile pool (issue #822): see the matching block in OloEngine/src/CMakeLists.txt for
 # why the removal must stay conditional on the pool actually being available.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp" "MCP/McpToolsRender.cpp")
+	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp" "MCP/McpToolsRender.cpp" "Automation/AutomationComponentRegistry.cpp")
 endif()
 
 add_executable(OloEditor
@@ -171,6 +181,8 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEditor "${CMAKE_CURRENT_SOURCE_DIR}"
+		# Instantiates typed snapshots for the complete generated component set.
+		"Automation/AutomationComponentRegistry.cpp"
 		"MCP/McpFieldRegistry.cpp"
 		# 7,838 MB peak compiler RSS measured cold (issue #822 follow-up), and like
 		# McpFieldRegistry it is compiled into OloEngine-Tests as well, so the cost is paid twice.
