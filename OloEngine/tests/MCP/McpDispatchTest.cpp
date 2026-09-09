@@ -19,6 +19,8 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::ExposurePolicy;
+    using OloEngine::MCP::ExposureProfile;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::PromptDef;
     using OloEngine::MCP::ResourceDef;
@@ -67,6 +69,13 @@ namespace
         McpDispatchTest()
             : m_Server(EditorMcpContext{})
         {
+            // tools/list defaults to the `core` exposure profile (#1124), which lists
+            // only a curated set of REAL tool names plus the gateway — so none of the
+            // fakes below would appear. These tests are about the listing MECHANICS,
+            // not about exposure, so opt into the full surface explicitly. The
+            // exposure filter itself is covered by McpExposureProfileTest.
+            m_Server.SetExposurePolicy(ExposurePolicy{ ExposureProfile::Full, {} });
+
             ToolDef echo;
             echo.Name = "fake_echo";
             echo.Description = "Echo back the 'text' argument.";

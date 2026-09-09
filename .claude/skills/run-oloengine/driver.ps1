@@ -45,6 +45,18 @@ param(
     # click it and every write is refused. Off by default -- an agent should ask for
     # writes deliberately, not get them by accident.
     [switch]$AllowWrites,
+    # attach: which tools tools/list ADVERTISES (issue #1124). The editor defaults to
+    # 'core' -- a curated set plus the olo_capability / olo_tool_search /
+    # olo_tool_describe / olo_tool_execute gateway -- because the full catalogue is
+    # ~270 KB / ~68k tokens of schemas before the session asks anything. Every tool
+    # stays CALLABLE by name under every profile; this only changes what a client sees
+    # when it lists. Pass 'full' for a session that would rather pay the tokens than
+    # discover, or 'toolset' with -McpToolsets.
+    [ValidateSet('', 'core', 'toolset', 'full')]
+    [string]$ToolProfile = '',
+    # attach: with -ToolProfile toolset, the toolsets to list on top of the core set,
+    # e.g. 'render,physics'. Names come from olo_capability's catalogue.
+    [string]$McpToolsets = '',
     # 'print' (default) uses PrintWindow -> captures THIS window's own surface even
     # when occluded/not focused. 'screen' BitBlts the desktop at the window rect and
     # only works if OloEditor is genuinely the top-most visible window (it usually is
@@ -478,12 +490,14 @@ switch ($Action) {
         # editor reads it inside the autostart block, after Start() succeeds. Setting
         # it on an already-running editor does nothing.
         if ($AllowWrites) { $env:OLO_MCP_ALLOW_WRITES = '1' }
+        if ($ToolProfile) { $env:OLO_MCP_TOOL_PROFILE = $ToolProfile }
+        if ($McpToolsets) { $env:OLO_MCP_TOOLSETS = $McpToolsets }
         try {
             $proc = Start-Editor $exePath $workDir $true   # detached: survives this script
             $hwnd = Wait-Window $proc $WaitSeconds $exePath
         }
         finally {
-            Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_MCP_ALLOW_WRITES -ErrorAction SilentlyContinue
+            Remove-Item Env:OLO_MCP_AUTOSTART, Env:OLO_MCP_PORT, Env:OLO_MCP_DISCOVERY_FILE, Env:OLO_MCP_ALLOW_WRITES, Env:OLO_MCP_TOOL_PROFILE, Env:OLO_MCP_TOOLSETS -ErrorAction SilentlyContinue
         }
 
         New-Item -ItemType Directory -Force -Path (Split-Path $pidFile) | Out-Null
