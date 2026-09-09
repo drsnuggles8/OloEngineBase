@@ -25,7 +25,9 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <array>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -411,6 +413,16 @@ TEST_F(LocalizationFixture, ConcurrentGetIsSafeAcrossLocaleSwitch)
     // Smoke-test concurrent reads racing against a writer. Validates that
     // returning std::string-by-value rather than const-ref from Get() is
     // sound — refs would dangle the moment the writer swaps tables.
+    //
+    // The overlap between the readers and the locale-flip storm is established
+    // explicitly, not assumed: the writer waits for every reader to be live
+    // before it starts flipping, and keeps flipping until every reader has done
+    // a floor of work *inside* the storm. An earlier version bounded the writer
+    // with 50 sleeps of 200 us and asserted only that the total read count was
+    // non-zero, so a slow thread start made the test either vacuous or red
+    // (issue #1146). Nothing here is timing-dependent for correctness; the two
+    // timeouts exist only so a genuinely stuck run fails loudly instead of
+    // hanging CI.
     auto enPath = OloEngine::Tests::TempFile("olo_en_race.ololocale");
     auto dePath = OloEngine::Tests::TempFile("olo_de_race.ololocale");
     {
@@ -424,15 +436,21 @@ TEST_F(LocalizationFixture, ConcurrentGetIsSafeAcrossLocaleSwitch)
     ASSERT_TRUE(LocalizationManager::LoadLocale(enPath));
     ASSERT_TRUE(LocalizationManager::LoadLocale(dePath));
 
-    std::atomic<bool> stop{ false };
-    std::atomic<u64> readCount{ 0 };
     constexpr int kReaderCount = 4;
+    constexpr int kMinFlips = 50;
+    constexpr u64 kMinReadsPerReader = 64;
+    constexpr auto kStartupTimeout = std::chrono::seconds(30);
+    constexpr auto kProgressTimeout = std::chrono::seconds(60);
+
+    std::atomic<bool> stop{ false };
+    std::array<std::atomic<u64>, kReaderCount> reads{};
+
     std::vector<std::thread> readers;
     readers.reserve(kReaderCount);
     for (int i = 0; i < kReaderCount; ++i)
     {
         readers.emplace_back(
-            [&]
+            [&reads, &stop, i]
             {
                 while (!stop.load(std::memory_order_relaxed))
                 {
@@ -441,24 +459,89 @@ TEST_F(LocalizationFixture, ConcurrentGetIsSafeAcrossLocaleSwitch)
                     // between switches left no active locale, which shouldn't
                     // happen with our lock discipline.
                     EXPECT_TRUE(s == "Play" || s == "Spielen") << "got: " << s;
-                    readCount.fetch_add(1, std::memory_order_relaxed);
+                    reads[static_cast<sizet>(i)].fetch_add(1, std::memory_order_relaxed);
                 }
             });
     }
 
-    for (int i = 0; i < 50; ++i)
+    // Phase 1: wait until every reader has completed at least one read, so
+    // the flip storm below is guaranteed to overlap live readers.
+    bool allStarted = true;
     {
-        LocalizationManager::SetCurrentLocale((i % 2 == 0) ? "en" : "de");
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
+        const auto deadline = std::chrono::steady_clock::now() + kStartupTimeout;
+        for (sizet i = 0; i < static_cast<sizet>(kReaderCount) && allStarted; ++i)
+        {
+            while (reads[i].load(std::memory_order_relaxed) == 0)
+            {
+                if (std::chrono::steady_clock::now() > deadline)
+                {
+                    allStarted = false;
+                    break;
+                }
+                std::this_thread::yield();
+            }
+        }
     }
+
+    // Phase 2: flip the locale until both floors are met: a minimum number of
+    // switches, and a minimum number of reads per reader observed since the
+    // flipping began. The loop exit is driven by observed progress, never by
+    // elapsed time.
+    std::array<u64, kReaderCount> baseline{};
+    int flips = 0;
+    bool metFloors = false;
+    if (allStarted)
+    {
+        for (sizet i = 0; i < static_cast<sizet>(kReaderCount); ++i)
+            baseline[i] = reads[i].load(std::memory_order_relaxed);
+
+        const auto deadline = std::chrono::steady_clock::now() + kProgressTimeout;
+        while (true)
+        {
+            LocalizationManager::SetCurrentLocale((flips % 2 == 0) ? "en" : "de");
+            ++flips;
+
+            if (flips >= kMinFlips)
+            {
+                bool enough = true;
+                for (sizet i = 0; i < static_cast<sizet>(kReaderCount); ++i)
+                    enough = enough && (reads[i].load(std::memory_order_relaxed) - baseline[i]) >= kMinReadsPerReader;
+                if (enough)
+                {
+                    metFloors = true;
+                    break;
+                }
+            }
+
+            if (std::chrono::steady_clock::now() > deadline)
+                break;
+
+            // Give the readers a chance at the shared lock. A scheduling hint
+            // only; the loop above decides when to stop.
+            std::this_thread::yield();
+        }
+    }
+
     stop.store(true, std::memory_order_relaxed);
     for (auto& t : readers)
         t.join();
 
-    EXPECT_GT(readCount.load(), 0u);
-
     std::filesystem::remove(enPath);
     std::filesystem::remove(dePath);
+
+    ASSERT_TRUE(allStarted) << "reader threads did not complete a single read within "
+                            << kStartupTimeout.count() << "s; the locale-flip storm would not "
+                                                          "have overlapped them";
+    ASSERT_TRUE(metFloors) << "readers made too little progress within " << kProgressTimeout.count()
+                           << "s across " << flips << " locale flips";
+
+    for (sizet i = 0; i < static_cast<sizet>(kReaderCount); ++i)
+    {
+        const u64 done = reads[i].load(std::memory_order_relaxed) - baseline[i];
+        EXPECT_GE(done, kMinReadsPerReader)
+            << "reader " << i << " completed only " << done << " reads across " << flips
+            << " locale flips";
+    }
 }
 
 // -----------------------------------------------------------------------------
