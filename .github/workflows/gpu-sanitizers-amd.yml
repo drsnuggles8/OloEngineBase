@@ -97,8 +97,11 @@ on:
     # an odd minute keeps the two runs' summaries apart). Odd minute follows the
     # house convention (cross-vendor.yml) of avoiding the on-the-hour surge.
     # GitHub may still delay scheduled runs by tens of minutes under load; this
-    # job is not time-critical, and it has 240 minutes to finish before the
-    # box's 06:00 (+60 min) reboot timer -- see the timeout comment on the job.
+    # job is not time-critical. It gets ONE arm (median 132 min, max 216
+    # measured) against the 07:00 UTC working-day fence -- both enforced by the
+    # `gate` job below, which is where the night's budget is decided. There is no
+    # reboot timer holding this workflow to a window; believing there was is what
+    # #1015's first attempt got wrong.
     - cron: '23 2 * * *'
 
 permissions:
@@ -112,19 +115,167 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # THE BOX BUDGET (#1015 item C, corrected)
+  # ---------------------------------------------------------------------------
+  # The job below used to claim its `timeout-minutes: 240` bounded this workflow
+  # against "the box's 06:00 (+60 min) reboot timer". BOTH HALVES WERE WRONG, and
+  # together they cost half the PR CI capacity every working day.
+  #
+  #   1. 240 IS PER ARM, NOT PER WORKFLOW. `max-parallel: 1` serialises three
+  #      arms, so the ceiling this file actually authorises is 12 HOURS on one of
+  #      the two `olo-ci` slots -- not four.
+  #
+  #   2. THE REBOOT DOES NOT COME. `dnf-automatic` runs `reboot = when-needed`
+  #      (docs/ops/self-hosted-host-hygiene.md §1), so it fires only on a kernel
+  #      or security update -- most mornings it does nothing, and the box has run
+  #      2+ days uninterrupted. Worse, §3 of that same doc had every runner take a
+  #      shutdown inhibitor while a job executes (#1115), so from 2026-09-08 a
+  #      running arm actively REFUSES the reboot that was supposed to bound it.
+  #
+  # Measured, per arm, from the five nightlies 09-04 .. 09-08 (run ids 33830178395,
+  # 33939498828, 34006887409, 34076957588, 34180634926): 96, 106, 112, 116, 125,
+  # 132, 147, 155, 159, 164, 216 min -- median 132, max 216. Three of those
+  # serialised is 5h45m .. 11h34m of wall clock, measured end to end on those same
+  # five runs. Every one of them ran past 08:00 UTC; 34006887409 finished 14:09.
+  #
+  # The cost is not theoretical. On 2026-09-09 the 02:23 run still held olo-ci-2
+  # at 06:56 UTC with two arms not yet started, while 16 `olo-ci` jobs across five
+  # open PRs queued on the one remaining slot, the oldest waiting since 01:50. The
+  # PR sanitizer arms measure ~1h15m apiece, so that backlog was ~8h deep on one
+  # slot and the run had to be cancelled by hand to get the second slot back.
+  #
+  # THE FIX IS A BUDGET, NOT A LONGER COMMENT. This gate decides, before anything
+  # touches the box, HOW MUCH of it tonight may spend:
+  #
+  #   * ONE ARM PER NIGHT, rotating on the day of the year. A 132-minute median
+  #     arm fits 02:23 -> 07:00 UTC with room for the 216-minute worst case; three
+  #     never did. Each sanitizer still gets a GPU baseline every third night,
+  #     which is the cadence this job's findings actually move at -- it has
+  #     concluded `failure` on every scheduled run since 09-04 and the red is a
+  #     standing baseline, not a per-night signal (read the header: "the red is
+  #     the product"). A dispatch still runs whatever a human asks for.
+  #
+  #   * A WORKING-DAY FENCE. Past 07:00 UTC (09:00 CEST, when PRs start landing)
+  #     and before 20:00 UTC, the box belongs to PR work and this workflow yields.
+  #     This is the backstop for the case the rotation cannot cover: a scheduled
+  #     run that GitHub delays, or an arm that overruns into the morning.
+  #
+  # A YIELD IS LOUD. It writes the step summary and a `::warning::`, and the arm
+  # is SKIPPED rather than reported green -- the "green run that tested nothing"
+  # failure this workflow exists to catch applies to the workflow itself.
+  gate:
+    name: Tonight's budget
+    if: github.repository == 'drsnuggles8/OloEngineBase'
+    # Hosted, deliberately: the gate must not queue behind the very contention it
+    # exists to relieve, and it must be able to say "not tonight" while both
+    # `olo-ci` slots are busy.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      arms: ${{ steps.plan.outputs.arms }}
+      proceed: ${{ steps.plan.outputs.proceed }}
+    steps:
+      - name: Plan tonight's arms
+        id: plan
+        env:
+          # `inputs` exists only for workflow_dispatch; '' on a schedule.
+          REQUESTED: ${{ inputs.sanitizers }}
+          EVENT: ${{ github.event_name }}
+          # The window the box belongs to PR work, UTC. Start inclusive, end
+          # exclusive. Keep these two together -- they are one policy.
+          FENCE_OPEN_UTC_HOUR: '7'
+          FENCE_SHUT_UTC_HOUR: '20'
+        run: |
+          set -euo pipefail
+          hour=$(date -u +%-H)
+          today=$(date -u +%-j)   # day of year, 1..366; no leading-zero octal trap
+
+          # ---- the working-day fence -------------------------------------
+          # A dispatch is a human with write access deciding to spend the box,
+          # which is the knowing override docs/ops/self-hosted-host-hygiene.md
+          # §3 asks for everywhere else. It is warned, not blocked -- a fence
+          # that stops a maintainer reproducing a red baseline at 10:00 costs
+          # more than the slot it saves. Only the SCHEDULE is fenced, because an
+          # unattended run bleeding into the morning is the actual defect.
+          if [ "$EVENT" != 'workflow_dispatch' ] \
+             && [ "$hour" -ge "$FENCE_OPEN_UTC_HOUR" ] && [ "$hour" -lt "$FENCE_SHUT_UTC_HOUR" ]; then
+            {
+              echo "## GPU sanitizers: yielded the box"
+              echo
+              echo "It is **$(date -u '+%H:%M UTC')**, inside the ${FENCE_OPEN_UTC_HOUR}:00-${FENCE_SHUT_UTC_HOUR}:00 UTC working-day fence."
+              echo "The two \`olo-ci\` slots belong to PR work during that window, so no arm ran."
+              echo
+              echo "No baseline was produced tonight. This is **not** a green run."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=GPU sanitizers yielded::Inside the working-day fence (${FENCE_OPEN_UTC_HOUR}:00-${FENCE_SHUT_UTC_HOUR}:00 UTC); no arm ran and no baseline was produced."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "arms=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # ---- which arm(s) --------------------------------------------------
+          ALL='asan-lsan ubsan tsan'
+          if [ "$EVENT" = 'workflow_dispatch' ] && [ -n "$REQUESTED" ] && [ "$REQUESTED" != 'all' ]; then
+            # A human named one arm. Validate it against the same list the matrix
+            # knows, so a typo fails here rather than producing an empty matrix.
+            case " $ALL " in
+              *" $REQUESTED "*) arms="[\"$REQUESTED\"]" ; why="dispatch: $REQUESTED" ;;
+              *) echo "::error::unknown sanitizer '$REQUESTED'"; exit 1 ;;
+            esac
+          elif [ "$EVENT" = 'workflow_dispatch' ]; then
+            # `all` on a dispatch is a human knowingly spending the box.
+            arms='["asan-lsan","ubsan","tsan"]' ; why='dispatch: all three arms'
+          else
+            # Scheduled: one arm, rotating. Day-of-year mod 3 is stable across a
+            # month boundary and needs no state.
+            idx=$(( today % 3 ))
+            set -- $ALL
+            eval "pick=\${$((idx + 1))}"
+            arms="[\"$pick\"]" ; why="scheduled rotation (day $today mod 3 -> $pick)"
+          fi
+
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+          echo "arms=$arms" >> "$GITHUB_OUTPUT"
+          {
+            echo "## GPU sanitizers: $why"
+            echo
+            echo "Arms this run: \`$arms\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A dispatch that lands inside the fence took a PR slot to do it. Say
+          # so where the person who pressed the button will read it.
+          if [ "$hour" -ge "$FENCE_OPEN_UTC_HOUR" ] && [ "$hour" -lt "$FENCE_SHUT_UTC_HOUR" ]; then
+            {
+              echo
+              echo "> **This run is inside the ${FENCE_OPEN_UTC_HOUR}:00-${FENCE_SHUT_UTC_HOUR}:00 UTC working-day fence.**"
+              echo "> A scheduled run would have yielded. It is holding one of the two"
+              echo "> \`olo-ci\` slots that PR sanitizer jobs queue on; cancel it if PRs are waiting."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=Dispatch inside the working-day fence::Holding an olo-ci slot during PR hours; cancel this run if PRs are waiting."
+          fi
+
   gpu-sanitizer:
     name: GPU ${{ matrix.sanitizer }} (AMD)
+    needs: gate
     # Defence in depth: even though no fork-reachable trigger exists, refuse to
     # run if this workflow file ever executes outside the upstream repository.
-    if: github.repository == 'drsnuggles8/OloEngineBase'
+    if: github.repository == 'drsnuggles8/OloEngineBase' && needs.gate.outputs.proceed == 'true'
     runs-on: [self-hosted, linux, x64, olo-ci]
     # 240, measured, not rounded: a COLD instrumented build on the box was ~60
     # min (asan.yml's arms on the same runner, 33561256256) and its test phase
     # ~50 min at 2-wide with the GPU tests skipping. Here they run, and a GPU
     # test under ASan/TSan is several times slower than its CPU-only neighbour,
-    # so budget the test phase at double. Three arms on two slots means the
-    # third arm also waits for a slot -- inside its own 240, since the clock
-    # starts when the runner picks the job up, not when the workflow does.
+    # so budget the test phase at double. Measured since, over the arms of
+    # 33830178395 / 33939498828 / 34006887409 / 34076957588 / 34180634926: median
+    # 132 min, max 216. 240 is the right ceiling FOR ONE ARM and stays.
+    #
+    # What it is NOT is a bound on the workflow. `max-parallel: 1` below means
+    # three arms cost up to 3x240; the `gate` job, not this line, is what keeps
+    # the box's night bounded. Do not re-derive a workflow budget from this
+    # number -- that is exactly the arithmetic that put an 11h34m run
+    # (34006887409) on a PR-serving slot until 14:09 UTC.
     timeout-minutes: 240
     permissions:
       # Job-level permissions replace the workflow-level block entirely, so
@@ -152,15 +303,23 @@ jobs:
       # starts 00:47 UTC and takes ~90 min, this starts 02:23.
       max-parallel: 1
       matrix:
-        # Filtered by the dispatch input. `inputs.sanitizers` is empty on a
-        # `schedule` event (the inputs context only exists for workflow_dispatch)
-        # and `''` compares equal to an absent value, so a scheduled run takes
-        # the `all` branch. NOT an `include:` list keyed on `sanitizer`: an
-        # include object whose `sanitizer` matches no combination in the
-        # filtered axis is ADDED as a new combination, which would silently
-        # undo the filter. The per-arm values live in the "Resolve sanitizer
-        # arm" step instead.
-        sanitizer: ${{ (inputs.sanitizers == '' || inputs.sanitizers == 'all') && fromJSON('["asan-lsan","ubsan","tsan"]') || fromJSON(format('["{0}"]', inputs.sanitizers)) }}
+        # Chosen by the `gate` job, which owns BOTH the dispatch filter and the
+        # scheduled rotation (see the budget comment above `gate`). The
+        # expression that used to live here read `inputs.sanitizers` directly and
+        # expanded a scheduled run to all three arms; that is the behaviour the
+        # budget exists to stop, so the input is no longer read in this file
+        # anywhere but the gate.
+        #
+        # Still NOT an `include:` list keyed on `sanitizer`: an include object
+        # whose `sanitizer` matches no combination in the filtered axis is ADDED
+        # as a new combination, which would silently undo the filter. The per-arm
+        # values live in the "Resolve sanitizer arm" step instead.
+        #
+        # `gate` never emits an empty array on the `proceed == 'true'` path, and
+        # the job-level `if` skips this job entirely on the other one -- an empty
+        # matrix is a workflow-level error, not a skip, so the two guards have to
+        # agree. They are set in the same step, three lines apart.
+        sanitizer: ${{ fromJSON(needs.gate.outputs.arms) }}
 
     steps:
       # A self-hosted runner's workspace PERSISTS between jobs. Even with an
