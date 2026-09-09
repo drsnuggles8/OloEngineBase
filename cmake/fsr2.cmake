@@ -65,7 +65,7 @@ include(FetchContent)
 # would fail (or worse, succeed) inside our build. We want the sources only.
 FetchContent_Declare(fsr2gl
 	GIT_REPOSITORY https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL.git
-	GIT_TAG 7fb8c92d18e300b84975f2f609b58713b8bde4a7  # main @ 2026-05-04
+	GIT_TAG f188a0d839665cf110957c1510dfeba4e746aa98  # main @ 2026-08-26
 	GIT_SHALLOW FALSE
 	GIT_SUBMODULES ""
 	SOURCE_SUBDIR olo-does-not-build-upstream-cmake)
