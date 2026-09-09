@@ -32,7 +32,7 @@ namespace OloEngine::MCP
         // RendererMemoryTracker is FMutex-guarded, so it reads directly from the
         // handler thread. Server computes the per-type breakdown; raw allocations
         // never leave the process.
-        ToolResult Handle_MemoryReport(McpServer& /*server*/, const Json& /*args*/)
+        ToolResult Handle_MemoryReport(IAutomationHost& /*host*/, const Json& /*args*/)
         {
             using RT = RendererMemoryTracker::ResourceType;
             static constexpr std::array<std::pair<RT, const char*>, 11> kTypes = { {
@@ -96,10 +96,10 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_perf_snapshot (main-marshaled; profiler has no mutex) ----------
-        ToolResult Handle_PerfSnapshot(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_PerfSnapshot(IAutomationHost& host, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([&server]() -> Json
-                                        {
+            Json j = host.MarshalRead([&host]() -> Json
+                                      {
                 // GetLastCompletedFrameData(), not GetCurrentFrameData(): the
                 // latter's FrameTime is only a live estimate carried over
                 // from the previous frame, while CPUTime/GPUTime describe the
@@ -144,9 +144,9 @@ namespace OloEngine::MCP
                 // minutes ago. This block is what makes that visible — and it is here,
                 // on the cheapest and most-called tool, so "is the loop ticking?" is one
                 // call rather than a cross-tool inference.
-                if (server.Context().GetEditorLiveness)
+                if (host.Context().GetEditorLiveness)
                 {
-                    const McpEditorLiveness liveness = server.Context().GetEditorLiveness();
+                    const McpEditorLiveness liveness = host.Context().GetEditorLiveness();
                     o["liveness"] = EditorLiveness::ToJson(liveness);
                 }
                 return o; });
@@ -154,10 +154,10 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_perf_bottlenecks (main-marshaled) -----------------------------
-        ToolResult Handle_PerfBottlenecks(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_PerfBottlenecks(IAutomationHost& host, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([]() -> Json
-                                        {
+            Json j = host.MarshalRead([]() -> Json
+                                      {
                 const RendererProfiler::BottleneckInfo b = RendererProfiler::GetInstance().AnalyzeBottlenecks();
                 Json o;
                 o["bottleneck"] = BottleneckTypeName(b.m_Type);
@@ -169,14 +169,14 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_perf_frame_history (main-marshaled; server downsamples) -------
-        ToolResult Handle_PerfFrameHistory(McpServer& server, const Json& args)
+        ToolResult Handle_PerfFrameHistory(IAutomationHost& host, const Json& args)
         {
             int points = 60;
             if (args.contains("points") && args["points"].is_number_integer())
                 points = static_cast<int>(std::clamp<long long>(args["points"].get<long long>(), 1, 300));
 
-            Json j = server.MarshalRead([points]() -> Json
-                                        {
+            Json j = host.MarshalRead([points]() -> Json
+                                      {
                 const std::vector<RendererProfiler::FrameData> hist = RendererProfiler::GetInstance().GetFrameHistoryCopy();
                 Json series = Json::array();
                 const std::size_t n = hist.size();
@@ -201,7 +201,7 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_perf_capture_frame (main-marshaled) ---------------------------
-        ToolResult Handle_PerfCaptureFrame(McpServer& server, const Json& args)
+        ToolResult Handle_PerfCaptureFrame(IAutomationHost& host, const Json& args)
         {
             int topK = 10;
             if (args.contains("topK") && args["topK"].is_number_integer())
@@ -214,8 +214,8 @@ namespace OloEngine::MCP
             // tool would spuriously time out). The generation increments on every
             // commit. FrameCaptureManager is FMutex-guarded, but marshaling keeps the
             // trigger ordered with the loop.
-            const Json trigger = server.MarshalRead([]() -> Json
-                                                    {
+            const Json trigger = host.MarshalRead([]() -> Json
+                                                  {
                 FrameCaptureManager& fcm = FrameCaptureManager::GetInstance();
                 const auto beforeGen = fcm.GetCaptureGeneration();
                 fcm.CaptureNextFrame();
@@ -229,7 +229,7 @@ namespace OloEngine::MCP
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
             while (std::chrono::steady_clock::now() < deadline)
             {
-                if (server.IsCurrentCallCancelled())
+                if (host.IsCurrentCallCancelled())
                     return ToolResult::Error("Cancelled while waiting for the frame capture.");
                 if (FrameCaptureManager::GetInstance().GetCaptureGeneration() > beforeGen)
                 {
@@ -240,7 +240,7 @@ namespace OloEngine::MCP
                         break;
                     }
                 }
-                server.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
+                host.EmitProgress(static_cast<f64>(++polls), -1.0, "waiting for the captured frame");
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
             if (!captured)
@@ -298,10 +298,10 @@ namespace OloEngine::MCP
         // 1-3 frames after issue), CPU from the live graph's last execution
         // timings, frame totals from the profiler. Shaping lives in the pure
         // McpPassTimings.h so it unit-tests without this TU.
-        ToolResult Handle_PerfPassTimings(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_PerfPassTimings(IAutomationHost& host, const Json& /*args*/)
         {
-            Json j = server.MarshalRead([]() -> Json
-                                        {
+            Json j = host.MarshalRead([]() -> Json
+                                      {
                 const auto& pool = GPUPassTimerPool::GetInstance();
 
                 std::vector<PassTimings::GpuPassEntry> gpuPasses;
@@ -359,7 +359,7 @@ namespace OloEngine::MCP
         // status there rather than a misleadingly empty scope list — shaping (incl.
         // that degradation) lives in the pure McpCpuScopes.h so it unit-tests
         // without this TU.
-        ToolResult Handle_PerfCpuScopes(McpServer& server, const Json& args)
+        ToolResult Handle_PerfCpuScopes(IAutomationHost& host, const Json& args)
         {
             u32 limit = 0; // 0 = no limit
             if (args.contains("limit") && args["limit"].is_number_integer())
@@ -371,8 +371,8 @@ namespace OloEngine::MCP
             constexpr bool scopesCompiledIn = false;
 #endif
 
-            Json j = server.MarshalRead([limit]() -> Json
-                                        {
+            Json j = host.MarshalRead([limit]() -> Json
+                                      {
                 std::vector<CpuScopes::ScopeEntry> entries;
                 if (Application* app = Application::TryGet())
                 {
@@ -387,7 +387,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterPerfTools(McpServer& server)
+    void RegisterPerfTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -416,7 +416,7 @@ namespace OloEngine::MCP
                                     .Required({ "totalBytes", "totalMB", "byType", "suspectedLeakCount" });
             tool.MainMarshaled = false;
             tool.Handler = Handle_MemoryReport;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -465,7 +465,7 @@ namespace OloEngine::MCP
                                     .Required({ "fps", "frameTimeMs", "cpuMs", "gpuMs", "drawCalls", "triangles" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfSnapshot;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -486,7 +486,7 @@ namespace OloEngine::MCP
                                     .Required({ "bottleneck", "confidence", "detail", "recommendations" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfBottlenecks;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -512,7 +512,7 @@ namespace OloEngine::MCP
                                     .Required({ "totalFrames", "returned", "series" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfFrameHistory;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -552,7 +552,7 @@ namespace OloEngine::MCP
                                     .Required({ "frameNumber", "stats", "topDrawCalls", "note" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCaptureFrame;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -623,7 +623,7 @@ namespace OloEngine::MCP
                                     .Required({ "frame", "passes", "passGpuTotalMs", "parallelRecording" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfPassTimings;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -657,7 +657,7 @@ namespace OloEngine::MCP
                                     .Required({ "status", "note", "scopes", "totalTimeMs", "scopeCount" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCpuScopes;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

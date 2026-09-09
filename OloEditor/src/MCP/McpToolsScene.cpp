@@ -31,15 +31,15 @@ namespace OloEngine::MCP
         // ---- olo_scene_summary (main-marshaled) --------------------------------
         // Reads the active Scene + EnTT registry, which are NOT thread-safe, so the
         // read is marshaled onto the game thread and returns a consistent snapshot.
-        ToolResult Handle_SceneSummary(McpServer& server, const Json& /*arguments*/)
+        ToolResult Handle_SceneSummary(IAutomationHost& host, const Json& /*arguments*/)
         {
-            Json summary = server.MarshalRead([&server]() -> Json
-                                              {
+            Json summary = host.MarshalRead([&host]() -> Json
+                                            {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
-                const bool isPlaying = server.Context().IsPlaying && server.Context().IsPlaying();
+                const bool isPlaying = host.Context().IsPlaying && host.Context().IsPlaying();
 
                 j["hasActiveScene"] = static_cast<bool>(scene);
                 j["isPlaying"] = isPlaying;
@@ -60,7 +60,7 @@ namespace OloEngine::MCP
         // Reuses SceneSerializer::SerializeEntity to dump every component of one
         // entity. Returns the component data as YAML text (the serializer already
         // exists and is authoritative) plus structured id/name/hierarchy fields.
-        ToolResult Handle_SceneGetEntity(McpServer& server, const Json& args)
+        ToolResult Handle_SceneGetEntity(IAutomationHost& host, const Json& args)
         {
             if (!args.contains("id"))
                 return ToolResult::Error("Missing required argument 'id' (entity UUID).");
@@ -68,11 +68,11 @@ namespace OloEngine::MCP
             if (!ParseUuid(args["id"], idValue))
                 return ToolResult::Error("Invalid 'id': expected a UUID as a string or number.");
 
-            Json result = server.MarshalRead([&server, idValue]() -> Json
-                                             {
+            Json result = host.MarshalRead([&host, idValue]() -> Json
+                                           {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                 {
@@ -112,7 +112,7 @@ namespace OloEngine::MCP
         // Paginated registry walk (every entity has an IDComponent). Optional
         // substring name filter. Lean entries; drill into olo_scene_get_entity for
         // full component data.
-        ToolResult Handle_SceneListEntities(McpServer& server, const Json& args)
+        ToolResult Handle_SceneListEntities(IAutomationHost& host, const Json& args)
         {
             std::string namePattern;
             if (args.contains("namePattern") && args["namePattern"].is_string())
@@ -124,11 +124,11 @@ namespace OloEngine::MCP
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
-            Json result = server.MarshalRead([&server, namePattern, page, pageSize]() -> Json
-                                             {
+            Json result = host.MarshalRead([&host, namePattern, page, pageSize]() -> Json
+                                           {
                 Json j;
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                 {
@@ -202,9 +202,9 @@ namespace OloEngine::MCP
         // scene (mirrors the non-undoable framing of SelectEntityInEditor /
         // olo_renderer_settings_set). The result's `undoable: false` tells the caller
         // this write won't survive Stop and can't be Ctrl-Z'd.
-        ToolResult Handle_EntitySetField(McpServer& server, const Json& args)
+        ToolResult Handle_EntitySetField(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().GetActiveScene || !server.Context().GetCommandHistory)
+            if (!host.Context().GetActiveScene || !host.Context().GetCommandHistory)
                 return ToolResult::Error("Project writes are not available in this editor build.");
 
             u64 entityUuid = 0;
@@ -214,15 +214,15 @@ namespace OloEngine::MCP
             if (const auto error = GenericFieldWrite::ParseArgs(args, entityUuid, component, field, value))
                 return ToolResult::Error(*error);
 
-            const Json result = server.MarshalRead([&server, entityUuid, component, field, value]() -> Json
-                                                   {
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+            const Json result = host.MarshalRead([&host, entityUuid, component, field, value]() -> Json
+                                                 {
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 if (!scene)
                     return Json{ { "__error", "No active scene." } };
 
-                const bool isPlaying = server.Context().IsPlaying && server.Context().IsPlaying();
+                const bool isPlaying = host.Context().IsPlaying && host.Context().IsPlaying();
                 if (isPlaying)
                 {
                     const GenericFieldWrite::ApplyResult applied =
@@ -232,8 +232,8 @@ namespace OloEngine::MCP
                     return applied.Data;
                 }
 
-                CommandHistory* history = server.Context().GetCommandHistory
-                                              ? server.Context().GetCommandHistory()
+                CommandHistory* history = host.Context().GetCommandHistory
+                                              ? host.Context().GetCommandHistory()
                                               : nullptr;
                 if (!history)
                     return Json{ { "__error", "No editor command history available." } };
@@ -254,9 +254,9 @@ namespace OloEngine::MCP
         // writable component fields (those the entity actually has) with their type
         // and current value, so an agent learns the exact (component, field) names +
         // value shapes before issuing a write. Read-only (not ProjectWrite).
-        ToolResult Handle_EntityListFields(McpServer& server, const Json& args)
+        ToolResult Handle_EntityListFields(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().GetActiveScene)
+            if (!host.Context().GetActiveScene)
                 return ToolResult::Error("Scene reads are not available in this editor build.");
 
             if (!args.contains("entity"))
@@ -267,10 +267,10 @@ namespace OloEngine::MCP
             const std::string componentFilter =
                 (args.contains("component") && args["component"].is_string()) ? args["component"].get<std::string>() : std::string();
 
-            const Json result = server.MarshalRead([&server, entityUuid, componentFilter]() -> Json
-                                                   {
-                const Ref<Scene> scene = server.Context().GetActiveScene
-                                             ? server.Context().GetActiveScene()
+            const Json result = host.MarshalRead([&host, entityUuid, componentFilter]() -> Json
+                                                 {
+                const Ref<Scene> scene = host.Context().GetActiveScene
+                                             ? host.Context().GetActiveScene()
                                              : nullptr;
                 bool entityFound = false;
                 return GenericFieldWrite::ListFields(scene, entityUuid, componentFilter, entityFound); });
@@ -307,7 +307,7 @@ namespace OloEngine::MCP
         // thread, since it touches the EnTT registry / renderer settings. The shared
         // schema + path validation + result shaping live in McpSceneControl.h so they
         // are unit-tested at the dispatch seam without this TU.
-        ToolResult Handle_SceneOpen(McpServer& server, const Json& args)
+        ToolResult Handle_SceneOpen(IAutomationHost& host, const Json& args)
         {
             using namespace SceneControl;
 
@@ -317,7 +317,7 @@ namespace OloEngine::MCP
             if (const auto error = ValidateScenePath(path))
                 return ToolResult::Error(*error);
 
-            if (!server.Context().OpenSceneFromMcp)
+            if (!host.Context().OpenSceneFromMcp)
                 return ToolResult::Error("Scene open is not available in this editor build.");
 
             // path is captured BY VALUE: MarshalRead's caller-side wait can time out
@@ -327,13 +327,13 @@ namespace OloEngine::MCP
             // Handle_SceneOpen's stack frame unwinds on that timeout; server is a
             // long-lived object (owned by EditorLayer for the whole session) so a
             // reference capture there is safe.
-            const Json result = server.MarshalRead([&server, path]() -> Json
-                                                   {
-                if (!server.Context().OpenSceneFromMcp)
+            const Json result = host.MarshalRead([&host, path]() -> Json
+                                                 {
+                if (!host.Context().OpenSceneFromMcp)
                     return Json{ { "__error", "Scene open is not available in this editor build." } };
-                const McpSceneOpenResult opened = server.Context().OpenSceneFromMcp(path);
+                const McpSceneOpenResult opened = host.Context().OpenSceneFromMcp(path);
                 return ToJson(opened); },
-                                                   kSceneControlTimeout);
+                                                 kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -352,12 +352,12 @@ namespace OloEngine::MCP
             // follow-up settings write) also gets a scene that has actually
             // rendered before the tool returns.
             constexpr int kPostLoadSettleFrames = 2;
-            if (server.Context().GetFrameIndex)
+            if (host.Context().GetFrameIndex)
             {
-                const u64 baseFrame = server.MarshalRead([&server]() -> Json
-                                                         { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
-                AwaitRenderedFrames(server, baseFrame, kPostLoadSettleFrames);
+                AwaitRenderedFrames(host, baseFrame, kPostLoadSettleFrames);
             }
 
             return ToolResult::Structured(result);
@@ -379,33 +379,33 @@ namespace OloEngine::MCP
             Simulate
         };
 
-        ToolResult Handle_ScenePlayState(McpServer& server, SceneModeRequest request)
+        ToolResult Handle_ScenePlayState(IAutomationHost& host, SceneModeRequest request)
         {
             using namespace SceneControl;
 
             const bool available = request == SceneModeRequest::Simulate
-                                       ? static_cast<bool>(server.Context().SetSceneSimulateState)
-                                       : static_cast<bool>(server.Context().SetScenePlayState);
+                                       ? static_cast<bool>(host.Context().SetSceneSimulateState)
+                                       : static_cast<bool>(host.Context().SetScenePlayState);
             if (!available)
                 return ToolResult::Error("Scene-mode control is not available in this editor build.");
 
-            const Json result = server.MarshalRead([&server, request]() -> Json
-                                                   {
+            const Json result = host.MarshalRead([&host, request]() -> Json
+                                                 {
                 McpScenePlayResult r;
                 if (request == SceneModeRequest::Simulate)
                 {
-                    if (!server.Context().SetSceneSimulateState)
+                    if (!host.Context().SetSceneSimulateState)
                         return Json{ { "__error", "Scene-mode control is not available in this editor build." } };
-                    r = server.Context().SetSceneSimulateState();
+                    r = host.Context().SetSceneSimulateState();
                 }
                 else
                 {
-                    if (!server.Context().SetScenePlayState)
+                    if (!host.Context().SetScenePlayState)
                         return Json{ { "__error", "Scene-mode control is not available in this editor build." } };
-                    r = server.Context().SetScenePlayState(request == SceneModeRequest::Play);
+                    r = host.Context().SetScenePlayState(request == SceneModeRequest::Play);
                 }
                 return ToJson(r); },
-                                                   kSceneControlTimeout);
+                                                 kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -425,15 +425,15 @@ namespace OloEngine::MCP
             // transition that legitimately gets 120s — a heavy scene's first
             // post-transition frame can outlive 5s, and that must degrade to
             // "returned before settling", never to a reported tool failure.
-            if (result.value("changed", false) && server.Context().GetFrameIndex)
+            if (result.value("changed", false) && host.Context().GetFrameIndex)
             {
                 try
                 {
                     constexpr int kPostTransitionSettleFrames = 2;
-                    const u64 baseFrame = server.MarshalRead([&server]() -> Json
-                                                             { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                    const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                           { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                               .value("frame", static_cast<u64>(0));
-                    AwaitRenderedFrames(server, baseFrame, kPostTransitionSettleFrames);
+                    AwaitRenderedFrames(host, baseFrame, kPostTransitionSettleFrames);
                 }
                 catch (...)
                 {
@@ -443,25 +443,25 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
-        ToolResult Handle_ScenePlay(McpServer& server, const Json&)
+        ToolResult Handle_ScenePlay(IAutomationHost& host, const Json&)
         {
-            return Handle_ScenePlayState(server, SceneModeRequest::Play);
+            return Handle_ScenePlayState(host, SceneModeRequest::Play);
         }
 
-        ToolResult Handle_SceneSimulate(McpServer& server, const Json&)
+        ToolResult Handle_SceneSimulate(IAutomationHost& host, const Json&)
         {
-            return Handle_ScenePlayState(server, SceneModeRequest::Simulate);
+            return Handle_ScenePlayState(host, SceneModeRequest::Simulate);
         }
 
-        ToolResult Handle_SceneStop(McpServer& server, const Json&)
+        ToolResult Handle_SceneStop(IAutomationHost& host, const Json&)
         {
-            return Handle_ScenePlayState(server, SceneModeRequest::Edit);
+            return Handle_ScenePlayState(host, SceneModeRequest::Edit);
         }
 
-        Json BakeNamedReflectionProbe(McpServer& server, const std::string& entityName)
+        Json BakeNamedReflectionProbe(IAutomationHost& host, const std::string& entityName)
         {
-            Ref<Scene> scene = server.Context().GetActiveScene
-                                   ? server.Context().GetActiveScene()
+            Ref<Scene> scene = host.Context().GetActiveScene
+                                   ? host.Context().GetActiveScene()
                                    : nullptr;
             if (!scene)
                 return Json{ { "__error", "No active scene." } };
@@ -504,15 +504,15 @@ namespace OloEngine::MCP
         // in-memory EnvironmentMap, so entity resolution and the complete bake run
         // on the game thread. Names are exact and must be unique: silently choosing
         // the first duplicate would bake the wrong probe while reporting success.
-        ToolResult Handle_ReflectionProbeBake(McpServer& server, const Json& args)
+        ToolResult Handle_ReflectionProbeBake(IAutomationHost& host, const Json& args)
         {
             std::string entityName;
             if (const auto error = ReflectionProbeBake::ParseEntityName(args, entityName))
                 return ToolResult::Error(*error);
 
-            const Json result = server.MarshalRead(
-                [&server, entityName]() -> Json
-                { return BakeNamedReflectionProbe(server, entityName); },
+            const Json result = host.MarshalRead(
+                [&host, entityName]() -> Json
+                { return BakeNamedReflectionProbe(host, entityName); },
                 kSceneControlTimeout);
 
             if (result.is_object() && result.contains("__error"))
@@ -534,7 +534,7 @@ namespace OloEngine::MCP
         // selection isn't undoable). The shared schema + arg parsing + result
         // shaping live in MCP/McpSelectEntity.h so they are unit-tested at the
         // dispatch seam without this TU.
-        ToolResult Handle_SelectEntity(McpServer& server, const Json& args)
+        ToolResult Handle_SelectEntity(IAutomationHost& host, const Json& args)
         {
             using namespace SelectEntity;
 
@@ -542,14 +542,14 @@ namespace OloEngine::MCP
             if (const auto error = ParseArgs(args, request))
                 return ToolResult::Error(*error);
 
-            if (!server.Context().SelectEntityInEditor)
+            if (!host.Context().SelectEntityInEditor)
                 return ToolResult::Error("Entity selection is not available in this editor build.");
 
-            const Json result = server.MarshalRead([&server, request]() -> Json
-                                                   {
-                if (!server.Context().SelectEntityInEditor)
+            const Json result = host.MarshalRead([&host, request]() -> Json
+                                                 {
+                if (!host.Context().SelectEntityInEditor)
                     return Json{ { "__error", "Entity selection is not available in this editor build." } };
-                return ToJson(server.Context().SelectEntityInEditor(request.EntityUuid, request.Clear)); });
+                return ToJson(host.Context().SelectEntityInEditor(request.EntityUuid, request.Clear)); });
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
@@ -562,7 +562,7 @@ namespace OloEngine::MCP
         // cached derivation) — so this is marshaled onto the game thread rather than
         // read from the HTTP worker, exactly like the scene readers above. The tool
         // needs no active scene: the schedule is authored once at build time.
-        ToolResult Handle_SchedulerGraph(McpServer& server, const Json& args)
+        ToolResult Handle_SchedulerGraph(IAutomationHost& host, const Json& args)
         {
             const std::string format = args.value("format", std::string{ "json" });
 
@@ -572,7 +572,7 @@ namespace OloEngine::MCP
                 // `format` is captured BY VALUE: MarshalRead can throw on a timeout
                 // while its enqueued job still runs later on the game thread, and a
                 // reference to this frame's local would be dangling by then.
-                snapshotJson = server.MarshalRead(
+                snapshotJson = host.MarshalRead(
                     [format]() -> Json
                     {
                         const SystemScheduler::GraphSnapshot graph = Scene::GetGameplayScheduler().ExportGraph();
@@ -619,7 +619,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterSceneTools(McpServer& server)
+    void RegisterSceneTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -641,7 +641,7 @@ namespace OloEngine::MCP
                                     .Required({ "hasActiveScene", "isPlaying" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSummary;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -672,7 +672,7 @@ namespace OloEngine::MCP
                                     .Required({ "total", "page", "pageSize", "returned", "entities" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneListEntities;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -699,7 +699,7 @@ namespace OloEngine::MCP
                                     .Required({ "found", "id", "name", "children", "componentsYaml" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneGetEntity;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -730,7 +730,7 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "found", "components" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntityListFields;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -780,7 +780,7 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "component", "field", "type", "previousValue", "value", "changed", "undoable", "clamped" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_EntitySetField;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -815,7 +815,7 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "path", "sceneName", "entityCount", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneOpen;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -842,7 +842,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = SceneControl::SceneStateOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_ScenePlay;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -862,7 +862,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = SceneControl::SceneStateOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneSimulate;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -887,7 +887,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = SceneControl::SceneStateOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneStop;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -914,7 +914,7 @@ namespace OloEngine::MCP
                                     .Required({ "entity", "baked", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReflectionProbeBake;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -956,7 +956,7 @@ namespace OloEngine::MCP
                                     .Required({ "available", "ok", "changed", "selected", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SelectEntity;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -1015,7 +1015,7 @@ namespace OloEngine::MCP
                     .Required({ "systemCount", "parallelSystemCount", "executionOrder", "systems", "edgeCount", "edges" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SchedulerGraph;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

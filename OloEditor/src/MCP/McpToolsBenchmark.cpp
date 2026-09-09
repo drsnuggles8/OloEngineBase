@@ -51,26 +51,26 @@ namespace OloEngine::MCP
         // The shared settle helper with a deadline scaled to the declared
         // warm-up frame count (a benchmark waits 128+ frames, not a 2-3 frame
         // screenshot settle).
-        bool AwaitBenchmarkFrames(McpServer& server, u64 baseFrame, u32 frames)
+        bool AwaitBenchmarkFrames(IAutomationHost& host, u64 baseFrame, u32 frames)
         {
             const auto deadline = std::chrono::seconds(10) + std::chrono::milliseconds(250) * frames;
-            return AwaitRenderedFrames(server, baseFrame, static_cast<int>(frames),
+            return AwaitRenderedFrames(host, baseFrame, static_cast<int>(frames),
                                        std::chrono::duration_cast<std::chrono::milliseconds>(deadline));
         }
 
-        u64 CurrentFrame(McpServer& server)
+        u64 CurrentFrame(IAutomationHost& host)
         {
-            if (!server.Context().GetFrameIndex)
+            if (!host.Context().GetFrameIndex)
             {
                 return 0;
             }
-            return server
-                .MarshalRead([&server]() -> Json
-                             { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+            return host
+                .MarshalRead([&host]() -> Json
+                             { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                 .value("frame", static_cast<u64>(0));
         }
 
-        ToolResult Handle_BenchmarkCapture(McpServer& server, const Json& args)
+        ToolResult Handle_BenchmarkCapture(IAutomationHost& host, const Json& args)
         {
             if (!args.contains("manifest") || !args["manifest"].is_string())
             {
@@ -100,25 +100,25 @@ namespace OloEngine::MCP
                                          "' in Backends.Supported.");
             }
 
-            if (!server.Context().OpenSceneFromMcp)
+            if (!host.Context().OpenSceneFromMcp)
             {
                 return ToolResult::Error("Scene open is not available in this editor build.");
             }
-            if (!server.Context().SetCameraPose)
+            if (!host.Context().SetCameraPose)
             {
                 return ToolResult::Error("Camera control is not available in this editor build.");
             }
 
             // ---- Open the manifest's scene (same seam as olo_scene_open) ----
             const std::string scenePath = manifest->ScenePath;
-            const Json opened = server.MarshalRead(
-                [&server, scenePath]() -> Json
+            const Json opened = host.MarshalRead(
+                [&host, scenePath]() -> Json
                 {
-                    if (!server.Context().OpenSceneFromMcp)
+                    if (!host.Context().OpenSceneFromMcp)
                     {
                         return Json{ { "__error", "Scene open is not available in this editor build." } };
                     }
-                    const McpSceneOpenResult result = server.Context().OpenSceneFromMcp(scenePath);
+                    const McpSceneOpenResult result = host.Context().OpenSceneFromMcp(scenePath);
                     return SceneControl::ToJson(result);
                 },
                 kBenchmarkMarshalTimeout);
@@ -147,8 +147,8 @@ namespace OloEngine::MCP
             };
             auto applied = std::make_shared<AppliedState>();
             const auto manifestCopy = std::make_shared<Benchmark::BenchmarkManifest>(*manifest);
-            server.MarshalRead(
-                [&server, applied, manifestCopy, isVulkan]() -> Json
+            host.MarshalRead(
+                [&host, applied, manifestCopy, isVulkan]() -> Json
                 {
                     // Snapshot what this run overwrites so the epilogue can put
                     // the user's editor session back.
@@ -159,18 +159,18 @@ namespace OloEngine::MCP
                     // The manifest's renderer-side state — ONE shared
                     // implementation with the test-binary front door.
                     Benchmark::ApplyManifestRendererState(*manifestCopy);
-                    if (server.Context().SetViewportSizeOverride)
+                    if (host.Context().SetViewportSizeOverride)
                     {
-                        server.Context().SetViewportSizeOverride(manifestCopy->Width, manifestCopy->Height);
+                        host.Context().SetViewportSizeOverride(manifestCopy->Width, manifestCopy->Height);
                     }
                     RandomUtils::SetGlobalSeed(manifestCopy->Seed);
 
                     // A benchmark capture is a picture of the SCENE: turn off the
                     // editor-only viewport helpers the editor render path draws
                     // (infinite grid, world-axis helper, light gizmos, frustums).
-                    if (server.Context().GetActiveScene)
+                    if (host.Context().GetActiveScene)
                     {
-                        if (Ref<Scene> activeScene = server.Context().GetActiveScene())
+                        if (Ref<Scene> activeScene = host.Context().GetActiveScene())
                         {
                             activeScene->SetGridVisible(false);
                             activeScene->SetWorldAxisHelperVisible(false);
@@ -179,9 +179,9 @@ namespace OloEngine::MCP
                         }
                     }
 
-                    if (server.Context().GetCameraPose)
+                    if (host.Context().GetCameraPose)
                     {
-                        applied->PriorPose = server.Context().GetCameraPose();
+                        applied->PriorPose = host.Context().GetCameraPose();
                     }
                     if (!isVulkan)
                     {
@@ -218,27 +218,27 @@ namespace OloEngine::MCP
                 const f32 yawRadians = glm::radians(cameraSpec.YawDegrees);
                 const f32 pitchRadians = glm::radians(cameraSpec.PitchDegrees);
                 const f32 fovDegrees = cameraSpec.FovDegrees;
-                server.MarshalRead(
-                    [&server, position, yawRadians, pitchRadians, fovDegrees]() -> Json
+                host.MarshalRead(
+                    [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
                     {
-                        server.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
+                        host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
                         return Json{ { "ok", true } };
                     });
 
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
                 totalWarmFrames += warmFrames;
-                if (!AwaitBenchmarkFrames(server, CurrentFrame(server), warmFrames))
+                if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
                 {
                     warmupTimedOut = true; // recorded, not fatal — capture what we have
                 }
 
                 const std::string cameraId = cameraSpec.Id;
                 const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
-                server.MarshalRead(
-                    [&server, cameraSets, manifestCopy, cameraId, backendCopy, captureContext]() -> Json
+                host.MarshalRead(
+                    [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext]() -> Json
                     {
-                        const u32 captureFrame = server.Context().GetFrameIndex
-                                                     ? static_cast<u32>(server.Context().GetFrameIndex())
+                        const u32 captureFrame = host.Context().GetFrameIndex
+                                                     ? static_cast<u32>(host.Context().GetFrameIndex())
                                                      : 0u;
                         auto set = Benchmark::CaptureCameraSet(*manifestCopy, cameraId, captureFrame, backendCopy,
                                                                captureContext);
@@ -266,8 +266,8 @@ namespace OloEngine::MCP
             }
 
             auto counters = std::make_shared<Benchmark::RendererCounters>();
-            server.MarshalRead(
-                [&server, applied, passTimings, counters]() -> Json
+            host.MarshalRead(
+                [&host, applied, passTimings, counters]() -> Json
                 {
                     *passTimings = Benchmark::SnapshotPassTimings();
                     *counters = Benchmark::SnapshotRendererCounters();
@@ -276,21 +276,21 @@ namespace OloEngine::MCP
                     // override, and the viewport helpers (restored to their
                     // editor defaults — the benchmark scene is still open, so
                     // "prior" toggles belong to a scene that is gone).
-                    if (applied->PriorPose && server.Context().RestoreCameraPose)
+                    if (applied->PriorPose && host.Context().RestoreCameraPose)
                     {
-                        server.Context().RestoreCameraPose(*applied->PriorPose);
+                        host.Context().RestoreCameraPose(*applied->PriorPose);
                     }
                     Renderer3D::GetPostProcessSettings() = applied->PriorPostProcessSettings;
                     Renderer3D::GetRendererSettings() = applied->PriorRendererSettings;
                     Renderer3D::ApplyRendererSettings();
                     Renderer3D::SetRenderScale(applied->PriorRenderScale);
-                    if (server.Context().SetViewportSizeOverride)
+                    if (host.Context().SetViewportSizeOverride)
                     {
-                        server.Context().SetViewportSizeOverride(0, 0); // clear the override
+                        host.Context().SetViewportSizeOverride(0, 0); // clear the override
                     }
-                    if (server.Context().GetActiveScene)
+                    if (host.Context().GetActiveScene)
                     {
-                        if (Ref<Scene> activeScene = server.Context().GetActiveScene())
+                        if (Ref<Scene> activeScene = host.Context().GetActiveScene())
                         {
                             activeScene->SetGridVisible(true);
                             activeScene->SetWorldAxisHelperVisible(true);
@@ -370,7 +370,7 @@ namespace OloEngine::MCP
         }
     } // namespace
 
-    void RegisterBenchmarkTools(McpServer& server)
+    void RegisterBenchmarkTools(AutomationRegistry& registry)
     {
         ToolDef tool;
         tool.Name = "olo_benchmark_capture";
@@ -418,6 +418,6 @@ namespace OloEngine::MCP
                 .Required({ "id", "backend", "host", "outDir", "attachmentFailures", "warmupTimedOut" });
         tool.MainMarshaled = true;
         tool.Handler = Handle_BenchmarkCapture;
-        server.RegisterTool(std::move(tool));
+        registry.Register(std::move(tool));
     }
 } // namespace OloEngine::MCP

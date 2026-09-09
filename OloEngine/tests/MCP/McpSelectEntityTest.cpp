@@ -45,6 +45,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpSelectEntityResult;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -81,7 +82,7 @@ namespace
             tool.Description = "Select/clear entity selection (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = SelectEntity::InputSchema();
-            tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
             {
                 SelectEntity::Request request;
                 if (const auto error = SelectEntity::ParseArgs(args, request))

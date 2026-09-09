@@ -33,6 +33,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::kRequestCancelledCode;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
@@ -67,7 +68,7 @@ namespace
             ToolDef slow;
             slow.Name = "fake_slow";
             slow.Description = "Ticks N steps with progress; honours cancellation.";
-            slow.Handler = [this](McpServer& server, const Json& args) -> ToolResult
+            slow.Handler = [this](IAutomationHost& server, const Json& args) -> ToolResult
             {
                 const int steps = args.value("steps", 5);
                 const int stepMs = args.value("stepMs", 20);
@@ -90,7 +91,7 @@ namespace
             ToolDef nonMonotonic;
             nonMonotonic.Name = "fake_non_monotonic";
             nonMonotonic.Description = "Emits duplicate and regressing progress values.";
-            nonMonotonic.Handler = [](McpServer& server, const Json&) -> ToolResult
+            nonMonotonic.Handler = [](IAutomationHost& server, const Json&) -> ToolResult
             {
                 server.EmitProgress(0.25, 1.0, "first");
                 server.EmitProgress(0.25, 1.0, "duplicate");

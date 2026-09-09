@@ -18,6 +18,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -33,7 +34,7 @@ namespace
         return req;
     }
 
-    ToolResult NoopHandler(McpServer&, const Json&)
+    ToolResult NoopHandler(IAutomationHost&, const Json&)
     {
         return ToolResult::Text("ok");
     }

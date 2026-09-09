@@ -45,6 +45,7 @@ namespace
     using OloEngine::MCP::EditorMcpContext;
     using OloEngine::MCP::ExposurePolicy;
     using OloEngine::MCP::ExposureProfile;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolExposureFacts;
@@ -85,7 +86,7 @@ namespace
         tool.Name = std::move(name);
         tool.Toolset = std::move(toolset);
         tool.Description = "fake";
-        tool.Handler = [](McpServer&, const Json& args)
+        tool.Handler = [](IAutomationHost&, const Json& args)
         { return ToolResult::Text("ran:" + args.value("echo", std::string{ "-" })); };
         return tool;
     }

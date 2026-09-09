@@ -13,6 +13,7 @@ namespace
 {
     namespace DebugDraw = OloEngine::MCP::EditorDebugDraw;
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpEditorDebugDrawSetResult;
     using OloEngine::MCP::McpEditorDebugDrawState;
     using OloEngine::MCP::McpServer;
@@ -73,7 +74,7 @@ TEST(McpEditorDebugDraw, ProjectWriteGateRejectsBeforeCallbackAndAllowsAfterCons
     tool.Name = "olo_editor_debug_draw_set";
     tool.ProjectWrite = true;
     tool.InputSchema = DebugDraw::SetInputSchema();
-    tool.Handler = [&calls](McpServer&, const Json& args)
+    tool.Handler = [&calls](IAutomationHost&, const Json& args)
     {
         ++calls;
         McpEditorDebugDrawSetResult result;
@@ -108,7 +109,7 @@ TEST(McpEditorDebugDraw, SchemaRejectsUnknownCategoryBeforeCallback)
     tool.Name = "olo_editor_debug_draw_set";
     tool.ProjectWrite = true;
     tool.InputSchema = DebugDraw::SetInputSchema();
-    tool.Handler = [&calls](McpServer&, const Json&)
+    tool.Handler = [&calls](IAutomationHost&, const Json&)
     {
         ++calls;
         return ToolResult::Text("unexpected");

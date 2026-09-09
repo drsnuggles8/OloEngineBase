@@ -19,51 +19,51 @@ namespace OloEngine::MCP
     namespace
     {
         // ---- olo_camera_get (main-marshaled) -----------------------------------
-        ToolResult Handle_CameraGet(McpServer& server, const Json& /*args*/)
+        ToolResult Handle_CameraGet(IAutomationHost& host, const Json& /*args*/)
         {
-            if (!server.Context().GetCameraPose)
+            if (!host.Context().GetCameraPose)
                 return ToolResult::Error("Camera control is not available in this editor build.");
-            const Json pose = server.MarshalRead([&server]() -> Json
-                                                 { return PoseToJson(server.Context().GetCameraPose()); });
+            const Json pose = host.MarshalRead([&host]() -> Json
+                                               { return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_set_pose (main-marshaled; mutates editor camera) -------
-        ToolResult Handle_CameraSetPose(McpServer& server, const Json& args)
+        ToolResult Handle_CameraSetPose(IAutomationHost& host, const Json& args)
         {
-            if (!CameraContextAvailable(server.Context()))
+            if (!CameraContextAvailable(host.Context()))
                 return ToolResult::Error("Camera control is not available in this editor build.");
             CameraRequest request;
             if (const std::string error = ParsePoseRequest(args, request); !error.empty())
                 return ToolResult::Error(error);
 
-            const Json pose = server.MarshalRead([&server, request]() -> Json
-                                                 {
-                ApplyCameraRequest(server.Context(), request);
-                return PoseToJson(server.Context().GetCameraPose()); });
+            const Json pose = host.MarshalRead([&host, request]() -> Json
+                                               {
+                ApplyCameraRequest(host.Context(), request);
+                return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_orbit (main-marshaled; mutates editor camera) ----------
-        ToolResult Handle_CameraOrbit(McpServer& server, const Json& args)
+        ToolResult Handle_CameraOrbit(IAutomationHost& host, const Json& args)
         {
-            if (!CameraContextAvailable(server.Context()))
+            if (!CameraContextAvailable(host.Context()))
                 return ToolResult::Error("Camera control is not available in this editor build.");
             CameraRequest request;
             if (const std::string error = ParseOrbitRequest(args, request); !error.empty())
                 return ToolResult::Error(error);
 
-            const Json pose = server.MarshalRead([&server, request]() -> Json
-                                                 {
-                ApplyCameraRequest(server.Context(), request);
-                return PoseToJson(server.Context().GetCameraPose()); });
+            const Json pose = host.MarshalRead([&host, request]() -> Json
+                                               {
+                ApplyCameraRequest(host.Context(), request);
+                return PoseToJson(host.Context().GetCameraPose()); });
             return ToolResult::Structured(pose);
         }
 
         // ---- olo_camera_frame_entity (main-marshaled; mutates editor camera) ---
-        ToolResult Handle_CameraFrameEntity(McpServer& server, const Json& args)
+        ToolResult Handle_CameraFrameEntity(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().FrameEntity || !server.Context().GetCameraPose)
+            if (!host.Context().FrameEntity || !host.Context().GetCameraPose)
                 return ToolResult::Error("Camera control is not available in this editor build.");
             if (!args.contains("id"))
                 return ToolResult::Error("Missing required argument 'id' (entity UUID).");
@@ -71,11 +71,11 @@ namespace OloEngine::MCP
             if (!ParseUuid(args["id"], idValue))
                 return ToolResult::Error("Invalid 'id': expected a UUID as a string or number.");
 
-            const Json result = server.MarshalRead([&server, idValue]() -> Json
-                                                   {
-                if (!server.Context().FrameEntity(idValue))
+            const Json result = host.MarshalRead([&host, idValue]() -> Json
+                                                 {
+                if (!host.Context().FrameEntity(idValue))
                     return Json{ { "__error", "No entity with that UUID in the active scene." } };
-                Json j = PoseToJson(server.Context().GetCameraPose());
+                Json j = PoseToJson(host.Context().GetCameraPose());
                 j["framedEntity"] = std::to_string(idValue);
                 return j; });
             if (result.is_object() && result.contains("__error"))
@@ -84,9 +84,9 @@ namespace OloEngine::MCP
         }
 
         // ---- olo_viewport_set_size (main-marshaled; mutates viewport override) -
-        ToolResult Handle_ViewportSetSize(McpServer& server, const Json& args)
+        ToolResult Handle_ViewportSetSize(IAutomationHost& host, const Json& args)
         {
-            if (!server.Context().SetViewportSizeOverride)
+            if (!host.Context().SetViewportSizeOverride)
                 return ToolResult::Error("Viewport control is not available in this editor build.");
 
             u32 width = 0;
@@ -101,9 +101,9 @@ namespace OloEngine::MCP
                 height = static_cast<u32>(std::clamp<long long>(args["height"].get<long long>(), 64, 8192));
             }
 
-            const Json result = server.MarshalRead([&server, width, height, reset]() -> Json
-                                                   {
-                server.Context().SetViewportSizeOverride(width, height);
+            const Json result = host.MarshalRead([&host, width, height, reset]() -> Json
+                                                 {
+                host.Context().SetViewportSizeOverride(width, height);
                 Json j;
                 j["override"] = !reset;
                 if (!reset)
@@ -121,7 +121,7 @@ namespace OloEngine::MCP
         // optional 'camera'/'orbit' argument it poses the editor camera first, waits
         // for the pose to be rendered, captures, and restores the prior camera —
         // multi-angle inspection without disturbing the user's viewport (#316).
-        ToolResult Handle_Screenshot(McpServer& server, const Json& args)
+        ToolResult Handle_Screenshot(IAutomationHost& host, const Json& args)
         {
             int maxWidth = 1024;
             if (args.contains("maxWidth") && args["maxWidth"].is_number_integer())
@@ -139,7 +139,7 @@ namespace OloEngine::MCP
             if (const auto error = CaptureRegionArg::Parse(args, region))
                 return ToolResult::Error(*error);
 
-            if (!server.Context().CaptureViewportPng)
+            if (!host.Context().CaptureViewportPng)
                 return ToolResult::Error("Screenshot capture is not available in this editor build.");
 
             // Optional camera placement for this capture only.
@@ -150,7 +150,7 @@ namespace OloEngine::MCP
             CameraRequest request;
             if (hasCamera || hasOrbit)
             {
-                if (!CameraContextAvailable(server.Context()))
+                if (!CameraContextAvailable(host.Context()))
                     return ToolResult::Error("Camera control is not available in this editor build.");
                 const std::string error = hasCamera ? ParsePoseRequest(args["camera"], request)
                                                     : ParseOrbitRequest(args["orbit"], request);
@@ -166,10 +166,10 @@ namespace OloEngine::MCP
             // sceneState is also reported alongside every capture below so an
             // un-posed Play capture is never mistaken for an Edit-mode one.
             bool isPlaying = false;
-            if (server.Context().IsPlaying)
+            if (host.Context().IsPlaying)
             {
-                isPlaying = server.MarshalRead([&server]() -> Json
-                                               { return Json{ { "playing", server.Context().IsPlaying() } }; })
+                isPlaying = host.MarshalRead([&host]() -> Json
+                                             { return Json{ { "playing", host.Context().IsPlaying() } }; })
                                 .value("playing", false);
             }
             if (isPlaying && (hasCamera || hasOrbit))
@@ -208,10 +208,10 @@ namespace OloEngine::MCP
             // VALUE (a shared_ptr), so a copy carried into a marshaled job keeps the
             // state alive even if this call unwinds before an orphaned job runs. A
             // no-op until the apply job has actually applied the pose.
-            const auto restorePriorPose = [&server, poseState]()
+            const auto restorePriorPose = [&host, poseState]()
             {
                 if (poseState && poseState->Applied.load(std::memory_order_acquire))
-                    server.Context().RestoreCameraPose(poseState->Prior);
+                    host.Context().RestoreCameraPose(poseState->Prior);
             };
 
             Json marshaled;
@@ -222,14 +222,14 @@ namespace OloEngine::MCP
                 {
                     // 1. Save the user's pose and apply the requested one — inside the
                     // try so a marshal timeout here is caught and restored below.
-                    const Json applied = server.MarshalRead([&server, request, poseState]() -> Json
-                                                            {
-                        poseState->Prior = server.Context().GetCameraPose();
-                        ApplyCameraRequest(server.Context(), request);
+                    const Json applied = host.MarshalRead([&host, request, poseState]() -> Json
+                                                          {
+                        poseState->Prior = host.Context().GetCameraPose();
+                        ApplyCameraRequest(host.Context(), request);
                         // Publish LAST: `Applied` release-fences the Prior store so any
                         // restore that reads Applied==true also observes Prior.
                         poseState->Applied.store(true, std::memory_order_release);
-                        return Json{ { "frame", server.Context().GetFrameIndex ? server.Context().GetFrameIndex() : 0 } }; });
+                        return Json{ { "frame", host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0 } }; });
                     posed = true;
                     appliedFrame = applied.value("frame", static_cast<u64>(0));
                 }
@@ -244,13 +244,13 @@ namespace OloEngine::MCP
                 // grew 'forceFrame' for). Opting in renders + settles fresh frames
                 // first.
                 if (posed)
-                    waitTimedOut = !AwaitRenderedFrames(server, appliedFrame, settleFrames);
-                else if (args.value("forceFrame", false) && server.Context().GetFrameIndex)
+                    waitTimedOut = !AwaitRenderedFrames(host, appliedFrame, settleFrames);
+                else if (args.value("forceFrame", false) && host.Context().GetFrameIndex)
                 {
-                    const u64 baseFrame = server.MarshalRead([&server]() -> Json
-                                                             { return Json{ { "frame", server.Context().GetFrameIndex() } }; })
+                    const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                           { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                               .value("frame", static_cast<u64>(0));
-                    waitTimedOut = !AwaitRenderedFrames(server, baseFrame, settleFrames);
+                    waitTimedOut = !AwaitRenderedFrames(host, baseFrame, settleFrames);
                 }
 
                 // 3. Capture — and restore the user's camera in the same main-thread
@@ -258,9 +258,9 @@ namespace OloEngine::MCP
                 // The play state is RE-SAMPLED here, in the same job as the capture,
                 // so the sceneState meta below describes the frame actually captured
                 // even if Play/Stop flipped between the early guard and this job.
-                marshaled = server.MarshalRead([&server, maxWidth, region, restorePriorPose, deliverLink]() -> Json
-                                               {
-                    std::vector<u8> png = server.Context().CaptureViewportPng(maxWidth, region);
+                marshaled = host.MarshalRead([&host, maxWidth, region, restorePriorPose, deliverLink]() -> Json
+                                             {
+                    std::vector<u8> png = host.Context().CaptureViewportPng(maxWidth, region);
                     restorePriorPose();
                     if (png.empty())
                         return Json{ { "__error", region.IsWholeImage()
@@ -271,7 +271,7 @@ namespace OloEngine::MCP
                                                             ") is most likely outside the viewport; call olo_camera_get for its "
                                                             "current viewportWidth/viewportHeight." } };
                     Json j{ { "bytes", static_cast<u64>(png.size()) },
-                            { "playing", server.Context().IsPlaying ? server.Context().IsPlaying() : false } };
+                            { "playing", host.Context().IsPlaying ? host.Context().IsPlaying() : false } };
                     // Sampled in the SAME job as the readback, so it describes the
                     // frame actually captured (issue #607). Without it a capture taken
                     // against a minimized editor comes back HTTP 200 with the last
@@ -279,9 +279,9 @@ namespace OloEngine::MCP
                     // walk were byte-identical, which reads as "the camera didn't move"
                     // — the exact opposite of the truth, and unfalsifiable from the
                     // reply alone.
-                    if (server.Context().GetEditorLiveness)
+                    if (host.Context().GetEditorLiveness)
                     {
-                        const McpEditorLiveness liveness = server.Context().GetEditorLiveness();
+                        const McpEditorLiveness liveness = host.Context().GetEditorLiveness();
                         j["liveness"] = EditorLiveness::ToJson(liveness);
                         j["stale"] = EditorLiveness::IsStale(liveness);
                         j["stallReason"] = EditorLiveness::StallReason(liveness);
@@ -307,8 +307,8 @@ namespace OloEngine::MCP
                 {
                     try
                     {
-                        (void)server.MarshalRead([restorePriorPose]() -> Json
-                                                 {
+                        (void)host.MarshalRead([restorePriorPose]() -> Json
+                                               {
                             restorePriorPose();
                             return Json{}; });
                     }
@@ -378,9 +378,16 @@ namespace OloEngine::MCP
                 const Json::binary_t& png = marshaled["png"].get_binary();
                 std::vector<u8> bytes(png.begin(), png.end());
                 Json linkBlock = PublishCaptureResourceLink(
-                    server, std::move(bytes), "screenshot",
+                    host, std::move(bytes), "screenshot",
                     "Editor viewport PNG capture (scene-state meta in the olo_screenshot result).",
                     "Editor viewport capture (PNG); fetch via resources/read.", meta);
+                // A host with no artifact store cannot honour link delivery. Say so
+                // rather than quietly falling back to inline bytes — the caller asked
+                // for a link precisely because the inline copy was the problem.
+                if (linkBlock.is_null())
+                    return ToolResult::Error(
+                        "Resource-link delivery is unavailable: this host has no artifact store to publish "
+                        "the capture into. Re-run without resource-link delivery to get the bytes inline.");
                 result.Content.push_back(Json{ { "type", "text" }, { "text", meta.dump(2) } });
                 result.Content.push_back(std::move(linkBlock));
             }
@@ -404,14 +411,14 @@ namespace OloEngine::MCP
         // olo_camera_set_pose: the point is that the two cameras then diverge, and
         // an agent driving this needs to pose the observer many times against ONE
         // frozen cut.
-        ToolResult Handle_CameraFreezeCulling(McpServer& server, const Json& args)
+        ToolResult Handle_CameraFreezeCulling(IAutomationHost& host, const Json& args)
         {
             const bool wantsFreeze = args.contains("frozen") && args["frozen"].is_boolean();
             const bool freeze = wantsFreeze && args["frozen"].get<bool>();
             const bool wantsDrawFrustum = args.contains("drawFrustum") && args["drawFrustum"].is_boolean();
             const bool drawFrustum = wantsDrawFrustum && args["drawFrustum"].get<bool>();
 
-            const Json result = server.MarshalRead(
+            const Json result = host.MarshalRead(
                 [wantsFreeze, freeze, wantsDrawFrustum, drawFrustum]() -> Json
                 {
                     auto& settings = Renderer3D::GetRendererSettings();
@@ -477,7 +484,7 @@ namespace OloEngine::MCP
 
     } // namespace
 
-    void RegisterCameraTools(McpServer& server)
+    void RegisterCameraTools(AutomationRegistry& registry)
     {
         {
             ToolDef tool;
@@ -530,7 +537,7 @@ namespace OloEngine::MCP
                                     .Required({ "sceneState", "camera" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_Screenshot;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -548,7 +555,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraGet;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -574,7 +581,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraSetPose;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -599,7 +606,7 @@ namespace OloEngine::MCP
             tool.OutputSchema = PoseOutputSchema();
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraOrbit;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -626,7 +633,7 @@ namespace OloEngine::MCP
                                                 "viewportHeight", "framedEntity" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraFrameEntity;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -664,7 +671,7 @@ namespace OloEngine::MCP
                                                 "cullFarClip", "cullFrustumCorners" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_CameraFreezeCulling;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
 
         {
@@ -690,7 +697,7 @@ namespace OloEngine::MCP
                                     .Required({ "override" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ViewportSetSize;
-            server.RegisterTool(std::move(tool));
+            registry.Register(std::move(tool));
         }
     }
 } // namespace OloEngine::MCP

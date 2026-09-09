@@ -23,6 +23,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -259,14 +260,14 @@ namespace
             validated.Name = "fake_validated";
             validated.Description = "Validates its arguments.";
             validated.InputSchema = CountAndTagSchema();
-            validated.Handler = [](McpServer&, const Json&)
+            validated.Handler = [](IAutomationHost&, const Json&)
             { return ToolResult::Text("ok"); };
             m_Server.RegisterTool(std::move(validated));
 
             ToolDef open;
             open.Name = "fake_open";
             open.Description = "Declares no schema (permissive).";
-            open.Handler = [](McpServer&, const Json&)
+            open.Handler = [](IAutomationHost&, const Json&)
             { return ToolResult::Text("ok"); };
             m_Server.RegisterTool(std::move(open));
         }

@@ -34,6 +34,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -67,7 +68,7 @@ namespace
         tool.Title = "Fake report";
         tool.Description = "A dual-audience tool.";
         tool.DualAudienceContent = true;
-        tool.Handler = [payload = std::move(payload)](McpServer&, const Json&)
+        tool.Handler = [payload = std::move(payload)](IAutomationHost&, const Json&)
         { return ToolResult::Structured(payload); };
         server.RegisterTool(std::move(tool));
     }
@@ -194,7 +195,7 @@ TEST(McpAudienceBlocks, ToolsCallLeavesAnUndeclaredToolAlone)
     ToolDef tool;
     tool.Name = "olo_fake_plain";
     tool.Description = "A plain structured tool.";
-    tool.Handler = [](McpServer&, const Json&)
+    tool.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Structured(SamplePayload()); };
     server.RegisterTool(std::move(tool));
 
@@ -217,7 +218,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     failing.Name = "olo_fake_dual_error";
     failing.Description = "Fails.";
     failing.DualAudienceContent = true;
-    failing.Handler = [](McpServer&, const Json&)
+    failing.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Error("boom"); };
     server.RegisterTool(std::move(failing));
 
@@ -225,7 +226,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     textual.Name = "olo_fake_dual_text";
     textual.Description = "Text only.";
     textual.DualAudienceContent = true;
-    textual.Handler = [](McpServer&, const Json&)
+    textual.Handler = [](IAutomationHost&, const Json&)
     { return ToolResult::Text("flowchart LR"); };
     server.RegisterTool(std::move(textual));
 
@@ -233,7 +234,7 @@ TEST(McpAudienceBlocks, ReshapingSkipsErrorsTextResultsAndExtraBlocks)
     withLink.Name = "olo_fake_dual_link";
     withLink.Description = "Structured plus a resource link.";
     withLink.DualAudienceContent = true;
-    withLink.Handler = [](McpServer&, const Json&)
+    withLink.Handler = [](IAutomationHost&, const Json&)
     {
         ToolResult r = ToolResult::Structured(SamplePayload());
         r.Content.push_back(ToolResult::ResourceLinkBlock("olo://capture/1", "shot.png", "A capture.", "image/png"));
@@ -349,6 +350,28 @@ TEST(McpAudienceReport, ElidesLongTablesAndListsRatherThanLosingThem)
     EXPECT_NE(report.find("more row(s) omitted"), std::string::npos);
     // The bound actually held: row 99 is not printed.
     EXPECT_EQ(report.find("| 99 "), std::string::npos);
+}
+
+// The column union comes from the rows that are PRINTED, not from every row in
+// the payload. olo_perf_cpu_scopes can return 1000 scopes and olo_gpu_resources
+// 4096, so a key that first appears past the row cap would otherwise add a
+// column whose every visible cell is "-" — a field the reader can neither see
+// nor act on, widening the table for nothing.
+TEST(McpAudienceReport, ColumnsComeFromThePrintedRowsNotTheElidedOnes)
+{
+    Json rows = Json::array();
+    for (int i = 0; i < 100; ++i)
+    {
+        Json row{ { "i", i } };
+        if (i == 99)
+            row["lateOnly"] = "x"; // only ever on an elided row
+        rows.push_back(std::move(row));
+    }
+    const std::string report = AudienceReport::Render(Json{ { "rows", rows } }, "Big");
+
+    EXPECT_NE(report.find("| i"), std::string::npos);
+    EXPECT_EQ(report.find("lateOnly"), std::string::npos)
+        << "a column no printed row can fill must not be emitted";
 }
 
 // The truncation bound must never split a UTF-8 sequence: nlohmann's dump()

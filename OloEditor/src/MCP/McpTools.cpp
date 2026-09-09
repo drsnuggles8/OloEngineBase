@@ -189,26 +189,34 @@ namespace OloEngine::MCP
         }
     } // namespace
 
-    void RegisterBuiltinTools(McpServer& server)
+    void RegisterBuiltinCommands(AutomationRegistry& registry)
     {
         // One call per domain TU. Within a domain the registration order is
         // stable, so tools/list is grouped by toolset; the domain order below
         // follows each toolset's first appearance in the pre-split flat list.
-        RegisterDiagnosticsTools(server);
-        RegisterSceneTools(server);
-        RegisterPerfTools(server);
-        RegisterRenderTools(server);
-        RegisterShaderTools(server);
-        RegisterAssetTools(server);
-        RegisterScriptingTools(server);
-        RegisterCameraTools(server);
-        RegisterPhysicsTools(server);
-        RegisterInputTools(server);
-        RegisterBenchmarkTools(server);
-        RegisterEditorTools(server);
+        RegisterDiagnosticsTools(registry);
+        RegisterSceneTools(registry);
+        RegisterPerfTools(registry);
+        RegisterRenderTools(registry);
+        RegisterShaderTools(registry);
+        RegisterAssetTools(registry);
+        RegisterScriptingTools(registry);
+        RegisterCameraTools(registry);
+        RegisterPhysicsTools(registry);
+        RegisterInputTools(registry);
+        RegisterBenchmarkTools(registry);
+        RegisterEditorTools(registry);
+    }
+
+    void RegisterBuiltinTools(McpServer& server)
+    {
+        RegisterBuiltinCommands(server.Registry());
+
         // Last, and outside the domain list on purpose (issue #1124): the discovery
         // gateway is how a session reaches everything the exposure profile hid, so it
         // belongs at the end of tools/list where a reader lands after the core set.
+        // It is also the one domain that is the ADAPTER's rather than the registry's
+        // (issue #1123), which is why it is registered here and not above.
         RegisterGatewayTools(server);
 
         RegisterBuiltinResources(server);

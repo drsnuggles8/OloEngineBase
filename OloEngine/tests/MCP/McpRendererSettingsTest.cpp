@@ -48,6 +48,7 @@ namespace
     using OloEngine::TonemapOperator;
     using OloEngine::UpscaleMode;
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -79,7 +80,7 @@ namespace
             tool.Description = "Set a renderer / post-process setting (fake; test wiring).";
             tool.ProjectWrite = true;
             tool.InputSchema = RS::InputSchema();
-            tool.Handler = [this](McpServer&, const Json& args) -> ToolResult
+            tool.Handler = [this](IAutomationHost&, const Json& args) -> ToolResult
             {
                 bool introspect = false;
                 RS::Setting setting{};

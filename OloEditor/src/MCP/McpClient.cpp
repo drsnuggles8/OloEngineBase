@@ -437,7 +437,7 @@ namespace OloEngine::MCP
                 def.Icons = entry["icons"]; // ReplaceClientTools validates-or-drops
             // Strong capture on purpose: an executing bridged call keeps this
             // connection (and its transport) alive across a disconnect/re-merge.
-            def.Handler = [self, childName](McpServer&, const Json& arguments)
+            def.Handler = [self, childName](IAutomationHost&, const Json& arguments)
             { return self->InvokeBridged(childName, arguments); };
             m_BridgedTools.push_back(std::move(def));
         }

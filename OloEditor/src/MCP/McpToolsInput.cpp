@@ -35,9 +35,9 @@ namespace OloEngine::MCP
     {
         namespace Inject = InputInject;
 
-        ToolResult Handle_InputInject(McpServer& server, const Json& args)
+        ToolResult Handle_InputInject(IAutomationHost& host, const Json& args)
         {
-            const EditorMcpContext& context = server.Context();
+            const EditorMcpContext& context = host.Context();
             if (!context.InjectInput || !context.GetInputViewportInfo || !context.GetInputState)
                 return ToolResult::Error("Input injection is not available in this build (no editor window).");
 
@@ -66,7 +66,7 @@ namespace OloEngine::MCP
             Json accepted;
             try
             {
-                accepted = server.MarshalRead(
+                accepted = host.MarshalRead(
                     [&context, request, abandoned]() -> Json
                     {
                         // Refuse UP FRONT when the editor is not running frames (issue
@@ -162,13 +162,13 @@ namespace OloEngine::MCP
             // consequence, not a frame from before the click.
             const auto baseFrame = accepted.value("baseFrame", static_cast<u64>(0));
             const auto frameCount = accepted.value("frameCount", static_cast<u32>(0));
-            const bool timedOut = !AwaitRenderedFrames(server, baseFrame, static_cast<int>(frameCount) + 1);
+            const bool timedOut = !AwaitRenderedFrames(host, baseFrame, static_cast<int>(frameCount) + 1);
 
             // Step 3 (main thread): read back what the injection changed — plus the
             // liveness, so a timeout can name its cause instead of leaving the caller
             // to guess (the editor could have been minimized DURING the settle wait,
             // which the step-1 pre-check cannot see).
-            const Json stateJson = server.MarshalRead(
+            const Json stateJson = host.MarshalRead(
                 [&context]() -> Json
                 {
                     const McpInputStateSnapshot state = context.GetInputState();
@@ -273,7 +273,7 @@ namespace OloEngine::MCP
         }
     } // namespace
 
-    void RegisterInputTools(McpServer& server)
+    void RegisterInputTools(AutomationRegistry& registry)
     {
         ToolDef tool;
         tool.Name = "olo_input_inject";
@@ -364,6 +364,6 @@ namespace OloEngine::MCP
                                 .Required({ "available", "ok", "framesInjected", "message", "after" });
         tool.MainMarshaled = true;
         tool.Handler = Handle_InputInject;
-        server.RegisterTool(std::move(tool));
+        registry.Register(std::move(tool));
     }
 } // namespace OloEngine::MCP

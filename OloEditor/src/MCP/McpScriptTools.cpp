@@ -535,11 +535,17 @@ namespace OloEngine::MCP
         // `mayWrite` is the tool's OWN declared tier (`writes = true`), baked in at
         // registration — the bridge reads it back off the runtime, so a handler can
         // neither raise it nor borrow a caller's.
+        // `server` is the one LoadScriptTools was called with, bound by reference
+        // rather than taken from the host seam (issue #1123): the olo.call_tool bridge
+        // above consults the session's WRITE CONSENT before it re-enters another
+        // command, and consent belongs to the transport, not to the registry. That
+        // server owns the registry these commands are published into, so it outlives
+        // every one of them.
         ToolHandler MakeScriptHandler(std::shared_ptr<ScriptToolsRuntime> runtime, sol::protected_function handler,
-                                      bool mayWrite)
+                                      bool mayWrite, McpServer& server)
         {
-            return [runtime = std::move(runtime), handler = std::move(handler), mayWrite](
-                       McpServer& server, const Json& arguments) -> ToolResult
+            return [runtime = std::move(runtime), handler = std::move(handler), mayWrite, &server](
+                       IAutomationHost&, const Json& arguments) -> ToolResult
             {
                 std::lock_guard lock(runtime->Mutex);
                 WatchdogScope watchdog(*runtime, &server, mayWrite);
@@ -774,7 +780,7 @@ namespace OloEngine::MCP
                 tool.Icons = std::move(converted);
             }
 
-            tool.Handler = MakeScriptHandler(runtime, handler.value(), writes);
+            tool.Handler = MakeScriptHandler(runtime, handler.value(), writes, *serverPtr);
             tool.ScriptOwned = true; // replaced wholesale on the next rescan
             tools.push_back(std::move(tool));
             ++report.ToolsRegistered;
@@ -864,8 +870,11 @@ namespace OloEngine::MCP
         // non-idempotent annotation rather than readOnlyHint:true.
         tool.ProjectWrite = false;
         tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
-        tool.Handler = [directory = std::move(directory), budget, memoryBudgetBytes](
-                           McpServer& srv, const Json&) -> ToolResult
+        // `srv` is the server this reload tool was registered on, bound by reference
+        // (issue #1123): a live rescan republishes the command list and reports the
+        // generation afterwards, and both of those are the transport's business.
+        tool.Handler = [directory = std::move(directory), budget, memoryBudgetBytes, &srv = server](
+                           IAutomationHost&, const Json&) -> ToolResult
         {
             const McpScriptToolsReport report = LoadScriptTools(srv, directory, budget, memoryBudgetBytes);
             Json messages = Json::array();

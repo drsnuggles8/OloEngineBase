@@ -25,6 +25,7 @@
 namespace
 {
     using OloEngine::MCP::EditorMcpContext;
+    using OloEngine::MCP::IAutomationHost;
     using OloEngine::MCP::McpServer;
     using OloEngine::MCP::ToolDef;
     using OloEngine::MCP::ToolResult;
@@ -43,7 +44,7 @@ namespace
         tool.Name = name;
         tool.Description = "test tool";
         tool.Icons = std::move(icons);
-        tool.Handler = [](McpServer&, const Json&)
+        tool.Handler = [](IAutomationHost&, const Json&)
         { return ToolResult::Text("ok"); };
         return tool;
     }

@@ -797,6 +797,12 @@ add_executable(OloEngine-Tests
 		# below). McpServerPanel.* (ImGui) is NOT needed.
 		MCP/McpDispatchTest.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpServer.cpp
+		# The registry McpServer adapts (issue #1123). Three TUs, all
+		# transport-free: the command registry, the result type, and the
+		# input-schema validator that used to sit inside McpServer.cpp.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationRegistry.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationResult.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSchemaValidation.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —
@@ -1096,6 +1102,11 @@ add_executable(OloEngine-Tests
 		# editor), so the test injects a fake and never opens a window. Header-only
 		# on the editor side, so no extra editor TU is pulled in.
 		MCP/McpSelectEntityTest.cpp
+		# The extraction itself (issue #1123): a command invoked with no MCP
+		# server constructed, and every registry command reachable through the
+		# adapter with the schema it declared. Pulls in the automation TUs above
+		# plus the real command surface (McpTools*.cpp, already listed).
+		MCP/McpAutomationRegistryTest.cpp
 		# Lua Binding Tests
 		Lua/LuaBindingTest.cpp
 		# Steamworks platform integration (#644). All five run on EVERY configuration:
