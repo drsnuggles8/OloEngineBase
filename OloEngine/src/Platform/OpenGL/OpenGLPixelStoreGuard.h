@@ -40,7 +40,7 @@ namespace OloEngine::Utils
     namespace Detail
     {
         // One pixel-store integer, set to 1 for the scope and restored after.
-        template <GLenum Parameter>
+        template<GLenum Parameter>
         class GLAlignmentScope
         {
           public:
