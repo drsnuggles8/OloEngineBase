@@ -54,6 +54,12 @@ namespace
         McpProtocolIconsTest()
             : m_Server(EditorMcpContext{})
         {
+            // tools/list defaults to the `core` exposure profile (#1124), which lists
+            // real tool names plus the discovery gateway — the fakes below are in
+            // neither. These tests are about icon SERIALIZATION, so opt into the full
+            // surface; exposure itself is McpExposureProfileTest.cpp's job.
+            m_Server.SetExposurePolicy(
+                OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
         }
 
         [[nodiscard]] Json Send(const Json& request)

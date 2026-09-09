@@ -150,20 +150,28 @@ namespace OloEngine::Levers
         // here and reported by LogActive() once the logger is definitely up,
         // rather than logged from inside the seed.
         //
-        // A function-local static rather than one more constinit global: this is
-        // NOT one of the four above and no other TU's static initialiser reads it,
-        // so it does not need the cross-TU ordering guarantee — and it cannot have
-        // it anyway. Under MSVC's debug STL (_ITERATOR_DEBUG_LEVEL != 0) the
-        // std::vector default constructor allocates an iterator-debug proxy, which
-        // makes `constinit std::vector` a hard compile error; it built only where
-        // that STL was not in play. Initialise-on-first-use gives the property the
-        // comment above actually cares about — the storage exists before anything
-        // can read it — on every toolchain, so re-adding constinit here is neither
-        // needed nor possible.
+        // NOT `constinit std::vector`, and that is a hard toolchain limit rather
+        // than a relaxation of the rule above. Under the MSVC Debug STL
+        // (`_ITERATOR_DEBUG_LEVEL != 0`, i.e. /MDd — every Debug build here)
+        // `std::vector`'s default constructor HEAP-ALLOCATES a `_Container_proxy`,
+        // so it is not a constant expression and `constinit` is a hard error:
+        // clang-cl "variable does not have a constant initializer", MSVC C2127.
+        // Both reject it; both accept it under /MD, where there is no proxy —
+        // which is why it reached master. The clang-cl CI job is the ASan one and
+        // that tree is Release-only, so no configuration CI builds has the Debug
+        // STL and a Debug-only break was invisible.
+        //
+        // A LEAKED FUNCTION-LOCAL, which keeps the property the `constinit` was
+        // there for and does not depend on the STL's constexpr-ness. The guard
+        // variable IS constant-initialized, so the storage is reachable at any
+        // point in static initialisation — the seed can still run arbitrarily
+        // early — and never destroyed, so a late `LogActive()` cannot read a
+        // destroyed vector. Same shape, and the same reasoning, as
+        // `Shader.cpp`'s deliberately-leaked program sets (issue #1088).
         [[nodiscard]] std::vector<std::string>& SeedWarnings()
         {
-            static std::vector<std::string> warnings;
-            return warnings;
+            static auto* s_Warnings = new std::vector<std::string>();
+            return *s_Warnings;
         }
 
         // "0"/"false" off, "1"/"true" on, anything else leaves the caller's own

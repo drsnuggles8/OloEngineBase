@@ -1221,10 +1221,23 @@ namespace OloEngine
         // them. Keying on either token marks every shader that merely INCLUDES the
         // header as a reader, which makes BindPBRTextures skip the material binds
         // engine-wide and renders meshes unlit with no error (issue #691).
+        //
+        // OUTSIDE COMMENTS, AND WHOLE-IDENTIFIER — the shared scanner, like
+        // WantsBindlessVariant above, rather than a raw substring find. This call
+        // site was the only one still asking the naive question, and amendment (96)
+        // is what turned that from a latent inconsistency into a hazard: a shader
+        // on the Vulkan material heap arm explains in PROSE that it deliberately
+        // does NOT define this token, naming it to say so. A comment-blind scan
+        // reads that sentence as the opt-in. It happens to be harmless today only
+        // because those files also define the token for real in their
+        // `#elif defined(OLO_BINDLESS)` arm, so the answer is the same by accident;
+        // delete the GL arm and the comment alone would keep this true, and
+        // BindPBRTextures would withhold the five material binds from a program
+        // whose SPIR-V still declares them. ShaderSourceScan.h's own header says
+        // the comment skip exists for exactly this, and this site was not using it.
         m_ReadsMaterialHeapOffsets =
-            std::ranges::any_of(sources,
-                                [](const auto& entry)
-                                { return entry.second.find("OLO_MATERIAL_HEAP_READER") != std::string::npos; });
+            std::ranges::any_of(sources, [](const auto& entry)
+                                { return Utils::MentionsOutsideComments(entry.second, "OLO_MATERIAL_HEAP_READER"); });
 
         // DERIVED HERE, ABOVE THE CACHE-HIT EARLY RETURN, and from `sources`
         // rather than m_OpenGLSourceCode — which is not populated until further

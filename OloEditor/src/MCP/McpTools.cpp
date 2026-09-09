@@ -206,6 +206,10 @@ namespace OloEngine::MCP
         RegisterInputTools(server);
         RegisterBenchmarkTools(server);
         RegisterEditorTools(server);
+        // Last, and outside the domain list on purpose (issue #1124): the discovery
+        // gateway is how a session reaches everything the exposure profile hid, so it
+        // belongs at the end of tools/list where a reader lands after the core set.
+        RegisterGatewayTools(server);
 
         RegisterBuiltinResources(server);
         RegisterBuiltinPrompts(server);

@@ -49,6 +49,11 @@ namespace
         {
             McpServer server{ EditorMcpContext{} };
             OloEngine::MCP::RegisterBuiltinTools(server);
+            // The default `core` exposure profile (#1124) lists ~16 of the 97 tools.
+            // This is a whole-surface ratchet, so it asks for the whole surface — a
+            // schema-less tool must fail here whether or not the default lists it.
+            server.SetExposurePolicy(
+                OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
             return server.HandleMessage(MakeRequest(1, "tools/list"));
         }();
         return response;
@@ -113,6 +118,11 @@ TEST(McpOutputSchemaCoverage, EveryToolDeclaresAnOutputSchemaExceptTextOnlyExemp
     // and justified per entry.
     static const std::set<std::string> kTextOnlyExempt = {
         "olo_log_tail", // raw spdlog lines, deliberately unreshaped
+        // The gateway's execute alias (#1124) returns the TARGET tool's result
+        // verbatim, so any schema declared for it would be a claim about ~90
+        // different result shapes. Not a text-only tool — a tool with no result
+        // shape of its own.
+        "olo_tool_execute",
     };
 
     const Json& tools = BuiltinTools();

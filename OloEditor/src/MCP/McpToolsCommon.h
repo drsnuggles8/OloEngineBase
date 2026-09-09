@@ -380,4 +380,8 @@ namespace OloEngine::MCP
     void RegisterInputTools(McpServer& server);
     void RegisterBenchmarkTools(McpServer& server);
     void RegisterEditorTools(McpServer& server);
+    // The capability-discovery gateway (issue #1124). Registered LAST so the four
+    // gateway tools sort after the domains in tools/list — they are the entry point
+    // for a session that cannot see the rest, not part of any domain.
+    void RegisterGatewayTools(McpServer& server);
 } // namespace OloEngine::MCP

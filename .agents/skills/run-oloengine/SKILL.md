@@ -151,6 +151,8 @@ Driver options:
 | `-McpPort <n>` | with `attach`: override the per-worktree MCP port (default: derived from the worktree path) |
 | `-McpName <name>` | with `attach`: override the registered MCP server name (default `oloeditor-<port>`) |
 | `-AllowWrites` | with `attach`: start the session at MCP write consent **Allow all** (`OLO_MCP_ALLOW_WRITES=1`). Required for any mutating `olo_*` tool — see below. |
+| `-ToolProfile <core\|toolset\|full>` | with `attach`: how much of the tool surface `tools/list` advertises (`OLO_MCP_TOOL_PROFILE`). Default `core`; every tool stays callable by name regardless — see below. |
+| `-McpToolsets <a,b>` | with `attach -ToolProfile toolset`: the toolsets to list on top of the core set (`OLO_MCP_TOOLSETS`), e.g. `render,physics`. |
 
 ## Attach the MCP diagnostics server (live frame inspection)
 
@@ -197,6 +199,27 @@ write is refused, relaunch with `-AllowWrites` rather than hunting for a second 
 Read-only work (screenshots, camera moves, `olo_render_capture_target`,
 `olo_shader_errors`, the stats tools) needs none of this — leave writes off unless you
 actually intend to mutate the project.
+
+**`tools/list` shows a core set, not the whole surface (issue #1124).** The editor
+defaults to the `core` exposure profile: ~16 curated tools plus the discovery gateway,
+because listing all 96 costs ~270 KB / ~68k tokens of schemas before you ask anything.
+Everything named above — `olo_scene_open`, `olo_renderer_settings_set`,
+`olo_entity_set_field`, the whole `olo_render_*` / `olo_physics_*` / `olo_perf_*`
+families — **is still callable by name**; exposure filters the listing, never dispatch.
+So calling one you know the name of just works. To find one you don't:
+
+```
+olo_capability                          # what exists, what is hidden, how big it is
+olo_tool_search  { query: "raycast" }   # names + summaries across the FULL registry
+olo_tool_describe { names: [...] }      # the input schema for the one you want
+```
+
+Pass `-ToolProfile full` if you would rather have the whole catalogue listed up front,
+or `-ToolProfile toolset -McpToolsets render,physics` for a middle ground:
+
+```powershell
+pwsh -NoProfile -File .agents\skills\run-oloengine\driver.ps1 -Action attach -ToolProfile full
+```
 
 Notes:
 

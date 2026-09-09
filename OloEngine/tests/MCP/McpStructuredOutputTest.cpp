@@ -99,6 +99,18 @@ namespace
     {
         return server.HandleMessage(MakeRequest(id, "tools/call", Json{ { "name", name } }));
     }
+
+    // tools/list defaults to the `core` exposure profile (#1124), which lists a
+    // curated set of REAL tool names plus the discovery gateway — a fake tool
+    // registered by a test is not in it. These tests assert on the listing
+    // MECHANICS, not on exposure, so they opt into the full surface explicitly.
+    // The filter itself is covered by McpExposureProfileTest.cpp.
+    void ListEverything(McpServer& server)
+    {
+        server.SetExposurePolicy(
+            OloEngine::MCP::ExposurePolicy{ OloEngine::MCP::ExposureProfile::Full, {} });
+    }
+
 } // namespace
 
 // ---- ToolResult::Structured factory ----------------------------------------
@@ -129,6 +141,7 @@ TEST(McpStructuredOutput, TextAndErrorFactoriesLeaveStructuredContentNull)
 TEST(McpStructuredOutput, ToolsListEmitsOutputSchemaWhenPresent)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     AddStructuredTool(server, "olo_fake_structured");
 
     const Json resp = server.HandleMessage(MakeRequest(1, "tools/list"));
@@ -144,6 +157,7 @@ TEST(McpStructuredOutput, ToolsListEmitsOutputSchemaWhenPresent)
 TEST(McpStructuredOutput, ToolsListOmitsOutputSchemaForTextTool)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     AddTextTool(server, "olo_fake_text");
 
     const Json resp = server.HandleMessage(MakeRequest(2, "tools/list"));
@@ -155,6 +169,7 @@ TEST(McpStructuredOutput, ToolsListOmitsOutputSchemaForTextTool)
 TEST(McpStructuredOutput, ToolsListOmitsOutputSchemaWhenEmptyObject)
 {
     McpServer server(EditorMcpContext{});
+    ListEverything(server);
     // An explicitly empty object is "no schema" — must be omitted, not serialized
     // as "outputSchema": {} (mirrors the annotations omit-when-empty rule).
     ToolDef tool;
