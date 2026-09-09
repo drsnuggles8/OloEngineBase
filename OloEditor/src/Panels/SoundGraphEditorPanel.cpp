@@ -95,9 +95,8 @@ namespace OloEngine
         f32 const availWidth = ImGui::GetContentRegionAvail().x;
         f32 const canvasWidth = (m_SelectedNodeID != 0) ? availWidth - s_PropertyPanelWidth : availWidth;
 
-        ImGui::BeginChild("##SGRCanvas", ImVec2(canvasWidth, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
-        DrawCanvas();
-        ImGui::EndChild();
+        HandleShortcuts();
+        DrawCanvas(canvasWidth);
 
         if (m_SelectedNodeID != 0)
         {
@@ -326,25 +325,26 @@ namespace OloEngine
     // Canvas
     // =========================================================================
 
-    void SoundGraphEditorPanel::DrawCanvas()
+    void SoundGraphEditorPanel::DrawCanvas(f32 width)
     {
-        ImVec2 const canvasOrigin = ImGui::GetCursorScreenPos();
-        ImVec2 const canvasSize = ImGui::GetContentRegionAvail();
-        ImVec2 const canvasEnd = ImVec2(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
+        // Begin() paints the background and grid, consumes pan/zoom and clips to
+        // its own child region - everything this function used to do by hand.
+        if (!m_Canvas.Begin("##SGRCanvas", ImVec2(width, 0.0f)))
+        {
+            // Clipped away: no geometry to hit-test against and no release to
+            // observe, so anything in flight has to end here.
+            CancelInteractions();
+            return;
+        }
 
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-        drawList->AddRectFilled(canvasOrigin, canvasEnd, IM_COL32(30, 30, 35, 255));
-        drawList->PushClipRect(canvasOrigin, canvasEnd, true);
-
-        DrawGrid(drawList, canvasOrigin, canvasSize);
-        DrawConnections(drawList, canvasOrigin);
-        DrawNodes(drawList, canvasOrigin);
-        DrawConnectionInProgress(drawList, canvasOrigin);
+        DrawConnections();
+        DrawNodes();
+        DrawConnectionInProgress();
 
         // Box-select marquee. Drawn last so it overlays nodes during the drag.
         if (m_IsBoxSelecting)
         {
+            ImDrawList* drawList = m_Canvas.GetDrawList();
             const ImVec2 mp = ImGui::GetIO().MousePos;
             const ImVec2 rmin(std::min(m_BoxSelectStart.x, mp.x), std::min(m_BoxSelectStart.y, mp.y));
             const ImVec2 rmax(std::max(m_BoxSelectStart.x, mp.x), std::max(m_BoxSelectStart.y, mp.y));
@@ -352,50 +352,11 @@ namespace OloEngine
             drawList->AddRect(rmin, rmax, IM_COL32(120, 180, 255, 200));
         }
 
-        drawList->PopClipRect();
+        HandleNodeInteraction();
+        HandleConnectionDrag();
+        DrawContextMenu();
 
-        ImGui::SetCursorScreenPos(canvasOrigin);
-        ImGui::InvisibleButton("##sgrcanvas", canvasSize,
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-
-        HandleCanvasInput(canvasOrigin, canvasSize);
-        HandleNodeInteraction(canvasOrigin);
-        HandleConnectionDrag(canvasOrigin);
-        DrawContextMenu(canvasOrigin);
-    }
-
-    void SoundGraphEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
-    {
-        f32 const gridStep = s_GridSize * m_Zoom;
-        ImU32 const gridColor = IM_COL32(50, 50, 55, 255);
-        ImU32 const gridColorMajor = IM_COL32(60, 60, 70, 255);
-
-        f32 const offX = std::fmod(m_ScrollOffset.x * m_Zoom, gridStep);
-        f32 const offY = std::fmod(m_ScrollOffset.y * m_Zoom, gridStep);
-
-        // Integer line counter, position derived from the index — avoids the
-        // rounding drift an accumulating `x += gridStep` float counter introduces
-        // over many grid lines (cpp:S2193).
-        const f32 startX = canvasOrigin.x + offX;
-        const f32 endX = canvasOrigin.x + canvasSize.x;
-        for (int lineIndex = 0;; ++lineIndex)
-        {
-            const f32 x = startX + static_cast<f32>(lineIndex) * gridStep;
-            if (x >= endX)
-                break;
-            drawList->AddLine(ImVec2(x, canvasOrigin.y), ImVec2(x, canvasOrigin.y + canvasSize.y),
-                              (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
-        }
-        const f32 startY = canvasOrigin.y + offY;
-        const f32 endY = canvasOrigin.y + canvasSize.y;
-        for (int lineIndex = 0;; ++lineIndex)
-        {
-            const f32 y = startY + static_cast<f32>(lineIndex) * gridStep;
-            if (y >= endY)
-                break;
-            drawList->AddLine(ImVec2(canvasOrigin.x, y), ImVec2(canvasOrigin.x + canvasSize.x, y),
-                              (lineIndex % 4 == 0) ? gridColorMajor : gridColor);
-        }
+        m_Canvas.End();
     }
 
     // =========================================================================
@@ -430,30 +391,12 @@ namespace OloEngine
         return g;
     }
 
-    // Compute Bezier control points for a wire that flows out of an OUTPUT pin (right-
-    // facing) and into an INPUT pin (left-facing). The horizontal tangent magnitude grows
-    // with horizontal distance, clamped to a minimum so close-together pins still get a
-    // gentle curve and a maximum so long-distance wires don't bulge absurdly. For
-    // "back-routing" (target left of source) the tangents still point outward from each
-    // pin, which produces a smooth S/loop shape instead of the degenerate near-straight
-    // wire that strict mid-point control gives.
-    static void ComputeWireControlPoints(const ImVec2& src, const ImVec2& dst,
-                                         bool srcIsOutput, bool dstIsOutput,
-                                         ImVec2& outCP1, ImVec2& outCP2)
-    {
-        constexpr f32 kMinTangent = 40.0f;
-        constexpr f32 kMaxTangent = 220.0f;
-        const f32 tangent = std::clamp(std::abs(dst.x - src.x) * 0.5f, kMinTangent, kMaxTangent);
-        const f32 srcSign = srcIsOutput ? 1.0f : -1.0f;
-        const f32 dstSign = dstIsOutput ? 1.0f : -1.0f;
-        outCP1 = ImVec2(src.x + srcSign * tangent, src.y);
-        outCP2 = ImVec2(dst.x + dstSign * tangent, dst.y);
-    }
-
-    void SoundGraphEditorPanel::DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::DrawNodes()
     {
         if (!m_GraphAsset)
             return;
+
+        ImDrawList* drawList = m_Canvas.GetDrawList();
 
         // Iterate via index-into-stored-vector so we can pass a non-const ref to DrawNode.
         // SoundGraphAsset doesn't expose a mutable accessor, so we cast around. This is
@@ -462,31 +405,31 @@ namespace OloEngine
         auto& nodes = const_cast<std::vector<SoundGraphNodeData>&>(m_GraphAsset->GetNodes());
         for (auto& node : nodes)
         {
-            DrawNode(drawList, canvasOrigin, node);
+            DrawNode(node);
         }
 
         // Graph Input pseudo-node — output pins on the right side, one per graph parameter.
         // Drawn first so the (typically more-interacted-with) Output node visually wins.
         {
             const auto& inputs = m_GraphAsset->GetGraphInputs();
-            const ImVec2 inNodeScreen = WorldToScreen(m_GraphInputNodePos, canvasOrigin);
-            const f32 width = kGraphOutputNodeWidth * m_Zoom;
+            const ImVec2 inNodeScreen = m_Canvas.ToScreen(m_GraphInputNodePos);
+            const f32 width = kGraphOutputNodeWidth * m_Canvas.GetZoom();
             const sizet pinCount = std::max<sizet>(inputs.size(), 1); // reserve at least one row even when empty
-            const f32 height = (kGraphOutputNodeHeaderHeight + (pinCount + 1) * kGraphOutputNodePinSpacing) * m_Zoom;
+            const f32 height = (kGraphOutputNodeHeaderHeight + (pinCount + 1) * kGraphOutputNodePinSpacing) * m_Canvas.GetZoom();
             const ImVec2 nodeEnd(inNodeScreen.x + width, inNodeScreen.y + height);
             drawList->AddRectFilled(inNodeScreen, nodeEnd, IM_COL32(50, 45, 65, 240), 4.0f);
-            const ImVec2 headerEnd(nodeEnd.x, inNodeScreen.y + kGraphOutputNodeHeaderHeight * m_Zoom);
+            const ImVec2 headerEnd(nodeEnd.x, inNodeScreen.y + kGraphOutputNodeHeaderHeight * m_Canvas.GetZoom());
             drawList->AddRectFilled(inNodeScreen, headerEnd, IM_COL32(110, 80, 160, 255), 4.0f, ImDrawFlags_RoundCornersTop);
             drawList->AddRect(inNodeScreen, nodeEnd, IM_COL32(180, 150, 220, 200), 4.0f, 0, 1.5f);
-            const f32 fontSize = 13.0f * m_Zoom;
-            const ImVec2 titlePos(inNodeScreen.x + 8.0f * m_Zoom, inNodeScreen.y + 5.0f * m_Zoom);
+            const f32 fontSize = 13.0f * m_Canvas.GetZoom();
+            const ImVec2 titlePos(inNodeScreen.x + 8.0f * m_Canvas.GetZoom(), inNodeScreen.y + 5.0f * m_Canvas.GetZoom());
             drawList->AddText(nullptr, fontSize, titlePos, IM_COL32(255, 255, 255, 255), "Graph Input");
             if (inputs.empty())
             {
-                const f32 hintFont = 11.0f * m_Zoom;
+                const f32 hintFont = 11.0f * m_Canvas.GetZoom();
                 drawList->AddText(nullptr, hintFont,
-                                  ImVec2(inNodeScreen.x + 8.0f * m_Zoom,
-                                         inNodeScreen.y + (kGraphOutputNodeHeaderHeight + kGraphOutputNodePinSpacing * 0.5f) * m_Zoom),
+                                  ImVec2(inNodeScreen.x + 8.0f * m_Canvas.GetZoom(),
+                                         inNodeScreen.y + (kGraphOutputNodeHeaderHeight + kGraphOutputNodePinSpacing * 0.5f) * m_Canvas.GetZoom()),
                                   IM_COL32(160, 160, 180, 220), "(right-click to add params)");
             }
             // Pin output on the right edge per parameter (sorted for stable order).
@@ -497,17 +440,17 @@ namespace OloEngine
             std::ranges::sort(sortedNames);
             const ImU32 pinFill = IM_COL32(180, 140, 230, 255);
             const ImU32 pinBorder = IM_COL32(200, 200, 200, 255);
-            const f32 labelFont = 11.0f * m_Zoom;
+            const f32 labelFont = 11.0f * m_Canvas.GetZoom();
             for (sizet i = 0; i < sortedNames.size(); ++i)
             {
-                const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Zoom;
+                const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Canvas.GetZoom();
                 const ImVec2 pinPos(nodeEnd.x, py);
-                drawList->AddCircleFilled(pinPos, s_PinRadius * m_Zoom, pinFill);
-                drawList->AddCircle(pinPos, s_PinRadius * m_Zoom, pinBorder);
+                drawList->AddCircleFilled(pinPos, s_PinRadius * m_Canvas.GetZoom(), pinFill);
+                drawList->AddCircle(pinPos, s_PinRadius * m_Canvas.GetZoom(), pinBorder);
                 const ImVec2 textSize = ImGui::CalcTextSize(sortedNames[i].c_str());
                 const f32 scaledW = textSize.x * (labelFont / ImGui::GetFontSize());
                 drawList->AddText(nullptr, labelFont,
-                                  ImVec2(pinPos.x - s_PinRadius * m_Zoom - 4.0f * m_Zoom - scaledW,
+                                  ImVec2(pinPos.x - s_PinRadius * m_Canvas.GetZoom() - 4.0f * m_Canvas.GetZoom() - scaledW,
                                          pinPos.y - labelFont * 0.5f),
                                   IM_COL32(200, 200, 200, 255), sortedNames[i].c_str());
             }
@@ -516,7 +459,7 @@ namespace OloEngine
             // attach IsItemHovered to), so we hit-test the rect manually. ImGui::SetTooltip
             // is fine to call here as long as the canvas window is hovered.
             const ImVec2 mp = ImGui::GetIO().MousePos;
-            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+            if (m_Canvas.IsHovered() &&
                 mp.x >= inNodeScreen.x && mp.x <= nodeEnd.x &&
                 mp.y >= inNodeScreen.y && mp.y <= nodeEnd.y)
             {
@@ -528,40 +471,40 @@ namespace OloEngine
         }
 
         // Graph-output pseudo-node. Drawn last so it always renders in front of real nodes.
-        const ImVec2 outNodePos = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
-        const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodePos, m_Zoom);
+        const ImVec2 outNodePos = m_Canvas.ToScreen(m_GraphOutputNodePos);
+        const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodePos, m_Canvas.GetZoom());
         const ImVec2 nodeEnd(g.NodePos.x + g.NodeSize.x, g.NodePos.y + g.NodeSize.y);
 
         drawList->AddRectFilled(g.NodePos, nodeEnd, IM_COL32(35, 55, 50, 240), 4.0f);
-        const ImVec2 headerEnd(nodeEnd.x, g.NodePos.y + kGraphOutputNodeHeaderHeight * m_Zoom);
+        const ImVec2 headerEnd(nodeEnd.x, g.NodePos.y + kGraphOutputNodeHeaderHeight * m_Canvas.GetZoom());
         drawList->AddRectFilled(g.NodePos, headerEnd, IM_COL32(60, 130, 100, 255), 4.0f, ImDrawFlags_RoundCornersTop);
         drawList->AddRect(g.NodePos, nodeEnd, IM_COL32(140, 200, 170, 200), 4.0f, 0, 1.5f);
 
-        const f32 fontSize = 13.0f * m_Zoom;
-        const ImVec2 titlePos(g.NodePos.x + 8.0f * m_Zoom, g.NodePos.y + 5.0f * m_Zoom);
+        const f32 fontSize = 13.0f * m_Canvas.GetZoom();
+        const ImVec2 titlePos(g.NodePos.x + 8.0f * m_Canvas.GetZoom(), g.NodePos.y + 5.0f * m_Canvas.GetZoom());
         drawList->AddText(nullptr, fontSize, titlePos, IM_COL32(255, 255, 255, 255), "Graph Output");
 
         // Pin circles + labels.
         const ImU32 pinColor = IM_COL32(90, 170, 220, 255);
         const ImU32 pinBorder = IM_COL32(200, 200, 200, 255);
-        const f32 labelFont = 11.0f * m_Zoom;
-        drawList->AddCircleFilled(g.OutLeftPinPos, s_PinRadius * m_Zoom, pinColor);
-        drawList->AddCircle(g.OutLeftPinPos, s_PinRadius * m_Zoom, pinBorder);
+        const f32 labelFont = 11.0f * m_Canvas.GetZoom();
+        drawList->AddCircleFilled(g.OutLeftPinPos, s_PinRadius * m_Canvas.GetZoom(), pinColor);
+        drawList->AddCircle(g.OutLeftPinPos, s_PinRadius * m_Canvas.GetZoom(), pinBorder);
         drawList->AddText(nullptr, labelFont,
-                          ImVec2(g.OutLeftPinPos.x + s_PinRadius * m_Zoom + 4.0f * m_Zoom,
+                          ImVec2(g.OutLeftPinPos.x + s_PinRadius * m_Canvas.GetZoom() + 4.0f * m_Canvas.GetZoom(),
                                  g.OutLeftPinPos.y - labelFont * 0.5f),
                           IM_COL32(200, 200, 200, 255), "OutLeft");
 
-        drawList->AddCircleFilled(g.OutRightPinPos, s_PinRadius * m_Zoom, pinColor);
-        drawList->AddCircle(g.OutRightPinPos, s_PinRadius * m_Zoom, pinBorder);
+        drawList->AddCircleFilled(g.OutRightPinPos, s_PinRadius * m_Canvas.GetZoom(), pinColor);
+        drawList->AddCircle(g.OutRightPinPos, s_PinRadius * m_Canvas.GetZoom(), pinBorder);
         drawList->AddText(nullptr, labelFont,
-                          ImVec2(g.OutRightPinPos.x + s_PinRadius * m_Zoom + 4.0f * m_Zoom,
+                          ImVec2(g.OutRightPinPos.x + s_PinRadius * m_Canvas.GetZoom() + 4.0f * m_Canvas.GetZoom(),
                                  g.OutRightPinPos.y - labelFont * 0.5f),
                           IM_COL32(200, 200, 200, 255), "OutRight");
 
         // Tooltip on hover (matches the Graph Input pseudo-node's hover behavior).
         const ImVec2 mp = ImGui::GetIO().MousePos;
-        if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+        if (m_Canvas.IsHovered() &&
             mp.x >= g.NodePos.x && mp.x <= nodeEnd.x &&
             mp.y >= g.NodePos.y && mp.y <= nodeEnd.y)
         {
@@ -613,10 +556,11 @@ namespace OloEngine
         return true;
     }
 
-    void SoundGraphEditorPanel::DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, SoundGraphNodeData& node)
+    void SoundGraphEditorPanel::DrawNode(SoundGraphNodeData& node)
     {
+        ImDrawList* drawList = m_Canvas.GetDrawList();
         glm::vec2 const worldPos(node.m_PosX, node.m_PosY);
-        ImVec2 const nodePos = WorldToScreen(worldPos, canvasOrigin);
+        ImVec2 const nodePos = m_Canvas.ToScreen(worldPos);
         ImVec2 const nodeSize = GetNodeSize(node);
         ImVec2 const nodeEnd = ImVec2(nodePos.x + nodeSize.x, nodePos.y + nodeSize.y);
         // A node is selected if it's the primary selection (drives the property sidebar)
@@ -626,15 +570,15 @@ namespace OloEngine
 
         drawList->AddRectFilled(nodePos, nodeEnd, GetNodeColor(node.m_Type), 4.0f);
 
-        ImVec2 const headerEnd = ImVec2(nodeEnd.x, nodePos.y + s_HeaderHeight * m_Zoom);
+        ImVec2 const headerEnd = ImVec2(nodeEnd.x, nodePos.y + s_HeaderHeight * m_Canvas.GetZoom());
         drawList->AddRectFilled(nodePos, headerEnd, GetNodeHeaderColor(node.m_Type), 4.0f, ImDrawFlags_RoundCornersTop);
 
         if (isSelected)
             drawList->AddRect(nodePos, nodeEnd, IM_COL32(255, 200, 50, 255), 4.0f, 0, 2.0f);
 
-        f32 const fontSize = 13.0f * m_Zoom;
+        f32 const fontSize = 13.0f * m_Canvas.GetZoom();
         std::string title = node.m_Name.empty() ? node.m_Type : node.m_Name;
-        ImVec2 const textPos = ImVec2(nodePos.x + 8.0f * m_Zoom, nodePos.y + 5.0f * m_Zoom);
+        ImVec2 const textPos = ImVec2(nodePos.x + 8.0f * m_Canvas.GetZoom(), nodePos.y + 5.0f * m_Canvas.GetZoom());
         drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 255), title.c_str());
 
         // Pins discovered from the connections referencing this node.
@@ -642,23 +586,23 @@ namespace OloEngine
         for (const auto& pin : pins)
         {
             ImU32 const fill = pin.IsEvent ? IM_COL32(220, 180, 90, 255) : IM_COL32(90, 170, 220, 255);
-            drawList->AddCircleFilled(pin.Position, s_PinRadius * m_Zoom, fill);
-            drawList->AddCircle(pin.Position, s_PinRadius * m_Zoom, IM_COL32(200, 200, 200, 255));
+            drawList->AddCircleFilled(pin.Position, s_PinRadius * m_Canvas.GetZoom(), fill);
+            drawList->AddCircle(pin.Position, s_PinRadius * m_Canvas.GetZoom(), IM_COL32(200, 200, 200, 255));
 
-            f32 const labelFontSize = 11.0f * m_Zoom;
+            f32 const labelFontSize = 11.0f * m_Canvas.GetZoom();
             if (pin.IsOutput)
             {
                 ImVec2 textSize = ImGui::CalcTextSize(pin.Name.c_str());
                 textSize.x *= (labelFontSize / ImGui::GetFontSize());
                 drawList->AddText(nullptr, labelFontSize,
-                                  ImVec2(pin.Position.x - s_PinRadius * m_Zoom - 4.0f * m_Zoom - textSize.x,
+                                  ImVec2(pin.Position.x - s_PinRadius * m_Canvas.GetZoom() - 4.0f * m_Canvas.GetZoom() - textSize.x,
                                          pin.Position.y - labelFontSize * 0.5f),
                                   IM_COL32(200, 200, 200, 255), pin.Name.c_str());
             }
             else
             {
                 drawList->AddText(nullptr, labelFontSize,
-                                  ImVec2(pin.Position.x + s_PinRadius * m_Zoom + 4.0f * m_Zoom,
+                                  ImVec2(pin.Position.x + s_PinRadius * m_Canvas.GetZoom() + 4.0f * m_Canvas.GetZoom(),
                                          pin.Position.y - labelFontSize * 0.5f),
                                   IM_COL32(200, 200, 200, 255), pin.Name.c_str());
             }
@@ -695,7 +639,7 @@ namespace OloEngine
 
         f32 const pinRows = static_cast<f32>(std::max<sizet>(inputCount, outputCount));
         f32 const bodyHeight = s_HeaderHeight + (pinRows + 1) * s_PinSpacing;
-        return ImVec2(s_NodeWidth * m_Zoom, bodyHeight * m_Zoom);
+        return ImVec2(s_NodeWidth * m_Canvas.GetZoom(), bodyHeight * m_Canvas.GetZoom());
     }
 
     std::vector<SoundGraphEditorPanel::PinInfo> SoundGraphEditorPanel::GetNodePins(const SoundGraphNodeData& node, const ImVec2& nodeScreenPos) const
@@ -747,7 +691,7 @@ namespace OloEngine
         {
             PinInfo pin;
             pin.Position = ImVec2(nodeScreenPos.x,
-                                  nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Zoom);
+                                  nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
             pin.NodeID = node.m_ID;
             pin.Name = inputs[i].Name;
             pin.IsOutput = false;
@@ -758,7 +702,7 @@ namespace OloEngine
         {
             PinInfo pin;
             pin.Position = ImVec2(nodeScreenPos.x + nodeSize.x,
-                                  nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Zoom);
+                                  nodeScreenPos.y + (s_HeaderHeight + (static_cast<f32>(i) + 1) * s_PinSpacing) * m_Canvas.GetZoom());
             pin.NodeID = node.m_ID;
             pin.Name = outputs[i].Name;
             pin.IsOutput = true;
@@ -777,8 +721,7 @@ namespace OloEngine
     // pseudo-node (UUID(0)), uses the fixed OutLeft/OutRight geometry. Member function so
     // we can call the panel's private helpers without friend gymnastics.
     bool SoundGraphEditorPanel::ResolvePinScreenPos(UUID nodeID, const std::string& endpoint,
-                                                    bool wantOutput, const ImVec2& canvasOrigin,
-                                                    ImVec2& outPos) const
+                                                    bool wantOutput, ImVec2& outPos) const
     {
         if (nodeID == kGraphOutputNodeID)
         {
@@ -788,11 +731,11 @@ namespace OloEngine
             {
                 if (!m_GraphAsset)
                     return false;
-                const ImVec2 inNodeScreen = WorldToScreen(m_GraphInputNodePos, canvasOrigin);
-                return FindGraphInputPin(*m_GraphAsset, inNodeScreen, endpoint, m_Zoom, outPos);
+                const ImVec2 inNodeScreen = m_Canvas.ToScreen(m_GraphInputNodePos);
+                return FindGraphInputPin(*m_GraphAsset, inNodeScreen, endpoint, m_Canvas.GetZoom(), outPos);
             }
-            const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
-            const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
+            const ImVec2 outNodeScreen = m_Canvas.ToScreen(m_GraphOutputNodePos);
+            const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Canvas.GetZoom());
             if (endpoint == "OutLeft")
             {
                 outPos = g.OutLeftPinPos;
@@ -811,7 +754,7 @@ namespace OloEngine
         const auto* node = m_GraphAsset->GetNode(nodeID);
         if (!node)
             return false;
-        auto pins = GetNodePins(*node, WorldToScreen({ node->m_PosX, node->m_PosY }, canvasOrigin));
+        auto pins = GetNodePins(*node, m_Canvas.ToScreen({ node->m_PosX, node->m_PosY }));
         for (const auto& pin : pins)
         {
             if (pin.IsOutput == wantOutput && pin.Name == endpoint)
@@ -823,67 +766,38 @@ namespace OloEngine
         return false;
     }
 
-    sizet SoundGraphEditorPanel::HitTestConnection(const ImVec2& mousePos, const ImVec2& canvasOrigin,
-                                                   f32 hitDistancePx) const
+    sizet SoundGraphEditorPanel::HitTestConnection(const ImVec2& mousePos, f32 hitDistancePx) const
     {
         if (!m_GraphAsset)
             return static_cast<sizet>(-1);
 
         const auto& connections = m_GraphAsset->GetConnections();
-        const f32 hitSq = hitDistancePx * hitDistancePx;
+        sizet best = static_cast<sizet>(-1);
+        f32 bestDistance = hitDistancePx;
 
         for (sizet i = 0; i < connections.size(); ++i)
         {
             const auto& c = connections[i];
             ImVec2 srcPos{}, dstPos{};
-            if (!ResolvePinScreenPos(c.m_SourceNodeID, c.m_SourceEndpoint, true, canvasOrigin, srcPos))
+            if (!ResolvePinScreenPos(c.m_SourceNodeID, c.m_SourceEndpoint, true, srcPos))
                 continue;
-            if (!ResolvePinScreenPos(c.m_TargetNodeID, c.m_TargetEndpoint, false, canvasOrigin, dstPos))
+            if (!ResolvePinScreenPos(c.m_TargetNodeID, c.m_TargetEndpoint, false, dstPos))
                 continue;
 
-            // Sample the bezier as kSamples segments; compute point-to-segment distance
-            // against each. 16 samples is more than enough for the click-detection accuracy
-            // we need (typically a few pixels) at typical zoom levels. Control points must
-            // match those used by DrawConnections or hit-test won't line up with the
-            // visible wire — especially for back-routed wires.
-            constexpr i32 kSamples = 16;
-            ImVec2 cp1{}, cp2{};
-            ComputeWireControlPoints(srcPos, dstPos, /*srcIsOutput=*/true, /*dstIsOutput=*/false, cp1, cp2);
-
-            ImVec2 prev = srcPos;
-            for (i32 s = 1; s <= kSamples; ++s)
+            // The canvas samples the SAME curve DrawWire drew, with the same
+            // zoom-scaled control offsets, so the clickable wire and the visible
+            // wire cannot drift apart. The old copy here sampled a fixed 16
+            // segments of a differently-tangented curve.
+            if (f32 const distance = m_Canvas.DistanceToWire(srcPos, dstPos, mousePos); distance < bestDistance)
             {
-                const f32 t = static_cast<f32>(s) / static_cast<f32>(kSamples);
-                const f32 u = 1.0f - t;
-                const f32 b0 = u * u * u;
-                const f32 b1 = 3.0f * u * u * t;
-                const f32 b2 = 3.0f * u * t * t;
-                const f32 b3 = t * t * t;
-                const ImVec2 cur(b0 * srcPos.x + b1 * cp1.x + b2 * cp2.x + b3 * dstPos.x,
-                                 b0 * srcPos.y + b1 * cp1.y + b2 * cp2.y + b3 * dstPos.y);
-
-                // Point-to-segment distance. ax + b*y form via vector projection.
-                const f32 segX = cur.x - prev.x;
-                const f32 segY = cur.y - prev.y;
-                if (const f32 segLenSq = segX * segX + segY * segY; segLenSq > 1e-6f)
-                {
-                    const f32 pmX = mousePos.x - prev.x;
-                    const f32 pmY = mousePos.y - prev.y;
-                    const f32 tt = std::clamp((pmX * segX + pmY * segY) / segLenSq, 0.0f, 1.0f);
-                    const f32 projX = prev.x + tt * segX;
-                    const f32 projY = prev.y + tt * segY;
-                    const f32 dxp = mousePos.x - projX;
-                    const f32 dyp = mousePos.y - projY;
-                    if (dxp * dxp + dyp * dyp <= hitSq)
-                        return i;
-                }
-                prev = cur;
+                bestDistance = distance;
+                best = i;
             }
         }
-        return static_cast<sizet>(-1);
+        return best;
     }
 
-    void SoundGraphEditorPanel::DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::DrawConnections()
     {
         if (!m_GraphAsset)
             return;
@@ -891,8 +805,8 @@ namespace OloEngine
         // Determine which wire (if any) the mouse is hovering. Skip this when the canvas
         // is busy with other interactions so highlights don't flicker mid-drag.
         sizet hoveredIndex = static_cast<sizet>(-1);
-        if (const bool canHoverWire = !m_IsDraggingConnection && !m_IsDraggingNode && !m_IsPanning && !m_IsBoxSelecting; canHoverWire && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows))
-            hoveredIndex = HitTestConnection(ImGui::GetIO().MousePos, canvasOrigin, 6.0f * m_Zoom);
+        if (const bool canHoverWire = !m_IsDraggingConnection && !m_IsDraggingNode && !m_Canvas.IsPanning() && !m_IsBoxSelecting; canHoverWire && m_Canvas.IsHovered())
+            hoveredIndex = HitTestConnection(ImGui::GetIO().MousePos, s_WireHitDistance);
 
         const auto& connections = m_GraphAsset->GetConnections();
         for (sizet i = 0; i < connections.size(); ++i)
@@ -900,9 +814,9 @@ namespace OloEngine
             const auto& connection = connections[i];
             ImVec2 srcPos{}, dstPos{};
             const bool foundSrc = ResolvePinScreenPos(connection.m_SourceNodeID, connection.m_SourceEndpoint,
-                                                      /*wantOutput=*/true, canvasOrigin, srcPos);
+                                                      /*wantOutput=*/true, srcPos);
             const bool foundDst = ResolvePinScreenPos(connection.m_TargetNodeID, connection.m_TargetEndpoint,
-                                                      /*wantOutput=*/false, canvasOrigin, dstPos);
+                                                      /*wantOutput=*/false, dstPos);
             if (!foundSrc || !foundDst)
                 continue;
 
@@ -912,15 +826,16 @@ namespace OloEngine
                 wireColor = isHovered ? IM_COL32(255, 220, 130, 255) : IM_COL32(220, 180, 90, 255);
             else
                 wireColor = isHovered ? IM_COL32(200, 230, 255, 255) : IM_COL32(150, 200, 250, 255);
-            f32 const thickness = (isHovered ? 3.0f : 2.0f) * m_Zoom;
+            // Thickness in SCREEN pixels, deliberately not scaled by zoom: a
+            // hairline at the canvas' minimum zoom is both invisible and
+            // impossible to click. See GraphCanvas::DrawWire.
+            f32 const thickness = isHovered ? 3.0f : 2.0f;
 
-            ImVec2 cp1{}, cp2{};
-            ComputeWireControlPoints(srcPos, dstPos, /*srcIsOutput=*/true, /*dstIsOutput=*/false, cp1, cp2);
-            drawList->AddBezierCubic(srcPos, cp1, cp2, dstPos, wireColor, thickness);
+            m_Canvas.DrawWire(srcPos, dstPos, wireColor, thickness);
         }
     }
 
-    void SoundGraphEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin) const
+    void SoundGraphEditorPanel::DrawConnectionInProgress() const
     {
         if (!m_IsDraggingConnection || !m_GraphAsset)
             return;
@@ -928,68 +843,24 @@ namespace OloEngine
         // Uses ResolvePinScreenPos so both real nodes and the graph-output pseudo-node
         // (m_DragStartNodeID == kGraphOutputNodeID) are handled uniformly.
         ImVec2 startPinPos{};
-        if (!ResolvePinScreenPos(m_DragStartNodeID, m_DragStartEndpoint, m_DragStartIsOutput,
-                                 canvasOrigin, startPinPos))
+        if (!ResolvePinScreenPos(m_DragStartNodeID, m_DragStartEndpoint, m_DragStartIsOutput, startPinPos))
             return;
 
-        // The drag end is "the other side" — if the user grabbed an output, the floating
-        // end is acting as an input, and vice versa.
-        ImVec2 cp1{}, cp2{};
-        ComputeWireControlPoints(startPinPos, m_DragEndPos, /*srcIsOutput=*/m_DragStartIsOutput,
-                                 /*dstIsOutput=*/!m_DragStartIsOutput, cp1, cp2);
-        drawList->AddBezierCubic(startPinPos, cp1, cp2, m_DragEndPos,
-                                 IM_COL32(255, 255, 255, 200), 2.0f * m_Zoom);
+        // DrawWire always leaves `from` rightwards and enters `to` leftwards, so a
+        // wire dragged BACKWARDS out of an input pin is the same curve with its
+        // endpoints swapped, not a second set of mirrored control points.
+        constexpr ImU32 pendingColor = IM_COL32(255, 255, 255, 200);
+        if (m_DragStartIsOutput)
+            m_Canvas.DrawWire(startPinPos, m_DragEndPos, pendingColor, 2.0f);
+        else
+            m_Canvas.DrawWire(m_DragEndPos, startPinPos, pendingColor, 2.0f);
     }
 
     // =========================================================================
     // Node + canvas interaction
     // =========================================================================
 
-    void SoundGraphEditorPanel::HandleCanvasInput(const ImVec2& canvasOrigin, const ImVec2& canvasSize)
-    {
-        (void)canvasOrigin;
-        (void)canvasSize;
-
-        if (!ImGui::IsItemHovered() && !m_IsPanning && !m_IsDraggingNode)
-            return;
-
-        // Middle-mouse pan.
-        if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f))
-        {
-            ImVec2 const delta = ImGui::GetIO().MouseDelta;
-            m_ScrollOffset.x += delta.x / m_Zoom;
-            m_ScrollOffset.y += delta.y / m_Zoom;
-            m_IsPanning = true;
-        }
-        else
-        {
-            m_IsPanning = false;
-        }
-
-        // Scroll-wheel zoom around the cursor.
-        if (ImGui::IsItemHovered())
-        {
-            f32 const wheel = ImGui::GetIO().MouseWheel;
-            // ImGui zeroes MouseWheel when idle, so a bit-exact sentinel check is
-            // the intent here (cpp-coding-quality §2a — no float ==/!=).
-            if (!Math::BitwiseEqual(wheel, 0.0f))
-            {
-                f32 const oldZoom = m_Zoom;
-                m_Zoom = std::clamp(m_Zoom * (1.0f + wheel * 0.1f), 0.25f, 3.0f);
-                // Bit-exact change detection: only recompute if the clamp actually moved zoom.
-                if (!Math::BitwiseEqual(m_Zoom, oldZoom))
-                {
-                    ImVec2 const mousePos = ImGui::GetIO().MousePos;
-                    glm::vec2 const worldBefore = ScreenToWorld(mousePos, canvasOrigin);
-                    glm::vec2 const worldAfter = ScreenToWorld(mousePos, canvasOrigin);
-                    (void)worldAfter; // Centering on cursor is a future polish item.
-                    (void)worldBefore;
-                }
-            }
-        }
-    }
-
-    void SoundGraphEditorPanel::HandleNodeInteraction(const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::HandleShortcuts()
     {
         if (!m_GraphAsset)
             return;
@@ -1018,10 +889,50 @@ namespace OloEngine
             if (ImGui::IsKeyPressed(ImGuiKey_C))
                 CopySelectedNodes();
             if (ImGui::IsKeyPressed(ImGuiKey_V))
-                PasteNodes(ScreenToWorld(ImGui::GetIO().MousePos, canvasOrigin));
+                PasteNodes(m_Canvas.ToGraph(ImGui::GetIO().MousePos));
         }
+    }
 
-        if (!ImGui::IsItemHovered() && !m_IsDraggingNode)
+    void SoundGraphEditorPanel::CancelInteractions()
+    {
+        if (m_IsDraggingNode)
+        {
+            // The positions were already written frame by frame, so the move is
+            // real and still needs its undo entry; only the drag is abandoned.
+            const bool wasMultiDrag = m_DragNodeStartPositions.size() > 1;
+            m_IsDraggingNode = false;
+            m_DragNodeID = 0;
+            m_DragNodeStartPositions.clear();
+            EndEditSession(wasMultiDrag ? "Move Nodes" : "Move Node");
+        }
+        m_IsBoxSelecting = false;
+        m_IsDraggingConnection = false;
+        m_DragStartNodeID = 0;
+        m_DragStartEndpoint.clear();
+        // Pseudo-node positions are per-session UI state, so an abandoned drag
+        // just stops where it is; there is nothing to undo.
+        m_DraggingGraphOutputNode = false;
+        m_DraggingGraphInputNode = false;
+    }
+
+    void SoundGraphEditorPanel::HandleNodeInteraction()
+    {
+        if (!m_GraphAsset)
+            return;
+
+        // The canvas' own hover state, not ImGui's last-item one: everything the
+        // panel draws goes straight to the draw list, so "the last item" is
+        // whatever GraphCanvas::Begin submitted and depends on draw order.
+        //
+        // Every gesture whose RELEASE this function handles has to be exempt from
+        // the hover test, not just the node drag: a drag that starts on the canvas
+        // and leaves it turns IsHovered() false, and returning here would strand
+        // the gesture with its flag set -- a marquee that keeps drawing, or a
+        // pseudo-node still attached to the cursor on re-entry. The connection
+        // drag is not listed because HandleConnectionDrag owns its own release.
+        const bool gestureInFlight = m_IsDraggingNode || m_IsBoxSelecting ||
+                                     m_DraggingGraphOutputNode || m_DraggingGraphInputNode;
+        if (!m_Canvas.IsHovered() && !gestureInFlight)
             return;
 
         ImVec2 const mousePos = ImGui::GetIO().MousePos;
@@ -1029,17 +940,20 @@ namespace OloEngine
         // Right-click hit-test runs BEFORE the context menu opens. Priority order:
         // Graph Output pseudo-node > Graph Input pseudo-node > real node > wire. Wires last
         // because they're thin and easy to accidentally hit when aiming at a node.
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        //
+        // Right-CLICK, not right-press: the canvas pans on right-DRAG, and only it
+        // owns the threshold that tells the two gestures apart.
+        if (m_Canvas.WasRightClicked())
         {
             m_RightClickNodeID = 0;
             m_RightClickGraphInput = false;
             m_RightClickConnectionIndex = static_cast<sizet>(-1);
 
-            const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
-            const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
-            const ImVec2 inNodeScreen = WorldToScreen(m_GraphInputNodePos, canvasOrigin);
+            const ImVec2 outNodeScreen = m_Canvas.ToScreen(m_GraphOutputNodePos);
+            const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Canvas.GetZoom());
+            const ImVec2 inNodeScreen = m_Canvas.ToScreen(m_GraphInputNodePos);
             const GraphInputGeometry gi = ComputeGraphInputGeometry(inNodeScreen,
-                                                                    m_GraphAsset->GetGraphInputs().size(), m_Zoom);
+                                                                    m_GraphAsset->GetGraphInputs().size(), m_Canvas.GetZoom());
             if (mousePos.x >= g.NodePos.x && mousePos.x <= g.NodePos.x + g.NodeSize.x &&
                 mousePos.y >= g.NodePos.y && mousePos.y <= g.NodePos.y + g.NodeSize.y)
             {
@@ -1056,7 +970,7 @@ namespace OloEngine
                 for (auto it = nodes.rbegin(); it != nodes.rend(); ++it)
                 {
                     const auto& node = *it;
-                    ImVec2 const nodePos = WorldToScreen({ node.m_PosX, node.m_PosY }, canvasOrigin);
+                    ImVec2 const nodePos = m_Canvas.ToScreen({ node.m_PosX, node.m_PosY });
                     ImVec2 const nodeSize = GetNodeSize(node);
                     if (mousePos.x >= nodePos.x && mousePos.x <= nodePos.x + nodeSize.x &&
                         mousePos.y >= nodePos.y && mousePos.y <= nodePos.y + nodeSize.y)
@@ -1070,14 +984,17 @@ namespace OloEngine
                 // No node hit? Try wires next.
                 if (m_RightClickNodeID == 0)
                 {
-                    m_RightClickConnectionIndex = HitTestConnection(mousePos, canvasOrigin, 6.0f * m_Zoom);
+                    m_RightClickConnectionIndex = HitTestConnection(mousePos, s_WireHitDistance);
                 }
             }
         }
 
         // Left-click: hit-test nodes (top-down so visually-front nodes win) for selection,
-        // and check pin proximity to start a connection drag.
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        // and check pin proximity to start a connection drag. Only NEW presses are
+        // suppressed while the canvas is panning; the drag and release paths below
+        // must keep running, or a pan latched mid-drag (a second button going
+        // down) would strand m_IsDraggingNode with a stale start position.
+        if (!m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
             UUID hitNode = 0;
             bool startedConnection = false;
@@ -1086,9 +1003,9 @@ namespace OloEngine
             // Pin hit-test for the OutLeft / OutRight input pins; body hit-test starts a
             // pseudo-node drag.
             {
-                const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
-                const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
-                const f32 hitRadius = s_PinRadius * m_Zoom + 3.0f;
+                const ImVec2 outNodeScreen = m_Canvas.ToScreen(m_GraphOutputNodePos);
+                const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Canvas.GetZoom());
+                const f32 hitRadius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius) + 3.0f);
                 struct
                 {
                     const char* Name;
@@ -1136,9 +1053,9 @@ namespace OloEngine
                 const auto& inputs = m_GraphAsset->GetGraphInputs();
                 if (!inputs.empty())
                 {
-                    const ImVec2 inNodeScreen = WorldToScreen(m_GraphInputNodePos, canvasOrigin);
-                    const GraphInputGeometry gi = ComputeGraphInputGeometry(inNodeScreen, inputs.size(), m_Zoom);
-                    const f32 hitRadius = s_PinRadius * m_Zoom + 3.0f;
+                    const ImVec2 inNodeScreen = m_Canvas.ToScreen(m_GraphInputNodePos);
+                    const GraphInputGeometry gi = ComputeGraphInputGeometry(inNodeScreen, inputs.size(), m_Canvas.GetZoom());
+                    const f32 hitRadius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius) + 3.0f);
 
                     // Sorted name order matches the renderer for stable pin positions.
                     std::vector<std::string> sorted;
@@ -1148,7 +1065,7 @@ namespace OloEngine
                     std::ranges::sort(sorted);
                     for (sizet i = 0; i < sorted.size(); ++i)
                     {
-                        const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Zoom;
+                        const f32 py = inNodeScreen.y + (kGraphOutputNodeHeaderHeight + (static_cast<f32>(i) + 1.0f) * kGraphOutputNodePinSpacing) * m_Canvas.GetZoom();
                         const ImVec2 pinPos(gi.NodePos.x + gi.NodeSize.x, py);
                         const f32 dx = mousePos.x - pinPos.x;
                         const f32 dy = mousePos.y - pinPos.y;
@@ -1178,8 +1095,8 @@ namespace OloEngine
                 {
                     // Empty input node still gets a body hit-test (allows dragging the
                     // empty stub around before any params are added).
-                    const ImVec2 inNodeScreen = WorldToScreen(m_GraphInputNodePos, canvasOrigin);
-                    const GraphInputGeometry gi = ComputeGraphInputGeometry(inNodeScreen, 0, m_Zoom);
+                    const ImVec2 inNodeScreen = m_Canvas.ToScreen(m_GraphInputNodePos);
+                    const GraphInputGeometry gi = ComputeGraphInputGeometry(inNodeScreen, 0, m_Canvas.GetZoom());
                     if (mousePos.x >= gi.NodePos.x && mousePos.x <= gi.NodePos.x + gi.NodeSize.x &&
                         mousePos.y >= gi.NodePos.y && mousePos.y <= gi.NodePos.y + gi.NodeSize.y)
                     {
@@ -1196,7 +1113,7 @@ namespace OloEngine
             for (auto it = nodes.rbegin(); !startedConnection && it != nodes.rend(); ++it)
             {
                 const auto& node = *it;
-                ImVec2 const nodePos = WorldToScreen({ node.m_PosX, node.m_PosY }, canvasOrigin);
+                ImVec2 const nodePos = m_Canvas.ToScreen({ node.m_PosX, node.m_PosY });
                 ImVec2 const nodeSize = GetNodeSize(node);
 
                 // Pin hit-test first — pins extend slightly outside the node rect.
@@ -1205,7 +1122,7 @@ namespace OloEngine
                 {
                     f32 const dx = mousePos.x - pin.Position.x;
                     f32 const dy = mousePos.y - pin.Position.y;
-                    f32 const hitRadius = s_PinRadius * m_Zoom + 3.0f;
+                    f32 const hitRadius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius) + 3.0f);
                     if (dx * dx + dy * dy <= hitRadius * hitRadius)
                     {
                         m_IsDraggingConnection = true;
@@ -1307,8 +1224,8 @@ namespace OloEngine
             // DrawNodes, so do the same here to write back position changes.
             auto& nodes = const_cast<std::vector<SoundGraphNodeData>&>(m_GraphAsset->GetNodes());
             ImVec2 const delta = ImVec2(mousePos.x - m_DragMouseStartPos.x, mousePos.y - m_DragMouseStartPos.y);
-            const f32 worldDeltaX = delta.x / m_Zoom;
-            const f32 worldDeltaY = delta.y / m_Zoom;
+            const f32 worldDeltaX = delta.x / m_Canvas.GetZoom();
+            const f32 worldDeltaY = delta.y / m_Canvas.GetZoom();
             for (auto& n : nodes)
             {
                 auto it = m_DragNodeStartPositions.find(n.m_ID);
@@ -1343,7 +1260,7 @@ namespace OloEngine
                 m_SelectedNodes.clear();
                 for (const auto& node : m_GraphAsset->GetNodes())
                 {
-                    ImVec2 const nodeScreen = WorldToScreen({ node.m_PosX, node.m_PosY }, canvasOrigin);
+                    ImVec2 const nodeScreen = m_Canvas.ToScreen({ node.m_PosX, node.m_PosY });
                     ImVec2 const nodeSize = GetNodeSize(node);
                     ImVec2 const nodeMax(nodeScreen.x + nodeSize.x, nodeScreen.y + nodeSize.y);
                     // Standard AABB overlap test: rectangles overlap iff neither is fully
@@ -1365,8 +1282,8 @@ namespace OloEngine
             if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
             {
                 ImVec2 const delta = ImVec2(mousePos.x - m_DragMouseStartPos.x, mousePos.y - m_DragMouseStartPos.y);
-                m_GraphOutputNodePos.x = m_GraphOutputDragStart.x + delta.x / m_Zoom;
-                m_GraphOutputNodePos.y = m_GraphOutputDragStart.y + delta.y / m_Zoom;
+                m_GraphOutputNodePos.x = m_GraphOutputDragStart.x + delta.x / m_Canvas.GetZoom();
+                m_GraphOutputNodePos.y = m_GraphOutputDragStart.y + delta.y / m_Canvas.GetZoom();
             }
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
             {
@@ -1380,8 +1297,8 @@ namespace OloEngine
             if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
             {
                 ImVec2 const delta = ImVec2(mousePos.x - m_DragMouseStartPos.x, mousePos.y - m_DragMouseStartPos.y);
-                m_GraphInputNodePos.x = m_GraphInputDragStart.x + delta.x / m_Zoom;
-                m_GraphInputNodePos.y = m_GraphInputDragStart.y + delta.y / m_Zoom;
+                m_GraphInputNodePos.x = m_GraphInputDragStart.x + delta.x / m_Canvas.GetZoom();
+                m_GraphInputNodePos.y = m_GraphInputDragStart.y + delta.y / m_Canvas.GetZoom();
             }
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
             {
@@ -1390,7 +1307,7 @@ namespace OloEngine
         }
     }
 
-    void SoundGraphEditorPanel::HandleConnectionDrag(const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::HandleConnectionDrag()
     {
         if (!m_IsDraggingConnection)
             return;
@@ -1419,9 +1336,9 @@ namespace OloEngine
             // node that happens to overlap.
             if (m_DragStartNodeID != kGraphOutputNodeID)
             {
-                const ImVec2 outNodeScreen = WorldToScreen(m_GraphOutputNodePos, canvasOrigin);
-                const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Zoom);
-                const f32 hitRadius = s_PinRadius * m_Zoom + 4.0f;
+                const ImVec2 outNodeScreen = m_Canvas.ToScreen(m_GraphOutputNodePos);
+                const GraphOutputGeometry g = ComputeGraphOutputGeometry(outNodeScreen, m_Canvas.GetZoom());
+                const f32 hitRadius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius) + 4.0f);
                 struct
                 {
                     const char* Name;
@@ -1464,13 +1381,13 @@ namespace OloEngine
                 if (node.m_ID == m_DragStartNodeID)
                     continue;
 
-                ImVec2 const nodePos = WorldToScreen({ node.m_PosX, node.m_PosY }, canvasOrigin);
+                ImVec2 const nodePos = m_Canvas.ToScreen({ node.m_PosX, node.m_PosY });
                 auto pins = GetNodePins(node, nodePos);
                 for (const auto& pin : pins)
                 {
                     f32 const dx = m_DragEndPos.x - pin.Position.x;
                     f32 const dy = m_DragEndPos.y - pin.Position.y;
-                    if (f32 const hitRadius = s_PinRadius * m_Zoom + 4.0f; dx * dx + dy * dy > hitRadius * hitRadius)
+                    if (f32 const hitRadius = std::max(s_PinHitRadiusMin, m_Canvas.Scaled(s_PinRadius) + 4.0f); dx * dx + dy * dy > hitRadius * hitRadius)
                         continue;
                     if (pin.IsOutput == m_DragStartIsOutput)
                         break; // same-direction pin — not a valid wire endpoint
@@ -1801,7 +1718,7 @@ namespace OloEngine
     // Context menu (M6 — empty placeholder)
     // =========================================================================
 
-    void SoundGraphEditorPanel::DrawContextMenu(const ImVec2& canvasOrigin)
+    void SoundGraphEditorPanel::DrawContextMenu()
     {
         if (!m_GraphAsset)
             return;
@@ -1809,10 +1726,10 @@ namespace OloEngine
         // Right-click anywhere on the canvas opens the popup. HandleNodeInteraction has
         // already set m_RightClickNodeID / m_RightClickConnectionIndex; the popup body
         // branches on those to show the right action set.
-        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+        if (m_Canvas.WasRightClicked())
         {
             m_ShowContextMenu = true;
-            m_ContextMenuPos = ImGui::GetIO().MousePos;
+            m_ContextMenuGraphPos = m_Canvas.ToGraph(ImGui::GetIO().MousePos);
             std::memset(m_NodeSearchFilter, 0, sizeof(m_NodeSearchFilter));
             ImGui::OpenPopup("##SGRContextMenu");
         }
@@ -2034,7 +1951,7 @@ namespace OloEngine
                 if (ImGui::MenuItem(entry.TypeName))
                 {
                     Ref<SoundGraphAsset> snap = SnapshotAsset();
-                    glm::vec2 const worldPos = ScreenToWorld(m_ContextMenuPos, canvasOrigin);
+                    glm::vec2 const worldPos = m_ContextMenuGraphPos;
                     UUID const newID = CreateNode(entry.TypeName, worldPos);
                     if (newID != 0)
                     {
@@ -2087,8 +2004,7 @@ namespace OloEngine
         m_CurrentAssetHandle = 0;
         m_SelectedNodeID = 0;
         m_IsDirty = false;
-        m_ScrollOffset = { 0.0f, 0.0f };
-        m_Zoom = 1.0f;
+        m_Canvas.ResetView();
     }
 
     void SoundGraphEditorPanel::LoadSoundGraph(const std::filesystem::path& path)
@@ -2103,8 +2019,7 @@ namespace OloEngine
         m_CurrentFilePath = path;
         m_SelectedNodeID = 0;
         m_IsDirty = false;
-        m_ScrollOffset = { 0.0f, 0.0f };
-        m_Zoom = 1.0f;
+        m_Canvas.ResetView();
     }
 
     void SoundGraphEditorPanel::PerformPendingLoad()
@@ -2476,18 +2391,6 @@ namespace OloEngine
     // =========================================================================
     // Coordinate transforms + node coloring
     // =========================================================================
-
-    ImVec2 SoundGraphEditorPanel::WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const
-    {
-        return ImVec2(canvasOrigin.x + (worldPos.x + m_ScrollOffset.x) * m_Zoom,
-                      canvasOrigin.y + (worldPos.y + m_ScrollOffset.y) * m_Zoom);
-    }
-
-    glm::vec2 SoundGraphEditorPanel::ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const
-    {
-        return { (screenPos.x - canvasOrigin.x) / m_Zoom - m_ScrollOffset.x,
-                 (screenPos.y - canvasOrigin.y) / m_Zoom - m_ScrollOffset.y };
-    }
 
     ImU32 SoundGraphEditorPanel::GetNodeColor(const std::string& /*type*/) const
     {

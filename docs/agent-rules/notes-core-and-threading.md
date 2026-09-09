@@ -314,6 +314,44 @@ Two things to get right when adding one:
   A subsystem that cached the value at init still won't see a later change on
   its own — register a change callback (below) or check the consumer.
 
+### `constinit` on a `std::vector` does not compile against MSVC's debug STL
+
+Mark a namespace-scope global `constinit` only when the type really is constant-
+initialisable on every toolchain the repo builds with. `std::vector` is not:
+under `_ITERATOR_DEBUG_LEVEL != 0` (which `/MDd`, i.e. every Debug build here,
+turns on) its default constructor allocates an iterator-debug proxy, so
+a namespace-scope `constinit std::vector` fails outright with *"variable does
+not have a constant initializer"*. `DebugLevers.cpp` shipped exactly that in
+#1122 -- `constinit std::vector<std::string> s_SeedWarnings;` -- and broke the
+whole `dev-cached` Debug tree at `OloEngine.lib`, well before anything that
+reads a lever. The storage is now the leaked function-local behind
+`Levers::SeedWarnings()`; there is no `s_SeedWarnings` symbol to grep for any
+more.
+
+**No CI configuration would have caught it**, which is why it reached master and
+why three separate sessions then hit it on the same afternoon: Windows CI builds
+Release, and the only clang-cl job is the ASan one, whose tree is Release-only.
+`/MD` has no proxy, so every configuration CI builds accepts the declaration.
+The Debug STL exists only in the `dev-cached` tree every worker session actually
+uses.
+
+The four levers globals (`Storage`, `Overridden`, `Handles`, `std::once_flag`)
+**do** need `constinit`, and keep it: `SystemScheduler.cpp` and
+`TerrainChunkManager.cpp` read levers from their own global initialisers, so
+those four must have their values before any dynamic initialiser runs. The
+warning list is not in that contract — nothing reads it during static init — and
+it was swept into the change with them.
+
+Where the type cannot be `constinit`, a **leaked function-local** is the right
+answer rather than a bare global — `static auto* p = new T(); return *p;`, the
+same shape as `Shader.cpp`'s deliberately-leaked program sets (#1088). It keeps
+both halves of what the `constinit` was there for, on every toolchain: the guard
+variable IS constant-initialised, so the storage is reachable at any point in
+static initialisation and the lazy seed can still run arbitrarily early; and
+nothing is ever destroyed, so a `LogActive()` late in shutdown cannot read a
+destroyed vector. A plain (non-leaked) function-local gets the first half and
+not the second. It also stops the next audit re-adding `constinit` to it.
+
 ### The console-variable layer above it (`Core/CVar.h`, issue #821)
 
 Every lever is *also* a console variable, bound into `CVars::` by

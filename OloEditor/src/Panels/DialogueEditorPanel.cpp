@@ -13,8 +13,10 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
-#include <fstream>
+#include <cfloat>
 #include <cmath>
+#include <fstream>
+#include <limits>
 
 namespace OloEngine
 {
@@ -94,9 +96,12 @@ namespace OloEngine
 
         if (!ImGui::Begin(windowTitle.c_str(), &m_IsOpen, ImGuiWindowFlags_MenuBar))
         {
+            m_IsFocused = false;
             ImGui::End();
             return;
         }
+
+        m_IsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 
         DrawToolbar();
 
@@ -106,10 +111,10 @@ namespace OloEngine
                                     ? availWidth - s_PropertyPanelWidth
                                     : availWidth;
 
+        HandleShortcuts();
+
         // Left side: node canvas
-        ImGui::BeginChild("##NodeCanvas", ImVec2(canvasWidth, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
-        DrawCanvas();
-        ImGui::EndChild();
+        DrawCanvas(canvasWidth);
 
         // Right side: property panel + preview
         if (m_SelectedNodeID != 0 || m_ShowPreview)
@@ -162,91 +167,54 @@ namespace OloEngine
     // Canvas
     // =========================================================================
 
-    void DialogueEditorPanel::DrawCanvas()
+    void DialogueEditorPanel::DrawCanvas(f32 width)
     {
-        ImVec2 const canvasOrigin = ImGui::GetCursorScreenPos();
-        ImVec2 const canvasSize = ImGui::GetContentRegionAvail();
-        ImVec2 const canvasEnd = ImVec2(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
-
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-
-        // Background
-        drawList->AddRectFilled(canvasOrigin, canvasEnd, IM_COL32(30, 30, 35, 255));
-
-        // Clip
-        drawList->PushClipRect(canvasOrigin, canvasEnd, true);
-
-        DrawGrid(drawList, canvasOrigin, canvasSize);
-        DrawConnections(drawList, canvasOrigin);
-        DrawNodes(drawList, canvasOrigin);
-        DrawConnectionInProgress(drawList, canvasOrigin);
-        DrawMinimap(drawList, canvasOrigin, canvasSize);
-
-        drawList->PopClipRect();
-
-        // Invisible button for canvas interaction
-        ImGui::SetCursorScreenPos(canvasOrigin);
-        ImGui::InvisibleButton("##canvas", canvasSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
-
-        HandleCanvasInput(canvasOrigin, canvasSize);
-        HandleNodeInteraction(canvasOrigin);
-        HandleConnectionDrag(canvasOrigin);
-        DrawContextMenu(canvasOrigin);
-    }
-
-    void DialogueEditorPanel::DrawGrid(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize) const
-    {
-        OLO_PROFILE_FUNCTION();
-
-        f32 const gridStep = s_GridSize * m_Zoom;
-        ImU32 const gridColorMajor = IM_COL32(60, 60, 65, 200);
-        ImU32 const gridColorMinor = IM_COL32(45, 45, 50, 200);
-
-        f32 const startX = std::fmod(m_ScrollOffset.x * m_Zoom, gridStep);
-        f32 const startY = std::fmod(m_ScrollOffset.y * m_Zoom, gridStep);
-
-        i32 lineIndex = 0;
-        for (f32 x = startX; x < canvasSize.x; x += gridStep, ++lineIndex)
+        // Begin() paints the background and grid, consumes pan/zoom and clips to
+        // its own child region - everything this function used to do by hand.
+        if (!m_Canvas.Begin("##NodeCanvas", ImVec2(width, 0.0f)))
         {
-            ImU32 const color = (lineIndex % 4 == 0) ? gridColorMajor : gridColorMinor;
-            drawList->AddLine(
-                ImVec2(canvasOrigin.x + x, canvasOrigin.y),
-                ImVec2(canvasOrigin.x + x, canvasOrigin.y + canvasSize.y),
-                color);
+            // Clipped away: no geometry to hit-test against and no release to
+            // observe, so anything in flight has to end here.
+            CancelInteractions();
+            return;
         }
 
-        lineIndex = 0;
-        for (f32 y = startY; y < canvasSize.y; y += gridStep, ++lineIndex)
-        {
-            ImU32 const color = (lineIndex % 4 == 0) ? gridColorMajor : gridColorMinor;
-            drawList->AddLine(
-                ImVec2(canvasOrigin.x, canvasOrigin.y + y),
-                ImVec2(canvasOrigin.x + canvasSize.x, canvasOrigin.y + y),
-                color);
-        }
+        DrawConnections();
+        DrawNodes();
+        DrawConnectionInProgress();
+        DrawMinimap();
+
+        HandleCanvasInput();
+        HandleNodeInteraction();
+        HandleConnectionDrag();
+        DrawContextMenu();
+
+        m_Canvas.End();
     }
 
-    void DialogueEditorPanel::DrawNodes(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::DrawNodes()
     {
         for (auto& node : m_Nodes)
         {
-            DrawNode(drawList, canvasOrigin, node);
+            DrawNode(node);
         }
     }
 
-    void DialogueEditorPanel::DrawNode(ImDrawList* drawList, const ImVec2& canvasOrigin, DialogueNodeData& node)
+    void DialogueEditorPanel::DrawNode(DialogueNodeData& node)
     {
-        ImVec2 const nodePos = WorldToScreen(node.EditorPosition, canvasOrigin);
+        ImDrawList* drawList = m_Canvas.GetDrawList();
+        f32 const zoom = m_Canvas.GetZoom();
+        ImVec2 const nodePos = m_Canvas.ToScreen(node.EditorPosition);
         ImVec2 const nodeSize = GetNodeSize(node);
 
         ImVec2 const nodeEnd = ImVec2(nodePos.x + nodeSize.x, nodePos.y + nodeSize.y);
-        ImVec2 const headerEnd = ImVec2(nodePos.x + nodeSize.x, nodePos.y + s_NodeHeaderHeight * m_Zoom);
+        ImVec2 const headerEnd = ImVec2(nodePos.x + nodeSize.x, nodePos.y + s_NodeHeaderHeight * zoom);
 
         bool const isSelected = (node.ID == m_SelectedNodeID);
         bool const isRoot = (node.ID == m_RootNodeID);
 
         // Node body
-        f32 const rounding = 6.0f * m_Zoom;
+        f32 const rounding = 6.0f * zoom;
         drawList->AddRectFilled(nodePos, nodeEnd, GetNodeColor(node.Type), rounding);
 
         // Header
@@ -255,7 +223,7 @@ namespace OloEngine
         // Selection outline
         if (isSelected)
         {
-            drawList->AddRect(nodePos, nodeEnd, IM_COL32(255, 200, 50, 220), rounding, 0, 2.5f * m_Zoom);
+            drawList->AddRect(nodePos, nodeEnd, IM_COL32(255, 200, 50, 220), rounding, 0, 2.5f * zoom);
         }
 
         // Root node indicator
@@ -264,13 +232,13 @@ namespace OloEngine
             drawList->AddRect(
                 ImVec2(nodePos.x - 2.0f, nodePos.y - 2.0f),
                 ImVec2(nodeEnd.x + 2.0f, nodeEnd.y + 2.0f),
-                IM_COL32(50, 200, 50, 180), rounding + 2.0f, 0, 1.5f * m_Zoom);
+                IM_COL32(50, 200, 50, 180), rounding + 2.0f, 0, 1.5f * zoom);
         }
 
         // Header text
-        f32 const fontSize = 13.0f * m_Zoom;
+        f32 const fontSize = 13.0f * zoom;
         std::string headerText = node.Name.empty() ? node.Type : node.Name;
-        ImVec2 const textPos = ImVec2(nodePos.x + s_NodePadding * m_Zoom, nodePos.y + 4.0f * m_Zoom);
+        ImVec2 const textPos = ImVec2(nodePos.x + s_NodePadding * zoom, nodePos.y + 4.0f * zoom);
         drawList->AddText(nullptr, fontSize, textPos, IM_COL32(255, 255, 255, 240), headerText.c_str());
 
         // Type badge (small text)
@@ -279,13 +247,13 @@ namespace OloEngine
             std::string typeLabel = "[" + node.Type + "]";
             ImVec2 const badgeSize = ImGui::CalcTextSize(typeLabel.c_str());
             ImVec2 const badgePos = ImVec2(
-                nodeEnd.x - (badgeSize.x + s_NodePadding) * m_Zoom,
-                nodePos.y + 6.0f * m_Zoom);
-            drawList->AddText(nullptr, 10.0f * m_Zoom, badgePos, IM_COL32(200, 200, 200, 150), typeLabel.c_str());
+                nodeEnd.x - (badgeSize.x + s_NodePadding) * zoom,
+                nodePos.y + 6.0f * zoom);
+            drawList->AddText(nullptr, 10.0f * zoom, badgePos, IM_COL32(200, 200, 200, 150), typeLabel.c_str());
         }
 
         // Content preview
-        f32 contentY = nodePos.y + s_NodeHeaderHeight * m_Zoom + 4.0f * m_Zoom;
+        f32 contentY = nodePos.y + s_NodeHeaderHeight * zoom + 4.0f * zoom;
 
         if (node.Type == "dialogue")
         {
@@ -294,10 +262,10 @@ namespace OloEngine
             {
                 if (const auto* str = std::get_if<std::string>(&it->second))
                 {
-                    drawList->AddText(nullptr, 11.0f * m_Zoom,
-                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                    drawList->AddText(nullptr, 11.0f * zoom,
+                                      ImVec2(nodePos.x + s_NodePadding * zoom, contentY),
                                       IM_COL32(255, 200, 100, 220), str->c_str());
-                    contentY += 14.0f * m_Zoom;
+                    contentY += 14.0f * zoom;
                 }
             }
             if (auto it = node.Properties.find("text"); it != node.Properties.end())
@@ -307,8 +275,8 @@ namespace OloEngine
                     std::string preview = *str;
                     if (preview.size() > 35)
                         preview = preview.substr(0, 32) + "...";
-                    drawList->AddText(nullptr, 10.0f * m_Zoom,
-                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                    drawList->AddText(nullptr, 10.0f * zoom,
+                                      ImVec2(nodePos.x + s_NodePadding * zoom, contentY),
                                       IM_COL32(200, 200, 200, 200), preview.c_str());
                 }
             }
@@ -320,8 +288,8 @@ namespace OloEngine
                 if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "if: " + *str;
-                    drawList->AddText(nullptr, 11.0f * m_Zoom,
-                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                    drawList->AddText(nullptr, 11.0f * zoom,
+                                      ImVec2(nodePos.x + s_NodePadding * zoom, contentY),
                                       IM_COL32(150, 200, 255, 220), label.c_str());
                 }
             }
@@ -333,8 +301,8 @@ namespace OloEngine
                 if (const auto* str = std::get_if<std::string>(&it->second))
                 {
                     std::string label = "do: " + *str;
-                    drawList->AddText(nullptr, 11.0f * m_Zoom,
-                                      ImVec2(nodePos.x + s_NodePadding * m_Zoom, contentY),
+                    drawList->AddText(nullptr, 11.0f * zoom,
+                                      ImVec2(nodePos.x + s_NodePadding * zoom, contentY),
                                       IM_COL32(255, 180, 150, 220), label.c_str());
                 }
             }
@@ -350,39 +318,40 @@ namespace OloEngine
         {
             ImU32 const portColor = port.IsOutput ? IM_COL32(100, 200, 100, 220) : IM_COL32(100, 150, 255, 220);
             ImU32 const portFill = IM_COL32(40, 40, 45, 255);
-            f32 const radius = s_NodePortRadius * m_Zoom;
+            f32 const radius = s_NodePortRadius * zoom;
 
             drawList->AddCircleFilled(port.Position, radius, portFill);
-            drawList->AddCircle(port.Position, radius, portColor, 12, 2.0f * m_Zoom);
+            drawList->AddCircle(port.Position, radius, portColor, 12, 2.0f * zoom);
 
             // Port label
-            f32 const labelOffset = (radius + 4.0f * m_Zoom);
+            f32 const labelOffset = (radius + 4.0f * zoom);
             ImVec2 labelPos;
             if (port.IsOutput)
             {
                 ImVec2 const textSize = ImGui::CalcTextSize(port.Name.c_str());
-                labelPos = ImVec2(port.Position.x - labelOffset - textSize.x * m_Zoom, port.Position.y - 5.0f * m_Zoom);
+                labelPos = ImVec2(port.Position.x - labelOffset - textSize.x * zoom, port.Position.y - 5.0f * zoom);
             }
             else
             {
-                labelPos = ImVec2(port.Position.x + labelOffset, port.Position.y - 5.0f * m_Zoom);
+                labelPos = ImVec2(port.Position.x + labelOffset, port.Position.y - 5.0f * zoom);
             }
-            drawList->AddText(nullptr, 10.0f * m_Zoom, labelPos, IM_COL32(180, 180, 180, 200), port.Name.c_str());
+            drawList->AddText(nullptr, 10.0f * zoom, labelPos, IM_COL32(180, 180, 180, 200), port.Name.c_str());
         }
     }
 
     ImVec2 DialogueEditorPanel::GetNodeSize(const DialogueNodeData& node) const
     {
-        f32 width = s_NodeWidth * m_Zoom;
-        f32 height = s_NodeHeaderHeight * m_Zoom;
+        f32 const zoom = m_Canvas.GetZoom();
+        f32 width = s_NodeWidth * zoom;
+        f32 height = s_NodeHeaderHeight * zoom;
 
         // Content area
         if (node.Type == "dialogue")
-            height += 36.0f * m_Zoom; // speaker + text preview
+            height += 36.0f * zoom; // speaker + text preview
         else if (node.Type == "condition" || node.Type == "action")
-            height += 20.0f * m_Zoom;
+            height += 20.0f * zoom;
         else
-            height += 10.0f * m_Zoom;
+            height += 10.0f * zoom;
 
         // Ports
         i32 portCount = 1; // At least input
@@ -406,8 +375,8 @@ namespace OloEngine
             portCount = 1; // single output
         }
 
-        height += static_cast<f32>(portCount) * s_NodePortSpacing * m_Zoom;
-        height += s_NodePadding * m_Zoom * 2.0f;
+        height += static_cast<f32>(portCount) * s_NodePortSpacing * zoom;
+        height += s_NodePadding * zoom * 2.0f;
 
         return ImVec2(width, height);
     }
@@ -457,10 +426,11 @@ namespace OloEngine
     std::vector<DialogueEditorPanel::PortInfo> DialogueEditorPanel::GetNodePorts(
         const DialogueNodeData& node, const ImVec2& nodeScreenPos) const
     {
+        f32 const zoom = m_Canvas.GetZoom();
         std::vector<PortInfo> ports;
         ImVec2 const nodeSize = GetNodeSize(node);
 
-        f32 const portAreaY = nodeScreenPos.y + s_NodeHeaderHeight * m_Zoom + nodeSize.y * 0.4f;
+        f32 const portAreaY = nodeScreenPos.y + s_NodeHeaderHeight * zoom + nodeSize.y * 0.4f;
 
         // Input port (all nodes except root conceptually have one, but we always draw it)
         {
@@ -483,7 +453,7 @@ namespace OloEngine
             ports.push_back(truePort);
 
             PortInfo falsePort;
-            falsePort.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + s_NodePortSpacing * m_Zoom);
+            falsePort.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + s_NodePortSpacing * zoom);
             falsePort.NodeID = node.ID;
             falsePort.Name = "false";
             falsePort.IsOutput = true;
@@ -506,7 +476,7 @@ namespace OloEngine
             for (i32 i = 0; i < static_cast<i32>(choiceLabels.size()); ++i)
             {
                 PortInfo p;
-                p.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + static_cast<f32>(i) * s_NodePortSpacing * m_Zoom);
+                p.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + static_cast<f32>(i) * s_NodePortSpacing * zoom);
                 p.NodeID = node.ID;
                 p.Name = choiceLabels[i];
                 p.IsOutput = true;
@@ -515,7 +485,7 @@ namespace OloEngine
 
             // "+" port for adding new choice connections
             PortInfo addPort;
-            addPort.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + static_cast<f32>(portIndex) * s_NodePortSpacing * m_Zoom);
+            addPort.Position = ImVec2(nodeScreenPos.x + nodeSize.x, portAreaY + static_cast<f32>(portIndex) * s_NodePortSpacing * zoom);
             addPort.NodeID = node.ID;
             addPort.Name = "+";
             addPort.IsOutput = true;
@@ -539,7 +509,7 @@ namespace OloEngine
     // Connections
     // =========================================================================
 
-    void DialogueEditorPanel::DrawConnections(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::DrawConnections()
     {
         for (size_t ci = 0; ci < m_Connections.size(); ++ci)
         {
@@ -559,8 +529,8 @@ namespace OloEngine
                 continue;
 
             // Find port positions
-            ImVec2 const srcNodePos = WorldToScreen(srcNode->EditorPosition, canvasOrigin);
-            ImVec2 const dstNodePos = WorldToScreen(dstNode->EditorPosition, canvasOrigin);
+            ImVec2 const srcNodePos = m_Canvas.ToScreen(srcNode->EditorPosition);
+            ImVec2 const dstNodePos = m_Canvas.ToScreen(dstNode->EditorPosition);
 
             auto srcPorts = GetNodePorts(*srcNode, srcNodePos);
             auto dstPorts = GetNodePorts(*dstNode, dstNodePos);
@@ -593,32 +563,15 @@ namespace OloEngine
                 }
             }
 
-            // Draw bezier curve
-            f32 const dist = std::abs(endPos.x - startPos.x) * 0.5f;
-            ImVec2 const cp1 = ImVec2(startPos.x + dist, startPos.y);
-            ImVec2 const cp2 = ImVec2(endPos.x - dist, endPos.y);
-
-            ImU32 const lineColor = IM_COL32(180, 180, 200, 200);
-            drawList->AddBezierCubic(startPos, cp1, cp2, endPos, lineColor, 2.0f * m_Zoom);
-
-            // Arrow head at end
-            glm::vec2 rawDir(endPos.x - cp2.x, endPos.y - cp2.y);
-            f32 const dirLen = glm::length(rawDir);
-            if (dirLen < 1e-6f)
-                continue;
-            glm::vec2 const dir = rawDir / dirLen;
-            f32 const arrowSize = 8.0f * m_Zoom;
-            ImVec2 const arrow1 = ImVec2(
-                endPos.x - dir.x * arrowSize + dir.y * arrowSize * 0.4f,
-                endPos.y - dir.y * arrowSize - dir.x * arrowSize * 0.4f);
-            ImVec2 const arrow2 = ImVec2(
-                endPos.x - dir.x * arrowSize - dir.y * arrowSize * 0.4f,
-                endPos.y - dir.y * arrowSize + dir.x * arrowSize * 0.4f);
-            drawList->AddTriangleFilled(endPos, arrow1, arrow2, lineColor);
+            // A dialogue edge is directional - it says which node comes next -
+            // so it gets the widget's arrowed wire. Thickness is in SCREEN
+            // pixels, deliberately not scaled by zoom: a hairline at the canvas'
+            // minimum zoom is invisible. See GraphCanvas::DrawWire.
+            m_Canvas.DrawDirectionalWire(startPos, endPos, IM_COL32(180, 180, 200, 200), 2.0f);
         }
     }
 
-    void DialogueEditorPanel::DrawConnectionInProgress(ImDrawList* drawList, const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::DrawConnectionInProgress()
     {
         if (!m_IsCreatingConnection)
             return;
@@ -635,7 +588,7 @@ namespace OloEngine
         if (!srcNode)
             return;
 
-        ImVec2 const srcNodePos = WorldToScreen(srcNode->EditorPosition, canvasOrigin);
+        ImVec2 const srcNodePos = m_Canvas.ToScreen(srcNode->EditorPosition);
         auto srcPorts = GetNodePorts(*srcNode, srcNodePos);
 
         ImVec2 startPos = srcNodePos;
@@ -648,18 +601,24 @@ namespace OloEngine
             }
         }
 
-        ImVec2 const endPos = m_ConnectionEndPos;
-        f32 const dist = std::abs(endPos.x - startPos.x) * 0.5f;
-        ImVec2 const cp1 = ImVec2(startPos.x + dist, startPos.y);
-        ImVec2 const cp2 = ImVec2(endPos.x - dist, endPos.y);
-
-        drawList->AddBezierCubic(startPos, cp1, cp2, endPos, IM_COL32(255, 255, 100, 180), 2.0f * m_Zoom);
+        // DrawWire always leaves `from` rightwards and enters `to` leftwards, so
+        // a wire dragged BACKWARDS out of an input port is the same curve with
+        // its endpoints swapped, not a second set of mirrored control points.
+        constexpr ImU32 pendingColor = IM_COL32(255, 255, 100, 180);
+        if (m_ConnectionStartIsOutput)
+            m_Canvas.DrawWire(startPos, m_ConnectionEndPos, pendingColor, 2.0f);
+        else
+            m_Canvas.DrawWire(m_ConnectionEndPos, startPos, pendingColor, 2.0f);
     }
 
-    void DialogueEditorPanel::DrawMinimap(ImDrawList* drawList, const ImVec2& canvasOrigin, const ImVec2& canvasSize)
+    void DialogueEditorPanel::DrawMinimap()
     {
         if (m_Nodes.empty())
             return;
+
+        ImDrawList* drawList = m_Canvas.GetDrawList();
+        ImVec2 const canvasOrigin = m_Canvas.GetOrigin();
+        ImVec2 const canvasSize = m_Canvas.GetSize();
 
         f32 const mmSize = s_MinimapSize;
         ImVec2 const mmOrigin = ImVec2(
@@ -701,74 +660,47 @@ namespace OloEngine
     // Interaction
     // =========================================================================
 
-    void DialogueEditorPanel::HandleCanvasInput(const ImVec2& canvasOrigin, [[maybe_unused]] const ImVec2& canvasSize)
+    void DialogueEditorPanel::HandleCanvasInput()
     {
-        bool const isHovered = ImGui::IsItemHovered();
+        // Zoom and pan were handled here by hand; GraphCanvas::Begin has already
+        // consumed both by the time this runs.
+        bool const isHovered = m_Canvas.IsHovered();
 
-        // Zoom with scroll wheel
-        if (isHovered)
+        // Right-CLICK, not right-press: the canvas pans on right-DRAG, and only
+        // it owns the threshold that tells the two gestures apart.
+        if (m_Canvas.WasRightClicked() && !m_IsCreatingConnection && !m_SuppressNextContextMenu)
         {
-            f32 const scroll = ImGui::GetIO().MouseWheel;
-            // ImGui reports 0.0f when no wheel motion this frame; bit-exact
-            // check (cpp-coding-quality §2a) — discrete tick values never alias to subnormals.
-            constexpr f32 noScroll = 0.0f;
-            if (std::memcmp(&scroll, &noScroll, sizeof(f32)) != 0)
-            {
-                ImVec2 const mousePos = ImGui::GetIO().MousePos;
-                glm::vec2 const worldBefore = ScreenToWorld(mousePos, canvasOrigin);
-
-                m_Zoom = std::clamp(m_Zoom + scroll * 0.1f * m_Zoom, s_MinZoom, s_MaxZoom);
-
-                glm::vec2 const worldAfter = ScreenToWorld(mousePos, canvasOrigin);
-                m_ScrollOffset += (worldAfter - worldBefore);
-            }
-        }
-
-        // Pan with middle mouse button or Alt+left click
-        bool const wantPan = ImGui::IsMouseDragging(ImGuiMouseButton_Middle) ||
-                             (ImGui::IsMouseDragging(ImGuiMouseButton_Left) && ImGui::GetIO().KeyAlt);
-
-        if (isHovered && wantPan)
-        {
-            ImVec2 const delta = ImGui::GetIO().MouseDelta;
-            m_ScrollOffset.x += delta.x / m_Zoom;
-            m_ScrollOffset.y += delta.y / m_Zoom;
-            m_IsPanning = true;
-        }
-        else
-        {
-            m_IsPanning = false;
-        }
-
-        // Right-click context menu
-        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !m_IsCreatingConnection)
-        {
-            m_ContextMenuPos = ImGui::GetIO().MousePos;
+            m_ContextMenuGraphPos = m_Canvas.ToGraph(ImGui::GetIO().MousePos);
             m_ShowContextMenu = true;
         }
-
-        // Click on empty space to deselect
-        if (isHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyAlt && !m_IsDraggingNode)
+        // Reset on ANY right release, not just a hovered one, so a gesture that
+        // ends outside the canvas can't suppress the next real click.
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right))
         {
-            // Check if clicked on a node — if not, deselect
-            bool clickedOnNode = false;
-            ImVec2 const mousePos = ImGui::GetIO().MousePos;
-            for (const auto& node : m_Nodes)
-            {
-                ImVec2 const nodePos = WorldToScreen(node.EditorPosition, canvasOrigin);
-                ImVec2 const nodeSize = GetNodeSize(node);
-                if (mousePos.x >= nodePos.x && mousePos.x <= nodePos.x + nodeSize.x &&
-                    mousePos.y >= nodePos.y && mousePos.y <= nodePos.y + nodeSize.y)
-                {
-                    clickedOnNode = true;
-                    break;
-                }
-            }
+            m_SuppressNextContextMenu = false;
+        }
 
-            if (!clickedOnNode)
+        // Click on empty space to deselect. Suppressed while the canvas is
+        // panning: a left click can land in the middle of a right-drag pan (both
+        // buttons down at once), and that must not also clear the selection.
+        if (isHovered && !m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !m_IsDraggingNode)
+        {
+            if (HitTestNode(ImGui::GetIO().MousePos) == nullptr)
             {
                 m_SelectedNodeID = 0;
             }
+        }
+    }
+
+    void DialogueEditorPanel::HandleShortcuts()
+    {
+        // Every one of these is a GLOBAL ImGui::IsKeyPressed read, so they all
+        // need the focus gate: an open-but-unfocused Dialogue Editor would
+        // otherwise answer a Ctrl+S meant for the scene, or delete the node it
+        // has selected when Delete was aimed at another panel's list.
+        if (!m_IsFocused)
+        {
+            return;
         }
 
         // Delete selected node
@@ -790,51 +722,79 @@ namespace OloEngine
         }
     }
 
-    void DialogueEditorPanel::HandleNodeInteraction(const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::CancelInteractions()
+    {
+        if (m_IsDraggingNode)
+        {
+            // EditorPosition was already written frame by frame, so the move is
+            // real and still needs its undo entry; only the drag is abandoned.
+            PushDialogueUndoCommand(m_DragStartSnapshot, "Move Node");
+            m_IsDraggingNode = false;
+        }
+        m_IsCreatingConnection = false;
+        m_SuppressNextContextMenu = false;
+    }
+
+    const DialogueNodeData* DialogueEditorPanel::HitTestNode(ImVec2 screenPos) const
+    {
+        // Reverse iterate so nodes drawn last (topmost) are hit first.
+        for (auto it = m_Nodes.rbegin(); it != m_Nodes.rend(); ++it)
+        {
+            ImVec2 const nodePos = m_Canvas.ToScreen(it->EditorPosition);
+            ImVec2 const nodeSize = GetNodeSize(*it);
+            if (screenPos.x >= nodePos.x && screenPos.x <= nodePos.x + nodeSize.x &&
+                screenPos.y >= nodePos.y && screenPos.y <= nodePos.y + nodeSize.y)
+            {
+                return &*it;
+            }
+        }
+        return nullptr;
+    }
+
+    void DialogueEditorPanel::HandleNodeInteraction()
     {
         ImVec2 const mousePos = ImGui::GetIO().MousePos;
 
-        // Check node click and drag
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::GetIO().KeyAlt)
+        // Only NEW presses are suppressed while the canvas is panning. The drag
+        // and release paths below must keep running, or a pan latched mid-drag
+        // (a second button going down) would strand m_IsDraggingNode with a stale
+        // offset and never push its undo command.
+        if (m_Canvas.IsHovered() && !m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
-            // Iterate in reverse so topmost nodes are selected first
-            for (auto it = m_Nodes.rbegin(); it != m_Nodes.rend(); ++it)
+            // The hit radius has a screen-pixel floor because a port that scales
+            // with zoom is untargetable once zoomed out.
+            f32 const portHitRadius = std::max(s_PortHitRadiusMin, m_Canvas.Scaled(s_NodePortRadius * 2.0f));
+            if (const DialogueNodeData* hit = HitTestNode(mousePos); hit != nullptr)
             {
-                ImVec2 const nodePos = WorldToScreen(it->EditorPosition, canvasOrigin);
-                ImVec2 const nodeSize = GetNodeSize(*it);
+                ImVec2 const nodePos = m_Canvas.ToScreen(hit->EditorPosition);
 
-                if (mousePos.x >= nodePos.x && mousePos.x <= nodePos.x + nodeSize.x &&
-                    mousePos.y >= nodePos.y && mousePos.y <= nodePos.y + nodeSize.y)
+                // Check if clicking on a port first
+                auto ports = GetNodePorts(*hit, nodePos);
+                bool clickedPort = false;
+                for (const auto& port : ports)
                 {
-                    // Check if clicking on a port first
-                    auto ports = GetNodePorts(*it, nodePos);
-                    bool clickedPort = false;
-                    for (const auto& port : ports)
+                    f32 const dist = std::hypot(mousePos.x - port.Position.x, mousePos.y - port.Position.y);
+                    if (dist <= portHitRadius)
                     {
-                        f32 const dist = std::hypot(mousePos.x - port.Position.x, mousePos.y - port.Position.y);
-                        if (dist <= s_NodePortRadius * m_Zoom * 2.0f)
-                        {
-                            // Start connection drag
-                            m_IsCreatingConnection = true;
-                            m_ConnectionStartNodeID = port.NodeID;
-                            m_ConnectionStartPort = port.Name;
-                            m_ConnectionStartIsOutput = port.IsOutput;
-                            m_ConnectionEndPos = mousePos;
-                            clickedPort = true;
-                            break;
-                        }
+                        // Start connection drag
+                        m_IsCreatingConnection = true;
+                        m_ConnectionStartNodeID = port.NodeID;
+                        m_ConnectionStartPort = port.Name;
+                        m_ConnectionStartIsOutput = port.IsOutput;
+                        m_ConnectionEndPos = mousePos;
+                        clickedPort = true;
+                        break;
                     }
+                }
 
-                    if (!clickedPort)
-                    {
-                        m_SelectedNodeID = it->ID;
-                        m_IsDraggingNode = true;
-                        m_DragStartOffset = glm::vec2(
-                            mousePos.x - nodePos.x,
-                            mousePos.y - nodePos.y);
-                        m_DragStartSnapshot = CaptureSnapshot();
-                    }
-                    break;
+                if (!clickedPort)
+                {
+                    m_SelectedNodeID = hit->ID;
+                    m_IsDraggingNode = true;
+                    m_DragStartOffset = glm::vec2(
+                        mousePos.x - nodePos.x,
+                        mousePos.y - nodePos.y);
+                    m_DragStartSnapshot = CaptureSnapshot();
                 }
             }
         }
@@ -849,7 +809,7 @@ namespace OloEngine
                     ImVec2 const targetScreen = ImVec2(
                         mousePos.x - m_DragStartOffset.x,
                         mousePos.y - m_DragStartOffset.y);
-                    node.EditorPosition = ScreenToWorld(targetScreen, canvasOrigin);
+                    node.EditorPosition = m_Canvas.ToGraph(targetScreen);
                     m_IsDirty = true;
                     break;
                 }
@@ -866,7 +826,7 @@ namespace OloEngine
         }
     }
 
-    void DialogueEditorPanel::HandleConnectionDrag(const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::HandleConnectionDrag()
     {
         if (!m_IsCreatingConnection)
             return;
@@ -879,19 +839,22 @@ namespace OloEngine
             ImVec2 const mousePos = ImGui::GetIO().MousePos;
             bool connected = false;
             auto oldSnapshot = CaptureSnapshot();
+            // Slightly wider than the press radius, as before: releasing a drag
+            // is a coarser gesture than starting one.
+            f32 const dropRadius = std::max(s_PortHitRadiusMin * 1.25f, m_Canvas.Scaled(s_NodePortRadius * 2.5f));
 
             for (const auto& node : m_Nodes)
             {
                 if (node.ID == m_ConnectionStartNodeID)
                     continue; // No self-connections
 
-                ImVec2 const nodePos = WorldToScreen(node.EditorPosition, canvasOrigin);
+                ImVec2 const nodePos = m_Canvas.ToScreen(node.EditorPosition);
                 auto ports = GetNodePorts(node, nodePos);
 
                 for (const auto& port : ports)
                 {
                     f32 const dist = std::hypot(mousePos.x - port.Position.x, mousePos.y - port.Position.y);
-                    if (dist <= s_NodePortRadius * m_Zoom * 2.5f)
+                    if (dist <= dropRadius)
                     {
                         // Ensure we connect output -> input
                         if (m_ConnectionStartIsOutput && !port.IsOutput)
@@ -947,10 +910,12 @@ namespace OloEngine
             m_IsCreatingConnection = false;
         }
 
-        // Cancel with right click
+        // Cancel with right click, and swallow the context menu that the
+        // matching release would otherwise open.
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
         {
             m_IsCreatingConnection = false;
+            m_SuppressNextContextMenu = true;
         }
     }
 
@@ -975,10 +940,14 @@ namespace OloEngine
 
             if (ImGui::BeginMenu("Add Node"))
             {
-                glm::vec2 const center = ScreenToWorld(
-                    ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x * 0.5f,
-                           ImGui::GetWindowPos().y + ImGui::GetWindowSize().y * 0.5f),
-                    ImGui::GetWindowPos());
+                // The centre of the CANVAS, not of the window: the old form fed
+                // the window position in as the canvas origin, so "add node"
+                // from the menu bar dropped nodes at an arbitrary graph position
+                // that moved with the panel.
+                ImVec2 const canvasOrigin = m_Canvas.GetOrigin();
+                ImVec2 const canvasSize = m_Canvas.GetSize();
+                glm::vec2 const center = m_Canvas.ToGraph(
+                    ImVec2(canvasOrigin.x + canvasSize.x * 0.5f, canvasOrigin.y + canvasSize.y * 0.5f));
 
                 if (ImGui::MenuItem("Dialogue Node"))
                     CreateNode("dialogue", center);
@@ -995,24 +964,15 @@ namespace OloEngine
             {
                 if (ImGui::MenuItem("Reset View"))
                 {
-                    m_ScrollOffset = { 0.0f, 0.0f };
-                    m_Zoom = 1.0f;
+                    m_Canvas.ResetView();
                 }
-                if (ImGui::MenuItem("Zoom to Fit") && !m_Nodes.empty())
+                if (ImGui::MenuItem("Zoom to Fit"))
                 {
-                    f32 minX = FLT_MAX, minY = FLT_MAX, maxX = -FLT_MAX, maxY = -FLT_MAX;
-                    for (const auto& n : m_Nodes)
-                    {
-                        minX = std::min(minX, n.EditorPosition.x);
-                        minY = std::min(minY, n.EditorPosition.y);
-                        maxX = std::max(maxX, n.EditorPosition.x + s_NodeWidth);
-                        maxY = std::max(maxY, n.EditorPosition.y + 120.0f);
-                    }
-                    f32 const w = maxX - minX + 100.0f;
-                    f32 const h = maxY - minY + 100.0f;
-                    ImVec2 const canvasSize = ImGui::GetContentRegionAvail();
-                    m_Zoom = std::clamp(std::min(canvasSize.x / w, canvasSize.y / h), s_MinZoom, s_MaxZoom);
-                    m_ScrollOffset = glm::vec2(-(minX - 50.0f), -(minY - 50.0f));
+                    // The old form fitted against ImGui::GetContentRegionAvail()
+                    // read inside the MENU BAR, which is not the canvas' size, so
+                    // the resulting zoom was wrong by whatever the menu bar
+                    // happened to measure.
+                    FrameAll();
                 }
                 ImGui::EndMenu();
             }
@@ -1545,7 +1505,7 @@ namespace OloEngine
     // Context Menu
     // =========================================================================
 
-    void DialogueEditorPanel::DrawContextMenu(const ImVec2& canvasOrigin)
+    void DialogueEditorPanel::DrawContextMenu()
     {
         if (m_ShowContextMenu)
         {
@@ -1555,7 +1515,7 @@ namespace OloEngine
 
         if (ImGui::BeginPopup("##CanvasContextMenu"))
         {
-            glm::vec2 const worldPos = ScreenToWorld(m_ContextMenuPos, canvasOrigin);
+            glm::vec2 const worldPos = m_ContextMenuGraphPos;
 
             ImGui::Text("Add Node:");
             ImGui::Separator();
@@ -1970,18 +1930,24 @@ namespace OloEngine
     // Coordinate Transforms
     // =========================================================================
 
-    ImVec2 DialogueEditorPanel::WorldToScreen(const glm::vec2& worldPos, const ImVec2& canvasOrigin) const
+    void DialogueEditorPanel::FrameAll()
     {
-        return ImVec2(
-            canvasOrigin.x + (worldPos.x + m_ScrollOffset.x) * m_Zoom,
-            canvasOrigin.y + (worldPos.y + m_ScrollOffset.y) * m_Zoom);
-    }
+        if (m_Nodes.empty())
+        {
+            m_Canvas.ResetView();
+            return;
+        }
 
-    glm::vec2 DialogueEditorPanel::ScreenToWorld(const ImVec2& screenPos, const ImVec2& canvasOrigin) const
-    {
-        return glm::vec2(
-            (screenPos.x - canvasOrigin.x) / m_Zoom - m_ScrollOffset.x,
-            (screenPos.y - canvasOrigin.y) / m_Zoom - m_ScrollOffset.y);
+        glm::vec2 min(std::numeric_limits<f32>::max());
+        glm::vec2 max(std::numeric_limits<f32>::lowest());
+        for (const auto& node : m_Nodes)
+        {
+            min = glm::min(min, node.EditorPosition);
+            // Node height varies with content; 120 graph units is the tallest a
+            // dialogue node gets, which is what the old fit used.
+            max = glm::max(max, node.EditorPosition + glm::vec2(s_NodeWidth, 120.0f));
+        }
+        m_Canvas.FitToBounds(min, max);
     }
 
     // =========================================================================
