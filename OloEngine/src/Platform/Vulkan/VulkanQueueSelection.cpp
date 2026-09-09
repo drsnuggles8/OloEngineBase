@@ -23,6 +23,8 @@ namespace OloEngine::VulkanQueueSelection
                 return "the compute-only queue family exposes no queues";
             case AsyncComputeUnavailableReason::FamilyHasNoTimestamps:
                 return "the compute-only queue family cannot write GPU timestamps";
+            case AsyncComputeUnavailableReason::CommandPoolCreationFailed:
+                return "the compute queue's command pool could not be created";
             case AsyncComputeUnavailableReason::DisabledByLever:
                 return "disabled by OLO_VK_ASYNC_COMPUTE=0";
             case AsyncComputeUnavailableReason::NoDevice:

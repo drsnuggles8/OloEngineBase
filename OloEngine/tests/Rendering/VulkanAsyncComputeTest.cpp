@@ -56,7 +56,9 @@ TEST(VulkanAsyncCompute, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <functional>
+#include <set>
 #include <string>
+#include <string_view>
 
 #include <vector>
 
@@ -201,20 +203,30 @@ TEST(VulkanAsyncComputeSelection, TheGraphicsFamilyIsNeverACandidate)
 
 TEST(VulkanAsyncComputeSelection, EveryReasonHasADistinctDescription)
 {
-    // The log line and the MCP telemetry both render this enum; an unmapped
-    // member would report "unknown" to a user trying to find out why their
-    // GPU is not overlapping anything.
+    // The log line and the MCP telemetry both render this enum. An unmapped
+    // member would tell a user trying to find out why their GPU is not
+    // overlapping anything only "unknown" — and two members sharing a string
+    // would be just as unhelpful, so distinctness is asserted, not just
+    // non-emptiness.
     const AsyncComputeUnavailableReason all[] = {
         AsyncComputeUnavailableReason::None,
         AsyncComputeUnavailableReason::NoDeviceQueueFamilies,
         AsyncComputeUnavailableReason::NoComputeOnlyFamily,
         AsyncComputeUnavailableReason::FamilyHasNoQueues,
         AsyncComputeUnavailableReason::FamilyHasNoTimestamps,
+        AsyncComputeUnavailableReason::CommandPoolCreationFailed,
         AsyncComputeUnavailableReason::DisabledByLever,
         AsyncComputeUnavailableReason::NoDevice,
     };
+    std::set<std::string_view> seen;
     for (const auto reason : all)
-        EXPECT_NE(VulkanQueueSelection::Describe(reason), "unknown");
+    {
+        const std::string_view described = VulkanQueueSelection::Describe(reason);
+        EXPECT_NE(described, "unknown");
+        EXPECT_FALSE(described.empty());
+        EXPECT_TRUE(seen.insert(described).second) << "two reasons share the description: " << described;
+    }
+    EXPECT_EQ(seen.size(), std::size(all));
 }
 
 // --- Queue-family ownership transfer lowering ------------------------------
@@ -329,8 +341,10 @@ TEST(VulkanOwnershipTransfer, BufferHalvesSplitTheSameWay)
     source.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     source.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     source.buffer = reinterpret_cast<VkBuffer>(static_cast<uintptr_t>(0xB0Fu));
-    source.offset = 0;
-    source.size = VK_WHOLE_SIZE;
+    // Non-zero and finite on purpose: with offset 0 / VK_WHOLE_SIZE a
+    // regression that dropped either field on either half would still pass.
+    source.offset = 256;
+    source.size = 4096;
 
     const auto pair = VulkanBarrierLowering::SplitBufferOwnershipTransfer(source, 2, 0);
 
@@ -343,8 +357,10 @@ TEST(VulkanOwnershipTransfer, BufferHalvesSplitTheSameWay)
     EXPECT_EQ(pair.Acquire.dstAccessMask, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
     EXPECT_EQ(pair.Release.buffer, source.buffer);
     EXPECT_EQ(pair.Acquire.buffer, source.buffer);
+    EXPECT_EQ(pair.Release.offset, source.offset);
     EXPECT_EQ(pair.Release.size, source.size);
     EXPECT_EQ(pair.Acquire.offset, source.offset);
+    EXPECT_EQ(pair.Acquire.size, source.size);
 }
 
 // --- The device-gated round trip -------------------------------------------

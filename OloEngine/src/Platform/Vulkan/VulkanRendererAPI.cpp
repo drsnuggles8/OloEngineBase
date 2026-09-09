@@ -262,10 +262,9 @@ namespace OloEngine
         // The parallel recorder's tallies are per recording (#806); they stay
         // readable until the next bracket opens.
         m_ParallelStats = {};
-        // #808, same rule. `ResetForCommandBuffer` cleared ctx.Cmd's queue
-        // flag; a frame always starts on the graphics queue.
+        // #808, same rule. ResetForCommandBuffer above clears the context's
+        // queue classification; a frame always starts on the graphics queue.
         m_AsyncComputeStats = {};
-        ctx.OnComputeOnlyQueue = false;
         m_BackbufferWritten = false;
     }
 

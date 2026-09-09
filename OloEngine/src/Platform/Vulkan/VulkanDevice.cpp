@@ -1135,7 +1135,7 @@ namespace OloEngine
                 m_AsyncComputeQueue = VK_NULL_HANDLE;
                 m_AsyncComputeCommandPool = VK_NULL_HANDLE;
                 m_AsyncComputeUnavailableReason =
-                    VulkanQueueSelection::AsyncComputeUnavailableReason::FamilyHasNoQueues;
+                    VulkanQueueSelection::AsyncComputeUnavailableReason::CommandPoolCreationFailed;
             }
         }
 

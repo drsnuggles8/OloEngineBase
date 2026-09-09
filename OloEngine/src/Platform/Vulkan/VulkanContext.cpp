@@ -1243,7 +1243,16 @@ namespace OloEngine
             }
             catch (const std::exception& e)
             {
-                if (api.CurrentCommandBuffer() == VK_NULL_HANDLE)
+                // #808 adds the second disqualifying state. A pass that throws
+                // INSIDE an async-compute batch leaves the segment open, and
+                // the compute command buffer is then the current one — so the
+                // null test alone reads this as an ordinary decline and
+                // swallows the exception. Recovery is not possible from here:
+                // the parked graphics buffer would be submitted as the frame's
+                // own, the compute buffer would stay open and unsubmitted, and
+                // m_AsyncComputeSegmentOpen would decline every later batch for
+                // the life of the context.
+                if (api.CurrentCommandBuffer() == VK_NULL_HANDLE || m_AsyncComputeSegmentOpen)
                 {
                     // A split-segment Vulkan failure is not the same as the
                     // backend declining the split before detaching. Producer

@@ -421,6 +421,10 @@ namespace OloEngine
         // from the fork's seed instead.
         void ResetForCommandBuffer(VkCommandBuffer cmd)
         {
+            // Per command buffer, like everything else here: a context reused
+            // for a graphics buffer must not inherit a compute classification
+            // and clamp its barriers (#808).
+            OnComputeOnlyQueue = false;
             Cmd = cmd;
             ForgetCommandBufferBinds();
             Scope = RenderingScope{};

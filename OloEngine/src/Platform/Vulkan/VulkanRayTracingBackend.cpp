@@ -345,6 +345,12 @@ namespace OloEngine::RayTracing
             return 0;
         }
         auto* device = VulkanDevice::Get();
+        // Cleared BEFORE the guard below: RayTracingScene::Update calls
+        // PublishStats whether or not this returned early, so a counter left
+        // behind by a frame that could not record would be added to the next
+        // frame's freshly reset statistics.
+        m_FrameInstancesSkipped = 0;
+
         const VkCommandBuffer cmd = AcquireCommandBuffer();
         if (device == nullptr || cmd == VK_NULL_HANDLE)
         {
@@ -354,7 +360,6 @@ namespace OloEngine::RayTracing
         ++m_RecordGeneration;
         m_FrameBlasBuilds = 0;
         m_FrameBlasRefits = 0;
-        m_FrameInstancesSkipped = 0;
 
         // A frame with nothing to build is exactly when a pending
         // compacted-size query is most likely to have resolved, so the poll
