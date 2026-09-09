@@ -145,6 +145,16 @@ void main()
         // is met or the source does not need it.
         [[nodiscard]] static bool RefuseIfBelowFloor(std::string_view source, std::string_view shaderName);
 
+        // The same decision against a GIVEN report, which is what makes it
+        // testable. On every machine this engine is developed and tested on the
+        // floor is MET, so the refusal above never fires and its message,
+        // its counter and its "which extension is missing" list would all ship
+        // unexercised — a countable guarantee nothing had ever counted. Taking
+        // the report as a parameter tests it without a mutable test seam: there
+        // is no override to set, forget to clear, or race on.
+        [[nodiscard]] static bool RefuseIfBelowFloor(const ShaderToolchainReport& report, std::string_view source,
+                                                     std::string_view shaderName);
+
         // How many compiles this process refused. Countable, not merely loud:
         // a log line scrolls, a counter can be asserted on and reported.
         [[nodiscard]] static std::uint64_t RefusalCount();

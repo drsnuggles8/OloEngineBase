@@ -122,7 +122,12 @@ namespace OloEngine
 
     bool ShaderToolchainFloor::RefuseIfBelowFloor(std::string_view source, std::string_view shaderName)
     {
-        const ShaderToolchainReport& report = Report();
+        return RefuseIfBelowFloor(Report(), source, shaderName);
+    }
+
+    bool ShaderToolchainFloor::RefuseIfBelowFloor(const ShaderToolchainReport& report, std::string_view source,
+                                                  std::string_view shaderName)
+    {
         if (report.Satisfied || !SourceNeedsFloor(source))
         {
             return false;
@@ -140,11 +145,17 @@ namespace OloEngine
             missing.append(entry);
         }
 
-        OLO_CORE_ERROR(
-            "Shader toolchain below the floor: '{}' declares {} but the linked shaderc/glslang does not support {}. "
-            "Install Vulkan SDK {} or newer (equivalently shaderc {}); see ADR 0011 amendment (97). "
-            "Toolchain diagnostic: {}",
-            shaderName, kRequiredExtensions[0], missing, kMinimumVulkanSdk, kMinimumShadercTag, report.Diagnostic);
+        // Names the MISSING set once, rather than pairing it with a "declares X"
+        // clause. The earlier phrasing read "declares GL_EXT_descriptor_heap but
+        // does not support GL_EXT_descriptor_heap" — repetitive, and a lie for a
+        // shader whose only declaration is the other extension, because the
+        // "declares" half was the required list's first entry rather than
+        // anything this source says.
+        OLO_CORE_ERROR("Shader toolchain below the floor: '{}' needs the descriptor-heap contract, but the linked "
+                       "shaderc/glslang does not support {}. Install Vulkan SDK {} or newer (equivalently shaderc "
+                       "{}); there is no non-heap fallback, by decision — see ADR 0011 amendment (97). "
+                       "Toolchain diagnostic: {}",
+                       shaderName, missing, kMinimumVulkanSdk, kMinimumShadercTag, report.Diagnostic);
         return true;
     }
 

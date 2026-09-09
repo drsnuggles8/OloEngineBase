@@ -144,6 +144,40 @@ namespace OloEngine::Tests
         EXPECT_EQ(ShaderToolchainFloor::RefusalCount(), 0u);
     }
 
+    // THE REFUSAL ITSELF, which on every machine this engine is developed on
+    // never fires — the floor is met here, so without a synthetic report its
+    // message, its counter and its missing-extension list would all ship
+    // unexercised. "Loud and countable" would be a claim rather than a fact.
+    TEST(ShaderToolchainFloor, ABelowFloorReportRefusesTheShadersThatNeedItAndCountsEachOne)
+    {
+        ShaderToolchainReport below;
+        below.Satisfied = false;
+        below.Missing = { std::string(ShaderToolchainFloor::kRequiredExtensions[0]) };
+        below.Diagnostic = "error: '#extension' : extension not supported: GL_EXT_descriptor_heap";
+
+        ShaderToolchainFloor::ResetRefusalCountForTesting();
+
+        const std::string needsIt(ShaderToolchainFloor::kLayoutProbeSource);
+        EXPECT_TRUE(ShaderToolchainFloor::RefuseIfBelowFloor(below, needsIt, "NeedsTheHeap.glsl"));
+        EXPECT_EQ(ShaderToolchainFloor::RefusalCount(), 1u);
+
+        // Counted per compile, not per process: a run that refuses five shaders
+        // must be able to say five.
+        EXPECT_TRUE(ShaderToolchainFloor::RefuseIfBelowFloor(below, needsIt, "AlsoNeedsIt.glsl"));
+        EXPECT_EQ(ShaderToolchainFloor::RefusalCount(), 2u);
+
+        // A shader that declares none of them compiles fine on a below-floor
+        // toolchain, so refusing it would be a lie — and would turn one named
+        // toolchain problem into "every Vulkan shader is broken", which is the
+        // misattribution this whole contract exists to end.
+        EXPECT_FALSE(ShaderToolchainFloor::RefuseIfBelowFloor(
+            below, "#version 460 core\nvoid main() {}\n", "PlainShader.glsl"));
+        EXPECT_EQ(ShaderToolchainFloor::RefusalCount(), 2u);
+
+        ShaderToolchainFloor::ResetRefusalCountForTesting();
+        EXPECT_EQ(ShaderToolchainFloor::RefusalCount(), 0u);
+    }
+
     // The scanner decides which shaders the refusal covers. Both directions
     // matter, and the negative one is the subtle half: DescriptorHeapTextures.glsl
     // names the extension four times in its header comment, so a substring search
