@@ -294,10 +294,16 @@ jobs:
 
       # Capped parallelism, per CLAUDE.md — a bare --parallel forwards the omission to the native
       # tool and takes its default (cores + 2 for Ninja), which is wider, not narrower.
+      #
+      # 2 rather than 4 since 2026-09-09. This build is not sanitizer-instrumented, so its own
+      # per-TU footprint is unremarkable — the reason is the neighbour, not this job. On the
+      # self-hosted arm it takes an olo-ci slot, and both slots live in ONE cgroup-capped slice
+      # (MemoryMax=19G); the other slot is routinely holding a sanitizer build whose TUs measure
+      # 9 GB each. The cap is on the account, not on the job.
       - name: Build tests
         # No --config: this is the single-config Unix Makefiles generator, so the build type
         # comes from CMAKE_BUILD_TYPE at configure time and --config would be silently ignored.
-        run: cmake --build build --target OloEngine-Tests --parallel 4
+        run: cmake --build build --target OloEngine-Tests --parallel 2
 
       # Resolved ONCE and exported, rather than repeating the find in each test step: two lookups
       # can disagree (a stale binary from an earlier layout still on disk would be picked by one

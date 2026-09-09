@@ -115,6 +115,17 @@ jobs:
       # repository. A nightly at ~02:47 local should normally find them idle,
       # but "normally" is not "always" — leave headroom so a concurrent build
       # elsewhere on the box doesn't turn into swap thrash or an OOM.
+      #
+      # The tighter neighbour is closer than that, though, and this width has
+      # never been measured against it: gh-runner-1/2/3 are separate accounts in
+      # separate cgroup slices, but olo-gpu-amd (this job's runner) shares ONE
+      # account -- and so ONE MemoryMax=19G slice -- with olo-ci-1 and olo-ci-2.
+      # An overlap with a sanitizer build on either of those slots is 6 ordinary
+      # TUs plus 2 instrumented ones at ~9 GB each, inside 19 G total. The 6 is
+      # left as-is here because it was set on a measurement (the --parallel 12
+      # that ran the job out of memory); lowering it on a guess is the mistake
+      # this file's neighbours just had to unwind. Measure it before an overlap
+      # does it for us.
       CMAKE_BUILD_PARALLEL_LEVEL: 6
       # CPM/FetchContent pull vendor sources into OloEngine/vendor/ *inside the
       # workspace*, which the wipe + checkout clears every run. Without a cache
