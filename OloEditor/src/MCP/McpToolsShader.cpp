@@ -323,6 +323,13 @@ namespace OloEngine::MCP
 
     } // namespace
 
+    // Composed by olo_project_validate (#1130): the same ShaderDebugger sweep the
+    // Shader editor panel renders from, through the standalone command's handler.
+    ToolResult CollectShaderProblems(IAutomationHost& host)
+    {
+        return Handle_ShaderErrors(host, Json::object());
+    }
+
     void RegisterShaderTools(AutomationRegistry& registry)
     {
         {

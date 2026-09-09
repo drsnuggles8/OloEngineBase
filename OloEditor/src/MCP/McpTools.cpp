@@ -206,6 +206,8 @@ namespace OloEngine::MCP
         RegisterInputTools(registry);
         RegisterBenchmarkTools(registry);
         RegisterEditorTools(registry);
+        RegisterTestingTools(registry);
+        RegisterValidationTools(registry);
     }
 
     void RegisterBuiltinTools(McpServer& server)

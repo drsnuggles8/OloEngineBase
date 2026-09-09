@@ -126,6 +126,13 @@ namespace OloEngine::MCP
 
     } // namespace
 
+    // Composed by olo_project_validate (#1130) — the SAME handler the standalone
+    // command registers, so the two cannot disagree about what an asset problem is.
+    ToolResult CollectAssetProblems(IAutomationHost& host)
+    {
+        return Handle_AssetsProblems(host, Json::object());
+    }
+
     void RegisterAssetTools(AutomationRegistry& registry)
     {
         {

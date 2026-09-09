@@ -91,6 +91,13 @@ namespace OloEngine::MCP
 
     } // namespace
 
+    // Composed by olo_project_validate (#1130): the script-error ring the console
+    // shows, through the standalone command's handler.
+    ToolResult CollectScriptProblems(IAutomationHost& host)
+    {
+        return Handle_ScriptGetLastErrors(host, Json::object());
+    }
+
     void RegisterScriptingTools(AutomationRegistry& registry)
     {
         {

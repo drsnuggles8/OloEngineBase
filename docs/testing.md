@@ -1079,6 +1079,14 @@ be a tracked file — so only this human-written guide is versioned; the rendere
 inventory is built on demand (and can be published as a CI artifact if a browsable
 copy is wanted).
 
+The classification is also read **at runtime**, not only at pre-commit: the
+automation commands `olo_tests_list` / `olo_tests_run` (issue #1130) resolve each
+gtest case's layer through the same two mechanisms, in the same precedence, and
+report every classification defect they meet alongside the results. `layer` is a
+selector there as well as a label, so "run this suite's L8 golden-image cases"
+is one call. See
+[the MCP guide](guides/mcp-diagnostics-server.md#structured-test-execution-olo_tests_list--olo_tests_run).
+
 ## 10. References
 
 Primary sources the strategy draws from:

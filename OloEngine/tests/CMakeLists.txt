@@ -836,6 +836,12 @@ add_executable(OloEngine-Tests
 		${_olo_mcp_field_registry_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
+		# Structured test execution and whole-project validation (issue #1130).
+		# RegisterBuiltinCommands composes both, so the test binary needs the TUs
+		# to link at all; their pure cores are covered by McpTestExecutionTest /
+		# McpProjectValidationTest below.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsTesting.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsValidation.cpp
 		# The capability-discovery gateway (#1124): olo_capability / olo_tool_search /
 		# olo_tool_describe / olo_tool_execute. Registration-only from the tests'
 		# point of view, like the rest of this list — but its handlers are pure
@@ -870,6 +876,14 @@ add_executable(OloEngine-Tests
 		# Pure reasoning behind olo_render_why_not_visible (#306 item A, rendering
 		# half). Header-only (MCP/McpRenderExplain.h), no extra editor TU pulled in.
 		MCP/McpRenderExplainTest.cpp
+		# Structured test execution (#1130): gtest report parsing, the
+		# OLO_TEST_LAYER classification merge, and the reconciliation that makes a
+		# partial run an error. Header-only (MCP/McpTestExecution.h) — nothing here
+		# launches a child process.
+		MCP/McpTestExecutionTest.cpp
+		# Whole-project validation report shaping (#1130). Header-only
+		# (MCP/McpProjectValidation.h), no extra editor TU pulled in.
+		MCP/McpProjectValidationTest.cpp
 		# Pure image-diff core behind olo_render_compare_golden (#316 Part 4).
 		# Header-only (MCP/McpGoldenCompare.h), no extra editor TU pulled in.
 		MCP/McpGoldenCompareTest.cpp
