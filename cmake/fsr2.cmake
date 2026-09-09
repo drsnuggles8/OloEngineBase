@@ -49,6 +49,24 @@ endif()
 
 include(FetchContent)
 
+# -----------------------------------------------------------------------------
+# Local patches on top of the pin.
+#
+# The pinned tree is patched in place by cmake/fsr2-apply-patches.cmake, which is
+# idempotent because FetchContent re-runs its patch step on every configure. Each
+# patch file names the upstream PR it carries and says when to drop it.
+#
+# CMAKE_CONFIGURE_DEPENDS on the patch files, not just CONFIGURE_DEPENDS on the
+# glob: adding or removing a patch has to re-configure, and so does EDITING one,
+# or the tree keeps the previous version with nothing to warn you. Regenerating
+# the permutations then follows for free, because the patches edit shared headers
+# that OLO_FSR2_SHADER_INCLUDES already globs and every permutation DEPENDS on.
+# -----------------------------------------------------------------------------
+set(OLO_FSR2_PATCH_DIR "${CMAKE_CURRENT_LIST_DIR}/fsr2-patches")
+file(GLOB OLO_FSR2_PATCH_FILES CONFIGURE_DEPENDS "${OLO_FSR2_PATCH_DIR}/*.patch")
+set_property(DIRECTORY "${CMAKE_SOURCE_DIR}"
+	APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${OLO_FSR2_PATCH_FILES})
+
 # Pinned to a full commit SHA, never a tag — see the pinning discipline note in
 # OloEngine/vendor/CMakeLists.txt. GIT_SHALLOW must be FALSE for a SHA pin.
 #
@@ -68,7 +86,10 @@ FetchContent_Declare(fsr2gl
 	GIT_TAG f188a0d839665cf110957c1510dfeba4e746aa98  # main @ 2026-08-26
 	GIT_SHALLOW FALSE
 	GIT_SUBMODULES ""
-	SOURCE_SUBDIR olo-does-not-build-upstream-cmake)
+	SOURCE_SUBDIR olo-does-not-build-upstream-cmake
+	PATCH_COMMAND "${CMAKE_COMMAND}"
+		"-DOLO_FSR2_PATCH_DIR=${OLO_FSR2_PATCH_DIR}"
+		-P "${CMAKE_CURRENT_LIST_DIR}/fsr2-apply-patches.cmake")
 
 FetchContent_MakeAvailable(fsr2gl)
 

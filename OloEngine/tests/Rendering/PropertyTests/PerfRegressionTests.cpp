@@ -2042,11 +2042,19 @@ namespace OloEngine::Tests
     //
     // The reference to compare against: AMD quotes FSR2 at roughly 1.1-1.2 ms for
     // 4K output on an RX 6800 XT, i.e. about 0.145 ms per megapixel on hardware
-    // slower than anything this runs on. A flat cost-per-megapixel well above
-    // that, holding as resolution rises, is the upstream VRAM-throughput problem
-    // (https://juandiegomontoya.github.io/porting_fsr2.html#performance). A
-    // per-megapixel cost that FALLS steeply with resolution is fixed overhead,
-    // which is a different and much less alarming story.
+    // slower than anything this runs on. A per-megapixel cost that FALLS steeply
+    // with resolution is fixed overhead, which is a different and much less
+    // alarming story than a flat one.
+    //
+    // This test is what found, and now guards, the NVIDIA private-array spill
+    // (#925): the GL SPIR-V front end lowered three fixed-size arrays in the
+    // depth-clip and accumulate passes to local memory, which is device memory,
+    // and that WAS the upstream "3x slower than expected" VRAM-throughput
+    // problem (https://juandiegomontoya.github.io/porting_fsr2.html#performance).
+    // With cmake/fsr2-patches/0001 applied this reads ~0.10-0.12 ms/MPix on an
+    // RTX 4090; without it, ~0.19-0.23. A reading back up at the high figure
+    // means the patch stopped applying or the permutations went stale — see
+    // docs/agent-rules/notes-renderer.md for the one-grep driver-IR check.
     TEST_F(FSR2Perf, UpscaleCostPerMegapixelAcrossOutputResolutions)
     {
         OLO_ENSURE_GPU_OR_SKIP();

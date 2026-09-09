@@ -463,51 +463,102 @@ numbers exactly, so both were discarded rather than read as evidence.
 disoccluded** (`fWeightSum == 0` falls through to `return 0.0f`). A depth-clip factor of ~0 across a static
 frame is CORRECT, not evidence of a broken reconstructed-depth buffer.
 
+### Keep private-array indices literal in GLSL headed for NVIDIA's GL SPIR-V path — that was FSR2's 3x
 
-### FSR2 on NVIDIA is a known upstream performance problem — budget for it before promising a win
+**The rule.** A fixed-size local array indexed by a loop variable is scalarised by every compiler you
+would expect to scalarise it — except NVIDIA's OpenGL SPIR-V front end, which lowers it to *local
+memory*, and local memory is device memory. A constant loop bound is not enough; the index has to be
+literal by the time glslang sees it. Expand the loop, or pay the VRAM traffic.
 
-The port's author measured **FSR2 running "about 3x slower than expected" on an RTX 3070**, attributing it
-to high VRAM throughput in the **depth-clip** and **reproject & accumulate** passes. The Vulkan backend's
-workaround (disabling FP16 for NVIDIA's accumulate pass) was tried in GL and **did not help**; so did
-varying the input colour format. The cause is **unresolved** — the author's guess is that the shader
-compiler generates different code per API. **AMD (RX 6800) behaves as expected.**
-<https://juandiegomontoya.github.io/porting_fsr2.html#performance>
+**This was FSR2's unexplained "3x slower than expected on NVIDIA".** The port's author measured it on
+an RTX 3070, localised it to abnormally high VRAM throughput in the **depth-clip** and **reproject &
+accumulate** passes, and guessed the shader compiler generated different code per API. The guess was
+right and this is the mechanism: three functions index fixed-size private arrays with a loop
+variable — `ComputeDepthClip`, `PreProcessReactiveMasks` and `ComputeUpsampledColorAndWeight`.
 
-**Measured here on an RTX 4090, driver 610.88, four years and many drivers later — it is still true.**
-`FSR2Perf.UpscaleCostPerMegapixelAcrossOutputResolutions` reports FSR2's own dispatch cost, which is the
-only measurement that can answer this (a whole-frame number moves the scene cost at the same time):
+Measured here on an RTX 4090, driver 616.64, `FSR2Perf.UpscaleCostPerMegapixelAcrossOutputResolutions`,
+min of 5 interleaved runs per arm:
 
-| output | FSR2Pass | ms/MPix |
+| output | stock | loops expanded | |
+|---|---|---|---|
+| 1280x720 | 0.214 ms (0.232 ms/MPix) | 0.114 ms (0.123 ms/MPix) | 1.88x |
+| 1920x1080 | 0.415 ms (0.200 ms/MPix) | 0.231 ms (0.112 ms/MPix) | 1.80x |
+| 2560x1440 | 0.666 ms (0.187 ms/MPix) | 0.366 ms (0.102 ms/MPix) | 1.83x |
+
+AMD quotes FSR2 at ~1.1-1.2 ms for 4K on an RX 6800 XT, about 0.145 ms/MPix on hardware several
+times slower. At 0.102 ms/MPix the GL path is now inside that envelope, so the vendor gap is closed
+rather than merely reduced — which is what the AMD comparison in #925 existed to establish, and it
+was answered without needing AMD hardware.
+
+**The driver IR is the evidence that turns a timing into a diagnosis, and it is one grep.** NVIDIA's
+OpenGL disk cache stores each compiled program as text. Point it somewhere private so the cache holds
+only this run, then count the local arrays:
+
+```bash
+__GL_SHADER_DISK_CACHE=1 __GL_SHADER_DISK_CACHE_PATH=<scratch>/glcache <run the workload>
+grep -rao "TEMP lmem0\[[0-9]*\]" <scratch>/glcache | sort | uniq -c
+```
+
+`TEMP lmem0[N]` is an N-slot local-memory array. Across the same 43 compute programs, stock gave
+`lmem0[31]` x1 (depth clip) and `lmem0[20]` x2 (both accumulate permutations); expanded gives no
+`lmem0[31]` at all and `lmem0[4]` in its place — the unrelated deringing array, which is not worth
+chasing. **Do not try to attribute a blob to a named pass by grepping it for that pass's uniform
+names**: the name tables do not live inside the program segments, so the markers bleed across and
+you get five passes all confidently claiming the same array. Diff the two arms instead.
+
+**A second use for that grep: it proves the shader you edited is the one that ran.** The stale-blob
+trap documented above ("the tell is a result identical to the last digit") has a positive test now —
+if the local-memory shape changed, the new SPIR-V reached the GPU.
+
+**What we ship.** `cmake/fsr2-patches/0001-avoid-nvidia-private-array-spills.patch`, applied to the
+fetched tree by `cmake/fsr2-apply-patches.cmake`. It is [upstream PR
+#14](https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL/pull/14), **still open** — drop the
+file when the pin moves past it, and the applier fails the configure loudly if it ever stops applying.
+The applier is idempotent because FetchContent re-runs its patch step on every configure. One
+consequence worth knowing before you debug a shader: **a hand edit to
+`OloEngine/vendor/clang/fsr2gl-src` that collides with the patch is reverted on the next configure.**
+Investigate in the patch file, not in the fetched tree.
+
+**The alternative we did not take.** [Upstream PR
+#13](https://github.com/JuanDiegoMontoya/FidelityFX-FSR2-OpenGL/pull/13) attacks the same root cause
+from the other end — bypass NVIDIA's SPIR-V front end entirely and compile the `.glsl2` sources
+through the driver's GLSL front end at runtime (RTX 3080, whole effect 4.24 ms -> 1.49 ms). It is the
+larger win, but it carries an embedded-source generator, an include expander and runtime binding
+fix-up; upstream rejected it on maintenance grounds, so taking it means forking. Revisit only if a
+residual gap ever justifies that.
+
+**Two levers that were tested and do NOT help.** Recorded so nobody re-runs them:
+
+* **FP16 for the accumulate pass.** The backend disables it on NVIDIA ("reduced occupancy and high
+  VRAM throughput") and that looked like stale Turing-era tuning worth revisiting on Ada. Re-enabling
+  it made FSR2 **3.4-8.9x SLOWER** at every resolution (1080p: 0.42 -> 1.55 ms). The workaround is
+  correct and load-bearing.
+* **The `rw_prepared_input_color` `rgba16`-over-`RGBA16F` mismatch.** Performance-neutral (within
+  0.5%). Still worth having as correctness — it is undefined behaviour — and it is upstream as PR
+  #12, which the pin now includes.
+
+**`useLut` is a dead end, and the reason usually given for it is wrong.** It is gated on
+`waveLaneCountMax == 64`. `GetDeviceCapabilitiesGL` initialises that field to 0 but then **overwrites
+it with `GL_SUBGROUP_SIZE_KHR`**, so on NVIDIA it is 32, not 0 — the engine logs it as
+`FSR2: device supports temporal upscaling (wave size 32-32, fp16 true)`. The reproject pass takes the
+reference Lanczos because the device is wave32, exactly as DX12/Vulkan on the same GPU would. Do not
+repeat "the GL backend hardcodes it to 0"; that describes an older revision, not the pin.
+
+**#684's acceptance criterion is met, and was already met before this change — the earlier "FSR2
+saved nothing" reading was the binding-scope bug below.** At 1920x1080 on the `FSR2Perf` scene, min
+of the uncontended interleaved rounds:
+
+| | stock | loops expanded |
 |---|---|---|
-| 1280x720 | 0.210 ms | 0.228 |
-| 1920x1080 | 0.427 ms | 0.206 |
-| 2560x1440 | 0.711 ms | 0.193 |
+| native (1.00) | 2.705 ms | 2.706 ms |
+| spatial Quality (0.667) | 1.719 ms | 1.721 ms |
+| temporal Quality (0.667) | 2.113 ms | **1.928 ms** |
+| temporal Balanced (0.59) | 1.862 ms | **1.686 ms** |
 
-Almost perfectly linear in output pixels — **0.178 ms/MPix marginal, ~0.05 ms fixed** — so it is
-throughput-bound rather than dominated by small-dispatch overhead, which is the reading that would have
-excused it. Extrapolated to 4K that is **~1.5 ms on a 4090**, against AMD's quoted ~1.1-1.2 ms at 4K on an
-RX 6800 XT. Roughly 3x slower than the hardware class implies, matching the author's figure.
-
-**Two levers were tested and neither helps.** Recorded so nobody re-runs them:
-
-* **FP16 for the accumulate pass.** The backend disables it on NVIDIA ("reduced occupancy and high VRAM
-  throughput") and that looked like stale Turing-era tuning worth revisiting on Ada. Re-enabling it made
-  FSR2 **3.4-8.9x SLOWER** at every resolution (1080p: 0.42 -> 1.55 ms). The workaround is correct and
-  load-bearing, and the result corroborates the author's VRAM-throughput diagnosis rather than
-  undermining it.
-* **The `rw_prepared_input_color` `rgba16`-over-`RGBA16F` mismatch.** Fixing it is **performance-neutral**
-  (within 0.5%). Still worth fixing as correctness — it is undefined behaviour — but it is not a speed
-  lever. (Measured properly here; an earlier "inert" verdict on this was taken against BRIGHTNESS during
-  the window when the stale-shader build trap could have voided it.)
-
-`useLut` is a third candidate and probably not worth the trip: it is gated on `waveLaneCountMax == 64`
-while the GL backend hardcodes that to 0, so the reproject pass always takes the reference Lanczos — but
-DX12/Vulkan on NVIDIA (wave32) picks the same path, so it is not a GL-specific regression.
-
-**The consequence for #684's acceptance criterion is real:** "a GPU frame-time reduction at 67%/59%" may
-not be achievable on NVIDIA with this backend at all, and that is an upstream problem rather than an
-integration one. Anyone picking this up should measure on AMD before concluding the integration is at
-fault, and should not promise the win on NVIDIA without re-measuring on an idle machine.
+Native and spatial are the control and do not move. Temporal Quality goes from saving 21.9% of GPU
+frame time against native to saving 28.7%, and the whole-frame delta (0.185 ms) reconciles with the
+isolated dispatch delta (0.184 ms) — which is the check that says the two measurements are describing
+the same thing. FSR1 spatial is still cheaper in absolute terms and always will be; it does far less.
 
 ### A state restore that is free in an isolated test can be the most expensive thing in the frame
 

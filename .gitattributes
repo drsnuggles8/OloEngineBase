@@ -23,6 +23,14 @@
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 
+# Patches applied to fetched third-party trees are checked out byte-for-byte.
+# `* text=auto` above would rewrite them to CRLF on Windows, and a patch whose
+# line endings were rewritten after it was authored is a patch that may no
+# longer apply — which surfaces as a FATAL_ERROR in the middle of a configure,
+# on a fresh clone only. See cmake/fsr2-apply-patches.cmake.
+*.patch -text
+*.diff -text
+
 # Mark vendor as vendored (hides from GitHub linguist and other tooling)
 vendor/** linguist-vendored
 
