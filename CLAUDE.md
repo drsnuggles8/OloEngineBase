@@ -49,7 +49,10 @@ When a task touched code or assets:
 1. **Pre-commit runs itself.** A `Stop` hook runs `pre-commit run --all-files` at the end of every
    turn. If it reformatted anything, re-stage before committing. A commit that triggers an auto-fix
    aborts with the fixes unstaged: re-add and commit again. That is expected. Don't run `pre-commit`
-   by hand unless it failed.
+   by hand unless it failed — or unless you are about to **push in the same turn as the edits**,
+   which races the hook: it runs *after* the turn, so the push sends the unformatted text and CI
+   fails `pre-commit` on a commit that is already sent. A `PreToolUse` guard
+   (`.claude/hooks/claude-push-format-guard.py`) blocks that push and leaves the fixes in the tree.
 2. **Every test `.cpp` is classified.** Add `// OLO_TEST_LAYER: <id>` near the top (or a
    `file_layer_map` entry in `test_catalogue.json`, not both). The rendered catalogue under
    `docs/test-catalogue.*.md` is generated and git-ignored; never hand-edit it.
