@@ -189,6 +189,45 @@ if(DEFINED ENV{VULKAN_SDK})
 	endforeach()
 endif()
 
+# A STAGED SHADER TOOLCHAIN — one prefix that supplies shaderc's HEADERS AND ITS
+# LIBRARY, and nothing else (issue #1139, ADR 0011 amendment (97)).
+#
+# WHY A SEPARATE PREFIX AND NOT JUST $VULKAN_SDK. Ubuntu 24.04's libshaderc-dev
+# is 2023.8 and cannot compile GL_EXT_descriptor_heap, so the hosted Linux CI
+# arm needs a newer one — but pointing those jobs at a full LunarG SDK is the
+# trap #1009 already sprang: the SDK's include tree ALSO carries spirv_cross/,
+# it wins the <spirv_cross/spirv_cross.hpp> lookup over apt's, and the resulting
+# header/library skew SEGVs under TSan while destroying its own containers. The
+# whole point of this variable is a prefix that CANNOT do that, and the check
+# below makes it structural rather than a promise: a root carrying spirv_cross
+# headers is refused by name.
+#
+# Ignored on MSVC, where the SDK supplies headers and libraries as one matched
+# set and there is nothing to skew.
+set(OLO_SHADERC_ROOT "" CACHE PATH
+	"Prefix supplying shaderc's headers and library (include/shaderc, lib/libshaderc_shared.so). \
+Leave empty to take shaderc from the system. Must NOT carry spirv_cross headers — see issue #1139.")
+set(OLO_SHADERC_STAGED_INCLUDE_DIR "")
+if(OLO_SHADERC_ROOT AND NOT MSVC)
+	if(NOT EXISTS "${OLO_SHADERC_ROOT}/include/shaderc/shaderc.hpp")
+		message(FATAL_ERROR
+			"OLO_SHADERC_ROOT='${OLO_SHADERC_ROOT}' has no include/shaderc/shaderc.hpp. "
+			"It must be a prefix that supplies shaderc's headers AND its library; see "
+			".github/actions/setup-shaderc-linux.")
+	endif()
+	if(EXISTS "${OLO_SHADERC_ROOT}/include/spirv_cross")
+		message(FATAL_ERROR
+			"OLO_SHADERC_ROOT='${OLO_SHADERC_ROOT}' carries spirv_cross headers. Admitting them would "
+			"put SPIRV-Cross headers from one build in front of the SPIRV-Cross LIBRARY this engine "
+			"links from another — the header/library skew that SEGVs under TSan (issue #1009, recorded "
+			"in .github/actions/setup-linux-build). Stage a shaderc-only prefix instead.")
+	endif()
+	set(OLO_SHADERC_STAGED_INCLUDE_DIR "${OLO_SHADERC_ROOT}/include")
+	# A staged root REPLACES the SDK include tree rather than joining it: two
+	# prefixes both offering shaderc/ is the same skew one directory up.
+	set(OLO_VULKAN_SDK_INCLUDE_DIR "")
+endif()
+
 # Only the dependencies still fetched in-tree need an explicit include directory —
 # everything vcpkg provides carries its own through its IMPORTED target (issue #773).
 target_include_directories(OloEngine PUBLIC
@@ -223,6 +262,10 @@ target_include_directories(OloEngine PUBLIC
 	# the SDK would win regardless of order. See trap 8 in
 	# docs/agent-rules/vcpkg-dependency-management.md.
 	${OLO_VULKAN_PINNED_INCLUDE_DIRS}
+	# The staged shader toolchain, when one was given. Ahead of the SDK tree and
+	# of the implicit system directories so its shaderc/ wins; it carries nothing
+	# else (enforced above), so nothing else moves.
+	${OLO_SHADERC_STAGED_INCLUDE_DIR}
 	${OLO_VULKAN_SDK_INCLUDE_DIR}
 	${Vulkan_INCLUDE_DIRS}
 )
@@ -492,7 +535,29 @@ if(MSVC)
 	)
 else()
 	# Linux: find all shader-related libraries from system packages
-	find_library(SHADERC_LIB NAMES shaderc_shared shaderc)
+	#
+	# SPIRV-Cross stays SYSTEM here, always and deliberately (issue #1009): its
+	# headers come from /usr/include and its libraries from apt, one matched set.
+	# Only shaderc may be redirected, and only to a prefix proven above to carry
+	# no spirv_cross headers.
+	if(OLO_SHADERC_ROOT)
+		# NO_DEFAULT_PATH: half a redirect — the staged headers with the system
+		# library — is the skew this whole mechanism exists to prevent, so a
+		# staged root that cannot supply the library must FAIL rather than fall
+		# back to apt's.
+		find_library(SHADERC_LIB NAMES shaderc_shared shaderc
+			HINTS "${OLO_SHADERC_ROOT}/lib" "${OLO_SHADERC_ROOT}/lib64"
+			NO_DEFAULT_PATH)
+		if(NOT SHADERC_LIB)
+			message(FATAL_ERROR
+				"OLO_SHADERC_ROOT='${OLO_SHADERC_ROOT}' supplies shaderc headers but no shaderc "
+				"library under lib/ or lib64/. Falling back to the system one would pair headers "
+				"from one build with a library from another — see issue #1139.")
+		endif()
+		message(STATUS "shaderc: ${SHADERC_LIB} (staged, OLO_SHADERC_ROOT)")
+	else()
+		find_library(SHADERC_LIB NAMES shaderc_shared shaderc)
+	endif()
 	find_library(SPIRV_CROSS_CORE_LIB NAMES spirv-cross-core)
 	find_library(SPIRV_CROSS_GLSL_LIB NAMES spirv-cross-glsl)
 	find_library(SPIRV_CROSS_C_LIB NAMES spirv-cross-c-shared)
@@ -502,27 +567,60 @@ else()
 	find_library(MACHINE_INDEPENDENT_LIB NAMES MachineIndependent)
 	find_library(OS_DEPENDENT_LIB NAMES OSDependent)
 	find_library(GENERIC_CODEGEN_LIB NAMES GenericCodeGen)
-	foreach(_lib SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB GLSLANG_LIB SPIRV_LIB SPIRV_TOOLS_LIB
+
+	# THE GLSLANG LIBRARIES ARE APT'S libshaderc's DEPENDENCY, NOT OURS. No
+	# engine TU includes a glslang header (`grep -rn '#include <glslang' src/`
+	# is empty); the five below are here because Debian/Ubuntu build libshaderc
+	# against the SYSTEM glslang shared libraries and leave the link
+	# unsatisfied otherwise. A staged shaderc is built the upstream way, with
+	# glslang and SPIRV-Tools linked INTO it, so requiring them there would
+	# demand libraries that correctly do not exist — and, worse, would pull
+	# apt's glslang 15.1.0 in beside the staged one.
+	set(_olo_shader_libs ${SHADERC_LIB} ${SPIRV_CROSS_CORE_LIB} ${SPIRV_CROSS_GLSL_LIB})
+	set(_olo_required_libs SHADERC_LIB SPIRV_CROSS_CORE_LIB SPIRV_CROSS_GLSL_LIB)
+	if(NOT OLO_SHADERC_ROOT)
+		list(APPEND _olo_shader_libs
+			${GLSLANG_LIB} ${SPIRV_LIB} ${SPIRV_TOOLS_LIB}
+			${MACHINE_INDEPENDENT_LIB} ${OS_DEPENDENT_LIB} ${GENERIC_CODEGEN_LIB})
+		list(APPEND _olo_required_libs
+			GLSLANG_LIB SPIRV_LIB SPIRV_TOOLS_LIB
 			MACHINE_INDEPENDENT_LIB OS_DEPENDENT_LIB GENERIC_CODEGEN_LIB)
+	endif()
+	foreach(_lib ${_olo_required_libs})
 		if(NOT ${_lib})
 			message(FATAL_ERROR "Required shader library not found: ${_lib}. "
 				"Install the Vulkan SDK / shader development packages.")
 		endif()
 	endforeach()
-	target_link_libraries(OloEngine
-		${SHADERC_LIB}
-		${SPIRV_CROSS_CORE_LIB}
-		${SPIRV_CROSS_GLSL_LIB}
-		${GLSLANG_LIB}
-		${SPIRV_LIB}
-		${SPIRV_TOOLS_LIB}
-		${MACHINE_INDEPENDENT_LIB}
-		${OS_DEPENDENT_LIB}
-		${GENERIC_CODEGEN_LIB}
-	)
+	target_link_libraries(OloEngine ${_olo_shader_libs})
 	if(SPIRV_CROSS_C_LIB)
 		target_link_libraries(OloEngine ${SPIRV_CROSS_C_LIB})
 	endif()
+endif()
+
+# THE SHADER TOOLCHAIN FLOOR (issue #1139, ADR 0011 amendment (97)) — build and
+# run a probe against exactly the shaderc resolved above, so a toolchain that
+# cannot compile GL_EXT_descriptor_heap is named HERE rather than 4,000 tests
+# into a sanitizer run. Off with the Vulkan backend: the extension is declared
+# only inside `#ifdef OLO_VULKAN` arms, which an OLO_WITH_VULKAN=OFF build never
+# compiles (vulkan-off.yml is that build).
+option(OLO_VERIFY_SHADER_TOOLCHAIN_FLOOR
+	"Fail configure when the shader toolchain cannot compile GL_EXT_descriptor_heap (issue #1139)" ON)
+if(OLO_WITH_VULKAN AND OLO_VERIFY_SHADER_TOOLCHAIN_FLOOR)
+	if(MSVC)
+		set(_olo_floor_libs ${_vk_shader_libs})
+		set(_olo_floor_includes "${OLO_VULKAN_SDK_INCLUDE_DIR}")
+	else()
+		set(_olo_floor_libs ${_olo_shader_libs})
+		set(_olo_floor_includes "${OLO_SHADERC_STAGED_INCLUDE_DIR}" "${OLO_VULKAN_SDK_INCLUDE_DIR}")
+	endif()
+	# The floor header lives in the engine's source tree and is deliberately
+	# dependency-free so the probe can compile against it without the engine.
+	list(APPEND _olo_floor_includes "${CMAKE_CURRENT_SOURCE_DIR}/src")
+	list(REMOVE_ITEM _olo_floor_includes "")
+	olo_verify_shader_toolchain_floor(
+		INCLUDE_DIRS ${_olo_floor_includes}
+		LIBRARIES ${_olo_floor_libs})
 endif()
 
 # Mono (C# scripting) — Windows-only for now

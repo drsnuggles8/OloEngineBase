@@ -20,6 +20,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
+#include "OloEngine/Renderer/ShaderToolchainFloor.h"
 
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
@@ -390,6 +391,20 @@ namespace OloEngine
             if (loaded)
             {
                 continue;
+            }
+
+            // THE TOOLCHAIN FLOOR, checked AFTER the cache and only for a source
+            // that reaches for it (issue #1139, amendment (97)). After the cache
+            // because a warm `.cached_vulkan14.*` is already the SPIR-V this
+            // compile would produce — refusing then would break a build that has
+            // nothing left to compile. Source-gated because a below-floor
+            // toolchain compiles every shader that does NOT declare
+            // GL_EXT_descriptor_heap perfectly well, and refusing those would
+            // widen a named diagnostic into a lie.
+            if (ShaderToolchainFloor::RefuseIfBelowFloor(source, m_FilePath.empty() ? m_Name : m_FilePath))
+            {
+                m_Status = ShaderCompilationStatus::Failed;
+                return false;
             }
 
             // Options mirror the GL tier (OpenGLShader::CompileOrGetVulkanBinaries)
