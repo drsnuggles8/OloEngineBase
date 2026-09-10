@@ -243,7 +243,8 @@ namespace OloEngine
             // terrain still draws afterwards, on the splat path, which looks
             // entirely plausible. A fallback nobody can see is only survivable
             // if the log says exactly what was lost.
-            const auto state = [](bool ok) { return ok ? "ok" : "FAILED"; };
+            const auto state = [](bool ok)
+            { return ok ? "ok" : "FAILED"; };
             OLO_CORE_ERROR("TerrainVirtualTexture: GPU resource allocation failed — VT disabled, terrain falls back "
                            "to splat shading. indirection={} cache={}{} bake={} update={}",
                            state(m_IndirectionTexture && m_IndirectionTexture->GetRHIHandle().IsValid()),

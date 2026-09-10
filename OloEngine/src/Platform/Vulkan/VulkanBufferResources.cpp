@@ -675,6 +675,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Amendment (92) rule 6, the same claim the UBO and SSBO twins make:
+        // one writer per object per region. A streamed stream keeps CPU state
+        // (m_Shadow, the version counters) that two items would otherwise race
+        // — m_Shadow.resize() can free memory another worker is mid-memcpy out
+        // of inside arena.Push.
+        if (!ClaimParallelWriter(m_ParallelWriter, "vertex buffer"))
+        {
+            return;
+        }
+
         if (data.data == nullptr || data.size == 0)
         {
             return;
@@ -703,8 +713,14 @@ namespace OloEngine
         // one allocation, and both draws read whatever survives. A stream that
         // is written once (every mesh; the static ctor does not come through
         // here at all) never trips it and never pays for a shadow.
+        // CreateBuffer routes its initial payload through here, so that write
+        // is construction, not streaming — counting it would latch a static
+        // mesh that is merely uploaded and then written once more in the same
+        // frame, and a latched mesh pays a full arena copy every frame forever.
         const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
-        if (!m_Streamed && generation != 0 && generation == m_LastWriteGeneration)
+        const bool countsTowardDetection = m_InitialUploadDone;
+        m_InitialUploadDone = true;
+        if (!m_Streamed && countsTowardDetection && generation != 0 && generation == m_LastWriteGeneration)
         {
             OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame — "
                           "snapshotting it per draw from now on (issue #1171). Before this seam existed every draw "
@@ -759,10 +775,23 @@ namespace OloEngine
         const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256);
         if (!allocation.IsValid())
         {
-            // Arena overflow. Counted and warn-once by the arena itself; the
-            // caller substitutes the null block. Deliberately NOT falling back
-            // to m_DeviceAddress: that would silently draw one frame's last
-            // batch N times, which is the very bug this seam exists to fix.
+            // Arena overflow. The caller substitutes the null block, and its
+            // message blames "binding 57 has no published occupant" — which is
+            // the wrong cause and would send the next reader hunting a missing
+            // bind. Name the real one, with the size that did not fit.
+            //
+            // Deliberately NOT falling back to m_DeviceAddress: that would
+            // silently serve one frame's last batch to every draw, which is
+            // exactly the bug this seam exists to remove.
+            static std::atomic<bool> s_WarnedOverflow{ false };
+            if (!s_WarnedOverflow.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] streamed vertex stream {:#x} ({} bytes) did not fit the {} MiB frame "
+                               "arena — the draw reads the null block, NOT stale geometry. Shrink the batch or "
+                               "raise kSlotCapacityBytes (further overflows not logged)",
+                               m_DeviceAddress, m_ShadowSize,
+                               VulkanFrameArena::Get().GetSlotCapacityBytes() / (1024ull * 1024ull));
+            }
             m_CurrentAddress = 0;
             return 0;
         }
