@@ -1,7 +1,9 @@
 name: Windows
 on:
-  # NO `push: [master]` -- deliberately, and replaced by the nightly cron below
-  # (#1009 item E). Two things are going on and the second is the easy one to miss.
+  # NO FULL `push: [master]` RUN -- deliberately, and replaced by the nightly cron
+  # below (#1009 item E). What a master push DOES get, since #1084, is the `build`
+  # job on its own as a cache warm: no shards, no test tree, no shader pack. Three
+  # things are going on and the second is the easy one to miss.
   #
   # 1. It was mostly a second opinion on identical code. GitHub's `pull_request`
   #    event builds `refs/pull/N/merge` -- the PR merged into master -- so by the
@@ -22,6 +24,25 @@ on:
   #    active cache entries on this repo were `ref=refs/heads/master`. Delete the
   #    master trigger outright and no PR could ever restore a warm cache again --
   #    a change that reads as a pure saving and is in fact the opposite.
+  #
+  #    ONE WARM A DAY IS NOT ENOUGH, AND THE SHORTFALL IS MEASURED (#1084). The
+  #    snapshot decays with SOURCE DRIFT, not with the clock, and this repo merges
+  #    ~12 pull requests a day. Restoring the 04:39 nightly at 12:46 gave 46.76 %
+  #    hits and a 123.8 min `Build with CMake`; the same job restoring a 12:46 warm
+  #    at 18:10 gave 99.88 % and 19.6 min. The runs in between, 0.8-3.5 h after the
+  #    nightly, sat at 94.77-98.49 % and 30.3-38.3 min. The `push` trigger below
+  #    exists to keep the default-branch snapshot near master's head, and it runs
+  #    the BUILD ONLY -- the part that produces the cache.
+  #
+  #    WHAT A WARM COSTS, stated rather than hoped: one hosted windows-2025 job, and
+  #    NO extra cache entry. `save-cache-pruned` deletes the superseded entry on a
+  #    confirmed save, so each lineage still holds one entry per ref and the store
+  #    total is unchanged (docs/agent-rules/actions-cache-budget.md). The rest is
+  #    bounded by `cancel-in-progress` being FALSE for a push: GitHub keeps at most
+  #    one PENDING run per concurrency group and cancels the previous pending one,
+  #    so a burst of merges collapses to the run in flight plus the newest commit
+  #    rather than a queue of twelve. Nothing starves, because the run in flight is
+  #    never the one cancelled.
   #
   # The cron therefore has to run to COMPLETION, which is what the
   # `cancel-in-progress` expression below guarantees by excluding non-PR events.
@@ -46,6 +67,30 @@ on:
       - '.markdownlint-cli2.jsonc'
       - '.gitignore'
 
+  # THE CACHE WARM (#1084). Build only: `tests`, `tests-verify` and every artifact
+  # step below are gated off on `github.event_name != 'push'`. Same paths-ignore as
+  # the PR trigger, because a docs-only merge changes no object and needs no warm.
+  #
+  # IT HAS TO BE THE DEFAULT BRANCH. An `actions/cache` entry written on a PR ref is
+  # readable by that one pull request, so a warm banked anywhere else is invisible to
+  # every other branch -- the same property that makes the nightly this workflow's
+  # only cache producer today, and the reason a `workflow_dispatch` on a feature
+  # branch cannot serve as the warmer.
+  #
+  # One piece of item 1's trade comes back with it: the merge commit is compiled and
+  # the three apps are smoke-launched within minutes of the merge, so a semantic
+  # conflict between two PRs that breaks the BUILD surfaces then rather than at
+  # 01:53. The tests still do not re-run; that half of the trade stands.
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+      - '.claude/**'
+      - '.markdownlint-cli2.jsonc'
+      - '.gitignore'
+
   schedule:
     - cron: '53 1 * * *' # nightly 01:53 UTC — off the on-the-hour surge, and clear
                          # of the Sanitizers nightly (01:23) and cross-vendor (03:47).
@@ -54,13 +99,20 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # THE EVENT NAME IS PART OF THE GROUP (#1084). A `push` warm and the `schedule`
+  # nightly both run on `refs/heads/master`, so without it they share one group --
+  # and because `cancel-in-progress` is false for both, GitHub would hold the nightly
+  # PENDING behind a warm and then cancel it as soon as the next merge landed, since
+  # a group keeps at most one pending run. The nightly is the full test run and must
+  # never be cancelled, so the two lanes are kept apart. Splitting `workflow_dispatch`
+  # off as well is the same reasoning applied to a dispatch fired beside either.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
-  # what it banks is a partial snapshot at best. The nightly is this workflow's only
-  # default-branch cache producer (see the trigger note above), so it must never be
-  # cancellable. Under the old expression a `push` run was cancellable too, which is
-  # how the master sccache snapshot came to be six days stale while every PR run
+  # what it banks is a partial snapshot at best. The nightly and the `push` warm are
+  # this workflow's default-branch cache producers (see the trigger note above), so
+  # neither may be cancellable. That is history, not caution: while a `push` run WAS
+  # cancellable, the master sccache snapshot went six days stale and every PR run
   # restored it and reported a 0% hit rate.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -177,14 +229,17 @@ jobs:
     # high enough that it must not land on a box already running Linux sanitizer jobs
     # by accident, and a distinct label is the only thing that prevents it.
     #
-    # THE NIGHTLY STAYS HOSTED, deliberately, and for the same reason the Linux
-    # sanitizers keep theirs there: it is this workflow's ONLY fleet-wide cache
-    # warmer. actions/cache entries created on a PR branch are scoped to that ref;
-    # only default-branch entries are readable by every branch. Route the cron to the
-    # box and the hosted fallback -- every fork PR, and every run with the switch off
-    # -- goes permanently cold.
+    # THE NIGHTLY AND THE PUSH WARM STAY HOSTED, deliberately, and for the same
+    # reason the Linux sanitizers keep theirs there: they are this workflow's only
+    # fleet-wide cache warmers. actions/cache entries created on a PR branch are
+    # scoped to that ref; only default-branch entries are readable by every branch.
+    # Route either to the box and the hosted fallback -- every fork PR, and every run
+    # with the switch off -- goes permanently cold. The failure would be silent: every
+    # sccache step here is gated on `runner.environment == 'github-hosted'`, so a warm
+    # routed to the box banks NOTHING to the shared store and still reports success.
     runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
 
@@ -225,7 +280,10 @@ jobs:
         python -m pip install jinja2==3.1.6
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
     
+    # `id: vulkan` so the sccache key below can carry the version this action
+    # actually installed -- see the restore step for why it has to.
     - name: Setup Vulkan SDK
+      id: vulkan
       uses: ./.github/actions/setup-vulkan
 
     # We build with the Ninja generator (not the default Visual Studio generator)
@@ -348,6 +406,30 @@ jobs:
     # against a snapshot taken six days earlier. `runs-on` is pinned to the same
     # image; when it is bumped, bump this string with it so the dead entries age
     # out instead of being restored forever.
+    #
+    # AND IT CARRIES THE VULKAN SDK VERSION (#1084), for the reason asan.yml's key
+    # has carried it since #1118: sccache hashes the PREPROCESSED output, so every TU
+    # that reaches a Vulkan header changes when the SDK does. Without the stamp this
+    # key restores a pre-bump entry cleanly and then misses on all of those -- the
+    # measured shape on PR #1112's ASan build, 923 misses of 1588 under a
+    # `-1.4.321.0` key while the same log said `found version "1.4.357"`.
+    #
+    # WHAT IS AND IS NOT MEASURED HERE, because #1084 walked this back once. Run
+    # 34302705537 restored the 09-08 nightly (`VULKAN_SDK_VERSION: 1.4.321.0`) and
+    # returned 4.09 % against 94.8-98.5 % on stamped runs -- but that entry was ~22 h
+    # and ~50 commits old, and 8 h of drift alone was later measured at ~50 points of
+    # hit rate. So the version mismatch is confirmed by key shape and by the two
+    # versions in the logs; its SHARE of that 4.09 % is not, and the payoff cannot be
+    # measured until the next SDK bump. This is a key-shape bug fixed on its own
+    # terms, not a lever with a number on it.
+    #
+    # `restore-keys` carries the version too, deliberately, and that is the half that
+    # does the work: a bare `sccache-windows-2025-release-` fallback would keep
+    # finding the pre-bump entry and reproduce the half-stale restore above. The cost
+    # is ONE cold build per SDK bump, taken visibly -- and cache-prune.yml strips a
+    # trailing `-vk<version>` when it groups, so the bump supersedes the old entry
+    # rather than stranding 2044 MiB of it for thirty days. That same strip is what
+    # collects the unstamped lineage this rename leaves behind.
     - name: Restore sccache storage
       # HOSTED ONLY (#1076). On a persistent runner the sccache directory below is on
       # local disk and simply stays there between runs: no upload, no download, no
@@ -357,9 +439,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-windows-2025-release-
+          sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-
 
     # Third-party dependencies come from the vcpkg manifest (vcpkg.json) since
     # issue #773. Ports are restored from the Actions-backed binary cache; only a
@@ -444,6 +526,25 @@ jobs:
       if: always()
       run: sccache --show-stats
 
+    # WHICH TUs MISSED, NOT HOW MANY (#1084). A hit rate is the wrong metric for this
+    # build and the numbers say so: 99.88 % (2 misses of 1668) built in 19.6 min while
+    # 98.49 % (25 misses of 1661) took 30.3 -- 1.4 points worth ten minutes, because
+    # the two `OloEditor/src/MCP/Mcp*.cpp` objects are ~5.4 min SERIALIZED at the very
+    # end of the build. Whether those particular TUs hit decides the tail on its own,
+    # and `--show-stats` cannot tell you. `.ninja_log` can: it records a start and end
+    # millisecond per edge, so the report below turns the tail into a number on every
+    # run instead of a log-forensics exercise after the fact.
+    #
+    # A REPORT, NOT A GATE. Edge timings move with runner variance and a threshold on
+    # them would go red for reasons nobody could act on. It writes to the job summary
+    # so the number is on the run page rather than buried in a 60 MB log.
+    - name: Report the build tail
+      if: always()
+      shell: pwsh
+      run: >
+        & "${{github.workspace}}/scripts/Report-NinjaBuildTail.ps1"
+        -BuildDir "${{github.workspace}}/build"
+
     # Paired with the restore above (#1009). `if: always()` is the point: the
     # combined actions/cache action saves in a POST-JOB step, and post-job steps
     # do NOT run when a job is cancelled -- which is how most PR runs in this repo
@@ -469,7 +570,7 @@ jobs:
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-windows-2025-release-${{ github.run_id }}-${{ github.run_attempt }}
+        key: sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     # Banked here rather than by the combined actions/cache action's post-job
@@ -599,6 +700,10 @@ jobs:
     # *_tests.cmake), so this launches no test process and costs seconds.
     - name: Measure the unsharded case count
       id: ctest-total
+      # NOT ON THE CACHE WARM (#1084). A `push` run exists to bank the sccache
+      # entry; everything from here to the end of the job feeds the test shards or
+      # publishes an artifact, and no shard runs on a warm.
+      if: github.event_name != 'push'
       shell: bash
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: |
@@ -648,6 +753,7 @@ jobs:
     # is exactly the assumption that turns into a silent 100 %-skip later, so the
     # shard asserts it rather than trusting it.
     - name: Record the build workspace for the shards
+      if: github.event_name != 'push'
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -678,6 +784,7 @@ jobs:
     #
     # retention-days 1: scratch, not a deliverable.
     - name: Upload the test tree
+      if: github.event_name != 'push'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: windows-test-tree
@@ -701,6 +808,7 @@ jobs:
     # this flag drives so the rest of the suite (already run above) doesn't
     # execute a second time.
     - name: Bake shader pack (issue #908)
+      if: github.event_name != 'push'
       shell: pwsh
       working-directory: ${{github.workspace}}
       run: |
@@ -710,6 +818,7 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw "Shader pack bake failed (exit $LASTEXITCODE)" }
 
     - name: Upload shader pack artifact
+      if: github.event_name != 'push'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ShaderPack
@@ -734,6 +843,11 @@ jobs:
   tests:
     name: Windows tests ${{ matrix.shard }}/3
     needs: build
+    # NOT ON THE CACHE WARM (#1084). A `push` run builds and banks the sccache entry
+    # and stops there; the suite already ran on the pull request that produced this
+    # merge commit, and re-running it per merge is the ~1,400 runner-min/day #1009
+    # removed. The nightly is still the full run.
+    if: github.event_name != 'push'
     # THE SHARDS FOLLOW THE BUILD JOB, and they have to: gtest_discover_tests bakes
     # the absolute exe and WORKING_DIRECTORY paths into the generated test list, and
     # a self-hosted runner's `_work` tree is not at the hosted runner's path. The
@@ -1016,7 +1130,9 @@ jobs:
     # killed mid-flight, and `always()` would then run this job and post a red
     # "a shard did not complete" on a run nobody abandoned for a reason worth
     # reading. Braced because a bare leading `!` is a YAML tag indicator.
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # `github.event_name != 'push'` for the same reason `tests` carries it: on a
+    # cache warm there are no shards, so there is no coverage to prove.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name != 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
