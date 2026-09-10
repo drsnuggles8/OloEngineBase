@@ -28,6 +28,8 @@
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
 #include "OloEngine/Renderer/HZBGenerator.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
@@ -342,6 +344,30 @@ namespace OloEngine
             u64 stableEntityId, u64 stableInstanceId, const Ref<MeshSource>& meshSource, u32 submeshIndex,
             const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
             GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link);
+        // Stages a virtual-geometry RAY-TRACING PROXY as a GPU Scene instance
+        // (issue #1144): an ordinary rigid geometry + instance pair built from
+        // the coarsest DAG cut, so a virtualized entity is present in the TLAS
+        // instead of missing from every ray-traced effect.
+        //
+        // Deliberately NOT an ExtractGPUSceneMesh call with a synthetic
+        // MeshSource: there is no MeshSource here — the proxy is a pair of
+        // buffers the virtual-mesh registry owns — and inventing one would put
+        // a fake submesh table in the asset system to satisfy a signature.
+        //
+        // Never returns a draw link, and could not usefully: nothing rasterizes
+        // the proxy. The cluster pipeline draws the real cut, and a proxy that
+        // could be drawn would be a second, coarser copy of the same surface
+        // fighting it for depth.
+        //
+        // Returns false when the record could not be staged, which the caller
+        // must COUNT — the rejection is reported as
+        // GPUSceneUnsupportedCategory::Virtualized so a part that cannot be
+        // traced stays a named, countable state rather than a quiet absence.
+        [[nodiscard]] static bool ExtractGPUSceneVirtualProxy(u64 stableEntityId, u32 partIndex,
+                                                              const Ref<VertexBuffer>& vertexBuffer,
+                                                              const Ref<IndexBuffer>& indexBuffer, u32 indexCount,
+                                                              u32 vertexCount, const glm::mat4& worldTransform,
+                                                              const GPUSceneMaterialKey& materialKey);
         static void ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input);
         // The environment record's home is the renderer's published global IBL
         // (SetGlobalIBL / OverrideGlobalIrradiance / ClearGlobalIBL). EndScene
@@ -409,10 +435,14 @@ namespace OloEngine
         // caller's point of view — when the cluster DAG will not build, and this function is
         // the only place that knows that. Scene's submission loop needs the answer to report
         // a scene that draws no virtual geometry at all (issue #864).
+        //
+        // `stableEntityId` is the entity's canonical GPU Scene identity (the
+        // same one the classic path passes), needed here because each part is
+        // also staged as a ray-tracing proxy instance keyed by it.
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
-                                                    f32 errorThresholdPixels, bool castShadows,
+                                                    u64 stableEntityId, f32 errorThresholdPixels, bool castShadows,
                                                     const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f));
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL

@@ -118,6 +118,65 @@ namespace OloEngine
             const RHI::ResourceHandle vertexHandle = vertexBuffer ? vertexBuffer->GetRHIHandle() : RHI::NullResource;
             return vertexHandle.IsValid() ? RHI::HashKey(vertexHandle) : 0;
         }
+
+        // The triangle range one geometry record names, resolved down to the
+        // two GPU buffers and the sub-range inside them. Shared by the classic
+        // submesh path and the virtual-geometry ray-tracing proxy (issue
+        // #1144) so there is ONE spelling of the geometry/instance key pair and
+        // of the record inputs — two transcriptions of this would be free to
+        // disagree about, say, whether the submesh index belongs in the key,
+        // and the symptom would be two records aliasing one slot.
+        struct StagedGeometry
+        {
+            RHI::ResourceHandle m_VertexHandle;
+            RHI::ResourceHandle m_IndexHandle;
+            u64 m_VertexAddress = 0;
+            u64 m_IndexAddress = 0;
+            u32 m_SubRange = 0; // the key's third component (submesh / part index)
+            u32 m_FirstIndex = 0;
+            u32 m_IndexCount = 0;
+            i32 m_BaseVertex = 0;
+            u32 m_VertexCount = 0;
+        };
+
+        // Stages one geometry + one instance record and hands back the instance
+        // key, which is the only thing a caller needs afterwards (to append a
+        // draw link, or to do nothing at all).
+        [[nodiscard]] GPUSceneInstanceKey StageGeometryAndInstance(GPUScene& scene, u64 stableEntityId,
+                                                                   u64 stableInstanceId,
+                                                                   const StagedGeometry& geometry,
+                                                                   const glm::mat4& worldTransform,
+                                                                   const GPUSceneMaterialKey& materialKey)
+        {
+            const GPUSceneGeometryKey geometryKey{
+                .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
+                .m_IndexBuffer = RHI::HashKey(geometry.m_IndexHandle),
+                .m_SubmeshIndex = geometry.m_SubRange,
+            };
+            scene.ExtractGeometry(geometryKey,
+                                  GPUSceneGeometryInput{
+                                      .m_VertexBuffer = geometry.m_VertexHandle,
+                                      .m_IndexBuffer = geometry.m_IndexHandle,
+                                      .m_VertexAddress = geometry.m_VertexAddress,
+                                      .m_IndexAddress = geometry.m_IndexAddress,
+                                      .m_VertexFormat = std::to_underlying(GPUSceneVertexFormat::OloVertex),
+                                      .m_IndexFormat = std::to_underlying(GPUSceneIndexFormat::UInt32),
+                                      .m_FirstIndex = geometry.m_FirstIndex,
+                                      .m_IndexCount = geometry.m_IndexCount,
+                                      .m_BaseVertex = geometry.m_BaseVertex,
+                                      .m_VertexCount = geometry.m_VertexCount,
+                                  });
+            const GPUSceneInstanceKey instanceKey{
+                .m_EntityId = stableEntityId,
+                .m_Geometry = geometryKey,
+                .m_InstanceId = stableInstanceId,
+            };
+            scene.ExtractInstance(instanceKey, GPUSceneInstanceInput{
+                                                   .m_WorldTransform = worldTransform,
+                                                   .m_Material = materialKey,
+                                               });
+            return instanceKey;
+        }
     } // namespace
 
     void Renderer3D::BeginGPUSceneExtraction(u64 ownerToken)
@@ -260,35 +319,20 @@ namespace OloEngine
         }
 
         const Submesh& submesh = meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)];
-        const GPUSceneGeometryKey geometryKey{
-            .m_VertexBuffer = RHI::HashKey(vertexHandle),
-            .m_IndexBuffer = RHI::HashKey(indexHandle),
-            .m_SubmeshIndex = submeshIndex,
-        };
-        s_Data.SceneGPU.ExtractGeometry(
-            geometryKey,
-            GPUSceneGeometryInput{
-                .m_VertexBuffer = vertexHandle,
-                .m_IndexBuffer = indexHandle,
-                .m_VertexAddress = vertexBuffer->GetDeviceAddress(),
-                .m_IndexAddress = indexBuffer->GetDeviceAddress(),
-                .m_VertexFormat = std::to_underlying(GPUSceneVertexFormat::OloVertex),
-                .m_IndexFormat = std::to_underlying(GPUSceneIndexFormat::UInt32),
-                .m_FirstIndex = submesh.m_BaseIndex,
-                .m_IndexCount = submesh.m_IndexCount,
-                .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
-                .m_VertexCount = submesh.m_VertexCount,
-            });
-        const GPUSceneInstanceKey instanceKey{
-            .m_EntityId = stableEntityId,
-            .m_Geometry = geometryKey,
-            .m_InstanceId = stableInstanceId,
-        };
-        s_Data.SceneGPU.ExtractInstance(instanceKey,
-                                        GPUSceneInstanceInput{
-                                            .m_WorldTransform = worldTransform,
-                                            .m_Material = materialKey,
-                                        });
+        const GPUSceneInstanceKey instanceKey =
+            StageGeometryAndInstance(s_Data.SceneGPU, stableEntityId, stableInstanceId,
+                                     StagedGeometry{
+                                         .m_VertexHandle = vertexHandle,
+                                         .m_IndexHandle = indexHandle,
+                                         .m_VertexAddress = vertexBuffer->GetDeviceAddress(),
+                                         .m_IndexAddress = indexBuffer->GetDeviceAddress(),
+                                         .m_SubRange = submeshIndex,
+                                         .m_FirstIndex = submesh.m_BaseIndex,
+                                         .m_IndexCount = submesh.m_IndexCount,
+                                         .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
+                                         .m_VertexCount = submesh.m_VertexCount,
+                                     },
+                                     worldTransform, materialKey);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
@@ -364,6 +408,67 @@ namespace OloEngine
     u32 Renderer3D::GetGPUSceneUnlinkedDrawCount()
     {
         return s_Data.GPUSceneUnlinkedDraws;
+    }
+
+    bool Renderer3D::ExtractGPUSceneVirtualProxy(u64 stableEntityId, u32 partIndex,
+                                                 const Ref<VertexBuffer>& vertexBuffer,
+                                                 const Ref<IndexBuffer>& indexBuffer, u32 indexCount,
+                                                 u32 vertexCount, const glm::mat4& worldTransform,
+                                                 const GPUSceneMaterialKey& materialKey)
+    {
+        if (!s_Data.GPUSceneExtractionActive)
+        {
+            // Same rule as ExtractGPUSceneMesh: nobody is extracting, so there
+            // is nothing to count. Every rejection BELOW this line is counted.
+            return false;
+        }
+
+        if (!vertexBuffer || !indexBuffer || indexCount < 3u || (indexCount % 3u) != 0u || vertexCount == 0u)
+        {
+            s_Data.SceneGPU.ReportUnsupported(GPUSceneUnsupportedCategory::Virtualized);
+            return false;
+        }
+        const RHI::ResourceHandle vertexHandle = vertexBuffer->GetRHIHandle();
+        const RHI::ResourceHandle indexHandle = indexBuffer->GetRHIHandle();
+        if (!vertexHandle.IsValid() || !indexHandle.IsValid())
+        {
+            s_Data.SceneGPU.ReportUnsupported(GPUSceneUnsupportedCategory::Virtualized);
+            return false;
+        }
+
+        // The proxy covers the WHOLE buffer pair - one part, one dedicated
+        // vertex/index buffer - so the range is (0, indexCount) and the key's
+        // third component carries the part index instead of a submesh index.
+        // It only has to make the key unique, and the buffer hashes already
+        // do; carrying the part keeps the record readable in a dump.
+        //
+        // The instance key it returns is deliberately dropped, and cast away
+        // rather than un-[[nodiscard]]ing the helper: a proxy never gets a
+        // draw link (see the header) and the key is the only thing a link
+        // would need, while the classic path DOES need the warning that
+        // catches a forgotten one.
+        static_cast<void>(StageGeometryAndInstance(
+            s_Data.SceneGPU, stableEntityId, /*stableInstanceId*/ 0u,
+            StagedGeometry{
+                .m_VertexHandle = vertexHandle,
+                .m_IndexHandle = indexHandle,
+                .m_VertexAddress = vertexBuffer->GetDeviceAddress(),
+                .m_IndexAddress = indexBuffer->GetDeviceAddress(),
+                .m_SubRange = partIndex,
+                .m_FirstIndex = 0u,
+                .m_IndexCount = indexCount,
+                .m_BaseVertex = 0,
+                .m_VertexCount = vertexCount,
+            },
+            worldTransform, materialKey));
+        // No PathTracerEmissive::QueueSubmesh, and that is a real limitation
+        // rather than an oversight: the emissive table walks a MeshSource
+        // submesh's triangles, and the emitters it gathers must be the SAME
+        // geometry the TLAS was built from or a next-event-estimation ray aims
+        // at a surface that is not there. An emissive virtual mesh is
+        // therefore hit by rays and shades correctly, but is not sampled as an
+        // area light. SubmitVirtualMesh warns once when it sees one.
+        return true;
     }
 
     void Renderer3D::ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input)

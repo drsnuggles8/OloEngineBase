@@ -34,6 +34,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -448,6 +450,96 @@ namespace OloEngine::Tests
         u32 const coarsePixels = CaptureAngle("CoarseCut", { 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f, 64.0f);
         EXPECT_GE(coarsePixels, kMinSpherePixels)
             << "coarse LOD cut rendered nothing — terminal-group selection broken on the GPU path";
+    }
+
+    // Issue #1144: the virtual mesh must now also be present in the CANONICAL
+    // GPU Scene, as a ray-tracing proxy, or it is invisible to every ray-traced
+    // effect in the engine.
+    //
+    // This is the seam a GL runner can honestly hold, and it is the one that
+    // was missing: whether the Scene submission loop stages the proxy's
+    // geometry + instance records at all. What it deliberately cannot cover is
+    // the TLAS itself — the RT scene is Vulkan-only and GL reports no buffer
+    // device addresses, so GeometryIsTraceable would reject these records here.
+    // The classification and build policy for a proxy-shaped record are pinned
+    // device-free in RayTracingSceneTest; the whole chain is verified live on
+    // Vulkan through olo_rt_scene_stats.
+    TEST_F(VirtualGeometryVisualEvidence, VirtualMeshReachesGPUSceneAsARayTracingProxy)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f);
+        RunEditorFrames(camera, 3);
+
+        auto& registry = VirtualMeshRegistry::Get();
+        const VirtualMeshRegistry::MeshParts parts = registry.FindParts(m_MeshHandle);
+        ASSERT_TRUE(parts.Valid) << "the virtual mesh did not register — the rest of this test would be vacuous";
+        ASSERT_GT(parts.Count, 0u);
+
+        // Coverage first: the diagnostics must SAY every part is proxied. A
+        // scene that traced nothing and said nothing is precisely the state
+        // #1144 exists to end.
+        const auto& diagnostics = registry.GetSubmissionDiagnostics();
+        EXPECT_GT(diagnostics.ProxyParts, 0u) << "no virtual-mesh part was staged as a ray-tracing proxy";
+        EXPECT_EQ(diagnostics.ProxylessParts, 0u)
+            << diagnostics.ProxylessParts << " part(s) reported NO ray-tracing proxy";
+
+        // ...and the records must actually be there, found by the same key the
+        // renderer staged them under. Reading the diagnostics alone would pass
+        // on a counter that increments without extracting anything.
+        const GPUScene& gpuScene = Renderer3D::GetGPUScene();
+        const u64 stableEntityId = static_cast<u64>(m_SphereEntity.GetUUID());
+        u32 foundParts = 0;
+        for (u32 partIndex = 0; partIndex < parts.Count; ++partIndex)
+        {
+            const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
+            ASSERT_TRUE(entry.ProxyVertexBuffer && entry.ProxyIndexBuffer)
+                << "part " << partIndex << " has no proxy buffers";
+            ASSERT_TRUE(entry.Proxy.IsValid());
+
+            const GPUSceneGeometryKey geometryKey{
+                .m_VertexBuffer = RHI::HashKey(entry.ProxyVertexBuffer->GetRHIHandle()),
+                .m_IndexBuffer = RHI::HashKey(entry.ProxyIndexBuffer->GetRHIHandle()),
+                .m_SubmeshIndex = partIndex,
+            };
+            const GPUSceneHandle geometryHandle = gpuScene.FindGeometry(geometryKey);
+            ASSERT_TRUE(geometryHandle.IsValid()) << "part " << partIndex << ": no GPU Scene geometry record";
+            const GPUSceneGeometry* geometry = gpuScene.GetGeometryRecord(geometryHandle);
+            ASSERT_NE(geometry, nullptr);
+            EXPECT_EQ(geometry->IndexCount, static_cast<u32>(entry.Proxy.Indices.size()));
+            EXPECT_EQ(geometry->VertexCount, static_cast<u32>(entry.Proxy.Vertices.size()));
+            EXPECT_EQ(geometry->FirstIndex, 0u) << "a proxy covers its whole dedicated buffer pair";
+
+            const GPUSceneInstanceKey instanceKey{
+                .m_EntityId = stableEntityId,
+                .m_Geometry = geometryKey,
+                .m_InstanceId = 0,
+            };
+            const GPUSceneHandle instanceHandle = gpuScene.FindInstance(instanceKey);
+            ASSERT_TRUE(instanceHandle.IsValid()) << "part " << partIndex << ": no GPU Scene instance record";
+            const GPUSceneInstance* instance = gpuScene.GetInstanceRecord(instanceHandle);
+            ASSERT_NE(instance, nullptr);
+            // The material record the ray would shade with must exist too — an
+            // instance whose material slot is dead is rejected by
+            // RayTracingScene::Classify, so a proxy with no material is a proxy
+            // that never reaches the TLAS.
+            EXPECT_NE(gpuScene.GetLiveMaterialRecordBySlot(instance->MaterialIndex, instance->MaterialGeneration),
+                      nullptr)
+                << "part " << partIndex << ": the proxy's material record is not live";
+
+            // The proxy is a COARSE cut. If it ever became the full mesh, the
+            // BLAS cost argument for approach 1 evaporates silently.
+            EXPECT_LT(entry.Proxy.TriangleCount(), entry.SourceTriangleCount)
+                << "part " << partIndex << ": the proxy is not coarser than its source";
+            ++foundParts;
+        }
+        EXPECT_EQ(foundParts, parts.Count);
+        EXPECT_EQ(diagnostics.ProxyParts, parts.Count);
     }
 
     // SoftwareRasterizerMatchesHardwareRaster USED TO LIVE HERE — deleted (issue #629).
