@@ -26,15 +26,16 @@
 //   1. every registered `olo_*` tool is mentioned in the guide;
 //   2. every `ProjectWrite` tool is marked **(consented write)** there.
 //
-// Text parsing is crude and deliberately so — the alternative is linking the
-// whole editor tool registry into a headless test, which is what
-// McpConsentedWriteTest specifically avoids (it registers a fake tool instead).
-// Scanning the registration sources keeps this free of that dependency.
+// Inspect the real registry for builtins, including Automation/ modules. Retain
+// source scanning for project-specific registrations such as script reload,
+// which the builtin composition point deliberately does not register.
 //
 // Classification: unit (no GL, no editor, no live server).
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "MCP/McpServer.h"
+#include "MCP/McpTools.h"
 
 #include <gtest/gtest.h>
 
@@ -124,6 +125,19 @@ namespace OloEngine::Tests
                         }
                     }
                 }
+            }
+            // Commands now live in Automation/ and may share registration helpers.
+            // Inspect the real registry as well as the source-only script reload
+            // entry so moving a module cannot silently remove its docs coverage.
+            MCP::McpServer server{ MCP::EditorMcpContext{} };
+            MCP::RegisterBuiltinTools(server);
+            for (const auto& command : *server.Registry().Snapshot())
+            {
+                const auto found = std::ranges::find(tools, command.Name, &RegisteredTool::Name);
+                if (found == tools.end())
+                    tools.push_back({ command.Name, command.ProjectWrite });
+                else
+                    found->ProjectWrite = command.ProjectWrite;
             }
             return tools;
         }

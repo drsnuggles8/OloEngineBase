@@ -119,6 +119,38 @@ and struct you introduced and ask which of them the device must have ENABLED to
 accept.** Usage flags and pipeline-stage bits both have this property, and both
 fail loudly only on the hardware you are not developing on.
 
+## 8c. `firstVertex` is an offset only for SUBMESH-LOCAL indices
+
+A build addresses the vertex for index value `i` at
+`vertexData + vertexStride * (firstVertex + i)`. This engine's shared mesh
+sources hold **global** indices — absolute into the whole vertex array — and
+`Submesh::m_BaseVertex` describes where a submesh's vertices *start*, not a
+value the indices still need. So `VkAccelerationStructureBuildRangeInfoKHR::firstVertex`
+is **0**, and `maxVertex` stays `BaseVertex + VertexCount - 1` (with global
+indices that is genuinely the highest value the build can address).
+
+`AnimatedModel`'s submesh split is the proof from the other side: extracting a
+submesh into its own mesh rewrites every index as `orig - m_BaseVertex` and only
+then sets `m_BaseVertex = 0`.
+
+Passing `BaseVertex` applied the offset twice. It hid for as long as only
+`MeshComponent` geometry was staged, because a single-submesh source has
+`BaseVertex 0`; the moment `ModelComponent` submeshes were staged into the
+canonical scene, sources with 25 submeshes and six-figure `BaseVertex` arrived
+and Sponza's last submesh addressed vertex 195107 of 192492 — a device loss
+reported as `READ of invalid address`.
+
+**The crash was the loud half.** Every non-first submesh had been tracing
+triangles shifted by its own `BaseVertex` wherever it did not fault. Nothing
+warned: the validation layers cannot see it (the API usage is legal), and
+GPU-assisted validation does not instrument fixed-function AS builds.
+
+**How to check this class of bug at all.** Write the capture yourself: walk the
+staged submeshes, take `max(index value)` over each one's index range, and
+compare `BaseVertex + maxIndex` against the vertex count. A one-run log said
+"13 of 26 submeshes address past the end" and named the arithmetic; four
+build-and-probe hypotheses before it had said nothing.
+
 ## 9. A new `RHI::Access` write member is silently a read
 
 `RHITypes.h`'s `IsWriteAccess` has a `default: return false;` — unlike every other `Access` switch

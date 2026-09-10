@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
+#include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -93,6 +94,12 @@ namespace OloEngine
                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
                            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // #808: a buffer both queues can reach must be CONCURRENT — the set a
+        // compute dispatch touches is not statically known on a bindless
+        // backend, so no ownership transfer can cover it. No-op without an
+        // async compute queue. See VulkanQueueSelection.h.
+        const VulkanQueueSelection::CrossQueueBufferSharing crossQueueSharing;
+        crossQueueSharing.ApplyTo(bufferInfo);
 
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;

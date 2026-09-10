@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanRecordingContext.h"
+#include "Platform/Vulkan/VulkanBarrierLowering.h"
 
 namespace OloEngine
 {
@@ -57,6 +58,72 @@ namespace OloEngine
                 return true;
             }
         }
+    }
+
+    void VulkanRecordingContext::RecordBarrier(const VkDependencyInfo& dep) const
+    {
+        if (Cmd == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        if (!OnComputeOnlyQueue)
+        {
+            // The overwhelmingly common path: nothing to clamp, nothing to copy.
+            vkCmdPipelineBarrier2(Cmd, &dep);
+            return;
+        }
+
+        // #808. A compute-only queue family supports a subset of the pipeline
+        // stages, and a scope naming any other stage is invalid usage even
+        // when the barrier is otherwise correct. Rather than mask the offending
+        // bits out — which can leave an access mask with no stage to hang on,
+        // itself a VUID violation — substitute the conservative whole-pipeline
+        // scope. It over-synchronises a handful of barriers at a queue
+        // boundary that is already paying for a semaphore, and it cannot be
+        // wrong.
+        const VkPipelineStageFlags2 supported = VulkanBarrierLowering::ComputeQueueStageMask();
+        const auto clamp = [supported](VkPipelineStageFlags2& stage, VkAccessFlags2& access)
+        {
+            // An empty scope (a release's destination half, an acquire's
+            // source half) is legal on every queue and MUST stay empty: that
+            // emptiness is what makes an ownership transfer a transfer.
+            if (stage == VK_PIPELINE_STAGE_2_NONE || (stage & ~supported) == 0)
+            {
+                return;
+            }
+            stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            access = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        };
+
+        std::vector<VkMemoryBarrier2> memory(dep.pMemoryBarriers, dep.pMemoryBarriers + dep.memoryBarrierCount);
+        std::vector<VkBufferMemoryBarrier2> buffers(dep.pBufferMemoryBarriers,
+                                                    dep.pBufferMemoryBarriers + dep.bufferMemoryBarrierCount);
+        std::vector<VkImageMemoryBarrier2> images(dep.pImageMemoryBarriers,
+                                                  dep.pImageMemoryBarriers + dep.imageMemoryBarrierCount);
+        for (auto& barrier : memory)
+        {
+            clamp(barrier.srcStageMask, barrier.srcAccessMask);
+            clamp(barrier.dstStageMask, barrier.dstAccessMask);
+        }
+        for (auto& barrier : buffers)
+        {
+            clamp(barrier.srcStageMask, barrier.srcAccessMask);
+            clamp(barrier.dstStageMask, barrier.dstAccessMask);
+        }
+        for (auto& barrier : images)
+        {
+            clamp(barrier.srcStageMask, barrier.srcAccessMask);
+            clamp(barrier.dstStageMask, barrier.dstAccessMask);
+        }
+
+        VkDependencyInfo clamped = dep;
+        clamped.memoryBarrierCount = static_cast<u32>(memory.size());
+        clamped.pMemoryBarriers = memory.empty() ? nullptr : memory.data();
+        clamped.bufferMemoryBarrierCount = static_cast<u32>(buffers.size());
+        clamped.pBufferMemoryBarriers = buffers.empty() ? nullptr : buffers.data();
+        clamped.imageMemoryBarrierCount = static_cast<u32>(images.size());
+        clamped.pImageMemoryBarriers = images.empty() ? nullptr : images.data();
+        vkCmdPipelineBarrier2(Cmd, &clamped);
     }
 
     ScopedVulkanWorkerContext::ScopedVulkanWorkerContext(VulkanWorkerRecordingContext* context)

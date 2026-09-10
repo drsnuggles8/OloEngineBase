@@ -331,6 +331,18 @@ namespace OloEngine
 
         // --- the command buffer and what has been recorded into it ---------
         VkCommandBuffer Cmd = VK_NULL_HANDLE;
+        // #808: true while `Cmd` came from the async compute family's pool.
+        // A compute-only family rejects every graphics pipeline stage in a
+        // barrier (VUID-vkCmdPipelineBarrier2-srcStageMask-03849), and most of
+        // the paths that record barriers — a storage-image transition on the
+        // bind path, a transfer clear, the graph's own batch — have no idea
+        // which queue they are on. RecordBarrier below is the one place every
+        // barrier reaches the command buffer, so the clamp lives there.
+        bool OnComputeOnlyQueue = false;
+        // Record `dep` into `Cmd`, clamping any scope that names a stage this
+        // queue family does not support. Prefer this to calling
+        // vkCmdPipelineBarrier2 directly.
+        void RecordBarrier(const VkDependencyInfo& dep) const;
         RenderingScope Scope;
         VulkanRenderTargetDesc ScopeTargets; ///< Valid while Scope.Active.
         PendingClear Pending;                ///< At most one outstanding clear request (see PendingClear).
@@ -409,6 +421,10 @@ namespace OloEngine
         // from the fork's seed instead.
         void ResetForCommandBuffer(VkCommandBuffer cmd)
         {
+            // Per command buffer, like everything else here: a context reused
+            // for a graphics buffer must not inherit a compute classification
+            // and clamp its barriers (#808).
+            OnComputeOnlyQueue = false;
             Cmd = cmd;
             ForgetCommandBufferBinds();
             Scope = RenderingScope{};

@@ -89,9 +89,10 @@ namespace OloEngine::VulkanBarrierLowering
     // tracker answers UNDEFINED the source masks are forced to NONE too:
     // contents are discarded, so there is nothing to make available.
     //
-    // Queue-family indices are IGNORED — the backend runs one combined queue
-    // (ADR 0010 contract row); IsCrossQueue stays informational until a real
-    // second queue exists.
+    // Queue-family indices come out IGNORED. A barrier that must also move a
+    // resource between queue families is built here first and then split by
+    // SplitImageOwnershipTransfer below — one source of truth for the masks,
+    // the layouts and the range, so the two halves cannot disagree.
     [[nodiscard]] VkImageMemoryBarrier2 BuildImageBarrier(const RHI::Barrier& barrier,
                                                           VkImage image,
                                                           RHI::TextureAspect aspect,
@@ -100,6 +101,57 @@ namespace OloEngine::VulkanBarrierLowering
                                                           u32 imageLayerCount);
 
     [[nodiscard]] VkBufferMemoryBarrier2 BuildBufferBarrier(const RHI::Barrier& barrier, VkBuffer buffer);
+
+    // --- Queue-family ownership transfer (issue #808) ---------------------
+    //
+    // A `VK_SHARING_MODE_EXCLUSIVE` resource whose CONTENTS must survive a move
+    // between two queue families needs a matched pair of barriers: a RELEASE
+    // recorded into the source family's command buffer and an ACQUIRE into the
+    // destination family's, submitted in that order with a semaphore between
+    // them (Vulkan 1.4 §7.7.4). A semaphore alone orders the two queues and
+    // leaves the contents UNDEFINED.
+    //
+    // The two halves are asymmetric, and the asymmetry is load-bearing twice
+    // over:
+    //   - the release carries the source scope and NO destination scope; the
+    //     acquire carries the destination scope and NO source scope — which is
+    //     what the spec says is read from each;
+    //   - and it is also what keeps the pair LEGAL. A compute-only queue may
+    //     not name a graphics stage in a barrier
+    //     (VUID-vkCmdPipelineBarrier2-srcStageMask-03849), and a compute pass's
+    //     producer is usually a raster pass. Because the graphics stages live
+    //     only in the source scope, they appear only on the half recorded into
+    //     the graphics command buffer.
+    //
+    // Everything else — `oldLayout`, `newLayout`, the image/buffer and the
+    // subresource range — must be IDENTICAL on both halves; the layout
+    // transition happens once. Splitting one already-built barrier is how that
+    // is guaranteed rather than reviewed.
+    //
+    // `srcFamily` and `dstFamily` are FAMILY indices, never queue indices, and
+    // must differ (equal indices mean there is nothing to transfer).
+    struct ImageOwnershipTransfer
+    {
+        VkImageMemoryBarrier2 Release{};
+        VkImageMemoryBarrier2 Acquire{};
+    };
+    [[nodiscard]] ImageOwnershipTransfer SplitImageOwnershipTransfer(const VkImageMemoryBarrier2& barrier,
+                                                                     u32 srcFamily, u32 dstFamily);
+
+    struct BufferOwnershipTransfer
+    {
+        VkBufferMemoryBarrier2 Release{};
+        VkBufferMemoryBarrier2 Acquire{};
+    };
+    [[nodiscard]] BufferOwnershipTransfer SplitBufferOwnershipTransfer(const VkBufferMemoryBarrier2& barrier,
+                                                                       u32 srcFamily, u32 dstFamily);
+
+    // The pipeline stages a COMPUTE-ONLY queue family supports. Anything
+    // outside this set is invalid usage in a command buffer allocated from
+    // such a family's pool, whatever the barrier means. Used by
+    // VulkanRecordingContext::RecordBarrier to clamp scopes that reach the
+    // compute queue from a code path with no idea which queue it is on.
+    [[nodiscard]] VkPipelineStageFlags2 ComputeQueueStageMask();
 } // namespace OloEngine::VulkanBarrierLowering
 
 #endif // OLO_WITH_VULKAN

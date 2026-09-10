@@ -95,6 +95,34 @@ above is refused, with a message naming the missing capability — not degraded,
 not partially enabled. That is the same "no silent fallback" rule the binding
 decision above makes at compile time, applied at runtime.
 
+**#808 amendment (2026-09-09) — a SECOND, OPTIONAL queue.** The queue-topology
+row above still stands exactly as written: one family with graphics **and**
+present, split graphics/present hardware still refused. What #808 adds is a
+different queue for a different reason — an **async compute** family, meaning a
+family that can dispatch compute but cannot draw — and it is deliberately **not**
+a contract row:
+
+- A device without one still satisfies this contract in full. The renderer keeps
+  every compute pass on the graphics queue, says so through a counter and a
+  warn-once, and renders the same frame. That degrade path is what CI hardware
+  runs, so it is the tested one.
+- Nothing about the pick can refuse a device the gate would otherwise accept,
+  which is why it lives in `VulkanQueueSelection` rather than in
+  `VulkanCapabilities::Evaluate`. Adding it to the gate would silently narrow
+  the hardware floor — the mirror image of the widening this row anticipates.
+- The one hard requirement the pick DOES impose is on the family it selects, not
+  on the device: `timestampValidBits != 0`, because every render-graph pass is
+  stamped through `GPUPassTimerPool` and `vkCmdWriteTimestamp2` on a family
+  reporting zero is invalid usage. A family that cannot carry timestamps is
+  refused with its own reason and the device degrades, rather than the backend
+  growing a second untested "no timers on this queue" recording path.
+
+The synchronization consequence is the substantive one, and it is recorded in
+[ADR 0011](0011-amendments.md) with the rest of the barrier model: a resource
+crossing between the two families needs a matched release/acquire ownership pair,
+not merely the timeline semaphore that orders the submissions. Rules and evidence:
+[vulkan-async-compute-queue.md](../agent-rules/vulkan-async-compute-queue.md).
+
 ## Why Vulkan, not D3D12
 
 The renderer's shader pipeline already compiles every authored GLSL shader to

@@ -1348,6 +1348,28 @@ namespace OloEngine
             // pull out of the camera UBO's projection. Extracted CPU-side
             // because the frozen projection is not on the GPU anywhere else.
             glm::vec4 CullProjParams; // 224
+            // ---- Virtual Shadow Map page gate (issue #1149) ----------------
+            // Set only by the VSM route, which culls the same clusters once per
+            // CLIP LEVEL. A cluster whose page footprint covers no DIRTY page in
+            // that level has nothing to contribute — the level already holds
+            // valid texels for it — so it is rejected before it reaches the
+            // command stream. That is what makes the VG shadow cost follow the
+            // page requests rather than the number of shadow views.
+            //
+            // x = clip level, or -1 when the gate is OFF; y, z = that level's
+            // wrapped PageOffset; w unused. The shader treats x < 0 as "no gate".
+            //
+            // THE DEFAULT IS -1, NOT 0, and that is the whole of the safety here.
+            // Every other filler of this block — the main camera's virtual-
+            // geometry pass, the CSM cascades, the atlas faces, the parity test —
+            // value-initialises it and sets only the fields it needs, which is
+            // this block's documented contract. A default of 0 would name CLIP
+            // LEVEL 0 with the gate ON, and every one of those views would reject
+            // its geometry against a page pyramid that has nothing to do with it:
+            // no virtual geometry anywhere, no error, nothing to grep for. Pinned
+            // by VirtualGeometryVirtualShadow
+            // .TheDirtyPageGateIsOffInAZeroInitialisedCullBlock.
+            glm::ivec4 VsmPageGate{ -1, 0, 0, 0 }; // 240
 
             static constexpr u32 GetSize()
             {
@@ -1357,8 +1379,8 @@ namespace OloEngine
 
         static_assert(sizeof(VirtualClusterCullUBO) % 16 == 0,
                       "VirtualClusterCullUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(VirtualClusterCullUBO) == 240,
-                      "VirtualClusterCullUBO std140 size drifted from GLSL expectation (240 B)");
+        static_assert(sizeof(VirtualClusterCullUBO) == 256,
+                      "VirtualClusterCullUBO std140 size drifted from GLSL expectation (256 B)");
 
         // @brief Virtualized-geometry software-raster / debug-colorize
         // parameters, uploaded at UBO_VIRTUAL_RASTER (70). GLSL twin: the

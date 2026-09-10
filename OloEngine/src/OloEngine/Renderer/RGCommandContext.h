@@ -132,9 +132,12 @@ namespace OloEngine
         [[nodiscard]] bool SubmitFenceSegment() const;
         void DrawIndexed(const Ref<VertexArray>& vertexArray, u32 indexCount = 0) const;
         // Async-compute batch boundaries.
-        // In GL 4.6 (single command stream) these insert KHR_debug group labels
-        // for profiling tools. Future Vulkan/DX12 backends map them to
-        // queue-wait / queue-signal operations.
+        // Both always insert a KHR_debug / Vulkan debug group label so the
+        // region is visible in RenderDoc / Nsight. On Vulkan with a
+        // compute-only queue family (issue #808) BeginAsyncBatch additionally
+        // moves recording onto that queue and performs the queue-family
+        // ownership transfers; EndAsyncBatch undoes them and submits. GL 4.6
+        // runs one command stream and takes neither.
         void BeginAsyncBatch(u32 batchIndex) const;
         void EndAsyncBatch(u32 batchIndex) const;
         [[nodiscard]] u32 ResolveTexture(RGTextureHandle handle) const;
@@ -161,6 +164,11 @@ namespace OloEngine
         }
 
       private:
+        // Whether the OPEN async batch actually crossed to a compute queue, so
+        // EndAsyncBatch only unwinds what BeginAsyncBatch set up. Mutable
+        // because the whole context surface is const — it is a command
+        // recorder, not a value.
+        mutable bool m_AsyncBatchOnComputeQueue = false;
         std::string m_ActivePassName;
         bool m_IsPassActive = false;
         RenderGraph* m_RenderGraph = nullptr;

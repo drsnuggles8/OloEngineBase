@@ -120,6 +120,12 @@ namespace OloEngine
             // reports nothing; on Vulkan with OLO_VK_PARALLEL_RECORDING off
             // only InlineRegions counts.
             RendererAPI::ParallelRecordingFrameStats m_ParallelRecording;
+            // The async-compute queue's telemetry for this frame (issue #808),
+            // pulled at the same point and for the same reason. All zero on
+            // OpenGL and on a Vulkan device with no compute-only queue family;
+            // there, BatchesDeclined counts the batches that stayed on the
+            // graphics queue and DeclineReason says why.
+            RendererAPI::AsyncComputeFrameStats m_AsyncCompute;
 
             void Reset();
         };

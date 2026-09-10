@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/Vulkan/VulkanRayTracingBackend.h"
+#include "Platform/Vulkan/VulkanQueueSelection.h"
 
 #if OLO_WITH_VULKAN
 
@@ -52,6 +53,12 @@ namespace OloEngine::RayTracing
             bufferInfo.size = std::max<VkDeviceSize>(size, 1);
             bufferInfo.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            // #808: a buffer both queues can reach must be CONCURRENT — the set a
+            // compute dispatch touches is not statically known on a bindless
+            // backend, so no ownership transfer can cover it. No-op without an
+            // async compute queue. See VulkanQueueSelection.h.
+            const VulkanQueueSelection::CrossQueueBufferSharing crossQueueSharing;
+            crossQueueSharing.ApplyTo(bufferInfo);
 
             // Pure device-local: no HOST_ACCESS flags at all. Scratch and AS
             // storage are GPU-write-heavy, and a ReBAR placement would be the
@@ -217,6 +224,10 @@ namespace OloEngine::RayTracing
         // this class knows which requests actually reached the command buffer.
         u32 m_FrameBlasBuilds = 0;
         u32 m_FrameBlasRefits = 0;
+        // TLAS instances dropped because their BLAS was not resident —
+        // usually created-but-not-yet-built. Reset with the other frame
+        // tallies and published into FrameCounters::InstancesSkipped.
+        u32 m_FrameInstancesSkipped = 0;
         // Advances once per RecordBlasBuilds call, i.e. once per frame that
         // reaches the RT scene. Only used to hold a compacted-size query back
         // until the command buffer that reset it has retired — the same
@@ -334,6 +345,12 @@ namespace OloEngine::RayTracing
             return 0;
         }
         auto* device = VulkanDevice::Get();
+        // Cleared BEFORE the guard below: RayTracingScene::Update calls
+        // PublishStats whether or not this returned early, so a counter left
+        // behind by a frame that could not record would be added to the next
+        // frame's freshly reset statistics.
+        m_FrameInstancesSkipped = 0;
+
         const VkCommandBuffer cmd = AcquireCommandBuffer();
         if (device == nullptr || cmd == VK_NULL_HANDLE)
         {
@@ -410,7 +427,31 @@ namespace OloEngine::RayTracing
 
             item.Range.primitiveCount = request.TriangleCount();
             item.Range.primitiveOffset = request.FirstIndex * static_cast<u32>(sizeof(u32));
-            item.Range.firstVertex = static_cast<u32>(request.BaseVertex);
+            // firstVertex is ZERO, and that is not an omission.
+            //
+            // The builder addresses the vertex for index value `i` at
+            // `vertexData + vertexStride * (firstVertex + i)`, so firstVertex
+            // is only an offset to add when the index buffer holds
+            // SUBMESH-LOCAL indices. In this engine a shared mesh source's
+            // indices are GLOBAL — absolute into the whole vertex array — and
+            // `m_BaseVertex` describes where the submesh's vertices START
+            // rather than a value the indices still need. AnimatedModel's
+            // submesh split is the proof in the other direction: extracting a
+            // submesh into its own mesh rewrites every index as
+            // `orig - m_BaseVertex` and then sets m_BaseVertex = 0.
+            //
+            // Passing BaseVertex here applied the offset TWICE. It was
+            // invisible while only MeshComponent geometry was staged, because
+            // a single-submesh source has BaseVertex 0; staging ModelComponent
+            // submeshes (5f25e886f) brought in sources with 25 submeshes whose
+            // BaseVertex runs into six figures, and Sponza's last submesh then
+            // addressed vertex 195107 of 192492 — a GPU page fault reported as
+            // "READ of invalid address", with every earlier submesh silently
+            // tracing the wrong triangles.
+            //
+            // maxVertex above stays BaseVertex + VertexCount - 1: with global
+            // indices that IS the highest value this build can address.
+            item.Range.firstVertex = 0;
             item.Range.transformOffset = 0;
 
             const bool wantsUpdate = UpdatePolicyFor(request.Class) == UpdatePolicy::RefitOrRebuild;
@@ -820,8 +861,29 @@ namespace OloEngine::RayTracing
         for (const InstanceRecord& record : instances)
         {
             const auto found = m_Blas.find(record.Geometry);
-            if (found == m_Blas.end() || found->second.Address == 0u)
+            // The SAME residency test IsBlasResident applies, and for the
+            // reason BlasEntry::Built already states: a structure that has been
+            // CREATED holds a valid device address while its memory is still
+            // uninitialised, and a TLAS instance referencing one makes
+            // traversal read whatever that memory happens to be. Checking the
+            // address alone accepts exactly that structure.
+            //
+            // It stayed harmless while a scene held two static BLAS. Once
+            // ModelComponent submeshes stage into the canonical scene
+            // (5f25e886f) a scene switch creates a couple of dozen in one
+            // frame, and every path that drops an item after its handle exists
+            // — a scratch allocation that could not grow, a size query that
+            // failed, a compaction in flight — leaves a created-but-unbuilt
+            // entry behind for this loop to find. The result was a GPU page
+            // fault ("READ of invalid address") inside traversal, which no
+            // validation layer can see: referencing an unbuilt structure is
+            // legal API usage, just meaningless.
+            if (found == m_Blas.end() || !found->second.Built || found->second.Handle == VK_NULL_HANDLE ||
+                found->second.Address == 0u)
             {
+                // Counted, never silent: an instance the tracer cannot see is
+                // indistinguishable from one it traced unless it is tallied.
+                ++m_FrameInstancesSkipped;
                 continue;
             }
             VkAccelerationStructureInstanceKHR out{};
@@ -1060,6 +1122,10 @@ namespace OloEngine::RayTracing
         stats.Frame.BlasCompactions = m_FrameCompactions;
         stats.Frame.BlasBuilds = m_FrameBlasBuilds;
         stats.Frame.BlasRefits = m_FrameBlasRefits;
+        // Additive: RayTracingScene already counts the instances it could
+        // not offer at all, and these are the ones it offered that the
+        // backend then could not trace.
+        stats.Frame.InstancesSkipped += m_FrameInstancesSkipped;
     }
 
     void VulkanRayTracingBackend::Shutdown()

@@ -451,6 +451,28 @@ namespace OloEngine
     // Step 0 — clip projections
     // -------------------------------------------------------------------------
 
+    bool VirtualShadowMap::BoundsReachClipLevel(const glm::mat4& viewProjection,
+                                                const glm::vec3& boundsMin,
+                                                const glm::vec3& boundsMax)
+    {
+        glm::vec3 ndcMin(std::numeric_limits<f32>::max());
+        glm::vec3 ndcMax(std::numeric_limits<f32>::lowest());
+        for (i32 corner = 0; corner < 8; ++corner)
+        {
+            const glm::vec4 world((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                                  (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                                  (corner & 4) != 0 ? boundsMax.z : boundsMin.z, 1.0f);
+            const glm::vec4 clipPos = viewProjection * world;
+            // Orthographic, so w is a constant 1 — this cannot divide by
+            // anything near zero the way a perspective VP could.
+            const glm::vec3 ndc(clipPos / clipPos.w);
+            ndcMin = glm::min(ndcMin, ndc);
+            ndcMax = glm::max(ndcMax, ndc);
+        }
+        return glm::all(glm::lessThanEqual(ndcMin, glm::vec3(1.0f))) &&
+               glm::all(glm::greaterThanEqual(ndcMax, glm::vec3(-1.0f)));
+    }
+
     u32 VirtualShadowMap::SanitizeResolution(u32 requested)
     {
         // A pool that is not a whole number of pages leaves a partial page at the
@@ -1121,6 +1143,23 @@ namespace OloEngine
             }
         }
 
+        // A caster that VANISHED still owns pages. The loop above walks the
+        // casters that ARE here, so it can never reach one that was deleted or
+        // had its shadow casting turned off — and a page cache has no other
+        // reason to redraw the region it was rasterized into, so its silhouette
+        // sits there until something else happens to evict it.
+        //
+        // Only the dropped TAIL needs this: the list is compared positionally, so
+        // removing a caster from the middle shifts every later one and those
+        // already read as moved. Trimming without invalidating is the one case
+        // that leaves no trace at all.
+        for (sizet i = meshCasters.size(); i < m_PrevCasterPoses.size(); ++i)
+        {
+            const auto& gone = m_PrevCasterPoses[i];
+            if (gone.HasBounds)
+                AddDynamicInvalidation(gone.BoundsMin, gone.BoundsMax);
+        }
+
         m_PrevCasterPoses.resize(meshCasters.size());
         for (sizet i = 0; i < meshCasters.size(); ++i)
         {
@@ -1338,13 +1377,20 @@ namespace OloEngine
     bool VirtualShadowMap::RenderCasters(const std::vector<ShadowMeshCaster>& meshCasters,
                                          const std::vector<ShadowSkinnedCaster>& skinnedCasters,
                                          const glm::vec3& renderOrigin,
-                                         const BoneUploader& uploadBones)
+                                         const BoneUploader& uploadBones,
+                                         const ExternalCasterRenderer& renderExternalCasters)
     {
         OLO_PROFILE_FUNCTION();
 
         if (!IsActive() || !m_RasterFramebuffer.IsValid())
             return false;
-        if (meshCasters.empty() && skinnedCasters.empty())
+        // An external caster route (virtual geometry, issue #1149) is reason
+        // enough to open the raster scope on its own. Before it existed a scene
+        // whose only shadow casters were virtualized simply returned here, which
+        // is the same shape of silent hole ShadowRenderPass's CSM cascade gate
+        // had for exactly the same reason.
+        const bool haveExternal = static_cast<bool>(renderExternalCasters);
+        if (meshCasters.empty() && skinnedCasters.empty() && !haveExternal)
             return false;
 
         // ---- Batch the static casters by (VAO, index range, cull mode) --------
@@ -1390,7 +1436,7 @@ namespace OloEngine
             m_Batches[slot->second].CasterCount += 1;
         }
 
-        if (m_Batches.empty() && skinnedCasters.empty())
+        if (m_Batches.empty() && skinnedCasters.empty() && !haveExternal)
             return false;
 
         // Each batch's compacted run is sized EXACTLY casterCount * clipLevels, so
@@ -1406,17 +1452,40 @@ namespace OloEngine
         // Skinned casters are CPU-scheduled (their bone palette is per-caster, so
         // they cannot share an instanced batch) and take the tail of the same
         // buffer. Reserving from the end keeps the cull's region contiguous.
-        const u32 skinnedReserve = static_cast<u32>(skinnedCasters.size()) * VSM::kClipLevels;
+        u32 skinnedReserve = static_cast<u32>(skinnedCasters.size()) * VSM::kClipLevels;
+        bool meshCastersFit = true;
         if (runCursor + skinnedReserve > VSM::kMaxDrawInstances)
         {
             if (!m_LoggedDrawBudgetExhausted)
             {
                 OLO_CORE_WARN("VirtualShadowMap: draw-instance budget exhausted ({} needed, {} available) — "
-                              "raise VSM::kMaxDrawInstances or reduce shadow casters",
+                              "MESH and skinned casters are dropped this frame; raise "
+                              "VSM::kMaxDrawInstances or reduce shadow casters",
                               runCursor + skinnedReserve, VSM::kMaxDrawInstances);
                 m_LoggedDrawBudgetExhausted = true;
             }
-            return false;
+            // The MESH casters are what this budget sizes, so they are what it
+            // drops. An external route (virtual geometry, issue #1149) brings its
+            // own command stream and its own budget and is not implicated — a
+            // bare `return false` here used to take it down too, under a warning
+            // that named only mesh casters, which is the shape of "silently
+            // dropped work with a misleading explanation" the budgets above
+            // exist to avoid.
+            if (!haveExternal)
+                return false;
+            meshCastersFit = false;
+        }
+        if (!meshCastersFit)
+        {
+            // Drop the mesh half wholesale rather than half-scheduling it: the
+            // cull, the batch rasters and the skinned run all index the same
+            // over-subscribed buffer, so anything short of clearing all three
+            // leaves one of them reading a run it does not own.
+            m_Batches.clear();
+            m_BatchLookup.clear();
+            m_CullInput.clear();
+            runCursor = 0;
+            skinnedReserve = 0;
         }
         const u32 skinnedBase = runCursor;
         runCursor += skinnedReserve;
@@ -1599,9 +1668,26 @@ namespace OloEngine
         RenderCommand::EnableCulling();
         RenderCommand::FrontCull();
 
-        u32 drawnBatches = RenderBatches(false);
+        u32 drawnBatches = 0;
+        if (meshCastersFit)
+        {
+            drawnBatches += RenderBatches(false);
+            drawnBatches += RenderSkinnedCasters(skinnedCasters, renderOrigin, skinnedBase, uploadBones);
+        }
 
-        drawnBatches += RenderSkinnedCasters(skinnedCasters, renderOrigin, skinnedBase, uploadBones);
+        // ---- External caster routes (issue #1149) ----------------------------
+        //
+        // Virtual geometry, drawn here rather than by RenderBatches because it
+        // brings its own cull and its own indirect command stream. Everything it
+        // needs is live at this point and stays live: the raster scope, the
+        // directional viewport, the page table and the dirty-page pyramid
+        // (BindWorkingSet), and the front-face cull state.
+        //
+        // BEFORE the local-light block below, which changes the viewport to the
+        // LOCAL virtual resolution — a route that projects into the clip levels
+        // must run while the viewport still is the clip levels'.
+        if (haveExternal)
+            drawnBatches += renderExternalCasters();
 
         // ---- Local-light raster (issue #703) ---------------------------------
         //

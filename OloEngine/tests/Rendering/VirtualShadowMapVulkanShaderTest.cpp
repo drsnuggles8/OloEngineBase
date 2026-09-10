@@ -195,7 +195,7 @@ namespace OloEngine::Tests
                            .Message = module.GetErrorMessage() };
         }
 
-        constexpr std::array<std::string_view, 14> kVsmShaders{ {
+        constexpr std::array<std::string_view, 15> kVsmShaders{ {
             "VSM_Depth.glsl",
             "VSM_DepthSkinned.glsl",
             // The LOCAL-light rasters (issue #703). Their OLO_VULKAN branches are
@@ -204,6 +204,12 @@ namespace OloEngine::Tests
             // raster mip rather than the global virtual resolution.
             "VSM_DepthLocal.glsl",
             "VSM_DepthLocalSkinned.glsl",
+            // The VIRTUALIZED-GEOMETRY raster (issue #1149). Same fragment stage
+            // as VSM_Depth — so the same y-flip composition — over a completely
+            // different vertex stage: an SSBO pull out of the cluster arena
+            // rather than a vertex stream, which on Vulkan is the branch that
+            // decides whether virtual geometry casts a shadow at all.
+            "VSM_VirtualMeshDepth.glsl",
             "compute/VSM_AllocatePages.comp",
             "compute/VSM_BuildHPB.comp",
             "compute/VSM_ClearDirtyPages.comp",
@@ -296,12 +302,12 @@ void main() {}
         }
 
         // The harness must have compiled EXACTLY the expected stage set: the TEN
-        // compute kernels are one stage each and the FOUR graphics shaders are two
-        // each (issue #703 added VSM_CullLocalCasters and the two local rasters).
-        // A >= floor would let a broken #type splitter silently drop a fragment
-        // stage — which is precisely the stage carrying the y-flip this file
-        // exists to keep parsed.
-        constexpr u32 kExpectedStages = 10u + 4u * 2u;
+        // compute kernels are one stage each and the FIVE graphics shaders are two
+        // each (issue #703 added VSM_CullLocalCasters and the two local rasters;
+        // issue #1149 added VSM_VirtualMeshDepth). A >= floor would let a broken
+        // #type splitter silently drop a fragment stage — which is precisely the
+        // stage carrying the y-flip this file exists to keep parsed.
+        constexpr u32 kExpectedStages = 10u + 5u * 2u;
         EXPECT_EQ(stagesCompiled, kExpectedStages)
             << "compiled " << stagesCompiled << " stages from " << kVsmShaders.size()
             << " shaders (expected " << kExpectedStages

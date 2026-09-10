@@ -8,6 +8,7 @@
 
 #include "MCP/McpServer.h"
 #include "Automation/AutomationCatalogue.h"
+#include "Automation/AutomationMainThreadJob.h"
 #include "Automation/AutomationSchemaValidation.h"
 #include "MCP/McpAudienceReport.h"
 #include "MCP/McpEventStream.h"
@@ -771,7 +772,7 @@ namespace OloEngine::MCP
             return;
         }
 
-        // Signal first so any handler blocked in MarshalRead aborts promptly
+        // Signal first so handlers waiting on unclaimed main-thread jobs abort
         // instead of deadlocking against this thread (Stop runs on the game thread).
         m_Running.store(false, std::memory_order_release);
 
@@ -848,41 +849,50 @@ namespace OloEngine::MCP
     Json McpServer::MarshalReadOnMainThread(const std::function<Json()>& readJob,
                                             std::chrono::milliseconds timeout)
     {
-        auto promise = std::make_shared<std::promise<Json>>();
-        std::future<Json> future = promise->get_future();
-        const bool stillRunning = m_Running.load(std::memory_order_acquire);
+        if (!m_Running.load(std::memory_order_acquire))
+            throw std::runtime_error("MCP server is not running");
+
+        // Capture the call's shared cancellation flag on the handler thread; the
+        // main thread has no ActiveCallScope of its own.
+        const auto cancelFlag = t_ActiveCall != nullptr ? t_ActiveCall->CancelFlag : nullptr;
+        if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
+            throw std::runtime_error("Request cancelled before main-thread operation");
+
+        auto job = std::make_shared<Automation::AutomationMainThreadJob>(readJob);
 
         // Enqueue onto the game thread; it drains this at the next frame boundary
         // (Application::Run, before the scene is stepped) — a consistent snapshot.
         OloEngine::Tasks::EnqueueGameThreadTask(
-            [promise, readJob]()
+            [job, cancelFlag]()
             {
-                try
-                {
-                    promise->set_value(readJob());
-                }
-                catch (...)
-                {
-                    promise->set_exception(std::current_exception());
-                }
+                if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
+                    job->CancelPending("Request cancelled before main-thread operation");
+                job->Execute();
             },
             "MCP_MainThreadRead");
-
-        if (!stillRunning)
-            throw std::runtime_error("MCP server is not running");
 
         const auto deadline = std::chrono::steady_clock::now() + timeout;
         for (;;)
         {
-            if (future.wait_for(std::chrono::milliseconds(50)) == std::future_status::ready)
-                return future.get();
+            if (job->WaitFor(std::chrono::milliseconds(50)) == std::future_status::ready)
+                return job->Get();
 
-            // If the server is being torn down, bail rather than block teardown.
+            // An unclaimed operation is cancelled before returning an error, so
+            // draining the queue later cannot mutate anything. If the main thread
+            // already claimed it, wait for completion instead of abandoning its
+            // captures and reporting failure while the operation still runs.
+            const char* abortReason = nullptr;
             if (!m_Running.load(std::memory_order_acquire))
-                throw std::runtime_error("MCP server stopping; main-thread read aborted");
-
-            if (std::chrono::steady_clock::now() >= deadline)
-                throw std::runtime_error("Timed out waiting for the editor main thread (is the editor responsive?)");
+                abortReason = "MCP server stopping; main-thread read aborted";
+            else if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
+                abortReason = "Request cancelled before main-thread operation";
+            else if (std::chrono::steady_clock::now() >= deadline)
+                abortReason = "Timed out waiting for the editor main thread (is the editor responsive?)";
+            if (abortReason != nullptr)
+            {
+                job->CancelPending(abortReason);
+                return job->Get();
+            }
         }
     }
 

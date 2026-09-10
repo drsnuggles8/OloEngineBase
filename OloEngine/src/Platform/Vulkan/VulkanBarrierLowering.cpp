@@ -337,6 +337,63 @@ namespace OloEngine::VulkanBarrierLowering
         out.size = VK_WHOLE_SIZE;
         return out;
     }
+
+    ImageOwnershipTransfer SplitImageOwnershipTransfer(const VkImageMemoryBarrier2& barrier, const u32 srcFamily,
+                                                       const u32 dstFamily)
+    {
+        OLO_CORE_ASSERT(srcFamily != dstFamily,
+                        "Queue-family ownership transfer between one family and itself — nothing to transfer");
+
+        ImageOwnershipTransfer out{};
+        // Copying the whole barrier into each half is what guarantees the two
+        // agree about the layouts, the image and the subresource range. Only
+        // the families and the scope halves are then overwritten.
+        out.Release = barrier;
+        out.Release.srcQueueFamilyIndex = srcFamily;
+        out.Release.dstQueueFamilyIndex = dstFamily;
+        out.Release.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        out.Release.dstAccessMask = VK_ACCESS_2_NONE;
+
+        out.Acquire = barrier;
+        out.Acquire.srcQueueFamilyIndex = srcFamily;
+        out.Acquire.dstQueueFamilyIndex = dstFamily;
+        out.Acquire.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+        out.Acquire.srcAccessMask = VK_ACCESS_2_NONE;
+        return out;
+    }
+
+    BufferOwnershipTransfer SplitBufferOwnershipTransfer(const VkBufferMemoryBarrier2& barrier, const u32 srcFamily,
+                                                         const u32 dstFamily)
+    {
+        OLO_CORE_ASSERT(srcFamily != dstFamily,
+                        "Queue-family ownership transfer between one family and itself — nothing to transfer");
+
+        BufferOwnershipTransfer out{};
+        out.Release = barrier;
+        out.Release.srcQueueFamilyIndex = srcFamily;
+        out.Release.dstQueueFamilyIndex = dstFamily;
+        out.Release.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+        out.Release.dstAccessMask = VK_ACCESS_2_NONE;
+
+        out.Acquire = barrier;
+        out.Acquire.srcQueueFamilyIndex = srcFamily;
+        out.Acquire.dstQueueFamilyIndex = dstFamily;
+        out.Acquire.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+        out.Acquire.srcAccessMask = VK_ACCESS_2_NONE;
+        return out;
+    }
+
+    VkPipelineStageFlags2 ComputeQueueStageMask()
+    {
+        // Vulkan 1.4 table "Supported pipeline stage flags", COMPUTE column.
+        // DRAW_INDIRECT is in it because it covers vkCmdDispatchIndirect's
+        // argument fetch, not only draw arguments.
+        return VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT | VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT |
+               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+               VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT |
+               VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_RESOLVE_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT |
+               VK_PIPELINE_STAGE_2_CLEAR_BIT | VK_PIPELINE_STAGE_2_HOST_BIT;
+    }
     VkFormat ToVkFormat(const RHI::Format format)
     {
         switch (format)

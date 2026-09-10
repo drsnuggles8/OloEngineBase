@@ -390,13 +390,45 @@ namespace OloEngine
                           VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion));
         }
 
-        // --- Logical device + queue -----------------------------------------
+        // --- The optional async compute family (#808) ------------------------
+        // Asked BEFORE vkCreateDevice because a second queue has to be part of
+        // the create info; committed to the members only after the device
+        // exists and vkGetDeviceQueue answered (see below).
+        VulkanQueueSelection::AsyncComputeSelection asyncCompute{};
+        if (Levers::VulkanAsyncCompute() == Levers::Tristate::Off)
+        {
+            // The deliberate A/B arm. Reported like any other unavailability
+            // so a session that expected overlap and got none can tell "this
+            // GPU cannot" from "you turned it off".
+            asyncCompute.Reason = VulkanQueueSelection::AsyncComputeUnavailableReason::DisabledByLever;
+        }
+        else
+        {
+            u32 familyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &familyCount, nullptr);
+            std::vector<VkQueueFamilyProperties> families(familyCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(m_PhysicalDevice, &familyCount, families.data());
+            asyncCompute = VulkanQueueSelection::SelectAsyncComputeFamily(families, m_QueueFamily);
+        }
+
+        // --- Logical device + queue(s) ---------------------------------------
         const f32 queuePriority = 1.0f;
+        std::vector<VkDeviceQueueCreateInfo> queueInfos;
         VkDeviceQueueCreateInfo queueInfo{};
         queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queueInfo.queueFamilyIndex = m_QueueFamily;
         queueInfo.queueCount = 1;
         queueInfo.pQueuePriorities = &queuePriority;
+        queueInfos.push_back(queueInfo);
+        if (asyncCompute.Found)
+        {
+            VkDeviceQueueCreateInfo computeQueueInfo{};
+            computeQueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            computeQueueInfo.queueFamilyIndex = asyncCompute.FamilyIndex;
+            computeQueueInfo.queueCount = 1;
+            computeQueueInfo.pQueuePriorities = &queuePriority;
+            queueInfos.push_back(computeQueueInfo);
+        }
 
         // Enable the contract's feature bits at the gate: a driver that
         // advertises the features but rejects enabling them should fail HERE,
@@ -852,8 +884,8 @@ namespace OloEngine
         VkDeviceCreateInfo deviceInfo{};
         deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         deviceInfo.pNext = featureChainHead;
-        deviceInfo.queueCreateInfoCount = 1;
-        deviceInfo.pQueueCreateInfos = &queueInfo;
+        deviceInfo.queueCreateInfoCount = static_cast<u32>(queueInfos.size());
+        deviceInfo.pQueueCreateInfos = queueInfos.data();
         deviceInfo.enabledExtensionCount = static_cast<u32>(deviceExtensions.size());
         deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
         deviceInfo.pEnabledFeatures = &enabledFeatures;
@@ -941,6 +973,32 @@ namespace OloEngine
                           RayTracing::ToString(m_RayTracingUnsupportedReason));
         }
         vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue);
+
+        // #808: commit the async compute queue only now — the same
+        // describe-the-logical-device-not-the-request rule as the flags above.
+        // The reason is committed in BOTH directions so a caller can always
+        // ask why, and the family index only becomes meaningful alongside a
+        // non-null queue (HasAsyncComputeQueue is the gate).
+        m_AsyncComputeUnavailableReason = asyncCompute.Reason;
+        if (asyncCompute.Found)
+        {
+            vkGetDeviceQueue(m_Device, asyncCompute.FamilyIndex, 0, &m_AsyncComputeQueue);
+            if (m_AsyncComputeQueue != VK_NULL_HANDLE)
+            {
+                m_AsyncComputeQueueFamily = asyncCompute.FamilyIndex;
+            }
+            else
+            {
+                // vkCreateDevice accepted the request and the driver then
+                // handed back nothing. Nothing in the spec allows it, so say
+                // so rather than carrying a "found" flag with a null queue.
+                OLO_CORE_ERROR("[Vulkan] async compute: vkGetDeviceQueue returned no queue for family {} — "
+                               "compute stays on the graphics queue",
+                               asyncCompute.FamilyIndex);
+                m_AsyncComputeUnavailableReason =
+                    VulkanQueueSelection::AsyncComputeUnavailableReason::FamilyHasNoQueues;
+            }
+        }
 
         // #809: same commit-after-create rule, and the entry points these
         // flags gate only exist once volkLoadDevice has run -- a flag set
@@ -1059,6 +1117,45 @@ namespace OloEngine
         poolInfo.queueFamilyIndex = m_QueueFamily;
         VkCheck(vkCreateCommandPool(m_Device, &poolInfo, nullptr, &m_CommandPool), "vkCreateCommandPool");
 
+        // #808: a command pool is bound to ONE queue family for the life of
+        // every buffer allocated from it, so the async compute queue needs its
+        // own. A pool that cannot be created retracts the queue rather than
+        // leaving a queue nothing can record for.
+        if (m_AsyncComputeQueue != VK_NULL_HANDLE)
+        {
+            VkCommandPoolCreateInfo computePoolInfo{};
+            computePoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            computePoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            computePoolInfo.queueFamilyIndex = m_AsyncComputeQueueFamily;
+            if (vkCreateCommandPool(m_Device, &computePoolInfo, nullptr, &m_AsyncComputeCommandPool) != VK_SUCCESS)
+            {
+                OLO_CORE_ERROR("[Vulkan] async compute: vkCreateCommandPool failed for family {} — "
+                               "compute stays on the graphics queue",
+                               m_AsyncComputeQueueFamily);
+                m_AsyncComputeQueue = VK_NULL_HANDLE;
+                m_AsyncComputeCommandPool = VK_NULL_HANDLE;
+                m_AsyncComputeUnavailableReason =
+                    VulkanQueueSelection::AsyncComputeUnavailableReason::CommandPoolCreationFailed;
+            }
+        }
+
+        if (m_AsyncComputeQueue != VK_NULL_HANDLE)
+        {
+            OLO_CORE_INFO("[Vulkan] Async compute: queue family {} (graphics family {}) — render-graph "
+                          "compute batches may cross to it",
+                          m_AsyncComputeQueueFamily, m_QueueFamily);
+        }
+        else
+        {
+            // Loud, and it names which of the reasons applies: this is the
+            // degrade path CI runs, and a silent one would be indistinguishable
+            // from async compute simply not helping (CLAUDE.md, no silent
+            // fallbacks).
+            OLO_CORE_INFO("[Vulkan] Async compute: unavailable ({}) — every compute pass stays on the "
+                          "graphics queue",
+                          VulkanQueueSelection::Describe(m_AsyncComputeUnavailableReason));
+        }
+
         s_ActiveDevice = this;
     }
 
@@ -1080,6 +1177,15 @@ namespace OloEngine
             {
                 vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
                 m_CommandPool = VK_NULL_HANDLE;
+            }
+            // #808: destroying the pool frees every async-compute command
+            // buffer allocated from it, which the vkDeviceWaitIdle above has
+            // already proved idle (it waits on every queue of the device, not
+            // just the graphics one).
+            if (m_AsyncComputeCommandPool != VK_NULL_HANDLE)
+            {
+                vkDestroyCommandPool(m_Device, m_AsyncComputeCommandPool, nullptr);
+                m_AsyncComputeCommandPool = VK_NULL_HANDLE;
             }
             if (m_Allocator != VK_NULL_HANDLE)
             {
@@ -1122,6 +1228,11 @@ namespace OloEngine
         }
         m_PhysicalDevice = VK_NULL_HANDLE;
         m_QueueFamily = 0;
+        // #808, same rule as the verdicts below: the async-compute answer
+        // described a device that is gone. A Shutdown/Init cycle re-selects.
+        m_AsyncComputeQueue = VK_NULL_HANDLE;
+        m_AsyncComputeQueueFamily = 0;
+        m_AsyncComputeUnavailableReason = VulkanQueueSelection::AsyncComputeUnavailableReason::NoDevice;
         // #809: the host-image-copy verdict describes a physical device that
         // is no longer reachable through this object. Clearing it means a
         // Shutdown/Init cycle re-probes rather than reusing a verdict (and a

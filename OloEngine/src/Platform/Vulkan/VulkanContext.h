@@ -3,6 +3,8 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/GraphicsContext.h"
 
+#include <string_view>
+
 #if OLO_WITH_VULKAN
 
 struct GLFWwindow;
@@ -98,6 +100,36 @@ namespace OloEngine
         // headless device tests intentionally remain one-submit recordings.
         [[nodiscard]] bool SubmitRenderGraphFenceSegment();
         [[nodiscard]] bool CanSubmitRenderGraphFenceSegments() const;
+
+        // --- Async compute batches (issue #808) ---------------------------
+        // Begin PARKS the graphics command buffer — open, unsubmitted — and
+        // moves recording onto a command buffer from the async compute
+        // family's pool. Parking rather than submitting is what gives the
+        // queue-family ownership RELEASE halves somewhere to be recorded: the
+        // acquire half sits in the compute buffer, its release must sit in the
+        // graphics one, and the graphics one has to reach the queue first.
+        //
+        // End mirrors the transfers back, then submits in the only order that
+        // is correct: graphics segment (signalling timeline value N) → compute
+        // segment (waiting N, signalling N+1) → a fresh graphics buffer whose
+        // submit waits N+1. Returns whether a compute submission was made.
+        //
+        // Begin returns false — and the caller records the batch inline as
+        // before — for every reason the split cannot happen: no compute queue
+        // on this device, the lever off, outside the SwapBuffers callback, a
+        // parallel-recording region in flight, an open occlusion query.
+        // GetAsyncComputeDeclineReason names which; it is a string literal, so
+        // the view never dangles.
+        [[nodiscard]] bool BeginAsyncComputeSegment(u32 batchIndex);
+        [[nodiscard]] bool EndAsyncComputeSegment(u32 batchIndex);
+        [[nodiscard]] std::string_view GetAsyncComputeDeclineReason() const
+        {
+            return m_AsyncComputeDeclineReason;
+        }
+        [[nodiscard]] u32 GetAsyncComputeSubmitCountThisFrame() const
+        {
+            return m_AsyncComputeSubmitCountThisFrame;
+        }
         [[nodiscard]] u32 GetRenderGraphFenceSegmentSubmitCountThisFrame() const
         {
             return m_RenderGraphFenceSegmentSubmitCountThisFrame;
@@ -139,6 +171,12 @@ namespace OloEngine
         u32 m_RenderGraphFenceSegmentSubmitCountThisFrame = 0;
         u32 m_RenderGraphTimelineSignalCountThisFrame = 0;
         u32 m_RenderGraphTimelineWaitCountThisFrame = 0;
+        // --- Async compute (issue #808) --------------------------------
+        /// True between BeginAsyncComputeSegment and EndAsyncComputeSegment.
+        bool m_AsyncComputeSegmentOpen = false;
+        /// Why the last Begin declined. A string literal — never allocated.
+        std::string_view m_AsyncComputeDeclineReason;
+        u32 m_AsyncComputeSubmitCountThisFrame = 0;
 
         inline static VulkanContext* s_Instance = nullptr;
     };

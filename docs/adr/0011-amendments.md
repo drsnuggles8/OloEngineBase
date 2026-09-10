@@ -2715,3 +2715,72 @@ version that is TESTED, not a boundary.
 
 Rules and evidence: [glsl-shaders.md](../agent-rules/glsl-shaders.md),
 [vulkan-shader-heap-indexing.md](../agent-rules/vulkan-shader-heap-indexing.md).
+
+---
+
+## Amendments from issue #808 (2026-09-09) — the async compute queue
+
+### (98) A semaphore orders two queues; only an ownership transfer preserves what crossed between them
+
+§6 established `RHI::GpuFence` as the cross-submission primitive and §1.5 the
+per-resource barrier model, and the backend then used both on ONE queue. #808
+adds the second: an optional compute-only queue family, selected by
+`VulkanQueueSelection::SelectAsyncComputeFamily`, that the render graph's
+existing `AsyncComputeBatch` bracket routes work onto.
+
+The correction this amendment records is that **the two mechanisms are not
+interchangeable, and the barrier model as written was incomplete for a second
+queue.** A timeline semaphore makes the compute submission execute after the
+graphics one; it says nothing about which queue family OWNS a resource. On a
+`VK_SHARING_MODE_EXCLUSIVE` resource — which is every resource this backend
+creates — accessing it from a family that does not own it leaves its contents
+**undefined**. `RHI::Barrier` had carried `IsCrossQueue` / `SourceQueue` /
+`DestQueue` since Phase 5, and `VulkanBarrierLowering` had written
+`VK_QUEUE_FAMILY_IGNORED` into both index fields with a comment saying the flag
+stays informational "until a real second queue exists". This is that.
+
+Four rules, in the order they cost something to learn:
+
+1. **A transfer is a PAIR, and the halves are asymmetric.** The release is
+   recorded into the source family's command buffer and carries the source scope
+   with `dstStageMask`/`dstAccessMask` of `NONE`; the acquire is recorded into the
+   destination family's and carries the destination scope with the source masks
+   `NONE`. Both name the same two family indices, the same `oldLayout`/`newLayout`
+   and the same subresource range. `VulkanBarrierLowering::SplitImageOwnership‐
+   Transfer` / `SplitBufferOwnershipTransfer` build the pair from one ordinary
+   barrier so the two halves cannot drift, and the shape is asserted directly
+   rather than inferred from a rendered frame — because on NVIDIA a wrong pair
+   renders the right frame.
+
+2. **Ownership returns to graphics at every batch end, so nothing has to remember
+   it.** The backend keeps the graphics command buffer OPEN (parked, not
+   submitted) for the duration of a batch so release halves have somewhere to go,
+   and mirrors every transfer back at `BatchEnd`. The invariant "outside a batch,
+   the graphics family owns everything" removes the persistent owner map that
+   would otherwise have to survive frames, swapchain recreation and device loss.
+
+3. **A stage mask is a per-queue-family legality question, and the pair answers
+   most of it for free.** A compute-only family rejects every graphics stage
+   (`VUID-vkCmdPipelineBarrier2-srcStageMask-03849`), and this engine's barrier
+   lowering names graphics stages routinely because a compute pass's producer is
+   usually a raster pass. Those stages only ever appear on the half recorded into
+   the graphics buffer, which is what makes the asymmetry above load-bearing
+   rather than merely spec-conformant. Everything else is clamped in one place —
+   `VulkanRecordingContext::RecordBarrier`, the single point every barrier reaches
+   a command buffer — by substituting `ALL_COMMANDS` + `MEMORY_READ|MEMORY_WRITE`
+   for any scope naming an unsupported stage.
+
+4. **`timestampValidBits` is per family**, so the selection refuses a compute
+   family that cannot carry timestamps rather than letting `GPUPassTimerPool` grow
+   a second, untested recording path. Same class as #801's timestamp-period
+   finding: a per-queue property read once, from the wrong queue.
+
+**What did NOT change.** §1.5's same-command-buffer barrier model, the transient
+pool, the recording-group / recording-lane assignment of amendment (94) — those
+are CPU ownership and remain independent of GPU queue lanes — and the compute
+hoist's ordering, which respects every dependency edge and therefore decides what
+*may* overlap. Async compute uses the opportunity the schedule already allows; it
+does not create one.
+
+Rules and evidence:
+[vulkan-async-compute-queue.md](../agent-rules/vulkan-async-compute-queue.md).

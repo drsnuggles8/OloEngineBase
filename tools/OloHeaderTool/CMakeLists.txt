@@ -59,6 +59,7 @@ endif()
 # the custom command's BYPRODUCTS; see the rule below for why.
 set(OHT_GENERATED_FILES
     "${OHT_SCENE_OUT}/AllComponents.Generated.inl"
+    "${OHT_SCENE_OUT}/ComponentTypes.Generated.inl"
     "${OHT_SCENE_OUT}/OnComponentAdded.Generated.inl"
     "${OHT_SCENE_OUT}/OnComponentRemoved.Generated.inl"
     "${OHT_SCENE_OUT}/SceneSerializeComponents.Generated.inl"

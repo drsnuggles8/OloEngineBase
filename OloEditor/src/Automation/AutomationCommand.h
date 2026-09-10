@@ -31,15 +31,12 @@ namespace OloEngine::Automation
     using AutomationHandler =
         std::function<AutomationResult(IAutomationHost& host, const nlohmann::json& arguments)>;
 
-    // Whether running a command can be taken back, and how. DECLARED, not yet
-    // consumed: no command sets it today and nothing reads it, because #1123 is a
-    // pure extraction and populating this would change observable behaviour. It is
-    // here because transactions (#1128) need a layer that owns "a command"
-    // independent of one JSON-RPC call, and this is that layer — the field is the
-    // half of that work the extraction can land honestly.
+    // Whether running a command can be taken back, and how. Structural scene
+    // authoring (#1126) declares its history contract here; older commands that
+    // have not adopted the metadata remain Unspecified.
     enum class AutomationUndo : u8
     {
-        Unspecified = 0, // not declared. What every command says today.
+        Unspecified = 0, // not declared by this command.
         None,            // nothing to undo: the command does not mutate.
         EditorUndoStack, // routed through the editor's CommandHistory; Ctrl-Z takes it back.
         Irreversible,    // the effect cannot be taken back from inside this process.
@@ -135,7 +132,7 @@ namespace OloEngine::Automation
         // leave this false. Blanket adoption across the surface would be bloat,
         // not spec parity.
         bool DualAudienceContent = false;
-        // See AutomationUndo: declared for #1128, set by nothing yet.
+        // See AutomationUndo for the command's declared reversal mechanism.
         AutomationUndo Undo = AutomationUndo::Unspecified;
         // When set and it returns false, the command is not listed and cannot be
         // invoked — the host it would run against cannot serve it (no editor, no

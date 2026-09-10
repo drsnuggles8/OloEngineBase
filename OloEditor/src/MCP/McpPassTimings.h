@@ -86,6 +86,21 @@ namespace OloEngine::MCP::PassTimings
         std::vector<ParallelRegionStats> RegionTimings;
     };
 
+    // The async-compute queue's telemetry (issue #808) — a plain mirror of
+    // RendererAPI::AsyncComputeFrameStats so this header stays engine-free.
+    // All zero on OpenGL. On Vulkan, BatchesOnComputeQueue == 0 with a
+    // non-empty DeclineReason is the degrade path saying which reason applied,
+    // which is the whole point of surfacing it: a session that expected
+    // overlap and got none gets its answer here rather than from a debugger.
+    struct AsyncComputeStats
+    {
+        u32 BatchesOnComputeQueue = 0;
+        u32 BatchesDeclined = 0;
+        u32 OwnershipTransfers = 0;
+        u32 ComputeSubmits = 0;
+        std::string DeclineReason;
+    };
+
     struct FrameTotals
     {
         f64 FrameTimeMs = 0.0;
@@ -97,6 +112,7 @@ namespace OloEngine::MCP::PassTimings
         // numbers; transient name mismatches between the two lists are normal.
         u64 GpuResultsAgeFrames = 0;
         ParallelRecordingStats ParallelRecording;
+        AsyncComputeStats AsyncCompute;
     };
 
     // Millisecond values are sub-ms for many passes — keep 3 decimals.
@@ -210,6 +226,15 @@ namespace OloEngine::MCP::PassTimings
             o["parallelRecording"]["regionTimings"].push_back(
                 Json{ { "pass", region.PassName }, { "parallel", region.Parallel }, { "workerRecordMs", Round3(region.WorkerRecordMs) }, { "regionWallMs", Round3(region.RegionWallMs) }, { "joinWaitMs", Round3(region.JoinWaitMs) }, { "itemRecordMs", std::move(items) }, { "itemPassNames", region.ItemPassNames }, { "selectionSeedMs", Round3(region.SelectionSeedMs) }, { "attachmentPrepareMs", Round3(region.AttachmentPrepareMs) }, { "sampledImagePrepareMs", Round3(region.SampledImagePrepareMs) }, { "pipelineLookupMs", Round3(region.PipelineLookupMs) }, { "frontendPrepareMs", Round3(region.FrontendPrepareMs) } });
         }
+        // Async compute queue telemetry (#808). Always present, zeros on a
+        // backend or device that never crosses queues, so a caller can rely on
+        // the key — and `declineReason` is what a zero means.
+        const AsyncComputeStats& ac = totals.AsyncCompute;
+        o["asyncCompute"] = Json{ { "batchesOnComputeQueue", ac.BatchesOnComputeQueue },
+                                  { "batchesDeclined", ac.BatchesDeclined },
+                                  { "ownershipTransfers", ac.OwnershipTransfers },
+                                  { "computeSubmits", ac.ComputeSubmits },
+                                  { "declineReason", ac.DeclineReason } };
         o["passes"] = std::move(passes);
         o["passGpuTotalMs"] = Round3(passGpuTotal);
         // GPU time inside the frame span but between/outside timed passes

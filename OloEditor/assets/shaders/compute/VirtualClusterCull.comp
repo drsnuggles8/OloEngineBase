@@ -35,6 +35,18 @@
 // Phase 1 may therefore reject wrongly (reprojection error, camera cut,
 // disocclusion) with no visible consequence; only a phase-2 reject is final.
 
+// VIRTUAL SHADOW MAP MODE (issue #1149). A third caller: the VSM shadow route
+// runs this program once per virtual-mesh instance PER CLIP LEVEL, with the
+// level's orthographic VP in the camera UBO and u_VSMPageGate naming the level.
+// Everything above is unchanged — same DAG cut, same frustum, same ortho error
+// scale — plus one extra rejection after the frustum test: a cluster whose page
+// footprint covers no DIRTY page in that level is dropped, because the level
+// already holds valid texels for it. That is what makes the shadow cost follow
+// the pages being redrawn rather than the number of shadow views, and it is the
+// only reason sixteen clip levels are affordable where four cascades were.
+// The gate is OFF for every other caller (u_VSMPageGate.x < 0), which is what a
+// zero-initialised parameter block must NOT produce — hence -1 rather than 0.
+
 // CLUSTER-BOUNDS VISUALIZATION (issue #725). The cut, frustum and cone verdicts
 // above are made per cluster on the GPU and, before this, never came back — so
 // "why did that cluster disappear" was answerable only by adding a debug colour
@@ -146,6 +158,20 @@ layout(std430, binding = 44) buffer VirtualRejectList {
     VisibleCluster Records[];
 } rejectList;
 
+// Virtual Shadow Map dirty-page pyramid (issue #1149), SSBO_VSM_HPB.
+//
+// Bound ONLY by the VSM shadow route, exactly like the reject list above: the
+// main view and the classic CSM/atlas cascades leave u_VSMPageGate.x at -1 and
+// never touch this buffer. Read-only here — the VSM kernels own every write.
+// Same block and member names as VirtualShadowBuffers.glsl declares, so the two
+// culls address the pyramid through one spelling.
+layout(std430, binding = 70) readonly buffer VSMHierarchicalPageBuffer { uint b_HPB[]; };
+
+// Constants + vsmHPBIndex only — VirtualShadowCommon.glsl declares no bindings,
+// so pulling it in here costs this program nothing when the gate is off.
+#include "../include/VirtualShadowCommon.glsl"
+#include "../include/VirtualShadowPageFootprint.glsl"
+
 layout(std140, binding = 0) uniform CameraMatrices
 {
     mat4 u_ViewProjection;
@@ -212,6 +238,13 @@ layout(std140, binding = 69) uniform VirtualClusterCullParams
     mat4  u_CullViewProjection;      // 144 - render-origin-relative culling VP
     vec4  u_CullCameraPosition;      // 208 - xyz relative pos, w = override enable
     vec4  u_CullProjParams;          // 224 - x = |proj[1][1]|, y = near plane
+    // ---- Virtual Shadow Map page gate (issue #1149) ---------------------
+    // x = clip level, or -1 when OFF; y/z = that level's wrapped PageOffset.
+    // Only the VSM shadow route sets it. -1 is the OFF value rather than 0
+    // because a zero-initialised block must reproduce the pre-#1149 behaviour
+    // exactly — the same "zero-init is the old path" contract the two-phase and
+    // debug fields above rely on. The gate itself is in main().
+    ivec4 u_VSMPageGate;             // 240
 };
 
 // The culling camera's view-projection, or the bound camera UBO's when no
@@ -610,6 +643,27 @@ void main()
             DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 2, vec3(1.0, 0.15, 0.15));
             return; // outside this plane
         }
+    }
+
+    // ── Virtual Shadow Map dirty-page gate (issue #1149) ──
+    // The VSM route culls these same clusters once per CLIP LEVEL, so the
+    // frustum test above has already answered "is this cluster inside the
+    // level". What is left is the question that makes the cost follow the page
+    // requests instead of the view count: is any page under this cluster
+    // actually being redrawn this frame? A clean page already holds valid texels
+    // for it, and the raster stage would discard the fragments anyway — so
+    // rejecting here keeps the whole draw out of the command stream.
+    //
+    // Placed AFTER the residency touch above on purpose: the streaming pages a
+    // cluster needs are requested whether or not its shadow page is dirty this
+    // frame, or the geometry would not be resident when the page does go dirty.
+    if (u_VSMPageGate.x >= 0)
+    {
+        ivec2 pageMin;
+        ivec2 pageMax;
+        vsmSphereToPageRect(u_ViewProjection, worldCenter, worldRadius, pageMin, pageMax);
+        if (!vsmFootprintHasDirtyPage(u_VSMPageGate.x, u_VSMPageGate.yz, pageMin, pageMax))
+            return; // nothing under this cluster is being redrawn
     }
 
     // ── Normal-cone backface rejection (uniform-scale instances only; never

@@ -22,11 +22,13 @@
 include(${CMAKE_SOURCE_DIR}/OloCtl/CoreSources.cmake)
 
 set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
+set(_olo_automation_component_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentRegistry.cpp)
 set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
 set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
 set(_olo_render_graph_test_src Rendering/RenderGraphTest.cpp)
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	set(_olo_mcp_field_registry_src "")
+	set(_olo_automation_component_registry_src "")
 	set(_olo_mcp_tools_render_src "")
 	set(_olo_component_round_trip_src "")
 	set(_olo_render_graph_test_src "")
@@ -307,6 +309,12 @@ add_executable(OloEngine-Tests
 		# tables + the image-layout tracker. Headless (no device — fabricated
 		# handles); compiles to a single SKIP when OLO_WITH_VULKAN=OFF.
 		Rendering/VulkanBarrierLoweringTest.cpp
+		# #808: the async-compute queue — the queue-family selection policy
+		# (including every reason a device has no async queue, which is what
+		# CI hardware exercises) and the queue-family ownership-transfer
+		# pair. Pure CPU; the device-gated round trip is in the same file
+		# behind the usual SKIP ladder.
+		Rendering/VulkanAsyncComputeTest.cpp
 		# #806: parallel command recording — the layout-overlay merge rule
 		# (pure CPU, fabricated handles) and the device-gated fork/join
 		# (N items into N targets through one vkCmdExecuteCommands).
@@ -413,6 +421,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualShadowMapVulkanShaderTest.cpp
 		Rendering/VirtualShadowMapTest.cpp
 		Rendering/VirtualShadowMapLocalTest.cpp
+		Rendering/VirtualGeometryVirtualShadowTest.cpp
 		Rendering/RenderingRegressionTest.cpp
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
@@ -824,6 +833,15 @@ add_executable(OloEngine-Tests
 		# tools/list, tools/search, the gateway and oloctl all call it, so none of
 		# them can drift on what a command looks like or what a result looks like.
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationCatalogue.cpp
+		${_olo_automation_component_registry_src}
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEntityCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
+		MCP/McpAutomationComponentsTest.cpp
+		MCP/McpAutomationEntitiesTest.cpp
+		MCP/McpAutomationSceneLifecycleTest.cpp
+		MCP/McpMainThreadMarshalTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —
@@ -1317,6 +1335,7 @@ add_executable(OloEngine-Tests
 
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_SOURCE_DIR}/OloEditor/src"
+		"Automation/AutomationComponentRegistry.cpp"
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsRender.cpp"
 	)
