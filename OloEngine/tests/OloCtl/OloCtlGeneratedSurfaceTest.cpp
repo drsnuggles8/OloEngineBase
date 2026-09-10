@@ -307,7 +307,11 @@ TEST(OloCtlGeneratedSurface, TheCatalogueEntryMatchesTheToolsListEntry)
     AutomationRegistry registry;
     OloEngine::MCP::RegisterBuiltinCommands(registry);
 
-    for (const AutomationCommand& command : *registry.Snapshot())
+    // A NAMED snapshot, per AutomationRegistry.h's CommandSnapshot contract: keep the
+    // owning shared_ptr in scope for as long as anything reads into its vector, rather
+    // than making the reader reason about how long a temporary lives.
+    const AutomationRegistry::CommandSnapshot snapshot = registry.Snapshot();
+    for (const AutomationCommand& command : *snapshot)
     {
         Json frontend = OloEngine::Automation::DescribeForFrontend(command);
         ASSERT_TRUE(frontend.contains("projectWrite")) << command.Name;

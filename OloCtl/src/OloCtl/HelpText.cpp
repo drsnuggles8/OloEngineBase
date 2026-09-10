@@ -29,6 +29,8 @@ namespace OloCtl
             "Connection (an OloEditor must be running with its MCP diagnostics server started):\n"
             "  --url <url>              MCP endpoint, e.g. http://127.0.0.1:7345/mcp. Needs --token.\n"
             "  --token <token>          Bearer token, as shown in the editor's MCP Server panel.\n"
+            "                           OLOCTL_TOKEN supplies it instead, keeping it out of argv\n"
+            "                           and shell history; --token wins when both are set.\n"
             "  --port <n>               Use the discovery file for this port.\n"
             "  --discovery-file <path>  Read host/port/token from this file.\n"
             "  --timeout <ms>           Per-request timeout. Default 30000.\n"

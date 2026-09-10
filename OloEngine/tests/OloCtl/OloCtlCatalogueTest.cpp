@@ -101,6 +101,26 @@ TEST(OloCtlCatalogue, AWholeAnswerOfTheWrongShapeIsReportedRatherThanThrowing)
     EXPECT_NE(catalogue.Rejected.front().Reason.find("array"), std::string::npos);
 }
 
+// PRESENT but the wrong type is a rejection, not a default. Substituting the empty
+// object schema would accept a description this build cannot represent and then bind
+// every argument as untyped — a silent fallback dressed as a sensible default.
+TEST(OloCtlCatalogue, ASchemaFieldOfTheWrongTypeIsRejectedRatherThanDefaulted)
+{
+    Json badInput = MakeEntry("olo_bad_input", false);
+    badInput["inputSchema"] = "not an object";
+    Json badOutput = MakeEntry("olo_bad_output", false);
+    badOutput["outputSchema"] = Json::array({ 1, 2 });
+
+    const Catalogue catalogue = ParseCatalogue(Json::array({ badInput, badOutput }), "test");
+
+    EXPECT_TRUE(catalogue.Entries.empty());
+    ASSERT_EQ(catalogue.Rejected.size(), 2u);
+    EXPECT_EQ(catalogue.Rejected[0].Name, "olo_bad_input");
+    EXPECT_NE(catalogue.Rejected[0].Reason.find("inputSchema"), std::string::npos);
+    EXPECT_EQ(catalogue.Rejected[1].Name, "olo_bad_output");
+    EXPECT_NE(catalogue.Rejected[1].Reason.find("outputSchema"), std::string::npos);
+}
+
 TEST(OloCtlCatalogue, AMissingInputSchemaBecomesTheEmptyObjectSchema)
 {
     Json entry = MakeEntry("olo_screenshot", false);

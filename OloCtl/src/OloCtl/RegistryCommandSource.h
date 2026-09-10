@@ -65,7 +65,12 @@ namespace OloCtl
             using OloEngine::Automation::AutomationResult;
 
             InvokeOutcome outcome;
-            const AutomationInvocation invocation = m_Registry.Invoke(m_Host, name, arguments);
+            // ONE snapshot for the invocation AND for the shaping decision below. A
+            // second snapshot taken afterwards could let a command-list swap between
+            // them shape the result by a different command's declaration than the one
+            // that actually ran.
+            const OloEngine::Automation::AutomationRegistry::CommandSnapshot snapshot = m_Registry.Snapshot();
+            const AutomationInvocation invocation = m_Registry.Invoke(snapshot, m_Host, name, arguments);
 
             // How a refusal is reported is the transport's business
             // (AutomationInvocation's contract), and the shape that keeps this
@@ -99,11 +104,6 @@ namespace OloCtl
             // Session-level policy the transport adds on top (path redaction) is
             // deliberately NOT reproduced: it belongs to a session, not to a result.
             AutomationResult shaped = invocation.Result;
-            // The snapshot is held in a NAMED local, not a temporary: Find returns a
-            // pointer into its vector, and a concurrent swap would leave that pointer
-            // dangling the moment the temporary shared_ptr died (AutomationRegistry.h's
-            // CommandSnapshot contract).
-            const OloEngine::Automation::AutomationRegistry::CommandSnapshot snapshot = m_Registry.Snapshot();
             if (const AutomationCommand* command =
                     OloEngine::Automation::AutomationRegistry::Find(*snapshot, name))
             {

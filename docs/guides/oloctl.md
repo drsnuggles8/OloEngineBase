@@ -61,6 +61,9 @@ oloctl scene list-entities --arguments-json '{"limit":10}'
   `--version`, `--arguments-json`) can only be given through `--arguments-json`. `oloctl`
   says so, and **refuses the call** rather than running it with the argument quietly
   missing. No command collides today.
+- **A value may never begin with `--`.** `--name --limit 5` is an error, not a `name` of
+  `"--limit"`, because swallowing the next option runs the command with a wrong argument and
+  still exits 0. Use `--name=--literal` when the value genuinely starts with two dashes.
 
 **`oloctl` validates nothing beyond the type.** `required`, `enum`, ranges and
 `additionalProperties` are enforced by the editor, through the same validator an MCP
@@ -102,6 +105,8 @@ The editor writes a discovery file (host, port, token, URL) when its MCP server 
 `oloctl` reads it. Precedence, in order:
 
 1. `--url` + `--token` — bypasses discovery entirely; both are in the editor's MCP panel.
+   `OLOCTL_TOKEN` supplies the token instead, keeping it out of argv and shell history
+   (a discovery file never puts it there); `--token` wins when both are set.
 2. `--discovery-file <path>`
 3. `--port <n>` — the per-worktree port the `run-oloengine` skill derives.
 4. `OLO_MCP_DISCOVERY_FILE`
@@ -129,6 +134,13 @@ so `oloctl` takes the **whole registry** — via `olo_tool_search`, which report
 registered command regardless of the profile. Measured against a stock editor: `oloctl` sees
 99 commands where `tools/list` advertises 18. A CLI that silently offered 18 of 99 would look
 exactly like a working one.
+
+**One cap, and it is not silent.** `olo_tool_search` limits a single response to 200 commands
+and has no paging, so `oloctl` sees the whole registry only while it holds 200 or fewer
+commands — 99 today. Past that, `oloctl` prints how many the editor reported against how many
+it received and names the cap, on stderr, on every run. It does not truncate quietly. Paging
+the gateway is the fix when the registry gets there; until then this is the documented
+contract rather than an unstated limit.
 
 ## Writes are closed
 

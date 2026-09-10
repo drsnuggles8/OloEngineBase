@@ -119,6 +119,45 @@ TEST(OloCtlArgumentBinder, AnUnknownOptionListsWhatIsAccepted)
     EXPECT_NE(bound.Error.find("--since-id"), std::string::npos);
 }
 
+// The failure this guards is a WRONG ANSWER, not an error: `--names --verbose-output`
+// used to bind `names` to `["--verbose-output"]`, silently drop `verboseOutput`, run
+// the command and exit 0. The bare-boolean branch always had this guard; every other
+// type needed it too.
+TEST(OloCtlArgumentBinder, AnOptionNeverSwallowsTheNextOptionAsItsValue)
+{
+    const BindResult array = Bind({ "--names", "--verbose-output" });
+    EXPECT_FALSE(array.Ok);
+    EXPECT_NE(array.Error.find("expects a value"), std::string::npos) << array.Error;
+
+    const BindResult string = Bind({ "--name", "--verbose-output" });
+    EXPECT_FALSE(string.Ok);
+
+    // Including an option this command does not declare: a stray `--typo` after an
+    // option is a mistyped flag far more often than a value, and binding it silently
+    // is the same wrong answer.
+    const BindResult unknownNext = Bind({ "--name", "--not-a-flag" });
+    EXPECT_FALSE(unknownNext.Ok);
+
+    // ...and the error says how to mean it literally.
+    EXPECT_NE(string.Error.find("--name=--verbose-output"), std::string::npos) << string.Error;
+}
+
+// The documented escape hatch for a value that really does start with two dashes.
+TEST(OloCtlArgumentBinder, AnEqualsSignPassesAValueThatBeginsWithDashes)
+{
+    const BindResult bound = Bind({ "--name=--verbose-output" });
+    ASSERT_TRUE(bound.Ok) << bound.Error;
+    EXPECT_EQ(bound.Arguments["name"], "--verbose-output");
+}
+
+// A single dash is not an option, so a negative number is still a value.
+TEST(OloCtlArgumentBinder, ANegativeNumberIsStillAValue)
+{
+    const BindResult bound = Bind({ "--strength", "-0.5" });
+    ASSERT_TRUE(bound.Ok) << bound.Error;
+    EXPECT_DOUBLE_EQ(bound.Arguments["strength"].get<double>(), -0.5);
+}
+
 TEST(OloCtlArgumentBinder, AnOptionWithNoValueIsAnError)
 {
     const BindResult bound = Bind({ "--name" });

@@ -114,13 +114,30 @@ namespace OloCtl
             entry.Toolset = ReadToolset(source_entry);
             entry.Authority = ReadAuthority(source_entry);
 
+            // A schema field that is PRESENT but not an object is a rejection, not a
+            // default. Substituting the empty object schema would accept a command
+            // description this build cannot represent and then quietly bind every
+            // argument as untyped -- the silent-fallback shape this file exists to
+            // avoid. Absent is different, and keeps the default.
             const auto inputSchema = source_entry.find("inputSchema");
-            entry.InputSchema = (inputSchema != source_entry.end() && inputSchema->is_object())
-                                    ? *inputSchema
-                                    : Json{ { "type", "object" } };
+            if (inputSchema != source_entry.end() && !inputSchema->is_object())
+            {
+                catalogue.Rejected.push_back({ index, entry.Name,
+                                               "`inputSchema` is a " + std::string(inputSchema->type_name()) +
+                                                   ", not an object" });
+                continue;
+            }
+            entry.InputSchema = inputSchema != source_entry.end() ? *inputSchema : Json{ { "type", "object" } };
 
             const auto outputSchema = source_entry.find("outputSchema");
-            if (outputSchema != source_entry.end() && outputSchema->is_object())
+            if (outputSchema != source_entry.end() && !outputSchema->is_object())
+            {
+                catalogue.Rejected.push_back({ index, entry.Name,
+                                               "`outputSchema` is a " + std::string(outputSchema->type_name()) +
+                                                   ", not an object" });
+                continue;
+            }
+            if (outputSchema != source_entry.end())
                 entry.OutputSchema = *outputSchema;
 
             // `listed` is added by the host's registry-introspection surfaces

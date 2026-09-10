@@ -191,6 +191,24 @@ namespace OloCtl
             return true;
         }
 
+        // Does this token read as an option rather than a value?
+        //
+        // A VALUE MAY NEVER BEGIN WITH `--`. The bare-boolean branch has always
+        // needed that test to avoid eating the next option; applying it to every
+        // type closes the same hole for the rest, which is where it actually bites:
+        // `--names --verbose-output` used to bind `names` to `["--verbose-output"]`,
+        // silently drop `verboseOutput`, run the command with a wrong argument and
+        // exit 0. A wrong answer wearing a right answer's exit code.
+        //
+        // Stricter than "is it a KNOWN flag": an unknown `--typo` after an option is
+        // far more likely a mistyped flag than a value that happens to start with two
+        // dashes, and swallowing it is the same silent failure. A genuine value with
+        // a leading `--` stays reachable through `--flag=--value`.
+        bool LooksLikeOption(const std::string& token)
+        {
+            return token.size() >= 3 && token.compare(0, 2, "--") == 0;
+        }
+
         // One `--flag value` for an array-typed property. A whole JSON array replaces
         // the accumulator's contents-so-far element by element; anything else is one
         // element, coerced by the declared `items` type.
@@ -303,7 +321,7 @@ namespace OloCtl
                 }
             }
             else if (property.Type == "boolean" && !hasInlineValue &&
-                     (i + 1 >= tokens.size() || tokens[i + 1].compare(0, 2, "--") == 0))
+                     (i + 1 >= tokens.size() || LooksLikeOption(tokens[i + 1])))
             {
                 // A bare boolean flag means true. The next token is only consumed when
                 // it is plainly a value rather than the next option.
@@ -313,14 +331,21 @@ namespace OloCtl
                 text = inlineValue;
                 hasText = true;
             }
-            else if (i + 1 < tokens.size())
+            else if (i + 1 < tokens.size() && !LooksLikeOption(tokens[i + 1]))
             {
                 text = tokens[++i];
                 hasText = true;
             }
             else
             {
-                result.Error = "--" + flag + " expects a value.";
+                result.Error = "--" + flag + " expects a value";
+                if (i + 1 < tokens.size())
+                {
+                    result.Error += ", and '" + tokens[i + 1] +
+                                    "' reads as another option. Write --" + flag + "=" + tokens[i + 1] +
+                                    " if it really is the value";
+                }
+                result.Error += '.';
                 return result;
             }
 

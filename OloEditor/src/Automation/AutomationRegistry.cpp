@@ -249,8 +249,13 @@ namespace OloEngine::Automation
         // Pin the snapshot for the whole invocation, exactly as the MCP adapter does:
         // a concurrent script reload may swap the registry while the handler runs, and
         // the command (and any Lua state it closes over) must outlive the call.
-        const CommandSnapshot snapshot = Snapshot();
+        return Invoke(Snapshot(), host, name, arguments, consent);
+    }
 
+    AutomationInvocation AutomationRegistry::Invoke(const CommandSnapshot& snapshot, IAutomationHost& host,
+                                                    const std::string& name, const Json& arguments,
+                                                    AutomationWriteConsent consent) const
+    {
         AutomationInvocation outcome;
         const AutomationCommand* command = Find(*snapshot, name);
         if (command == nullptr)

@@ -141,17 +141,40 @@ namespace OloCtl
         // prevent.
         if (!request.Url.empty())
         {
-            if (request.Token.empty())
+            // OLOCTL_TOKEN so the bearer token need not go through argv. A discovery
+            // file never puts it there; `--url --token` does, and argv is readable by
+            // other local processes and lands in shell history, which the discovery
+            // file does not. `--token` still wins when both are given.
+            std::string token = request.Token;
+            std::string origin = "--url";
+            if (token.empty())
             {
-                outError = "--url needs --token: the editor's MCP endpoint rejects an unauthenticated request. "
-                           "The token is in the editor's MCP Server panel.";
+                if (const std::optional<std::string> fromEnv = EnvVar("OLOCTL_TOKEN"))
+                {
+                    token = *fromEnv;
+                    origin = "--url with OLOCTL_TOKEN";
+                }
+            }
+            if (token.empty())
+            {
+                outError = "--url needs a token: the editor's MCP endpoint rejects an unauthenticated request. "
+                           "Pass --token, or set OLOCTL_TOKEN to keep it out of your shell history. The token "
+                           "is in the editor's MCP Server panel.";
                 return std::nullopt;
             }
-            return Endpoint{ request.Url, request.Token, "--url" };
+            return Endpoint{ request.Url, token, origin };
         }
         if (!request.Token.empty())
         {
             outError = "--token without --url. Give both, or neither and let the discovery file supply them.";
+            return std::nullopt;
+        }
+        // OLOCTL_TOKEN alone says nothing about WHICH editor to reach, and silently
+        // ignoring it would leave someone believing they had configured a connection.
+        if (EnvVar("OLOCTL_TOKEN").has_value())
+        {
+            outError = "OLOCTL_TOKEN is set but no --url was given. OLOCTL_TOKEN only supplies the token for an "
+                       "explicit --url; a discovery file already carries its own.";
             return std::nullopt;
         }
 

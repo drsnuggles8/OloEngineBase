@@ -667,6 +667,14 @@ set_target_properties(oloctl PROPERTIES FOLDER "Applications")
 # stays a valid C string literal on Windows. A target absent on this platform
 # simply leaves its macro undefined and the matching test SKIPs at runtime.
 if(TARGET OloEngine-Tests)
+    # oloctl alone gets a real build edge (#1125). $<TARGET_FILE:...> supplies a PATH to
+    # the compile definition and nothing more, so a targeted `--target OloEngine-Tests`
+    # build leaves the binary absent and AppLaunchSmoke.OloCtlLaunchesCleanly SKIPS --
+    # which is the build shape every Linux CI job uses, and exactly the case that test
+    # was added to cover. Six small TUs linking two header-only libraries and nothing
+    # from the engine, so the edge is affordable; the other three apps are not, which is
+    # why they keep skipping.
+    add_dependencies(OloEngine-Tests oloctl)
     foreach(_olo_app OloServer OloEditor OloRuntime oloctl)
         if(TARGET ${_olo_app})
             string(TOUPPER ${_olo_app} _olo_app_uc)

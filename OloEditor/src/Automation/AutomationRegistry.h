@@ -166,6 +166,21 @@ namespace OloEngine::Automation
             IAutomationHost& host, const std::string& name, const nlohmann::json& arguments,
             AutomationWriteConsent consent = AutomationWriteConsent::Withheld) const;
 
+        // Invoke against a snapshot the CALLER pinned, for a caller that must correlate
+        // the invocation with the command DEFINITION it ran -- reading its declared
+        // result shaping, say. The overload above takes its own snapshot, so a caller
+        // that looked the command up separately could have been looking at a different
+        // vector from the one that ran: ReplaceScriptCommands can swap it between the
+        // two calls, which is the whole reason the snapshot exists. Pinning one and
+        // passing it in removes the window rather than narrowing it.
+        //
+        // The same discipline the MCP adapter already follows by holding one
+        // ToolsSnapshot across a whole tools/call.
+        [[nodiscard]] AutomationInvocation Invoke(
+            const CommandSnapshot& commands, IAutomationHost& host, const std::string& name,
+            const nlohmann::json& arguments,
+            AutomationWriteConsent consent = AutomationWriteConsent::Withheld) const;
+
         // Run `command`'s handler, converting an escaping exception into an error
         // result. The single place a handler is entered, so the registry path and the
         // MCP adapter cannot drift on what "running a command" means.
