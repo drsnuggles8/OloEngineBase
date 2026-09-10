@@ -150,6 +150,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
 - [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
+- [automation-build-invocation.md](automation-build-invocation.md): a build started from inside the editor goes through `build-lock.ps1` or it does not happen, the editor process is the lock's identity, cancellation kills the job object rather than the shim, and `OloEditor` is refused by allow-list.
 
 ## Concurrency and memory
 
@@ -308,6 +309,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
+| [automation-build-invocation.md](automation-build-invocation.md) | A build's exit code is 0 three different ways without anything having been built — the lock's stand-down, a no-op incremental, and a build that never started next to last week's binary. |
 | [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md) | A sampled zero is a value, not an error: the frame is wrong exactly where the feature is active and right where it is not, on one vendor only. |
 | [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md) | Two platforms disagree about procedural content, or a test passes on one and fails on the other with no GPU difference behind it. |
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | A red that recurs every run gets normalised and blinds the suite. |
