@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <glm/glm.hpp>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine
@@ -220,6 +221,36 @@ namespace OloEngine
         // casters were virtual meshes was skipped outright and Nanite geometry cast no shadow.
         [[nodiscard]] static bool AnyVirtualShadowCaster();
 
+        // ---- Virtual geometry into the Virtual Shadow Map (issue #1149) ------
+        //
+        // Both read this frame's prepared virtual-mesh instances, so both require
+        // VirtualGeometryShadow::PrepareViews to have run first.
+
+        // Both read m_VsmVirtualBounds, which CollectVirtualCasterBounds fills
+        // once per frame — the list is immutable for the frame and walking the
+        // registry twice for it bought nothing.
+        [[nodiscard]] bool CollectVirtualCasterBounds();
+
+        // Fills m_VsmClipViews with the clip levels at least one shadow-casting
+        // virtual instance reaches. The GPU would reject the rest anyway; doing
+        // it here is what stops an untouched level from costing a dispatch per
+        // instance.
+        void BuildVirtualClipViews(const VirtualShadowMap& vsm);
+
+        // Re-dirties the pages a virtual caster covers when what it draws there
+        // changed: it MOVED, it APPEARED, or it DISAPPEARED. Without this a
+        // cached page keeps the old silhouette — the page cache's characteristic
+        // artefact, and one that looks like a lighting bug rather than a caching
+        // one.
+        //
+        // All three matter and only the first is a transform question. A caster
+        // that is deleted, or has CastShadows unticked, simply stops appearing in
+        // the frame list; nothing compares against it, so without the departure
+        // half its shadow stays on screen forever. An arrival is the mirror case:
+        // a freshly spawned instance has Transform == PrevTransform, reads as
+        // "did not move", and lands on pages that are already clean.
+        void SubmitVirtualDynamicInvalidations(VirtualShadowMap& vsm);
+
         // Records every caster category of one view using item-owned uploads
         // and cull outputs. All shader lookups and resource growth precede it.
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
@@ -257,6 +288,30 @@ namespace OloEngine
         std::vector<VirtualGeometryShadow::ViewResources> m_VirtualItemResources;
         std::vector<ItemProfilerTally> m_ItemTallies;
         std::vector<ActiveShadowView> m_ActiveViews; // the current region's items, in item order
+
+        // ---- Virtual geometry into the Virtual Shadow Map (issue #1149) ------
+        //
+        // ONE set of cull outputs, not one per view like m_VirtualItemResources
+        // above: the VSM raster is a single sequential region, so its clip levels
+        // are drawn one after another and can reuse the same command / args /
+        // visible buffers. The cascade region forks, which is the only reason
+        // that one is a vector.
+        VirtualGeometryShadow::ViewResources m_VsmVirtualResources;
+        std::vector<VirtualGeometryShadow::VsmClipView> m_VsmClipViews;
+        // Scratch for this frame's virtual shadow casters, kept as a member so
+        // the allocation survives across frames (cleared, never read across a
+        // frame boundary, render thread only).
+        std::vector<VirtualGeometryShadow::ShadowCasterBounds> m_VsmVirtualBounds;
+        // Last frame's virtual casters, by stable key, so a caster that vanished
+        // can still have its pages invalidated — it is not in this frame's list
+        // to be compared against. Keyed rather than indexed because the frame
+        // list is rebuilt each frame and its order is not stable.
+        struct VirtualCasterFootprint
+        {
+            glm::vec3 Min{ 0.0f };
+            glm::vec3 Max{ 0.0f };
+        };
+        std::unordered_map<u64, VirtualCasterFootprint> m_PrevVirtualCasters;
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;

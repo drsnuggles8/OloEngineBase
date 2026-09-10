@@ -98,6 +98,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [lightmap-receiver-identity.md](lightmap-receiver-identity.md): a baked lightmap region is addressed by (entity UUID, sub-key), never by the entity alone.
 - [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md): phase 1 tests the previous frame's final pyramid; pass order decides who sees old depth.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
+- [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md): a caster family reaches a shadow technique only if somebody wired it there, and the gap is invisible.
 - [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it.
 - [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md): the LOD plane faces the mesh, not the camera, and the error metric must be a ratio.
 - [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md): every writer of mip 0 owes the rest of the chain.
@@ -343,6 +344,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
+| [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md) | A whole caster family loses its shadow when a second technique is switched on and nobody routed it there; a shared parameter block's zero value must not mean "on". |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5); coarse-to-fine fill is one dispatch per level with barriers (§3a). |
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
 | [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md) | A lazily-created registry is destroyed BEFORE the namespace-scope statics whose destructors unregister from it. |
