@@ -118,7 +118,9 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 ### std140 padding rules
 
 - `vec3` occupies 16 bytes (same as `vec4`). Always pad or use `vec4`.
-- A scalar after a `vec3` starts at the next 16-byte boundary — add an explicit `float _paddingN;`.
+- A scalar after a `vec3` starts at the next 16-byte boundary — add an explicit padding float,
+  named for its block (`float _pbrMaterialPad0;`) rather than the generic `_padding0`; see §1 for
+  why a bare `_paddingN` can collide across two nameless blocks in the same shader.
 - Arrays of scalars: each element rounds up to 16 bytes.
 - Struct total size must be a multiple of 16 bytes.
 - **C++ struct layout in `ShaderBindingLayout.h` must match exactly.**
@@ -127,7 +129,10 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 
 - Block names: PascalCase (`ModelMatrices`, `CameraMatrices`).
 - Members: `u_` prefix (`u_ViewProjection`, `u_Model`).
-- Padding fields: `_paddingN` or `_padN`.
+- Padding fields: name them for their block — `_<block>PadN` (`_pbrMaterialPad0`). A bare
+  `_paddingN` / `_padN` is fine only where the block is the shader's sole padded block, and it stops
+  being fine the moment a second one arrives: these blocks are nameless, so their members share the
+  global namespace and shaderc rejects the duplicate (§1).
 - **The leading underscore is load-bearing, not just style.** A shader that
   only needs a subset of a shared block's fields and renames the rest to a
   placeholder (`_camera_pad_view`, `_foliagePad0`, `_vdPad0`, …) is telling
