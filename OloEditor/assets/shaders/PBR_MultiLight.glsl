@@ -203,6 +203,28 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;       // Runtime IBL strength multiplier
     int u_AlphaMode;            // 0=Opaque, 1=Mask, 2=Blend
     int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    // Physical transmission / IOR / volume (issue #970). MUST mirror the
+    // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
+    // lanes so those stay last. Declared unconditionally -- unlike the heap
+    // offsets these are plain material data that every arm reads, and a
+    // shader that omitted them would relayout u_MaterialHeapOffsets by 32 B.
+    //
+    // u_AttenuationSigma* is the Beer-Lambert extinction coefficient the CPU
+    // already derived (Material::GetAttenuationSigma), never the raw glTF
+    // attenuation colour + distance: the glTF default distance is +infinity,
+    // and deriving on the CPU is what keeps that infinity out of GLSL.
+    float u_TransmissionFactor; // 0 = no transmission (the neutral default)
+    float u_IOR;                // 1.5 == the F0 0.04 the dielectric path assumes
+    float u_ThicknessFactor;    // 0 = thin-walled, > 0 = real volume
+    float u_AttenuationSigmaR;
+    float u_AttenuationSigmaG;
+    float u_AttenuationSigmaB;
+    // Uniquely named: a nameless std140 block may not reuse a name already at
+    // global scope, and plain _padding0 is taken by other blocks in these same
+    // shaders (glslc: "nameless block contains a member that already has a
+    // name at global scope").
+    float _pbrMaterialPad0;
+    float _pbrMaterialPad1;
 #if defined(OLO_BINDLESS) || defined(OLO_MATERIAL_VULKAN_HEAP_READER)
     // The per-material offset lanes, declared on EITHER bindless arm. The
     // C++ PBRMaterialUBO always uploads them (sizeof == 144); a std140 block may
@@ -599,6 +621,33 @@ void main()
 
     // Combine lighting — AO attenuates ambient only
     vec3 color = ambient * ao + Lo + emissive;
+
+    // Physical transmission / IOR / volume (issue #970).
+    //
+    // GATED ON transmission > 0, so an ordinary material never executes a line
+    // of this and its output is bit-identical to the pre-#970 shader. The
+    // branch is uniform across the draw (the factor comes from the material
+    // UBO, not a texture), so it costs a scalar test, not divergence.
+    //
+    // The transmitted radiance comes from the PREFILTERED ENVIRONMENT along the
+    // refracted direction, not from a copy of the framebuffer: this engine has
+    // no opaque scene-colour copy bound during the scene pass, and inventing
+    // one would mean a new render pass in territory another branch owns. The
+    // consequence is honest and documented -- glass shows the environment
+    // rather than the geometry directly behind it -- and it is what the
+    // compatibility table in docs/guides/gltf-material-extensions.md records.
+    //
+    // Sampling at `roughness * MAX_REFLECTION_LOD` is what makes rough glass
+    // frosted, matching the mip the reflection lobe above already uses.
+    if (u_TransmissionFactor > 0.0)
+    {
+        vec3 refractDir = oloTransmissionRefractDir(V, N, u_IOR);
+        vec3 transmittedEnv = textureLod(u_PrefilterMap, refractDir, roughness * MAX_REFLECTION_LOD).rgb;
+        color = oloApplyTransmission(color, transmittedEnv, albedo,
+                                     u_TransmissionFactor, metallic, max(dot(N, V), 0.0), u_IOR,
+                                     vec3(u_AttenuationSigmaR, u_AttenuationSigmaG, u_AttenuationSigmaB),
+                                     u_ThicknessFactor);
+    }
 
     // Cascade debug visualization: tint output by cascade index (applied in linear HDR space)
     if (u_CascadeDebugEnabled != 0 && u_DirectionalShadowEnabled != 0)

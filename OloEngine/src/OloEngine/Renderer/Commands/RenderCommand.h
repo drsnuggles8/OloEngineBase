@@ -204,6 +204,20 @@ namespace OloEngine
         // Versioned PBR closure: 0=Legacy, 1=ClosureV2 (matches PBRModel, issue #975).
         i32 pbrModel = 0;
 
+        // Physical transmission / IOR / volume (issue #970). Neutral at these
+        // defaults: transmission 0 makes the shader skip the closure outright,
+        // and a zero extinction makes exp(-sigma * thickness) == 1.
+        //
+        // attenuationSigma is the DERIVED Beer-Lambert coefficient
+        // (Material::GetAttenuationSigma), not the authored attenuation colour
+        // and distance. Deriving it once at submission keeps the glTF default
+        // distance of +infinity off the GPU entirely, and makes this struct's
+        // equality compare the value the UBO cache actually keys on.
+        f32 transmissionFactor = 0.0f;
+        f32 ior = 1.5f;
+        f32 thicknessFactor = 0.0f;
+        glm::vec3 attenuationSigma = glm::vec3(0.0f);
+
         // PBR texture identities (an invalid handle means no map for that slot;
         // test with .IsValid(), never against a literal 0)
         RHI::ResourceHandle albedoMapID{};
@@ -219,7 +233,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

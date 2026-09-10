@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 #include <cstring>
 #include <filesystem>
 #include <utility>
@@ -294,6 +295,12 @@ namespace OloEngine::ImportedMaterialCodec
             desc.Flags = material->GetFlags();
             desc.AlphaMode = static_cast<i32>(material->GetAlphaMode());
             desc.AlphaCutoff = material->GetAlphaCutoff();
+            // Physical glTF material extensions (issue #970).
+            desc.TransmissionFactor = material->GetTransmissionFactor();
+            desc.IOR = material->GetIOR();
+            desc.ThicknessFactor = material->GetThicknessFactor();
+            desc.AttenuationColor = material->GetAttenuationColor();
+            desc.AttenuationDistance = material->GetAttenuationDistance();
             desc.BaseColorFactor = material->GetBaseColorFactor();
             desc.EmissiveFactor = material->GetEmissiveFactor();
             desc.MetallicFactor = material->GetMetallicFactor();
@@ -352,6 +359,14 @@ namespace OloEngine::ImportedMaterialCodec
             material->SetFlags(desc.Flags);
             material->SetAlphaMode(static_cast<AlphaMode>(desc.AlphaMode));
             material->SetAlphaCutoff(desc.AlphaCutoff);
+            // Physical glTF material extensions (issue #970). Each setter
+            // re-sanitizes, so a v1 blob's defaults and a hostile v2 blob's
+            // values land in the same validated range.
+            material->SetTransmissionFactor(desc.TransmissionFactor);
+            material->SetIOR(desc.IOR);
+            material->SetThicknessFactor(desc.ThicknessFactor);
+            material->SetAttenuationColor(desc.AttenuationColor);
+            material->SetAttenuationDistance(desc.AttenuationDistance);
             material->SetBaseColorFactor(desc.BaseColorFactor);
             material->SetEmissiveFactor(desc.EmissiveFactor);
             material->SetMetallicFactor(desc.MetallicFactor);
@@ -467,6 +482,15 @@ namespace OloEngine::ImportedMaterialCodec
             WriteTextureRef(blob, desc.Normal);
             WriteTextureRef(blob, desc.AO);
             WriteTextureRef(blob, desc.Emissive);
+
+            // --- wire version 2 (issue #970) ---
+            // Appended AFTER every v1 field so a v1 reader's cursor never sees
+            // them and a v2 reader can gate on the version alone.
+            WritePod(blob, desc.TransmissionFactor);
+            WritePod(blob, desc.IOR);
+            WritePod(blob, desc.ThicknessFactor);
+            WritePod(blob, desc.AttenuationColor);
+            WritePod(blob, desc.AttenuationDistance);
         }
 
         return blob;
@@ -571,6 +595,41 @@ namespace OloEngine::ImportedMaterialCodec
             desc.RoughnessFactor = SanitizeFloat(desc.RoughnessFactor, 1.0f);
             desc.NormalScale = SanitizeFloat(desc.NormalScale, 1.0f);
             desc.OcclusionStrength = SanitizeFloat(desc.OcclusionStrength, 1.0f);
+
+            // --- wire version 2 (issue #970) ---
+            // A v1 blob simply has nothing here, and every physical field keeps
+            // the neutral default MaterialDesc gave it — which is what makes an
+            // older .omesh cache or asset pack shade identically under this build.
+            if (version >= 2)
+            {
+                if (!ReadPod(cursor, desc.TransmissionFactor) ||
+                    !ReadPod(cursor, desc.IOR) ||
+                    !ReadPod(cursor, desc.ThicknessFactor) ||
+                    !ReadPod(cursor, desc.AttenuationColor) ||
+                    !ReadPod(cursor, desc.AttenuationDistance))
+                {
+                    OLO_CORE_ERROR("ImportedMaterialCodec::Decode: truncated physical-material block at material {}", i);
+                    return false;
+                }
+
+                desc.TransmissionFactor = SanitizeFloat(desc.TransmissionFactor, 0.0f);
+                desc.IOR = SanitizeFloat(desc.IOR, kDefaultIOR);
+                desc.ThicknessFactor = SanitizeFloat(desc.ThicknessFactor, 0.0f);
+                if (!std::isfinite(desc.AttenuationColor.x) || !std::isfinite(desc.AttenuationColor.y) ||
+                    !std::isfinite(desc.AttenuationColor.z))
+                {
+                    desc.AttenuationColor = glm::vec3(1.0f);
+                }
+                // NOT SanitizeFloat: +infinity is this field's DEFAULT and its
+                // "no absorption" value, so rejecting every non-finite value
+                // would turn the neutral case into a finite distance and tint
+                // glass that should be clear. Only NaN and a non-positive
+                // distance are nonsense, and both mean "no absorption" too.
+                if (std::isnan(desc.AttenuationDistance) || desc.AttenuationDistance <= 0.0f)
+                {
+                    desc.AttenuationDistance = std::numeric_limits<f32>::infinity();
+                }
+            }
 
             outDescs.push_back(std::move(desc));
         }

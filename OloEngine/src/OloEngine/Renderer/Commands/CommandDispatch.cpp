@@ -1083,6 +1083,16 @@ namespace OloEngine
                 pbrMaterialData.AlphaCutoff = mat.alphaCutoff;
                 pbrMaterialData.AlphaMode = mat.alphaMode;
                 pbrMaterialData.PBRModel = mat.pbrModel;
+                // Physical transmission / IOR / volume (issue #970). Copied
+                // straight through — every value was sanitized by Material's
+                // setters and the extinction was derived at submission, so
+                // there is nothing left to validate at dispatch.
+                pbrMaterialData.TransmissionFactor = mat.transmissionFactor;
+                pbrMaterialData.IOR = mat.ior;
+                pbrMaterialData.ThicknessFactor = mat.thicknessFactor;
+                pbrMaterialData.AttenuationSigmaR = mat.attenuationSigma.r;
+                pbrMaterialData.AttenuationSigmaG = mat.attenuationSigma.g;
+                pbrMaterialData.AttenuationSigmaB = mat.attenuationSigma.b;
                 // Issue #632: this was a hard-coded 0, which made the forward
                 // path's probe-ambient shader code dead. Wire it to the same
                 // master toggle the deferred path uses so Forward+ scenes get

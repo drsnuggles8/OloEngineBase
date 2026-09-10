@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
@@ -243,6 +244,14 @@ namespace OloEngine
         data.alphaCutoff = material.GetAlphaCutoff();
         data.pbrModel = std::to_underlying(material.GetPBRModel());
 
+        // Physical transmission / IOR / volume (issue #970). GetAttenuationSigma
+        // does the -log(colour)/distance derivation here, once per submission,
+        // so the +infinity default distance never reaches the UBO or GLSL.
+        data.transmissionFactor = material.GetTransmissionFactor();
+        data.ior = material.GetIOR();
+        data.thicknessFactor = material.GetThicknessFactor();
+        data.attenuationSigma = material.GetAttenuationSigma();
+
         // PBR texture renderer IDs.
         data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRHIHandle() : RHI::NullResource;
         data.metallicRoughnessMapID = material.GetMetallicRoughnessMap() ? material.GetMetallicRoughnessMap()->GetRHIHandle() : RHI::NullResource;
@@ -392,11 +401,41 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
+            // TRANSMISSION HAS NO G-BUFFER REPRESENTATION (issue #970).
+            // The G-Buffer carries albedo/metallic, normal/roughness/AO,
+            // emissive/flags, velocity, entity-ID and baked GI -- and nothing
+            // that could hold a transmission factor, an IOR, a thickness or an
+            // extinction coefficient. A transmissive material written into it
+            // therefore comes back out of DeferredLightingPass as an ordinary
+            // opaque surface.
+            //
+            // So reroute it exactly the way a forward-only shader override is
+            // rerouted a few lines up: ForwardOverlayPass binds the scene
+            // framebuffer and runs AFTER the deferred composite, so the forward
+            // PBR shader -- which does have the transmission closure -- shades
+            // the surface over the finished deferred image. Same mechanism, same
+            // reason, and it keeps Deferred and Forward showing the same glass.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (deferred && material.IsTransmissive())
+            {
+                if (s_Data.Pipeline->RenderStreamPasses.ForwardOverlay && s_Data.PBRShader)
+                {
+                    shaderToUse = s_Data.PBRShader;
+                    overlayRoute = true;
+                }
+                else
+                {
+                    // Nowhere correct to put it: counted and warned once rather
+                    // than silently shaded opaque (CLAUDE.md, no silent fallbacks).
+                    NoteTransmissiveDrawWithoutForwardOverlay();
+                    shaderToUse = s_Data.PBRGBufferShader ? s_Data.PBRGBufferShader : s_Data.PBRShader;
+                }
+            }
             // Route PBR default shader to the G-Buffer write variant when the
             // deferred path is active. Material overrides still win (so
             // custom shaders, e.g. terrain/foliage, keep their forward
             // pipeline until their own G-Buffer variants land in later phases).
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+            else if (deferred && s_Data.PBRGBufferShader)
                 shaderToUse = s_Data.PBRGBufferShader;
             else
                 shaderToUse = s_Data.PBRShader;
@@ -531,7 +570,37 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+            // TRANSMISSION HAS NO G-BUFFER REPRESENTATION (issue #970).
+            // The G-Buffer carries albedo/metallic, normal/roughness/AO,
+            // emissive/flags, velocity, entity-ID and baked GI -- and nothing
+            // that could hold a transmission factor, an IOR, a thickness or an
+            // extinction coefficient. A transmissive material written into it
+            // therefore comes back out of DeferredLightingPass as an ordinary
+            // opaque surface.
+            //
+            // So reroute it exactly the way a forward-only shader override is
+            // rerouted a few lines up: ForwardOverlayPass binds the scene
+            // framebuffer and runs AFTER the deferred composite, so the forward
+            // PBR shader -- which does have the transmission closure -- shades
+            // the surface over the finished deferred image. Same mechanism, same
+            // reason, and it keeps Deferred and Forward showing the same glass.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (deferred && material.IsTransmissive())
+            {
+                if (s_Data.Pipeline->RenderStreamPasses.ForwardOverlay && s_Data.PBRShader)
+                {
+                    routing.ShaderToUse = s_Data.PBRShader;
+                    routing.OverlayRoute = true;
+                }
+                else
+                {
+                    // Nowhere correct to put it: counted and warned once rather
+                    // than silently shaded opaque (CLAUDE.md, no silent fallbacks).
+                    NoteTransmissiveDrawWithoutForwardOverlay();
+                    routing.ShaderToUse = s_Data.PBRGBufferShader ? s_Data.PBRGBufferShader : s_Data.PBRShader;
+                }
+            }
+            else if (deferred && s_Data.PBRGBufferShader)
                 routing.ShaderToUse = s_Data.PBRGBufferShader;
             else
                 routing.ShaderToUse = s_Data.PBRShader;

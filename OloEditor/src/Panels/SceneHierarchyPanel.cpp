@@ -64,8 +64,10 @@
 #include <misc/cpp/imgui_stdlib.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cmath>
 #include <cstring>
 #include <cctype>
+#include <limits>
 #include <concepts>
 #include <unordered_map>
 #include <algorithm>
@@ -3489,9 +3491,23 @@ namespace OloEngine
                         component.m_Material.SetRoughnessFactor(0.95f);
                         break;
                     case 6: // Glass
-                        component.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.9f, 0.95f, 0.3f));
+                        // Physically transmissive since issue #970: the preset
+                        // used to fake glass with a 0.3 base-colour alpha, which
+                        // only worked on a blended material and carried no IOR,
+                        // no thickness and no absorption. It now authors the
+                        // real KHR_materials_transmission / _ior / _volume set,
+                        // so the same button produces glass the shading path
+                        // actually understands.
+                        component.m_Material.SetBaseColorFactor(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
                         component.m_Material.SetMetallicFactor(0.0f);
                         component.m_Material.SetRoughnessFactor(0.05f);
+                        component.m_Material.SetTransmissionFactor(1.0f);
+                        component.m_Material.SetIOR(kDefaultIOR);
+                        // Thin-walled: a volume needs a thickness the author
+                        // chooses, and guessing one here would tint the preset.
+                        component.m_Material.SetThicknessFactor(0.0f);
+                        component.m_Material.SetAttenuationColor(glm::vec3(1.0f));
+                        component.m_Material.SetAttenuationDistance(std::numeric_limits<f32>::infinity());
                         break;
                     case 7: // Gold
                         component.m_Material.SetBaseColorFactor(glm::vec4(1.0f, 0.766f, 0.336f, 1.0f));
@@ -3546,6 +3562,74 @@ namespace OloEngine
                 {
                     component.m_Material.SetPBRModel(static_cast<PBRModel>(pbrModel));
                 }
+            }
+
+            // Physical glTF material extensions (issue #970):
+            // KHR_materials_transmission, _ior and _volume. Collapsed by
+            // default -- every field is neutral on an ordinary material, and a
+            // section that is always open would imply otherwise.
+            if (ImGui::TreeNodeEx("Transmission & Volume", ImGuiTreeNodeFlags_SpanAvailWidth))
+            {
+                if (f32 transmission = component.m_Material.GetTransmissionFactor();
+                    ImGui::DragFloat("Transmission", &transmission, 0.01f, 0.0f, 1.0f))
+                {
+                    component.m_Material.SetTransmissionFactor(transmission);
+                }
+
+                // Range starts at 1.0 -- the physical floor for a dielectric.
+                // The setter's own clamp is the real guard (it also accepts the
+                // glTF 0.0 "no refraction" sentinel); this is just the drag box.
+                if (f32 ior = component.m_Material.GetIOR(); ImGui::DragFloat("IOR", &ior, 0.005f, 1.0f, kMaxIOR))
+                {
+                    component.m_Material.SetIOR(ior);
+                }
+
+                ImGui::BeginDisabled(!component.m_Material.IsTransmissive());
+                if (f32 thickness = component.m_Material.GetThicknessFactor();
+                    ImGui::DragFloat("Thickness", &thickness, 0.01f, 0.0f, 100.0f))
+                {
+                    component.m_Material.SetThicknessFactor(thickness);
+                }
+
+                if (glm::vec3 attenuation = component.m_Material.GetAttenuationColor();
+                    ImGui::ColorEdit3("Attenuation Color", glm::value_ptr(attenuation)))
+                {
+                    component.m_Material.SetAttenuationColor(attenuation);
+                }
+
+                // +infinity is the glTF default and cannot be typed into a drag
+                // box, so it gets an explicit toggle rather than a sentinel
+                // number the user has to know about.
+                bool infiniteDistance = !std::isfinite(component.m_Material.GetAttenuationDistance());
+                if (ImGui::Checkbox("Infinite Attenuation Distance", &infiniteDistance))
+                {
+                    component.m_Material.SetAttenuationDistance(
+                        infiniteDistance ? std::numeric_limits<f32>::infinity() : 1.0f);
+                }
+                if (!infiniteDistance)
+                {
+                    // RE-READ after the checkbox, never a value captured before
+                    // it: on the frame the box is unchecked the setter has just
+                    // written 1.0, and a stale +inf here would show "inf" in the
+                    // drag box and clamp to the max on the first nudge.
+                    if (f32 distance = component.m_Material.GetAttenuationDistance();
+                        ImGui::DragFloat("Attenuation Distance", &distance, 0.01f, kMinAttenuationDistance, 1000.0f))
+                    {
+                        component.m_Material.SetAttenuationDistance(distance);
+                    }
+                }
+                ImGui::EndDisabled();
+
+                if (!component.m_Material.IsTransmissive())
+                {
+                    ImGui::TextDisabled("Volume applies only while Transmission > 0.");
+                }
+                else if (!component.m_Material.HasVolume())
+                {
+                    ImGui::TextDisabled("Thin-walled: no absorption until Thickness > 0.");
+                }
+
+                ImGui::TreePop();
             }
 
             ImGui::Separator();

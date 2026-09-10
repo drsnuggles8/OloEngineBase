@@ -13,6 +13,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -45,6 +46,31 @@ namespace OloEngine
         Mask = 1,   // Per-pixel discard when sampled alpha < alphaCutoff
         Blend = 2   // Alpha blending (also requires MaterialFlag::Blend)
     };
+
+    // Physical-material constants (issue #970), shared by Material, the glTF
+    // importer, the serializers and the tests so none of them re-spells a
+    // magic number.
+    //
+    // kDefaultIOR is 1.5 because that is BOTH the glTF default and the exact
+    // value that reproduces the dielectric F0 the PBR shaders already
+    // hardcode: ((1.5 - 1) / (1.5 + 1))^2 == 0.04. That equality is what makes
+    // an untouched material bit-identical, and MaterialTransmissionDefaultsTest
+    // asserts it rather than trusting the comment.
+    inline constexpr f32 kDefaultIOR = 1.5f;
+    // Upper bound so a garbage asset cannot push the Fresnel term somewhere
+    // useless. Diamond is 2.42; 5 leaves headroom for stylized content.
+    inline constexpr f32 kMaxIOR = 5.0f;
+    // Positive floor for an attenuation-colour channel, so -log(channel) stays
+    // finite. See Material::SetAttenuationColor.
+    inline constexpr f32 kMinAttenuationChannel = 1.0e-4f;
+    // Positive floor for a FINITE attenuation distance. Rejecting only NaN and
+    // non-positive values is not enough: -log(kMinAttenuationChannel) is about
+    // 9.2, so a denormal distance near 1e-38 overflows the division to +inf, and
+    // an infinite sigma gives exp(-inf * 0) == NaN at thickness 0 -- a NaN in the
+    // material UBO, from a value every other check accepts. 1e-4 is far below any
+    // meaningful authored distance (it absorbs to black within a tenth of a
+    // millimetre) and keeps the derivation comfortably finite.
+    inline constexpr f32 kMinAttenuationDistance = 1.0e-4f;
 
     // @brief Material class for handling PBR and legacy material properties
     //
@@ -344,6 +370,139 @@ namespace OloEngine
             m_AlphaCutoff = std::clamp(cutoff, 0.0f, 1.0f);
         }
 
+        // =====================================================================
+        // PHYSICAL TRANSMISSION / IOR / VOLUME (issue #970)
+        //
+        // The three glTF extensions KHR_materials_transmission, _ior and
+        // _volume, kept as authored so a round-trip returns what the asset
+        // said. Every default here is NEUTRAL: TransmissionFactor 0 makes the
+        // shader skip the whole closure, IOR 1.5 is exactly the F0 = 0.04 the
+        // dielectric path already hardcodes, and an attenuation distance of
+        // +infinity with a white attenuation colour means "no absorption".
+        // A material that never touches these setters is therefore bit-
+        // identical to one from before this feature existed, which
+        // MaterialTransmissionTest pins rather than asserts in a comment.
+        //
+        // The GPU does NOT see AttenuationColor/AttenuationDistance directly:
+        // GetAttenuationSigma() derives the Beer-Lambert coefficient once on
+        // the CPU, which keeps every infinity out of the UBO and out of GLSL.
+        f32 GetTransmissionFactor() const
+        {
+            return m_TransmissionFactor;
+        }
+        void SetTransmissionFactor(f32 transmission)
+        {
+            // Sanitize at the API boundary, as SetAlphaCutoff does: this value
+            // arrives straight from glTF/YAML and a NaN would reach the UBO.
+            if (!std::isfinite(transmission))
+                transmission = 0.0f;
+            m_TransmissionFactor = std::clamp(transmission, 0.0f, 1.0f);
+        }
+
+        // The one gate the renderer and the serializers agree on. Strictly
+        // greater than zero, never an == comparison on a float.
+        bool IsTransmissive() const
+        {
+            return m_TransmissionFactor > 0.0f;
+        }
+
+        f32 GetIOR() const
+        {
+            return m_IOR;
+        }
+        void SetIOR(f32 ior)
+        {
+            // glTF allows >= 1.0, plus the special value 0.0 which the spec
+            // defines as "no refraction". Anything strictly between 0 and 1 is
+            // nonsense, so it falls back to the default rather than producing a
+            // negative F0 in the Fresnel term.
+            if (!std::isfinite(ior))
+                ior = kDefaultIOR;
+            m_IOR = (ior > 0.0f && ior < 1.0f) ? kDefaultIOR : std::clamp(ior, 0.0f, kMaxIOR);
+        }
+
+        f32 GetThicknessFactor() const
+        {
+            return m_ThicknessFactor;
+        }
+        void SetThicknessFactor(f32 thickness)
+        {
+            if (!std::isfinite(thickness))
+                thickness = 0.0f;
+            m_ThicknessFactor = std::max(thickness, 0.0f);
+        }
+
+        // Thickness is what separates a thin-walled surface (0) from a real
+        // volume (> 0). KHR_materials_volume applies its volume half only when
+        // thickness is non-zero, so this is the gate the shading path and the
+        // compatibility table both use.
+        bool HasVolume() const
+        {
+            return m_ThicknessFactor > 0.0f;
+        }
+
+        const glm::vec3& GetAttenuationColor() const
+        {
+            return m_AttenuationColor;
+        }
+        void SetAttenuationColor(const glm::vec3& color)
+        {
+            // Per-channel clamp with a positive floor: a channel of exactly 0
+            // is legal glTF but means "infinitely absorbing", and log(0) is
+            // -inf, which would make the derived sigma infinite and produce a
+            // NaN at thickness 0 (inf * 0). kMinAttenuationChannel keeps the
+            // derivation finite while still reading as black over any
+            // meaningful thickness.
+            glm::vec3 sanitized = color;
+            for (int channel = 0; channel < 3; ++channel)
+            {
+                if (!std::isfinite(sanitized[channel]))
+                    sanitized[channel] = 1.0f;
+                sanitized[channel] = std::clamp(sanitized[channel], kMinAttenuationChannel, 1.0f);
+            }
+            m_AttenuationColor = sanitized;
+        }
+
+        f32 GetAttenuationDistance() const
+        {
+            return m_AttenuationDistance;
+        }
+        void SetAttenuationDistance(f32 distance)
+        {
+            // +infinity is the glTF default and a MEANINGFUL value here ("no
+            // absorption"), so unlike every other setter this one accepts a
+            // non-finite input -- but only +inf, never NaN and never -inf.
+            if (std::isnan(distance) || distance <= 0.0f)
+                distance = std::numeric_limits<f32>::infinity();
+            // A FINITE distance also gets a positive floor, or GetAttenuationSigma
+            // overflows to +inf in the denormal band -- see kMinAttenuationDistance.
+            else if (std::isfinite(distance))
+                distance = std::max(distance, kMinAttenuationDistance);
+            m_AttenuationDistance = distance;
+        }
+
+        // The Beer-Lambert extinction coefficient the shader wants, derived
+        // once here instead of per fragment.
+        //
+        // KHR_materials_volume defines transmittance through a slab of
+        // thickness d as
+        //     transmittance = exp(log(attenuationColor) * d / attenuationDistance)
+        // i.e. exp(-sigma * d) with sigma = -log(attenuationColor) / attenuationDistance.
+        //
+        // Deriving it on the CPU is what keeps infinity out of the UBO: the
+        // default attenuation distance is +inf, and a finite numerator over
+        // +inf is exactly 0 in IEEE-754, so the neutral case lands on sigma 0
+        // -- exp(0) == 1, no absorption -- without a single inf or NaN
+        // crossing into GLSL. Both inputs are sanitized by their setters, so
+        // the result is always finite and >= 0.
+        glm::vec3 GetAttenuationSigma() const
+        {
+            glm::vec3 sigma(0.0f);
+            for (int channel = 0; channel < 3; ++channel)
+                sigma[channel] = -std::log(m_AttenuationColor[channel]) / m_AttenuationDistance;
+            return sigma;
+        }
+
         // PBR texture maps
         Ref<Texture2D> GetAlbedoMap() const
         {
@@ -542,6 +701,18 @@ namespace OloEngine
         AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
         f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
         PBRModel m_PBRModel = PBRModel::Legacy;        // Versioned closure (issue #975)
+
+        // Physical transmission / IOR / volume (issue #970). Neutral defaults --
+        // see the accessor block above. Any field added here MUST also be added
+        // to the hand-written copy constructor AND operator= in Material.cpp:
+        // that pair silently kept compiling when alpha mode was added, and
+        // copies came back opaque (issue #629).
+        f32 m_TransmissionFactor = 0.0f;                // KHR_materials_transmission, 0 = opaque surface
+        f32 m_IOR = kDefaultIOR;                        // KHR_materials_ior, 1.5 == the F0 0.04 already assumed
+        f32 m_ThicknessFactor = 0.0f;                   // KHR_materials_volume, 0 = thin-walled (no volume)
+        glm::vec3 m_AttenuationColor = glm::vec3(1.0f); // KHR_materials_volume, white = no tint
+        f32 m_AttenuationDistance =                     // KHR_materials_volume, +inf = no absorption
+            std::numeric_limits<f32>::infinity();
 
         // PBR texture maps
         Ref<Texture2D> m_AlbedoMap;            // Base color texture

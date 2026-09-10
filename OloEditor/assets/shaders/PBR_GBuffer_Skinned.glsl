@@ -173,6 +173,28 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;        // 0=Opaque, 1=Mask, 2=Blend
     int u_PBRModel;             // PBRModel selector: 0=Legacy, 1=ClosureV2 (issue #975)
+    // Physical transmission / IOR / volume (issue #970). MUST mirror the
+    // matching scalars in PBRMaterialUBO, which sit BEFORE the heap-offset
+    // lanes so those stay last. Declared unconditionally -- unlike the heap
+    // offsets these are plain material data that every arm reads, and a
+    // shader that omitted them would relayout u_MaterialHeapOffsets by 32 B.
+    //
+    // u_AttenuationSigma* is the Beer-Lambert extinction coefficient the CPU
+    // already derived (Material::GetAttenuationSigma), never the raw glTF
+    // attenuation colour + distance: the glTF default distance is +infinity,
+    // and deriving on the CPU is what keeps that infinity out of GLSL.
+    float u_TransmissionFactor; // 0 = no transmission (the neutral default)
+    float u_IOR;                // 1.5 == the F0 0.04 the dielectric path assumes
+    float u_ThicknessFactor;    // 0 = thin-walled, > 0 = real volume
+    float u_AttenuationSigmaR;
+    float u_AttenuationSigmaG;
+    float u_AttenuationSigmaB;
+    // Uniquely named: a nameless std140 block may not reuse a name already at
+    // global scope, and plain _padding0 is taken by other blocks in these same
+    // shaders (glslc: "nameless block contains a member that already has a
+    // name at global scope").
+    float _pbrMaterialPad0;
+    float _pbrMaterialPad1;
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing

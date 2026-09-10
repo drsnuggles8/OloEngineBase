@@ -488,6 +488,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
+		Rendering/PropertyTests/TransmissionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
@@ -590,6 +591,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/MaterialCopyTest.cpp
+		Rendering/MaterialTransmissionTest.cpp
+		Rendering/GltfPhysicalMaterialImportTest.cpp
 		Rendering/RendererShutdownTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp

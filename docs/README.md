@@ -30,6 +30,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [guides/ai-goap.md](guides/ai-goap.md) — GOAP planner / AI action system.
 - [guides/ai-perception.md](guides/ai-perception.md) — AI perception (sight/sound/awareness).
 - [guides/cinematic-sequencer.md](guides/cinematic-sequencer.md) — cinematic sequencer / timeline.
+- [guides/gltf-material-extensions.md](guides/gltf-material-extensions.md) — what the glTF transmission / IOR / volume extensions import and render, and where that stops.
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.
 - [guides/mcp-diagnostics-server.md](guides/mcp-diagnostics-server.md) — the read-only MCP diagnostics server (tools, resources, prompts, attach flow).
