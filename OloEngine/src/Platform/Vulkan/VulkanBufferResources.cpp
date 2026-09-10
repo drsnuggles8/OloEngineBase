@@ -686,10 +686,42 @@ namespace OloEngine
             return;
         }
 
-        // NOTE: mesh data is upload-once at load time. A per-frame rewrite of
-        // a buffer the PREVIOUS frame's submission still reads would race it —
-        // that streaming shape (Renderer2D batches, video) gets a ring in its
-        // own wave; nothing in Waves A/B streams vertex data.
+        // Mesh data is upload-once at load time and stays on the persistent
+        // allocation below. A rewrite that lands INSIDE a recording frame is
+        // the streaming shape (ParticleBatchRenderer::Flush, #1171): the
+        // persistent buffer is a single piece of memory the GPU reads at
+        // execution time, so leaving such a stream here would give every draw
+        // in the frame the last rewrite's bytes and race the previous frame's
+        // submission. Shadow it and let GetPullAddress() snapshot it per
+        // rewrite, the VulkanUniformBuffer seam.
+        //
+        // The persistent buffer is still written: it is what a BLAS build and
+        // any non-pull consumer read, and keeping the two in step means the
+        // upload-once path is bit-for-bit what it always was.
+        // Detection, not configuration: a SECOND write inside one frame
+        // generation is the aliasing shape by definition — two sets of bytes,
+        // one allocation, and both draws read whatever survives. A stream that
+        // is written once (every mesh; the static ctor does not come through
+        // here at all) never trips it and never pays for a shadow.
+        const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
+        if (!m_Streamed && generation != 0 && generation == m_LastWriteGeneration)
+        {
+            OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame — "
+                          "snapshotting it per draw from now on (issue #1171). Before this seam existed every draw "
+                          "in the frame read the LAST write's bytes.",
+                          m_DeviceAddress, m_Size);
+            m_Streamed = true;
+        }
+        m_LastWriteGeneration = generation;
+
+        if (m_Streamed)
+        {
+            m_Shadow.resize(m_Size);
+            std::memcpy(m_Shadow.data(), data.data, data.size);
+            m_ShadowSize = data.size;
+            ++m_DataVersion;
+        }
+
         if (m_Mapped != nullptr)
         {
             std::memcpy(m_Mapped, data.data, data.size);
@@ -701,6 +733,44 @@ namespace OloEngine
         }
 
         VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData");
+    }
+
+    VkDeviceAddress VulkanVertexBuffer::GetPullAddress() const
+    {
+        if (!m_Streamed)
+        {
+            return m_DeviceAddress;
+        }
+
+        auto& arena = VulkanFrameArena::Get();
+        const u64 generation = arena.GetFrameGeneration();
+        if (m_PushedVersion == m_DataVersion && m_PushedFrameGeneration == generation && m_CurrentAddress != 0)
+        {
+            return m_CurrentAddress;
+        }
+        if (m_ShadowSize == 0)
+        {
+            return m_DeviceAddress;
+        }
+
+        // 256 is the spec's ceiling for minStorageBufferOffsetAlignment, so it
+        // is a legal storage-block address on every device — the pull block is
+        // an SSBO (binding 57 / 63), not a vertex binding.
+        const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256);
+        if (!allocation.IsValid())
+        {
+            // Arena overflow. Counted and warn-once by the arena itself; the
+            // caller substitutes the null block. Deliberately NOT falling back
+            // to m_DeviceAddress: that would silently draw one frame's last
+            // batch N times, which is the very bug this seam exists to fix.
+            m_CurrentAddress = 0;
+            return 0;
+        }
+
+        m_CurrentAddress = allocation.Gpu;
+        m_PushedVersion = m_DataVersion;
+        m_PushedFrameGeneration = generation;
+        return m_CurrentAddress;
     }
 
     // =========================================================================

@@ -2567,8 +2567,16 @@ namespace OloEngine
                     // A VAO with fewer streams than the shader pulls (a
                     // skinned shader on a static mesh) resolves to the zero
                     // address: deterministic zeros + the warn-once below.
+                    //
+                    // GetPullAddress(), not GetDeviceAddress(): a stream that
+                    // is rewritten several times per frame (particle instance
+                    // batches) hands each draw the bytes current when the draw
+                    // was RECORDED. The persistent address would give every
+                    // draw in the frame the last write's bytes — issue #1171.
+                    // An upload-once stream returns the persistent address
+                    // from inside GetPullAddress, unchanged.
                     const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer(pullStream) : nullptr;
-                    address = pullBuffer != nullptr ? pullBuffer->GetDeviceAddress() : 0;
+                    address = pullBuffer != nullptr ? pullBuffer->GetPullAddress() : 0;
                 }
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
                          ubo != nullptr && binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer)

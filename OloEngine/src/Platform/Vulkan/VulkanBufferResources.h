@@ -339,6 +339,27 @@ namespace OloEngine
             return m_RHIHandle.Get();
         }
 
+        // Draw-record-time address of this stream's CURRENT contents, and the
+        // address the §5 pull path must use.
+        //
+        // Upload-once streams (every mesh) never take a snapshot: they return
+        // the persistent allocation, unchanged, so static geometry costs no
+        // arena traffic and stays valid as a ray-tracing build input.
+        //
+        // A stream that is rewritten while a frame is recording is a different
+        // animal. The persistent buffer is one piece of memory that the GPU
+        // reads at EXECUTION time, so N rewrites in a frame leave all N draws
+        // reading the last one — and race the previous frame's submission
+        // besides. Such a stream is snapshotted into the frame arena per
+        // rewrite, exactly as VulkanUniformBuffer does, giving each draw the
+        // bytes that were current when it was recorded (GL's command-ordered
+        // glNamedBufferSubData semantics). Issue #1171.
+        //
+        // Returns 0 only on arena overflow, which the arena counts and warns
+        // about; the caller substitutes the null block rather than reading a
+        // stale stream.
+        [[nodiscard]] VkDeviceAddress GetPullAddress() const;
+
       private:
         void CreateBuffer(const void* initialData);
         void ReleaseBuffer();
@@ -352,6 +373,20 @@ namespace OloEngine
         bool m_NeedsFlush = false;
         VkDeviceAddress m_DeviceAddress = 0;
         RHI::ScopedResourceHandle m_RHIHandle;
+
+        // Streaming state. m_Shadow is only allocated once a SetData lands
+        // inside a recording frame — an upload-once stream never pays for it.
+        std::vector<u8> m_Shadow;
+        u32 m_ShadowSize = 0;
+        bool m_Streamed = false;
+        u64 m_LastWriteGeneration = 0;
+        u64 m_DataVersion = 0;
+        // Memoization of the per-frame push, hence mutable: GetPullAddress()
+        // is logically a read of "where are my current bytes", and the draw
+        // path holds the VAO (and so the stream) by const pointer.
+        mutable u64 m_PushedVersion = ~u64{ 0 };
+        mutable u64 m_PushedFrameGeneration = ~u64{ 0 };
+        mutable VkDeviceAddress m_CurrentAddress = 0;
     };
 
     // -------------------------------------------------------------------------
