@@ -132,16 +132,23 @@ namespace OloEngine
             }
         }
 
-        // A cut that lost anything is a cut that is no longer watertight, so
-        // this must not pass unremarked: the visible symptom would be a shadow
-        // ray leaking through a hole in a proxy that still looks plausible.
+        // A cut that lost anything is a cut that is no longer watertight, so it
+        // is REJECTED, not merely remarked on. Warning and returning the
+        // survivors would upload a proxy with a hole in it and let the registry
+        // classify the part as supported — and the visible symptom is a shadow
+        // ray leaking through a mesh that otherwise looks plausible, which is
+        // the "loud exclusion replaced by a silent partial success" this whole
+        // file exists to avoid. Returning nothing makes the part countable
+        // instead: it lands in ProxylessParts and reports Virtualized.
         if (droppedClusters > 0 || droppedTriangles > 0)
         {
             OLO_CORE_WARN_TAG("VirtualGeometry",
                               "ray-tracing proxy dropped {} cluster(s) and {} triangle(s) with out-of-range "
-                              "references — the cooked DAG is inconsistent and the proxy is NOT watertight. "
-                              "Delete the mesh's .omesh cache to force a rebuild.",
+                              "references — the cooked DAG is inconsistent, so the proxy is REJECTED rather than "
+                              "uploaded with a hole in it. This mesh will not be ray-traced. Delete its .omesh "
+                              "cache to force a rebuild.",
                               droppedClusters, droppedTriangles);
+            return VirtualProxyMesh{};
         }
 
         proxy.Vertices.shrink_to_fit();

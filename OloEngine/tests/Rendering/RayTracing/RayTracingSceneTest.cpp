@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -718,6 +719,56 @@ namespace OloEngine::Tests
         // reader would expect the proxy to need rebuilding.
         stageFrame(glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f)));
         EXPECT_EQ(m_Backend->Builds.size(), 1u) << "moving a proxy rebuilt its BLAS";
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesTraced, 1u);
+    }
+
+    TEST(RayTracingPacking, TheShadowCasterLaneSurvivesTheMaskFold)
+    {
+        // The opt-out an entity gets from VirtualMeshComponent::CastShadows
+        // (issue #1144). Two things have to hold or it silently does nothing.
+
+        // 1. The lane must survive PackInstanceMask, which FOLDS the u32 down
+        //    by OR-ing its four bytes. Clearing bit 0 of only the low byte of
+        //    0xFFFFFFFF is the obvious spelling and it is wrong — the upper
+        //    three bytes OR it straight back in.
+        EXPECT_EQ(RT::PackInstanceMask(0xFFFFFFFEu), RT::kInstanceMaskAll)
+            << "clearing the bit in one byte of a u32 mask does NOT clear it after the fold";
+        EXPECT_EQ(RT::PackInstanceMask(RT::kVisibilityMaskNoShadowCast),
+                  static_cast<u8>(RT::kInstanceMaskAll & ~RT::kInstanceMaskShadowCaster));
+
+        // 2. The masked instance must be skipped by a SHADOW ray and hit by
+        //    every other one. This is the AND the hardware performs, spelled
+        //    out: get it backwards and a mesh either never casts or always
+        //    does, and both read as "the toggle does nothing".
+        const u8 noCast = RT::PackInstanceMask(RT::kVisibilityMaskNoShadowCast);
+        const u8 casts = RT::PackInstanceMask(std::numeric_limits<u32>::max());
+        EXPECT_EQ(noCast & RT::kInstanceMaskShadowCaster, 0u) << "a non-caster is still hit by a shadow ray";
+        EXPECT_NE(casts & RT::kInstanceMaskShadowCaster, 0u) << "the DEFAULT instance stopped casting shadows";
+        EXPECT_NE(noCast & RT::kInstanceMaskAll, 0u)
+            << "a non-caster vanished from reflections and the path tracer too, which is not the opt-out asked for";
+
+        // 3. The GLSL side is a hand-written mirror
+        //    (RayTracedShadow.glsl's RT_SHADOW_INSTANCE_MASK); pin the value
+        //    here so a change on this side is at least half-caught.
+        static_assert(RT::kInstanceMaskShadowCaster == 0x01u,
+                      "RT_SHADOW_INSTANCE_MASK in assets/shaders/RayTracedShadow.glsl must change with this");
+    }
+
+    TEST_F(RayTracingSceneFixture, AProxyThatDoesNotCastShadowsStaysInTheTlasWithItsLaneCleared)
+    {
+        // The opt-out must not be implemented by dropping the instance: the
+        // mesh is still visible, so it must still reflect and still be hit by
+        // the path tracer. Only the shadow lane goes.
+        BeginFrame();
+        StageInstance(0xE117, MakeGeometryKey(0xA000, 0xB000, 0), MakeTraceableGeometry(), MakeMaterial(),
+                      glm::mat4(1.0f), RT::kVisibilityMaskNoShadowCast);
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u) << "the opt-out removed the instance from the TLAS entirely";
+        EXPECT_EQ(m_Backend->LastInstances[0].Mask & RT::kInstanceMaskShadowCaster, 0u);
+        EXPECT_NE(m_Backend->LastInstances[0].Mask, 0u) << "the instance became hittable by nothing";
         EXPECT_EQ(m_Scene.GetStats().Frame.InstancesTraced, 1u);
     }
 

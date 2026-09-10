@@ -363,11 +363,20 @@ namespace OloEngine
         // must COUNT — the rejection is reported as
         // GPUSceneUnsupportedCategory::Virtualized so a part that cannot be
         // traced stays a named, countable state rather than a quiet absence.
+        //
+        // `castsShadow` is the entity's VirtualMeshComponent::m_CastShadows, and
+        // it reaches the record as an instance-mask lane rather than as a new
+        // record field: a proxy that does not cast clears
+        // RayTracing::kInstanceMaskShadowCaster, so shadow rays cull it while
+        // reflections and the path tracer — which trace with the full mask —
+        // still see it. Dropping the proxy instead would make a
+        // non-shadow-casting mesh vanish from every reflection too.
         [[nodiscard]] static bool ExtractGPUSceneVirtualProxy(u64 stableEntityId, u32 partIndex,
                                                               const Ref<VertexBuffer>& vertexBuffer,
                                                               const Ref<IndexBuffer>& indexBuffer, u32 indexCount,
                                                               u32 vertexCount, const glm::mat4& worldTransform,
-                                                              const GPUSceneMaterialKey& materialKey);
+                                                              const GPUSceneMaterialKey& materialKey,
+                                                              bool castsShadow);
         static void ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input);
         // The environment record's home is the renderer's published global IBL
         // (SetGlobalIBL / OverrideGlobalIrradiance / ClearGlobalIBL). EndScene

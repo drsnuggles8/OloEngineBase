@@ -542,6 +542,69 @@ namespace OloEngine::Tests
         EXPECT_EQ(diagnostics.ProxyParts, parts.Count);
     }
 
+    // A part the virtual RASTER path refuses must not be traced either (#1144).
+    //
+    // VirtualMeshRegistry::PrepareFrame skips AlphaMode::Blend — the deferred
+    // G-Buffer has nowhere to put a blended fragment, so drawing it opaque is
+    // worse than not drawing it. Staging a ray-tracing proxy for it anyway
+    // would put geometry in the TLAS that is on no screen: an occluder casting
+    // a shadow with no visible caster, which is the exact failure the Scene
+    // loop's Forward/Forward+ gate already exists to prevent.
+    TEST_F(VirtualGeometryVisualEvidence, ABlendPartTheRasterPathRefusesIsNotTracedEither)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f);
+
+        auto& registry = VirtualMeshRegistry::Get();
+
+        // Opaque first, so the failure direction is pinned too: a test that
+        // only ever sees "no proxy" would pass with proxies switched off
+        // entirely.
+        RunEditorFrames(camera, 3);
+        ASSERT_GT(registry.GetSubmissionDiagnostics().ProxyParts, 0u)
+            << "the opaque control staged no proxy — the Blend assertion below would be vacuous";
+
+        // Same entity, same mesh, only the alpha mode changes.
+        m_SphereEntity.GetComponent<MaterialComponent>().m_Material.SetAlphaMode(AlphaMode::Blend);
+        RunEditorFrames(camera, 3);
+
+        const auto& diagnostics = registry.GetSubmissionDiagnostics();
+        EXPECT_EQ(diagnostics.ProxyParts, 0u) << "a Blend part was staged as a ray-tracing proxy";
+        EXPECT_GT(diagnostics.ProxylessParts, 0u)
+            << "the refused Blend part was dropped SILENTLY instead of being counted";
+
+        // ...and no record reached GPU Scene under the proxy's key, which is
+        // the thing the counter is a proxy for.
+        const VirtualMeshRegistry::MeshParts parts = registry.FindParts(m_MeshHandle);
+        ASSERT_TRUE(parts.Valid);
+        const GPUScene& gpuScene = Renderer3D::GetGPUScene();
+        for (u32 partIndex = 0; partIndex < parts.Count; ++partIndex)
+        {
+            const auto& entry = registry.GetEntry(parts.FirstEntry + partIndex);
+            if (!entry.ProxyVertexBuffer || !entry.ProxyIndexBuffer)
+            {
+                continue;
+            }
+            const GPUSceneInstanceKey instanceKey{
+                .m_EntityId = static_cast<u64>(m_SphereEntity.GetUUID()),
+                .m_Geometry = { .m_VertexBuffer = RHI::HashKey(entry.ProxyVertexBuffer->GetRHIHandle()),
+                                .m_IndexBuffer = RHI::HashKey(entry.ProxyIndexBuffer->GetRHIHandle()),
+                                .m_SubmeshIndex = partIndex },
+                .m_InstanceId = 0,
+            };
+            EXPECT_FALSE(gpuScene.FindInstance(instanceKey).IsValid())
+                << "part " << partIndex << ": a Blend part still holds a live GPU Scene instance";
+        }
+
+        m_SphereEntity.GetComponent<MaterialComponent>().m_Material.SetAlphaMode(AlphaMode::Opaque);
+    }
+
     // SoftwareRasterizerMatchesHardwareRaster USED TO LIVE HERE — deleted (issue #629).
     //
     // It advertised SW-vs-HW parity but rendered an UNTEXTURED red icosphere and compared

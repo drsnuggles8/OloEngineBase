@@ -240,6 +240,33 @@ namespace OloEngine::Tests
         EXPECT_TRUE(empty.Indices.empty());
     }
 
+    TEST(VirtualMeshProxy, ACutThatLosesAnyTriangleIsRejectedRatherThanShippedWithAHole)
+    {
+        // The half-built case, which is the dangerous one: a DAG whose clusters
+        // are MOSTLY resolvable. Keeping the survivors would upload a proxy
+        // with a hole in it and let the registry classify the part as
+        // supported — and a shadow ray leaking through a plausible-looking mesh
+        // is exactly the silent partial success this issue forbids.
+        auto mesh = VirtualMeshFixtures::MakeIcosphereMesh(4);
+        VirtualMesh vm = VirtualMeshBuilder::Build(*mesh);
+        ASSERT_TRUE(vm.IsValid());
+        ASSERT_TRUE(BuildVirtualProxyMesh(vm).IsValid()) << "the intact DAG must build, or this test is vacuous";
+        ASSERT_GT(vm.Clusters.size(), 1u);
+
+        // Corrupt exactly ONE cluster of the coarsest cut, the way a truncated
+        // or stale cooked blob would: a vertex window that runs past the end of
+        // ClusterVertexRefs.
+        const std::vector<u32> cut = vm.SelectCoarsestCut();
+        ASSERT_FALSE(cut.empty());
+        vm.Clusters[cut.front()].VertexOffset = static_cast<u32>(vm.ClusterVertexRefs.size());
+
+        const VirtualProxyMesh proxy = BuildVirtualProxyMesh(vm);
+        EXPECT_FALSE(proxy.IsValid())
+            << "a cut that lost a cluster still produced a proxy — it is no longer watertight and must be refused";
+        EXPECT_TRUE(proxy.Indices.empty());
+        EXPECT_TRUE(proxy.Vertices.empty());
+    }
+
     TEST(VirtualMeshProxy, EveryPartOfAMultiSubmeshSourceGetsItsOwnProxy)
     {
         // A cluster may not span a material boundary, so a multi-submesh source

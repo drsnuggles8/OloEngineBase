@@ -130,7 +130,7 @@ namespace OloEngine
         void StageVirtualProxy(VirtualMeshRegistry& registry, u32 entryIndex, u32 partIndex, AssetHandle meshHandle,
                                const Ref<MeshSource>& meshSource, u32 submeshIndex, u64 stableEntityId,
                                const glm::mat4& modelMatrix, const Material* overrideMaterial,
-                               const Material& resolvedMaterial,
+                               const Material& resolvedMaterial, bool castShadows,
                                VirtualMeshRegistry::SubmissionDiagnostics& diagnostics)
         {
             if (!registry.EnsureProxyGeometry(entryIndex))
@@ -150,10 +150,15 @@ namespace OloEngine
                 Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, stableEntityId, meshSource, submeshIndex);
             Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
 
+            // The registry's own caster rule, applied to the proxy so the two
+            // agree: an alpha-masked part does not cast a raster shadow either
+            // (a cutout leaf would project as a solid quad), and it must not
+            // cast a ray-traced one for the same reason.
+            const bool proxyCastsShadow = castShadows && resolvedMaterial.GetAlphaMode() != AlphaMode::Mask;
             const bool staged = Renderer3D::ExtractGPUSceneVirtualProxy(
                 stableEntityId, partIndex, entry.ProxyVertexBuffer, entry.ProxyIndexBuffer,
                 static_cast<u32>(entry.Proxy.Indices.size()), static_cast<u32>(entry.Proxy.Vertices.size()),
-                modelMatrix, materialKey);
+                modelMatrix, materialKey, proxyCastsShadow);
             if (staged)
             {
                 ++diagnostics.ProxyParts;
@@ -295,9 +300,32 @@ namespace OloEngine
 
             if (stageProxies)
             {
-                StageVirtualProxy(registry, parts.FirstEntry + partIndex, partIndex, meshHandle, meshSource,
-                                  entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, *material,
-                                  vgDiagnostics);
+                // AlphaMode::Blend is the one part kind the virtual raster path
+                // REFUSES: VirtualMeshRegistry::PrepareFrame skips it, because
+                // the deferred G-Buffer has nowhere to put a blended fragment
+                // and drawing it opaque is worse than not drawing it. Staging a
+                // proxy for it anyway would put geometry in the TLAS that is on
+                // no screen — an invisible caster, which is precisely the
+                // failure the Scene loop's Forward/Forward+ gate exists to
+                // prevent. It is counted and reported like any other part that
+                // could not be represented.
+                //
+                // The predicate is the same one PrepareFrame applies, read off
+                // the SAME resolved Material rather than off the round-tripped
+                // PODMaterialData copy. If one of them ever moves, the other
+                // has to move with it or a Blend part is traced without being
+                // drawn again.
+                if (material->GetAlphaMode() == AlphaMode::Blend)
+                {
+                    ++vgDiagnostics.ProxylessParts;
+                    ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);
+                }
+                else
+                {
+                    StageVirtualProxy(registry, parts.FirstEntry + partIndex, partIndex, meshHandle, meshSource,
+                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, *material,
+                                      castShadows, vgDiagnostics);
+                }
             }
         }
 

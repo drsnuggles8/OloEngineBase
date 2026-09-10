@@ -71,14 +71,20 @@ namespace OloEngine
     };
 
     // Flattens the coarsest cut of `dag` into a proxy mesh. Returns an invalid
-    // proxy (IsValid() == false) for a DAG that is itself invalid or whose cut
-    // produced no whole triangle — never a partially-built one, so a caller has
+    // proxy (IsValid() == false) for a DAG that is itself invalid, whose cut
+    // produced no whole triangle, or whose cut lost ANY cluster or triangle to
+    // an out-of-range reference — never a partially-built one, so a caller has
     // exactly one thing to test.
+    //
+    // That last case is why "dropped something" is a rejection rather than a
+    // warning: a cut that lost a triangle is no longer watertight, and an
+    // almost-watertight proxy is worse than none. It would upload, classify as
+    // supported, and leak shadow rays through a mesh that looks fine.
     //
     // Treats the DAG as UNTRUSTED. A cooked blob arrives from disk and the
     // deserializer's cross-referencing is the only thing between it and here;
     // this walk indexes three arrays through two levels of indirection, so
-    // every offset is bounds-checked and an out-of-range cluster is dropped
-    // rather than read.
+    // every offset is bounds-checked and an out-of-range reference fails the
+    // whole proxy rather than being read.
     [[nodiscard]] VirtualProxyMesh BuildVirtualProxyMesh(const VirtualMesh& dag);
 } // namespace OloEngine

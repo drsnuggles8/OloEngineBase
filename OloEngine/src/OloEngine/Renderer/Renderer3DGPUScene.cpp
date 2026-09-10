@@ -146,7 +146,8 @@ namespace OloEngine
                                                                    u64 stableInstanceId,
                                                                    const StagedGeometry& geometry,
                                                                    const glm::mat4& worldTransform,
-                                                                   const GPUSceneMaterialKey& materialKey)
+                                                                   const GPUSceneMaterialKey& materialKey,
+                                                                   u32 visibilityMask)
         {
             const GPUSceneGeometryKey geometryKey{
                 .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
@@ -174,6 +175,7 @@ namespace OloEngine
             scene.ExtractInstance(instanceKey, GPUSceneInstanceInput{
                                                    .m_WorldTransform = worldTransform,
                                                    .m_Material = materialKey,
+                                                   .m_VisibilityMask = visibilityMask,
                                                });
             return instanceKey;
         }
@@ -332,7 +334,7 @@ namespace OloEngine
                                          .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
                                          .m_VertexCount = submesh.m_VertexCount,
                                      },
-                                     worldTransform, materialKey);
+                                     worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
@@ -414,7 +416,7 @@ namespace OloEngine
                                                  const Ref<VertexBuffer>& vertexBuffer,
                                                  const Ref<IndexBuffer>& indexBuffer, u32 indexCount,
                                                  u32 vertexCount, const glm::mat4& worldTransform,
-                                                 const GPUSceneMaterialKey& materialKey)
+                                                 const GPUSceneMaterialKey& materialKey, bool castsShadow)
     {
         if (!s_Data.GPUSceneExtractionActive)
         {
@@ -460,7 +462,9 @@ namespace OloEngine
                 .m_BaseVertex = 0,
                 .m_VertexCount = vertexCount,
             },
-            worldTransform, materialKey));
+            worldTransform, materialKey,
+            castsShadow ? GPUSceneInstanceInput{}.m_VisibilityMask
+                        : RayTracing::kVisibilityMaskNoShadowCast));
         // No PathTracerEmissive::QueueSubmesh, and that is a real limitation
         // rather than an oversight: the emissive table walks a MeshSource
         // submesh's triangles, and the emitters it gathers must be the SAME
