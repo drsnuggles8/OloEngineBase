@@ -605,6 +605,24 @@ namespace OloEngine::ReSTIR
         return (v < kReservoirExactIntegerLimit) ? std::floor(v + 0.5f) : v;
     }
 
+    // The largest light index the identity lane can carry. `lightIndex` is
+    // shifted up by kReservoirKindBits and the result must stay inside the range
+    // an f32 counts by ones, so the ceiling is 2^24 / 8 - 1.
+    //
+    // PAST IT THE ENCODING ALIASES SILENTLY: index and index + 2^21 pack to the
+    // same lane, and the reservoir comes back naming a different emitter with a
+    // perfectly plausible radiance. Punctual and sphere lights cannot reach it
+    // (OLO_LIGHT_MAX_SLOTS is 256), but an emissive triangle index is a triangle
+    // count, and nothing about a two-million-triangle emissive set is absurd. So
+    // the pass REFUSES to publish a table it cannot address rather than encoding
+    // wrapped indices — see kMaxEncodableLightIndex's use in ReSTIRDIPass.
+    inline constexpr u32 kMaxEncodableLightIndex = (1u << 21) - 1u;
+
+    [[nodiscard]] inline bool IsEncodableLightIndex(u32 lightIndex)
+    {
+        return lightIndex <= kMaxEncodableLightIndex;
+    }
+
     [[nodiscard]] inline f32 PackReservoirIdentity(u32 kind, u32 lightIndex)
     {
         return static_cast<f32>((kind & kReservoirKindMask) | (lightIndex << kReservoirKindBits));

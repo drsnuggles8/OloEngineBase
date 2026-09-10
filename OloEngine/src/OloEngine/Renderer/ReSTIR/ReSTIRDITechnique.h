@@ -457,6 +457,14 @@ namespace OloEngine
         // Live emitters at slots the shaders' loops cannot reach. They light
         // the clustered frame and the path tracer but not this tier.
         u32 LightsBeyondShaderBound = 0;
+        // Emitters past the largest index the reservoir's identity lane can
+        // name (ReSTIR::kMaxEncodableLightIndex). A separate count from the one
+        // above because it has a different cause and a different fix: the loop
+        // bound is a shader constant, this is the GPU LAYOUT's addressing limit.
+        // Non-zero means the tier is resampling a subset of the emissive set;
+        // the remainder stays on the clustered path rather than being sampled
+        // under an aliased index.
+        u32 EmittersBeyondEncodableIndex = 0;
         // Settings values the pass clamped before upload. Non-zero means the
         // frame did LESS than the settings asked for.
         u32 SettingsClamped = 0;

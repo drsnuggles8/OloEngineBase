@@ -349,24 +349,54 @@ namespace OloEngine
         const bool active = ResolveTechniqueForFrame(graphResourcesResolved);
         if (!active)
         {
-            // The radiance target keeps whatever the transient pool left in it,
-            // and the deferred lighting shader must NOT read that. Clearing it
-            // to alpha 0 is what makes "the tier stood down" a value the
-            // consumer can see rather than a leftover frame it would happily
-            // multiply into the image — the failure this whole seam exists to
-            // prevent.
-            if (radianceFramebuffer)
+            // EVERY target this node owns keeps whatever the transient pool left
+            // in it, and nothing downstream may read that. Clearing to zero is
+            // what makes "the tier stood down" a value a consumer can see: for
+            // the radiance target that is alpha 0 = "no value", so the deferred
+            // lighting shader takes its clustered branch instead of multiplying a
+            // leftover frame into the image.
+            //
+            // AND THE RESERVOIR PLANES, not just the radiance one. Setup()
+            // declares ExtractHistoryTexture on the reservoir targets
+            // unconditionally — an extraction CONTRACT, established before this
+            // verdict exists — so a stand-down that clears only the radiance
+            // target publishes transient-pool contents as next frame's reservoir
+            // history. Zero is the EMPTY reservoir (kind 0 = None), which every
+            // consumer already handles; garbage is a reservoir that claims a
+            // light index it never sampled. The original version of this block
+            // stopped one target short and the comment above it still claimed to
+            // prevent exactly this.
+            // Ref<T> propagates const through its dereference, and Bind/Unbind
+            // mutate the framebuffer, so this takes a non-const reference.
+            const auto clearToZero = [&context](Ref<Framebuffer>& targetRef)
             {
-                radianceFramebuffer->Bind();
-                const auto& spec = radianceFramebuffer->GetSpecification();
+                if (!targetRef)
+                    return;
+                Framebuffer& target = *targetRef;
+                target.Bind();
+                const auto& spec = target.GetSpecification();
                 context.SetViewport(0, 0, spec.Width, spec.Height);
-                constexpr std::array<u32, 2> attachments{ 0u, 1u };
-                RenderCommand::SetDrawBuffers(attachments);
+                const u32 attachmentCount = static_cast<u32>(spec.Attachments.Attachments.size());
+                std::array<u32, 4> attachmentIndices{ 0u, 1u, 2u, 3u };
+                RenderCommand::SetDrawBuffers(
+                    std::span<const u32>(attachmentIndices.data(), std::min(attachmentCount, 4u)));
                 RenderCommand::SetColorMask(true, true, true, true);
+                // A scissor box left enabled by an earlier pass would confine
+                // this clear to its rectangle and leave stale values everywhere
+                // outside it — a partially cleared stand-down, which is worse
+                // than an uncleared one because it looks deliberate. The four
+                // draws disable it in setFullscreenState; this hand-rolled block
+                // did not.
+                RenderCommand::DisableScissorTest();
                 context.SetClearColor({ 0.0f, 0.0f, 0.0f, 0.0f });
                 context.Clear();
-                radianceFramebuffer->Unbind();
-            }
+                target.Unbind();
+            };
+            clearToZero(radianceFramebuffer);
+            clearToZero(initialFramebuffer);
+            clearToZero(temporalFramebuffer);
+            clearToZero(spatialFramebuffers[0]);
+            clearToZero(spatialFramebuffers[1]);
             return;
         }
 
@@ -404,7 +434,27 @@ namespace OloEngine
                                        m_GPUScene->GetMaterialSlotCount(), lightSlots);
 
         const u64 emissiveAddress = m_EmissiveTable != nullptr ? m_EmissiveTable->GetDeviceAddress() : 0u;
-        const u32 emissiveCount = (emissiveAddress != 0u) ? m_EmissiveTable->GetTriangleCount() : 0u;
+        const u32 rawEmissiveCount = (emissiveAddress != 0u) ? m_EmissiveTable->GetTriangleCount() : 0u;
+        // CLAMPED TO WHAT THE RESERVOIR CAN NAME, and the remainder is counted.
+        //
+        // The identity lane packs `kind | index << 3` as a NUMBER, so an index
+        // past ReSTIR::kMaxEncodableLightIndex aliases onto a smaller one: the
+        // reservoir comes back naming a different triangle, with a plausible
+        // radiance and no error anywhere. Publishing the full count and letting
+        // the shader sample into the unaddressable tail is the silent version;
+        // this is the countable one. The excess emitters still light the
+        // clustered frame and the path tracer, exactly like the ones past the
+        // shader's slot bound.
+        const u32 emissiveCount = std::min(rawEmissiveCount, ReSTIR::kMaxEncodableLightIndex + 1u);
+        m_Stats.EmittersBeyondEncodableIndex = rawEmissiveCount - emissiveCount;
+        if (m_Stats.EmittersBeyondEncodableIndex != 0u && !m_ReportedEncodableIndexOverflow)
+        {
+            m_ReportedEncodableIndexOverflow = true;
+            OLO_CORE_WARN("ReSTIRDIPass: emissive table has {} triangles but the reservoir identity lane "
+                          "can name only {}; {} emitters are excluded from resampling and remain on the "
+                          "clustered path",
+                          rawEmissiveCount, emissiveCount, m_Stats.EmittersBeyondEncodableIndex);
+        }
 
         const bool texturesAvailable = m_MaterialTextures != nullptr &&
                                        m_MaterialTextures->GetDeviceAddress() != 0u &&

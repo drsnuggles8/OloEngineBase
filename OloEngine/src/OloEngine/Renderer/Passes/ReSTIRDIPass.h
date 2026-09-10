@@ -266,6 +266,10 @@ namespace OloEngine
         // SetHistoryLayoutMatches. Defaults to true so a pass that is never fed
         // reports the ordinary reasons rather than inventing a version mismatch.
         bool m_HistoryLayoutMatches = true;
+        // Latches the once-per-run warning about an emissive table larger
+        // than the identity lane can address; the condition is per-scene, so
+        // warning every frame would be noise.
+        bool m_ReportedEncodableIndexOverflow = false;
 
         FramebufferSpecification m_FramebufferSpec{};
 

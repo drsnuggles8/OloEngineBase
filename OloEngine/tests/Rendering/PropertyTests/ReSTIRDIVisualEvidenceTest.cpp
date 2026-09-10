@@ -230,11 +230,22 @@ namespace OloEngine::Tests
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
+            // FAIL, do not return quietly. This file's whole claim is that a
+            // human can look at the frames afterwards; a run that silently wrote
+            // nothing still reports green and the evidence simply is not there
+            // when someone goes looking. It returned on `ec` and ignored
+            // stbi_write_png's status before.
             if (ec)
+            {
+                ADD_FAILURE() << "could not create " << dir.string() << " for visual evidence: " << ec.message();
                 return;
+            }
             const std::string path = (dir / ("ReSTIRDI_" + poseName + ".png")).string();
-            ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
-                             outPixels.data(), static_cast<int>(kWidth) * 4);
+            const int written = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
+                                                 static_cast<int>(kHeight), 4, outPixels.data(),
+                                                 static_cast<int>(kWidth) * 4);
+            EXPECT_NE(written, 0) << "stbi_write_png failed for " << path
+                                  << " - this test's evidence was not produced";
         }
 
         [[nodiscard]] bool ProjectWorldToPixel(const glm::vec3& world, u32& outX, u32& outY) const
@@ -363,7 +374,14 @@ namespace OloEngine::Tests
 
         // And the tier must say WHY it stood down, by name — a stood-down tier
         // that reports nothing is the failure the whole seam exists to prevent.
-        if (const ReSTIRDIPass* pass = Renderer3D::GetReSTIRDIPass(); pass != nullptr)
+        // ASSERTED, not guarded on. Wrapping this in `if (pass != nullptr)` made
+        // the entire fallback check vanish on any build where the pass was not
+        // constructed — the test still passed, having verified nothing about the
+        // one behaviour it is named for. The pass is created unconditionally on
+        // the deferred path, so a null here is itself the bug.
+        const ReSTIRDIPass* pass = Renderer3D::GetReSTIRDIPass();
+        ASSERT_NE(pass, nullptr) << "Renderer3D has no ReSTIRDIPass, so the fallback reason this test "
+                                    "exists to check was never computed";
         {
             const ReSTIRDIStats& stats = pass->GetStats();
             EXPECT_FALSE(stats.Active);

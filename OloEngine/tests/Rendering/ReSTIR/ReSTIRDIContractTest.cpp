@@ -57,20 +57,22 @@ namespace OloEngine::Tests
 
     namespace
     {
+        // THE COMPILE-TIME ANCHOR, NOT THE WORKING DIRECTORY. These shaders are
+        // tracked repo assets: they are always present, so failing to find one is
+        // a broken checkout or a moved file, never an environment this test
+        // should excuse itself from.
+        //
+        // It guessed three CWD-relative candidates before and GTEST_SKIP'd when
+        // none matched. That is the wrong shape twice over. It reads as "no
+        // device here" when the truth would be "the C++/GLSL twins were never
+        // compared", and the CWD is not stable across a full run — several
+        // suites chdir during theirs, which is exactly why
+        // OLO_TEST_EDITOR_ROOT exists and why the other file-reading tests use
+        // it. A filtered run would pass and the full-suite run would quietly
+        // stop checking.
         [[nodiscard]] std::filesystem::path ResolveShaderPath(const char* relative)
         {
-            namespace fs = std::filesystem;
-            const fs::path candidates[] = {
-                fs::path("OloEditor") / "assets" / "shaders" / relative,
-                fs::path("assets") / "shaders" / relative,
-                fs::path("..") / "OloEditor" / "assets" / "shaders" / relative,
-            };
-            for (const auto& candidate : candidates)
-            {
-                if (fs::exists(candidate))
-                    return candidate;
-            }
-            return {};
+            return std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / relative;
         }
 
         [[nodiscard]] std::string ReadTextFile(const std::filesystem::path& path)
@@ -726,8 +728,8 @@ namespace OloEngine::Tests
     {
         const auto paramsPath = ResolveShaderPath("include/ReSTIRDIParams.glsl");
         const auto reservoirPath = ResolveShaderPath("include/Reservoir.glsl");
-        if (paramsPath.empty() || reservoirPath.empty())
-            GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";
+        ASSERT_TRUE(std::filesystem::exists(paramsPath)) << paramsPath.string();
+        ASSERT_TRUE(std::filesystem::exists(reservoirPath)) << reservoirPath.string();
 
         const std::string params = ReadTextFile(paramsPath);
         const std::string reservoir = ReadTextFile(reservoirPath);
@@ -784,8 +786,7 @@ namespace OloEngine::Tests
     TEST(ReSTIRDIContract, SharedLightSamplingSlotBoundMatchesTheMultiLightUBO)
     {
         const auto path = ResolveShaderPath("include/LightSampling.glsl");
-        if (path.empty())
-            GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";
+        ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
         const std::string source = ReadTextFile(path);
         ASSERT_FALSE(source.empty()) << path.string();
         EXPECT_EQ(ScanDefine(source, "OLO_LIGHT_MAX_SLOTS"),
@@ -800,8 +801,7 @@ namespace OloEngine::Tests
     TEST(ReSTIRDIContract, ParamsBlockDeclaresTheLanesTheUBOCarries)
     {
         const auto path = ResolveShaderPath("include/ReSTIRDIParams.glsl");
-        if (path.empty())
-            GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";
+        ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
         const std::string source = ReadTextFile(path);
         ASSERT_FALSE(source.empty()) << path.string();
 

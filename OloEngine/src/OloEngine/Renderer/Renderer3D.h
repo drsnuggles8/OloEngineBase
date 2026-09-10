@@ -1868,6 +1868,12 @@ namespace OloEngine
                 RayTracedShadow.Reset();
                 RayTracedReflection.Reset();
                 GpuPathTracer.Reset();
+                // The fifth. This omission has now happened three times in a row
+                // on this list, so read the comment above before adding a sixth:
+                // the teardown tracker DOES report it ("N GPU allocation(s)
+                // survived the renderer"), and 320 bytes of surviving uniform
+                // buffer is exactly this one.
+                ReSTIRDI.Reset();
             }
         };
 

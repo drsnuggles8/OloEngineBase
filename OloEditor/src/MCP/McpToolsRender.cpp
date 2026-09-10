@@ -6310,6 +6310,7 @@ namespace OloEngine::MCP
                 { "sphereAreaLights", stats.SphereAreaLights },
                 { "emissiveTriangles", stats.EmissiveTriangles },
                 { "lightsBeyondShaderBound", stats.LightsBeyondShaderBound },
+                { "emittersBeyondEncodableIndex", stats.EmittersBeyondEncodableIndex },
             };
             report["estimator"] = Json{
                 { "biasMode", std::string(ToString(stats.BiasMode)) },
@@ -8360,7 +8361,11 @@ namespace OloEngine::MCP
                                         .Prop("punctualLights", Schema::Int().Min(0))
                                         .Prop("sphereAreaLights", Schema::Int().Min(0))
                                         .Prop("emissiveTriangles", Schema::Int().Min(0))
-                                        .Prop("lightsBeyondShaderBound", Schema::Int().Min(0)))
+                                        .Prop("lightsBeyondShaderBound", Schema::Int().Min(0))
+                                        .Prop("emittersBeyondEncodableIndex",
+                                              Schema::Int().Min(0).Desc(
+                                                  "Emitters past the largest index the reservoir identity lane "
+                                                  "can name; they stay on the clustered path.")))
                     .Prop("estimator", Schema::Object()
                                            .Prop("biasMode", Schema::String())
                                            .Prop("reservoirLayoutVersion", Schema::Int().Min(1))
@@ -8368,10 +8373,27 @@ namespace OloEngine::MCP
                                            .Prop("spatialNeighboursPerPixel", Schema::Int().Min(0))
                                            .Prop("spatialPasses", Schema::Int().Min(0))
                                            .Prop("temporalReuseRan", Schema::Bool())
+                                           .Prop("historyPlanesAvailable",
+                                                 Schema::Int().Min(0).Desc(
+                                                     "Reservoir history planes the graph produced this frame."))
+                                           .Prop("historyPlanesRequired",
+                                                 Schema::Int().Min(0).Desc(
+                                                     "Planes the estimator needs; a shortfall is why temporal "
+                                                     "reuse stood down."))
                                            .Prop("visibilityReuseRan", Schema::Bool())
                                            .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
                                            .Prop("settingsClamped", Schema::Int().Min(0)))
-                    .Prop("settings", Schema::Object())
+                    .Prop("settings", Schema::Object()
+                                          .Prop("initialCandidates", Schema::Int().Min(0))
+                                          .Prop("visibilityReuse", Schema::Bool())
+                                          .Prop("temporalReuse", Schema::Bool())
+                                          .Prop("temporalMCap", Schema::Number().Min(0))
+                                          .Prop("spatialReuse", Schema::Bool())
+                                          .Prop("spatialNeighbours", Schema::Int().Min(0))
+                                          .Prop("spatialRadiusPixels", Schema::Number().Min(0))
+                                          .Prop("spatialPasses", Schema::Int().Min(0))
+                                          .Prop("maxRadianceClamp", Schema::Number().Min(0))
+                                          .Prop("debugView", Schema::String()))
                     .Required({ "availability" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReSTIRDIStats;
