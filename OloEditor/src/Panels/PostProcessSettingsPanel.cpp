@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -70,6 +71,45 @@ namespace OloEngine
             AppendChange(changes, "Exposure", before.Exposure, after.Exposure);
             AppendChange(changes, "Gamma", before.Gamma, after.Gamma);
 
+            // ReSTIR DI (#1140). Logged like every other tier so an undo step
+            // names what moved rather than "post-process settings changed".
+            AppendChange(changes, "ReSTIRDIEnabled", before.ReSTIRDI.Enabled, after.ReSTIRDI.Enabled);
+            AppendChange(changes, "ReSTIRDIInitialCandidates", before.ReSTIRDI.InitialCandidates,
+                         after.ReSTIRDI.InitialCandidates);
+            AppendChange(changes, "ReSTIRDIVisibilityReuse", before.ReSTIRDI.VisibilityReuse,
+                         after.ReSTIRDI.VisibilityReuse);
+            AppendChange(changes, "ReSTIRDITemporalReuse", before.ReSTIRDI.TemporalReuse,
+                         after.ReSTIRDI.TemporalReuse);
+            AppendChange(changes, "ReSTIRDITemporalMCap", before.ReSTIRDI.TemporalMCap,
+                         after.ReSTIRDI.TemporalMCap);
+            AppendChange(changes, "ReSTIRDISpatialReuse", before.ReSTIRDI.SpatialReuse,
+                         after.ReSTIRDI.SpatialReuse);
+            AppendChange(changes, "ReSTIRDISpatialNeighbours", before.ReSTIRDI.SpatialNeighbours,
+                         after.ReSTIRDI.SpatialNeighbours);
+            AppendChange(changes, "ReSTIRDISpatialRadiusPixels", before.ReSTIRDI.SpatialRadiusPixels,
+                         after.ReSTIRDI.SpatialRadiusPixels);
+            AppendChange(changes, "ReSTIRDISpatialPasses", before.ReSTIRDI.SpatialPasses,
+                         after.ReSTIRDI.SpatialPasses);
+            if (before.ReSTIRDI.BiasMode != after.ReSTIRDI.BiasMode)
+            {
+                std::ostringstream oss;
+                oss << "ReSTIRDIBiasMode: " << ToString(before.ReSTIRDI.BiasMode) << " -> "
+                    << ToString(after.ReSTIRDI.BiasMode);
+                changes.emplace_back(oss.str());
+            }
+            AppendChange(changes, "ReSTIRDIEngagementMargin", before.ReSTIRDI.EngagementMargin,
+                         after.ReSTIRDI.EngagementMargin);
+            AppendChange(changes, "ReSTIRDIMaxRadianceClamp", before.ReSTIRDI.MaxRadianceClamp,
+                         after.ReSTIRDI.MaxRadianceClamp);
+            AppendChange(changes, "ReSTIRDIRayOriginNormalBias", before.ReSTIRDI.RayOriginNormalBias,
+                         after.ReSTIRDI.RayOriginNormalBias);
+            if (before.ReSTIRDI.DebugView != after.ReSTIRDI.DebugView)
+            {
+                std::ostringstream oss;
+                oss << "ReSTIRDIDebugView: " << ToString(before.ReSTIRDI.DebugView) << " -> "
+                    << ToString(after.ReSTIRDI.DebugView);
+                changes.emplace_back(oss.str());
+            }
             AppendChange(changes, "AutoExposureEnabled", before.AutoExposureEnabled, after.AutoExposureEnabled);
             AppendChange(changes, "AutoExposureMinLogLuminance", before.AutoExposureMinLogLuminance, after.AutoExposureMinLogLuminance);
             AppendChange(changes, "AutoExposureMaxLogLuminance", before.AutoExposureMaxLogLuminance, after.AutoExposureMaxLogLuminance);
@@ -594,6 +634,168 @@ namespace OloEngine
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "%u material textures could not be resolved to the heap and shade flat",
                                                stats.MaterialTexturesUnresolved);
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "stood down - %s",
+                                           std::string(ToString(stats.Fallback)).c_str());
+                    }
+                }
+            }
+            ImGui::Unindent();
+        }
+
+        // ReSTIR DI (issue #1140, #979 Phase 3). Its own header, above SSGI,
+        // because it is a DIRECT lighting tier: it replaces the deferred
+        // lighting pass's punctual and area-light loop, and everything below
+        // here is a different term.
+        if (ImGui::CollapsingHeader("ReSTIR Direct Illumination"))
+        {
+            ImGui::Indent();
+            auto& restir = settings.ReSTIRDI;
+            ImGui::Checkbox("Enable##ReSTIRDI", &restir.Enabled);
+            ImGui::TextDisabled("Deferred path, ray-tracing device only; replaces the direct term");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Screen-space reservoir resampling over the whole emitter set, for\n"
+                                  "many-light and emissive direct illumination. It still stands DOWN\n"
+                                  "unless the scene has more emitters than clustered lighting can\n"
+                                  "sample; the reason is printed below. Clustered lighting, shadow\n"
+                                  "maps, DDGI and SSGI all stay where they are.");
+
+            if (restir.Enabled)
+            {
+                const auto dragU32 = [](const char* label, u32& value, u32 lo, u32 hi)
+                {
+                    ImGui::DragScalar(label, ImGuiDataType_U32, &value, 1.0f, &lo, &hi, "%u",
+                                      ImGuiSliderFlags_AlwaysClamp);
+                };
+
+                dragU32("Initial Candidates##ReSTIRDI", restir.InitialCandidates, 1u,
+                        kReSTIRDIMaxInitialCandidates);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("RIS candidates drawn per pixel per frame. THE knob this tier exists\n"
+                                      "for: it is what lets a thousand-light scene cost what a\n"
+                                      "thirty-two-light one does.");
+
+                ImGui::Checkbox("Visibility Reuse##ReSTIRDI", &restir.VisibilityReuse);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("One shadow ray on the surviving candidate. OFF LEAKS LIGHT through\n"
+                                      "occluders, because the target function is unshadowed and the\n"
+                                      "unshadowed sample then propagates through temporal and spatial\n"
+                                      "reuse. It exists to isolate the resampling cost when profiling.");
+
+                ImGui::Separator();
+                ImGui::Checkbox("Temporal Reuse##ReSTIRDI", &restir.TemporalReuse);
+                if (restir.TemporalReuse)
+                {
+                    ImGui::DragFloat("M Cap##ReSTIRDI", &restir.TemporalMCap, 1.0f, 1.0f,
+                                     kReSTIRDIMaxTemporalMCap, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Bounds how long a stale sample survives a change in the scene.\n"
+                                          "Too high and the lighting visibly lags a light that moves under\n"
+                                          "a still camera - the one event the #976 validity layer cannot\n"
+                                          "catch, because the receiving surface did not change.");
+                }
+
+                ImGui::Separator();
+                ImGui::Checkbox("Spatial Reuse##ReSTIRDI", &restir.SpatialReuse);
+                if (restir.SpatialReuse)
+                {
+                    dragU32("Neighbours##ReSTIRDI", restir.SpatialNeighbours, 0u, kReSTIRDIMaxSpatialNeighbours);
+                    ImGui::DragFloat("Radius (px)##ReSTIRDI", &restir.SpatialRadiusPixels, 0.5f, 1.0f, 128.0f,
+                                     "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                    dragU32("Passes##ReSTIRDI", restir.SpatialPasses, 1u, 4u);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Two passes at a small radius reach further than one at a large\n"
+                                          "radius, and keep the shift Jacobian better conditioned.");
+                }
+
+                ImGui::Separator();
+                // The names come from the enum's own ToString, so a mode added
+                // there shows up here without a second list to keep in step.
+                if (ImGui::BeginCombo("Bias Mode##ReSTIRDI", std::string(ToString(restir.BiasMode)).c_str()))
+                {
+                    for (u32 i = 0; i < std::to_underlying(ReSTIR::BiasMode::Count); ++i)
+                    {
+                        const auto mode = static_cast<ReSTIR::BiasMode>(i);
+                        if (ImGui::Selectable(std::string(ToString(mode)).c_str(), mode == restir.BiasMode))
+                            restir.BiasMode = mode;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("1/M is cheap and BIASED wherever the combined reservoirs do not\n"
+                                      "share a domain - which spatial neighbours never do. The bias\n"
+                                      "darkens exactly the pixels reuse helps most, so it is not an\n"
+                                      "offset an exposure tweak could hide. The MIS-weighted mode is\n"
+                                      "the generalised balance heuristic: unbiased, and one target\n"
+                                      "evaluation per neighbour PAIR.");
+
+                dragU32("Engagement Margin##ReSTIRDI", restir.EngagementMargin, 0u, 4096u);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How many emitters beyond what clustered lighting samples the scene\n"
+                                      "needs before this tier engages. The hysteresis that stops it\n"
+                                      "toggling as one light drifts across the threshold.");
+
+                ImGui::DragFloat("Radiance Clamp (0 = off)##ReSTIRDI", &restir.MaxRadianceClamp, 0.1f, 0.0f,
+                                 1.0e6f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A clamp is a BIAS. Keep it off for anything compared against the\n"
+                                      "path tracer.");
+                ImGui::DragFloat("Ray Normal Bias##ReSTIRDI", &restir.RayOriginNormalBias, 0.001f, 0.0f, 1.0f,
+                                 "%.3f m", ImGuiSliderFlags_AlwaysClamp);
+
+                if (ImGui::BeginCombo("View##ReSTIRDI", std::string(ToString(restir.DebugView)).c_str()))
+                {
+                    for (u32 i = 0; i < std::to_underlying(ReSTIRDIDebugView::Count); ++i)
+                    {
+                        const auto view = static_cast<ReSTIRDIDebugView>(i);
+                        if (ImGui::Selectable(std::string(ToString(view)).c_str(), view == restir.DebugView))
+                            restir.DebugView = view;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Raw candidate, history validity, variance, reservoir M and W,\n"
+                                      "sample family, and where the Jacobian or the clamp intervened.\n"
+                                      "The roadmap's non-goal is explicit: a tier whose intermediate\n"
+                                      "state cannot be looked at is one noisy sample plus an opaque\n"
+                                      "denoiser.");
+
+                // What the tier actually did last frame. Read only while it is
+                // ENABLED, for the reason the tiers above give: a disabled pass
+                // may not execute at all and its counters would be stale.
+                if (const ReSTIRDIPass* pass = Renderer3D::GetReSTIRDIPass(); pass != nullptr)
+                {
+                    const ReSTIRDIStats& stats = pass->GetStats();
+                    ImGui::Separator();
+                    ImGui::Text("%u candidate emitters (%u punctual, %u sphere, %u emissive triangles)",
+                                stats.Engagement.CandidateLightCount, stats.PunctualLights,
+                                stats.SphereAreaLights, stats.EmissiveTriangles);
+                    ImGui::Text("this tier draws %u candidates per pixel; it engages only above that plus the margin",
+                                stats.Engagement.CandidateBudget);
+                    if (stats.Active)
+                    {
+                        ImGui::Text("%s, reservoir layout v%u", std::string(ToString(stats.BiasMode)).c_str(),
+                                    stats.ReservoirLayoutVersion);
+                        ImGui::Text("%u initial candidates/px, %u spatial neighbours x %u pass(es)",
+                                    stats.InitialCandidatesPerPixel, stats.SpatialNeighboursPerPixel,
+                                    stats.SpatialPasses);
+                        ImGui::Text("rays <= %llu / frame",
+                                    static_cast<unsigned long long>(stats.RaysDispatchedUpperBound));
+                        if (!stats.TemporalReuseRan)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "no reservoir history this frame - every pixel restarted");
+                        if (!stats.VisibilityReuseRan)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "visibility reuse OFF - light leaks through occluders");
+                        if (stats.LightsBeyondShaderBound > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "%u lights past the shader's slot bound are NOT resampled",
+                                               stats.LightsBeyondShaderBound);
+                        if (stats.SettingsClamped > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "settings were CLAMPED - the frame did less than was asked");
                     }
                     else
                     {

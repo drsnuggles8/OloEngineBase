@@ -496,6 +496,22 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view PathTracerMomentsHistory = "PathTracerMomentsHistory";
     inline constexpr std::string_view PathTracerAlbedoHistory = "PathTracerAlbedoHistory";
     inline constexpr std::string_view PathTracerNormalHistory = "PathTracerNormalHistory";
+    // ReSTIR DI (issue #1140). The four reservoir framebuffers of the chain,
+    // its resolved radiance, and the five history planes carried across frames.
+    // The two spatial targets PING-PONG: SpatialPasses runs draw C repeatedly,
+    // reading one and writing the other, so a second pass reaches further than
+    // one pass at twice the radius without keeping the Jacobian ill-conditioned.
+    inline constexpr std::string_view ReSTIRDIInitial = "ReSTIRDIInitial";
+    inline constexpr std::string_view ReSTIRDITemporal = "ReSTIRDITemporal";
+    inline constexpr std::string_view ReSTIRDISpatial0 = "ReSTIRDISpatial0";
+    inline constexpr std::string_view ReSTIRDISpatial1 = "ReSTIRDISpatial1";
+    inline constexpr std::string_view ReSTIRDIRadiance = "ReSTIRDIRadiance";
+    inline constexpr std::string_view ReSTIRDIRadianceTexture = "ReSTIRDIRadianceTexture";
+    inline constexpr std::string_view ReSTIRDIReservoirSampleHistory = "ReSTIRDIReservoirSampleHistory";
+    inline constexpr std::string_view ReSTIRDIReservoirRadianceHistory = "ReSTIRDIReservoirRadianceHistory";
+    inline constexpr std::string_view ReSTIRDIReservoirStateHistory = "ReSTIRDIReservoirStateHistory";
+    inline constexpr std::string_view ReSTIRDISurfaceHistory = "ReSTIRDISurfaceHistory";
+    inline constexpr std::string_view ReSTIRDIMomentsHistory = "ReSTIRDIMomentsHistory";
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

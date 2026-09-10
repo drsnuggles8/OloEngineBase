@@ -147,6 +147,11 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->PostProcessPasses.GpuPathTracer.Raw() : nullptr;
     }
 
+    ReSTIRDIPass* Renderer3D::GetReSTIRDIPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.ReSTIRDI.Raw() : nullptr;
+    }
+
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
         s_Data.ViewPos = position;

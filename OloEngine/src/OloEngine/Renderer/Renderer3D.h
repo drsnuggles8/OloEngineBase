@@ -71,6 +71,7 @@ namespace OloEngine
     class RayTracedShadowPass;
     class RayTracedReflectionPass;
     class GpuPathTracerPass;
+    class ReSTIRDIPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -1247,6 +1248,12 @@ namespace OloEngine
         // The GPU reference path tracer (issue #1055), for the panel's
         // fallback reason, sample count and ray counters. Same null contract.
         [[nodiscard]] static GpuPathTracerPass* GetGpuPathTracerPass();
+        // ReSTIR DI (issue #1140), for the panel's fallback reason, the measured
+        // engagement inputs and the reservoir counters. Same null contract — and
+        // the same reason the counters exist at all: a resampled estimator's
+        // limits are invisible in a still frame, so a number is the only way a
+        // user learns about them without reading the source.
+        [[nodiscard]] static ReSTIRDIPass* GetReSTIRDIPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
@@ -1829,6 +1836,11 @@ namespace OloEngine
             // The GPU path tracer (#1055): the fourth owner of UBO_RAY_TRACING,
             // separate for the same reason as the two above.
             Ref<UniformBuffer> GpuPathTracer;
+            // ReSTIR DI (#1140): the fifth owner of UBO_RAY_TRACING, separate
+            // for the same reason as the others — the passes run in the same
+            // frame, each rebinding its own buffer before its own draws, so one
+            // shared allocation would have whichever uploaded last win.
+            Ref<UniformBuffer> ReSTIRDI;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -1856,6 +1868,12 @@ namespace OloEngine
                 RayTracedShadow.Reset();
                 RayTracedReflection.Reset();
                 GpuPathTracer.Reset();
+                // The fifth. This omission has now happened three times in a row
+                // on this list, so read the comment above before adding a sixth:
+                // the teardown tracker DOES report it ("N GPU allocation(s)
+                // survived the renderer"), and 320 bytes of surviving uniform
+                // buffer is exactly this one.
+                ReSTIRDI.Reset();
             }
         };
 

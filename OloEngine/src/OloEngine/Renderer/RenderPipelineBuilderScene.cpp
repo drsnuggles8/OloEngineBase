@@ -182,6 +182,19 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("RayTracedShadowPass", inputs.Passes->RayTracedShadow));
         }
 
+        // ReSTIR DI (#1140). Deferred-only for the same reason: the reservoirs
+        // are built from the G-Buffer's depth, normal, albedo and flags, so there
+        // is nothing to resample from on the forward paths. Registered after
+        // RayTracedShadowPass and immediately before DeferredLightingPass, which
+        // is the node that reads its radiance — so the builder derives that edge
+        // in registration order the way it derives the shadow mask's. Its edge on
+        // RayTracingScenePass is declared BY NAME, because an acceleration
+        // structure is not a graph resource.
+        if (inputs.Passes->ReSTIRDI)
+        {
+            graph.AddNode(PrepareGraphNode("ReSTIRDIPass", inputs.Passes->ReSTIRDI));
+        }
+
         graph.AddNode(PrepareGraphNode("DeferredLightingPass", inputs.Passes->DeferredLighting));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

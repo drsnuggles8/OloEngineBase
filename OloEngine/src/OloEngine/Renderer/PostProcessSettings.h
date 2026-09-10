@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
+#include "OloEngine/Renderer/ReSTIR/ReSTIRDITechnique.h"
 #include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
@@ -416,6 +417,13 @@ namespace OloEngine
         // against. A hardware ray-tracing device only; elsewhere the pass
         // reports why it stood down and the raster frame shows.
         GpuPathTracerSettings GpuPathTracer{};
+        // ReSTIR DI (issue #1140, #979 Phase 3). It lives here beside the path
+        // tracer rather than on a lighting struct for the plumbing's sake — this
+        // is the struct the scene serializer, the editor panel, the MCP field
+        // registry and the undo snapshot already carry — but it is NOT a post
+        // effect: it replaces the deferred lighting pass's direct term, upstream
+        // of every stage in this file.
+        ReSTIRDISettings ReSTIRDI{};
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque

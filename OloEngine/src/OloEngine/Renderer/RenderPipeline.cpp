@@ -135,6 +135,50 @@ namespace OloEngine
             .Plane = TemporalHistoryPlane::SurfaceGeometry,
         };
 
+        // ReSTIR DI (issue #1140): five RGBA32F planes at the scene band — the
+        // three planes one packed reservoir occupies, the #976 surface record
+        // those reservoirs were selected against, and the resolved moments the
+        // Variance view reads.
+        //
+        // 32-bit is not a default here. A reservoir carries an emitter POSITION,
+        // and the shift Jacobian is a ratio of squared distances to that point:
+        // half-precision drift in the position moves the Jacobian, which is the
+        // one term whose error is invisible in the image. The LAYOUT VERSION is
+        // what makes a packing change invalidate last frame's reservoirs instead
+        // of reinterpreting them — reading a v1 reservoir as v2 is not a crash,
+        // it is a plausible wrong image.
+        constexpr u32 kReSTIRDIHistoryLayoutVersion = ReSTIR::kReservoirLayoutVersion;
+        constexpr TemporalHistoryKey kReSTIRDIReservoirSampleHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRDI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirSample,
+        };
+        constexpr TemporalHistoryKey kReSTIRDIReservoirRadianceHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRDI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirRadiance,
+        };
+        constexpr TemporalHistoryKey kReSTIRDIReservoirStateHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRDI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirState,
+        };
+        constexpr TemporalHistoryKey kReSTIRDISurfaceHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRDI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+        constexpr TemporalHistoryKey kReSTIRDIMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRDI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsFirst,
+        };
+
         // The path tracer's accumulation: everything a reprojecting history
         // depends on EXCEPT the jitter (its rays come from the unjittered
         // projection, so a TAA / FSR2 toggle must not throw the sum away),
@@ -147,6 +191,27 @@ namespace OloEngine
             TemporalHistoryDependency::RenderScale |
             TemporalHistoryDependency::Scene |
             TemporalHistoryDependency::SceneContent |
+            TemporalHistoryDependency::Backend |
+            TemporalHistoryDependency::FeatureState;
+        // ReSTIR DI (#1140). SSGI's set MINUS the jitter, and the omission is the
+        // point: this tier is handed the UNJITTERED projection (like the path
+        // tracer, and for the same reason — its reservoirs are reprojected
+        // through the velocity buffer and gated per pixel by the #976 validity
+        // layer, not resolved against a jittered sample grid). Declaring a jitter
+        // dependency while rendering unjittered invalidates the whole history on
+        // every frame TAA moves the jitter, which is every frame: measured as
+        // historyPlanesAvailable 0 of 5, with temporal reuse silently never
+        // running and the tier merely noisier rather than broken.
+        //
+        // SceneContent is NOT declared either, unlike the path tracer's: a
+        // reprojecting history survives a moved object by design, and the #976
+        // layer rejects the pixels it must.
+        constexpr TemporalHistoryDependency kReSTIRDIHistoryDependencies =
+            TemporalHistoryDependency::ViewTransform |
+            TemporalHistoryDependency::Projection |
+            TemporalHistoryDependency::Viewport |
+            TemporalHistoryDependency::RenderScale |
+            TemporalHistoryDependency::Scene |
             TemporalHistoryDependency::Backend |
             TemporalHistoryDependency::FeatureState;
         constexpr TemporalHistoryDependency kSSGIHistoryDependencies =
@@ -1241,6 +1306,46 @@ namespace OloEngine
         // on the forward paths as well. On a non-RT device the shader never
         // loaded, IsReadyForExecution() is false, and the pass reports itself
         // unavailable rather than quietly producing nothing.
+        // ReSTIR DI (#1140). Deferred-only, and armed only when the shaders
+        // actually loaded — on a non-RT device they never were, so
+        // IsReadyForExecution() is also the "this device can ray trace" test and
+        // the pass reports itself unavailable rather than quietly producing
+        // nothing.
+        if (SceneCompositePasses.ReSTIRDI)
+        {
+            auto& restirPass = *SceneCompositePasses.ReSTIRDI;
+            const auto& restirSettings = data.PostProcess.ReSTIRDI;
+            // UBO before the readiness check, for the reason the tiers above
+            // give: IsReadyForExecution() validates it.
+            restirPass.SetParamsUBO(data.PostProcessGPU.ReSTIRDI);
+            restirPass.SetSettings(restirSettings);
+            restirPass.SetEnabled(restirSettings.Enabled && restirPass.IsReadyForExecution());
+            // The SAME tables the path tracer's NEE samples, so the tier and the
+            // oracle it is validated against share the emitter set and the
+            // 1/totalArea density rather than each building one.
+            restirPass.SetEmissiveTable(&data.PathTracerEmissive);
+            restirPass.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
+            // The UNJITTERED projection, like the path tracer's: TAA's sub-pixel
+            // jitter is baked into data.ProjectionMatrix, and the reservoir
+            // reprojection compares surfaces rather than resolving them, so a
+            // jittered matrix would move every reconstructed shading point by a
+            // sub-pixel every frame and make the #976 depth test noisier for no
+            // benefit.
+            const glm::mat4& restirProjection =
+                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
+            restirPass.SetCameraMatrices(data.ViewMatrix, restirProjection, Renderer3D::GetRenderOrigin());
+            // The engine-wide stochastic counter, advanced once per frame
+            // regardless of which passes are enabled — the same one the blue-noise
+            // consumers use. A FIXED value makes a run reproducible, which is what
+            // the oracle comparison needs.
+            restirPass.SetFrameIndex(data.StochasticFrameIndex);
+            // The verdict and the counters, every frame, whether or not the graph
+            // goes on to declare a target: a culled pass never executes, and a
+            // tier that only reported from Execute would report nothing on
+            // exactly the machines where it stood down.
+            restirPass.ResolveAvailabilityForFrame();
+        }
+
         if (PostProcessPasses.GpuPathTracer)
         {
             auto& pathTracerPass = *PostProcessPasses.GpuPathTracer;
@@ -2557,6 +2662,44 @@ namespace OloEngine
         // The GPU path tracer (#1055): gates whether PopulateBlackboard declares
         // PathTracerColor — a topology change, the same trap as the two above.
         HashBool(h, data.PostProcess.GpuPathTracer.Enabled);
+        // ReSTIR DI (#1140) declares five targets and changes which branch the
+        // deferred lighting shader takes, so the toggle is a topology change —
+        // the same trap the tiers above record.
+        //
+        // ANDed with the pass's readiness rather than hashed raw, because that is
+        // the condition the declaration is actually gated on. On a device with no
+        // ray tracing the shaders were never created, so flipping the setting
+        // changes NO graph resource — and hashing it raw would rebuild the whole
+        // frame graph for a toggle that cannot alter a single pixel, on every
+        // machine that takes the fallback.
+        const bool restirDIArmed = data.PostProcess.ReSTIRDI.Enabled && SceneCompositePasses.ReSTIRDI &&
+                                   SceneCompositePasses.ReSTIRDI->IsReadyForExecution();
+        HashBool(h, restirDIArmed);
+        // AND THE TWO SETTINGS THAT PICK THE HISTORY EXTRACTION SOURCE. Setup()
+        // reads SpatialReuse and SpatialPasses to decide WHICH target the next
+        // frame's reservoir history is extracted from — the last spatial target
+        // when spatial reuse is on, the temporal one when it is off. That is an
+        // extraction CONTRACT, established in Setup and therefore frozen for as
+        // long as the cached topology survives.
+        //
+        // Without these two lines, turning Spatial Reuse off on a warm graph
+        // leaves the contract pointing at a spatial target that Execute no longer
+        // draws into, and next frame's temporal reuse merges whatever the
+        // transient pool happens to be holding there. Flipping SpatialPasses 1->2
+        // has the milder version of the same fault: the contract keeps extracting
+        // the pass-0 target, so the second spatial pass's work is thrown away
+        // once per frame. Neither logs anything and neither shows up in the
+        // stats, which report the settings that were REQUESTED.
+        //
+        // Gated behind restirDIArmed for the same reason the toggle above is: on
+        // a device that never created the shaders these settings cannot move a
+        // single resource, and rebuilding the frame graph for them there would
+        // cost every fallback machine a topology rebuild per settings change.
+        if (restirDIArmed)
+        {
+            HashBool(h, data.PostProcess.ReSTIRDI.SpatialReuse);
+            HashU32(h, data.PostProcess.ReSTIRDI.SpatialPasses);
+        }
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
         // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
@@ -2818,6 +2961,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.SSR);
         HashPassState(h, PostProcessPasses.ContactShadow);
         HashPassState(h, PostProcessPasses.GpuPathTracer);
+        HashPassState(h, SceneCompositePasses.ReSTIRDI);
         HashPassState(h, PostProcessPasses.FSR2);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
@@ -2900,6 +3044,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.SphereProxyAO->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.RayTracedShadow)
                         pipeline.SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.ReSTIRDI)
+                        pipeline.SceneCompositePasses.ReSTIRDI->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.RenderStreamPasses.FluidIntermediates)
                         pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
 
@@ -3847,6 +3993,137 @@ namespace OloEngine
             }
         }
 
+        // ReSTIR DI's targets (issue #1140), declared under one gate so the five
+        // can never exist apart — the pass bails if any is missing rather than
+        // silently skipping a stage.
+        //
+        // Deliberately NOT gated on the TLAS being built or on the engagement
+        // criterion: both are per-frame runtime state, and making the GRAPH SHAPE
+        // depend on them would rebuild the graph on the frame geometry first
+        // appears and again every time a light drifts across the threshold. The
+        // pass handles both instead, by clearing the radiance target to alpha 0,
+        // which the lighting shader reads as "the clustered tier answers this
+        // pixel". Same decision, and the same reasoning, as RTReflectionColor.
+        if (pipeline.SceneCompositePasses.ReSTIRDI)
+        {
+            const auto& restir = *pipeline.SceneCompositePasses.ReSTIRDI;
+            const bool restirEnabled = restir.IsEnabled();
+            const bool restirReady = restir.IsReadyForExecution();
+            const bool restirHasDepth = board.Scene.SceneDepth.IsValid();
+            const bool restirHasAlbedo = board.GBuffer.GBufferAlbedo.IsValid();
+            const bool restirHasNormal = board.GBuffer.GBufferNormal.IsValid();
+            const bool restirHasEmissive = board.GBuffer.GBufferEmissive.IsValid();
+            const bool restirDeclared = restirEnabled && restirReady && restirHasDepth && restirHasAlbedo &&
+                                        restirHasNormal && restirHasEmissive;
+
+            // WHEN THE PASS IS ARMED AND READY AND THE GRAPH STILL DECLARES
+            // NOTHING, SAY WHY — with the values, not a verdict.
+            //
+            // Gated on restirEnabled, which ConfigurePassesForFrame already folds
+            // readiness into, so this does NOT fire for a missing device or
+            // unloaded shaders: the pass reports those itself, every frame, from
+            // ResolveAvailabilityForFrame, and two log lines for one event is how
+            // a log stops being read. What is left is the case only this site can
+            // explain — a G-Buffer input the pass cannot see is absent — and the
+            // five values are what turn that into a five-second diagnosis instead
+            // of a bisect.
+            //
+            // Keyed on the VERDICT, not a one-shot bool, so a user who fixes one
+            // half of the gate and trips another gets the second message.
+            if (restirEnabled && !restirDeclared)
+            {
+                const u32 verdict = (restirReady ? 2u : 0u) | (restirHasDepth ? 4u : 0u) |
+                                    (restirHasAlbedo ? 8u : 0u) | (restirHasNormal ? 16u : 0u) |
+                                    (restirHasEmissive ? 32u : 0u);
+                if (pipeline.m_ReportedReSTIRDIVerdict != verdict)
+                {
+                    pipeline.m_ReportedReSTIRDIVerdict = verdict;
+                    OLO_CORE_WARN("ReSTIRDIPass: the tier is armed and its shaders are loaded, but the graph "
+                                  "declared no reservoir targets this frame, so the pass is culled and direct "
+                                  "lighting silently stays clustered. shadersReady={} sceneDepth={} "
+                                  "gbufferAlbedo={} gbufferNormal={} gbufferEmissive={}",
+                                  restirReady, restirHasDepth, restirHasAlbedo, restirHasNormal,
+                                  restirHasEmissive);
+                }
+            }
+            else
+            {
+                pipeline.m_ReportedReSTIRDIVerdict = kNoReSTIRDIVerdict;
+            }
+
+            if (restirDeclared)
+            {
+                // Declared explicitly rather than through declareSceneBandOutput,
+                // which builds a SINGLE-attachment framebuffer: the resolve draw
+                // writes two. Attachment 0 is the RGBA16F radiance the lighting
+                // shader samples; attachment 1 is the RGBA32F variance moments,
+                // 32-bit because a second moment accumulated over 255 frames
+                // loses its low bits in half precision and the Variance view
+                // would then read a floor rather than the variance.
+                RGResourceDesc radianceDesc;
+                radianceDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                radianceDesc.Width = sceneBandWidth;
+                radianceDesc.Height = sceneBandHeight;
+                radianceDesc.Format = RGResourceFormat::RGBA16Float;
+                radianceDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                radianceDesc.DebugName = std::string(ResourceNames::ReSTIRDIRadiance);
+                board.Lighting.ReSTIRDIRadiance =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDIRadiance, radianceDesc);
+                board.Lighting.ReSTIRDIRadianceTexture =
+                    board.Lighting.ReSTIRDIRadiance.IsValid()
+                        ? graph.CreateFramebufferAttachmentView(ResourceNames::ReSTIRDIRadianceTexture,
+                                                                board.Lighting.ReSTIRDIRadiance, 0u)
+                        : RGTextureHandle{};
+
+                // The reservoir framebuffers. RGBA32F, and the attachment counts
+                // differ per stage: the initial draw also writes the #976 surface
+                // record and the raw un-reused candidate, the temporal draw also
+                // writes the validity verdict, and the two spatial targets carry
+                // the three reservoir planes alone.
+                RGResourceDesc reservoirDesc;
+                reservoirDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                reservoirDesc.Format = RGResourceFormat::RGBA32Float;
+                reservoirDesc.Width = sceneBandWidth;
+                reservoirDesc.Height = sceneBandHeight;
+
+                reservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDIInitial);
+                board.Scratch.ReSTIRDIInitial =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDIInitial, reservoirDesc);
+
+                reservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDITemporal);
+                board.Scratch.ReSTIRDITemporal =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDITemporal, reservoirDesc);
+
+                reservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDISpatial0);
+                board.Scratch.ReSTIRDISpatial0 =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial0, reservoirDesc);
+                reservoirDesc.DebugName = std::string(ResourceNames::ReSTIRDISpatial1);
+                board.Scratch.ReSTIRDISpatial1 =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRDISpatial1, reservoirDesc);
+            }
+        }
+
         // RTReflectionColor exists only on the deferred path when the ray-query
         // tier is enabled AND its shader loaded — the shader is created only on
         // a backend with GL_EXT_ray_query, so IsReadyForExecution() is also the
@@ -4703,6 +4980,89 @@ namespace OloEngine
             board.Temporal.RayTracedShadowMomentsHistory = momentsBinding.Previous;
         }
 
+        // ReSTIR DI's five planes (issue #1140), gated on the pass having
+        // declared its radiance target this frame for the reason the ones above
+        // are: the tier is off by default and five scene-band RGBA32F textures
+        // are not free.
+        //
+        // The dependency set is the REPROJECTING one, not the path tracer's.
+        // Reservoirs are reprojected through the velocity buffer and gated
+        // per-pixel by the #976 validity layer, so a moving camera and a moving
+        // object are both handled per pixel and must NOT throw the whole history
+        // away — which is exactly the distinction
+        // TemporalHistoryDependency::SceneContent draws, and why this tier does
+        // not declare it.
+        if (board.Lighting.ReSTIRDIRadiance.IsValid())
+        {
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = ImageFormat::RGBA32F;
+            descriptor.LayoutVersion = kReSTIRDIHistoryLayoutVersion;
+
+            const auto reservoirSampleBinding = graph.AcquireTemporalHistory(
+                kReSTIRDIReservoirSampleHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
+                ResourceNames::ReSTIRDIReservoirSampleHistory);
+            board.Temporal.ReSTIRDIReservoirSampleHistory = reservoirSampleBinding.Previous;
+
+            const auto reservoirRadianceBinding = graph.AcquireTemporalHistory(
+                kReSTIRDIReservoirRadianceHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
+                ResourceNames::ReSTIRDIReservoirRadianceHistory);
+            board.Temporal.ReSTIRDIReservoirRadianceHistory = reservoirRadianceBinding.Previous;
+
+            const auto reservoirStateBinding = graph.AcquireTemporalHistory(
+                kReSTIRDIReservoirStateHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
+                ResourceNames::ReSTIRDIReservoirStateHistory);
+            board.Temporal.ReSTIRDIReservoirStateHistory = reservoirStateBinding.Previous;
+
+            const auto restirSurfaceBinding =
+                graph.AcquireTemporalHistory(kReSTIRDISurfaceHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
+                                             ResourceNames::ReSTIRDISurfaceHistory);
+            board.Temporal.ReSTIRDISurfaceHistory = restirSurfaceBinding.Previous;
+
+            const auto restirMomentsBinding =
+                graph.AcquireTemporalHistory(kReSTIRDIMomentsHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
+                                             ResourceNames::ReSTIRDIMomentsHistory);
+            board.Temporal.ReSTIRDIMomentsHistory = restirMomentsBinding.Previous;
+
+            // READ THE RECORDED LAYOUT VERSIONS BACK, and tell the pass.
+            //
+            // ReSTIRDIPass cannot derive this itself: the registry drops a
+            // history whose descriptor changed, so from inside Execute a version
+            // bump is indistinguishable from a resize or a first frame. Here is
+            // the only place that can see what the registry actually holds — so
+            // this is where ReSTIRDIFallbackReason::LayoutVersionMismatch gets a
+            // real input. It was a hard-coded `true` in the pass first, which
+            // made that reason unreachable in precisely the case it names.
+            //
+            // All five share `descriptor` today, so today this is always true.
+            // What it exists to catch is a SIXTH plane, or a second acquire site,
+            // pinned to a stale version constant — which would otherwise
+            // reinterpret last frame's reservoirs under the wrong packing and
+            // produce a plausible wrong image with nothing in the log.
+            if (SceneCompositePasses.ReSTIRDI)
+            {
+                const auto& historyRegistry = graph.GetTemporalHistoryRegistry();
+                const std::array restirTokens{ reservoirSampleBinding.Token, reservoirRadianceBinding.Token,
+                                               reservoirStateBinding.Token, restirSurfaceBinding.Token,
+                                               restirMomentsBinding.Token };
+                bool restirLayoutMatches = true;
+                for (const auto& token : restirTokens)
+                {
+                    const TemporalHistoryDescriptor* recorded = historyRegistry.GetDescriptor(token);
+                    // A token with no descriptor is a plane the registry never
+                    // took, which is the ordinary first-frame path and the other
+                    // reasons already cover it — not a version disagreement.
+                    if (recorded != nullptr && recorded->LayoutVersion != ReSTIR::kReservoirLayoutVersion)
+                    {
+                        restirLayoutMatches = false;
+                        break;
+                    }
+                }
+                SceneCompositePasses.ReSTIRDI->SetHistoryLayoutMatches(restirLayoutMatches);
+            }
+        }
+
         // The GPU path tracer's accumulation (issue #1055), gated on its target
         // having been declared this frame for the reason the two above are:
         // the tracer is off by default and four scene-band RGBA32F planes are
@@ -4888,6 +5248,7 @@ namespace OloEngine
         inputs.Passes.GTAO = SceneCompositePasses.GTAO.Raw();
         inputs.Passes.SphereProxyAO = SceneCompositePasses.SphereProxyAO.Raw();
         inputs.Passes.RayTracedShadow = SceneCompositePasses.RayTracedShadow.Raw();
+        inputs.Passes.ReSTIRDI = SceneCompositePasses.ReSTIRDI.Raw();
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
@@ -5081,6 +5442,18 @@ namespace OloEngine
         SceneCompositePasses.RayTracedShadow->SetParamsUBO(data.PostProcessGPU.RayTracedShadow);
         // The light list, the settings, the camera and the ShadowMap pointer
         // are per-frame handoff in ConfigurePassesForFrame().
+
+        // ReSTIR DI (#1140, #979 Phase 3). Same slot band as the ray-traced
+        // shadow tier: after every G-Buffer writer, before DeferredLightingPass.
+        // The emissive and material-texture tables, the settings, the camera and
+        // the clustered light count are per-frame handoff in
+        // ConfigurePassesForFrame().
+        SceneCompositePasses.ReSTIRDI = Ref<ReSTIRDIPass>::Create();
+        SceneCompositePasses.ReSTIRDI->SetName("ReSTIRDIPass");
+        SceneCompositePasses.ReSTIRDI->Init(scenePassSpec);
+        SceneCompositePasses.ReSTIRDI->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        SceneCompositePasses.ReSTIRDI->SetGPUScene(&Renderer3D::GetGPUScene());
+        SceneCompositePasses.ReSTIRDI->SetParamsUBO(data.PostProcessGPU.ReSTIRDI);
 
         SceneCompositePasses.OITPrepare = Ref<OITPrepareRenderPass>::Create();
         SceneCompositePasses.OITPrepare->SetName("OITPreparePass");

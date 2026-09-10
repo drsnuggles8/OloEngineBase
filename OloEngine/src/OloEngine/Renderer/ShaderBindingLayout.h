@@ -613,6 +613,49 @@ namespace OloEngine
         // from the CPU film's pixel index, not from a backend texture
         // coordinate, so the CPU reference camera's matrix is the right one on
         // both backends (GpuPathTracer.glsl's GenerateRay).
+        // ReSTIR DI (issue #1140, #979 Phase 3) — the block all FOUR reservoir
+        // draws share, so one upload feeds the chain. Mirrors the GLSL
+        // ReSTIRDIParams block in include/ReSTIRDIParams.glsl at
+        // UBO_RAY_TRACING (65); ReSTIRDIContractTest pins the size and the
+        // lane meanings.
+        //
+        // It sits on binding 65 with the path tracer's and the shadow tier's
+        // blocks because UBO_TERRAIN_BRUSH (83) is the last engine binding and
+        // UBO_BINDING_LIMIT (84) is the GL 4.6 guaranteed floor: there is no
+        // free binding to take, so the per-dispatch refill (#691) is a
+        // requirement rather than a style choice.
+        struct ReSTIRDIUBO
+        {
+            // NO PrevViewProjection. There was one, at offset 192, described as
+            // "the temporal draw's reprojection fallback" — and no ReSTIR shader
+            // ever read it. Sixty-four bytes of dead uniform on the LAST FREE
+            // UBO binding in the engine, plus a comment promising a fallback
+            // that did not exist, which is worse than the bytes: the temporal
+            // draw depends on the G-Buffer velocity plane and nothing else, and
+            // it is gated on that plane being present (see historyUsable in
+            // ReSTIRDIPass::Execute) rather than quietly reprojecting some other
+            // way.
+            glm::mat4 InvView;              //   0 — view -> render-relative world
+            glm::mat4 InvProjection;        //  64 — clip -> view, for the depth reconstruction
+            glm::mat4 View;                 // 128
+            glm::uvec4 TlasAddressAndFrame; // 192 — xy = TLAS device address, z = instance mask, w = frame index
+            glm::uvec4 SlotCounts;          // 208 — x = instances, y = geometries, z = materials, w = LIVE lights
+            glm::uvec4 EmissiveTable;       // 224 — xy = table address, z = triangle count, w = OLO_RESTIR_FLAG_*
+            glm::uvec4 MaterialTable;       // 240 — xy = table address, z = record count, w = sampler heap offset
+            glm::uvec4 ResamplingCounts;    // 256 — x = initial candidates, y = spatial neighbours, z = pass index, w = bias mode
+            glm::vec4 ReuseParams;          // 272 — x = temporal M cap, y = spatial radius px, z = ray epsilon, w = normal bias
+            glm::vec4 EstimatorParams;      // 288 — x = emissive area pdf, y = max ray distance, z = radiance clamp, w = debug view
+            glm::vec4 ScreenParams;         // 304 — x = width, y = height, z = 1/width, w = 1/height
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(ReSTIRDIUBO);
+            }
+        };
+        static_assert(sizeof(ReSTIRDIUBO) % 16 == 0, "ReSTIRDIUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ReSTIRDIUBO) == 320,
+                      "ReSTIRDIUBO std140 size drifted from the GLSL ReSTIRDIParams block (320 B)");
+
         struct RayTracingPathTracerUBO
         {
             glm::mat4 InvViewProjection; //   0 — clip -> render-relative world, GL clip convention
@@ -2703,7 +2746,19 @@ namespace OloEngine
         // shifts up by one, per the established procedure for new engine slots.
         static constexpr u32 TEX_RAY_TRACED_SHADOW = 72;
 
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 73; // First shader graph user texture slot (must be after all engine-reserved slots)
+        // ReSTIR DI's resolved direct-lighting radiance (issue #1140). The
+        // deferred lighting shader samples it INSTEAD of running its own
+        // punctual / area light loop when the tier is live; alpha 0 means the
+        // tier produced no value at this pixel, which is the distinction a
+        // black texel alone cannot carry.
+        static constexpr u32 TEX_RESTIR_DI_RADIANCE = 73;
+
+        // First shader graph user texture slot — must stay after every
+        // engine-reserved slot, which is why it MOVES when one is added rather
+        // than the new slot being wedged in above it. It has moved three times
+        // now; MAX_ENGINE_TEXTURE_SLOTS derives from it so nothing has to be
+        // updated alongside.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 74;
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -2763,7 +2818,16 @@ namespace OloEngine
         // is the third slot to land in that same blind spot (75 → 76 still rounds
         // to 76), so the OLO_HEAP_IMAGE_BASE edit below is again the only visible
         // half of the change. #1056's TEX_RAY_TRACED_SHADOW is the fourth: the
-        // base moved 73 → 74 while this table stayed at 84 slots / 21 uvec4s. The trailing pad entries are never indexed — image units
+        // base moved 73 → 74 while this table stayed at 84 slots / 21 uvec4s.
+        // #1140's TEX_RESTIR_DI_RADIANCE is the FIFTH, and it landed in the same
+        // blind spot for the same reason: it pushed TEX_SHADER_GRAPH_0 to 74, so
+        // the base moved 74 → 75 and the used count 82 → 83, which still rounds
+        // to 84. Five for five — every engine texture slot ever added has moved
+        // this base and none has moved the array size, so the array size is not
+        // a check, it is a coincidence. What actually catches it is
+        // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, which
+        // names both literals and says what breaks; run it after touching any
+        // TEX_ constant. The trailing pad entries are never indexed — image units
         // stay < MAX_ENGINE_IMAGE_SLOTS — they only keep the std140 block a
         // whole number of uvec4s. include/BindlessHeap.glsl declares
         // `uvec4 g_OloHeapOffsets[HEAP_OFFSET_TABLE_VEC4S]` and must match.
@@ -3376,7 +3440,14 @@ namespace OloEngine
                 case UBO_SPHERE_PROXY_AO:
                     return name.contains("SphereProxyAO") || name.contains("sphereProxyAO");
                 case UBO_RAY_TRACING:
-                    return name.contains("RayTracing") || name.contains("rayTracing");
+                    // ReSTIR DI (issue #1140) refills this binding per dispatch
+                    // like every other tenant here, but its block is named for
+                    // the tier rather than for the mechanism. Renaming it to
+                    // match the pattern would be worse: the name a shader author
+                    // reads should say WHICH tier's parameters these are, and
+                    // this binding has four tenants already.
+                    return name.contains("RayTracing") || name.contains("rayTracing") ||
+                           name.contains("ReSTIR");
                 // Issue #691 compute bare-uniform sweep.
                 case UBO_PARTICLE_SIM:
                     return name.contains("ParticleSim") || name.contains("particleSim");
@@ -3470,7 +3541,12 @@ namespace OloEngine
                            // filter's input is the temporally resolved
                            // visibility. Same pass-local slot-0 reuse as every
                            // fullscreen entry above — no material is bound.
-                           name == "u_RayTracedShadowResolved";
+                           name == "u_RayTracedShadowResolved" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_Reservoir0";
                 case TEX_SPECULAR:
                     // Slot 1 is reused across shader contexts: Metallic/Roughness in PBR,
                     // Depth textures in particle effects, Bloom textures in post-processing,
@@ -3525,7 +3601,12 @@ namespace OloEngine
                            // last frame's visibility at u_History (already
                            // listed above) and the filter reads the moment /
                            // depth / blocker-distance plane here.
-                           name == "u_RayTracedShadowMoments";
+                           name == "u_RayTracedShadowMoments" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_Reservoir1";
                 case TEX_NORMAL:
                     return name.contains("Normal") || name.contains("normal") ||
                            // SSGI shared surface-history resolve (#976), pass-local
@@ -3544,7 +3625,12 @@ namespace OloEngine
                            // SSGI post-blur (issue #708): the accumulated first
                            // moments, whose alpha carries the history length
                            // that widens the radius on a disocclusion.
-                           name == "u_MomentsFirst";
+                           name == "u_MomentsFirst" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_Reservoir2";
                 case TEX_HEIGHT:
                     return name.contains("Height") || name.contains("height") ||
                            name.contains("Displacement") || name.contains("displacement") ||
@@ -3576,7 +3662,13 @@ namespace OloEngine
                            // Ray-traced shadow temporal resolve (issue #1056):
                            // last frame's moment / depth / blocker-distance
                            // plane. Pass-local fullscreen reuse.
-                           name == "u_RayTracedShadowMomentsHistory";
+                           name == "u_RayTracedShadowMomentsHistory" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_RawCandidate" ||
+                           name == "u_Surface";
                 case TEX_AMBIENT:
                     return name.contains("AO") || name.contains("Ambient") ||
                            name.contains("ambient") || name.contains("Occlusion") ||
@@ -3592,7 +3684,13 @@ namespace OloEngine
                            // fullscreen reuse.
                            name == "u_RayTracedShadowHitDistance" ||
                            // DDGI fullscreen-pass pass-local reuse (issue #632).
-                           name == "u_ProbeData";
+                           name == "u_ProbeData" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_HistoryReservoir0" ||
+                           name == "u_Validity";
                 case TEX_EMISSIVE:
                     return name.contains("Emissive") || name.contains("emissive") ||
                            name.contains("Emission") || name.contains("emission") ||
@@ -3608,7 +3706,13 @@ namespace OloEngine
                            // normal at TEX_GBUFFER_NORMAL, which is a different
                            // resolution than the signal once the half-res trace
                            // is on. See the note at TEX_SPECULAR.
-                           name == "u_Guide";
+                           name == "u_Guide" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_HistoryReservoir1" ||
+                           name == "u_MomentsHistory";
                 case TEX_ROUGHNESS:
                     return name.contains("Roughness") || name.contains("roughness") ||
                            // VRCS (issue #683): GTAO.comp reads the per-tile
@@ -3616,9 +3720,19 @@ namespace OloEngine
                            // pass-local 3/4/5. A compute dispatch never coexists
                            // with a bound material, which is what makes the
                            // low-slot reuse above safe and makes this safe too.
-                           name == "u_ShadingRate";
+                           name == "u_ShadingRate" ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_HistoryReservoir2";
                 case TEX_METALLIC:
-                    return name.contains("Metallic") || name.contains("metallic");
+                    return name.contains("Metallic") || name.contains("metallic") ||
+                           // ReSTIR DI (issue #1140): the four reservoir draws are
+                           // fullscreen passes with no material bound, so they reuse the
+                           // pass-local low slots the same way every entry above does.
+                           // The reservoir is THREE planes, so it takes three of them.
+                           name == "u_HistorySurface";
                 case TEX_SHADOW:
                     return name.contains("Shadow") || name.contains("shadow");
                 case TEX_ENVIRONMENT:
@@ -3741,6 +3855,10 @@ namespace OloEngine
                     return name == "u_TerrainVTIndirection";
                 case TEX_TERRAIN_VT_CACHE:
                     return name == "u_TerrainVTCache";
+                case TEX_RESTIR_DI_RADIANCE:
+                    // ReSTIR DI's resolved direct lighting (issue #1140).
+                    // Declared once, in include/DeferredLightingShared.glsl.
+                    return name == "u_ReSTIRDIRadiance";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

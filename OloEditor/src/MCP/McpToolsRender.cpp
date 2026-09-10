@@ -60,6 +60,7 @@
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -315,6 +316,8 @@ namespace OloEngine::MCP
                     return "Cloudscape";
                 case TemporalHistoryEffect::RayTracedShadow:
                     return "RayTracedShadow";
+                case TemporalHistoryEffect::ReSTIRDI:
+                    return "restir-di";
                 case TemporalHistoryEffect::PathTracer:
                     return "PathTracer";
             }
@@ -339,6 +342,12 @@ namespace OloEngine::MCP
                     return "MomentsSecond";
                 case TemporalHistoryPlane::Diagnostics:
                     return "Diagnostics";
+                case TemporalHistoryPlane::ReservoirSample:
+                    return "reservoir-sample";
+                case TemporalHistoryPlane::ReservoirRadiance:
+                    return "reservoir-radiance";
+                case TemporalHistoryPlane::ReservoirState:
+                    return "reservoir-state";
                 case TemporalHistoryPlane::Albedo:
                     return "Albedo";
             }
@@ -6246,6 +6255,98 @@ namespace OloEngine::MCP
             return report;
         }
 
+        // ReSTIR DI's counters (issue #1140), the MCP twin of the Post-Process
+        // panel's stats block, and the reason it exists rather than leaving the
+        // panel as the only reader: the tier's acceptance criteria include
+        // quality DURING MOTION — a camera cut, a scene mutation, an animation —
+        // and each of those has to be driven and then read from a script. A
+        // number only a human can see by opening a panel cannot be part of a
+        // reproducible measurement.
+        //
+        // Read like the other previous-frame stats: the pass fills ReSTIRDIStats
+        // while it runs, so the payload describes the last completed frame, and a
+        // pass whose targets were never declared does not execute at all — the
+        // status says which.
+        Json BuildReSTIRDIStatsReport()
+        {
+            Json report = Json::object();
+            const ReSTIRDIPass* pass = Renderer3D::HasInitialized() ? Renderer3D::GetReSTIRDIPass() : nullptr;
+            const bool available = pass != nullptr;
+            const ReSTIRDISettings settings =
+                available ? Renderer3D::GetPostProcessSettings().ReSTIRDI : ReSTIRDISettings{};
+            const bool enabled = available && settings.Enabled;
+
+            Json availability = Json::object();
+            availability["available"] = available;
+            availability["enabled"] = enabled;
+            if (!available)
+            {
+                availability["active"] = false;
+                availability["status"] = "unavailable";
+                availability["fallbackReason"] = "the renderer is not up";
+                report["availability"] = std::move(availability);
+                return report;
+            }
+
+            const ReSTIRDIStats& stats = pass->GetStats();
+            availability["active"] = stats.Active;
+            availability["status"] = !enabled ? "disabled" : (stats.Active ? "active" : "fallback");
+            availability["fallbackReason"] =
+                stats.Active ? std::string("none") : std::string(ToString(stats.Fallback));
+            report["availability"] = std::move(availability);
+
+            report["freshness"] = Json{ { "model", "previousFrame" }, { "stale", !stats.Active } };
+
+            // The criterion's OWN inputs, so "why is it still clustered" is
+            // answerable from the payload rather than by re-deriving the rule.
+            report["engagement"] = Json{
+                { "candidateLightCount", stats.Engagement.CandidateLightCount },
+                { "candidateBudget", stats.Engagement.CandidateBudget },
+                { "margin", settings.EngagementMargin },
+                { "engaged", ReSTIRDIEngagePredicate(stats.Engagement, settings.EngagementMargin) },
+            };
+            report["lights"] = Json{
+                { "punctualLights", stats.PunctualLights },
+                { "sphereAreaLights", stats.SphereAreaLights },
+                { "emissiveTriangles", stats.EmissiveTriangles },
+                { "lightsBeyondShaderBound", stats.LightsBeyondShaderBound },
+                { "emittersBeyondEncodableIndex", stats.EmittersBeyondEncodableIndex },
+            };
+            report["estimator"] = Json{
+                { "biasMode", std::string(ToString(stats.BiasMode)) },
+                { "reservoirLayoutVersion", stats.ReservoirLayoutVersion },
+                { "initialCandidatesPerPixel", stats.InitialCandidatesPerPixel },
+                { "spatialNeighboursPerPixel", stats.SpatialNeighboursPerPixel },
+                { "spatialPasses", stats.SpatialPasses },
+                { "temporalReuseRan", stats.TemporalReuseRan },
+                { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
+                { "historyPlanesRequired", ReSTIRDIStats::kHistoryPlaneCount },
+                { "visibilityReuseRan", stats.VisibilityReuseRan },
+                { "raysDispatchedUpperBound", stats.RaysDispatchedUpperBound },
+                { "settingsClamped", stats.SettingsClamped },
+            };
+            report["settings"] = Json{
+                { "initialCandidates", settings.InitialCandidates },
+                { "visibilityReuse", settings.VisibilityReuse },
+                { "temporalReuse", settings.TemporalReuse },
+                { "temporalMCap", settings.TemporalMCap },
+                { "spatialReuse", settings.SpatialReuse },
+                { "spatialNeighbours", settings.SpatialNeighbours },
+                { "spatialRadiusPixels", settings.SpatialRadiusPixels },
+                { "spatialPasses", settings.SpatialPasses },
+                { "maxRadianceClamp", settings.MaxRadianceClamp },
+                { "debugView", std::string(ToString(settings.DebugView)) },
+            };
+            return report;
+        }
+
+        ToolResult Handle_ReSTIRDIStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 { return BuildReSTIRDIStatsReport(); });
+            return ToolResult::Structured(result);
+        }
+
         ToolResult Handle_GpuPathTracerStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
@@ -8213,6 +8314,89 @@ namespace OloEngine::MCP
                     .Required({ "availability" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_GpuPathTracerStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_restir_stats";
+            tool.Toolset = "render";
+            tool.Title = "ReSTIR DI statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the ReSTIR DI tier's counters for the last completed frame (issue #1140): whether it is "
+                "active and, when it is not, WHY ('status' distinguishes 'unavailable' - no renderer - from "
+                "'disabled' and from 'fallback', where the tier is switched on but standing down for the reason "
+                "named). 'engagement' carries the MEASURED criterion's own inputs, so 'why is direct lighting "
+                "still clustered' is answerable from the payload rather than by re-deriving the rule: the emitter "
+                "count, the per-pixel candidate budget it must exceed, the hysteresis margin, and the verdict. "
+                "'estimator' says which normalisation ran (the pass CLAMPS out-of-range settings, so the settings "
+                "are not authoritative about what the frame did), the reservoir layout version, and whether "
+                "temporal and visibility reuse actually ran. Read it before trusting a resampled frame: "
+                "'visibilityReuseRan' false means light leaks through occluders, 'temporalReuseRan' false means "
+                "every pixel restarted this frame, 'lightsBeyondShaderBound' names lights the tier cannot reach, "
+                "and 'settingsClamped' means the frame did LESS than was asked. Directional lights are "
+                "deliberately absent from every count here - the clustered loop keeps them so they keep their "
+                "cascades, their ray-traced shadow mask channel and their cloud shadow.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability", Schema::Object()
+                                              .Prop("available", Schema::Bool())
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("active", Schema::Bool())
+                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "fallback", "active" }))
+                                              .Prop("fallbackReason", Schema::String().Desc("ReSTIRDIFallbackReason as text; 'none' while active."))
+                                              .Required({ "available", "enabled", "active", "status", "fallbackReason" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                           .Prop("stale", Schema::Bool().Desc("True while the tier is not active: the counters then describe the last frame it ran."))
+                                           .Required({ "model", "stale" }))
+                    .Prop("engagement", Schema::Object()
+                                            .Prop("candidateLightCount", Schema::Int().Min(0).Desc("Point / spot / sphere-area lights plus emissive triangles. Directional lights are NOT counted."))
+                                            .Prop("candidateBudget", Schema::Int().Min(0).Desc("RIS candidates drawn per pixel — the fixed cost the emitter set must exceed."))
+                                            .Prop("margin", Schema::Int().Min(0))
+                                            .Prop("engaged", Schema::Bool()))
+                    .Prop("lights", Schema::Object()
+                                        .Prop("punctualLights", Schema::Int().Min(0))
+                                        .Prop("sphereAreaLights", Schema::Int().Min(0))
+                                        .Prop("emissiveTriangles", Schema::Int().Min(0))
+                                        .Prop("lightsBeyondShaderBound", Schema::Int().Min(0))
+                                        .Prop("emittersBeyondEncodableIndex",
+                                              Schema::Int().Min(0).Desc(
+                                                  "Emitters past the largest index the reservoir identity lane "
+                                                  "can name; they stay on the clustered path.")))
+                    .Prop("estimator", Schema::Object()
+                                           .Prop("biasMode", Schema::String())
+                                           .Prop("reservoirLayoutVersion", Schema::Int().Min(1))
+                                           .Prop("initialCandidatesPerPixel", Schema::Int().Min(0))
+                                           .Prop("spatialNeighboursPerPixel", Schema::Int().Min(0))
+                                           .Prop("spatialPasses", Schema::Int().Min(0))
+                                           .Prop("temporalReuseRan", Schema::Bool())
+                                           .Prop("historyPlanesAvailable",
+                                                 Schema::Int().Min(0).Desc(
+                                                     "Reservoir history planes the graph produced this frame."))
+                                           .Prop("historyPlanesRequired",
+                                                 Schema::Int().Min(0).Desc(
+                                                     "Planes the estimator needs; a shortfall is why temporal "
+                                                     "reuse stood down."))
+                                           .Prop("visibilityReuseRan", Schema::Bool())
+                                           .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
+                                           .Prop("settingsClamped", Schema::Int().Min(0)))
+                    .Prop("settings", Schema::Object()
+                                          .Prop("initialCandidates", Schema::Int().Min(0))
+                                          .Prop("visibilityReuse", Schema::Bool())
+                                          .Prop("temporalReuse", Schema::Bool())
+                                          .Prop("temporalMCap", Schema::Number().Min(0))
+                                          .Prop("spatialReuse", Schema::Bool())
+                                          .Prop("spatialNeighbours", Schema::Int().Min(0))
+                                          .Prop("spatialRadiusPixels", Schema::Number().Min(0))
+                                          .Prop("spatialPasses", Schema::Int().Min(0))
+                                          .Prop("maxRadianceClamp", Schema::Number().Min(0))
+                                          .Prop("debugView", Schema::String()))
+                    .Required({ "availability" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ReSTIRDIStats;
             registry.Register(std::move(tool));
         }
 
