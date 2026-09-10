@@ -504,7 +504,11 @@ namespace OloEngine::MCP
             // chatty 7000-case run is a hang that looks exactly like a slow test.
             // FILE_SHARE_READ is what lets the progress watch read the log while
             // the child is still writing it.
-            const HANDLE console = ::CreateFileW(Widen(consolePath.string()).c_str(), GENERIC_WRITE,
+            // .wstring(), not Widen(.string()): path::string() encodes through the
+            // ANSI code page on MSVC, so a non-ASCII %TEMP% is mis-decoded as
+            // UTF-8 and the run fails before the child starts. The path already
+            // holds the wide form.
+            const HANDLE console = ::CreateFileW(consolePath.wstring().c_str(), GENERIC_WRITE,
                                                  FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable, CREATE_ALWAYS,
                                                  FILE_ATTRIBUTE_NORMAL, nullptr);
             if (console == INVALID_HANDLE_VALUE)
@@ -522,7 +526,7 @@ namespace OloEngine::MCP
             startup.hStdError = console;
 
             std::wstring commandLine = Widen(BuildCommandLine(exe, arguments));
-            const std::wstring directory = Widen(workingDirectory.string());
+            const std::wstring directory = workingDirectory.wstring();
 
             PROCESS_INFORMATION process{};
             if (!::CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
