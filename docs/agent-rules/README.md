@@ -128,6 +128,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
 - [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
 - [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md): a precondition asserted in a constructor delegates safety to every call site.
+- [derived-graph-must-outlive-its-source.md](derived-graph-must-outlive-its-source.md): before answering "what points at X" from an existing graph, enumerate its writers and check the direction of every edge; and a direction bug can be invisible because its reader is wrong the same way, so change both halves together.
 
 ## Gameplay, physics and simulation
 
@@ -296,6 +297,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md) | A texture, from the second load onward. |
 | [shared-atlas-allocator.md](shared-atlas-allocator.md) | A budget claim, when `vector::resize()` or a `= T{}` reset discards a non-RAII handle. |
 | [technique-selection-seams.md](technique-selection-seams.md) | The REASON a light did not get the technique it asked for, when the choice is a shader branch: by the time the shader runs it is one uniform, and nothing on the CPU made the decision. |
+| [derived-graph-must-outlive-its-source.md](derived-graph-must-outlive-its-source.md) | Every scene, from the asset dependency graph — no serializer ever registered one — so "what references this texture" answered confidently and short, and every edge that WAS registered pointed backwards, which stayed invisible because the reload path walked the wrong map too. |
 
 **The counter-move:** ask what the absence would look like. If nothing would differ, you need a
 coverage test, not a unit test.

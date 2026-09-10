@@ -3,6 +3,7 @@
 #include "MCP/McpEventStream.h"
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpServer.h"
+#include "Automation/AutomationAssetCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
 
 #include "OloEngine/Core/Log.h"
@@ -204,6 +205,7 @@ namespace OloEngine::MCP
         RegisterRenderTools(registry);
         RegisterShaderTools(registry);
         RegisterAssetTools(registry);
+        Automation::RegisterAssetAuthoringCommands(registry);
         RegisterScriptingTools(registry);
         RegisterCameraTools(registry);
         RegisterPhysicsTools(registry);

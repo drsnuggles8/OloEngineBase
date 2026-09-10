@@ -234,8 +234,16 @@ and for what to do when adding a tool.
 | `olo_shader_errors` | shaders with compile/link errors |
 | `olo_shader_get` | one shader's uniforms/buffers/samplers/instructions (+ optional GLSL) |
 | `olo_shader_reload` | reload + recompile one shader from disk by name; returns post-reload status + the compile/link log (the shader inner loop) |
-| `olo_assets_list` | paginated registered assets (handle, type, path) + type filter |
+| `olo_assets_list` | paginated registered assets (handle, type, path); filter by `typeFilter`, `namePattern` (filename substring) and `pathPattern` (path substring), combined with AND |
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
+| `olo_asset_get` | one asset's registry metadata by `handle` or `path` — type, project-relative path, on-disk state, size. Answers for an unregistered file too, which is exactly when somebody is about to delete it |
+| `olo_asset_references` | **what references this asset** (`direction: referrers`, the default) or what it needs (`dependencies`), without opening the editor. Derived by scanning the project's text asset files — `AssetRegistry.oar` is binary and the AssetManager dependency graph covers neither scenes nor unloaded assets. **Always read `coverage`**: an empty list means nothing was found in the scanned set, not that nothing references the asset. See [Safe asset operations](#safe-asset-operations) |
+| `olo_asset_create` | **(consented write)** create a default-valued asset of a supported type at a project path and register it. Destination must be inside the asset directory, must not exist, and its extension must map back to the requested type; `createDirectories:true` creates a missing parent folder. Not undoable |
+| `olo_asset_move` | **(consented write)** move or rename an asset **and rewrite every reference to it**, each in the style its own file used, so referring scenes and materials keep resolving. All-or-nothing; the asset keeps its handle. `createDirectories:true` creates a missing parent folder — there is no directory command, so without it moving into a new folder is impossible rather than two-step. One editor undo step when the host has an editor history (the result says `undoable`); undo refuses if a referring file changed in the meantime |
+| `olo_asset_delete` | **(consented write)** delete an asset and drop it from the registry. **Refused by default when anything references it**, naming every referrer; `force:true` proceeds and reports exactly which references it broke. A truncated reference scan is refused regardless of `force`. Not undoable |
+| `olo_asset_import` | **(consented write)** register a file on disk as a project asset, minting its handle. Idempotent. Not undoable, and deliberately not pretending to be — an import mutates the persisted registry |
+| `olo_asset_reimport` | **(consented write)** reload a registered asset's data from disk. Reports `reimported:false` with an explanation when the reload fails, because a failed reload leaves the previously loaded data live and is invisible in the editor. Not undoable |
+| `olo_asset_import_settings` | **(consented write)** read (omit `settings`) or merge (provide `settings`) an asset's per-asset import settings, stored in an `<asset>.oloimport` JSON sidecar; a null value removes its key. `appliedByImporter` is **false** — the engine has no per-asset import-settings pipeline yet, so these are stored and returned but no importer consults them. Not undoable |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
@@ -354,6 +362,56 @@ Threading: the write handler runs on a cpp-httplib worker thread and blocks ther
 while the main (UI) thread renders the modal and records your decision — the same
 main-thread-marshal discipline the read tools use, so the editor's render loop never
 blocks on an agent.
+
+### Safe asset operations
+
+Deleting a referenced asset is data loss with a **delayed symptom**: the scene still
+loads, the mesh renders untextured, and nothing says why. So the whole asset command set
+is built on one question -- *what references this?* -- and every destructive command
+answers it first.
+
+**Where the answer comes from.** `AssetRegistry.oar` is binary, and the
+`EditorAssetManager` dependency graph cannot answer it either: no serializer registers a
+scene's references, and an edge only appears once an asset has been deserialized. So
+`olo_asset_references` **derives** the answer by scanning the project's text asset files
+(`.olo`, `.olomaterial`, `.oloprefab`, the rest of the YAML-shaped set, plus `.lua`/`.cs`)
+and resolving each candidate against the same anchors the engine itself uses -- project
+root, asset directory (`Project::GetAssetFileSystemPath`), the legacy project-prefixed
+spelling, then the working directory.
+
+**Always read `coverage`.** It names what was *not* searched: binary formats skipped (a
+`.glb` can carry references this scan cannot see), unreadable files, references that
+resolve to nothing, and whether the walk was truncated. An empty referrer list means
+*nothing was found in this set*, never *nothing references this asset*. Two known
+boundaries: a handle under a key whose name is not handle-shaped is not collected, and a
+bare filename with no directory separator counts only when it resolves (a scene's
+`Scene: Courtyard.olo` is its title, not a path).
+
+A safe sequence is:
+
+1. `olo_asset_references` on the asset. Read `count` **and** `coverage`.
+2. To relocate it, `olo_asset_move`. Every reference is re-spelled in the style its own
+   file already used, so a project-relative path stays project-relative and a legacy
+   project-prefixed one keeps its prefix. It is all-or-nothing: if any reference cannot
+   be rewritten, nothing is written. The asset keeps its handle, so handle-shaped
+   references need no change and are reported separately as
+   `handleReferencesUnchanged`.
+3. To remove it, `olo_asset_delete`. With referrers it refuses and names them; `force:true`
+   proceeds and lists exactly what it broke under `brokenReferences`. A **truncated**
+   reference scan is refused regardless of `force` -- that is a claim about the quality of
+   the list, not about the risk you are accepting, and no flag waives it.
+
+`olo_asset_move` is one editor undo step when the host has an editor history, and it
+takes the reference rewrites back with it. Undo refuses -- loudly -- if a referring file
+changed in the meantime, rather than clobbering that change. A headless caller has no
+history and gets `undoable:false` rather than a promise of a Ctrl-Z that does not exist.
+
+Everything goes through `AssetManager`, never a raw filesystem edit, so the registry,
+the hot-reload watcher and handle identity stay consistent. Writes commit through a
+sibling temporary file and one atomic replace, which is what stops the watcher caching a
+half-written asset; the `.tmp` suffix is absent from the extension map, so dropping one
+next to an asset cannot trigger a spurious auto-import. The same is true of the
+`.oloimport` settings sidecar.
 
 ### Structural scene authoring
 
@@ -511,7 +569,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
-| `assets` | `olo_assets_list`, `olo_assets_problems` |
+| `assets` | `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_camera_freeze_culling`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |

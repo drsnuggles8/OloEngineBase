@@ -23,6 +23,19 @@ namespace OloEngine::MCP
             std::string typeFilter;
             if (args.contains("typeFilter") && args["typeFilter"].is_string())
                 typeFilter = args["typeFilter"].get<std::string>();
+            // Search by name / path (issue #1128 slice 1). Added here rather than
+            // as a second olo_asset_find command: the filters are the only thing
+            // that would have differed, and a near-duplicate of a listing command
+            // is exactly the surface bloat exposure profiles (#1124) exist to
+            // undo. Both are case-insensitive substring matches, not globs --
+            // a substring is what an agent that half-remembers a filename needs,
+            // and it cannot fail in the surprising ways an unanchored glob does.
+            std::string namePattern;
+            if (args.contains("namePattern") && args["namePattern"].is_string())
+                namePattern = args["namePattern"].get<std::string>();
+            std::string pathPattern;
+            if (args.contains("pathPattern") && args["pathPattern"].is_string())
+                pathPattern = args["pathPattern"].get<std::string>();
             int page = 0;
             int pageSize = 50;
             if (args.contains("page") && args["page"].is_number_integer())
@@ -35,7 +48,7 @@ namespace OloEngine::MCP
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
-            const Json result = host.MarshalRead([typeFilter, page, pageSize]() -> Json
+            const Json result = host.MarshalRead([typeFilter, namePattern, pathPattern, page, pageSize]() -> Json
                                                  {
                 const Ref<AssetManagerBase> mgr = Project::GetAssetManager();
                 if (!mgr)
@@ -62,6 +75,32 @@ namespace OloEngine::MCP
                                 handles.push_back(h);
                         }
                     }
+                }
+
+                // Filter BEFORE paginating, so `total` and `nextPage` describe the
+                // filtered set. Filtering the page instead would make a search
+                // that matches one asset on page 3 look like it matched nothing.
+                if (!namePattern.empty() || !pathPattern.empty())
+                {
+                    const auto lower = [](std::string text)
+                    {
+                        std::ranges::transform(text, text.begin(), [](unsigned char ch)
+                                               { return static_cast<char>(std::tolower(ch)); });
+                        return text;
+                    };
+                    const std::string wantedName = lower(namePattern);
+                    const std::string wantedPath = lower(pathPattern);
+                    std::erase_if(handles, [&](AssetHandle handle)
+                    {
+                        const AssetMetadata meta = mgr->GetAssetMetadata(handle);
+                        if (!wantedName.empty() &&
+                            lower(meta.FilePath.filename().string()).find(wantedName) == std::string::npos)
+                            return true;
+                        if (!wantedPath.empty() &&
+                            lower(meta.FilePath.generic_string()).find(wantedPath) == std::string::npos)
+                            return true;
+                        return false;
+                    });
                 }
 
                 std::sort(handles.begin(), handles.end(),
@@ -147,14 +186,18 @@ namespace OloEngine::MCP
             tool.Title = "List assets";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "List the project's registered assets (paginated): handle, type, project-relative path, and "
-                "filename. Optionally filter by asset type (e.g. Texture2D, Mesh, Material, Scene, Script).";
+                "Search / list the project's registered assets (paginated): handle, type, project-relative path, "
+                "and filename. Filter by asset type (e.g. Texture2D, Mesh, Material, Scene, Script), by filename "
+                "substring, and by path substring; the filters combine with AND. To find out what REFERENCES an "
+                "asset before touching it, use olo_asset_references.";
             tool.InputSchema = Schema::Object()
                                    .Prop("typeFilter", Schema::String().Desc("Asset type name to filter by (e.g. 'Texture2D'). Omit for all types."))
+                                   .Prop("namePattern", Schema::String().Desc("Case-insensitive substring of the FILENAME. Omit for any."))
+                                   .Prop("pathPattern", Schema::String().Desc("Case-insensitive substring of the project-relative PATH. Omit for any."))
                                    .Pagination("Assets per page (default 50, max 200).")
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
-                                    .Prop("total", Schema::Int().Min(0).Desc("Total registered assets after the type filter."))
+                                    .Prop("total", Schema::Int().Min(0).Desc("Total registered assets matching every supplied filter."))
                                     .Prop("page", Schema::Int().Min(0))
                                     .Prop("pageSize", Schema::Int().Min(1))
                                     .Prop("returned", Schema::Int().Min(0).Desc("Number of entries in 'assets'."))
