@@ -80,6 +80,7 @@ add_executable(OloEngine-Tests
 		AssetPackTest.cpp
 		RuntimeAssetPackTest.cpp
 		AssetRegistryInvariantsTest.cpp
+		AssetDependencyDirectionTest.cpp
 		RuntimeAssetManagerTest.cpp
 		AssetLoadedEventTest.cpp
 		${_olo_component_round_trip_src}

@@ -265,7 +265,7 @@ namespace OloEngine
             if (replaceAsset)
             {
                 OLO_CORE_INFO_TAG("AssetManager", "Replaced asset {}", metadata.FilePath.string());
-                UpdateDependencies(metadata.Handle);
+                UpdateDependents(metadata.Handle);
                 IncrementAssetGeneration(metadata.Handle);
                 // Dispatch AssetReloadedEvent on main thread so UI layers can handle it safely
                 auto reloadHandle = metadata.Handle;
@@ -309,14 +309,6 @@ namespace OloEngine
         AssetHandle ImportAsset(const std::filesystem::path& filepath);
 
         /**
-         * @brief Create a new asset of the specified type
-         * @param type Asset type to create
-         * @param path Path where the asset should be saved
-         * @return Handle of the created asset, or 0 if failed
-         */
-        AssetHandle CreateAsset(AssetType type, const std::filesystem::path& path);
-
-        /**
          * @brief Serialize the asset registry to disk
          *
          * Takes no EditorAssetManager-level lock — AssetRegistry::Serialize does its
@@ -349,13 +341,20 @@ namespace OloEngine
         void RegenerateAssetRegistry();
 
         /**
-         * @brief Update dependents when an asset changes (for hot-reload)
-         * @param handle Asset handle that changed
-         */
-        void UpdateDependencies(AssetHandle handle);
-
-        /**
-         * @brief Notify dependent assets when this asset has been updated
+         * @brief Notify the assets that DEPEND ON `handle` that it was updated.
+         *
+         * Walks m_AssetDependents, i.e. the reverse edges registered by
+         * RegisterDependency(dependent, dependency), and calls
+         * Asset::OnDependencyUpdated on each — a material whose texture was
+         * reloaded, a static mesh whose mesh source changed.
+         *
+         * There used to be an UpdateDependencies(handle) beside this that walked
+         * the FORWARD edges and notified the things `handle` depends on. That is
+         * the wrong direction, and it only appeared to work because every
+         * AssetSerializer call site registered its edge backwards, so the two
+         * errors cancelled. Both were fixed together; do not reintroduce either
+         * half on its own.
+         *
          * @param handle Asset handle that was updated
          */
         void UpdateDependents(AssetHandle handle);
