@@ -345,23 +345,32 @@ namespace OloEngine::Automation::Tests
     // so the move edited a line nobody asked it to change and moving back did not
     // restore it -- an unrelated re-spelling smuggled into somebody's diff, which
     // is precisely what this command set is careful not to do everywhere else.
+    //
+    // The reference is CONSTRUCTED rather than scanned, because a scan can only
+    // produce a case-mismatched-but-resolved reference on a case-insensitive
+    // filesystem: on Linux "assets/textures/..." simply does not resolve, so the
+    // end-to-end version of this case passes on Windows and fails on Linux CI --
+    // which is exactly what it did. What is under test is RespellReference, and
+    // that is testable directly on either platform.
     TEST_F(AutomationAssetIndexTest, RespellPreservesTheCasingOfTheUnchangedPrefix)
     {
-        Write(m_Project / "Assets" / "Scenes" / "LowerCase.olo",
-              "Scene: L\n  AlbedoPath: assets/textures/Checkerboard.png\n");
-
-        const AssetIndex index = Build();
-        const auto referrers = FindReferrers(index, ProjectTexture(), 0);
-        ASSERT_EQ(referrers.size(), 1u) << "the lowercase spelling must resolve in the first place";
+        AssetReference reference;
+        reference.SourceFile = m_Project / "Assets" / "Scenes" / "LowerCase.olo";
+        reference.Line = 2;
+        reference.Key = "AlbedoPath";
+        reference.RawValue = "assets/textures/Checkerboard.png";
+        reference.Kind = AssetReferenceKind::Path;
+        reference.ResolvedFile = ProjectTexture();
+        reference.Anchor = AssetReferenceAnchor::ProjectRelative;
 
         const auto moved = m_Project / "Assets" / "Textures" / "Moved" / "Checkerboard.png";
-        const std::string forward = RespellReference(referrers[0], ProjectTexture(), moved, m_Scope);
+        const std::string forward = RespellReference(reference, ProjectTexture(), moved, m_Scope);
         EXPECT_EQ(forward, "assets/textures/Moved/Checkerboard.png")
             << "only the part that changed may change; the casing the file used is not this move's business";
 
         // ...and the round trip is a no-op, which is the property that actually
         // matters: move it back and the file is byte-identical again.
-        AssetReference movedReference = referrers[0];
+        AssetReference movedReference = reference;
         movedReference.RawValue = forward;
         movedReference.ResolvedFile = std::filesystem::weakly_canonical(moved);
         EXPECT_EQ(RespellReference(movedReference, moved, ProjectTexture(), m_Scope),
