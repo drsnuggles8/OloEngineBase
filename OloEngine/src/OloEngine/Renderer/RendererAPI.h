@@ -296,6 +296,42 @@ namespace OloEngine
             return false;
         }
 
+        // --- Async compute batches (issue #808) ------------------------------
+        // The render graph brackets each `AsyncComputeBatch` with these. A
+        // backend returns true from Begin only when it actually moved
+        // recording onto a separate compute queue — it must then also perform
+        // the queue-family ownership transfers that make the resources
+        // crossing the boundary readable there, and undo them at End.
+        //
+        // FALSE is a first-class answer, not an error: OpenGL has one command
+        // stream, and a Vulkan device with no compute-only queue family (which
+        // is what CI runs) keeps every batch on the graphics queue. The caller
+        // then records the batch inline exactly as before. A backend that
+        // declines must say why through GetAsyncComputeStats — a silent
+        // decline is indistinguishable from async compute simply not helping.
+        //
+        // End is only called after a Begin that returned true.
+        [[nodiscard]] virtual bool BeginAsyncComputeBatch(u32 /*batchIndex*/)
+        {
+            return false;
+        }
+        virtual void EndAsyncComputeBatch(u32 /*batchIndex*/) {}
+
+        struct AsyncComputeFrameStats
+        {
+            u32 BatchesOnComputeQueue = 0; ///< Async batches that crossed to the compute queue this frame.
+            u32 BatchesDeclined = 0;       ///< Async batches that ran inline on the graphics queue instead.
+            u32 OwnershipTransfers = 0;    ///< Queue-family release/acquire PAIRS emitted.
+            u32 ComputeSubmits = 0;        ///< Submissions made to the compute queue.
+            /// Why the last decline happened; empty when nothing declined.
+            /// A view over a string literal — no allocation, no lifetime.
+            std::string_view DeclineReason;
+        };
+        [[nodiscard]] virtual AsyncComputeFrameStats GetAsyncComputeStats() const
+        {
+            return {};
+        }
+
         // --- Parallel command recording (issue #806, ADR 0011 amendment (92)) ---
         // RecordParallel runs `body(item)` for every item in [0, itemCount).
         // On a backend that supports it the items record on task workers, in

@@ -33,6 +33,10 @@
 // instead of a Vulkan struct here and a parallel enum there.
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 
+// The async-compute queue pick (#808) is a pure policy over the family
+// properties the driver reports; the device owns the RESULT, not the rule.
+#include "Platform/Vulkan/VulkanQueueSelection.h"
+
 #include <functional>
 #include <mutex>
 #include <unordered_map>
@@ -101,6 +105,40 @@ namespace OloEngine
         [[nodiscard]] VkCommandPool GetCommandPool() const
         {
             return m_CommandPool;
+        }
+
+        // --- The async compute queue (issue #808) -------------------------
+        // OPTIONAL and deliberately not an ADR 0010 contract row: a device
+        // without a compute-only queue family still satisfies the contract,
+        // and the renderer keeps every compute pass on the graphics queue.
+        // TRUE means all of it holds — a family was selected, the logical
+        // device was created with a queue on it, vkGetDeviceQueue returned a
+        // handle and its command pool exists — so this is safe to branch on
+        // rather than merely informative. Why it is FALSE is carried
+        // separately by GetAsyncComputeUnavailableReason so a session that
+        // expected overlap can find out why it got none.
+        [[nodiscard]] bool HasAsyncComputeQueue() const
+        {
+            return m_AsyncComputeQueue != VK_NULL_HANDLE;
+        }
+        [[nodiscard]] u32 GetAsyncComputeQueueFamily() const
+        {
+            return m_AsyncComputeQueueFamily;
+        }
+        [[nodiscard]] VkQueue GetAsyncComputeQueue() const
+        {
+            return m_AsyncComputeQueue;
+        }
+        // Command buffers submitted to the async compute queue MUST come from
+        // this pool: a pool is bound to one queue family for the life of every
+        // buffer allocated from it.
+        [[nodiscard]] VkCommandPool GetAsyncComputeCommandPool() const
+        {
+            return m_AsyncComputeCommandPool;
+        }
+        [[nodiscard]] VulkanQueueSelection::AsyncComputeUnavailableReason GetAsyncComputeUnavailableReason() const
+        {
+            return m_AsyncComputeUnavailableReason;
         }
 
         // Core features enabled at device creation (when supported — never
@@ -329,6 +367,15 @@ namespace OloEngine
         VkQueue m_Queue = VK_NULL_HANDLE;
         VmaAllocator m_Allocator = VK_NULL_HANDLE;
         VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+        // #808. Committed only after vkCreateDevice accepted the second
+        // VkDeviceQueueCreateInfo and its pool was created — the same
+        // "describe the logical device, never the request" rule the ray
+        // tracing flags follow.
+        u32 m_AsyncComputeQueueFamily = 0;
+        VkQueue m_AsyncComputeQueue = VK_NULL_HANDLE;
+        VkCommandPool m_AsyncComputeCommandPool = VK_NULL_HANDLE;
+        VulkanQueueSelection::AsyncComputeUnavailableReason m_AsyncComputeUnavailableReason =
+            VulkanQueueSelection::AsyncComputeUnavailableReason::NoDevice;
         bool m_TessellationShaderEnabled = false;
         bool m_GeometryShaderEnabled = false;
         bool m_ShaderBufferInt64AtomicsEnabled = false;

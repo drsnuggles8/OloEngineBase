@@ -179,9 +179,10 @@ namespace OloEngine
         m_CurrentFrame.m_GPUSceneUnlinkedDraws = 0;
         m_CurrentFrame.m_GPUSceneConsumedDraws = 0;
         m_CurrentFrame.m_GPUSceneFallbackDraws = 0;
-        // m_ParallelRecording is deliberately NOT zeroed here: the backend
-        // only reports it once the frame's regions have joined, so EndFrame()
-        // is the sole writer. Until then the previous frame's block stays as
+        // m_ParallelRecording and m_AsyncCompute are deliberately NOT zeroed
+        // here: the backend only reports them once the frame's regions have
+        // joined and its batches have submitted, so EndFrame() is the sole
+        // writer. Until then the previous frame's block stays as
         // the live estimate that RenderUI() and CaptureFrame() read mid-frame,
         // the same convention as m_FrameTime above.
 
@@ -211,6 +212,10 @@ namespace OloEngine
         // the profiler exists. Zeros on OpenGL (the facade default); on
         // Vulkan with the lever off only InlineRegions counts.
         m_CurrentFrame.m_ParallelRecording = RenderCommand::GetParallelRecordingStats();
+        // #808, same point and same argument: the backend counts what
+        // crossed to the compute queue and what declined, and has no reason
+        // to know the profiler exists.
+        m_CurrentFrame.m_AsyncCompute = RenderCommand::GetAsyncComputeStats();
 
         // GPU Scene consumption (issue #994), pulled for the same reason: the
         // dispatcher counts what actually read a record, and it has no reason
@@ -1120,6 +1125,7 @@ namespace OloEngine
         m_GPUSceneConsumedDraws = 0;
         m_GPUSceneFallbackDraws = 0;
         m_ParallelRecording = {};
+        m_AsyncCompute = {};
     }
 
     // ProfileScope implementation

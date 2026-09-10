@@ -167,18 +167,31 @@ namespace OloEngine
 
     void RGCommandContext::BeginAsyncBatch(const u32 batchIndex) const
     {
-        // GL 4.6 runs a single command stream — no true async queue overlap.
-        // Insert a debug group label so the batch region is visible in
-        // RenderDoc / Nsight. The backend no-ops when the capability is absent
-        // (or when no device is up), which is why the GLAD_GL_KHR_debug probe
-        // that used to guard this is gone — a loader-symbol test is not a
-        // portable way to ask "does this backend support debug markers".
+        // The debug label goes on FIRST and unconditionally, so the batch
+        // region is visible in RenderDoc / Nsight whichever queue it ends up
+        // on. The backend no-ops when the capability is absent (or when no
+        // device is up), which is why the GLAD_GL_KHR_debug probe that used to
+        // guard this is gone — a loader-symbol test is not a portable way to
+        // ask "does this backend support debug markers".
         const std::string label = "AsyncBatch[" + std::to_string(batchIndex) + "]";
         RenderCommand::PushDebugGroup(batchIndex, label);
+
+        // #808: on a Vulkan device with a compute-only queue family this moves
+        // recording onto that queue and performs the queue-family ownership
+        // transfers. FALSE — GL 4.6's single command stream, a device without
+        // the family, the lever off, or a frame-local reason the backend could
+        // not split — leaves the batch recording inline exactly as before, and
+        // the backend counts the decline with its reason.
+        m_AsyncBatchOnComputeQueue = RenderCommand::BeginAsyncComputeBatch(batchIndex);
     }
 
-    void RGCommandContext::EndAsyncBatch([[maybe_unused]] const u32 batchIndex) const
+    void RGCommandContext::EndAsyncBatch(const u32 batchIndex) const
     {
+        if (m_AsyncBatchOnComputeQueue)
+        {
+            RenderCommand::EndAsyncComputeBatch(batchIndex);
+            m_AsyncBatchOnComputeQueue = false;
+        }
         RenderCommand::PopDebugGroup();
     }
 
