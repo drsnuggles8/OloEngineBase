@@ -1,0 +1,1654 @@
+Scene: VirtualGeometryParallelRecording.olo
+# ---------------------------------------------------------------------------
+# VIRTUAL GEOMETRY x PARALLEL RECORDING (#1013)
+#
+# REQUIRES THE DEFERRED RENDERING PATH (VirtualGeometryPass self-disables on
+# Forward / Forward+ — see VirtualGeometryTest.olo).
+#
+# Why this scene exists: VirtualGeometryPass partitions its three RecordParallel
+# regions (phase-1 instance cull, G-Buffer raster, SW material resolve) with
+#     itemCount = clamp(instanceCount / 32, 1, MAX_RENDER_WORKERS)
+# so the regions only fork at 64+ virtual-mesh instances. VirtualGeometryTest has
+# 15 and VirtualGeometryStress has 24, so before this scene every authored scene
+# ran those regions inline (itemCount == 1) and no live capture exercised the
+# forked path on either backend.
+#
+# 96 helmet instances in a 12 x 8 grid -> itemCount == 3, three secondaries.
+# Mixed ErrorThresholdPixels keeps the DAG cut varied across items so the
+# partition boundaries are not all identical work.
+#
+# Each DamagedHelmet is 15,452 source triangles sharing ONE cluster DAG (the
+# registry memoizes by AssetHandle), so 96 instances stay cheap to render while
+# still crossing the fork grain. A VirtualMeshComponent cannot be textured from
+# a scene file, so each carries an explicit MaterialComponent instead.
+# ---------------------------------------------------------------------------
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1.2
+  BloomIntensity: 0.3
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.5
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # ── Camera: looks down the two receding rows ──
+  - Entity: 800000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 2.2, 9]
+      Rotation: [-0.1, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── Skybox + IBL: the helmet is a metal/roughness PBR reference, so it needs
+  #    an environment to read correctly ──
+  - Entity: 800000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+  # ── Sun: shadow-casting, so the virtual meshes are seen to cast into the CSM ──
+  - Entity: 800000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 12, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.8, -0.45]
+      Color: [1, 0.96, 0.88]
+      Intensity: 5
+      CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 300
+      CascadeSplitLambda: 0.92
+  # ── Ground plane (classic mesh): receives the virtual meshes' shadows, and
+  #    keeps the subjects off a black background ──
+  - Entity: 800000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -1, -25]
+      Rotation: [0, 0, 0]
+      Scale: [70, 0.2, 110]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.32, 0.33, 0.35]
+      Metallic: 0
+      Roughness: 0.9
+
+  # ═══ 96 virtual-mesh instances — enough to fork VirtualGeometryPass ═══
+  - Entity: 800000000001000
+    TagComponent:
+      Tag: VMesh r0 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001001
+    TagComponent:
+      Tag: VMesh r0 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001002
+    TagComponent:
+      Tag: VMesh r0 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001003
+    TagComponent:
+      Tag: VMesh r0 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001004
+    TagComponent:
+      Tag: VMesh r0 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001005
+    TagComponent:
+      Tag: VMesh r0 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001006
+    TagComponent:
+      Tag: VMesh r0 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001007
+    TagComponent:
+      Tag: VMesh r0 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001008
+    TagComponent:
+      Tag: VMesh r0 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001009
+    TagComponent:
+      Tag: VMesh r0 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001010
+    TagComponent:
+      Tag: VMesh r0 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001011
+    TagComponent:
+      Tag: VMesh r0 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, 2.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001012
+    TagComponent:
+      Tag: VMesh r1 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001013
+    TagComponent:
+      Tag: VMesh r1 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001014
+    TagComponent:
+      Tag: VMesh r1 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001015
+    TagComponent:
+      Tag: VMesh r1 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001016
+    TagComponent:
+      Tag: VMesh r1 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001017
+    TagComponent:
+      Tag: VMesh r1 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001018
+    TagComponent:
+      Tag: VMesh r1 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001019
+    TagComponent:
+      Tag: VMesh r1 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001020
+    TagComponent:
+      Tag: VMesh r1 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001021
+    TagComponent:
+      Tag: VMesh r1 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001022
+    TagComponent:
+      Tag: VMesh r1 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001023
+    TagComponent:
+      Tag: VMesh r1 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -1.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001024
+    TagComponent:
+      Tag: VMesh r2 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001025
+    TagComponent:
+      Tag: VMesh r2 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001026
+    TagComponent:
+      Tag: VMesh r2 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001027
+    TagComponent:
+      Tag: VMesh r2 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001028
+    TagComponent:
+      Tag: VMesh r2 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001029
+    TagComponent:
+      Tag: VMesh r2 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001030
+    TagComponent:
+      Tag: VMesh r2 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001031
+    TagComponent:
+      Tag: VMesh r2 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001032
+    TagComponent:
+      Tag: VMesh r2 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001033
+    TagComponent:
+      Tag: VMesh r2 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001034
+    TagComponent:
+      Tag: VMesh r2 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001035
+    TagComponent:
+      Tag: VMesh r2 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -4.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001036
+    TagComponent:
+      Tag: VMesh r3 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001037
+    TagComponent:
+      Tag: VMesh r3 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001038
+    TagComponent:
+      Tag: VMesh r3 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001039
+    TagComponent:
+      Tag: VMesh r3 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001040
+    TagComponent:
+      Tag: VMesh r3 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001041
+    TagComponent:
+      Tag: VMesh r3 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001042
+    TagComponent:
+      Tag: VMesh r3 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001043
+    TagComponent:
+      Tag: VMesh r3 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001044
+    TagComponent:
+      Tag: VMesh r3 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001045
+    TagComponent:
+      Tag: VMesh r3 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001046
+    TagComponent:
+      Tag: VMesh r3 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001047
+    TagComponent:
+      Tag: VMesh r3 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -7.60]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001048
+    TagComponent:
+      Tag: VMesh r4 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001049
+    TagComponent:
+      Tag: VMesh r4 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001050
+    TagComponent:
+      Tag: VMesh r4 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001051
+    TagComponent:
+      Tag: VMesh r4 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001052
+    TagComponent:
+      Tag: VMesh r4 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001053
+    TagComponent:
+      Tag: VMesh r4 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001054
+    TagComponent:
+      Tag: VMesh r4 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001055
+    TagComponent:
+      Tag: VMesh r4 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001056
+    TagComponent:
+      Tag: VMesh r4 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001057
+    TagComponent:
+      Tag: VMesh r4 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001058
+    TagComponent:
+      Tag: VMesh r4 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001059
+    TagComponent:
+      Tag: VMesh r4 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -10.80]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001060
+    TagComponent:
+      Tag: VMesh r5 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001061
+    TagComponent:
+      Tag: VMesh r5 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001062
+    TagComponent:
+      Tag: VMesh r5 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001063
+    TagComponent:
+      Tag: VMesh r5 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001064
+    TagComponent:
+      Tag: VMesh r5 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001065
+    TagComponent:
+      Tag: VMesh r5 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001066
+    TagComponent:
+      Tag: VMesh r5 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001067
+    TagComponent:
+      Tag: VMesh r5 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001068
+    TagComponent:
+      Tag: VMesh r5 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001069
+    TagComponent:
+      Tag: VMesh r5 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001070
+    TagComponent:
+      Tag: VMesh r5 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001071
+    TagComponent:
+      Tag: VMesh r5 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -14.00]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001072
+    TagComponent:
+      Tag: VMesh r6 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001073
+    TagComponent:
+      Tag: VMesh r6 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001074
+    TagComponent:
+      Tag: VMesh r6 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001075
+    TagComponent:
+      Tag: VMesh r6 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001076
+    TagComponent:
+      Tag: VMesh r6 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001077
+    TagComponent:
+      Tag: VMesh r6 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001078
+    TagComponent:
+      Tag: VMesh r6 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001079
+    TagComponent:
+      Tag: VMesh r6 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001080
+    TagComponent:
+      Tag: VMesh r6 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001081
+    TagComponent:
+      Tag: VMesh r6 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001082
+    TagComponent:
+      Tag: VMesh r6 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001083
+    TagComponent:
+      Tag: VMesh r6 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -17.20]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001084
+    TagComponent:
+      Tag: VMesh r7 c0 thr=0.5
+    TransformComponent:
+      Translation: [-14.30, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001085
+    TagComponent:
+      Tag: VMesh r7 c1 thr=2.0
+    TransformComponent:
+      Translation: [-11.70, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001086
+    TagComponent:
+      Tag: VMesh r7 c2 thr=12.0
+    TransformComponent:
+      Translation: [-9.10, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001087
+    TagComponent:
+      Tag: VMesh r7 c3 thr=0.5
+    TransformComponent:
+      Translation: [-6.50, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001088
+    TagComponent:
+      Tag: VMesh r7 c4 thr=2.0
+    TransformComponent:
+      Translation: [-3.90, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001089
+    TagComponent:
+      Tag: VMesh r7 c5 thr=12.0
+    TransformComponent:
+      Translation: [-1.30, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.35, 0.45, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001090
+    TagComponent:
+      Tag: VMesh r7 c6 thr=0.5
+    TransformComponent:
+      Translation: [1.30, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001091
+    TagComponent:
+      Tag: VMesh r7 c7 thr=2.0
+    TransformComponent:
+      Translation: [3.90, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001092
+    TagComponent:
+      Tag: VMesh r7 c8 thr=12.0
+    TransformComponent:
+      Translation: [6.50, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.45, 0.2]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001093
+    TagComponent:
+      Tag: VMesh r7 c9 thr=0.5
+    TransformComponent:
+      Translation: [9.10, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001094
+    TagComponent:
+      Tag: VMesh r7 c10 thr=2.0
+    TransformComponent:
+      Translation: [11.70, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 2.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25
+  - Entity: 800000000001095
+    TagComponent:
+      Tag: VMesh r7 c11 thr=12.0
+    TransformComponent:
+      Translation: [14.30, 0.2, -20.40]
+      Rotation: [0, 0.5, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4544736348022301228
+      ErrorThresholdPixels: 12.0
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.55, 0.57, 0.62]
+      Metallic: 0.9
+      Roughness: 0.25

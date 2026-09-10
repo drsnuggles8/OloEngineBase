@@ -165,3 +165,43 @@ unchanged billboard sample, are documented in the [pass audit](../agent-rules/vu
 Empty captures are not successful evidence. Five incidental fixes were kept in
 separate commits: mesh-cache bounds, deferred shader routing, submission worker
 capacity, linear color-array storage usage, and mesh-particle vertex pulling.
+
+## Deferred virtual-geometry evidence, taken 2026-09-10
+
+The evidence above left virtual geometry unproven on Vulkan because #1066's base
+predated the raw-geometry upload fixes. Those landed (#1062 merged 2026-09-05,
+#1085/#1058 2026-09-06, both after #1066), so the capture was repeated. Same
+machine and clang-cl Release build, live editor, `--rhi=vulkan` then
+`--rhi=opengl`, `OLO_VK_PARALLEL_RECORDING` toggled through `olo_cvar_set`.
+
+Two things had to change to make this a real test. First, virtual geometry now
+renders on Vulkan at all: `olo_virtual_geometry_stats` reports 96 instances
+submitted, 4,276 drawn clusters, `silentlyDrewNothing=false`. Second,
+`VirtualGeometryPass` sizes every region `clamp(instanceCount / 32, 1, …)`, so
+the 15-instance `VirtualGeometryTest.olo` runs it inline; the new
+`VirtualGeometryParallelRecording.olo` carries 96 instances and forks three items
+per region. Both facts are in the [pass audit](../agent-rules/vulkan-parallel-pass-audit.md).
+
+| Check | Result |
+|---|---|
+| VG regions forked (lever on) | 3 regions `parallel=true`, 3 items each, 13 secondaries, **0 merge conflicts** |
+| VG regions forked (lever off) | 0 regions, 6 inline, 0 secondaries |
+| `GBufferAlbedo` off vs on, three camera angles | **byte-identical** at all three |
+| `SceneDepth` off vs on | byte-identical |
+| Beauty off vs on | matching hashes occur in both modes; residual drift is temporal post-processing, not recording |
+| Shader errors | 0 on both backends |
+| OpenGL, same scene | 4,276 drawn clusters — the same count as Vulkan; `regions=0` (GL never forks) |
+| OpenGL vs Vulkan `GBufferAlbedo` | byte-identical on the side angle; ≤7 silhouette pixels on the other two |
+
+**The control is what makes this readable.** `GBufferNormal` differs off vs on by
+one pixel — but capturing it four times *within* the inline mode yields three
+distinct hashes differing by two pixels, and one of those hashes is byte-identical
+to the parallel mode's. The same silhouette pixels flicker in both modes, so the
+scene's own nondeterminism is larger than the off/on delta. Reporting the one-pixel
+off/on difference without the same-mode control would have read as a recording bug.
+
+Beauty frames need the same care: with the default post-process stack the live
+editor cycles several byte-distinct frames in *either* mode. Disabling the temporal
+GTAO denoise and bloom makes the parallel mode fully deterministic across five
+captures, byte-identical to inline captures. Prefer a G-Buffer attachment over the
+beauty buffer when A/B-ing a recording change.
