@@ -571,8 +571,21 @@ void main()
             frag << "};\n\n";
         }
 
-        // Emit texture samplers (GL 4.6 guarantees 80 combined units; engine uses 0-31)
-        if (constexpr int maxShaderGraphTextures = 48 /* slots 32-79 */; static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
+        // Emit texture samplers. GL 4.6 guarantees 80 combined units, so the
+        // usable range is [TEX_SHADER_GRAPH_0, 80) and the capacity is whatever
+        // the engine has not reserved.
+        //
+        // DERIVED, NOT A LITERAL. This was `48 /* slots 32-79 */`, written when
+        // the engine reserved 32 slots. TEX_SHADER_GRAPH_0 has moved five times
+        // since — it is 74 now — and the cap never followed, so the compiler
+        // accepted 48 texture parameters and emitted bindings from 74 upward:
+        // the seventh parameter got binding 80, past the guaranteed limit, with
+        // the check that exists to prevent exactly that reporting nothing.
+        // nextTextureBinding is initialised from the same constant above, so
+        // deriving the cap from it is what keeps the two from drifting again.
+        if (constexpr int maxShaderGraphTextures =
+                static_cast<int>(80u - ShaderBindingLayout::TEX_SHADER_GRAPH_0);
+            static_cast<int>(textureParams.size()) > maxShaderGraphTextures)
         {
             OLO_CORE_ERROR("ShaderGraphCompiler: Too many texture parameters ({}, max {})", textureParams.size(), maxShaderGraphTextures);
             return {};
