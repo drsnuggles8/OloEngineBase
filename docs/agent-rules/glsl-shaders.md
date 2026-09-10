@@ -13,6 +13,15 @@ The engine compiles all GLSL through **shaderc → SPIR-V**, which imposes stric
 - **No `gl_FragColor`.** Use explicit `layout(location = N) out` declarations.
 - **No default-block interface variables.** All varyings need explicit `layout(location = N)`.
 - **No implicit casts.** Use explicit constructors: `float(intVar)`, `vec3(1.0)` not `vec3(1)`.
+- **A nameless block member may not reuse a name already at global scope.** Every UBO here is
+  declared without an instance name, so its members land in the global namespace — and shaderc
+  rejects a second one that collides: *"nameless block contains a member that already has a name at
+  global scope"*. Padding is where this bites, because `_padding0` is the obvious name and several
+  blocks in the same shader already use it. Give padding a block-specific name
+  (`_pbrMaterialPad0`, not `_padding0`) whenever you add lanes to a block that shares a file with
+  another. Adding the physical-material scalars to `PBRMaterialProperties` (issue #970) hit this in
+  three shaders at once; it is a hard SPIR-V error, so it is invisible to every OpenGL test and
+  fails only on the Vulkan arm.
 
 ---
 
