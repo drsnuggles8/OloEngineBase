@@ -5188,6 +5188,8 @@ namespace OloEngine::MCP
                         const glm::vec3 emitterPos = entity.GetComponent<TransformComponent>().Translation;
                         facts.DistanceToCamera = hasPose ? glm::length(emitterPos - cameraPos) : 0.0f;
                         facts.LODMaxDistance = hasPose ? psc.System.LODMaxDistance : 0.0f;
+                        facts.LastGpuEmitRequest = static_cast<i64>(psc.System.GetLastGpuEmitRequest());
+                        facts.LodSpawnRateMultiplier = psc.System.GetLODSpawnRateMultiplier();
                         emitters.push_back(std::move(facts));
                     }
                 }
@@ -8015,6 +8017,8 @@ namespace OloEngine::MCP
                                                         .Prop("playing", Schema::Bool())
                                                         .Prop("useGPU", Schema::Bool().Desc("GPU-driven emitters draw indirectly and are not counted in submission."))
                                                         .Prop("gpuAliveCount", Schema::Int().Desc("On-device alive count for a GPU emitter; -1 when the GPU system is not initialised. The CPU aliveCount is empty by design for these."))
+                                                        .Prop("lastGpuEmitRequest", Schema::Int().Desc("Particles the CPU emitter handed the GPU system on the last update. Zero means the emitter asked for nothing — the dispatch was never reached."))
+                                                        .Prop("lodSpawnRateMultiplier", Schema::Number().Desc("LOD spawn scaling; 0 suppresses emission entirely."))
                                                         .Prop("deadGpuStages", Schema::Array(Schema::String()).Desc("GPU compute stages that failed to compile. Each dispatch bails EARLY AND SILENTLY on an invalid shader, so any non-empty list explains every downstream symptom."))
                                                         .Prop("renderMode", Schema::String().Enum({ "billboard", "stretchedBillboard", "mesh" }))
                                                         .Prop("distanceToCamera", Schema::Number())

@@ -631,7 +631,9 @@ namespace OloEngine
         u32 newAlive = m_Pool.GetAliveCount();
 
         // Convert newly emitted CPU particles to GPU format and upload
-        if (u32 newCount = newAlive - prevAlive; newCount > 0)
+        u32 newCount = newAlive - prevAlive;
+        m_LastGpuEmitRequest = newCount; // #1171 diagnostics
+        if (newCount > 0)
         {
             std::vector<GPUParticle> gpuParticles(newCount);
             for (u32 i = 0; i < newCount; ++i)

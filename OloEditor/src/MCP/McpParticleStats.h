@@ -57,6 +57,11 @@ namespace OloEditor::MCP
         i64 GpuCounterDead = -1;
         i64 GpuCounterEmit = -1;
         i64 GpuIndirectInstanceCount = -1;
+        // How many particles the CPU emitter handed the GPU system last update,
+        // and the LOD multiplier feeding it. Separates "the emitter asked for
+        // nothing" from "it asked and the dispatch did nothing".
+        i64 LastGpuEmitRequest = -1;
+        f32 LodSpawnRateMultiplier = -1.0f;
         std::string RenderMode;
         f32 DistanceToCamera = 0.0f;
         f32 LODMaxDistance = 0.0f;
@@ -190,6 +195,8 @@ namespace OloEditor::MCP
                                    { "dead", e.GpuCounterDead },
                                    { "emit", e.GpuCounterEmit } };
             one["gpuIndirectInstanceCount"] = e.GpuIndirectInstanceCount;
+            one["lastGpuEmitRequest"] = e.LastGpuEmitRequest;
+            one["lodSpawnRateMultiplier"] = e.LodSpawnRateMultiplier;
             one["renderMode"] = e.RenderMode;
             one["distanceToCamera"] = e.DistanceToCamera;
             one["lodMaxDistance"] = e.LODMaxDistance;
