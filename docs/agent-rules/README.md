@@ -145,7 +145,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Scripting, networking and tooling
 
 - [script-structural-command-safe-point.md](script-structural-command-safe-point.md): a script binding that changes the registry structurally queues a command, never acts inline.
-- [visual-script-vm.md](visual-script-vm.md): a loop node charges its own iteration and keeps it in `NodeState` (§2 — `Trigger` queues a branch, it does not run one), memoization is per exec step, and `PinType` numbering is on disk.
+- [visual-script-vm.md](visual-script-vm.md): `Trigger` queues a branch, it does not run one (§1), so a loop node charges its own iteration and keeps it in `NodeState`; memoization is per exec step, and `PinType` numbering is on disk.
 - [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
