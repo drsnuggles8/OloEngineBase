@@ -51,23 +51,37 @@ namespace OloEngine
         auto* device = VulkanDevice::Get();
         OLO_CORE_ASSERT(device != nullptr, "VulkanTexture2DArray requires a live VulkanDevice");
 
-        // Mirror the 2D twin (VulkanTexture2D's spec ctor): block-compressed
-        // formats have no population path here — a BC image cannot take the
-        // colour-attachment usage below, and its GPU-side transcode staging is
-        // Not yet implemented for Vulkan. Refuse loudly but non-fatally.
-        if (spec.Format == Texture2DArrayFormat::BC7)
-        {
-            OLO_CORE_ERROR("VulkanTexture2DArray: block-compressed format cannot be created — the "
-                           "VT tile-stage copy path is not implemented");
-            return;
-        }
-
         const VkFormat format = Texture2DArrayFormatToVk(spec.Format);
         const bool isDepth = spec.Format == Texture2DArrayFormat::DEPTH_COMPONENT32F;
         const u32 width = std::max(spec.Width, 1u);
         const u32 height = std::max(spec.Height, 1u);
+
+        // A block-compressed array is legal here (issue #1172) but only when
+        // the device can actually sample and receive transfers in that format.
+        // Ask, and say so by name if the answer is no — an unsupported format
+        // must not become a plausible-looking image that samples as garbage.
+        if (spec.Format == Texture2DArrayFormat::BC7)
+        {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
+            constexpr VkFormatFeatureFlags required =
+                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+            if ((props.optimalTilingFeatures & required) != required)
+            {
+                OLO_CORE_ERROR("VulkanTexture2DArray: this device cannot sample or receive transfers in "
+                               "VK_FORMAT_BC7_UNORM_BLOCK (optimalTilingFeatures {:#x}) — refusing the array "
+                               "rather than handing back one that would sample as garbage",
+                               static_cast<u32>(props.optimalTilingFeatures));
+                return;
+            }
+        }
+
         m_MipLevels = 1u;
-        if (spec.GenerateMipmaps)
+        // GenerateMipmaps is refused for block-compressed formats further down
+        // (vkCmdBlitImage cannot filter BC blocks), so creating the mip chain
+        // would reserve levels nothing can ever fill and leave a sampler free
+        // to read them. One level is the honest allocation.
+        if (spec.GenerateMipmaps && spec.Format != Texture2DArrayFormat::BC7)
         {
             m_MipLevels = 1u + static_cast<u32>(std::floor(std::log2(static_cast<f64>(std::max(width, height)))));
         }
@@ -84,12 +98,27 @@ namespace OloEngine
         // Sampled everywhere (shadow arrays feed sampler2DArrayShadow);
         // depth formats render as layered depth attachments (the CSM/atlas
         // passes). Uncompressed colour arrays also serve as storage images
-        // for ocean FFT and terrain VT compute outputs. All supported colour
-        // formats here are single-sampled, linear storage-capable formats.
+        // for ocean FFT and terrain VT compute outputs. All supported
+        // UNCOMPRESSED colour formats here are single-sampled, linear
+        // storage-capable formats.
+        //
+        // A block-compressed array takes neither of those bits, and that is
+        // the whole reason it used to be refused outright (issue #1172). BC7
+        // cannot be a colour attachment or a storage image on any device, but
+        // it does not need to be: its layers are populated GPU-side by a
+        // size-compatible block copy from the RGBA32UI compressor output
+        // (one 16-byte texel per 4x4 BC7 block), which needs only TRANSFER_DST
+        // — exactly the GL twin's contract, and what CopyImageSubDataRegion's
+        // mixed compressed/uncompressed path already implements.
+        const bool isBlockCompressed = spec.Format == Texture2DArrayFormat::BC7;
+        VkImageUsageFlags colourUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        if (isBlockCompressed)
+        {
+            colourUsage = 0;
+        }
         imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                          (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                                   : (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT));
+                          (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : colourUsage);
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
