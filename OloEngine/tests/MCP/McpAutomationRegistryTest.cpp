@@ -28,11 +28,13 @@
 #include "Automation/AutomationHost.h"
 #include "Automation/AutomationRegistry.h"
 #include "Automation/AutomationResult.h"
+#include "Automation/AutomationSceneAuthoring.h"
 #include "MCP/McpExposure.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpTools.h"
 
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -334,18 +336,40 @@ TEST(McpAutomationRegistry, NoBuiltinCommandDeclaresAnAvailabilityPredicateYet)
         EXPECT_FALSE(static_cast<bool>(command.IsAvailable)) << command.Name << " declares an availability predicate";
 }
 
-TEST(McpAutomationRegistry, NoBuiltinCommandDeclaresUndoSemanticsYet)
+TEST(McpAutomationRegistry, SceneAuthoringCommandsDeclareConsentAndUndoSemantics)
 {
-    // Same reasoning as the availability pin: AutomationUndo is declared for
-    // #1128 and consumed by nothing, so every command must still say Unspecified.
-    // When #1128 starts populating it, this test is the thing that has to change
-    // on purpose.
+    // Structural authoring is the first adopter. Check its real registrations
+    // against the full surface so omitted aggregation is a failure too.
+    AutomationRegistry authoring;
+    OloEngine::Automation::RegisterEntityAuthoringCommands(authoring);
+    OloEngine::Automation::RegisterComponentAuthoringCommands(authoring);
+    OloEngine::Automation::RegisterSceneLifecycleCommands(authoring);
     AutomationRegistry registry;
     OloEngine::MCP::RegisterBuiltinCommands(registry);
 
     const AutomationRegistry::CommandSnapshot snapshot = registry.Snapshot();
-    for (const AutomationCommand& command : *snapshot)
-        EXPECT_EQ(command.Undo, OloEngine::Automation::AutomationUndo::Unspecified) << command.Name;
+    ASSERT_GE(authoring.Snapshot()->size(), 12u);
+    const std::set<std::string> readCommands{ "olo_component_list_types", "olo_component_get", "olo_scene_status" };
+    for (const AutomationCommand& command : *authoring.Snapshot())
+    {
+        EXPECT_EQ(command.ProjectWrite, !readCommands.contains(command.Name)) << command.Name;
+        if (command.ProjectWrite)
+            EXPECT_TRUE(command.MainMarshaled) << command.Name;
+        EXPECT_EQ(command.Undo, command.ProjectWrite
+                                    ? OloEngine::Automation::AutomationUndo::EditorUndoStack
+                                    : OloEngine::Automation::AutomationUndo::None)
+            << command.Name;
+        EXPECT_FALSE(command.OutputSchema.empty()) << command.Name;
+        EXPECT_EQ(command.Annotations.value("readOnlyHint", false), !command.ProjectWrite) << command.Name;
+        EXPECT_NE(AutomationRegistry::Find(*snapshot, command.Name), nullptr) << command.Name;
+        if (command.ProjectWrite)
+        {
+            HeadlessHost host;
+            const auto refused = registry.Invoke(host, command.Name, Json::object());
+            EXPECT_EQ(refused.Outcome, AutomationInvocation::Status::WriteConsentWithheld) << command.Name;
+            EXPECT_EQ(host.MarshalCount(), 0) << command.Name;
+        }
+    }
 }
 
 // ---- copy-on-write publication ----------------------------------------------

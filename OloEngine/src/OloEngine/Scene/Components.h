@@ -3976,7 +3976,8 @@ namespace OloEngine
     // Entity relationship component for parent-child hierarchies (Hazel-style)
     struct RelationshipComponent
     {
-        UUID m_ParentHandle{};
+        // UUID{} generates an identity; a relationship starts at the root.
+        UUID m_ParentHandle{ 0 };
         std::vector<UUID> m_Children;
 
         RelationshipComponent() = default;

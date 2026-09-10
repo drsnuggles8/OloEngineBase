@@ -281,7 +281,7 @@ Kept because it is the evidence for the diff-the-`.inl` rule: every slice flippe
 ## 7. Every generated touch-point, its exclusion set, and what stays hand-maintained
 
 OloHeaderTool ([tools/OloHeaderTool/](../../tools/OloHeaderTool/)) scans `OloEngine/src/` for every
-`struct *Component` definition and emits seven artefacts. Six have an exclusion set in
+`struct *Component` definition and emits eight artefacts. Seven use an exclusion set in
 `tools/OloHeaderTool/main.cpp`; the sets are deliberately different and each is mirrored by a
 coverage test that must be kept in sync. Two of the sets are deliberately SHARED between the
 MCP and visual-script field registries — `kComponentsNotFieldEditable` and
@@ -291,6 +291,7 @@ when the two consumers genuinely need to differ, and say why in the same commit.
 | Artefact | Lands in | Exclusion set | Coverage test |
 |---|---|---|---|
 | `AllComponents` tuple (scene copy, prefab, `HasComponent<T>()`) | `Scene/Generated/AllComponents.Generated.inl`, included at the bottom of `Scene/Components.h` | `kComponentsNotInTuple`: runtime-only `IDComponent`/`TagComponent`, per-tick `*StateComponent` / `UIResolvedRectComponent` | `ComponentTupleCoverageTest` (`kNotInTuple`) |
+| Structural automation type visitor (issue #1126) | `Scene/Generated/ComponentTypes.Generated.inl`, included by the editor's `AutomationComponentRegistry.cpp` | No types omitted; the existing `kComponentsNotInTuple` determines the authored flag. Identity/runtime types remain discoverable with rejection reasons. | `McpAutomationComponents` |
 | `OnComponentAdded<T>` / `OnComponentRemoved<T>` no-ops | `Scene/Generated/OnComponent{Added,Removed}.Generated.inl`, included by `Scene.cpp` | `kComponentsCustomOnAdd` / `kComponentsCustomOnRemove`: components with a real hand-written body. The two sets differ (`CameraComponent` does work on add only; `Rigidbody2DComponent` on remove only). `Skeleton` is not a `*Component` and stays hand-written. | `ComponentHandlerCoverageTest` |
 | Scene YAML serialize/deserialize blocks | `Scene/Generated/Scene{Serialize,Deserialize}Components.Generated.inl`, included by `SceneSerializer.cpp` | `kComponentsCustomSerialize`: hand-written blocks (§4). A non-trivial or non-public member skips the component automatically with no exclusion. | `ComponentSerializerCoverageTest` |
 | Save-game capture/restore lists | `SaveGame/Generated/SaveGameComponent{Capture,Restore}.Generated.inl`, included by `SaveGameSerializer.cpp` | `kComponentsNotInSaveGame`: everything without a `Serialize` overload. Keeps `IDComponent`/`TagComponent`, drops the per-tick components plus `AudioSoundGraphComponent` / `LocalizedTextComponent`. | `SaveGameComponentSerializerCoverageTest` |
@@ -303,6 +304,12 @@ error; a body without the set entry is a duplicate definition; a serializer doub
 coverage test. The one silent case is a component persisted some way other than a sub-map
 (`IDComponent`), which is why a classifier widening must be followed by a rebuild of
 `GenerateBindings` and a diff of the generated `.inl`.
+
+Structural undo snapshots must retain authored state that ordinary component copies reset
+for Play. `AutomationComponentRegistry.cpp` specializes terrain resources, generated LOD
+ownership and unsaved animation graphs for this reason. When adding a component with a
+custom copy constructor or removal hook, audit its snapshot and duplication policy too;
+default/copy construction and assignment are compile-time requirements for authored types.
 
 **Still hand-maintained, and not guarded by any test:**
 

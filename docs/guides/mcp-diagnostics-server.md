@@ -210,6 +210,14 @@ and for what to do when adding a tool.
 | `olo_editor_select_entity` | **(consented write)** select (or `clear`) the entity in the editor's Scene Hierarchy / Properties panels — the only way to drive the Properties inspector onto a given entity over MCP, unblocking screenshot verification of its rendered component UI. (Until issue #854, `olo_input_inject` could not reliably land a Scene Hierarchy row click — the hardware cursor reasserted over the synthetic position; that is fixed, so this tool is now a convenience rather than the only way.) An unknown `entity` UUID leaves the current selection untouched (`ok:false`), never silently clearing it. Not undoable (selection isn't project data). Gated behind **Agent writes** |
 | `olo_scene_list_entities` | paginated entity list (id, name, parent, child count) + name filter |
 | `olo_scene_get_entity` | one entity's full component data (YAML) by UUID |
+| `olo_entity_create` / `olo_entity_destroy` / `olo_entity_duplicate` | **(consented write)** create, destroy, or duplicate one entity in Edit mode. Results carry stable decimal-string `entity` UUIDs; undo/redo preserves identity and authored components. Destroy keeps children and unparents them. Duplicate copies one entity without descendants. See [Structural scene authoring](#structural-scene-authoring) |
+| `olo_entity_reparent` | **(consented write)** change an entity's `parent` (`"0"` detaches), optionally placing it at `siblingIndex`. Rejects cycles and invalid indices before editing; undo restores the previous parent, exact sibling order, and relationship-component presence |
+| `olo_component_list_types` / `olo_component_get` | discover the generated structural component set and query one entity's component by canonical `component` name. Discovery reports protected types and unsupported states explicitly; it does not construct components or load their default assets |
+| `olo_component_add` / `olo_component_remove` | **(consented write)** add or remove a component by `entity` and canonical `component` name in Edit mode, with one undo entry. Identity, transform, and relationship invariants are protected. Use the entity/hierarchy commands to change structure |
+| `olo_scene_status` | read the active scene's name, path, dirty state, and available undo/redo state without opening a dialog |
+| `olo_scene_new` | **(consented write)** install an empty scene in Edit mode as one undoable operation; undo restores the previous scene and document state |
+| `olo_scene_save` / `olo_scene_save_as` | **(consented write)** persist the active scene with checked file writes; save-as requires an explicit `path`. Changed saves are undoable, including prior file contents and document metadata. Undo/redo refuses to overwrite an externally modified destination |
+| `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
@@ -342,6 +350,42 @@ Threading: the write handler runs on a cpp-httplib worker thread and blocks ther
 while the main (UI) thread renders the modal and records your decision — the same
 main-thread-marshal discipline the read tools use, so the editor's render loop never
 blocks on an agent.
+
+### Structural scene authoring
+
+Structural commands run through the transport-independent automation registry and the
+editor's main-thread queue. Each write requires the current caller's write consent and
+an Edit-mode command history. A timed-out job that has not started is cancelled before
+it can touch the scene. Once a job starts, the caller receives its actual outcome.
+
+Use decimal strings for UUIDs: the `entity` returned by create/duplicate can be passed
+straight to component commands and `olo_entity_set_field`. `parent:"0"` means a root
+entity. `siblingIndex` is the final zero-based position under a nonzero parent, after
+excluding the moved child. A no-op reparent does not add an undo entry.
+
+An authoring sequence is:
+
+1. Read `olo_scene_status`, then call `olo_scene_new`.
+2. Create a parent and child with `olo_entity_create`; retain their returned UUIDs.
+3. Call `olo_entity_reparent` with the child's `entity` and the parent's `parent` UUID.
+4. Add a `SpriteRendererComponent` with `olo_component_add`, then inspect its fields
+   with `olo_entity_list_fields` and change them with `olo_entity_set_field`.
+5. Call `olo_scene_save_as` with a concrete `.olo` path. Verify `olo_scene_status` is
+   clean, then reopen that path with `olo_scene_open` and inspect the saved entities.
+
+Each changed authoring operation occupies one history entry. Component snapshots are
+typed values driven by OloHeaderTool's generated component set; they do not depend on
+inspector equality comparisons or a manually maintained deletion list. Undo preserves
+authored state; runtime systems are inactive during structural editing. A component or
+state whose restoration cannot be guaranteed is rejected before mutation with a reason.
+For example, populated terrain resources, generated LOD assets and mutable animation
+graphs can be retained through remove/destroy undo, but cannot be shared by a duplicate.
+
+Saving retains the previous destination bytes/existence for undo and refuses a later
+undo/redo if another application has changed that file. The editor's Save and Save As
+actions use the same history, so keyboard and automation saves can be interleaved.
+Reopening a file uses the existing
+scene-open path and starts a fresh history. A saved scene remains a normal `.olo` asset.
 
 ### Component field writes (`olo_entity_set_field`)
 

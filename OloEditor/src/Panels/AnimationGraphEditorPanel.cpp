@@ -69,21 +69,17 @@ namespace OloEngine
             return;
         }
 
-        // Capture entity by value — Entity is a lightweight handle (UUID + scene ref). If
-        // the entity is destroyed before undo/redo fires, the HasComponent() check no-ops.
+        // Resolve stable identity on every application: destroy/undo recreates the
+        // UUID with a new EnTT handle, so retaining Entity would lose earlier edits.
         m_CommandHistory->PushAlreadyExecuted(
             std::make_unique<AnimationGraphChangeCommand>(
                 std::move(oldSnap), std::move(newSnap),
-                // mutable: the captured Entity is by-value, and Entity::GetComponent has
-                // separate const/non-const overloads. The non-const one returns a writable
-                // reference (which we need to assign to RuntimeGraph). Without `mutable` the
-                // lambda's call operator is const, so the captured Entity is treated as const
-                // and we'd resolve to the const overload returning a const reference.
-                [entity = m_SelectedEntity](Ref<AnimationGraph> snap) mutable
+                [scene = m_Context, uuid = m_SelectedEntity.GetUUID()](Ref<AnimationGraph> snap)
                 {
-                    if (entity && entity.HasComponent<AnimationGraphComponent>())
+                    auto entity = scene->TryGetEntityWithUUID(uuid);
+                    if (entity && entity->HasComponent<AnimationGraphComponent>())
                     {
-                        auto& comp = entity.GetComponent<AnimationGraphComponent>();
+                        auto& comp = entity->GetComponent<AnimationGraphComponent>();
                         comp.RuntimeGraph = snap;
                         // Resync the component's exposed parameter set with the snapshot.
                         // Without this the component still references the pre-edit parameter
