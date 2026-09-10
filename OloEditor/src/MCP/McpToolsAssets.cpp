@@ -26,7 +26,12 @@ namespace OloEngine::MCP
             int page = 0;
             int pageSize = 50;
             if (args.contains("page") && args["page"].is_number_integer())
-                page = static_cast<int>(std::max<long long>(0, args["page"].get<long long>()));
+                // CLAMPED, not floored: Pagination() declares `minimum: 0` and no
+                // maximum, so a legal 2147483648 narrows to int as -2147483648 on
+                // MSVC, `start` goes hugely negative and the loop below indexes
+                // the vector far out of bounds. Found by review on #1130, which
+                // had copied this shape.
+                page = static_cast<int>(std::clamp<long long>(args["page"].get<long long>(), 0, 1'000'000));
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 200));
 
