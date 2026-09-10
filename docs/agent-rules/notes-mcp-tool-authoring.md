@@ -74,6 +74,43 @@ Three practical consequences:
   the set a session needs to *form its next question*, move the ceiling deliberately and
   say so in the commit. Otherwise leave it discoverable.
 
+## 1c. Your tool's NAME and TOOLSET decide its CLI spelling (#1125)
+
+`oloctl` generates its command tree from the registry, so registering a tool also
+creates a shell command. `Name` + `Toolset` are the only inputs:
+
+| | rule |
+|---|---|
+| **group** | the toolset, lowercased, `_` and `.` as `-`; failing that the name's first segment; failing that `misc` |
+| **command** | the name minus a leading `olo`, minus the group's segments when the name repeats them, joined with `-` |
+
+So `olo_scene_list_entities` in toolset `scene` becomes `oloctl scene list-entities`,
+and `olo_screenshot` in toolset `camera` becomes `oloctl camera screenshot`.
+
+Two things this asks of you, both enforced by `OloCtlCommandTreeTest`:
+
+- **Do not collide.** Two tools deriving the same `<group> <command>` make that
+  spelling ambiguous, and `oloctl` refuses it rather than picking
+  (`NoTwoProductionCommandsDeriveTheSameSpelling`). The fix is a rename, and the moment
+  to make it is before the tool ships. `oloctl call <registry-name>` still reaches both.
+- **Do not name a toolset `help`, `version`, `catalogue` or `call`.** Those are
+  `oloctl`'s own subcommands, so such a group cannot be reached by typing it
+  (`NoProductionGroupShadowsAnOloCtlSubcommand`).
+
+Also: an argument whose flag spelling is one of `oloctl`'s options (`--port`, `--url`,
+`--token`, `--timeout`, `--json`, `--structured`, `--compact`, `--verbose`, `--help`,
+`--version`, `--arguments-json`) can only be supplied through `--arguments-json`.
+`oloctl` says so and refuses the call rather than dispatching without it, but a
+different property name is the better answer.
+
+`ProjectWrite` travels to the CLI too, and a write tool is REFUSED there: `oloctl` is
+read-only, and its gate is exactly your `ProjectWrite` flag. A tool that mutates the
+project but forgets the flag becomes runnable from a shell with no consent anywhere in
+the picture — the flag was already the authority class, and now a second frontend
+depends on it being right.
+
+Guide: [../guides/oloctl.md](../guides/oloctl.md).
+
 ## 2. A green test run does not mean your handler *works*
 
 Building `OloEngine-Tests` **does** compile `McpTools.cpp` and every per-domain `McpTools*.cpp`, so

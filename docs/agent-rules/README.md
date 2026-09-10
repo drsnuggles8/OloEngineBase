@@ -162,7 +162,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 Accumulated per-subsystem gotchas. Skim the relevant one before working in that area.
 
 - [notes-renderer.md](notes-renderer.md): offline capture, GL wrappers, shader bindings, SSAO/SSR/FSR, IBL bakes, GPU timers, which per-instance bounds list survives frustum culling, why two uniform buffers on one binding point is last-created-wins, why tightening a loop bound moves every guard that was calibrated against it, the four separate Scene draw sites a world-space 2D component must be wired into, and why a texture built in memory is vertically mirrored relative to one loaded from a file.
-- [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md): the three-part tool split, schemas, consent and undo, frame capture, and why a newly registered tool is not in the default `tools/list`.
+- [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md): the three-part tool split, schemas, consent and undo, frame capture, why a newly registered tool is not in the default `tools/list`, and how its name and toolset decide its `oloctl` spelling.
 - [notes-core-and-threading.md](notes-core-and-threading.md): yaml-cpp decode, `Ref<T>` constness, the task system, EnTT first-touch, C++ traps, and why `constinit` on a `std::vector` cannot compile in a Debug build.
 - [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md): the two Jolt systems, joints, Detour, dialogue guards, the gameplay scheduler.
 - [notes-audio-animation-sim.md](notes-audio-animation-sim.md): pose sampling, retargeting, morph targets, the fixed-timestep split, SoundGraph.

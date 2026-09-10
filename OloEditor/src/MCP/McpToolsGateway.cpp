@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MCP/McpToolsCommon.h"
+#include "Automation/AutomationCatalogue.h"
 #include "MCP/McpExposure.h"
 #include "MCP/McpSchemaBuilder.h"
 
@@ -214,7 +215,14 @@ namespace OloEngine::MCP
 
                 if (includeSchemas)
                 {
-                    Json entry = McpServer::BuildToolEntry(tool);
+                    // DescribeForFrontend rather than BuildToolEntry: with schemas on,
+                    // this branch IS the whole-registry catalogue a non-MCP frontend
+                    // generates itself from (oloctl, #1125), and such a frontend has to
+                    // know the authority class before it offers to run anything. The
+                    // no-schema branch below has always carried `projectWrite` for the
+                    // same reason; carrying it in only one of the two is what made a
+                    // CLI need two round trips to learn one fact.
+                    Json entry = Automation::DescribeForFrontend(tool);
                     entry["listed"] = IsListedUnder(policy, tool);
                     matchedTools.push_back(std::move(entry));
                     continue;
