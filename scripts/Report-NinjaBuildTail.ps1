@@ -92,52 +92,89 @@ try {
     exit 0
 }
 
-# `# ninja log vN` header, then one tab-separated record per edge:
+# `# ninja log vN` header, then one tab-separated record per OUTPUT:
 #   start_ms  end_ms  output_mtime  output_path  command_hash
 # Only edges ninja RAN this build are present, which is the right set: an edge ninja
 # skipped as up to date cost nothing. A compiler-cache hit is still a run edge -- the
 # launcher is the compiler as far as ninja is concerned -- so cache hits appear here
 # with their real, small durations, which is exactly what makes the tail readable.
-$edges = foreach ($line in $lines) {
+#
+# ONE RECORD PER OUTPUT IS NOT ONE RECORD PER EDGE, and this tree has multi-output
+# edges: gtest_discover_tests' POST_BUILD step writes the `*_tests.cmake` files beside
+# `OloEngine-Tests.exe`, so that one 109 s edge appends FOUR identical records. Summed
+# naively it is counted four times, and it took four of the five rows in the
+# last-to-finish table on the first local run of this script -- crowding out the very
+# tail the table exists to show. Group on (start, end, command hash), which is what an
+# edge is.
+$records = foreach ($line in $lines) {
     if ($line.Length -eq 0 -or $line[0] -eq '#') { continue }
     $f = $line.Split("`t")
     if ($f.Count -lt 4) { continue }
     $start = 0L; $end = 0L
     if (-not [long]::TryParse($f[0], [ref] $start)) { continue }
     if (-not [long]::TryParse($f[1], [ref] $end)) { continue }
+    # No command hash recorded -> fall back to the output path, which is unique per
+    # record. That makes the key unique too, so records are never merged on a guess:
+    # the failure direction is "reports an edge twice", not "silently drops one".
+    $hash = if ($f.Count -ge 5 -and $f[4]) { $f[4] } else { $f[3] }
     [pscustomobject]@{
-        Output   = $f[3]
-        Seconds  = [math]::Round(($end - $start) / 1000.0, 1)
-        EndSec   = [math]::Round($end / 1000.0, 1)
-        StartSec = [math]::Round($start / 1000.0, 1)
+        Output  = $f[3]
+        StartMs = $start
+        EndMs   = $end
+        Key     = '{0}:{1}:{2}' -f $start, $end, $hash
+    }
+}
+
+$records = @($records)
+if ($records.Count -eq 0) {
+    Write-Host "::warning::'$logPath' holds no edge records -- no build-tail report for this run."
+    exit 0
+}
+
+# MILLISECONDS ARE KEPT RAW HERE AND ROUNDED ONLY WHEN FORMATTED. Rounding each record
+# to a tenth before summing puts up to 0.05 s of error into every one of ~1700 rows --
+# over a minute on the total, on a figure whose whole job is to be compared between
+# runs.
+$edges = foreach ($g in ($records | Group-Object -Property Key)) {
+    $first = $g.Group[0]
+    [pscustomobject]@{
+        Output  = $first.Output
+        Outputs = @($g.Group | ForEach-Object { $_.Output })
+        Extra   = $g.Count - 1
+        DurMs   = $first.EndMs - $first.StartMs
+        EndMs   = $first.EndMs
     }
 }
 
 $edges = @($edges)
-if ($edges.Count -eq 0) {
-    Write-Host "::warning::'$logPath' holds no edge records -- no build-tail report for this run."
-    exit 0
-}
 
 # Ninja rewrites .ninja_log in place and keeps records from earlier builds in it, so
 # on an incremental tree the file spans more than one build. The span below is
 # therefore "the widest window these records cover", not necessarily one build's wall
 # clock; on CI, where the tree is created and built once, they are the same thing.
-$span = ($edges | Measure-Object -Property EndSec -Maximum).Maximum
-$busy = ($edges | Measure-Object -Property Seconds -Sum).Sum
+$span = ($edges | Measure-Object -Property EndMs -Maximum).Maximum / 1000.0
+$busy = ($edges | Measure-Object -Property DurMs -Sum).Sum / 1000.0
+
+# `+N more` rather than N rows: a multi-output edge is ONE unit of build time, and the
+# other outputs are worth knowing about without letting them fill the table.
+function Format-Output {
+    param($Edge, [string] $Name)
+    $label = if ($Name) { $Name } else { $Edge.Output }
+    if ($Edge.Extra -gt 0) { '`{0}` (+{1} more)' -f $label, $Edge.Extra } else { '`{0}`' -f $label }
+}
 
 Add-Line '## Build tail (`.ninja_log`)'
 Add-Line ''
-Add-Line ('{0} edges recorded, widest span {1:N1} min, {2:N1} min of edge time.' -f `
-    $edges.Count, ($span / 60.0), ($busy / 60.0))
+Add-Line ('{0} edges recorded ({1} output records), widest span {2:N1} min, {3:N1} min of edge time.' -f `
+    $edges.Count, $records.Count, ($span / 60.0), ($busy / 60.0))
 Add-Line ''
 
 Add-Line ('### Slowest {0} edges' -f $Top)
 Add-Line ''
 Add-Line '| sec | ends at (s) | output |'
 Add-Line '|---:|---:|---|'
-foreach ($e in ($edges | Sort-Object -Property Seconds -Descending | Select-Object -First $Top)) {
-    Add-Line ('| {0:N1} | {1:N1} | `{2}` |' -f $e.Seconds, $e.EndSec, $e.Output)
+foreach ($e in ($edges | Sort-Object -Property DurMs -Descending | Select-Object -First $Top)) {
+    Add-Line ('| {0:N1} | {1:N1} | {2} |' -f ($e.DurMs / 1000.0), ($e.EndMs / 1000.0), (Format-Output $e))
 }
 Add-Line ''
 
@@ -147,20 +184,31 @@ Add-Line ('### Last {0} edges to finish' -f $Top)
 Add-Line ''
 Add-Line '| ends at (s) | sec | output |'
 Add-Line '|---:|---:|---|'
-foreach ($e in ($edges | Sort-Object -Property EndSec -Descending | Select-Object -First $Top)) {
-    Add-Line ('| {0:N1} | {1:N1} | `{2}` |' -f $e.EndSec, $e.Seconds, $e.Output)
+foreach ($e in ($edges | Sort-Object -Property EndMs -Descending | Select-Object -First $Top)) {
+    Add-Line ('| {0:N1} | {1:N1} | {2} |' -f ($e.EndMs / 1000.0), ($e.DurMs / 1000.0), (Format-Output $e))
 }
 Add-Line ''
 
-$watched = @($edges | Where-Object { $_.Output -like $Watch } | Sort-Object -Property Seconds -Descending)
+# ANY output of the edge matching counts, and the matching one is what gets shown --
+# an edge whose first-recorded output is a `.cmake` stamp can still be the MCP compile
+# the pattern is looking for.
+$watched = @(
+    $edges |
+        ForEach-Object {
+            $hit = @($_.Outputs | Where-Object { $_ -like $Watch })[0]
+            if ($null -ne $hit) { $_ | Add-Member -NotePropertyName Match -NotePropertyValue $hit -Force -PassThru }
+        } |
+        Sort-Object -Property DurMs -Descending
+)
 Add-Line ('### Watched edges (`{0}`)' -f $Watch)
 Add-Line ''
 if ($watched.Count -eq 0) {
     Add-Line ('No edge output matched `{0}` in this build.' -f $Watch)
 } else {
-    $slow = @($watched | Where-Object { $_.Seconds -ge $SlowSeconds })
+    $slowMs = $SlowSeconds * 1000.0
+    $slow = @($watched | Where-Object { $_.DurMs -ge $slowMs })
     Add-Line ('{0} matched; {1} took {2}s or more, totalling {3:N1} min.' -f `
-        $watched.Count, $slow.Count, $SlowSeconds, (($slow | Measure-Object -Property Seconds -Sum).Sum / 60.0))
+        $watched.Count, $slow.Count, $SlowSeconds, (($slow | Measure-Object -Property DurMs -Sum).Sum / 60000.0))
     Add-Line ''
     # Capped at -Top. The pattern matches every MCP object in the tree, tests included,
     # and a 186-row table on the run page is not a report anyone reads. The count line
@@ -168,7 +216,7 @@ if ($watched.Count -eq 0) {
     Add-Line '| sec | ends at (s) | output |'
     Add-Line '|---:|---:|---|'
     foreach ($e in ($watched | Select-Object -First $Top)) {
-        Add-Line ('| {0:N1} | {1:N1} | `{2}` |' -f $e.Seconds, $e.EndSec, $e.Output)
+        Add-Line ('| {0:N1} | {1:N1} | {2} |' -f ($e.DurMs / 1000.0), ($e.EndMs / 1000.0), (Format-Output $e $e.Match))
     }
     if ($watched.Count -gt $Top) {
         Add-Line ''

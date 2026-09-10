@@ -233,10 +233,15 @@ runs:
         fi
         freed=0
         n=0
+        own_id=''
+        own_size=0
+        newer_key=''
+        newer_run=0
         while IFS=$'\t' read -r id size key ref; do
           [ -n "${id:-}" ] || continue
-          # Never delete the key we are trying to write (it is not there, but be exact).
-          if [ "$key" = "${KEY}" ]; then continue; fi
+          # Never delete the key we are trying to write, in this loop. Its id is kept
+          # because the reconciliation after the loop may retire it -- see there.
+          if [ "$key" = "${KEY}" ]; then own_id="$id"; own_size="$size"; continue; fi
           # Delete ONLY entries of literally this lineage: `<prefix>-<run_id>[-<attempt>]`.
           # A bare prefix match is not good enough. `key=` is a plain string prefix, so if
           # a sibling key `sccache-windows-2025-release-debug-…` is ever added, a prefix
@@ -272,6 +277,10 @@ runs:
           # attempt of this run.
           if [ "$sibling_run" -gt "${RUN_ID}" ]; then
             printf 'skip (not older than this run)  %s\n' "$key"
+            if [ "$sibling_run" -gt "$newer_run" ]; then
+              newer_run="$sibling_run"
+              newer_key="$key"
+            fi
             continue
           fi
           if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
@@ -283,6 +292,43 @@ runs:
           fi
         done < superseded.tsv
         rm -f superseded.tsv err.txt
+
+        # AND IF A NEWER SIBLING EXISTS, THIS RUN'S OWN ENTRY IS THE SUPERSEDED ONE.
+        #
+        # The two skips above are each right on their own and wrong together: a run
+        # with a LOWER id that saves after a higher-id run has already pruned keeps the
+        # sibling (it is newer) and keeps its own (it is its own), so the lineage holds
+        # two multi-GiB entries. Worse than the size: `restore-keys` returns the most
+        # recently CREATED match, and so does `cache-prune.yml` when it keeps the newest
+        # per (ref, prefix) -- both of which pick the entry this run just wrote, built
+        # from OLDER source than the sibling it lost the race to. Retiring our own entry
+        # is what actually restores one-entry-per-lineage, and it keeps the fresher of
+        # the two.
+        #
+        # RE-CHECK THE SIBLING FIRST. The listing above is seconds old, and a
+        # `cache-prune` sweep in that window would have kept ours and deleted the
+        # sibling -- deleting ours on the strength of a stale listing is how the lineage
+        # ends up EMPTY, which is the whole failure this guard exists to prevent. If the
+        # re-check cannot confirm the sibling, keep both: two entries cost room until the
+        # next sweep, zero entries cost every branch a cold build.
+        if [ -n "${newer_key}" ] && [ -n "${own_id}" ]; then
+          still=$(gh api -X GET "repos/${GH_REPO}/actions/caches" \
+                    -f "key=${newer_key}" -f "ref=${REF}" \
+                    --jq '.actions_caches[].key' 2>/dev/null || echo '')
+          if printf '%s\n' "$still" | grep -Fxq "${newer_key}"; then
+            if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${own_id}" >/dev/null 2>&1; then
+              printf 'retired this run%s own entry (%s MiB); %s is newer and stays\n' \
+                     "'s" "$((own_size / 1048576))" "${newer_key}"
+              freed=$((freed + own_size))
+              n=$((n + 1))
+            else
+              printf 'could not retire this run%s own entry  %s\n' "'s" "${KEY}"
+            fi
+          else
+            echo "::warning::'${newer_key}' is gone since the listing; keeping '${KEY}' rather than emptying the lineage."
+          fi
+        fi
+
         echo "freed $((freed / 1048576)) MiB from $n superseded entries under '${PREFIX}' on ${REF}"
 
     - name: Save (retry after freeing room)
