@@ -1,7 +1,8 @@
 // The ReSTIR DI reservoir and its arithmetic — the GLSL twin of
 // Renderer/ReSTIR/ReservoirDI.h (#1140). Function for function, guard for
-// guard: ReSTIRDIReservoirGpuParityTest drives both with the same inputs
-// rather than trusting them to agree.
+// guard, and the PACKING at the bottom of this file is driven through a real
+// RGBA32F target by ReSTIRDIReservoirGpuParityTest rather than trusted to
+// agree — see that file for why a same-invocation round-trip would not do.
 //
 // Read ReservoirDI.h's header comment for the MEASURE CONVENTION, which is the
 // whole reason the Jacobian below exists. In one line: the sample is a POINT on
@@ -281,17 +282,54 @@ float OloAreaPdfToSolidAnglePdf(float areaPdf, OloLightSample s, vec3 shadingPoi
 // as an ordinary float.
 //
 // So every integer here is stored as its own NUMERIC value. An f32 represents
-// every integer up to 2^24 exactly, which is far more than these fields need,
-// and no value in the encoding is ever denormal.
+// every integer up to 2^24 exactly, and no value in the encoding is ever
+// denormal.
+//
+// 2^24 is NOT generous headroom here — the normal lane's largest value is
+// exactly 2^24 - 1. Nothing in this encoding may grow without moving to a second
+// lane, and nothing may round a lane by adding 0.5 (see
+// OloReservoirRoundToInteger). Both traps have already been sprung once.
 const uint OLO_RESERVOIR_KIND_BITS = 3u;
 const uint OLO_RESERVOIR_KIND_MASK = 7u;
 // 12 bits per octahedral axis: about 0.05% of angular resolution, which the
-// Jacobian's cosine does not notice, and 4095*4096+4095 = 16 773 120 < 2^24.
+// Jacobian's cosine does not notice. The largest encoded value is
+// 4095*4096 + 4095 = 16 777 215, which is 2^24 - 1: the LAST integer an f32
+// still counts by ones. Not 16 773 120, which is what this comment said
+// while the top of the range was quietly being rounded off the end of it —
+// see OloReservoirRoundToInteger below.
 const float OLO_RESERVOIR_OCT_SCALE = 4095.0;
 const float OLO_RESERVOIR_OCT_STRIDE = 4096.0;
 // A delta light has no emitter normal. -1 is outside the encoding's range, so it
 // cannot collide with a real value the way 0 would (0 is a legitimate normal).
 const float OLO_RESERVOIR_NO_NORMAL = -1.0;
+
+// ROUNDING A LANE THAT IS ALREADY AN EXACT INTEGER.
+//
+// Every integer in this encoding is stored numerically and read back with a
+// defensive round, because a lane that has been through a render target should
+// land on the integer it started as rather than one below it. The obvious round
+// is `+ 0.5` then truncate, and it is WRONG over the top half of this encoding's
+// domain.
+//
+// At or above 2^23 an f32 has no fractional part left: consecutive
+// representable values are one apart. Adding 0.5 therefore does not nudge the
+// value toward the nearest integer — it lands exactly halfway between two
+// representable numbers and rounds to EVEN, which silently flips the low bit.
+// In the identity lane that low bit is the sample KIND, so a punctual light read
+// back as directional. In the normal lane the low bit is the octahedral y, and
+// at y = 4095 it carries into x: the decoded normal jumps to the far side of the
+// octahedron, roughly perpendicular to the one that was stored.
+//
+// Both lanes reach 2^24 - 1 by design (4095 * 4096 + 4095 for a normal), so this
+// is not a corner case — it is most of the domain. ReSTIRDIReservoirGpuParityTest
+// probes that top end deliberately, which is how this was found.
+const float OLO_RESERVOIR_EXACT_INTEGER_LIMIT = 8388608.0; // 2^23
+
+float OloReservoirRoundToInteger(float packed)
+{
+    float v = max(packed, 0.0);
+    return (v < OLO_RESERVOIR_EXACT_INTEGER_LIMIT) ? floor(v + 0.5) : v;
+}
 
 float OloPackReservoirIdentity(uint kind, uint lightIndex)
 {
@@ -301,7 +339,7 @@ float OloPackReservoirIdentity(uint kind, uint lightIndex)
 void OloUnpackReservoirIdentity(float packed, out uint kind, out uint lightIndex)
 {
     // Rounded, not truncated: the value went through a render target and back.
-    uint bits = uint(max(packed, 0.0) + 0.5);
+    uint bits = uint(OloReservoirRoundToInteger(packed));
     kind = bits & OLO_RESERVOIR_KIND_MASK;
     lightIndex = bits >> OLO_RESERVOIR_KIND_BITS;
 }
@@ -323,7 +361,7 @@ vec3 OloUnpackReservoirNormal(float packed)
 {
     if (packed < 0.0)
         return vec3(0.0);
-    float v = floor(packed + 0.5);
+    float v = OloReservoirRoundToInteger(packed);
     float qx = floor(v / OLO_RESERVOIR_OCT_STRIDE);
     float qy = v - qx * OLO_RESERVOIR_OCT_STRIDE;
     vec2 p = (vec2(qx, qy) / OLO_RESERVOIR_OCT_SCALE) * 2.0 - 1.0;
@@ -376,7 +414,7 @@ OloReservoir OloUnpackReservoir(vec4 plane0, vec4 plane1, vec4 plane2)
     // as W * M * TargetPdf here would look harmless and would double-apply the
     // normaliser on the next merge.
     r.WeightSum = 0.0;
-    r.Diagnostics = uint(max(plane2.w, 0.0) + 0.5);
+    r.Diagnostics = uint(OloReservoirRoundToInteger(plane2.w));
     return r;
 }
 

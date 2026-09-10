@@ -200,14 +200,14 @@ namespace OloEngine
     // that.
     enum class ReSTIRDIDebugView : u32
     {
-        Radiance = 0,      ///< The resampled direct lighting. The normal case.
-        RawCandidate = 1,  ///< The initial RIS sample with no reuse at all — the un-denoised signal.
+        Radiance = 0,        ///< The resampled direct lighting. The normal case.
+        RawCandidate = 1,    ///< The initial RIS sample with no reuse at all — the un-denoised signal.
         HistoryValidity = 2, ///< The #976 validity verdict that gated temporal reuse.
-        Variance = 3,      ///< Per-pixel variance of the resolved radiance.
-        ReservoirM = 4,    ///< Confidence weight: how many candidates this pixel's sample stands for.
-        ReservoirW = 5,    ///< The unbiased contribution weight.
-        SampleKind = 6,    ///< Which light family the surviving sample came from.
-        BiasClampState = 7, ///< Where the Jacobian or the firefly clamp intervened.
+        Variance = 3,        ///< Per-pixel variance of the resolved radiance.
+        ReservoirM = 4,      ///< Confidence weight: how many candidates this pixel's sample stands for.
+        ReservoirW = 5,      ///< The unbiased contribution weight.
+        SampleKind = 6,      ///< Which light family the surviving sample came from.
+        BiasClampState = 7,  ///< Where the Jacobian or the firefly clamp intervened.
 
         Count
     };
@@ -237,7 +237,6 @@ namespace OloEngine
         }
         return "unknown";
     }
-
 
     // The compile-time bounds the shaders' loops are written against. A setting
     // past one of these would silently do less than it was asked to, so the

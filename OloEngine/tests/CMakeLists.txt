@@ -454,6 +454,10 @@ add_executable(OloEngine-Tests
 		# the v2 closure's SAMPLE and the Sobol'-Owen sampler.
 		Rendering/PathTracing/ClosureV2SampleGpuParityTest.cpp
 		Rendering/PathTracing/PathTracerSamplerParityTest.cpp
+		# #1140: the reservoir ENCODING across a real RGBA32F target. The v1
+		# packing produced denormals the GPU flushed to zero, which no headless
+		# test could see because the arithmetic was right and the STORE lost it.
+		Rendering/ReSTIR/ReSTIRDIReservoirGpuParityTest.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp

@@ -220,7 +220,7 @@ namespace OloEngine::Tests
             // cannot share a bug with any sampler, and it converges to the same
             // integral #1055's path tracer converges to by sampling.
             [[nodiscard]] glm::vec3 QuadratureDirectLighting(const LambertianSurface& surface,
-                                                            u32 resolution) const
+                                                             u32 resolution) const
             {
                 const f32 cellArea = Area() / static_cast<f32>(resolution * resolution);
                 glm::dvec3 total(0.0);

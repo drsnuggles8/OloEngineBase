@@ -1333,8 +1333,7 @@ namespace OloEngine
             // benefit.
             const glm::mat4& restirProjection =
                 data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
-            restirPass.SetCameraMatrices(data.ViewMatrix, restirProjection, data.PrevViewProjectionMatrix,
-                                         Renderer3D::GetRenderOrigin());
+            restirPass.SetCameraMatrices(data.ViewMatrix, restirProjection, Renderer3D::GetRenderOrigin());
             // The engine-wide stochastic counter, advanced once per frame
             // regardless of which passes are enabled — the same one the blue-noise
             // consumers use. A FIXED value makes a run reproducible, which is what
@@ -2673,8 +2672,34 @@ namespace OloEngine
         // changes NO graph resource — and hashing it raw would rebuild the whole
         // frame graph for a toggle that cannot alter a single pixel, on every
         // machine that takes the fallback.
-        HashBool(h, data.PostProcess.ReSTIRDI.Enabled && SceneCompositePasses.ReSTIRDI &&
-                        SceneCompositePasses.ReSTIRDI->IsReadyForExecution());
+        const bool restirDIArmed = data.PostProcess.ReSTIRDI.Enabled && SceneCompositePasses.ReSTIRDI &&
+                                   SceneCompositePasses.ReSTIRDI->IsReadyForExecution();
+        HashBool(h, restirDIArmed);
+        // AND THE TWO SETTINGS THAT PICK THE HISTORY EXTRACTION SOURCE. Setup()
+        // reads SpatialReuse and SpatialPasses to decide WHICH target the next
+        // frame's reservoir history is extracted from — the last spatial target
+        // when spatial reuse is on, the temporal one when it is off. That is an
+        // extraction CONTRACT, established in Setup and therefore frozen for as
+        // long as the cached topology survives.
+        //
+        // Without these two lines, turning Spatial Reuse off on a warm graph
+        // leaves the contract pointing at a spatial target that Execute no longer
+        // draws into, and next frame's temporal reuse merges whatever the
+        // transient pool happens to be holding there. Flipping SpatialPasses 1->2
+        // has the milder version of the same fault: the contract keeps extracting
+        // the pass-0 target, so the second spatial pass's work is thrown away
+        // once per frame. Neither logs anything and neither shows up in the
+        // stats, which report the settings that were REQUESTED.
+        //
+        // Gated behind restirDIArmed for the same reason the toggle above is: on
+        // a device that never created the shaders these settings cannot move a
+        // single resource, and rebuilding the frame graph for them there would
+        // cost every fallback machine a topology rebuild per settings change.
+        if (restirDIArmed)
+        {
+            HashBool(h, data.PostProcess.ReSTIRDI.SpatialReuse);
+            HashU32(h, data.PostProcess.ReSTIRDI.SpatialPasses);
+        }
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
         // declares RayTracedShadowMask and therefore whether RayTracedShadowPass
@@ -4999,6 +5024,43 @@ namespace OloEngine
                 graph.AcquireTemporalHistory(kReSTIRDIMomentsHistoryKey, descriptor, kReSTIRDIHistoryDependencies,
                                              ResourceNames::ReSTIRDIMomentsHistory);
             board.Temporal.ReSTIRDIMomentsHistory = restirMomentsBinding.Previous;
+
+            // READ THE RECORDED LAYOUT VERSIONS BACK, and tell the pass.
+            //
+            // ReSTIRDIPass cannot derive this itself: the registry drops a
+            // history whose descriptor changed, so from inside Execute a version
+            // bump is indistinguishable from a resize or a first frame. Here is
+            // the only place that can see what the registry actually holds — so
+            // this is where ReSTIRDIFallbackReason::LayoutVersionMismatch gets a
+            // real input. It was a hard-coded `true` in the pass first, which
+            // made that reason unreachable in precisely the case it names.
+            //
+            // All five share `descriptor` today, so today this is always true.
+            // What it exists to catch is a SIXTH plane, or a second acquire site,
+            // pinned to a stale version constant — which would otherwise
+            // reinterpret last frame's reservoirs under the wrong packing and
+            // produce a plausible wrong image with nothing in the log.
+            if (SceneCompositePasses.ReSTIRDI)
+            {
+                const auto& historyRegistry = graph.GetTemporalHistoryRegistry();
+                const std::array restirTokens{ reservoirSampleBinding.Token, reservoirRadianceBinding.Token,
+                                               reservoirStateBinding.Token, restirSurfaceBinding.Token,
+                                               restirMomentsBinding.Token };
+                bool restirLayoutMatches = true;
+                for (const auto& token : restirTokens)
+                {
+                    const TemporalHistoryDescriptor* recorded = historyRegistry.GetDescriptor(token);
+                    // A token with no descriptor is a plane the registry never
+                    // took, which is the ordinary first-frame path and the other
+                    // reasons already cover it — not a version disagreement.
+                    if (recorded != nullptr && recorded->LayoutVersion != ReSTIR::kReservoirLayoutVersion)
+                    {
+                        restirLayoutMatches = false;
+                        break;
+                    }
+                }
+                SceneCompositePasses.ReSTIRDI->SetHistoryLayoutMatches(restirLayoutMatches);
+            }
         }
 
         // The GPU path tracer's accumulation (issue #1055), gated on its target

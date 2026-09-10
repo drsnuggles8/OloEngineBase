@@ -157,12 +157,15 @@ namespace OloEngine
         // traced from an absolute world position misses by exactly the origin —
         // silently, and only once the camera is far enough out for the grid to
         // have snapped.
+        //
+        // No previous view-projection: the temporal draw reprojects through the
+        // G-Buffer velocity plane and nothing else. One was taken here and
+        // uploaded, and no shader ever read it.
         void SetCameraMatrices(const glm::mat4& view, const glm::mat4& projection,
-                               const glm::mat4& previousViewProjection, const glm::vec3& renderOrigin) noexcept
+                               const glm::vec3& renderOrigin) noexcept
         {
             m_View = view;
             m_Projection = projection;
-            m_PreviousViewProjection = previousViewProjection;
             m_RenderOrigin = renderOrigin;
         }
         // The sampler decorrelator. A FIXED value makes a run reproducible,
@@ -170,6 +173,27 @@ namespace OloEngine
         void SetFrameIndex(u32 frameIndex) noexcept
         {
             m_FrameIndex = frameIndex;
+        }
+
+        // Whether every ReSTIR history plane the registry is holding was
+        // acquired under ReSTIR::kReservoirLayoutVersion.
+        //
+        // READ FROM THE REGISTRY, NOT ASSUMED. This pass cannot derive it: the
+        // registry drops a history whose descriptor changed, so by the time a
+        // handle reaches Execute a version bump is indistinguishable from a
+        // resize or a first frame. The pipeline is the only place that can see
+        // the recorded descriptors, so it reads them back after acquiring and
+        // tells us. It was a hard-coded `true` first, which made
+        // LayoutVersionMismatch unreachable exactly when a layout bump would
+        // make it the answer.
+        //
+        // What it actually catches is a SECOND acquire site — a sixth plane, or
+        // a descriptor built somewhere else — pinned to a stale version
+        // constant. Today's five all share one descriptor, so today it is always
+        // true; the point is that it is now a read rather than a literal.
+        void SetHistoryLayoutMatches(bool matches) noexcept
+        {
+            m_HistoryLayoutMatches = matches;
         }
 
         // Compute the verdict and fill the counters for this frame WITHOUT
@@ -236,9 +260,12 @@ namespace OloEngine
 
         glm::mat4 m_View{ 1.0f };
         glm::mat4 m_Projection{ 1.0f };
-        glm::mat4 m_PreviousViewProjection{ 1.0f };
         glm::vec3 m_RenderOrigin{ 0.0f };
         u32 m_FrameIndex = 0;
+        // Set by the pipeline from the registry's recorded descriptors; see
+        // SetHistoryLayoutMatches. Defaults to true so a pass that is never fed
+        // reports the ordinary reasons rather than inventing a version mismatch.
+        bool m_HistoryLayoutMatches = true;
 
         FramebufferSpecification m_FramebufferSpec{};
 

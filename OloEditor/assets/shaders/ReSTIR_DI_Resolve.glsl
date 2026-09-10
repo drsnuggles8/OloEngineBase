@@ -145,7 +145,15 @@ void main()
     bool visible = false;
     if (!OloReservoirIsEmpty(reservoir) && reservoir.W > 0.0)
     {
-        visible = OloReSTIRSampleVisible(surface, reservoir.Sample, u_ReuseParams.z, u_ReuseParams.w);
+        // The VisibilityReuse setting is honoured HERE too, not just in the
+        // initial draw. It used to be ignored here, which made "visibility reuse
+        // off" mean "one ray instead of two" rather than "no rays" — so the
+        // switch could not do the one job it exists for, isolating the ray cost
+        // from the resampling when profiling, and could not be used to A/B this
+        // tier against a clustered path whose lights are CastShadows:false.
+        const bool traceVisibility = (u_EmissiveTable.w & OLO_RESTIR_FLAG_VISIBILITY_REUSE) != 0u;
+        visible = !traceVisibility ||
+                  OloReSTIRSampleVisible(surface, reservoir.Sample, u_ReuseParams.z, u_ReuseParams.w);
         if (visible)
         {
             radiance = OloReSTIRUnshadowedContribution(surface, reservoir.Sample, viewDirection) * reservoir.W;
@@ -177,7 +185,12 @@ void main()
     // ---- moments, for the Variance view ----------------------------------
     const float luminance = dot(radiance, vec3(0.2126, 0.7152, 0.0722));
     const vec4 previousMoments = texture(u_MomentsHistory, v_TexCoord);
-    const bool momentsUsable = (u_EmissiveTable.w & OLO_RESTIR_FLAG_HISTORY_VALID) != 0u &&
+    // MOMENTS_VALID, not HISTORY_VALID: the moments plane accumulates whenever
+    // it is bound, whether or not the RESERVOIRS are being reused. Unit 5 falls
+    // back to the raw-candidate target when the plane is absent, so this flag is
+    // also what stops the accumulator reading that target's blue channel as a
+    // history length.
+    const bool momentsUsable = (u_EmissiveTable.w & OLO_RESTIR_FLAG_MOMENTS_VALID) != 0u &&
                                OloReservoirFinite(previousMoments.x) && OloReservoirFinite(previousMoments.y) &&
                                previousMoments.z > 0.0;
     OloTemporalMoments moments;

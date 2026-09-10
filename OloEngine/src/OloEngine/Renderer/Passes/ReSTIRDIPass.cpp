@@ -130,11 +130,11 @@ namespace OloEngine
         if (finalReservoir.IsValid())
         {
             builder.ExtractHistoryTexture(ResourceNames::ReSTIRDIReservoirSampleHistory,
-                                                        finalReservoir, 0u);
+                                          finalReservoir, 0u);
             builder.ExtractHistoryTexture(ResourceNames::ReSTIRDIReservoirRadianceHistory,
-                                                        finalReservoir, 1u);
+                                          finalReservoir, 1u);
             builder.ExtractHistoryTexture(ResourceNames::ReSTIRDIReservoirStateHistory,
-                                                        finalReservoir, 2u);
+                                          finalReservoir, 2u);
         }
         // THE NODE'S OWN OUTPUT. Declaring the reads and the scratch writes is not
         // enough: without a WriteNewVersion on the radiance target this node has
@@ -271,12 +271,13 @@ namespace OloEngine
             .TlasReady = tlasReady,
             .GPUSceneAvailable = gpuSceneAvailable,
             .TargetsAvailable = graphResourcesResolved,
-            // The registry hands back a history only when the LayoutVersion on
-            // its descriptor matches, so an invalid history handle after the
-            // first frame is what a version mismatch looks like from here. It is
-            // reported as its own reason rather than as "no history" because the
-            // two need different fixes.
-            .HistoryLayoutMatches = true,
+            // Fed by the pipeline from the registry's RECORDED descriptors, not
+            // derived here — see SetHistoryLayoutMatches. This pass cannot tell
+            // a version bump from a resize or a first frame, because the registry
+            // drops a mismatched history before a handle ever reaches Execute.
+            // It is reported as its own reason rather than as "no history"
+            // because the two need different fixes.
+            .HistoryLayoutMatches = m_HistoryLayoutMatches,
             .Engagement = m_Stats.Engagement,
             .EngagementMargin = m_Settings.EngagementMargin,
         };
@@ -392,7 +393,6 @@ namespace OloEngine
         // which puts a hard diagonal band of wrong lighting across the frame.
         params.InvProjection = RHI::AdjustedInverseForShaderReconstruction(m_Projection);
         params.View = relativeView;
-        params.PrevViewProjection = m_PreviousViewProjection;
 
         const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
         params.TlasAddressAndFrame = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
@@ -426,9 +426,19 @@ namespace OloEngine
             (sampleHistoryID.IsValid() ? 1u : 0u) + (radianceHistoryID.IsValid() ? 1u : 0u) +
             (stateHistoryID.IsValid() ? 1u : 0u) + (surfaceHistoryID.IsValid() ? 1u : 0u) +
             (momentsHistoryID.IsValid() ? 1u : 0u);
-        const bool historyUsable = m_Settings.TemporalReuse && sampleHistoryID.IsValid() &&
-                                   radianceHistoryID.IsValid() && stateHistoryID.IsValid() &&
-                                   surfaceHistoryID.IsValid() && momentsHistoryID.IsValid();
+        // THE VELOCITY PLANE IS IN THIS CONJUNCTION TOO. The temporal draw
+        // reprojects through it and has no other way back to last frame's pixel;
+        // when it is missing the C++ binds reservoir plane 0 to that unit so the
+        // sampler is not dangling, and reservoir data read as motion vectors is
+        // garbage that happens to be finite. The surface-validity test would
+        // reject most of it, which is exactly the failure that never gets
+        // reported — a temporal stage that runs, finds nothing valid, and looks
+        // like a scene with no coherence. Requiring the plane makes it a
+        // stand-down that TemporalReuseRan counts.
+        const bool historyUsable = m_Settings.TemporalReuse && velocityID.IsValid() &&
+                                   sampleHistoryID.IsValid() && radianceHistoryID.IsValid() &&
+                                   stateHistoryID.IsValid() && surfaceHistoryID.IsValid() &&
+                                   momentsHistoryID.IsValid();
 
         u32 flags = 0;
         if (historyUsable)
@@ -441,6 +451,13 @@ namespace OloEngine
             flags |= 8u; // OLO_RESTIR_FLAG_TEMPORAL_REUSE
         if (m_Settings.SpatialReuse)
             flags |= 16u; // OLO_RESTIR_FLAG_SPATIAL_REUSE
+        // The moments plane on its own terms: bound, therefore accumulating.
+        // NOT gated on TemporalReuse, because the Variance view is a diagnostic
+        // for the temporal-reuse-off configuration too — and unit 5 falls back
+        // to the raw-candidate target when this is clear, so the flag is what
+        // keeps the accumulator off that target's blue channel.
+        if (momentsHistoryID.IsValid())
+            flags |= 32u; // OLO_RESTIR_FLAG_MOMENTS_VALID
         params.EmissiveTable = glm::uvec4(static_cast<u32>(emissiveAddress & 0xFFFFFFFFull),
                                           static_cast<u32>(emissiveAddress >> 32u), emissiveCount, flags);
 
@@ -485,8 +502,14 @@ namespace OloEngine
         // trace none, and the shader cannot report how many did. The spatial
         // draw traces NO rays at all: the target function is deliberately
         // unshadowed, which is the whole reason reuse is cheap.
+        //
+        // BOTH rays are gated on VisibilityReuse, so OFF is ZERO, not one. The
+        // resolve honours the flag as well as the initial draw does — it did
+        // not at first, and this line still said 1, which made the one setting
+        // that exists to separate the ray cost from the resampling cost report a
+        // number that matched neither the old behaviour nor the new one.
         const u64 pixels = static_cast<u64>(outSpec.Width) * static_cast<u64>(outSpec.Height);
-        m_Stats.RaysDispatchedUpperBound = pixels * (m_Settings.VisibilityReuse ? 2ull : 1ull);
+        m_Stats.RaysDispatchedUpperBound = m_Settings.VisibilityReuse ? pixels * 2ull : 0ull;
 
         // Rebind binding 65 before writing: other passes may displace this
         // indexed binding, and the path tracer and shadow tier declare their own

@@ -619,22 +619,32 @@ namespace OloEngine::Tests
             return decision.Reason;
         };
 
-        EXPECT_EQ(reasonWhen([](auto& i) { i.Requested = false; }), ReSTIRDIFallbackReason::NotRequested);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.DeferredPathActive = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.Requested = false; }),
+                  ReSTIRDIFallbackReason::NotRequested);
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.DeferredPathActive = false; }),
                   ReSTIRDIFallbackReason::RenderingPathUnsupported);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.ShadersReady = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.ShadersReady = false; }),
                   ReSTIRDIFallbackReason::ShaderUnavailable);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.RayTracingAvailable = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.RayTracingAvailable = false; }),
                   ReSTIRDIFallbackReason::RayTracingUnavailable);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.TlasReady = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.TlasReady = false; }),
                   ReSTIRDIFallbackReason::AccelerationStructureEmpty);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.GPUSceneAvailable = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.GPUSceneAvailable = false; }),
                   ReSTIRDIFallbackReason::GPUSceneUnavailable);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.TargetsAvailable = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.TargetsAvailable = false; }),
                   ReSTIRDIFallbackReason::TargetUnavailable);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.HistoryLayoutMatches = false; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.HistoryLayoutMatches = false; }),
                   ReSTIRDIFallbackReason::LayoutVersionMismatch);
-        EXPECT_EQ(reasonWhen([](auto& i) { i.Engagement.CandidateLightCount = 33; }),
+        EXPECT_EQ(reasonWhen([](auto& i)
+                             { i.Engagement.CandidateLightCount = 33; }),
                   ReSTIRDIFallbackReason::BelowEngagementThreshold);
 
         // A missing DEVICE outranks a small light set: reporting "too few
@@ -795,8 +805,10 @@ namespace OloEngine::Tests
         const std::string source = ReadTextFile(path);
         ASSERT_FALSE(source.empty()) << path.string();
 
-        // 4 mat4 + 5 uvec4 + 3 vec4 = 256 + 80 + 48 = 384 bytes.
-        EXPECT_EQ(sizeof(UBOStructures::ReSTIRDIUBO), 384u);
+        // 3 mat4 + 5 uvec4 + 3 vec4 = 192 + 80 + 48 = 320 bytes. It was 4 mat4
+        // and 384 until the dead PrevViewProjection came out — see the block's
+        // own comment; the temporal draw reprojects through the velocity plane.
+        EXPECT_EQ(sizeof(UBOStructures::ReSTIRDIUBO), 320u);
 
         const auto count = [&source](const char* type)
         {
@@ -804,7 +816,7 @@ namespace OloEngine::Tests
             return static_cast<u32>(
                 std::distance(std::sregex_iterator(source.begin(), source.end(), pattern), std::sregex_iterator()));
         };
-        EXPECT_EQ(count("mat4"), 4u);
+        EXPECT_EQ(count("mat4"), 3u);
         EXPECT_EQ(count("uvec4"), 5u);
         EXPECT_EQ(count("vec4"), 3u);
 

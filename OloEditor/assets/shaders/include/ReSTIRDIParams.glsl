@@ -21,9 +21,12 @@ layout(std140, binding = 65) uniform ReSTIRDIParams
     mat4 u_InvView;
     mat4 u_InvProjection;
     mat4 u_View;
-    // Last frame's view-projection, for the temporal draw's reprojection when
-    // the G-Buffer carries no velocity.
-    mat4 u_PrevViewProjection;
+    // NO u_PrevViewProjection. It was declared here as "the reprojection when
+    // the G-Buffer carries no velocity" and no draw ever read it — 64 bytes of
+    // dead uniform on the last free UBO binding, describing a fallback that did
+    // not exist. The temporal draw reprojects through the velocity plane and
+    // nothing else, and the pass now refuses to claim history is usable without
+    // it, so the absent case is a countable stand-down instead of a promise.
     // xy = TLAS device address, z = instance mask, w = frame index (the sampler
     // decorrelator; a fixed value makes a run reproducible).
     uvec4 u_TlasAddressAndFrame;
@@ -51,6 +54,14 @@ layout(std140, binding = 65) uniform ReSTIRDIParams
 #define OLO_RESTIR_FLAG_VISIBILITY_REUSE 4u
 #define OLO_RESTIR_FLAG_TEMPORAL_REUSE 8u
 #define OLO_RESTIR_FLAG_SPATIAL_REUSE 16u
+// The MOMENTS plane, and it is deliberately NOT folded into
+// HISTORY_VALID. That flag means "reuse last frame's RESERVOIRS", which
+// TemporalReuse=off clears — and the Variance debug view is a diagnostic
+// for exactly that configuration. Sharing one bit made the variance view
+// read a flat instantaneous value whenever temporal reuse was off, while
+// the stats still reported all five history planes present, so the view
+// looked converged and said nothing.
+#define OLO_RESTIR_FLAG_MOMENTS_VALID 32u
 
 // Debug views — mirror ReSTIRDIDebugView (ReSTIRDITechnique.h). Append only.
 #define OLO_RESTIR_VIEW_RADIANCE 0

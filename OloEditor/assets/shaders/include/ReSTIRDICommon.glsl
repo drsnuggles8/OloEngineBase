@@ -189,19 +189,14 @@ bool OloReSTIROwnsLight(GPUSceneLight light)
            light.Type != OLO_GPU_SCENE_LIGHT_DIRECTIONAL;
 }
 
-uint OloReSTIRCandidateCount()
-{
-    uint lights = min(u_SlotCounts.w, OLO_LIGHT_MAX_SLOTS);
-    uint owned = 0u;
-    for (uint i = 0u; i < OLO_LIGHT_MAX_SLOTS; ++i)
-    {
-        if (i >= lights)
-            break;
-        if (OloReSTIROwnsLight(g_GPUSceneLights[i]))
-            owned += 1u;
-    }
-    return owned + u_EmissiveTable.z;
-}
+// NO OloReSTIRCandidateCount() HERE ON PURPOSE. There was one; it counted the
+// OWNED lights plus the emissive triangles, it had no callers, and it was a trap
+// for the next one. The candidate sampler below draws uniformly over ALL light
+// slots plus the emissive triangles — rejections included, see its comment — so
+// a caller that reached for the "obvious" candidate count as the source density
+// would be off by exactly the ratio of owned slots to total slots, in a
+// direction that varies with how many directional lights the scene happens to
+// have. The density and the loop that produces it stay in one function.
 
 // Draw one candidate from the light set. `xiSelect` picks the emitter,
 // `xiPoint` the point on it (unused by a delta light, but consumed regardless

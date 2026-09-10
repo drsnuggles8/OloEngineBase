@@ -10,8 +10,13 @@
 // mis-normalised MIS weight reads as "slightly darker contact shadows" — which
 // nobody reports as a bug. So the arithmetic lives here, backend-neutral and
 // GPU-free, and is pinned by ReSTIRDIContractTest on a machine with no device.
-// Reservoir.glsl is its GLSL twin, function for function, and the parity test
-// drives the two with the same inputs rather than trusting them to agree.
+// Reservoir.glsl is its GLSL twin, function for function. Two different seams
+// hold them together and it takes both: ReSTIRDIContractTest scans the GLSL
+// SOURCE for the shared constants on a machine with no device, and
+// ReSTIRDIReservoirGpuParityTest drives the ENCODING through a real RGBA32F
+// target on one that has a device — because the failure that actually shipped
+// here was not an arithmetic disagreement. It was a STORE that destroyed the
+// value while the arithmetic on both sides was right.
 //
 // -----------------------------------------------------------------------------
 // THE MEASURE CONVENTION, WHICH IS THE WHOLE JACOBIAN QUESTION
@@ -539,6 +544,114 @@ namespace OloEngine::ReSTIR
         const f32 scale = cap / r.M;
         r.WeightSum *= scale;
         r.M = cap;
+    }
+
+    // -------------------------------------------------------------------------
+    // THE GPU LAYOUT'S ENCODING, AND WHY IT IS ARITHMETIC RATHER THAN BITS
+    // -------------------------------------------------------------------------
+    //
+    // Reservoirs live in screen-space RGBA32F RENDER TARGETS, not storage
+    // buffers: there is no free SSBO binding left (79 taken of an 80 floor). So
+    // every integer field has to survive a trip through a float lane.
+    //
+    // THE OBVIOUS ENCODING IS BROKEN. Reinterpreting `kind | index << 3` as a
+    // float makes a DENORMAL — 401 becomes 5.6e-43 — and a GPU is permitted to
+    // flush denormals to zero. This one does. The measured result was every
+    // reservoir reading back as kind None, the resolve writing black, and every
+    // counter still reporting the tier active, with nothing in the log. That was
+    // layout v1.
+    //
+    // So each integer is stored as its own NUMERIC value. An f32 is exact on
+    // every integer to 2^24, far above what these fields need, and no value in
+    // the encoding is ever denormal.
+    //
+    // These are the C++ twins of OloPackReservoirIdentity /
+    // OloUnpackReservoirIdentity / OloPackReservoirNormal /
+    // OloUnpackReservoirNormal in Reservoir.glsl, and
+    // ReSTIRDIReservoirGpuParityTest drives both sides with the same inputs
+    // THROUGH a real RGBA32F target — which is the only arrangement that can
+    // catch the v1 failure, because it is the storage round-trip that loses the
+    // value, not the arithmetic.
+    inline constexpr u32 kReservoirKindBits = 3u;
+    inline constexpr u32 kReservoirKindMask = 7u;
+    // 12 bits per octahedral axis: ~0.05% of angular resolution, which the
+    // Jacobian's cosine does not notice. The largest encoded value is
+    // 4095*4096 + 4095 = 16'777'215 — exactly 2^24 - 1, the LAST integer an f32
+    // still counts by ones, with NO headroom at all. This comment used to say
+    // 16'773'120 and call it comfortable; that arithmetic slip is what made a
+    // `+ 0.5` round look safe here. See RoundReservoirLaneToInteger.
+    inline constexpr f32 kReservoirOctScale = 4095.0f;
+    inline constexpr f32 kReservoirOctStride = 4096.0f;
+    // A delta light has no emitter normal. -1 is outside the encoding's range,
+    // so it cannot collide with a real value the way 0 would — 0 is a legitimate
+    // encoded normal.
+    inline constexpr f32 kReservoirNoNormal = -1.0f;
+
+    // ROUNDING A LANE THAT IS ALREADY AN EXACT INTEGER. The GLSL twin's
+    // OloReservoirRoundToInteger, and its comment is the long version.
+    //
+    // In one line: `+ 0.5` then truncate is the obvious defensive round and it
+    // is WRONG at or above 2^23, where an f32 has no fractional part left. The
+    // add lands exactly halfway between two representable integers and rounds to
+    // EVEN, flipping the low bit — the sample KIND in the identity lane, and the
+    // octahedral y in the normal lane, where 4095 carries into x and the decoded
+    // normal jumps to the far side of the octahedron. Both lanes reach 2^24 - 1
+    // by design, so this is most of the domain rather than a corner of it.
+    inline constexpr f32 kReservoirExactIntegerLimit = 8388608.0f; // 2^23
+
+    [[nodiscard]] inline f32 RoundReservoirLaneToInteger(f32 packed)
+    {
+        const f32 v = std::max(packed, 0.0f);
+        return (v < kReservoirExactIntegerLimit) ? std::floor(v + 0.5f) : v;
+    }
+
+    [[nodiscard]] inline f32 PackReservoirIdentity(u32 kind, u32 lightIndex)
+    {
+        return static_cast<f32>((kind & kReservoirKindMask) | (lightIndex << kReservoirKindBits));
+    }
+
+    inline void UnpackReservoirIdentity(f32 packed, u32& kind, u32& lightIndex)
+    {
+        // Rounded, not truncated: the value went through a render target and
+        // back, and a slightly-off lane must land on the same integer rather
+        // than one below it. See RoundReservoirLaneToInteger for why that round
+        // is not a plain `+ 0.5`.
+        const u32 bits = static_cast<u32>(RoundReservoirLaneToInteger(packed));
+        kind = bits & kReservoirKindMask;
+        lightIndex = bits >> kReservoirKindBits;
+    }
+
+    [[nodiscard]] inline f32 PackReservoirNormal(glm::vec3 n)
+    {
+        const f32 lengthSq = glm::dot(n, n);
+        if (!(lengthSq > 0.0f))
+            return kReservoirNoNormal;
+        n *= 1.0f / std::sqrt(lengthSq);
+        glm::vec2 p = glm::vec2(n.x, n.y) * (1.0f / (std::abs(n.x) + std::abs(n.y) + std::abs(n.z)));
+        if (n.z < 0.0f)
+        {
+            p = glm::vec2(1.0f - std::abs(p.y), 1.0f - std::abs(p.x)) *
+                glm::vec2(p.x >= 0.0f ? 1.0f : -1.0f, p.y >= 0.0f ? 1.0f : -1.0f);
+        }
+        const glm::vec2 q(std::floor(std::clamp(p.x * 0.5f + 0.5f, 0.0f, 1.0f) * kReservoirOctScale + 0.5f),
+                          std::floor(std::clamp(p.y * 0.5f + 0.5f, 0.0f, 1.0f) * kReservoirOctScale + 0.5f));
+        return q.x * kReservoirOctStride + q.y;
+    }
+
+    [[nodiscard]] inline glm::vec3 UnpackReservoirNormal(f32 packed)
+    {
+        if (packed < 0.0f)
+            return glm::vec3(0.0f);
+        const f32 v = RoundReservoirLaneToInteger(packed);
+        const f32 qx = std::floor(v / kReservoirOctStride);
+        const f32 qy = v - qx * kReservoirOctStride;
+        const glm::vec2 p = (glm::vec2(qx, qy) / kReservoirOctScale) * 2.0f - 1.0f;
+        glm::vec3 n(p.x, p.y, 1.0f - std::abs(p.x) - std::abs(p.y));
+        const f32 t = std::max(-n.z, 0.0f);
+        n.x += (n.x >= 0.0f) ? -t : t;
+        n.y += (n.y >= 0.0f) ? -t : t;
+        const f32 lengthSq = glm::dot(n, n);
+        return (lengthSq > 0.0f) ? n * (1.0f / std::sqrt(lengthSq)) : glm::vec3(0.0f);
     }
 
 } // namespace OloEngine::ReSTIR
