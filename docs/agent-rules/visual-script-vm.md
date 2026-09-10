@@ -1,9 +1,11 @@
-# Visual scripting: the four ways a node graph goes wrong quietly
+# Visual scripting: the five ways a node graph goes wrong quietly
 
 Issue #634 (`Scripting/VisualScript/`). Read this before adding a node type,
 widening `PinType`, or changing how the VM evaluates. The design rationale is
-[ADR 0014](../adr/0014-visual-script-execution-model.md); this document is the
-list of things that fail *without* failing a test you already have.
+[ADR 0014](../adr/0014-visual-script-execution-model.md), whose §2 is superseded
+by [ADR 0023](../adr/0023-visual-script-exec-stack-owned-by-the-vm.md); this
+document is the list of things that fail *without* failing a test you already
+have.
 
 ---
 
@@ -13,9 +15,9 @@ Every loop node (`Flow.ForLoop`, `Flow.WhileLoop`, and anything you add) **must*
 call `NodeContext::BeginIteration()` once per iteration and stop when it returns
 false. It does two things, and both are load-bearing:
 
-- **Charges the iteration against the per-tick node budget.** Budget is otherwise
-  only consumed by `ExecuteFrom`, i.e. by nodes *inside* the body. A `While(true)`
-  with an **empty body** consumes nothing at all.
+- **Charges the iteration against the per-tick node budget.** Budget is
+  otherwise only consumed by running a node, i.e. by nodes *inside* the body. A
+  `While(true)` with an **empty body** consumes nothing at all.
 - **Bumps the pure-evaluation memo stamp.** Without it the loop's condition is
   memoized from the first iteration and never re-read, so a loop whose body sets
   the variable the condition reads never terminates.
@@ -25,7 +27,39 @@ forever with no budget consumed and a frozen condition. That exact graph is
 `VisualScriptVMTest.GuardRunawayWhileLoopIsHaltedByTheNodeBudget` — if it ever
 *hangs* instead of failing, this is why.
 
-## 2. Memoization is per exec STEP, not per tick — and the difference is invisible in a small graph
+A loop node also **must not keep its iteration in a C++ local**, because the body
+returns between iterations (see §2). Carry it in `State()`, read the bounds once
+on the `!IsResume()` entry, and use `NodeState::m_Flag` — and only that field —
+as the "still iterating" marker. The VM clears `m_Flag` when it discards a
+pending re-entry, which is the only thing stopping a loop the node budget
+abandoned from refusing itself for the rest of play.
+
+## 2. A node body returns between exec steps, so nothing may live on the C++ stack across a `Trigger`
+
+`Trigger` **queues** a branch, it does not run one. The exec stack lives on the
+`VisualScriptInstance` and is drained by a loop (ADR 0023), which is what gives
+the debugger something to pause and resume.
+
+For a body that triggers *last* — 39 of the 42 sites — this changes nothing:
+there is no "after the branch" to lose. For one that needs control back,
+`Trigger` is the wrong tool and the failure is silent, because
+`ctx.Trigger(body); doMoreWork();` runs `doMoreWork` **before** the body. Use
+`ctx.TriggerAndReturn(pin)`, which re-enters this body with `ctx.IsResume()`
+true, and keep the two rules from §1. Do not mix the two in one body entry: the
+resume would arrive before a later `Trigger`'s branch.
+
+Two consequences elsewhere:
+
+- **`kMaxExecDepth` no longer guards the C++ stack for exec** — a chain costs no
+  C++ frames now, and the bound rides on the exec frame as policy so a graph that
+  was a reported error stays one. It is still genuine stack safety for the
+  **pure-pull** evaluator, which is still recursion.
+- **Whatever a body queues is flipped once when the body returns**, so it pops in
+  the order it was written. That one `std::reverse` in `RunFrame` is why
+  `Sequence` needed no change; remove it and every multi-branch node runs its
+  branches backwards.
+
+## 3. Memoization is per exec STEP, not per tick — and the difference is invisible in a small graph
 
 `m_EvalStamp` is bumped on every exec-node execution. Change it to once-per-tick
 and the suite still passes for any graph that reads a variable *before* writing
@@ -38,7 +72,7 @@ blackboard-like store, a component write a pure getter reads), it must be an exe
 node. A pure node with side effects breaks the memo's premise: the VM is free to
 call `m_Evaluate` any number of times, in any order, or not at all.
 
-## 3. `PinType` is the contract; widening it has five consumers
+## 4. `PinType` is the contract; widening it has five consumers
 
 Adding an enumerator means touching, in this order:
 
@@ -57,7 +91,7 @@ Adding an enumerator means touching, in this order:
 **Never reorder or renumber the existing enumerators.** The save-game path writes
 `static_cast<u8>(value.GetType())`, so the numbering is on disk.
 
-## 4. The four things that must never happen inline
+## 5. The four things that must never happen inline
 
 The VM sits in the middle of an ECS iteration, so each of these is queued:
 
@@ -75,7 +109,7 @@ view, `Entity.AddComponent` / `Entity.RemoveComponent` must move to a deferred
 command first. See
 [script-structural-command-safe-point.md](script-structural-command-safe-point.md).
 
-## 5. Smaller things that bit during implementation
+## 6. Smaller things that bit during implementation
 
 - **Link endpoints are serialized by pin NAME, not index.** Renaming a pin on an
   existing node type breaks every saved graph that used it — with a *clean*
@@ -96,9 +130,17 @@ command first. See
   graph may have been fixed.
 - **`Function.Call` is not recursive.** Each function graph has one set of value
   slots per instance; re-entry is refused with a reported error rather than
-  silently sharing them.
+  silently sharing them. The guard is released by the call's bookkeeping frame,
+  not by the node body — so a code path that drops queued work must run those
+  frames (`UnwindAbandonedWork` does) or the function stays locked for the rest
+  of play.
+- **A loop re-entered through an exec cycle is refused, not nested.** Exec cycles
+  are legal (ADR 0014 §4), so a body can wire back into its own loop's `Enter`.
+  The iteration lives in `NodeState` now, so the second entry would reset the
+  first's index; it reports an error and returns instead. Under the old
+  descent this recursed with a fresh index until the depth cap.
 
-## 6. The component-field registry is generated — do not hand-maintain a second one
+## 7. The component-field registry is generated — do not hand-maintain a second one
 
 `Component.GetField` / `Component.SetField` address a component field by two
 strings, resolved through `Scripting/VisualScript/ComponentFieldRegistry.h`. Its

@@ -669,22 +669,49 @@ namespace OloEngine
         const DebugState& debug = instance->Debug();
         if (debug.m_Paused)
         {
-            ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.25f, 1.0f), "PAUSED at node %u",
-                               static_cast<u32>(debug.m_PausedAt & 0xFFFFFFFFull));
-            ImGui::TextWrapped("The node has NOT run yet — the pin values below are its inputs.");
-            if (ImGui::Button("Resume"))
-                instance->DebugResume();
+            if (debug.m_PausedAt != 0)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.25f, 1.0f), "PAUSED at node %u",
+                                   static_cast<u32>(debug.m_PausedAt & 0xFFFFFFFFull));
+                ImGui::TextWrapped("The node has NOT run yet — the pin values below are its inputs.");
+            }
+            else
+            {
+                // Stepping ran the graph out of work. Say so, rather than
+                // reporting "node 0", which is a real NodeId somewhere else.
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.25f, 1.0f), "PAUSED between ticks");
+                ImGui::TextWrapped("This tick has no more nodes to run. Step again to enter the next one.");
+            }
+
+            if (ImGui::Button("Step Node"))
+                instance->DebugStepNodes(1);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Runs exactly one node, then pauses in front of the next one.\n"
+                                  "Side effects happen once — the VM resumes the interrupted run\n"
+                                  "rather than replaying it (ADR 0023).");
+            }
             ImGui::SameLine();
             if (ImGui::Button("Step Tick"))
                 instance->DebugStepOneTick();
             if (ImGui::IsItemHovered())
             {
-                // Say plainly what this does, because "step" in a node editor
-                // usually means one NODE. Exec descent has no continuation to
-                // resume from, so node-granular stepping would mean re-running
-                // the tick and repeating every side effect before the breakpoint.
-                ImGui::SetTooltip("Runs exactly one more tick with breakpoints suppressed, then pauses again.\n"
-                                  "Node-by-node stepping is not supported: the VM has no resumable continuation.");
+                ImGui::SetTooltip("Runs the rest of this tick with breakpoints suppressed, then pauses again.");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Resume"))
+                instance->DebugResume();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Finishes the interrupted tick, then keeps running.");
+            }
+
+            // How much of the tick is owed. Worth showing because it is the
+            // difference between "stopped between ticks" and "stopped halfway
+            // through one", and only the second can be stepped through.
+            if (const sizet pending = instance->GetPendingExecCount(); pending > 0)
+            {
+                ImGui::TextDisabled("%d queued exec step(s) in the interrupted tick", static_cast<i32>(pending));
             }
         }
         else
