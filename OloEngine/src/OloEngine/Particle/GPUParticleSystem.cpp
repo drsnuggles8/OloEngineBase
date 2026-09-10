@@ -434,6 +434,17 @@ namespace OloEngine
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::Command | MemoryBarrierFlags::ShaderStorage);
     }
 
+    GPUParticleSystem::ShaderHealth GPUParticleSystem::GetShaderHealth() const
+    {
+        const auto ok = [](const Ref<ComputeShader>& shader)
+        { return shader && shader->IsValid(); };
+        return ShaderHealth{ .Emit = ok(m_EmitShader),
+                             .Simulate = ok(m_SimulateShader),
+                             .Compact = ok(m_CompactShader),
+                             .CompactScatter = ok(m_CompactScatterShader),
+                             .BuildIndirect = ok(m_BuildIndirectShader) };
+    }
+
     u32 GPUParticleSystem::GetAliveCount() const
     {
         OLO_PROFILE_FUNCTION();

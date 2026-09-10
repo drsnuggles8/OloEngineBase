@@ -75,6 +75,25 @@ namespace OloEngine
         {
             return m_MaxParticles;
         }
+        // Which of the five compute stages actually compiled. EmitParticles and
+        // friends return early and SILENTLY when their shader is invalid, so a
+        // dead stage looks exactly like "nothing to emit" — this is how a
+        // diagnostic tells the two apart (issue #1171).
+        struct ShaderHealth
+        {
+            bool Emit = false;
+            bool Simulate = false;
+            bool Compact = false;
+            bool CompactScatter = false;
+            bool BuildIndirect = false;
+
+            [[nodiscard]] bool AllValid() const
+            {
+                return Emit && Simulate && Compact && CompactScatter && BuildIndirect;
+            }
+        };
+        [[nodiscard]] ShaderHealth GetShaderHealth() const;
+
         [[nodiscard]] bool IsInitialized() const
         {
             return m_Initialized;

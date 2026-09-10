@@ -13,6 +13,7 @@
 #include "MCP/McpGoldenCompare.h"
 #include "MCP/McpRenderExplain.h"
 #include "MCP/McpRenderGraphTopology.h"
+#include "MCP/McpParticleStats.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpRenderProbePixel.h"
 #include "MCP/McpRenderLODStats.h"
@@ -25,6 +26,8 @@
 #include "MCP/McpShadowCapture.h"
 #include "MCP/McpVirtualShadowMapStats.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Particle/GPUParticleData.h"
+#include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Atmosphere/Ephemeris.h"
 #include "OloEngine/Atmosphere/WeatherSystem.h"
 #include "OloEngine/Core/UUID.h"
@@ -5114,6 +5117,91 @@ namespace OloEngine::MCP
             return ToolResult::Structured(j);
         }
 
+        ToolResult Handle_ParticleStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([&host]() -> Json
+                                                 {
+                OloEditor::MCP::ParticleSubmissionFacts submission;
+                const ParticleBatchRenderer::Statistics stats = ParticleBatchRenderer::GetStats();
+                submission.DrawCalls = stats.DrawCalls;
+                submission.InstanceCount = stats.InstanceCount;
+
+                std::vector<OloEditor::MCP::ParticleEmitterFacts> emitters;
+                Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                // The camera position is what makes the LOD verdict possible; without
+                // the pose accessor the distance columns stay zero and ExplainParticleFrame
+                // simply never reaches its LOD branch, which is the honest degradation.
+                const bool hasPose = static_cast<bool>(host.Context().GetCameraPose);
+                const glm::vec3 cameraPos = hasPose ? host.Context().GetCameraPose().Position : glm::vec3(0.0f);
+                if (scene)
+                {
+                    for (auto view = scene->GetAllEntitiesWith<ParticleSystemComponent>(); auto e : view)
+                    {
+                        Entity entity{ e, scene.Raw() };
+                        const auto& psc = view.template get<ParticleSystemComponent>(e);
+                        OloEditor::MCP::ParticleEmitterFacts facts;
+                        facts.Name = entity.GetName();
+                        facts.EntityId = std::to_string(static_cast<u64>(entity.GetUUID()));
+                        facts.AliveCount = psc.System.GetAliveCount();
+                        facts.MaxParticles = psc.System.GetMaxParticles();
+                        facts.Playing = psc.System.Playing;
+                        facts.UseGPU = psc.System.UseGPU;
+                        // The count that actually matters for a GPU emitter; its CPU
+                        // pool is empty by design. -1 keeps "not initialised" distinct
+                        // from a genuine zero, which is the difference between "the
+                        // sim has not started" and "the sim produced nothing".
+                        if (const GPUParticleSystem* gpu = psc.System.GetGPUSystem();
+                            gpu != nullptr && gpu->IsInitialized())
+                        {
+                            facts.GpuAliveCount = static_cast<i64>(gpu->GetAliveCount());
+                            const auto health = gpu->GetShaderHealth();
+                            if (!health.Emit) facts.DeadGpuStages.emplace_back("emit");
+                            if (!health.Simulate) facts.DeadGpuStages.emplace_back("simulate");
+                            if (!health.Compact) facts.DeadGpuStages.emplace_back("compact");
+                            if (!health.CompactScatter) facts.DeadGpuStages.emplace_back("compactScatter");
+                            if (!health.BuildIndirect) facts.DeadGpuStages.emplace_back("buildIndirect");
+                            if (const auto& counterSSBO = gpu->GetCounterSSBO(); counterSSBO)
+                            {
+                                const auto counters = counterSSBO->GetData<GPUParticleCounters>();
+                                facts.GpuCounterAlive = static_cast<i64>(counters.AliveCount);
+                                facts.GpuCounterDead = static_cast<i64>(counters.DeadCount);
+                                facts.GpuCounterEmit = static_cast<i64>(counters.EmitCount);
+                            }
+                            if (const auto& indirectSSBO = gpu->GetIndirectDrawSSBO(); indirectSSBO)
+                            {
+                                const auto cmd = indirectSSBO->GetData<DrawElementsIndirectCommand>();
+                                facts.GpuIndirectInstanceCount = static_cast<i64>(cmd.InstanceCount);
+                            }
+                        }
+                        switch (psc.System.RenderMode)
+                        {
+                            case ParticleRenderMode::Billboard:
+                                facts.RenderMode = "billboard";
+                                break;
+                            case ParticleRenderMode::StretchedBillboard:
+                                facts.RenderMode = "stretchedBillboard";
+                                break;
+                            case ParticleRenderMode::Mesh:
+                                facts.RenderMode = "mesh";
+                                break;
+                        }
+                        const glm::vec3 emitterPos = entity.GetComponent<TransformComponent>().Translation;
+                        facts.DistanceToCamera = hasPose ? glm::length(emitterPos - cameraPos) : 0.0f;
+                        facts.LODMaxDistance = hasPose ? psc.System.LODMaxDistance : 0.0f;
+                        emitters.push_back(std::move(facts));
+                    }
+                }
+
+                Json j = OloEditor::MCP::ParticleStatsJson(submission, emitters);
+                if (!hasPose)
+                {
+                    j["note"] = "No editor camera pose available, so distanceToCamera / lodMaxDistance are "
+                                "reported as 0 and the LOD explanation is skipped rather than guessed.";
+                }
+                return j; });
+            return ToolResult::Structured(result);
+        }
+
         ToolResult Handle_VirtualGeometryStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
@@ -7887,6 +7975,56 @@ namespace OloEngine::MCP
                                     .Required({ "changed", "previous", "current" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderDebugDrawSet;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_particle_stats";
+            tool.Toolset = "render";
+            tool.Title = "Particle submission + per-emitter simulation state";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Answer the first question a particle rendering bug asks: DID THE RENDERER SUBMIT ANY "
+                "DRAWS THIS FRAME? Returns ParticleBatchRenderer's per-frame draw-call and instance "
+                "counts alongside every emitter's live simulation state (alive count, playing, GPU-driven, "
+                "render mode, distance vs LODMaxDistance), and a 'verdict' that says which side of the "
+                "submit/rasterise line a blank frame failed on. This is NOT derivable from "
+                "olo_perf_snapshot, whose drawCalls/instancedDrawCalls/triangles do not attribute "
+                "particles at all — the same scene reads 0/14/256 on Vulkan and 24/6/127 on OpenGL while "
+                "only OpenGL shows particles, so those counters cannot tell 'nothing submitted' from "
+                "'submitted but not rasterised'. That distinction is the whole point: everything a "
+                "rendering investigation would check next (shaders, bindings, blend and depth state) is "
+                "downstream of a draw that may never have happened. Note the CPU batch renderer legitimately "
+                "reports zero for GPU-driven emitters, which draw indirectly; the verdict says so rather "
+                "than calling it a missing draw. Issues #607, #1171.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("emitterCount", Schema::Int().Min(0))
+                    .Prop("aliveTotal", Schema::Int().Min(0).Desc("Live particles summed across every emitter."))
+                    .Prop("submission", Schema::Object()
+                                            .Desc("ParticleBatchRenderer::GetStats() for the last batch — the CPU billboard/trail/mesh path only.")
+                                            .Prop("drawCalls", Schema::Int().Min(0))
+                                            .Prop("instanceCount", Schema::Int().Min(0)))
+                    .Prop("emitters", Schema::Array(Schema::Object()
+                                                        .Prop("name", Schema::String())
+                                                        .Prop("entity", Schema::String())
+                                                        .Prop("aliveCount", Schema::Int().Min(0))
+                                                        .Prop("maxParticles", Schema::Int().Min(0))
+                                                        .Prop("playing", Schema::Bool())
+                                                        .Prop("useGPU", Schema::Bool().Desc("GPU-driven emitters draw indirectly and are not counted in submission."))
+                                                        .Prop("gpuAliveCount", Schema::Int().Desc("On-device alive count for a GPU emitter; -1 when the GPU system is not initialised. The CPU aliveCount is empty by design for these."))
+                                                        .Prop("deadGpuStages", Schema::Array(Schema::String()).Desc("GPU compute stages that failed to compile. Each dispatch bails EARLY AND SILENTLY on an invalid shader, so any non-empty list explains every downstream symptom."))
+                                                        .Prop("renderMode", Schema::String().Enum({ "billboard", "stretchedBillboard", "mesh" }))
+                                                        .Prop("distanceToCamera", Schema::Number())
+                                                        .Prop("lodMaxDistance", Schema::Number().Desc("Beyond this the emitter stops spawning."))
+                                                        .Prop("beyondLOD", Schema::Bool())))
+                    .Prop("verdict", Schema::String().Desc("Which side of the submit/rasterise line a blank frame failed on. Says so explicitly when it cannot tell two causes apart."))
+                    .Prop("note", Schema::String().Desc("Present only when the editor camera pose was unavailable, so the distance/LOD columns are unreported rather than guessed."))
+                    .Required({ "emitterCount", "aliveTotal", "submission", "emitters", "verdict" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ParticleStats;
             registry.Register(std::move(tool));
         }
 
