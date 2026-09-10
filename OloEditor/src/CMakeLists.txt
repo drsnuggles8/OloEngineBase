@@ -63,6 +63,11 @@
 		"MCP/McpFieldRegistry.cpp"
 		"MCP/McpToolsScripting.cpp"
 		"MCP/McpToolsShader.cpp"
+		# Structured test execution + whole-project validation (issue #1130).
+		"MCP/McpTestExecution.h"
+		"MCP/McpToolsTesting.cpp"
+		"MCP/McpProjectValidation.h"
+		"MCP/McpToolsValidation.cpp"
 		"MCP/McpToolsGateway.cpp"
 		"MCP/McpExposure.h"
 		"MCP/McpScriptTools.cpp"

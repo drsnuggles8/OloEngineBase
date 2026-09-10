@@ -6419,6 +6419,14 @@ namespace OloEngine::MCP
 
     } // namespace
 
+    // Composed by olo_project_validate (#1130). Runs olo_render_validate's DEFAULT
+    // sweep — no compare, no forced frame — against the live graph, through the
+    // standalone command's own handler so the verdicts cannot drift.
+    ToolResult CollectRenderGraphProblems(IAutomationHost& host)
+    {
+        return Handle_RenderValidate(host, Json::object());
+    }
+
     void RegisterRenderTools(AutomationRegistry& registry)
     {
         {

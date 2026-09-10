@@ -251,15 +251,18 @@ Expected: `[Server] Listening on port 7777` (defaults: port 7777, 64 players,
 
 ## Test
 
-The test binary runs from the **repo root** (not `OloEditor\`):
+The test binary runs fine from the **repo root**, but prefer `OloEditor\` — that is what `ctest` uses, and startup is ~3x faster there (2.06 s vs 0.71 s; see [testing-architecture.md §5](../../../docs/agent-rules/testing-architecture.md#5-running-tests-locally)):
 
 ```powershell
-build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=FastRandomTest.*:ContainerSmoke.*
+cd OloEditor; ..\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=FastRandomTest.*:ContainerSmoke.*
 ```
 
 → `[ PASSED ] 13 tests.` Drop the filter to run the whole suite. List suites with
 `--gtest_list_tests`. Note: a guessed filter that matches nothing exits 0 with a
-`did not match any test` warning — confirm tests actually ran.
+`did not match any test` warning — confirm tests actually ran. The
+`olo_tests_run` automation command (issue #1130) does that check for you: a
+selection matching nothing is an error there, and it returns per-case structured
+results instead of console text.
 
 ## Run the editor (human path)
 

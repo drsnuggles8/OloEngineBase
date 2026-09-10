@@ -385,6 +385,29 @@ namespace OloEngine::MCP
     void RegisterInputTools(AutomationRegistry& registry);
     void RegisterBenchmarkTools(AutomationRegistry& registry);
     void RegisterEditorTools(AutomationRegistry& registry);
+    // ---- problem collectors composed by olo_project_validate (#1130) -------
+    //
+    // Each RUNS THE HANDLER of the standalone command named in its comment and
+    // returns that command's own ToolResult verbatim. That is deliberate: a
+    // composite that re-implemented the sweep would be a second opinion, and the
+    // acceptance criterion for the validation slice is that it reports the SAME
+    // problems the editor panels show. Composing by invocation makes drift
+    // impossible rather than merely unlikely. An error result means the section
+    // could not run here; its text is the reason.
+    ToolResult CollectAssetProblems(IAutomationHost& host);       // olo_assets_problems
+    ToolResult CollectShaderProblems(IAutomationHost& host);      // olo_shader_errors
+    ToolResult CollectScriptProblems(IAutomationHost& host);      // olo_script_get_last_errors
+    ToolResult CollectRenderGraphProblems(IAutomationHost& host); // olo_render_validate (default sweep)
+
+    // Structured test execution (issue #1130): olo_tests_list / olo_tests_run.
+    // These run OloEngine-Tests as a CHILD PROCESS from the handler thread and
+    // never marshal onto the game thread, which is how the "no renderer for the
+    // CPU-only suites" constraint is met structurally rather than by a guard.
+    void RegisterTestingTools(AutomationRegistry& registry);
+    // Whole-project validation (issue #1130): olo_project_validate, which
+    // composes the per-domain problem commands above by INVOKING THEM, so the
+    // composite report and each standalone command cannot drift.
+    void RegisterValidationTools(AutomationRegistry& registry);
     // The capability-discovery gateway (issue #1124). Registered LAST so the four
     // gateway tools sort after the domains in tools/list — they are the entry point
     // for a session that cannot see the rest, not part of any domain.

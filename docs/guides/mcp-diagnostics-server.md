@@ -187,7 +187,7 @@ deliberate: `olo_log_tail` returns raw log lines (free text an `outputSchema` ca
 constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format tools stay
 text-only (their schemas describe the json format).
 
-Eleven table-shaped tools additionally return **audience-tagged content blocks** — see
+Fourteen table-shaped tools additionally return **audience-tagged content blocks** — see
 [Audience-tagged content blocks](#audience-tagged-content-blocks-673-tier-2) for the list
 and for what to do when adding a tool.
 
@@ -287,6 +287,9 @@ and for what to do when adding a tool.
 | `olo_physics_why_no_collision` | explain why two entities (`a`, `b`) are NOT colliding — the "player falls through the floor" debugger: root-cause `reasonCode`, summary, ordered checks, and per-entity facts |
 | `olo_set_collision_layer` | **(consented write)** set an entity's rigidbody collision layer (`entity`, `layer`). The counterpart to `olo_physics_why_no_collision`: that one explains why two bodies do not collide, this one fixes the common cause. Routed through the editor's undo stack, so an applied change is a single Ctrl-Z |
 | `olo_input_inject` | **(consented write)** inject synthetic mouse/keyboard input — `click` / `move` / `drag` / `mouseDelta` / `key` / `text` — into the editor's own input stream, so you can verify that an interactive handler actually FIRES (a viewport click selects the right entity; a panel button does what it claims), not merely that the editor renders. Synchronous: returns once the injected frames have been rendered, with the resulting selected/hovered entity in `after`. `mouseDelta` drives **delta-integrating** consumers (mouse-look rigs) that absolute injection provably cannot — see [Relative mouse movement](#relative-mouse-movement-mousedelta). Refuses loudly when the editor's loop is parked. Gated behind **Agent writes**. See [Interactive UI verification](#interactive-ui-verification-olo_input_inject) |
+| `olo_tests_list` | the GoogleTest cases `OloEngine-Tests` holds, each with source file, line and its `OLO_TEST_LAYER` classification (the renderer pyramid L1–L11 and the Functional / unit axes), plus a per-layer count. Filter by gtest expression, `suite`, explicit `cases` or `layer`. A selection that matches nothing is an **error**, not an empty list |
+| `olo_tests_run` | run a filtered selection as a child process and get **structured** per-case results — pass/fail/skip/disabled, the verbatim gtest failure text, per-case timings, each case's layer — with no console parsing. Runs the binary, not the editor's renderer, so the CPU-only suites inherit no GPU skip condition. Failures only by default (`includePassed` for the whole set). Never silently partial: a zero-match selection, a child that crashed / timed out / was cancelled, and a report that does not account for every selected case are all errors that **name** what is missing. See [Structured test execution](#structured-test-execution-olo_tests_list--olo_tests_run) |
+| `olo_project_validate` | every project validator in one call — asset-registry problems, shader compile/link errors, recent script errors, and the live render graph's hazard sweep — as one structured report. Each section invokes the standalone command's own handler, so it reports exactly what the editor panels show. A validator that cannot run here comes back `unavailable` **with its reason** and makes the report's `ok` false: an unrun check is never a clean bill of health |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306)
 
@@ -494,8 +497,8 @@ round-trip rather than looking like a write that quietly did nothing.
 
 ### Toolsets & on-demand tool discovery (`tools/search`)
 
-The tool surface is large enough (96 built-in tools; the full `tools/list` measures
-269 436 bytes ≈ 67k tokens) that paging the whole flat list to find the right one is
+The tool surface is large enough (102 built-in tools; the full `tools/list` measures
+281 836 bytes ≈ 70k tokens) that paging the whole flat list to find the right one is
 wasteful. Every tool is tagged with a **toolset** (grouping category), and a custom
 `tools/search` JSON-RPC method lets an agent discover tools by keyword and/or
 category instead of pulling the entire list (project Lua script tools additionally
@@ -514,6 +517,8 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 | `input` | `olo_input_inject` |
 | `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick` |
+| `tests` | `olo_tests_list`, `olo_tests_run` |
+| `validation` | `olo_project_validate` |
 
 `tools/search` params (both optional):
 
@@ -535,10 +540,10 @@ it lists is decided by the exposure profile below.
 
 ### Exposure profiles — `tools/list` shows a core set by default (issue #1124)
 
-**The default `tools/list` is not the whole surface.** The full catalogue is 96 tools /
-269 436 bytes / **~67k tokens** — a third of a 200k context window spent before the
+**The default `tools/list` is not the whole surface.** The full catalogue is 102 tools /
+281 836 bytes / **~70k tokens** — a third of a 200k context window spent before the
 session asks its first question, on a list of which three or four entries are ever
-called. The default `core` profile lists **16 tools / 38 144 bytes / ~9.5k tokens**, a
+called. The default `core` profile lists **18 tools / 39 362 bytes / ~9.8k tokens**, a
 7x reduction, and everything else is one search away. (Both figures are measured, not
 estimated: `McpExposureProfileTest` prints them on every test run and asserts a ceiling
 on the first. Token counts are bytes/4.)
@@ -753,6 +758,97 @@ component bindings.
   don't trust `scriptClassCount` on a failed reload. Rebuild the game assembly and retry.
 - **Lua is not reloaded here.** This tool targets the C# (Mono) app assembly; Lua scripts
   re-execute per entity on play and have no single global reload entry point.
+
+### Structured test execution (`olo_tests_list` / `olo_tests_run`)
+
+Issue #1130. The other half of the inner loop: change something, run the thing
+that proves it, read a structured result. Before these, the only way to run the
+suite from a session was to shell out to `OloEngine-Tests.exe` and parse
+`[  FAILED  ]` banners — which is why `.claude/skills/run-oloengine/` exists.
+
+`olo_tests_run` runs the binary as a **child process** from the handler thread.
+It never touches the editor's renderer and never marshals onto the game thread,
+so the CPU-only suites do not inherit any GPU skip condition. The results come
+from gtest's own JSON report (`--gtest_output=json:`), so each case carries its
+status, its wall time, its source file and line, and the assertion text
+verbatim up to `maxMessageChars` (default 2000, and a cut is marked in the
+message itself):
+
+```jsonc
+{ "suite": "RenderGraphTest", "name": "HazardSweepFindsWriteAfterRead",
+  "fullName": "RenderGraphTest.HazardSweepFindsWriteAfterRead",
+  "status": "failed", "seconds": 0.31,
+  "file": "OloEngine/tests/Rendering/RenderGraphTest.cpp", "line": 212,
+  "layer": "L5",
+  "messages": ["...
+Expected equality of these values:
+  hazards.size()
+..."] }
+```
+
+The `layer` field is the repo's own `OLO_TEST_LAYER` classification, read from
+the in-file marker first and `OloEngine/tests/scripts/test_catalogue.json`'s
+`file_layer_map` second — the same two mechanisms, and the same precedence, that
+`generate_test_catalogue.py` enforces at pre-commit. `layer` is also a
+*selector*: `{ "suite": "VulkanPassSuite", "layer": "L8" }` runs that suite's
+golden-image cases only.
+
+**A run is never silently partial.** This is the point of the commands, and the
+thing to check first if you are reviewing them:
+
+- A selection matching **zero** cases is an error. A typo'd filter must not read
+  as "this area is clean".
+- A child that crashed, timed out or was cancelled is an error carrying the exit
+  code, how many cases had started, and the tail of its console log — never a
+  result with a small number in it.
+- Every run does a `--gtest_list_tests` pass first and **reconciles the two sets
+  by name**. If the report does not account for every selected case, the run
+  failed and the error names the missing cases. A count-only check would pass a
+  run that lost one case and gained another, and would tell you nothing when it
+  did fail.
+- A failure belonging to **no case** — a fatal assertion in `SetUpTestSuite`,
+  `TearDownTestSuite` or a global environment — is an error too. A teardown
+  failure is the dangerous one: every case has already passed by then, so the
+  payload would otherwise read `failed: 0, complete: true` and a caller checking
+  exactly those two fields would call it green.
+
+Two traps worth knowing if you touch this code. gtest's list-mode JSON reports
+the whole *registered* count in its top-level `tests` field, ignoring the filter
+entirely — 7616 for a two-case selection — so that field can never be read as
+"how many I selected". And a case that both skips and fails is reported by gtest
+as `SKIPPED`; taking that at face value turns a red into a benign skip, which on
+this repo's constantly-skipping GPU suites is the failure most likely to be
+missed. A recorded failure outranks the skip.
+
+Which binary ran is part of the answer (`binary.path`, `binary.modifiedUtc`,
+`binary.sizeBytes`): a green summary looks identical whether it came from the
+binary you just built or from last week's. By default the newest artefact across
+`build-cached/`, `build/` and `build-clang/` wins; `binary` (or
+`OLO_TESTS_BINARY`) names one explicitly and is never silently replaced.
+
+Long runs report progress through the standard mechanism and honour
+cancellation — see [Progress notifications & cancellation](#progress-notifications--cancellation).
+
+### Whole-project validation (`olo_project_validate`)
+
+Issue #1130. One call that runs every per-domain validator and returns one
+report: asset-registry problems, shader compile/link errors, recent script
+errors, and the live render graph's hazard sweep.
+
+It **composes by invoking** `olo_assets_problems`, `olo_shader_errors`,
+`olo_script_get_last_errors` and `olo_render_validate` — their actual handlers,
+not a reimplementation — so it reports exactly what the editor panels show and
+cannot drift from them.
+
+The report carries two flags, deliberately not one:
+
+- `complete` — every requested section actually ran.
+- `ok` — every requested section ran **and** found nothing.
+
+A validator that cannot run here (no project open, no render graph in a headless
+or 2D session) comes back as `unavailable` with its `reason`, is counted in
+`sectionsUnavailable`, and makes `ok` false. Dropping the section and totalling
+zero problems would hand back a green verdict for a check that never happened.
 
 ### Scriptable scene control (`olo_scene_open` / `olo_scene_play` / `olo_scene_stop`)
 
@@ -2170,10 +2266,16 @@ characters, inline lists at 12 items, each stating what it elided. The full payl
 in the assistant block and in `structuredContent`. Path redaction, when enabled, scrubs both
 blocks identically.
 
-**Current adopters (11):** `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_pass_timings`,
-`olo_perf_cpu_scopes`, `olo_render_frame_breakdown`, `olo_render_graph_topology_export`,
-`olo_render_why_not_visible`, `olo_render_target_stats`, `olo_cluster_grid_stats`,
-`olo_shadow_atlas_layout`, `olo_physics_why_no_collision`.
+**Current adopters (14):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
+`olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_render_frame_breakdown`,
+`olo_render_graph_topology_export`, `olo_render_why_not_visible`, `olo_render_target_stats`,
+`olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_physics_why_no_collision`,
+`olo_tests_run`, `olo_project_validate`.
+
+That list is ratcheted in both directions by
+`McpAudienceBlocksTest.BuiltinAdoptionMatchesTheDeliberateList`, which compares the real
+registry against an explicit set — so it is the test, not this paragraph, that fails when a
+tool opts in without being considered. Keep the two in step.
 
 #### Adding a tool — which side of the line are you on?
 

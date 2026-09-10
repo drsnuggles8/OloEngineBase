@@ -436,6 +436,8 @@ TEST(McpAudienceBlocks, BuiltinAdoptionMatchesTheDeliberateList)
         "olo_cluster_grid_stats",           // per-slice + histogram tables
         "olo_shadow_atlas_layout",          // granted vs starved casters
         "olo_physics_why_no_collision",     // explainer check list
+        "olo_tests_run",                    // per-case status/timing/failure table
+        "olo_project_validate",             // per-section problem table
     };
 
     const McpServer::ToolList& tools = BuiltinTools();
