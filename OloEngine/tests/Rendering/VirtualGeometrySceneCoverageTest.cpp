@@ -51,6 +51,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <filesystem>
+#include <map>
 #include <set>
 #include <sstream>
 #include <string>
@@ -275,5 +276,59 @@ namespace OloEngine::Tests
         EXPECT_EQ(fresh.Submitted, 0u);
         EXPECT_FALSE(fresh.FellBackToClassic);
         EXPECT_FALSE(fresh.SilentlyDrewNothing());
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. One scene reaches VirtualGeometryPass's parallel-recording fork grain
+    // -------------------------------------------------------------------------
+    // The same vacuity failure as the silent zero above, one layer up (#1013).
+    // VirtualGeometryPass sizes all three of its RecordParallel regions
+    //
+    //     itemCount = std::clamp(instanceCount / 32, 1u, MAX_RENDER_WORKERS)
+    //
+    // so below 64 virtual-mesh instances every region runs INLINE with a single
+    // item. An off/on A/B measured on such a scene compares the inline path with
+    // itself and passes vacuously — which is exactly what happened: #1066 shipped
+    // the conversion, and VirtualGeometryTest.olo (15 instances) and
+    // VirtualGeometryStress.olo (24) were the only scenes that drove it, so the
+    // forked path had never once executed when the pass audit called it
+    // "Implemented".
+    //
+    // Guard the property rather than the scene name, so renaming or replacing the
+    // fixture is fine and quietly trimming every scene under the grain is not.
+    TEST(VirtualGeometrySceneCoverage, SomeSceneReachesTheParallelRecordingForkGrain)
+    {
+        // Mirrors VirtualGeometryPass::Execute — keep the two in step.
+        constexpr u32 kInstancesPerItem = 32u;
+        constexpr sizet kMinInstancesToFork = 2ull * kInstancesPerItem;
+
+        std::map<std::string, sizet> instancesByScene;
+        for (const auto& ref : CollectVirtualMeshReferences())
+        {
+            ++instancesByScene[ref.SceneFile];
+        }
+        ASSERT_FALSE(instancesByScene.empty())
+            << "No VirtualMeshComponent found in any sandbox scene — the scan itself is broken.";
+
+        std::ostringstream census;
+        sizet best = 0;
+        std::string bestScene;
+        for (const auto& [scene, count] : instancesByScene)
+        {
+            census << "\n  " << scene << ": " << count;
+            if (count > best)
+            {
+                best = count;
+                bestScene = scene;
+            }
+        }
+
+        EXPECT_GE(best, kMinInstancesToFork)
+            << "No sandbox scene has the " << kMinInstancesToFork
+            << " virtual-mesh instances VirtualGeometryPass needs before any of its three "
+               "RecordParallel regions splits into more than one item, so nothing exercises the "
+               "forked path and an off/on capture would compare the inline path with itself."
+               "\nBest is "
+            << bestScene << " with " << best << ". Per-scene census:" << census.str();
     }
 } // namespace OloEngine::Tests
