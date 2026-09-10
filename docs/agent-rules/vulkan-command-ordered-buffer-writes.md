@@ -151,3 +151,31 @@ silent, scene-shaped, and invisible to any tenant that doesn't interleave.
 The GL-parity checklist that found this (screenshot gate → intermediate-target
 capture → survivor-pattern reasoning) is reusable for any "backend X renders
 scene Y wrong but scene Z right" report.
+
+## The same hole, left open in vertex buffers for two years (#1171)
+
+**The audit above was done for uniform and storage buffers and not for vertex
+streams.** `VulkanVertexBuffer::SetData` kept the write-through shape, under a
+comment that said so out loud:
+
+> `NOTE: mesh data is upload-once at load time. […] nothing in Waves A/B streams vertex data.`
+
+`ParticleBatchRenderer::Flush` streams vertex data, and PrecipitationSystem's two
+engine-init streams (5.76 MB and 3.84 MB) rewrite theirs every frame. So every
+draw in the frame read the last batch — the identical last-write-wins failure
+this document is about, in the one buffer family the fix skipped.
+
+Two lessons worth more than the fix:
+
+- **A comment asserting "nothing does X" ages into a bug** the moment something
+  does, and nothing checks it. The seam now *detects* the shape (a second write
+  inside one frame generation) and warns, instead of assuming it cannot happen.
+- **Fixing a failure class in one buffer type is not fixing the class.** When
+  amendment (80) gave UBOs and SSBOs per-write versioning, vertex buffers had
+  the same facade, semantics and deferred execution. Ask which *other* types
+  share the shape before closing such an issue.
+
+Not covered: a stream written exactly **once** per frame never trips the
+detector, because one write cannot alias between draws of that frame. It can
+still race the previous frame's submission, which needs a ring — the "own wave"
+the original comment promised and nothing has built.

@@ -124,15 +124,18 @@ snapshot/device fault). Both landed after that merge, and the deferred evidence
 has since been taken: the helmets render on Vulkan, and off/on recording produces
 byte-identical frames. See the [measurements and evidence report](../analysis/vulkan-parallel-recording-1013.md).
 
-The compressed terrain VT array path is explicitly unsupported by the Vulkan
-factory (missing BC7 tile-stage copy), tracked by
-[#1172](https://github.com/drsnuggles8/OloEngineBase/issues/1172). Vulkan checks use an in-memory
-`VTCompressedCache=false`; authored scene data is unchanged. Even then the final
-live sample reports zero resident tiles and `readyForShading=false`, so its
-correct terrain image proves fallback shading, not the new ready-cache
-publication branch. OpenGL exercises the authored compressed configuration.
-The separate water-array fix supplies required storage
-usage for supported linear color formats and has a four-format descriptor test.
+**Resolved ([#1172](https://github.com/drsnuggles8/OloEngineBase/issues/1172)).**
+The compressed terrain VT array path used to be unsupported by the Vulkan
+factory, which refused every block-compressed array outright; the VT then failed
+its own validity guard, disabled itself, and the terrain drew on the splat path.
+That is why #1066's Vulkan checks used an in-memory `VTCompressedCache=false`
+and still reported zero resident tiles and `readyForShading=false` — the
+ready-cache branch had never run on Vulkan. BC7 arrays are created now (they
+take neither colour-attachment nor storage usage, and never needed to), and
+`TerrainVirtualTextureTest.olo` reports `readyForShading=true`,
+`cacheCompressed=true` and 100 resident compressed tiles on Vulkan against 205
+on OpenGL. The separate water-array fix supplies required storage usage for
+supported linear color formats and has a four-format descriptor test.
 
 The authored SnowfallParticles sample produced no visible billboards in either
 Vulkan recording mode, including Release. **The cause is now narrowed and it is
