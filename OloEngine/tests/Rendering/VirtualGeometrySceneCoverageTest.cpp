@@ -72,6 +72,7 @@ namespace OloEngine::Tests
             std::string SceneFile;
             std::string EntityTag;
             u64 Handle = 0;
+            bool Enabled = true;
         };
 
         // Every VirtualMeshComponent in every sandbox scene, read straight out of
@@ -129,6 +130,7 @@ namespace OloEngine::Tests
                     ref.EntityTag = entityNode["TagComponent"] && entityNode["TagComponent"]["Tag"]
                                         ? entityNode["TagComponent"]["Tag"].as<std::string>("<unnamed>")
                                         : std::string{ "<unnamed>" };
+                    ref.Enabled = virtualMesh["Enabled"] ? virtualMesh["Enabled"].as<bool>(true) : true;
                     refs.push_back(std::move(ref));
                 }
             }
@@ -302,9 +304,18 @@ namespace OloEngine::Tests
         constexpr u32 kInstancesPerItem = 32u;
         constexpr sizet kMinInstancesToFork = 2ull * kInstancesPerItem;
 
+        // Count only what VirtualGeometryPass would actually submit. A component
+        // that is disabled or has no mesh never reaches the instance list, so
+        // counting it here would let someone satisfy this guard with 96 inert
+        // entities while the pass still ran inline — the vacuous pass that this
+        // whole file exists to prevent.
         std::map<std::string, sizet> instancesByScene;
         for (const auto& ref : CollectVirtualMeshReferences())
         {
+            if (!ref.Enabled || ref.Handle == 0)
+            {
+                continue;
+            }
             ++instancesByScene[ref.SceneFile];
         }
         ASSERT_FALSE(instancesByScene.empty())
