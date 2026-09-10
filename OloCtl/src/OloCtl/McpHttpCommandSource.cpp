@@ -6,6 +6,7 @@
 #include "OloCtl/McpHttpCommandSource.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -109,6 +110,78 @@ namespace OloCtl
             return found;
         }
 
+        // The host of an http(s) URL, lowercased: everything between "://" and the
+        // next ':' or '/', with an IPv6 literal's brackets stripped.
+        std::string UrlHost(const std::string& url)
+        {
+            const std::size_t schemeEnd = url.find("://");
+            if (schemeEnd == std::string::npos)
+                return {};
+            const std::size_t start = schemeEnd + 3;
+            std::size_t end = url.size();
+            if (start < url.size() && url[start] == '[')
+            {
+                const std::size_t close = url.find(']', start);
+                if (close == std::string::npos)
+                    return {};
+                std::string host = url.substr(start + 1, close - start - 1);
+                std::transform(host.begin(), host.end(), host.begin(),
+                               [](unsigned char c)
+                               { return static_cast<char>(std::tolower(c)); });
+                return host;
+            }
+            for (std::size_t i = start; i < url.size(); ++i)
+            {
+                if (url[i] == ':' || url[i] == '/')
+                {
+                    end = i;
+                    break;
+                }
+            }
+            std::string host = url.substr(start, end - start);
+            std::transform(host.begin(), host.end(), host.begin(),
+                           [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+            return host;
+        }
+
+        // Is this URL pointing at this machine?
+        //
+        // It decides whether an ENVIRONMENT-supplied token may be attached, so it is
+        // deliberately a small allowlist rather than a "does it look remote" test: a
+        // name that fails to parse, or any host not provably local, gets no token.
+        // 127.0.0.0/8 in full, because the editor binds 127.0.0.1 and a forwarder may
+        // sit on another address in that block.
+        bool IsLoopbackHost(const std::string& host)
+        {
+            if (host == "localhost" || host == "::1" || host == "0:0:0:0:0:0:0:1")
+                return true;
+            if (host.rfind("127.", 0) != 0)
+                return false;
+            // Every remaining label must be a plain decimal octet, so "127.evil.com"
+            // does not pass on its prefix alone.
+            int labels = 1;
+            std::size_t start = 4;
+            while (start <= host.size())
+            {
+                const std::size_t dot = host.find('.', start);
+                const std::string label = host.substr(start, dot == std::string::npos ? std::string::npos
+                                                                                      : dot - start);
+                if (label.empty() || label.size() > 3 ||
+                    !std::all_of(label.begin(), label.end(),
+                                 [](unsigned char c)
+                                 { return std::isdigit(c) != 0; }))
+                {
+                    return false;
+                }
+                ++labels;
+                if (dot == std::string::npos)
+                    break;
+                start = dot + 1;
+            }
+            return labels == 4;
+        }
+
         // Split "http://127.0.0.1:7345/mcp" into the scheme+authority httplib::Client
         // takes and the path it posts to.
         bool SplitUrl(const std::string& url, std::string& outBase, std::string& outPath, std::string& outError)
@@ -145,12 +218,28 @@ namespace OloCtl
             // file never puts it there; `--url --token` does, and argv is readable by
             // other local processes and lands in shell history, which the discovery
             // file does not. `--token` still wins when both are given.
+            //
+            // LOOPBACK ONLY, and this is the important half. The environment token is
+            // attached without the user naming it on THIS command line, so a `--url`
+            // pointing anywhere else would send an editor's bearer token to a host they
+            // did not hand it to -- over cleartext http, since that is what the editor
+            // speaks. The editor binds 127.0.0.1 and nothing else, so a non-loopback
+            // URL is outside the tool's envelope anyway. An EXPLICIT `--token` is still
+            // honoured anywhere: the user typed that one deliberately.
             std::string token = request.Token;
             std::string origin = "--url";
             if (token.empty())
             {
                 if (const std::optional<std::string> fromEnv = EnvVar("OLOCTL_TOKEN"))
                 {
+                    if (!IsLoopbackHost(UrlHost(request.Url)))
+                    {
+                        outError = "OLOCTL_TOKEN is set, but --url points at '" + UrlHost(request.Url) +
+                                   "', which is not this machine. oloctl will not send an editor's bearer token "
+                                   "to a host you did not name it for. Pass --token explicitly if you really "
+                                   "mean to reach that endpoint.";
+                        return std::nullopt;
+                    }
                     token = *fromEnv;
                     origin = "--url with OLOCTL_TOKEN";
                 }

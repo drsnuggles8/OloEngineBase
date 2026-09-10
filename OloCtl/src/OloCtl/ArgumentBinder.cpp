@@ -206,7 +206,11 @@ namespace OloCtl
         // a leading `--` stays reachable through `--flag=--value`.
         bool LooksLikeOption(const std::string& token)
         {
-            return token.size() >= 3 && token.compare(0, 2, "--") == 0;
+            // `>= 2`, so the bare `--` counts. It is not a value by the rule above --
+            // it BEGINS with `--` -- and conventionally it means "end of options",
+            // which is the last thing that should end up bound as a string. `--name=--`
+            // still passes it deliberately.
+            return token.size() >= 2 && token.compare(0, 2, "--") == 0;
         }
 
         // One `--flag value` for an array-typed property. A whole JSON array replaces

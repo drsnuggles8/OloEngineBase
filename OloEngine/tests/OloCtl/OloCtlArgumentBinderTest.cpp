@@ -142,6 +142,19 @@ TEST(OloCtlArgumentBinder, AnOptionNeverSwallowsTheNextOptionAsItsValue)
     EXPECT_NE(string.Error.find("--name=--verbose-output"), std::string::npos) << string.Error;
 }
 
+// The bare `--` begins with `--` like any other option token, and conventionally means
+// "end of options" — the last thing that should be bound as a string value.
+TEST(OloCtlArgumentBinder, ABareDoubleDashIsNotAValue)
+{
+    EXPECT_FALSE(Bind({ "--name", "--" }).Ok);
+    EXPECT_FALSE(Bind({ "--names", "--" }).Ok);
+
+    // ...and it is still passable deliberately, through the same escape hatch.
+    const BindResult explicitly = Bind({ "--name=--" });
+    ASSERT_TRUE(explicitly.Ok) << explicitly.Error;
+    EXPECT_EQ(explicitly.Arguments["name"], "--");
+}
+
 // The documented escape hatch for a value that really does start with two dashes.
 TEST(OloCtlArgumentBinder, AnEqualsSignPassesAValueThatBeginsWithDashes)
 {

@@ -112,6 +112,17 @@ The editor writes a discovery file (host, port, token, URL) when its MCP server 
 4. `OLO_MCP_DISCOVERY_FILE`
 5. the system temp directory, searched.
 
+Two rules about the token, both of which report rather than guess:
+
+- **`--token` without `--url` is an error.** A token names no editor, and a discovery file
+  already carries its own, so there is nothing for a lone token to apply to. Same for
+  `OLOCTL_TOKEN` with no `--url`.
+- **`OLOCTL_TOKEN` is only attached to a loopback `--url`** (`127.0.0.0/8`, `localhost`,
+  `::1`). It is a token you never named on this command line, and the editor speaks
+  cleartext http, so sending it to any other host would hand an editor's bearer token to
+  somewhere you did not hand it to. An explicit `--token` still works anywhere — you typed
+  that one deliberately.
+
 **Everything you type beats the environment**, and that ordering is load-bearing: the
 `run-oloengine` driver exports `OLO_MCP_DISCOVERY_FILE` in the shell it attaches from, so a
 worktree session inherits it. If the variable came first, `oloctl --port <other editor>` would
