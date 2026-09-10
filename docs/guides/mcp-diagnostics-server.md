@@ -761,6 +761,11 @@ thing to check first if you are reviewing them:
   failed and the error names the missing cases. A count-only check would pass a
   run that lost one case and gained another, and would tell you nothing when it
   did fail.
+- A failure belonging to **no case** — a fatal assertion in `SetUpTestSuite`,
+  `TearDownTestSuite` or a global environment — is an error too. A teardown
+  failure is the dangerous one: every case has already passed by then, so the
+  payload would otherwise read `failed: 0, complete: true` and a caller checking
+  exactly those two fields would call it green.
 
 Two traps worth knowing if you touch this code. gtest's list-mode JSON reports
 the whole *registered* count in its top-level `tests` field, ignoring the filter

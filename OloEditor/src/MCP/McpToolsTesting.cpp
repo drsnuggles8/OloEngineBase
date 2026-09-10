@@ -257,12 +257,12 @@ namespace OloEngine::MCP
                 if (path.is_relative())
                     path = repoRoot / path;
                 outSearched.push_back(path.generic_string());
-                // The command exists to run THE TEST BINARY. Without this the
-                // `binary` argument is a way to execute any executable on the
-                // box through a command that is deliberately not consent-gated,
-                // which is a much larger authority than "run the tests" — and
-                // pointing it at anything else only ever produces the
-                // "exited without writing a report" error anyway.
+                // The command exists to run THE TEST BINARY OF THIS TREE, and it
+                // is deliberately not consent-gated, so "which executable" is the
+                // whole of its authority. Two checks, and the name alone is not
+                // enough — anyone able to drop a file called OloEngine-Tests.exe
+                // anywhere on the box would otherwise get arbitrary execution
+                // (CWE-114).
                 if (path.filename() != kTestBinaryName)
                 {
                     outError = std::string("Invalid ") + origin + " test binary '" + path.generic_string() +
@@ -272,6 +272,26 @@ namespace OloEngine::MCP
                 if (!DescribeBinary(path, out, outError))
                 {
                     outError = std::string("The ") + origin + " test binary does not exist: " + path.generic_string();
+                    return false;
+                }
+                // Containment is checked on the CANONICAL path, i.e. after
+                // symlinks are resolved, so a link inside the tree pointing out
+                // of it is refused too. DescribeBinary already canonicalized
+                // `out.Path`.
+                std::error_code ec;
+                const fs::path canonicalRoot = fs::weakly_canonical(repoRoot, ec);
+                if (ec)
+                {
+                    outError = "Could not canonicalize the repo root to validate the test binary path.";
+                    return false;
+                }
+                if (const fs::path relative = out.Path.lexically_relative(canonicalRoot);
+                    relative.empty() || *relative.begin() == "..")
+                {
+                    outError = std::string("Refusing the ") + origin + " test binary '" +
+                               out.Path.generic_string() + "': it resolves outside the source tree (" +
+                               canonicalRoot.generic_string() +
+                               "). Point it at a build tree inside the repo, or rebuild there.";
                     return false;
                 }
                 out.Origin = origin;
@@ -1273,7 +1293,29 @@ namespace OloEngine::MCP
             }
             out["suiteFailureCount"] = suiteFailures.size();
             if (!suiteFailures.empty())
+            {
+                // A suite-level failure makes the RUN's verdict untrustworthy, so
+                // it is an error rather than a field on a successful result —
+                // the same rule as a dead child or an unreconciled report.
+                //
+                // The case that forces this is TearDownTestSuite: every case has
+                // already passed by then, so the payload reads `failed: 0,
+                // complete: true` and a caller checking those two — which is
+                // exactly what a caller should check — calls it green. A
+                // SetUpTestSuite failure is less dangerous only by accident
+                // (gtest fails the suite's cases, so `failed` is non-zero).
+                //
+                // Nothing is lost by erroring: the whole structured payload goes
+                // into the error text, so the per-case results are still there.
                 out["suiteFailures"] = std::move(suiteFailures);
+                out["complete"] = false;
+                return ToolResult::Error(
+                    "The run reported " + std::to_string(parsed.SuiteFailures.size()) +
+                    " failure(s) outside any test case (a fatal assertion in SetUpTestSuite, TearDownTestSuite or a "
+                    "global environment). The per-case results below may still be complete, but the harness itself "
+                    "failed, so they are not a verdict.\n\n" +
+                    out.dump(2));
+            }
             // Truncation is stated and counted rather than left to be inferred
             // from an array that happens to be exactly maxCases long.
             out["casesOmitted"] = omitted;
@@ -1380,7 +1422,9 @@ namespace OloEngine::MCP
                 "CPU-only suites do not inherit any GPU skip condition. Reports failures by default; set "
                 "includePassed for the whole set. A run is never silently partial: a selection matching nothing, "
                 "a child that crashed, timed out or was cancelled, and a report that does not account for every "
-                "selected case are all errors that name what is missing. Note that a run regenerates the tracked "
+                "selected case are all errors that name what is missing — as is a fatal assertion in "
+                "SetUpTestSuite/TearDownTestSuite or a global environment, which would otherwise read as "
+                "'0 failed' after every case had already passed. Note that a run regenerates the tracked "
                 "evidence PNGs under OloEditor/assets/tests/visual/, so the working tree moves — never 'git add -A' "
                 "after one.";
             tool.InputSchema =
@@ -1430,9 +1474,11 @@ namespace OloEngine::MCP
                                                                            .Desc("Verbatim gtest failure text, or "
                                                                                  "the GTEST_SKIP reason."))))
                     .Prop("casesOmitted", Schema::Int().Min(0).Desc("Cases past 'maxCases', counted not dropped."))
-                    .Prop("suiteFailureCount", Schema::Int().Min(0).Desc(
-                                                   "Failures belonging to no case — a fatal assertion in "
-                                                   "SetUpTestSuite/TearDownTestSuite or a global environment."))
+                    .Prop("suiteFailureCount",
+                          Schema::Int().Min(0).Desc(
+                              "Always 0 on a successful result: a failure belonging to no case (a fatal assertion "
+                              "in SetUpTestSuite/TearDownTestSuite or a global environment) makes the whole call "
+                              "an error, because the harness failed and the numbers are not a verdict."))
                     .Prop("suiteFailures", Schema::Array(Schema::Object()
                                                              .Prop("suite", Schema::String())
                                                              .Prop("messages", Schema::Array(Schema::String())))
