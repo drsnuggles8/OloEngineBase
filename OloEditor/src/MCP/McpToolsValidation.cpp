@@ -205,6 +205,8 @@ namespace OloEngine::MCP
                                         .Prop("reason", Schema::String().Desc("Present only when unavailable."))
                                         .Prop("problemCount", Schema::Int().Min(0))
                                         .Prop("omitted", Schema::Int().Min(0))
+                                        .Prop("truncated", Schema::Bool().Desc(
+                                                               "Present only when omitted > 0."))
                                         .Prop("problems", Schema::Array(Schema::Object().Desc(
                                                               "One problem; 'kind' says which validator classed it.")))))
                 .Required({ "ok", "complete", "problemCount", "sectionCount", "sectionsUnavailable", "sections" });

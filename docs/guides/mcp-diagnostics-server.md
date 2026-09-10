@@ -187,7 +187,7 @@ deliberate: `olo_log_tail` returns raw log lines (free text an `outputSchema` ca
 constrain), and the `format:"markdown"`/`"mermaid"` paths of the dual-format tools stay
 text-only (their schemas describe the json format).
 
-Eleven table-shaped tools additionally return **audience-tagged content blocks** — see
+Fourteen table-shaped tools additionally return **audience-tagged content blocks** — see
 [Audience-tagged content blocks](#audience-tagged-content-blocks-673-tier-2) for the list
 and for what to do when adding a tool.
 
@@ -725,8 +725,9 @@ suite from a session was to shell out to `OloEngine-Tests.exe` and parse
 It never touches the editor's renderer and never marshals onto the game thread,
 so the CPU-only suites do not inherit any GPU skip condition. The results come
 from gtest's own JSON report (`--gtest_output=json:`), so each case carries its
-status, its wall time, its source file and line, and the **verbatim** assertion
-text:
+status, its wall time, its source file and line, and the assertion text
+verbatim up to `maxMessageChars` (default 2000, and a cut is marked in the
+message itself):
 
 ```jsonc
 { "suite": "RenderGraphTest", "name": "HazardSweepFindsWriteAfterRead",
@@ -2215,10 +2216,16 @@ characters, inline lists at 12 items, each stating what it elided. The full payl
 in the assistant block and in `structuredContent`. Path redaction, when enabled, scrubs both
 blocks identically.
 
-**Current adopters (11):** `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_pass_timings`,
-`olo_perf_cpu_scopes`, `olo_render_frame_breakdown`, `olo_render_graph_topology_export`,
-`olo_render_why_not_visible`, `olo_render_target_stats`, `olo_cluster_grid_stats`,
-`olo_shadow_atlas_layout`, `olo_physics_why_no_collision`.
+**Current adopters (14):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
+`olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_render_frame_breakdown`,
+`olo_render_graph_topology_export`, `olo_render_why_not_visible`, `olo_render_target_stats`,
+`olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_physics_why_no_collision`,
+`olo_tests_run`, `olo_project_validate`.
+
+That list is ratcheted in both directions by
+`McpAudienceBlocksTest.BuiltinAdoptionMatchesTheDeliberateList`, which compares the real
+registry against an explicit set — so it is the test, not this paragraph, that fails when a
+tool opts in without being considered. Keep the two in step.
 
 #### Adding a tool — which side of the line are you on?
 

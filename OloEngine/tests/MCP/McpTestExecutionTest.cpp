@@ -215,6 +215,27 @@ TEST(McpTestExecution, AnUnclassifiedOrUnknownLayerIsReportedNotBlanked)
     EXPECT_NE(bothBogus.Problem.find("L99"), std::string::npos);
 }
 
+// A wrong-typed field in a document read off disk must not abort the command.
+// nlohmann's value() THROWS type_error.302 rather than returning the default, so
+// a hand-edited `"functional_tag": 3` would surface as a generic "tool failed"
+// instead of classifying everything it still can.
+TEST(McpTestExecution, AWrongTypedCatalogueOrReportFieldDoesNotThrow)
+{
+    const std::set<std::string> ids =
+        KnownLayerIds(Json::parse(R"({"functional_tag": 3, "layers": [ { "id": "L1" } ]})"));
+    EXPECT_TRUE(ids.contains("L1"));
+    EXPECT_TRUE(ids.contains("Functional")) << "a bad tag falls back to the default, it does not throw";
+
+    const auto report = ParseRunReport(Json::parse(R"({
+      "testsuites": [ { "name": "S", "testsuite": [
+        { "name": "A", "status": 7, "result": [ "nope" ], "time": "0s" }
+      ] } ]
+    })"));
+    ASSERT_TRUE(report.Error.empty());
+    ASSERT_EQ(report.Cases.size(), 1u);
+    EXPECT_EQ(report.Cases[0].Status, CaseStatus::Passed) << "unreadable status/result read as the defaults";
+}
+
 TEST(McpTestExecution, KnownLayerIdsAddsTheTwoImplicitTags)
 {
     const Json catalogue = Json::parse(R"({

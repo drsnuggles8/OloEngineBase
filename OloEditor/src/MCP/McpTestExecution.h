@@ -205,7 +205,12 @@ namespace OloEngine::MCP::TestExecution
         if (ids.empty())
             return ids; // no declared layers => no range check at all
         ids.insert("unit");
-        ids.insert(catalogue.value("functional_tag", std::string("Functional")));
+        // is_string() first: value() THROWS type_error.302 on a wrong-typed
+        // field, and this document is read off disk, so a hand-edited
+        // `"functional_tag": 3` would abort the whole command with a generic
+        // "tool failed" instead of classifying what it can.
+        const auto tag = catalogue.find("functional_tag");
+        ids.insert(tag != catalogue.end() && tag->is_string() ? tag->get<std::string>() : std::string("Functional"));
         return ids;
     }
 
@@ -448,8 +453,15 @@ namespace OloEngine::MCP::TestExecution
                 if (entry.contains("time") && entry["time"].is_string())
                     result.Seconds = ParseGTestDuration(entry["time"].get<std::string>());
 
-                const std::string status = entry.value("status", std::string("RUN"));
-                const std::string outcome = entry.value("result", std::string("COMPLETED"));
+                // Same reason as functional_tag above: a non-string here would
+                // throw out of the parser rather than be reported as a bad report.
+                const auto statusField = entry.find("status");
+                const auto resultField = entry.find("result");
+                const std::string status =
+                    statusField != entry.end() && statusField->is_string() ? statusField->get<std::string>() : "RUN";
+                const std::string outcome = resultField != entry.end() && resultField->is_string()
+                                                ? resultField->get<std::string>()
+                                                : "COMPLETED";
                 if (status != "RUN" || outcome == "SUPPRESSED")
                     result.Status = CaseStatus::Disabled;
                 else if (outcome == "SKIPPED")

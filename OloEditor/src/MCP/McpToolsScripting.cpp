@@ -95,7 +95,13 @@ namespace OloEngine::MCP
     // shows, through the standalone command's handler.
     ToolResult CollectScriptProblems(IAutomationHost& host)
     {
-        return Handle_ScriptGetLastErrors(host, Json::object());
+        // Ask for the tool's OWN maximum (64), not its console-tuned default of
+        // 20. The command reports only the size of the array it returns, never a
+        // "total available", so a default-capped 20 would sit under
+        // olo_project_validate's own maxPerSection of 50 and be counted as the
+        // whole truth — under-reporting with `omitted: 0`, which is exactly the
+        // silent partial the composite is built to refuse.
+        return Handle_ScriptGetLastErrors(host, Json{ { "count", 64 } });
     }
 
     void RegisterScriptingTools(AutomationRegistry& registry)

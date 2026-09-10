@@ -105,6 +105,12 @@ namespace OloEngine::MCP
         // and the last few cases, small enough not to swamp a tool result.
         constexpr sizet kConsoleTailChars = 8000;
 
+        // Upper bound on the `page` argument. Any page past the end simply
+        // returns an empty page, so this only has to be large enough to reach
+        // the end of any real listing and small enough that page * pageSize
+        // stays far inside i64.
+        constexpr long long kMaxPage = 1'000'000;
+
         // ---- filesystem helpers -------------------------------------------
 
         [[nodiscard]] std::string ReadWholeFile(const fs::path& path, bool& ok)
@@ -714,12 +720,21 @@ namespace OloEngine::MCP
             {
                 std::error_code ec;
                 const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-                m_Path = fs::temp_directory_path(ec) /
-                         (std::string("olo-") + stem + "-" + std::to_string(static_cast<u64>(stamp)));
-                if (!ec)
-                    fs::create_directories(m_Path, ec);
+                const fs::path candidate = fs::temp_directory_path(ec) /
+                                           (std::string("olo-") + stem + "-" + std::to_string(static_cast<u64>(stamp)));
                 if (ec)
-                    m_Path.clear();
+                    return;
+
+                // EXCLUSIVE creation: create_directory returns false (without an
+                // error) when the directory already exists, and a pre-existing
+                // one in a world-writable /tmp may have been planted — the POSIX
+                // child then opens console.log with O_CREAT|O_TRUNC through
+                // whatever symlink it finds there. Refusing an existing path
+                // costs nothing (the name carries a steady-clock tick, so a
+                // legitimate collision does not happen) and closes CWE-379.
+                if (!fs::create_directory(candidate, ec) || ec)
+                    return;
+                m_Path = candidate;
             }
             ~ScratchDirectory()
             {
@@ -995,8 +1010,14 @@ namespace OloEngine::MCP
 
             int page = 0;
             int pageSize = 100;
+            // CLAMPED, not just floored at 0. The shared Pagination() schema
+            // declares `minimum: 0` and no maximum, so a caller may legally send
+            // 2147483648; narrowing that to int is implementation-defined and on
+            // MSVC yields -2147483648, after which `start` goes hugely negative
+            // and cases[static_cast<sizet>(i)] indexes far out of bounds. The
+            // upper bound is chosen so page * pageSize cannot overflow i64.
             if (args.contains("page") && args["page"].is_number_integer())
-                page = static_cast<int>(std::max<long long>(0, args["page"].get<long long>()));
+                page = static_cast<int>(std::clamp<long long>(args["page"].get<long long>(), 0, kMaxPage));
             if (args.contains("pageSize") && args["pageSize"].is_number_integer())
                 pageSize = static_cast<int>(std::clamp<long long>(args["pageSize"].get<long long>(), 1, 500));
 
