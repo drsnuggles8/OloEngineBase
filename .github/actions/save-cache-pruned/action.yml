@@ -172,6 +172,26 @@ runs:
     # ref by the poll above, so every predecessor of this lineage is genuinely dead.
     #
     # `landed == 'unknown'` still prunes nothing: never delete on a guess.
+    #
+    # AND IT ONLY DELETES ENTRIES OLDER THAN ITS OWN (#1084). The loop below skips
+    # any sibling whose run id is greater than this run's. Without that, two producers
+    # writing one lineage on one ref can each delete the other's entry and leave the
+    # lineage with NONE -- every save here is scoped to the ref, and "every sibling
+    # except my own key" does not distinguish a superseded entry from one written
+    # thirty seconds ago by a run that is still going.
+    #
+    # It was close to unreachable while a workflow's default-branch runs all shared
+    # one concurrency group and none of them was cancellable, because then only one
+    # could be in flight. #1084 split the `push` warm and the `schedule` nightly into
+    # separate groups -- they have to be separate, or a merge cancels a pending
+    # nightly -- so two producers on `refs/heads/master` can now overlap.
+    #
+    # RUN ID, NOT A TIMESTAMP. Run ids are assigned in increasing order and this key
+    # shape already carries one, so the comparison needs no second API call and no
+    # date parsing on two different shells. If the ordering ever failed to hold, the
+    # loop keeps an entry it could have deleted -- which `cache-prune.yml` collects on
+    # its next sweep -- rather than deleting one it should have kept. The error is on
+    # the safe side by construction.
     - name: Free room under this prefix on this ref
       if: always() && (steps.check.outputs.landed == 'false' || steps.check.outputs.landed == 'true')
       shell: bash
@@ -230,6 +250,28 @@ runs:
           # will happily delete an entry on any ref if the listing ever hands us one.
           if [ "$ref" != "${REF}" ]; then
             printf 'skip (wrong ref: %s)  %s\n' "$ref" "$key"
+            continue
+          fi
+          # NEWER THAN OURS IS NOT SUPERSEDED. See the note above the step: a
+          # concurrent producer on this ref writes the same lineage, and deleting its
+          # entry is how a lineage ends up empty. The run id is the segment after the
+          # prefix; the attempt, if present, is dropped.
+          sibling_run=${key#"${PREFIX}"-}
+          sibling_run=${sibling_run%%-*}
+          case "$sibling_run" in
+            ''|*[!0-9]*)
+              # Cannot order it, so do not delete it. The regex above already proved
+              # the shape, so this is belt and braces rather than an expected branch.
+              printf 'skip (no run id to compare)  %s\n' "$key"
+              continue
+              ;;
+          esac
+          # -gt, not -ge: a RE-RUN writes attempt 2 under the SAME run id, and
+          # attempt 1's entry is genuinely superseded. This run's own exact key was
+          # already skipped by name above, so equality can only mean an earlier
+          # attempt of this run.
+          if [ "$sibling_run" -gt "${RUN_ID}" ]; then
+            printf 'skip (not older than this run)  %s\n' "$key"
             continue
           fi
           if gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" >/dev/null 2>&1; then
