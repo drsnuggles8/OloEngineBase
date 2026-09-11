@@ -692,8 +692,20 @@ namespace OloEngine::Automation
             CommandHistory* History = nullptr;
             ~HistoryScopeGuard()
             {
-                if (History != nullptr && History->InTransaction())
-                    (void)History->RollbackTransaction();
+                // Swallowing here is not a silent fallback: this runs only on the
+                // path where the report is already being abandoned to an escaping
+                // exception, and a destructor that throws during that unwind
+                // terminates the editor outright. Closing the scope is the more
+                // important of the two jobs -- an open one wedges every later
+                // Undo -- so it is the one that gets to fail quietly.
+                try
+                {
+                    if (History != nullptr && History->InTransaction())
+                        (void)History->RollbackTransaction();
+                }
+                catch (...)
+                {
+                }
             }
         } scopeGuard{ history };
 
