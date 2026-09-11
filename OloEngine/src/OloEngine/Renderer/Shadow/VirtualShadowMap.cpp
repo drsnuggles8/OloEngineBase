@@ -2097,10 +2097,53 @@ namespace OloEngine
     // Binding + diagnostics
     // -------------------------------------------------------------------------
 
+    // Inert stand-ins for the three sampling bindings, for the case where VSM was
+    // never initialised at all (Init() returns before CreateResources() when the
+    // feature is off). Sized to one entry each: the shader is guaranteed not to
+    // index them, because vsmShadowFactor returns on VSM_ENABLED == 0 and the
+    // globals block below sets exactly that. The point is that the guarantee now
+    // rests on a bound buffer rather than on the RHI's null block happening to
+    // read zeros (#1190).
+    void VirtualShadowMap::EnsureInertSamplingBindings()
+    {
+        if (m_InertGlobalsUBO)
+            return;
+
+        using SB = StorageBuffer;
+        m_InertPageTable = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_PAGE_TABLE);
+        m_InertLocalLights = SB::Create(sizeof(glm::vec4), ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS);
+        m_InertGlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+
+        // UBO 82 (VirtualShadowPass) is DELIBERATELY not covered here, though the
+        // shared header declares it beside the globals. It belongs to the VSM
+        // DRAW pass, and ResolveRecordingUpload asserts
+        // "Unprepared recording upload binding 82" when a pass that never
+        // declared it tries to publish one — tried, and it takes the editor down
+        // on the first frame. Feeding it needs the draw pass's prepared-upload
+        // set, not a stub from here; it reads defined zeros from the null block
+        // meanwhile, which for a UBO is the survivable half of #1052.
+    }
+
     void VirtualShadowMap::BindForSampling()
     {
         if (!m_Initialized)
+        {
+            // Not "nothing to do": the shared header declares SSBO 68 / 78 and
+            // UBO 81 whether or not this system ever ran, so returning here left
+            // three bindings with no occupant in every PBR and deferred shader.
+            EnsureInertSamplingBindings();
+
+            VSM::GlobalsUBO disabled{};
+            disabled.Params2.x = 0; // VSM_ENABLED
+            disabled.Params4.x = 0; // local lights
+            auto inertUBO = CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_VIRTUAL_SHADOW,
+                                                                    m_InertGlobalsUBO);
+            inertUBO->SetData(&disabled, VSM::GlobalsUBO::GetSize());
+            inertUBO->Bind();
+            m_InertPageTable->Bind();
+            m_InertLocalLights->Bind();
             return;
+        }
 
         // Params2.x is what the shader branches on, so an inactive VSM uploads a
         // disabled block rather than relying on every consumer remembering to ask.
