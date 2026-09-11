@@ -1,10 +1,21 @@
 # A build started from inside the editor goes through the lock, or it does not happen
 
 Issue #1163. `olo_build_run` spawns `.claude/skills/run-oloengine/build-lock.ps1` and nothing else.
-It never runs `cmake --build` directly, never sets `OLO_BUILD_LOCK_OVERRIDE`, `OLO_BUILD_LOCK_BYPASS`
-or `OLO_NOT_A_BUILD`, and refuses to start at all when the script is missing. Those markers are the
-two audited opt-outs a human asks for per build; an automation command that used one would be a
-third, unaudited path, and the whole point of the lock is that there is no such thing.
+It never runs `cmake --build` directly, never sets `OLO_BUILD_LOCK_OVERRIDE`,
+`OLO_BUILD_LOCK_BYPASS` or `OLO_NOT_A_BUILD`, and refuses to start at all when the script is
+missing.
+
+Those three are **not one group**, and the difference is the point:
+
+- `OLO_BUILD_LOCK_OVERRIDE` (and the legacy `OLO_BUILD_LOCK_BYPASS`) permit a **real unlocked
+  build**. They are **audited** to `olo-build-metrics.jsonl`, and by policy a human asks for one
+  per build.
+- `OLO_NOT_A_BUILD` only allows a command that *mentions* a build tool without running one. It is a
+  silent allow and is **not** audited.
+
+So an automation command setting the first would be an unaudited build; setting the second would be
+a lie about what it is doing. Neither appears here, and the whole point of the lock is that there is
+no third path.
 
 The rest of this file is the contract that follows from that, and the reason the exit code of a build
 is not evidence that a build happened.
@@ -24,8 +35,12 @@ is not evidence that a build happened.
   nothing in the call scope watching it.
 
 So the caller sets a budget (`lockWaitSeconds`, default 300) and it becomes the script's
-`-TimeoutMinutes`. `0` is exact fail-fast: the deadline is already past when the first acquisition
-attempt fails. Never pass `-Priority` — jumping the queue is a decision the user makes, per build.
+`-TimeoutMinutes`. **That parameter is integer minutes, so the conversion is a ceiling division**:
+300 s becomes 5 minutes, and any non-zero value under a minute rounds **up** to 1 — a caller asking
+for 30 s waits 60. `0` is the one exact case, and it is exact fail-fast: the deadline is already
+past when the first acquisition attempt fails. Report the applied budget alongside the requested
+one, or a refusal is measured against a number the caller never sees. Never pass `-Priority` —
+jumping the queue is a decision the user makes, per build.
 
 When the budget expires the script throws naming the holder's pid and worktree; that text is the
 error. **A build that could not start is an error naming the reason, never an empty success.**

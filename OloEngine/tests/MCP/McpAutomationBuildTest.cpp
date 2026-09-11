@@ -309,6 +309,41 @@ namespace OloEngine::Tests
         EXPECT_EQ(counts.Warnings, 1u) << "Counts are of UNIQUE records: '1 warning' means one thing to fix.";
     }
 
+    TEST(AutomationBuildDiagnosticsTest, DeduplicationIsIndexedNotScanned)
+    {
+        // Order must still be first-occurrence order, and counts must still be
+        // right, now that the duplicate lookup is a hash probe rather than a
+        // linear scan. 5000 unique records would be 12.5M four-string compares
+        // under the scan; this is here so the indexing cannot regress silently.
+        std::vector<Diagnostic> many;
+        constexpr sizet kUnique = 5000;
+        many.reserve(kUnique * 2);
+        for (sizet i = 0; i < kUnique; ++i)
+            many.push_back(Diagnostic{ Severity::Warning, "f" + std::to_string(i) + ".cpp", 1, 0, "C4996", "w", 1 });
+        for (sizet i = 0; i < kUnique; ++i) // every one again, in the same order
+            many.push_back(Diagnostic{ Severity::Warning, "f" + std::to_string(i) + ".cpp", 1, 0, "C4996", "w", 1 });
+
+        const std::vector<Diagnostic> unique = Build::Deduplicate(many);
+        ASSERT_EQ(unique.size(), kUnique);
+        EXPECT_EQ(unique.front().File, "f0.cpp") << "first-occurrence order must survive the indexing";
+        EXPECT_EQ(unique.back().File, "f" + std::to_string(kUnique - 1) + ".cpp");
+        for (const Diagnostic& diagnostic : unique)
+            EXPECT_EQ(diagnostic.Occurrences, 2u);
+        EXPECT_EQ(Build::CountDiagnostics(unique).Warnings, kUnique);
+
+        // Records differing in ONE equality field only must not collapse — the
+        // key is a concatenation, so a separator bug would merge them.
+        const std::vector<Diagnostic> neighbours = Build::Deduplicate(
+            { Diagnostic{ Severity::Warning, "a.cpp", 1, 0, "C1", "m", 1 },
+              Diagnostic{ Severity::Warning, "a.cpp", 1, 0, "C1", "m2", 1 },    // message
+              Diagnostic{ Severity::Warning, "a.cpp", 1, 0, "C11", "m", 1 },    // code
+              Diagnostic{ Severity::Warning, "a.cpp", 11, 0, "C1", "m", 1 },    // line
+              Diagnostic{ Severity::Warning, "a.cpp", 1, 10, "C1", "m", 1 },    // column
+              Diagnostic{ Severity::Error, "a.cpp", 1, 0, "C1", "m", 1 },       // severity
+              Diagnostic{ Severity::Warning, "a.cpp2", 1, 0, "C1", "m", 1 } }); // file
+        EXPECT_EQ(neighbours.size(), 7u);
+    }
+
     TEST(AutomationBuildDiagnosticsTest, RelativizesPathsUnderTheRepoRootOnly)
     {
         // MSVC and ninja disagree about the case of a Windows drive letter
@@ -409,7 +444,7 @@ namespace OloEngine::Tests
 
         const Build::LockTranscript lock = Build::ReadLockTranscript(log);
         EXPECT_EQ(lock.Outcome, LockOutcome::Superseded);
-        EXPECT_EQ(Build::Verdict(lock.Outcome, /*exitCode*/ 0, Build::ArtifactState{ "p", true, 10, "t", -5.0 }),
+        EXPECT_EQ(Build::Verdict(lock.Outcome, /*exitCode*/ 0, Build::ArtifactState{ "p", true, 10, "t", true, -5.0 }),
                   TargetOutcome::NotBuilt)
             << "Exit 0 with a present artefact is EXACTLY what a stand-down looks like from the outside. Reading "
                "it as success is the failure this whole result shape exists to prevent.";
@@ -444,7 +479,7 @@ namespace OloEngine::Tests
             "[build-lock] the process that launched this build (pid=5) is gone - killing the orphaned build tree "
             "and releasing the lock\n");
         EXPECT_EQ(orphan.Outcome, LockOutcome::Orphaned);
-        EXPECT_EQ(Build::Verdict(orphan.Outcome, /*exitCode*/ 0, Build::ArtifactState{ "p", true, 10, "t", 5.0 }),
+        EXPECT_EQ(Build::Verdict(orphan.Outcome, /*exitCode*/ 0, Build::ArtifactState{ "p", true, 10, "t", true, 5.0 }),
                   TargetOutcome::Failed)
             << "An orphaned build never succeeded, whatever the kill happened to report.";
 
@@ -529,6 +564,7 @@ namespace OloEngine::Tests
         // transcript must not read as a build.
         Build::ArtifactState stale;
         stale.Exists = true;
+        stale.MtimeKnown = true;
         stale.AgeRelativeToStartSeconds = -1562.0;
         EXPECT_EQ(Build::Verdict(lock.Outcome, /*exitCode*/ 1, stale), TargetOutcome::NotBuilt);
     }
@@ -560,6 +596,33 @@ namespace OloEngine::Tests
         EXPECT_FALSE(Build::IsSuccess(TargetOutcome::MissingArtifact));
     }
 
+    TEST(AutomationBuildVerdictTest, AnUnreadableTimestampIsNotAPositiveVerdict)
+    {
+        // `StatArtifact` returns early when `fs::last_write_time` fails, leaving
+        // the age at its default 0.0 — which is indistinguishable from "written
+        // exactly when the build started". Read as a number that would be
+        // `Rebuilt`: a positive verdict out of a measurement that never happened,
+        // and the precise conflation this whole file exists to prevent. So the
+        // flag is separate from the value.
+        Build::ArtifactState unreadable;
+        unreadable.Path = "bin/Debug/OloServer/OloServer.exe";
+        unreadable.Exists = true;
+        unreadable.MtimeKnown = false;
+        unreadable.AgeRelativeToStartSeconds = 0.0;
+        EXPECT_EQ(Build::Verdict(LockOutcome::Acquired, /*exitCode*/ 0, unreadable),
+                  TargetOutcome::ArtifactUnverifiable);
+        EXPECT_FALSE(Build::IsSuccess(TargetOutcome::ArtifactUnverifiable));
+
+        // Flipping only the flag, with the same 0.0, flips the verdict — which is
+        // the point: the value was never the evidence.
+        unreadable.MtimeKnown = true;
+        EXPECT_EQ(Build::Verdict(LockOutcome::Acquired, 0, unreadable), TargetOutcome::Rebuilt);
+
+        // A failed build still reports as failed: the exit code is decided first.
+        unreadable.MtimeKnown = false;
+        EXPECT_EQ(Build::Verdict(LockOutcome::Acquired, 1, unreadable), TargetOutcome::Failed);
+    }
+
     TEST(AutomationBuildVerdictTest, RebuiltAndUpToDateAreDistinguishedByTheArtifactsAge)
     {
         // Both are successes and both exit 0, but they are NOT the same answer:
@@ -568,11 +631,13 @@ namespace OloEngine::Tests
         // code comes to be read as proof of a fresh build.
         Build::ArtifactState fresh;
         fresh.Exists = true;
+        fresh.MtimeKnown = true;
         fresh.AgeRelativeToStartSeconds = 12.0; // written after the build began
         EXPECT_EQ(Build::Verdict(LockOutcome::Acquired, 0, fresh), TargetOutcome::Rebuilt);
 
         Build::ArtifactState stale;
         stale.Exists = true;
+        stale.MtimeKnown = true;
         stale.AgeRelativeToStartSeconds = -3600.0; // an hour older than this call
         EXPECT_EQ(Build::Verdict(LockOutcome::Acquired, 0, stale), TargetOutcome::UpToDate);
 
@@ -588,6 +653,7 @@ namespace OloEngine::Tests
         // codes that would otherwise be believed.
         Build::ArtifactState present;
         present.Exists = true;
+        present.MtimeKnown = true;
         present.AgeRelativeToStartSeconds = 5.0;
 
         EXPECT_EQ(Build::Verdict(LockOutcome::Superseded, 0, present), TargetOutcome::NotBuilt);
@@ -609,8 +675,8 @@ namespace OloEngine::Tests
         result.Outcome = TargetOutcome::Rebuilt;
         result.ExitCode = 0;
         result.WallSeconds = 42.5;
-        result.Before = Build::ArtifactState{ "p", true, 100, "2026-09-01T00:00:00Z", -100.0 };
-        result.After = Build::ArtifactState{ "p", true, 120, "2026-09-10T00:00:00Z", 3.0 };
+        result.Before = Build::ArtifactState{ "p", true, 100, "2026-09-01T00:00:00Z", true, -100.0 };
+        result.After = Build::ArtifactState{ "p", true, 120, "2026-09-10T00:00:00Z", true, 3.0 };
         result.Lock.Outcome = LockOutcome::Acquired;
 
         const auto json = Build::TargetResultJson(result, 100);
@@ -642,7 +708,7 @@ namespace OloEngine::Tests
         result.WallSeconds = 1474.1;
         result.QueuedSeconds = 1451.4;
         result.BuildSeconds = 22.7;
-        result.After = Build::ArtifactState{ "p", true, 15872, "2026-09-10T18:13:59Z", 20.0 };
+        result.After = Build::ArtifactState{ "p", true, 15872, "2026-09-10T18:13:59Z", true, 20.0 };
 
         const auto json = Build::TargetResultJson(result, 100);
         EXPECT_DOUBLE_EQ(json.at("queuedSeconds").get<double>(), 1451.4);

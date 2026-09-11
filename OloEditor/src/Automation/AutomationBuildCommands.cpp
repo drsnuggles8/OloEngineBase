@@ -189,6 +189,7 @@ namespace OloEngine::Automation
                 return state;
             const auto systemTime = std::chrono::clock_cast<std::chrono::system_clock>(written);
             state.ModifiedUtc = FormatUtc(systemTime);
+            state.MtimeKnown = true;
             state.AgeRelativeToStartSeconds = std::chrono::duration<f64>(systemTime - buildStart).count();
             return state;
         }
@@ -369,6 +370,11 @@ namespace OloEngine::Automation
             SpawnFailed, // never started
             TimedOut,    // killed at our deadline
             Cancelled,   // killed because the caller cancelled the call
+            // The OS wait on the child FAILED. Distinct from a timeout because
+            // nothing about the build is known, including whether it is still
+            // running — so the tree is killed and this is reported, never
+            // reported as a timeout it was not.
+            MonitorFailed,
         };
 
         [[nodiscard]] const char* ChildOutcomeName(ChildOutcome outcome)
@@ -383,6 +389,8 @@ namespace OloEngine::Automation
                     return "timed-out";
                 case ChildOutcome::Cancelled:
                     return "cancelled";
+                case ChildOutcome::MonitorFailed:
+                    return "monitor-failed";
             }
             return "unknown";
         }
@@ -652,6 +660,22 @@ namespace OloEngine::Automation
                 const DWORD waited = ::WaitForSingleObject(process.hProcess, static_cast<DWORD>(kPollInterval.count()));
                 if (waited == WAIT_OBJECT_0)
                     break;
+                // WAIT_FAILED would otherwise fall through forever: the wait IS
+                // this loop's sleep, so a failing wait turns it into a busy spin
+                // that re-reads the console log as fast as it can until the
+                // deadline — up to four hours of a saturated core next to a
+                // build. Kill the tree and say what happened.
+                if (waited == WAIT_FAILED)
+                {
+                    const DWORD error = ::GetLastError();
+                    result.Outcome = ChildOutcome::MonitorFailed;
+                    result.Error = "Waiting on the build process failed (error " + std::to_string(error) +
+                                   "), so its state is unknown; the whole build tree was killed rather than left "
+                                   "running unwatched.";
+                    job.KillTree();
+                    ::WaitForSingleObject(process.hProcess, 30000);
+                    break;
+                }
                 if (watch.Tick())
                 {
                     result.Outcome = ChildOutcome::Cancelled;
@@ -1101,6 +1125,17 @@ namespace OloEngine::Automation
                 TargetResult result;
                 result.Target = std::string(spec.Name);
 
+                // Cancellation is only observed inside RunChild's poll loop, so
+                // without this a caller who cancels BETWEEN targets — or before
+                // the first child has started — would still have the next build
+                // acquire the lock and run to completion. Checked here so a
+                // cancelled call stops taking the machine.
+                if (!aborted && host.IsCurrentCallCancelled())
+                {
+                    aborted = true;
+                    abortReason = "Not attempted: the call was cancelled before this target started.";
+                }
+
                 if (aborted)
                 {
                     // Never silently dropped: a target that was never attempted
@@ -1184,7 +1219,15 @@ namespace OloEngine::Automation
 #endif
                 const auto finished = std::chrono::steady_clock::now();
                 result.WallSeconds = std::chrono::duration<f64>(finished - started).count();
-                if (const auto acquiredAt = watch.AcquiredAt())
+                // Reported only when the lock was actually acquired. The watch
+                // latches the acquire on a poll, but a LATER transcript line can
+                // still resolve the run to Superseded (nothing ran) — and a
+                // build duration for a build that did not run is a false
+                // measurement. An ORPHANED run keeps its split on purpose: the
+                // build genuinely ran for that long before the lock killed it.
+                if (const auto acquiredAt = watch.AcquiredAt();
+                    acquiredAt.has_value() && (result.Lock.Outcome == LockOutcome::Acquired ||
+                                               result.Lock.Outcome == LockOutcome::Orphaned))
                 {
                     result.QueuedSeconds = std::chrono::duration<f64>(*acquiredAt - started).count();
                     result.BuildSeconds = std::chrono::duration<f64>(finished - *acquiredAt).count();
@@ -1235,6 +1278,12 @@ namespace OloEngine::Automation
                         result.Note = "The build reported success (exit 0) but there is no artefact at " + reported +
                                       ". Exit codes, mtimes and empty logs can all fake a build; the artefact is "
                                       "the evidence, and it is not there.";
+                        break;
+                    case TargetOutcome::ArtifactUnverifiable:
+                        result.Note = "The build reported success and " + reported +
+                                      " exists, but its modification time could not be read, so whether THIS build "
+                                      "produced it is unknown. Reported as unverified rather than as a pass: a "
+                                      "measurement that did not happen is not evidence.";
                         break;
                     case TargetOutcome::UpToDate:
                         result.Note = "Nothing to do: the artefact was already current and this build did not "
@@ -1443,7 +1492,8 @@ namespace OloEngine::Automation
                                                        "The cmake line the lock was asked to run, verbatim — paste "
                                                        "it into a shell to reproduce."))
                                   .Prop("outcome", Schema::String().Enum({ "rebuilt", "up-to-date", "failed",
-                                                                           "missing-artifact", "not-built",
+                                                                           "missing-artifact",
+                                                                           "artifact-unverifiable", "not-built",
                                                                            "skipped" }))
                                   .Prop("success", Schema::Bool())
                                   .Prop("exitCode", Schema::Int())

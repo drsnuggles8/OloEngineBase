@@ -43,6 +43,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace OloEngine::Automation::BuildInvocation
@@ -654,15 +655,39 @@ namespace OloEngine::Automation::BuildInvocation
     // error is the one that matters and a re-sorted list buries it.
     [[nodiscard]] inline std::vector<Diagnostic> Deduplicate(const std::vector<Diagnostic>& diagnostics)
     {
+        // Indexed rather than scanned. A linear `std::find` over the accumulated
+        // vector is quadratic in the UNIQUE count while comparing four strings
+        // per probe, and a /W4 full build can emit thousands of distinct
+        // warnings — a cliff in the log size, which no caller controls. The
+        // vector still decides ORDER; the map only finds the duplicate.
         std::vector<Diagnostic> out;
         out.reserve(diagnostics.size());
+        std::unordered_map<std::string, sizet> indexByKey;
+        indexByKey.reserve(diagnostics.size());
         for (const Diagnostic& diagnostic : diagnostics)
         {
-            const auto found = std::find(out.begin(), out.end(), diagnostic);
-            if (found != out.end())
-                ++found->Occurrences;
-            else
+            // The unit separator cannot appear in a path, a diagnostic id or a
+            // compiler message, so the concatenation is unambiguous.
+            constexpr char kSep = '';
+            std::string key;
+            key.reserve(diagnostic.File.size() + diagnostic.Code.size() + diagnostic.Message.size() + 24);
+            key += std::to_string(static_cast<int>(diagnostic.Level));
+            key += kSep;
+            key += diagnostic.File;
+            key += kSep;
+            key += std::to_string(diagnostic.Line);
+            key += kSep;
+            key += std::to_string(diagnostic.Column);
+            key += kSep;
+            key += diagnostic.Code;
+            key += kSep;
+            key += diagnostic.Message;
+
+            const auto [entry, inserted] = indexByKey.try_emplace(std::move(key), out.size());
+            if (inserted)
                 out.push_back(diagnostic);
+            else
+                ++out[entry->second].Occurrences;
         }
         return out;
     }
@@ -944,8 +969,15 @@ namespace OloEngine::Automation::BuildInvocation
         bool Exists = false;
         u64 SizeBytes = 0;
         std::string ModifiedUtc; // ISO-8601; empty when it could not be read
+        // Whether the mtime was actually READ. Separate from the value, because
+        // the value's default (0.0) is indistinguishable from "written the
+        // instant the build started" — so an unreadable timestamp would otherwise
+        // yield a positive `Rebuilt` verdict out of a measurement that never
+        // happened, which is the exact conflation this file exists to prevent.
+        bool MtimeKnown = false;
         // Seconds between the build STARTING and the artefact's mtime. Negative
         // means the artefact predates the build, i.e. nothing replaced it.
+        // Meaningless unless MtimeKnown.
         f64 AgeRelativeToStartSeconds = 0.0;
     };
 
@@ -955,8 +987,12 @@ namespace OloEngine::Automation::BuildInvocation
         UpToDate,        // the build ran, had nothing to do, and the artefact is the previous one
         Failed,          // the build reported failure
         MissingArtifact, // the build reported SUCCESS and there is no artefact — never a pass
-        NotBuilt,        // the lock stood down / never acquired: nothing ran at all
-        Skipped,         // an earlier target in the same call failed, so this one was never attempted
+        // The build reported success and the artefact is there, but its timestamp
+        // could not be read, so whether THIS build produced it is unknown. Not a
+        // success: an unverifiable claim is not a verified one.
+        ArtifactUnverifiable,
+        NotBuilt, // the lock stood down / never acquired: nothing ran at all
+        Skipped,  // an earlier target in the same call failed, so this one was never attempted
     };
 
     [[nodiscard]] inline const char* TargetOutcomeName(TargetOutcome outcome)
@@ -971,6 +1007,8 @@ namespace OloEngine::Automation::BuildInvocation
                 return "failed";
             case TargetOutcome::MissingArtifact:
                 return "missing-artifact";
+            case TargetOutcome::ArtifactUnverifiable:
+                return "artifact-unverifiable";
             case TargetOutcome::NotBuilt:
                 return "not-built";
             case TargetOutcome::Skipped:
@@ -1001,6 +1039,11 @@ namespace OloEngine::Automation::BuildInvocation
             return TargetOutcome::Failed;
         if (!after.Exists)
             return TargetOutcome::MissingArtifact;
+        // An UNREAD mtime is not a zero mtime. Without this the default 0.0
+        // sails through the comparison below as "written exactly when the build
+        // started" and reports Rebuilt.
+        if (!after.MtimeKnown)
+            return TargetOutcome::ArtifactUnverifiable;
         // The mtime is compared against the moment the build STARTED, not
         // against the previous stat. Comparing to the previous stat would call a
         // rebuild "up to date" whenever the compiler reproduced a byte-identical
