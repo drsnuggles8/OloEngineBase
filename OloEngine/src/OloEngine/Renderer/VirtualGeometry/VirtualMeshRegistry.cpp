@@ -6,10 +6,12 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
 
 #include <glm/geometric.hpp>
 #include <glm/matrix.hpp>
@@ -112,6 +114,11 @@ namespace OloEngine
                 // packed data is incompatible by IsMeshletCompatible's own
                 // IsValid() guard — no external pre-check needed.)
                 entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
+                // Ray-tracing proxy (issue #1144). Built here because this is
+                // the last place that holds the DAG — PackVirtualMeshForGpu
+                // keeps only the pooled cluster records, and the coarsest cut
+                // needs the group errors and the cluster triangle windows.
+                entry.Proxy = BuildVirtualProxyMesh(part.Dag);
                 // Mesh-local AABB (issue #1149) — the union of the cluster cull
                 // spheres. Done here and not per frame: this is the only place
                 // that already holds the packed cluster array, and the answer
@@ -158,6 +165,62 @@ namespace OloEngine
         return m_EntryLookup.contains(handle);
     }
 
+    bool VirtualMeshRegistry::EnsureProxyGeometry(u32 entryIndex)
+    {
+        if (entryIndex >= m_Entries.size())
+        {
+            return false;
+        }
+        MeshEntry& entry = m_Entries[entryIndex];
+        if (!entry.Valid || !entry.Proxy.IsValid())
+        {
+            return false;
+        }
+        if (entry.ProxyVertexBuffer && entry.ProxyIndexBuffer)
+        {
+            return true;
+        }
+        // No backend, no buffers. VertexBuffer::Create asserts on
+        // RendererAPI::None, and the CPU-only tests and tools that drive this
+        // registry headless are a legitimate caller — they simply have no
+        // ray tracing to feed.
+        if (RendererAPI::GetAPI() == RendererAPI::API::None)
+        {
+            return false;
+        }
+
+        // Bytes for the vertex buffer, ELEMENTS for the index buffer — the two
+        // Create() overloads disagree on the unit and always have (see
+        // MeshSource::BuildVertexBuffer / BuildIndexBuffer).
+        const auto vertexBytes = static_cast<u32>(entry.Proxy.Vertices.size() * sizeof(Vertex));
+        entry.ProxyVertexBuffer = VertexBuffer::Create(static_cast<const void*>(entry.Proxy.Vertices.data()),
+                                                       vertexBytes);
+        if (entry.ProxyVertexBuffer)
+        {
+            // The same layout MeshSource::BuildVertexBuffer sets. The BLAS
+            // build reads the device address and a stride, not the layout, but
+            // a vertex buffer whose layout disagrees with its contents is a
+            // trap for the next consumer.
+            entry.ProxyVertexBuffer->SetLayout(Vertex::GetLayout());
+        }
+        entry.ProxyIndexBuffer = IndexBuffer::Create(entry.Proxy.Indices.data(),
+                                                     static_cast<u32>(entry.Proxy.Indices.size()));
+        if (!entry.ProxyVertexBuffer || !entry.ProxyIndexBuffer)
+        {
+            // Partial success is worse than none: a vertex buffer with no
+            // index buffer would be a live GPU allocation nothing can trace.
+            entry.ProxyVertexBuffer = nullptr;
+            entry.ProxyIndexBuffer = nullptr;
+            return false;
+        }
+
+        OLO_CORE_TRACE("VirtualMeshRegistry: ray-tracing proxy for part {} is {} triangles / {} vertices "
+                       "(from {} source triangles)",
+                       entryIndex, entry.Proxy.TriangleCount(), entry.Proxy.Vertices.size(),
+                       entry.Proxy.SourceTriangleCount);
+        return true;
+    }
+
     void VirtualMeshRegistry::Invalidate(AssetHandle handle)
     {
         auto it = m_EntryLookup.find(handle);
@@ -183,6 +246,13 @@ namespace OloEngine
             MeshEntry& entry = m_Entries[it->second.FirstEntry + i];
             entry.Valid = false;
             entry.Packed = {};
+            // The proxy is cooked geometry like the rest of the DAG, so a
+            // source reload invalidates it too. Leaving it would trace the
+            // pre-edit silhouette while the raster path drew the new one —
+            // the same self-consistent staleness this function exists for.
+            entry.Proxy = {};
+            entry.ProxyVertexBuffer = nullptr;
+            entry.ProxyIndexBuffer = nullptr;
         }
         m_EntryLookup.erase(it);
         m_BlendRejectionWarned.erase(static_cast<u64>(handle));

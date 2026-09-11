@@ -170,6 +170,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualLightmapUVPackingTest.cpp
 		Rendering/VirtualMeshBuilderTest.cpp
 		Rendering/VirtualMeshCookIdentityTest.cpp
+		Rendering/VirtualMeshProxyTest.cpp
 		Rendering/VirtualClusterCullParityTest.cpp
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/VirtualMeshletEligibilityTest.cpp

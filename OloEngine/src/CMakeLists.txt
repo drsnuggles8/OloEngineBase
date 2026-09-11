@@ -956,6 +956,8 @@
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.cpp"
+		"OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
+		"OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualGeometryPass.h"

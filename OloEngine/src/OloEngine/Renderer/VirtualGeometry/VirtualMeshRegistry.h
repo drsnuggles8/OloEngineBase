@@ -6,8 +6,11 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/GPUCache/GPUCircularBuffer.h"
 #include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
+#include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec3.hpp>
@@ -213,6 +216,22 @@ namespace OloEngine
             glm::vec3 LocalBoundsMin{ 0.0f };
             glm::vec3 LocalBoundsMax{ 0.0f };
             bool HasBounds = false;
+
+            // Ray-tracing proxy for this part (issue #1144): the coarsest DAG
+            // cut as an ordinary indexed mesh, plus the GPU buffers a BLAS is
+            // built from. See VirtualMeshProxy.h for why the coarsest cut is
+            // the right source.
+            //
+            // Built on the CPU at registration (context-free, like everything
+            // else in Register*) and uploaded on first use by
+            // EnsureProxyGeometry, which needs a live context. The CPU copy is
+            // KEPT rather than freed after upload: a backend switch or a
+            // Shutdown drops the buffers, and re-uploading from a retained
+            // coarse cut is cheaper and less surprising than re-cooking the
+            // whole DAG to get it back.
+            VirtualProxyMesh Proxy;
+            Ref<VertexBuffer> ProxyVertexBuffer;
+            Ref<IndexBuffer> ProxyIndexBuffer;
         };
 
         // The contiguous run of MeshEntry parts belonging to one mesh asset.
@@ -270,6 +289,32 @@ namespace OloEngine
             // through the CLASSIC mesh path instead. Zero VG counters are then
             // correct and expected, not a fault.
             bool FellBackToClassic = false;
+
+            // Ray-tracing proxy coverage, counted per PART rather than per
+            // entity (issue #1144) — a part is what becomes one GPU Scene
+            // instance and one BLAS, so this is the unit the RT stats speak
+            // in and the unit GPUSceneUnsupportedCategory::Virtualized is now
+            // reported in.
+            //
+            // ProxyParts + ProxylessParts is every part this frame's
+            // submissions covered, so the pair says "N of M virtual parts got
+            // a proxy" without a third counter.
+            //
+            // ProxyParts counts STAGING — parts staged into the canonical GPU
+            // Scene — not tracing, and the distinction is load-bearing for
+            // every consumer that renders it: on a backend with no ray
+            // tracing (OpenGL) every part can stage successfully and none of
+            // them is in any TLAS, because there is no TLAS. Pair it with
+            // RenderCommand::GetRayTracingCapabilities() before telling a user
+            // their geometry is traced.
+            //
+            // ProxylessParts > 0 is the state to chase. It also absorbs a part
+            // whose cluster DAG would not build — that part draws nothing at
+            // all, so it is not "renders but is untraced"; it is simply absent
+            // everywhere, and counting it here keeps the pair a complete
+            // partition of the submitted parts.
+            u32 ProxyParts = 0;
+            u32 ProxylessParts = 0;
 
             // The condition worth shouting about: the scene asked for virtual
             // geometry and got none of it. Deliberately false for a scene with
@@ -348,6 +393,19 @@ namespace OloEngine
         {
             return m_Entries[entryIndex];
         }
+        [[nodiscard]] u32 GetEntryCount() const
+        {
+            return static_cast<u32>(m_Entries.size());
+        }
+
+        // Uploads (once) the GPU buffers backing this part's ray-tracing proxy
+        // and returns whether they are usable. Requires a live context, which
+        // is why it is not done at registration with the rest of the packing.
+        //
+        // False means this part cannot be ray-traced, and the caller must
+        // COUNT that rather than skip it quietly — the whole point of #1144 is
+        // that virtual geometry's absence from the TLAS used to be invisible.
+        [[nodiscard]] bool EnsureProxyGeometry(u32 entryIndex);
 
         // Frame lifecycle -----------------------------------------------------
         void BeginFrame();

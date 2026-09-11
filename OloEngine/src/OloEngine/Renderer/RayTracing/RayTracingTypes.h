@@ -330,6 +330,33 @@ namespace OloEngine::RayTracing
     inline constexpr u32 kInstanceMaskBits = 8u;                    ///< mask is 8 bits.
     inline constexpr u32 kInstanceMaskAll = 0xFFu;
 
+    // ---- Instance-mask lanes -------------------------------------------
+    //
+    // The 8-bit TLAS instance mask is ANDed with a ray's cull mask, so a lane
+    // is how an instance opts OUT of one ray kind while staying visible to the
+    // others. Exactly one lane is defined today.
+    //
+    // Bit 0 — SHADOW CASTER. Tested by the visibility rays of the RT shadow
+    // tier (#1056) and ReSTIR DI (#1140); every other pass traces with
+    // kInstanceMaskAll and therefore ignores it. The convention is ADDITIVE and
+    // fails safe: GPU Scene's default VisibilityMask is all-ones, so every
+    // instance that says nothing keeps the bit and keeps occluding, and a pass
+    // that forgets to narrow its cull mask behaves exactly as it does today.
+    // Only an instance that deliberately clears the bit changes.
+    //
+    // >>> kInstanceMaskShadowCaster is mirrored by hand in
+    //     assets/shaders/RayTracedShadow.glsl (RT_SHADOW_INSTANCE_MASK). Change
+    //     one and the other must change with it; RayTracingSceneTest pins the
+    //     C++ side's value so a silent drift here is at least half-caught. <<<
+    inline constexpr u32 kInstanceMaskShadowCaster = 0x01u;
+
+    // The GPU Scene VisibilityMask value for "visible to every ray EXCEPT a
+    // shadow ray". Spelled as a single byte on purpose: PackInstanceMask FOLDS
+    // the u32 down by OR-ing its four bytes, so clearing a bit in only the low
+    // byte of 0xFFFFFFFF would be OR-ed straight back in by the upper three and
+    // the opt-out would silently do nothing.
+    inline constexpr u32 kVisibilityMaskNoShadowCast = kInstanceMaskAll & ~kInstanceMaskShadowCaster;
+
     // GPU Scene's VisibilityMask is a u32; the RT instance mask is 8 bits.
     // Fold the high bits down rather than truncating them away, so an effect
     // that only ever sets a high bit is not silently invisible to every ray.

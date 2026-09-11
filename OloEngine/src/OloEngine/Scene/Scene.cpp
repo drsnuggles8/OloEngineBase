@@ -10547,6 +10547,11 @@ namespace OloEngine
                     ++unsupportedVirtualMeshCount;
                 }
             }
+            // Still the whole population on this path, and correctly so: the
+            // submission loop below never runs off Deferred, so no DAG is
+            // built, no ray-tracing proxy exists (issue #1144) and the entity
+            // draws nothing at all. Its absence from the TLAS matches its
+            // absence from the frame.
             Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized,
                                                   unsupportedVirtualMeshCount);
         }
@@ -10645,7 +10650,13 @@ namespace OloEngine
                     continue;
                 }
 
-                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);
+                // NOT reported as Virtualized here any more (issue #1144).
+                // Each part is now staged into GPU Scene as a ray-tracing
+                // proxy inside SubmitVirtualMesh, and the category is reported
+                // there — per PART, and only for a part whose proxy could not
+                // be built or staged. Reporting it unconditionally here would
+                // say "the canonical scene cannot represent this" about
+                // geometry that is now in the TLAS.
                 const auto swRasterMode = VirtualMeshRegistry::Get().GetSwRasterMode();
                 if (swRasterMode != VirtualSwRasterMode::Disabled &&
                     rendererSettings.Deferred.MSAASampleCount == 1)
@@ -10663,8 +10674,8 @@ namespace OloEngine
                 // more than one submission per call.
                 const bool queued = Renderer3D::SubmitVirtualMesh(
                     virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
-                    GetDefaultMaterial(), entityID, virtualMesh.m_ErrorThresholdPixels, castsShadow,
-                    lightmapScaleOffset);
+                    GetDefaultMaterial(), entityID, stableEntityId, virtualMesh.m_ErrorThresholdPixels,
+                    castsShadow, lightmapScaleOffset);
                 if (queued)
                 {
                     ++vgDiagnostics.Submitted;

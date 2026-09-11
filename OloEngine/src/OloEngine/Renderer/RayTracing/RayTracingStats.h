@@ -75,8 +75,11 @@ namespace OloEngine::RayTracing
         // verdict (a dead material slot rejects one instance of a mesh whose
         // other instances still trace). This is the issue's
         // "unsupported/missing geometry count", and it is a real, expected
-        // population: skinned, cloth, virtualized-cluster and particle
-        // entities never reach the canonical GPU Scene at all.
+        // population: skinned, cloth and particle entities never reach the
+        // canonical GPU Scene at all. Virtualized-cluster entities DO since
+        // issue #1144 — they arrive as a fixed proxy mesh (ADR 0023), so a
+        // scene full of Nanite content no longer reads as one big number
+        // here.
         u32 UnsupportedInstances = 0;
 
         // Memory, bytes. AccelerationStructureBytes is what the BLAS/TLAS
