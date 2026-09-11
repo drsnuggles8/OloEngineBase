@@ -1372,7 +1372,12 @@ TEST_F(VulkanParallelRecordingDevice, ItemCountDoesNotExhaustTheFrameArena)
     constexpr u64 kPushBytes = 352; // a representative per-draw root-data push
 
     arena.BeginFrame(0);
-    ASSERT_EQ(arena.GetOverflowCount(), u64{ 0 }) << "the arena must start this frame clean";
+    // The overflow count is cumulative for the PROCESS: BeginFrame re-arms only
+    // the warning, and ReleaseBuffers keeps the tally, so a device-gated test
+    // that ran earlier in this binary (VulkanRenderGraphExecutionTest) may
+    // already have bumped it. Measure this frame's contribution, not the total
+    // (CodeRabbit on #1188).
+    const u64 overflowsBefore = arena.GetOverflowCount();
 
     // One worker context per item, reset at each fork boundary exactly as
     // VulkanRecordingContext::ResetForCommandBuffer does between command buffers.
@@ -1391,7 +1396,7 @@ TEST_F(VulkanParallelRecordingDevice, ItemCountDoesNotExhaustTheFrameArena)
         }
     }
 
-    EXPECT_EQ(arena.GetOverflowCount(), u64{ 0 })
+    EXPECT_EQ(arena.GetOverflowCount(), overflowsBefore)
         << kItemsPerFrame << " items must not overflow a " << arena.GetSlotCapacityBytes() << " B slot";
 
     // The real assertion is the budget, not merely "no overflow": a future
