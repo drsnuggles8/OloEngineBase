@@ -233,6 +233,35 @@ The server already negotiates 2025-06-18, so annotations need no protocol bump. 
 > `McpFieldRegistry.Generated.inl` — and setter-based fields exist for private members
 > ([mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md)).
 
+## 5b. Declare `AutomationUndo`, or your command is silently un-batchable (#1127)
+
+**Set `AutomationCommand::Undo` on every new command.** It is no longer just documentation: the
+transaction layer (`olo_transaction_apply`) decides purely from it whether a command may be a batch
+step, and it **default-denies**. A command left at the default `Unspecified` is refused from every
+transaction, and nothing about that is visible at registration — the build is green, the tool works
+standalone, and the only symptom is a refusal message someone reads months later. 96 of the 121
+registered commands are in that state today.
+
+Pick from four values: `None` (does not mutate), `EditorUndoStack` (routed through `CommandHistory`,
+the §5 path above), `Irreversible` (an import, a bake, a build — genuinely cannot be taken back), or
+`HistoryControl` (the command operates *on* the undo stack rather than adding to it — undo, redo,
+and the transaction command itself).
+
+Two traps beyond picking a value:
+
+- **`ProjectWrite = true` with `Undo::None` is a contradiction** — mutating with nothing to take
+  back — and it is the one shape that would let a non-reversible write into a batch through the
+  front door. A census test refuses the combination outright; it fails at test time, not review time.
+- **Reversible is necessary but not sufficient.** A batch runs every step inside ONE marshaled
+  main-thread job, so a command registered `MainMarshaled = false` — the asset and build-listing
+  commands are, deliberately, because their whole-project scan must stay on the handler thread — is
+  refused as a step too. If your command declares `MainMarshaled = false`, it is not batchable, and
+  that is the right answer rather than a gap to close.
+
+The measured classification of the whole surface, and why the irreversible ones are simply not
+transactable rather than pretending to roll back, is in
+[docs/analysis/automation-transactability-boundary.md](../analysis/automation-transactability-boundary.md).
+
 ## 6. Consent and cancellation concurrency invariants
 
 - **Two mutexes, never nested.** `m_ConsentMutex` and `m_InFlightMutex` are each acquired at most one
