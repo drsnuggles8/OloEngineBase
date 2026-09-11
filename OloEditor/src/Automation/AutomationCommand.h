@@ -34,12 +34,23 @@ namespace OloEngine::Automation
     // Whether running a command can be taken back, and how. Structural scene
     // authoring (#1126) declares its history contract here; older commands that
     // have not adopted the metadata remain Unspecified.
+    //
+    // This is ALSO the transactability metadata (#1127): the transaction layer
+    // decides purely from this value whether a command may be a batch step, and
+    // default-denies Unspecified. See AutomationTransaction.h for the rule.
     enum class AutomationUndo : u8
     {
         Unspecified = 0, // not declared by this command.
         None,            // nothing to undo: the command does not mutate.
         EditorUndoStack, // routed through the editor's CommandHistory; Ctrl-Z takes it back.
         Irreversible,    // the effect cannot be taken back from inside this process.
+        // The command operates ON the undo history rather than adding to it --
+        // undo, redo, or grouping entries. Such a command has no coherent meaning
+        // as a transaction STEP, because a transaction is itself a rewrite of the
+        // stack it would be walking; #1127 found this while classifying the
+        // surface and there was no value that said it. It is not "irreversible":
+        // undoing an undo is a redo, and Ctrl-Z reaches these normally.
+        HistoryControl,
     };
 
     // Everything the MCP adapter emits for one tools/list entry, plus the fields
