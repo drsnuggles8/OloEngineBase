@@ -350,15 +350,22 @@ TEST(McpAutomationRegistry, SceneAuthoringCommandsDeclareConsentAndUndoSemantics
     const AutomationRegistry::CommandSnapshot snapshot = registry.Snapshot();
     ASSERT_GE(authoring.Snapshot()->size(), 12u);
     const std::set<std::string> readCommands{ "olo_component_list_types", "olo_component_get", "olo_scene_status" };
+    // Undo and redo WALK the undo stack rather than adding to it, so they
+    // declare HistoryControl (issue #1127) -- which is what refuses them as a
+    // transaction step, at batch-build time and from metadata alone. They are
+    // still consented writes reachable by Ctrl-Z; only their reversal MECHANISM
+    // differs from the authoring commands around them.
+    const std::set<std::string> historyControlCommands{ "olo_editor_undo", "olo_editor_redo" };
     for (const AutomationCommand& command : *authoring.Snapshot())
     {
         EXPECT_EQ(command.ProjectWrite, !readCommands.contains(command.Name)) << command.Name;
         if (command.ProjectWrite)
             EXPECT_TRUE(command.MainMarshaled) << command.Name;
-        EXPECT_EQ(command.Undo, command.ProjectWrite
-                                    ? OloEngine::Automation::AutomationUndo::EditorUndoStack
-                                    : OloEngine::Automation::AutomationUndo::None)
-            << command.Name;
+        const auto expectedUndo = historyControlCommands.contains(command.Name)
+                                      ? OloEngine::Automation::AutomationUndo::HistoryControl
+                                      : (command.ProjectWrite ? OloEngine::Automation::AutomationUndo::EditorUndoStack
+                                                              : OloEngine::Automation::AutomationUndo::None);
+        EXPECT_EQ(command.Undo, expectedUndo) << command.Name;
         EXPECT_FALSE(command.OutputSchema.empty()) << command.Name;
         EXPECT_EQ(command.Annotations.value("readOnlyHint", false), !command.ProjectWrite) << command.Name;
         EXPECT_NE(AutomationRegistry::Find(*snapshot, command.Name), nullptr) << command.Name;

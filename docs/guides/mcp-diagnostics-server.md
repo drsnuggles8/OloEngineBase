@@ -217,7 +217,8 @@ and for what to do when adding a tool.
 | `olo_scene_status` | read the active scene's name, path, dirty state, and available undo/redo state without opening a dialog |
 | `olo_scene_new` | **(consented write)** install an empty scene in Edit mode as one undoable operation; undo restores the previous scene and document state |
 | `olo_scene_save` / `olo_scene_save_as` | **(consented write)** persist the active scene with checked file writes; save-as requires an explicit `path`. Changed saves are undoable, including prior file contents and document metadata. Undo/redo refuses to overwrite an externally modified destination |
-| `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y |
+| `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y. Not usable as a step of `olo_transaction_apply` — they walk the stack a transaction is grouping |
+| `olo_transaction_apply` | **(consented write)** apply several commands as ONE atomic step: all of them apply or none do. A failing step rolls the whole batch back and a successful batch commits as a single undo entry, so one Ctrl-Z takes it back. A step argument of the exact form `"${id.field}"` is replaced by an earlier step's result — the entity id step 1 minted, used by step 4, with no round trip. Only commands that declare how they are taken back may be steps; an irreversible one (asset import, bake, build) and undo/redo itself are refused **before anything runs**. `dryRun:true` validates the whole batch and applies nothing. See [Transactions](#transactions-olo_transaction_apply) |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
@@ -475,6 +476,59 @@ undo/redo if another application has changed that file. The editor's Save and Sa
 actions use the same history, so keyboard and automation saves can be interleaved.
 Reopening a file uses the existing
 scene-open path and starts a fresh history. A saved scene remains a normal `.olo` asset.
+
+### Transactions (`olo_transaction_apply`)
+
+**Batch a multi-step edit and it applies atomically or not at all.** Without one, building
+anything non-trivial is N independent calls, and a failure at call 7 leaves a scene that is
+neither the before nor the after — discovered much later, which is the damage this exists to
+stop.
+
+```json
+{ "description": "Rig a turret",
+  "steps": [
+    { "id": "base", "command": "olo_entity_create",   "arguments": { "name": "Turret" } },
+    { "id": "gun",  "command": "olo_entity_create",   "arguments": { "name": "Gun", "parent": "${base.entity}" } },
+    {               "command": "olo_component_add",   "arguments": { "entity": "${gun.entity}", "component": "SpriteRendererComponent" } }
+  ] }
+```
+
+**Symbolic outputs.** A step argument whose value is the *whole* string `"${id}"` or
+`"${id.field}"` is replaced by that earlier step's structured result — above, the UUID
+`base` minted, with no call in between. The whole-string rule is what removes escaping
+entirely: `"cost: ${5}"` is a literal, because it is not the whole value. A reference may
+only read a step that has **already** run, so a forward or self reference is refused at
+build time, as is a field the source command's `outputSchema` says will not be there. The
+wiring is even type-checked before anything runs: the value does not exist yet, but its
+declared type does.
+
+**What may be a step.** Only a command that has DECLARED how it is taken back —
+`AutomationCommand::Undo`. An irreversible one (`olo_asset_import`, `olo_asset_create`, a
+bake, `olo_build_invoke`), undo/redo itself, a nested transaction, and anything that never
+declared are all **refused at build time**, before the first step runs. So is a command
+registered `MainMarshaled:false` (the asset and build-listing commands), whose whole-project
+scan must not be dragged onto the game thread. 12 of the 121 registered commands qualify
+today — the whole structural-authoring surface; the measured split and the reasoning are in
+[docs/analysis/automation-transactability-boundary.md](../analysis/automation-transactability-boundary.md).
+
+**Failure.** The batch stops, every applied step is taken back in reverse, and the report
+says which step failed and why. `applied:false`, `rolledBack:true`, and every step carries
+its own `rolledBack` / `failed` / `skipped` status. If a rollback is itself incomplete — a
+guarded scene-save restore can refuse an externally modified file — `rollbackError` says so
+loudly rather than reporting a clean failure.
+
+**Success is ONE undo entry**, not N: Ctrl-Z takes the whole batch back as a unit. A batch of
+read-only steps commits no entry at all.
+
+**Authority is decided once, for the whole batch**, at the highest tier any member needs
+(ADR 0005). `olo_transaction_apply` is itself a consented write and is classed by what it
+*can* do, never by what one call's arguments ask for — so `dryRun:true` is gated too. A
+caller without consent is refused at the registry door and never builds a batch, which is
+what stops a high-authority command being laundered into one.
+
+**Limits.** 64 steps, refused by the declared schema above that. The whole batch runs inside
+a single main-thread critical section, so no editor frame runs between steps and nothing
+unrelated can land inside the undo group.
 
 ### Component field writes (`olo_entity_set_field`)
 

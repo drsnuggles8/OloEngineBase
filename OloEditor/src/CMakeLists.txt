@@ -39,6 +39,10 @@
 		"Automation/AutomationAssetCommands.cpp"
 		"Automation/AutomationFileWrite.h"
 		"Automation/AutomationFileWrite.cpp"
+		"Automation/AutomationTransaction.h"
+		"Automation/AutomationTransaction.cpp"
+		"Automation/AutomationTransactionCommands.h"
+		"Automation/AutomationTransactionCommands.cpp"
 
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"

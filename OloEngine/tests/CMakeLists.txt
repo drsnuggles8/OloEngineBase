@@ -888,6 +888,13 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetIndex.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationFileWrite.cpp
+		# Atomic multi-command transactions (issue #1127). The layer is
+		# transport-free and editor-free at the seam -- it reaches the editor only
+		# through IAutomationHost and CommandHistory -- so the tests drive real
+		# batches against a scene with no server and no GL context.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransaction.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransactionCommands.cpp
+		MCP/McpAutomationTransactionTest.cpp
 		MCP/McpAutomationAssetIndexTest.cpp
 		MCP/McpAutomationAssetCommandsTest.cpp
 		MCP/McpAutomationComponentsTest.cpp
