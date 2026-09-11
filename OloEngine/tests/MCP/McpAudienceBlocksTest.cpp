@@ -438,6 +438,7 @@ TEST(McpAudienceBlocks, BuiltinAdoptionMatchesTheDeliberateList)
         "olo_physics_why_no_collision",     // explainer check list
         "olo_tests_run",                    // per-case status/timing/failure table
         "olo_project_validate",             // per-section problem table
+        "olo_build_run",                    // per-target outcome + artefact + diagnostic tables
     };
 
     const McpServer::ToolList& tools = BuiltinTools();
