@@ -50,6 +50,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -662,6 +663,12 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     masked.NormalScale = 0.5f;
     masked.OcclusionStrength = 0.25f;
     masked.EnableIBL = true;
+    // Physical glTF material extensions (issue #970), wire version 2.
+    masked.TransmissionFactor = 0.75f;
+    masked.IOR = 1.62f;
+    masked.ThicknessFactor = 0.4f;
+    masked.AttenuationColor = glm::vec3(0.85f, 0.35f, 0.15f);
+    masked.AttenuationDistance = 1.25f;
     masked.Albedo = TextureRef{ AssetHandle(0x1234ULL), "Assets/leaf_albedo.png", true };
     masked.Normal = TextureRef{ AssetHandle(0x5678ULL), "Assets/leaf_normal.png", false };
     masked.MetallicRoughness = TextureRef{ AssetHandle(0), "Assets/leaf_mr.png", false };
@@ -688,6 +695,12 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     EXPECT_FLOAT_EQ(d.NormalScale, masked.NormalScale);
     EXPECT_FLOAT_EQ(d.OcclusionStrength, masked.OcclusionStrength);
     EXPECT_TRUE(d.EnableIBL);
+    EXPECT_FLOAT_EQ(d.TransmissionFactor, masked.TransmissionFactor);
+    EXPECT_FLOAT_EQ(d.IOR, masked.IOR);
+    EXPECT_FLOAT_EQ(d.ThicknessFactor, masked.ThicknessFactor);
+    EXPECT_FLOAT_EQ(d.AttenuationDistance, masked.AttenuationDistance);
+    for (int c = 0; c < 3; ++c)
+        EXPECT_FLOAT_EQ(d.AttenuationColor[c], masked.AttenuationColor[c]);
     for (int c = 0; c < 4; ++c)
     {
         EXPECT_FLOAT_EQ(d.BaseColorFactor[c], masked.BaseColorFactor[c]);
@@ -706,6 +719,119 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     // The null slot stays a null slot — Submesh::m_MaterialIndex addresses this table
     // positionally, so compacting it away would silently shift every later material.
     EXPECT_FALSE(decoded[1].Present);
+}
+
+// A blob written by a pre-#970 build must still decode, with every physical
+// field at its neutral default -- otherwise upgrading the engine invalidates
+// every .omesh cache and every shipped asset pack, and (worse) a material could
+// come back with a garbage transmission read out of the following record.
+//
+// The v1 blob is DERIVED FROM a real v2 one rather than hand-assembled: the
+// physical block is appended last and is exactly 28 bytes (three floats, a vec3
+// and a float), so stripping those bytes and stamping the version back to 1
+// produces precisely what the old writer would have emitted -- without this
+// test carrying a second copy of the v1 field order to drift against.
+TEST(ImportedMaterialCodecTest, AVersion1BlobDecodesWithNeutralPhysicalDefaults)
+{
+    using namespace ImportedMaterialCodec;
+
+    MaterialDesc desc;
+    desc.Name = "LegacyMaterial";
+    desc.BaseColorFactor = glm::vec4(0.3f, 0.6f, 0.9f, 1.0f);
+    desc.MetallicFactor = 0.25f;
+    desc.RoughnessFactor = 0.75f;
+    // Physical values that must NOT survive: a v1 reader never wrote them.
+    desc.TransmissionFactor = 0.9f;
+    desc.ThicknessFactor = 2.0f;
+    desc.AttenuationDistance = 0.5f;
+
+    std::vector<u8> blob = Encode({ desc });
+    ASSERT_GT(blob.size(), 28u + 12u);
+
+    // Header is magic(u32) + version(u32) + count(u32); stamp version = 1.
+    constexpr sizet kVersionOffset = sizeof(u32);
+    const u32 one = 1u;
+    std::memcpy(blob.data() + kVersionOffset, &one, sizeof(one));
+
+    // Drop the single material's trailing physical block.
+    constexpr sizet kPhysicalBlockBytes = sizeof(f32) * 3 + sizeof(glm::vec3) + sizeof(f32);
+    static_assert(kPhysicalBlockBytes == 28, "the v2 physical block is 28 bytes on the wire");
+    blob.resize(blob.size() - kPhysicalBlockBytes);
+
+    std::vector<MaterialDesc> decoded;
+    ASSERT_TRUE(Decode(blob, decoded)) << "a v1 blob must still be readable";
+    ASSERT_EQ(decoded.size(), 1u);
+
+    const auto& d = decoded[0];
+    // The v1 fields survive untouched...
+    EXPECT_EQ(d.Name, "LegacyMaterial");
+    EXPECT_FLOAT_EQ(d.MetallicFactor, 0.25f);
+    EXPECT_FLOAT_EQ(d.RoughnessFactor, 0.75f);
+    // ... and every physical field is the neutral default, not garbage.
+    EXPECT_FLOAT_EQ(d.TransmissionFactor, 0.0f);
+    EXPECT_FLOAT_EQ(d.ThicknessFactor, 0.0f);
+    EXPECT_FLOAT_EQ(d.IOR, kDefaultIOR);
+    EXPECT_TRUE(std::isinf(d.AttenuationDistance));
+    EXPECT_FLOAT_EQ(d.AttenuationColor.r, 1.0f);
+}
+
+// The Material -> desc -> wire -> desc -> Material loop, which is what the
+// .omesh cache and the asset pack actually run.
+TEST(ImportedMaterialCodecTest, PhysicalMaterialSurvivesDescribeAndRealize)
+{
+    using namespace ImportedMaterialCodec;
+
+    auto source = Material::CreatePBR("VolumeGlass", glm::vec3(1.0f), 0.0f, 0.1f);
+    ASSERT_TRUE(source);
+    source->SetTransmissionFactor(0.85f);
+    source->SetIOR(1.55f);
+    source->SetThicknessFactor(0.6f);
+    source->SetAttenuationColor(glm::vec3(0.7f, 0.3f, 0.1f));
+    source->SetAttenuationDistance(1.5f);
+
+    std::vector<u8> const blob = EncodeMaterials({ source });
+    ASSERT_FALSE(blob.empty());
+
+    std::vector<Ref<Material>> restored;
+    ASSERT_TRUE(DecodeMaterials(blob, restored));
+    ASSERT_EQ(restored.size(), 1u);
+    ASSERT_TRUE(restored[0]);
+
+    const Material& m = *restored[0];
+    EXPECT_FLOAT_EQ(m.GetTransmissionFactor(), 0.85f);
+    EXPECT_FLOAT_EQ(m.GetIOR(), 1.55f);
+    EXPECT_FLOAT_EQ(m.GetThicknessFactor(), 0.6f);
+    EXPECT_FLOAT_EQ(m.GetAttenuationDistance(), 1.5f);
+    EXPECT_FLOAT_EQ(m.GetAttenuationColor().r, 0.7f);
+    EXPECT_FLOAT_EQ(m.GetAttenuationColor().g, 0.3f);
+    EXPECT_FLOAT_EQ(m.GetAttenuationColor().b, 0.1f);
+    EXPECT_TRUE(m.IsTransmissive());
+    EXPECT_TRUE(m.HasVolume());
+}
+
+// A CLEAR material -- transmissive but with no absorption -- must round-trip
+// its INFINITE attenuation distance. This is the case a naive
+// "reject every non-finite float" sanitizer breaks: it would turn +inf into a
+// finite default and tint glass that the author made colourless.
+TEST(ImportedMaterialCodecTest, AnInfiniteAttenuationDistanceSurvivesTheWireFormat)
+{
+    using namespace ImportedMaterialCodec;
+
+    auto source = Material::CreatePBR("ClearGlass", glm::vec3(1.0f), 0.0f, 0.0f);
+    ASSERT_TRUE(source);
+    source->SetTransmissionFactor(1.0f);
+    ASSERT_TRUE(std::isinf(source->GetAttenuationDistance()));
+
+    std::vector<Ref<Material>> restored;
+    ASSERT_TRUE(DecodeMaterials(EncodeMaterials({ source }), restored));
+    ASSERT_EQ(restored.size(), 1u);
+    ASSERT_TRUE(restored[0]);
+
+    EXPECT_TRUE(std::isinf(restored[0]->GetAttenuationDistance()));
+    const glm::vec3 sigma = restored[0]->GetAttenuationSigma();
+    EXPECT_FLOAT_EQ(sigma.r, 0.0f);
+    EXPECT_FLOAT_EQ(sigma.g, 0.0f);
+    EXPECT_FLOAT_EQ(sigma.b, 0.0f);
 }
 
 TEST(ImportedMaterialCodecTest, GarbageBlobIsRejectedInsteadOfMisparsed)

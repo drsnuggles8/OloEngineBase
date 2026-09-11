@@ -21,6 +21,7 @@
 #include <string_view>
 #include <vector>
 
+#include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -1518,6 +1519,12 @@ namespace OloEngine
         {
             materialRef->SetFlag(MaterialFlag::TwoSided, true);
         }
+
+        // Physical glTF material extensions: KHR_materials_transmission,
+        // _ior and _volume (issue #970). Shared with the AnimatedModel import
+        // route so a static and a skinned copy of the same asset shade
+        // identically; a format that sets none of them is untouched.
+        ImportGltfPhysicalMaterial(mat, *materialRef);
 
         // Load PBR textures - prioritize overrides if provided
         // Track the albedo filename for PBR companion texture discovery

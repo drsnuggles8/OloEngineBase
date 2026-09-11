@@ -1534,6 +1534,36 @@ namespace OloEngine
             if (ar.IsLoading())
                 mat.SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model : PBRModel::Legacy);
         }
+        // Physical glTF material extensions (issue #970), appended when
+        // kSaveGameFormatVersion went 28 -> 29. A pre-v29 save stops here and
+        // every field keeps its neutral constructor default, so an older save
+        // loads into a material that shades exactly as it used to.
+        //
+        // ATTENUATION DISTANCE IS WRITTEN RAW, INFINITY INCLUDED: unlike YAML,
+        // FArchive carries the f32 bit pattern, and +inf is a MEANINGFUL value
+        // here ("no absorption"). The load side therefore rejects only NaN and
+        // non-positive distances -- which is exactly what the setter does, so
+        // it is simply routed through the setter like every other field.
+        if (HasFieldsSince(ar, 29))
+        {
+            auto transmission = mat.GetTransmissionFactor();
+            auto ior = mat.GetIOR();
+            auto thickness = mat.GetThicknessFactor();
+            auto attenuationColor = mat.GetAttenuationColor();
+            auto attenuationDistance = mat.GetAttenuationDistance();
+            ar << transmission << ior << thickness << attenuationColor << attenuationDistance;
+            if (ar.IsLoading())
+            {
+                // Through the setters, never straight onto the members: they
+                // are the one place the isfinite/clamp rules live, so a corrupt
+                // save cannot put a NaN transmission into the material UBO.
+                mat.SetTransmissionFactor(transmission);
+                mat.SetIOR(ior);
+                mat.SetThicknessFactor(thickness);
+                mat.SetAttenuationColor(attenuationColor);
+                mat.SetAttenuationDistance(attenuationDistance);
+            }
+        }
         // Texture maps: restored by the scene load, see the function header.
     }
 

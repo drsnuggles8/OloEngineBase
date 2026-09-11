@@ -43,7 +43,13 @@ namespace OloEngine
           // fields and the copy silently kept compiling. Adding a member here means adding it to
           // operator= below as well.
           m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff),
-          m_PBRModel(other.m_PBRModel)
+          m_PBRModel(other.m_PBRModel),
+          // Physical transmission / IOR / volume (issue #970). Same trap as the
+          // alpha pair above: forget one and a copied glass material comes back
+          // solid, on the by-value paths only.
+          m_TransmissionFactor(other.m_TransmissionFactor), m_IOR(other.m_IOR),
+          m_ThicknessFactor(other.m_ThicknessFactor), m_AttenuationColor(other.m_AttenuationColor),
+          m_AttenuationDistance(other.m_AttenuationDistance)
     {
     }
 
@@ -98,6 +104,12 @@ namespace OloEngine
             m_AlphaMode = other.m_AlphaMode;
             m_AlphaCutoff = other.m_AlphaCutoff;
             m_PBRModel = other.m_PBRModel;
+            // Physical transmission / IOR / volume (issue #970).
+            m_TransmissionFactor = other.m_TransmissionFactor;
+            m_IOR = other.m_IOR;
+            m_ThicknessFactor = other.m_ThicknessFactor;
+            m_AttenuationColor = other.m_AttenuationColor;
+            m_AttenuationDistance = other.m_AttenuationDistance;
         }
         return *this;
     }

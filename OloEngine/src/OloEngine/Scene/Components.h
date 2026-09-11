@@ -2839,6 +2839,20 @@ namespace OloEngine
                 return false;
             if (m_Material.GetPBRModel() != other.m_Material.GetPBRModel())
                 return false;
+            // Physical glTF material extensions (issue #970). In for the same
+            // reason PBRModel is: these are scene-serialized and inspector-
+            // editable, so a field missing here makes its edits invisible to
+            // undo and reverted by Play.
+            if (!Math::BitwiseEqual(m_Material.GetTransmissionFactor(), other.m_Material.GetTransmissionFactor()))
+                return false;
+            if (!Math::BitwiseEqual(m_Material.GetIOR(), other.m_Material.GetIOR()))
+                return false;
+            if (!Math::BitwiseEqual(m_Material.GetThicknessFactor(), other.m_Material.GetThicknessFactor()))
+                return false;
+            if (!Math::BitwiseEqual(m_Material.GetAttenuationColor(), other.m_Material.GetAttenuationColor()))
+                return false;
+            if (!Math::BitwiseEqual(m_Material.GetAttenuationDistance(), other.m_Material.GetAttenuationDistance()))
+                return false;
             const auto samePath = [](const Ref<Texture2D>& a, const Ref<Texture2D>& b)
             {
                 const bool aSet = a && !a->GetPath().empty();

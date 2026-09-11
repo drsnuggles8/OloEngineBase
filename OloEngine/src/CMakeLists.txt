@@ -592,6 +592,8 @@
 		"OloEngine/Renderer/Impostor/ImpostorBaker.h"
 		"OloEngine/Renderer/Material.cpp"
 		"OloEngine/Renderer/Material.h"
+		"OloEngine/Renderer/GltfPhysicalMaterial.cpp"
+		"OloEngine/Renderer/GltfPhysicalMaterial.h"
 		"OloEngine/Renderer/PBRModel.h"
 		"OloEngine/Renderer/MaterialAsset.cpp"
 		"OloEngine/Renderer/MaterialAsset.h"

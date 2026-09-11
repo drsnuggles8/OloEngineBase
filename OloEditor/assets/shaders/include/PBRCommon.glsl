@@ -2199,4 +2199,110 @@ vec3 sampleEmissive(sampler2D emissiveMap, vec2 texCoord, vec3 emissiveFactor, b
 #define OLO_MAT_NORMAL(map, uv, worldPos, normal, scale) getNormalFromMap(map, uv, worldPos, normal, scale)
 #endif
 
+// =============================================================================
+// PHYSICAL TRANSMISSION / IOR / VOLUME (issue #970)
+//
+// KHR_materials_transmission, KHR_materials_ior and KHR_materials_volume.
+// Pure math plus one environment sample the CALLER makes: nothing here takes a
+// sampler, because u_PrefilterMap is a plain uniform on the slot arm and a
+// macro over the bindless heap on the other, and passing that through a
+// function parameter differs between the two. The caller samples, these
+// functions decide what to sample and what to do with the result.
+//
+// EVERY FUNCTION IS EXACTLY NEUTRAL AT transmission == 0: oloApplyTransmission
+// returns its input colour unchanged, so a material that never touched the
+// #970 setters shades bit-for-bit as it did before this block existed. That
+// is the property MaterialTransmissionTest and the RMSE-0 capture both pin.
+// =============================================================================
+
+// Fresnel reflectance at normal incidence from the index of refraction.
+// The glTF default IOR of 1.5 gives ((1.5-1)/(1.5+1))^2 == 0.04 exactly, which
+// is the dielectric F0 the rest of this file already hardcodes -- that equality
+// is why importing an IOR cannot disturb a non-transmissive material.
+//
+// BELOW 1.0 THE FORMULA IS NOT MERELY WRONG, IT INVERTS. glTF defines ior 0.0 as
+// "no refraction", and Material::SetIOR deliberately preserves that sentinel --
+// but ((0-1)/(0+1))^2 is 1.0, a perfect mirror, which would drive the
+// transmission weight to zero and render fully clear glass SOLID. So the
+// sentinel (and anything else the setter let through under 1) means "no Fresnel
+// at this interface" and returns 0, matching what oloTransmissionRefractDir
+// already does with the direction.
+float oloIorToF0(float ior)
+{
+    if (ior < 1.0)
+        return 0.0;
+    float r = (ior - 1.0) / (ior + 1.0);
+    return r * r;
+}
+
+// Beer-Lambert transmittance through a slab of the given thickness.
+//
+// sigma is the extinction coefficient the CPU already derived from the glTF
+// attenuation colour and distance (Material::GetAttenuationSigma), so there is
+// no log() here and no infinity: sigma is finite and >= 0, and a zero sigma or
+// a zero thickness both give exp(0) == 1, i.e. no absorption.
+//
+// This is the whole of "attenuation is depth-dependent": thickness scales the
+// exponent, so a thicker slab of the same medium transmits strictly less, and
+// the result is bounded to (0, 1] for every input.
+vec3 oloVolumeTransmittance(vec3 sigma, float thickness)
+{
+    return exp(-max(sigma, vec3(0.0)) * max(thickness, 0.0));
+}
+
+// The direction to sample the environment through a transmissive surface.
+//
+// V points FROM the surface TO the eye, so the incident direction is -V.
+// Two guarded cases, neither of which may return a zero vector -- sampling a
+// cubemap at the origin is undefined and reads as a hard seam:
+//   * ior < 1.0 covers glTF's explicit 0.0 "no refraction" sentinel, and any
+//     value the setter let through below 1; light passes straight on.
+//   * refract() returns exactly vec3(0) under total internal reflection.
+vec3 oloTransmissionRefractDir(vec3 V, vec3 N, float ior)
+{
+    if (ior < 1.0)
+        return -V;
+
+    vec3 refracted = refract(-V, N, 1.0 / ior);
+    if (dot(refracted, refracted) <= 0.0)
+        return -V;
+    return normalize(refracted);
+}
+
+// Mix the transmitted radiance into an already-shaded surface colour.
+//
+// `shadedColor`      the surface as the opaque path shaded it (ambient + direct + emissive)
+// `transmittedEnv`   environment radiance the caller sampled along oloTransmissionRefractDir
+// `baseColor`        tints what passes through, per the glTF transmission BTDF
+// `sigma`,`thickness` the KHR_materials_volume absorption; thickness 0 = thin-walled, no tint
+// `NdotV`            for the Fresnel weight
+//
+// THE MIX WEIGHT, and why it keeps the specular highlight. The weight is
+//     transmission * (1 - metallic) * (1 - F(NdotV, ior))
+// so it vanishes in the two places it must: a metal never transmits, and at
+// grazing angles F -> 1, which is exactly where the specular highlight lives.
+// Head-on, F ~= 0.04 and the surface goes almost fully transmissive, which is
+// where a real pane of glass has almost no highlight to lose. The result is a
+// convex combination, so the output can never exceed the brighter of its two
+// inputs -- the "physically bounded" half of the acceptance criteria.
+vec3 oloApplyTransmission(vec3 shadedColor, vec3 transmittedEnv, vec3 baseColor,
+                          float transmission, float metallic, float NdotV,
+                          float ior, vec3 sigma, float thickness)
+{
+    if (transmission <= 0.0)
+        return shadedColor;
+
+    float f0 = oloIorToF0(ior);
+    float fresnel = f0 + (1.0 - f0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 5.0);
+
+    float weight = clamp(transmission * (1.0 - metallic) * (1.0 - fresnel), 0.0, 1.0);
+
+    // baseColor tints the transmitted light; the volume absorbs it further.
+    // At thickness 0 the transmittance is exactly vec3(1), which is what makes
+    // "thin-walled" a real state rather than a special case.
+    vec3 transmitted = transmittedEnv * baseColor * oloVolumeTransmittance(sigma, thickness);
+
+    return mix(shadedColor, transmitted, weight);
+}
+
 #endif // PBR_GLSL

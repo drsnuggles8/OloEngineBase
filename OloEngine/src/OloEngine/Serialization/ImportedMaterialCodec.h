@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Material.h"
 
 #include <glm/glm.hpp>
+#include <limits>
 #include <span>
 #include <string>
 #include <vector>
@@ -77,7 +78,13 @@ namespace OloEngine
     namespace ImportedMaterialCodec
     {
         constexpr u32 MagicNumber = 0x54414D4F; // "OMAT" little-endian
-        constexpr u32 CurrentVersion = 1;
+        // v1 -> v2: the physical glTF material extensions (issue #970) —
+        // transmission, IOR and the volume trio, APPENDED to each material
+        // record. A v1 blob still decodes: the reader stops before the new
+        // fields and every one keeps its neutral default, so an .omesh cache
+        // or asset pack written by an older build stays valid and its
+        // materials shade exactly as they did.
+        constexpr u32 CurrentVersion = 2;
 
         // ── Safety caps (defence against a corrupt/hostile blob) ──
         constexpr u32 MaxMaterialCount = 10'000;
@@ -119,6 +126,19 @@ namespace OloEngine
             f32 NormalScale = 1.0f;
             f32 OcclusionStrength = 1.0f;
             bool EnableIBL = false;
+
+            // Physical glTF material extensions (issue #970), wire version 2.
+            // Stored AS AUTHORED — the attenuation colour and distance, not the
+            // derived extinction — so a round-trip returns what the asset said
+            // and the derivation stays in one place (Material::GetAttenuationSigma).
+            // AttenuationDistance is +infinity by default, which is a MEANINGFUL
+            // value here ("no absorption") and therefore deliberately survives
+            // the finiteness sanitizing every other float gets; see Decode.
+            f32 TransmissionFactor = 0.0f;
+            f32 IOR = kDefaultIOR;
+            f32 ThicknessFactor = 0.0f;
+            glm::vec3 AttenuationColor{ 1.0f };
+            f32 AttenuationDistance = std::numeric_limits<f32>::infinity();
 
             TextureRef Albedo;
             TextureRef MetallicRoughness;

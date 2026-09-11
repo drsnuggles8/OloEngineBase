@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
@@ -1821,6 +1822,12 @@ namespace OloEngine
         {
             material.SetFlag(MaterialFlag::TwoSided, true);
         }
+
+        // Physical glTF material extensions: KHR_materials_transmission,
+        // _ior and _volume (issue #970). Shared with the Model import
+        // route so a static and a skinned copy of the same asset shade
+        // identically; a format that sets none of them is untouched.
+        ImportGltfPhysicalMaterial(mat, material);
 
         // Load PBR textures
         auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);

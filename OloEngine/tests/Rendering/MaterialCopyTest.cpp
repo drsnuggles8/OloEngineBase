@@ -65,6 +65,16 @@ namespace
         // path that drops it silently reverts a v2 material to Legacy.
         m->SetPBRModel(PBRModel::ClosureV2);
 
+        // Physical transmission / IOR / volume (issue #970) — the same
+        // drop-on-copy hazard class: a glass material copied by value into
+        // MeshSubmitDesc::MaterialData would come back SOLID if any of these
+        // five went missing from the hand-written field lists.
+        m->SetTransmissionFactor(0.75f);
+        m->SetIOR(1.75f);
+        m->SetThicknessFactor(0.5f);
+        m->SetAttenuationColor(glm::vec3(0.9f, 0.4f, 0.2f));
+        m->SetAttenuationDistance(2.5f);
+
         // A representative uniform of each scalar kind, to guard the uniform maps.
         m->Set("u_TestFloat", 12.5f);
         m->Set("u_TestInt", 7);
@@ -102,6 +112,15 @@ namespace
 
         // Issue #975's closure selector — same drop-on-copy hazard class.
         EXPECT_EQ(m.GetPBRModel(), PBRModel::ClosureV2);
+
+        // Issue #970's physical-material block.
+        EXPECT_FLOAT_EQ(m.GetTransmissionFactor(), 0.75f);
+        EXPECT_FLOAT_EQ(m.GetIOR(), 1.75f);
+        EXPECT_FLOAT_EQ(m.GetThicknessFactor(), 0.5f);
+        EXPECT_FLOAT_EQ(m.GetAttenuationColor().r, 0.9f);
+        EXPECT_FLOAT_EQ(m.GetAttenuationColor().g, 0.4f);
+        EXPECT_FLOAT_EQ(m.GetAttenuationColor().b, 0.2f);
+        EXPECT_FLOAT_EQ(m.GetAttenuationDistance(), 2.5f);
 
         EXPECT_FLOAT_EQ(m.GetFloat("u_TestFloat"), 12.5f);
         EXPECT_EQ(m.GetInt("u_TestInt"), 7);
