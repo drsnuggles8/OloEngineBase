@@ -495,13 +495,15 @@ compile-time `=never` removes it.
 
 ### Sites in the tree
 
-A throw inside a catch handler is a normal C++ idiom and there are about a dozen
-in `OloEngine/src` and `OloEditor/src`. Find them with a brace-matching scan for
-`throw` inside a `catch (…) { … }` body; a plain grep for `throw;` misses the
-`throw std::runtime_error(...)` ones and reports comments. They are latent, not
-live: with the flag in place none of them crash. `AssetMoveCommand::Apply` in
-`OloEditor/src/Automation/AutomationAssetCommands.cpp` is the one that actually
-fired, because it is the only such site the ASan suite executes.
+A throw inside a catch handler is a normal C++ idiom, and the scan for #1193
+found thirteen in `OloEngine/src` and `OloEditor/src` — all restructured in that
+PR (see the 2026-09-11 subsection below), so the tree holds none today. Find any
+new one with a brace-matching scan for `throw` inside a `catch (…) { … }` body,
+with comments stripped first; a plain grep for `throw;` misses the
+`throw std::runtime_error(...)` ones and reports comment text. Of the thirteen,
+`AssetMoveCommand::Apply` in `OloEditor/src/Automation/AutomationAssetCommands.cpp`
+was the one that actually fired, because it was the only such site the ASan
+suite executes.
 
 ### Reproducing it
 

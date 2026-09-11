@@ -96,7 +96,6 @@ namespace OloEngine::Automation
                 std::filesystem::remove(temporary, ignored);
             }
             std::rethrow_exception(writeFailure);
-            std::rethrow_exception(writeFailure);
         }
     }
 } // namespace OloEngine::Automation
