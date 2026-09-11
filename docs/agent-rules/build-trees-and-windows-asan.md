@@ -408,6 +408,111 @@ sibling file-path overload crashed immediately. So "a nearby malformed-input tes
 already passes under ASan" is not evidence about a new one: check whether the
 existing inputs actually reach a `throw`.
 
+## 4b. Live toolchain bug: a throw from INSIDE a catch handler AVs (clang-cl + ASan)
+
+**Never execute a throw from inside a `catch` handler in code that the Windows
+ASan build compiles.** Capture the exception and rethrow after the handler has
+been left, or use an RAII rollback and no handler at all. The ASan build turns
+off the instrumentation that causes this (`cmake/Sanitizers.cmake`), so a site
+that slips through will not crash today — the rule keeps it from coming back the
+moment that flag is reconsidered.
+
+This is section 4's bug's successor, and it survives the LLVM 23.1.0 pin that
+fixed #497/#661. Different mechanism, same signature: `SEH exception with code
+0xc0000005 thrown in the test body`, no ASan report, no stack.
+
+ASan's use-after-return instrumentation moves a function's locals into a
+heap-allocated "fake stack" frame. MSVC EH does not survive that. When a throw
+runs inside a catch handler, `__CxxFrameHandler3` has to find the handler
+funclet's parent frame; it gets NULL and faults reading through it:
+
+```
+VCRUNTIME140!__FrameHandler3::GetUnwindTryBlock+0x1f
+mov eax,dword ptr [rax+rcx+4]   ds:0000000000000154=????????
+                                 ^ rcx = establisher frame = 0
+```
+
+### What the variant matrix says
+
+Measured on clang 23.1.0, `-fsanitize=address /EHsc /MD`, a 45-line standalone
+TU. `PASS`/`CRASH` is the whole program.
+
+| Shape | `/O2` | `/Ob0` |
+| --- | --- | --- |
+| `catch (...) { throw; }` | CRASH | PASS |
+| `catch (...) { throw; }`, non-trivial local in the `try` | CRASH | **CRASH** |
+| `catch (...) { Cleanup(); throw; }` | CRASH | PASS |
+| `catch (const std::exception&) { throw; }` | CRASH | PASS |
+| `catch (...) { auto p = current_exception(); rethrow_exception(p); }` | CRASH | **CRASH** |
+| capture in the handler, `rethrow_exception` **after** it | PASS | PASS |
+| RAII rollback, no handler at all | PASS | PASS |
+
+Read the table for what it rules out. The catch **type** does not matter. The
+rethrow **form** does not matter — `std::rethrow_exception` crashes exactly like
+a bare `throw;`. Cleanup work in the handler does not matter. The only thing that
+matters is whether the throw is **lexically inside the handler**.
+
+`/Ob0` is the trap: it "fixes" four of the five crashing shapes and is not a fix.
+Anyone who probes with the minimal `catch (...) { throw; }` will conclude
+inlining is the cause and ship a build-flag change that still crashes as soon as
+a local with a destructor appears in the `try`. Probe with the second row.
+
+### The flag, and what it costs
+
+`cmake/Sanitizers.cmake` adds `-fsanitize-address-use-after-return=never` on the
+clang-cl branch. It fixes every row above.
+
+It gives up stack-use-after-return detection on Windows — **which we were not
+getting.** Measured with a `noinline` function stashing a pointer to its own
+local, read after return:
+
+| Build | `ASAN_OPTIONS` | Detected? |
+| --- | --- | --- |
+| default instrumentation | *unset* — what CI runs | **no** |
+| default instrumentation | `detect_stack_use_after_return=1` | yes |
+| `=never` | `detect_stack_use_after_return=1` | no |
+
+The Windows default is `detect_stack_use_after_return=0` and nothing in
+`asan.yml` or any local recipe sets it to 1, so the instrumentation was present
+but inert: it caught nothing and broke EH. What the flag removes is the ability
+to turn that detection on later. Doing so means dropping the flag and re-testing
+the matrix above against whatever clang is current.
+
+Nothing else changes. A/B of the same TU with and without the flag, four injected
+defects, `/Od` and `/O1`: **identical detection in both arms** — heap-use-after-
+free, stack-buffer-overflow, global-buffer-overflow and stack-use-after-scope all
+still report. Run such an A/B at `/Od` as well as `/O1`; at `/O1` this clang folds
+the dead malloc/free pair and the dead scope away, so heap-use-after-free and
+use-after-scope read as "not detected" in BOTH arms. That is the optimizer eating
+the probe, not ASan losing a check, and reading it as a coverage loss is the
+obvious wrong conclusion to draw from a one-armed run. The Linux ASan job is
+unaffected by any of this — Itanium EH, instrumentation kept, detection kept.
+
+Note that the **runtime** option is not a workaround: `detect_stack_use_after_return=0`
+was tried for #497 and does nothing here either. It disables the *check*, not the
+fake-stack *instrumentation*, and the instrumentation is what breaks EH. Only the
+compile-time `=never` removes it.
+
+### Sites in the tree
+
+A throw inside a catch handler is a normal C++ idiom and there are about a dozen
+in `OloEngine/src` and `OloEditor/src`. Find them with a brace-matching scan for
+`throw` inside a `catch (…) { … }` body; a plain grep for `throw;` misses the
+`throw std::runtime_error(...)` ones and reports comments. They are latent, not
+live: with the flag in place none of them crash. `AssetMoveCommand::Apply` in
+`OloEditor/src/Automation/AutomationAssetCommands.cpp` is the one that actually
+fired, because it is the only such site the ASan suite executes.
+
+### Reproducing it
+
+Do not build the engine. Compile a TU with the second-row shape — a `try` holding
+a `std::string` local, a `catch (...)` that bare-rethrows — with
+`clang-cl -fsanitize=address /EHsc /O2 /MD`, and run it with the ASan runtime dir
+on PATH. It crashes in under a second. To get the faulting stack rather than
+gtest's swallowed report, run the test binary under `cdb` with a script file
+(`-cf`), `sxd av`, `g`, `kn 60` — and pass `--gtest_catch_exceptions=0`, or
+gtest's SEH translator eats the exception and prints an empty "Stack trace:".
+
 ## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
 
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below

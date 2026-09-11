@@ -237,7 +237,22 @@ namespace OloEngine
             !textureUsable(m_CacheTexture) || !m_BakeBuffer || !m_IndirectionUpdateBuffer ||
             (compressed && (!textureUsable(m_ScratchTexture) || !textureUsable(m_StagingTexture))))
         {
-            OLO_CORE_ERROR("TerrainVirtualTexture: GPU resource allocation failed — VT disabled");
+            // Name the resource. "GPU resource allocation failed" sent the
+            // #1172 investigation through three candidate subsystems before
+            // the actual culprit (a refused BC7 array) turned up — and the
+            // terrain still draws afterwards, on the splat path, which looks
+            // entirely plausible. A fallback nobody can see is only survivable
+            // if the log says exactly what was lost.
+            const auto state = [](bool ok)
+            { return ok ? "ok" : "FAILED"; };
+            OLO_CORE_ERROR("TerrainVirtualTexture: GPU resource allocation failed — VT disabled, terrain falls back "
+                           "to splat shading. indirection={} cache={}{} bake={} update={}",
+                           state(m_IndirectionTexture && m_IndirectionTexture->GetRHIHandle().IsValid()),
+                           state(textureUsable(m_CacheTexture)),
+                           compressed ? fmt::format(" scratch={} staging={}", state(textureUsable(m_ScratchTexture)),
+                                                    state(textureUsable(m_StagingTexture)))
+                                      : std::string{},
+                           state(m_BakeBuffer != nullptr), state(m_IndirectionUpdateBuffer != nullptr));
             Destroy();
             return false;
         }

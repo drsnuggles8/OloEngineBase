@@ -3430,6 +3430,36 @@ conventions.** So the rule is a call-site rule:
 > standing, and in a deferred frame the previous pass is the G-buffer geometry
 > pass, which enables it.
 
+### The same call-site rule covers CAMERA-FACING quads (#1171)
+
+A particle billboard is projected geometry, so §19's two-inversions reasoning
+says its winding should agree across backends — and yet `ParticleRenderPass`
+rendered every particle on OpenGL and **none** on Vulkan until it was made to
+disable culling. What was measured, on `SnowfallParticles.olo` at a fixed pose:
+
+| | lit pixels |
+|---|---|
+| OpenGL, before and after | 2969 / 2653 (animated, same order) |
+| Vulkan, before | **0** — byte-identical to the emitter switched off |
+| Vulkan, winding flipped in-shader | 2689 |
+| Vulkan, culling disabled in the pass | 2945 |
+
+The pass stated opinions on depth and blend but **none on culling**, so it
+inherited the previous pass's — and the inherited state culled these quads on
+Vulkan only. Whether that is a winding-convention difference the §19 reasoning
+does not cover, or simply a different inherited enable on the two backends, is
+**not settled**; the numbers above are what was observed, and the fix does not
+depend on which it is.
+
+The rule generalises, and it is the same one as above: **a draw whose winding is
+a by-product rather than a statement about facing must disable culling, not rely
+on the state it inherits.** A camera-facing billboard has no back face to cull.
+
+A trap for anyone probing this: a debug quad emitted with a single winding is
+culled here too, so it renders nothing and reads as "the shader is exonerated".
+Four probes during #1171 were false negatives for exactly that reason. Emit both
+windings (flip one axis on odd instances) or disable culling in the probe.
+
 ### Why it took a rank-#1 bug to find
 
 `DeferredLightingPass` was the only fullscreen pass whose *only* culling call was

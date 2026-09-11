@@ -75,6 +75,31 @@ namespace OloEngine
         {
             return m_MaxParticles;
         }
+        // Which of the five compute stages actually compiled. EmitParticles and
+        // friends return early and SILENTLY when their shader is invalid, so a
+        // dead stage looks exactly like "nothing to emit" — this is how a
+        // diagnostic tells the two apart (issue #1171).
+        struct ShaderHealth
+        {
+            bool Emit = false;
+            bool Simulate = false;
+            bool Compact = false;
+            bool CompactScatter = false;
+            bool BuildIndirect = false;
+
+            [[nodiscard]] bool AllValid() const
+            {
+                return Emit && Simulate && Compact && CompactScatter && BuildIndirect;
+            }
+        };
+        [[nodiscard]] ShaderHealth GetShaderHealth() const;
+
+        // Process-wide count of GPU particle systems ever initialised (#1171).
+        // A system that is re-created every frame loses its pool, counters and
+        // free list every frame, which is indistinguishable from a simulation
+        // that never runs — every counter reads its freshly-initialised value.
+        [[nodiscard]] static u64 GetTotalInitCount();
+
         [[nodiscard]] bool IsInitialized() const
         {
             return m_Initialized;

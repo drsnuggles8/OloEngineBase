@@ -35,6 +35,14 @@ namespace OloEngine
             return *this;
         }
 
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        // BELOW the self-assignment guard on purpose: `a = a` leaves every
+        // other member alone, so clearing this one there would make a no-op
+        // assignment destroy a live diagnostic.
+        m_LastGpuEmitRequest = 0;
+
         // Copy all public settings
         Playing = other.Playing;
         Looping = other.Looping;
@@ -112,6 +120,14 @@ namespace OloEngine
         {
             return *this;
         }
+
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        // BELOW the self-assignment guard on purpose: `a = a` leaves every
+        // other member alone, so clearing this one there would make a no-op
+        // assignment destroy a live diagnostic.
+        m_LastGpuEmitRequest = 0;
 
         Playing = other.Playing;
         Looping = other.Looping;
@@ -631,7 +647,9 @@ namespace OloEngine
         u32 newAlive = m_Pool.GetAliveCount();
 
         // Convert newly emitted CPU particles to GPU format and upload
-        if (u32 newCount = newAlive - prevAlive; newCount > 0)
+        u32 newCount = newAlive - prevAlive;
+        m_LastGpuEmitRequest = newCount; // #1171 diagnostics
+        if (newCount > 0)
         {
             std::vector<GPUParticle> gpuParticles(newCount);
             for (u32 i = 0; i < newCount; ++i)
@@ -686,6 +704,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Diagnostics are state too: a stale emit request read after a reset
+        // says the emitter asked for particles it never asked for (#1171).
+        m_LastGpuEmitRequest = 0;
         m_Time = 0.0f;
         m_HasWarmedUp = false;
         m_Pool.Resize(m_Pool.GetMaxParticles());

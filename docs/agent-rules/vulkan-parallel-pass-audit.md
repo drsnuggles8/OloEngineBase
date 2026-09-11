@@ -30,11 +30,11 @@ the reported item names and secondary counts to establish actual parallel work.
 | Overdraw | Additive packet ranges; clear once | Implemented; Vulkan target readback and common replay contracts |
 | CSM, atlas and point-face shadows | Cascade or atlas-entry items; clear/transition shared atlas before fork | Implemented; CSM attachment off/on exact pixels, atlas device checks, heavy multi-light scene |
 | Terrain/foliage shadow casters | Same shadow-view item; private terrain/foliage/instance uploads | Implemented; live terrain and foliage on both backends; Vulkan VT sample uses fallback shading, as detailed below |
-| Virtual-geometry shadow casters | Same view item; private compute parameters and indirect args | Implemented; device checks retained; full Vulkan helmet evidence blocked by existing support described below |
+| Virtual-geometry shadow casters | Same view item; private compute parameters and indirect args | Implemented; device checks retained; Vulkan helmet evidence obtained once #1052/#1058/#1062 landed — see below |
 | VSM marking/raster | Prepared marking dispatch; raster ranges with private globals/bones/instances; shared pool uses GPU atomic-min | Implemented; 96-VAO raster readback, worker sampling regression and live GTAO/mark group with zero conflicts |
 | DDGI | Per-probe six-face capture/resample; relocation and visibility ranges; ordered atlas publication | Implemented; single-volume and cascade live captures; cascade scene records 16 items with zero conflicts |
 | GPU/deferred occlusion | Indirect replay ranges after primary cull | Implemented; Vulkan indirect-replay checks and heavy deferred pipeline |
-| Virtual geometry main | Phase-1 instance cull, both hardware raster phases and SW material-resolve ranges | Implemented; primary args reset/HZB/SW raster/export chain; OpenGL helmet captures; full Vulkan evidence blocked below |
+| Virtual geometry main | Phase-1 instance cull, both hardware raster phases and SW material-resolve ranges | Implemented; primary args reset/HZB/SW raster/export chain. All three regions size themselves `clamp(instanceCount / 32, 1, MAX_RENDER_WORKERS)`, so they need **64+ virtual-mesh instances** to fork at all — see the fork grain note below |
 | Fluid intermediates | Depth/thickness splat ranges, private fluid UBOs; primary clear and final smoothing parameters | Implemented; OpenGL multi-angle fluid evidence; Vulkan 96-submission depth/thickness comparison, six secondaries and zero conflicts |
 | Mesh particles | Contiguous instance ranges, private mesh-instance UBOs | Implemented; Vulkan 96-instance distinct-color comparison, three secondaries and zero conflicts; real OpenGL scene shows all three color ranges from three angles |
 | Billboard/trail/GPU particles | Already one draw per batch; shared batch callback remains primary | Existing Vulkan billboard/trail checks; no artificial split of a single draw |
@@ -102,29 +102,50 @@ state. Resolve and prewarm on the caller. Each recording lane owns its active-pa
 label; physical-resource write declarations include shared uploads published after
 join, so unrelated prepared readers cannot silently see old parameters.
 
+## The virtual-geometry fork grain
+
+**A region that never forks proves nothing about the forked path.** All three
+`VirtualGeometryPass` regions size themselves `clamp(instanceCount / 32, 1,
+MAX_RENDER_WORKERS)`, so they run inline below 64 virtual-mesh instances.
+`VirtualGeometryTest.olo` has 15 and `VirtualGeometryStress.olo` has 24, and no
+test drives the pass — so until `VirtualGeometryParallelRecording.olo` (96
+instances) every authored scene exercised the inline path only. The row above
+says "Implemented" because the conversion is written and reviewed, not because a
+capture had run through it. Use that scene when touching this pass: it reports
+three regions at `parallel=true`, three items each, 13 secondaries, zero conflicts.
+
 ## Existing Vulkan limitations encountered during validation
 
-`VirtualGeometryTest.olo` renders from both inspected OpenGL angles. This branch's
-base predates [PR #1062](https://github.com/drsnuggles8/OloEngineBase/pull/1062),
-which implements missing raw geometry upload/index-buffer paths (#1052). Vulkan
-helmet captures here are empty even with forced MDI. The additional mesh-task
-snapshot/device-fault defect is tracked by
-[#1058](https://github.com/drsnuggles8/OloEngineBase/issues/1058). The user identified
-these existing work items during validation. Repeat full Vulkan helmet evidence
-after those dependencies land; empty captures are not successful visual evidence.
+**Resolved.** `VirtualGeometryTest.olo`'s Vulkan helmet captures were empty on
+#1066's base, which predated [PR #1062](https://github.com/drsnuggles8/OloEngineBase/pull/1062)
+(missing raw geometry upload/index-buffer paths, #1052) and
+[#1058](https://github.com/drsnuggles8/OloEngineBase/issues/1058) (mesh-task
+snapshot/device fault). Both landed after that merge, and the deferred evidence
+has since been taken: the helmets render on Vulkan, and off/on recording produces
+byte-identical frames. See the [measurements and evidence report](../analysis/vulkan-parallel-recording-1013.md).
 
-The compressed terrain VT array path is explicitly unsupported by the Vulkan
-factory (missing BC7 tile-stage copy). Vulkan checks use an in-memory
-`VTCompressedCache=false`; authored scene data is unchanged. Even then the final
-live sample reports zero resident tiles and `readyForShading=false`, so its
-correct terrain image proves fallback shading, not the new ready-cache
-publication branch. OpenGL exercises the authored compressed configuration.
-The separate water-array fix supplies required storage
-usage for supported linear color formats and has a four-format descriptor test.
+**Resolved ([#1172](https://github.com/drsnuggles8/OloEngineBase/issues/1172)).**
+The compressed terrain VT array path used to be unsupported by the Vulkan
+factory, which refused every block-compressed array outright; the VT then failed
+its own validity guard, disabled itself, and the terrain drew on the splat path.
+That is why #1066's Vulkan checks used an in-memory `VTCompressedCache=false`
+and still reported zero resident tiles and `readyForShading=false` — the
+ready-cache branch had never run on Vulkan. BC7 arrays are created now (they
+take neither colour-attachment nor storage usage, and never needed to), and
+`TerrainVirtualTextureTest.olo` reports `readyForShading=true`,
+`cacheCompressed=true` and 100 resident compressed tiles on Vulkan against 205
+on OpenGL. The separate water-array fix supplies required storage usage for
+supported linear color formats and has a four-format descriptor test.
 
 The authored SnowfallParticles sample produced no visible billboards in either
-Vulkan recording mode, including Release. This is not accepted visual evidence
-and its cause was not established. Billboard batching is unchanged here. The
+Vulkan recording mode, including Release. **The cause is now narrowed and it is
+not recording:** at an identical camera pose and scene, OpenGL draws the snow
+(thousands of lit billboard pixels) and Vulkan draws none, with `ParticlePass`
+present and un-culled in the Vulkan frame breakdown and the editor ticking. It is
+a backend defect in the billboard path, independent of `OLO_VK_PARALLEL_RECORDING`,
+tracked by [#1171](https://github.com/drsnuggles8/OloEngineBase/issues/1171). The authored camera also does not frame the emitter (it sits at
+y = 25 with 0.04-unit particles), so reproduce it from above before concluding
+anything. Billboard batching is unchanged here. The
 modified mesh-particle path is covered separately by the real-device off/on
 readback and three-angle OpenGL scene test above.
 

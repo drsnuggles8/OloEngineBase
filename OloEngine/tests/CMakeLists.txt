@@ -901,6 +901,7 @@ add_executable(OloEngine-Tests
 		MCP/McpAutomationEntitiesTest.cpp
 		MCP/McpAutomationSceneLifecycleTest.cpp
 		MCP/McpMainThreadMarshalTest.cpp
+		MCP/McpParticleStatsTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —

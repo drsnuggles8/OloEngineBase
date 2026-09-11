@@ -43,6 +43,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <atomic>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #ifdef OLO_DEBUG
@@ -339,6 +340,43 @@ namespace OloEngine
             return m_RHIHandle.Get();
         }
 
+        // Draw-record-time address of this stream's CURRENT contents, and the
+        // address the §5 pull path must use.
+        //
+        // Upload-once streams (every mesh) never take a snapshot: they return
+        // the persistent allocation, unchanged, so static geometry costs no
+        // arena traffic and stays valid as a ray-tracing build input.
+        //
+        // A stream rewritten SEVERAL TIMES INSIDE ONE FRAME is a different
+        // animal. The persistent buffer is one piece of memory that the GPU
+        // reads at EXECUTION time, so N rewrites in a frame leave all N draws
+        // reading the last one. Such a stream is snapshotted into the frame
+        // arena per rewrite, exactly as VulkanUniformBuffer does, giving each
+        // draw the bytes that were current when it was recorded (GL's
+        // command-ordered glNamedBufferSubData semantics). Issue #1171.
+        //
+        // Two limits, stated rather than papered over:
+        //  - A stream written exactly ONCE per frame does not latch, because
+        //    one write per frame cannot alias between draws of that frame. It
+        //    can still race the previous frame's in-flight submission, which
+        //    this seam does not address and which needs a ring.
+        //  - The frame in which streaming is first detected still aliases:
+        //    draws recorded before the second write already resolved to the
+        //    persistent address. It is correct from the next frame on, since
+        //    the latch is sticky.
+        //
+        // Returns 0 only on arena overflow, which the arena counts and warns
+        // about; the caller substitutes the null block rather than reading a
+        // stale stream.
+        //
+        // Safe to call from several RecordParallel items at once. Unlike
+        // VulkanUniformBuffer, whose address the fork primes before the region,
+        // nothing primes a streamed vertex stream — the draw path reaches it
+        // through the VAO, which the fork does not walk. So the memo is taken
+        // under a lock rather than assumed single-threaded; contention is one
+        // push per stream per frame.
+        [[nodiscard]] VkDeviceAddress GetPullAddress() const;
+
       private:
         void CreateBuffer(const void* initialData);
         void ReleaseBuffer();
@@ -352,6 +390,26 @@ namespace OloEngine
         bool m_NeedsFlush = false;
         VkDeviceAddress m_DeviceAddress = 0;
         RHI::ScopedResourceHandle m_RHIHandle;
+
+        // Streaming state. m_Shadow is only allocated once a SetData lands
+        // inside a recording frame — an upload-once stream never pays for it.
+        std::vector<u8> m_Shadow;
+        u32 m_ShadowSize = 0;
+        bool m_Streamed = false;
+        bool m_InitialUploadDone = false; ///< CreateBuffer's own upload; never counts toward stream detection.
+        u64 m_LastWriteGeneration = 0;
+        ///< (region << 32 | item) of the region's first RecordParallel writer — a streamed
+        ///< stream is a written object like any other, and rule 6 applies to it.
+        std::atomic<u64> m_ParallelWriter{ 0 };
+        u64 m_DataVersion = 0;
+        // Memoization of the per-frame push, hence mutable: GetPullAddress()
+        // is logically a read of "where are my current bytes", and the draw
+        // path holds the VAO (and so the stream) by const pointer. Guarded
+        // because worker items can reach it concurrently (see GetPullAddress).
+        mutable std::mutex m_PullMemoMutex;
+        mutable u64 m_PushedVersion = ~u64{ 0 };
+        mutable u64 m_PushedFrameGeneration = ~u64{ 0 };
+        mutable VkDeviceAddress m_CurrentAddress = 0;
     };
 
     // -------------------------------------------------------------------------

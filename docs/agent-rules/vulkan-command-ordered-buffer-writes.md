@@ -151,3 +151,53 @@ silent, scene-shaped, and invisible to any tenant that doesn't interleave.
 The GL-parity checklist that found this (screenshot gate → intermediate-target
 capture → survivor-pattern reasoning) is reusable for any "backend X renders
 scene Y wrong but scene Z right" report.
+
+## The same hole, left open in vertex buffers for two years (#1171)
+
+**The audit above was done for uniform and storage buffers and not for vertex
+streams.** `VulkanVertexBuffer::SetData` kept the write-through shape, under a
+comment that said so out loud:
+
+> `NOTE: mesh data is upload-once at load time. […] nothing in Waves A/B streams vertex data.`
+
+`ParticleBatchRenderer::Flush` streams vertex data, and PrecipitationSystem's two
+engine-init streams (5.76 MB and 3.84 MB) rewrite theirs every frame. So every
+draw in the frame read the last batch — the identical last-write-wins failure
+this document is about, in the one buffer family the fix skipped.
+
+Two lessons worth more than the fix:
+
+- **A comment asserting "nothing does X" ages into a bug** the moment something
+  does, and nothing checks it. The seam now *detects* the shape (a second write
+  inside one frame generation) and warns, instead of assuming it cannot happen.
+- **Fixing a failure class in one buffer type is not fixing the class.** When
+  amendment (80) gave UBOs and SSBOs per-write versioning, vertex buffers had
+  the same facade, semantics and deferred execution. Ask which *other* types
+  share the shape before closing such an issue.
+
+Not covered: a stream written exactly **once** per frame never trips the
+detector, because one write cannot alias between draws of that frame. It can
+still race the previous frame's submission, which needs a ring — the "own wave"
+the original comment promised and nothing has built.
+
+## And again in the GPU particle counters (#1171)
+
+Third instance of the same shape, found two months later. `GPUParticleSystem::
+Compact()` reset its counter block every frame with a `SetData` of a zeroed
+struct — a CPU write into a buffer the frame's already-recorded dispatches
+still read. The emit dispatch therefore saw `deadCount == 0`, took its
+"no free slots" undo path, and the emitter produced **nothing**, on Vulkan only,
+with no error anywhere. The remedy was already documented on
+`StorageBuffer::ClearData`: **a clear stays in the GPU command stream on both
+backends**, so it orders against the recorded dispatches the way GL's
+`glNamedBufferSubData` does.
+
+The rule that catches this without a debugger: **any CPU write to a buffer a
+compute dispatch reads is suspect the moment more than one of them happens per
+frame.** Reach for `ClearData` / `ClearSubData` when the write is a reset, and
+for per-write versioning when it is real data.
+
+Probing it has its own trap: every buffer in that chain is rewritten each frame
+(counters by Compact, free list by CompactScatter), so three probe channels were
+silently clobbered before one survived. A probe publishing through a buffer the
+pipeline owns reads back the last writer's bytes, not the probe's.

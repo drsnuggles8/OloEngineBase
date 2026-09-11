@@ -687,6 +687,16 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Amendment (92) rule 6, the same claim the UBO and SSBO twins make:
+        // one writer per object per region. A streamed stream keeps CPU state
+        // (m_Shadow, the version counters) that two items would otherwise race
+        // — m_Shadow.resize() can free memory another worker is mid-memcpy out
+        // of inside arena.Push.
+        if (!ClaimParallelWriter(m_ParallelWriter, "vertex buffer"))
+        {
+            return;
+        }
+
         if (data.data == nullptr || data.size == 0)
         {
             return;
@@ -698,10 +708,63 @@ namespace OloEngine
             return;
         }
 
-        // NOTE: mesh data is upload-once at load time. A per-frame rewrite of
-        // a buffer the PREVIOUS frame's submission still reads would race it —
-        // that streaming shape (Renderer2D batches, video) gets a ring in its
-        // own wave; nothing in Waves A/B streams vertex data.
+        // Mesh data is upload-once at load time and stays on the persistent
+        // allocation below. A rewrite that lands INSIDE a recording frame is
+        // the streaming shape (ParticleBatchRenderer::Flush, #1171): the
+        // persistent buffer is a single piece of memory the GPU reads at
+        // execution time, so leaving such a stream here would give every draw
+        // in the frame the last rewrite's bytes and race the previous frame's
+        // submission. Shadow it and let GetPullAddress() snapshot it per
+        // rewrite, the VulkanUniformBuffer seam.
+        //
+        // The persistent buffer is still written: it is what a BLAS build and
+        // any non-pull consumer read, and keeping the two in step means the
+        // upload-once path is bit-for-bit what it always was.
+        // Detection, not configuration: a SECOND write inside one frame
+        // generation is the aliasing shape by definition — two sets of bytes,
+        // one allocation, and both draws read whatever survives. A stream that
+        // is written once (every mesh; the static ctor does not come through
+        // here at all) never trips it and never pays for a shadow.
+        // CreateBuffer routes its initial payload through here, so that write
+        // is construction, not streaming — counting it would latch a static
+        // mesh that is merely uploaded and then written once more in the same
+        // frame, and a latched mesh pays a full arena copy every frame forever.
+        const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
+        const bool countsTowardDetection = m_InitialUploadDone;
+        m_InitialUploadDone = true;
+        // Scope the BASELINE to the same condition as the check. Recording the
+        // construction write's generation here would make the next write in that
+        // same frame — the first that counts — look like a second write, and
+        // latch the static mesh this exclusion exists to protect.
+        if (countsTowardDetection)
+        {
+            if (!m_Streamed && generation != 0 && generation == m_LastWriteGeneration)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame "
+                              "— snapshotting it per draw from now on (issue #1171). Before this seam existed "
+                              "every draw in the frame read the LAST write's bytes.",
+                              m_DeviceAddress, m_Size);
+                m_Streamed = true;
+            }
+            m_LastWriteGeneration = generation;
+        }
+
+        if (m_Streamed)
+        {
+            // SetData takes PARTIAL writes — ParticleBatchRenderer uploads only
+            // the instances it filled, a prefix of a much larger buffer — so the
+            // pushed range has to be a HIGH-WATER MARK, not this write's size.
+            // Pushing only the prefix left a draw that indexed past it reading
+            // unrelated arena bytes instead of the buffer's own tail. The shadow
+            // is never shrunk, so bytes beyond this write still hold the last
+            // write that covered them, which is exactly what the persistent
+            // buffer holds too.
+            m_Shadow.resize(m_Size);
+            std::memcpy(m_Shadow.data(), data.data, data.size);
+            m_ShadowSize = std::max(m_ShadowSize, data.size);
+            ++m_DataVersion;
+        }
+
         if (m_Mapped != nullptr)
         {
             std::memcpy(m_Mapped, data.data, data.size);
@@ -713,6 +776,62 @@ namespace OloEngine
         }
 
         VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData");
+    }
+
+    VkDeviceAddress VulkanVertexBuffer::GetPullAddress() const
+    {
+        if (!m_Streamed)
+        {
+            return m_DeviceAddress;
+        }
+
+        auto& arena = VulkanFrameArena::Get();
+        const u64 generation = arena.GetFrameGeneration();
+        // Held across the check AND the push: two items racing here would
+        // otherwise both push, and one would publish an address the other's
+        // memo then overwrites (amendment (92) rule 6 covers the WRITE side in
+        // SetData; this is the read side the fork does not prime).
+        const std::scoped_lock lock(m_PullMemoMutex);
+        if (m_PushedVersion == m_DataVersion && m_PushedFrameGeneration == generation && m_CurrentAddress != 0)
+        {
+            return m_CurrentAddress;
+        }
+        if (m_ShadowSize == 0)
+        {
+            return m_DeviceAddress;
+        }
+
+        // 256 is the spec's ceiling for minStorageBufferOffsetAlignment, so it
+        // is a legal storage-block address on every device — the pull block is
+        // an SSBO (binding 57 / 63), not a vertex binding.
+        const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256);
+        if (!allocation.IsValid())
+        {
+            // Arena overflow. The caller substitutes the null block, and its
+            // message blames "binding 57 has no published occupant" — which is
+            // the wrong cause and would send the next reader hunting a missing
+            // bind. Name the real one, with the size that did not fit.
+            //
+            // Deliberately NOT falling back to m_DeviceAddress: that would
+            // silently serve one frame's last batch to every draw, which is
+            // exactly the bug this seam exists to remove.
+            static std::atomic<bool> s_WarnedOverflow{ false };
+            if (!s_WarnedOverflow.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] streamed vertex stream {:#x} ({} bytes) did not fit the {} MiB frame "
+                               "arena — the draw reads the null block, NOT stale geometry. Shrink the batch or "
+                               "raise kSlotCapacityBytes (further overflows not logged)",
+                               m_DeviceAddress, m_ShadowSize,
+                               VulkanFrameArena::Get().GetSlotCapacityBytes() / (1024ull * 1024ull));
+            }
+            m_CurrentAddress = 0;
+            return 0;
+        }
+
+        m_CurrentAddress = allocation.Gpu;
+        m_PushedVersion = m_DataVersion;
+        m_PushedFrameGeneration = generation;
+        return m_CurrentAddress;
     }
 
     // =========================================================================

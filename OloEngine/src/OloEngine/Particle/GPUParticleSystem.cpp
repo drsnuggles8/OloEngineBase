@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 
+#include <atomic>
+
 #include <algorithm>
 #include <cstddef>
 #include <numeric>
@@ -79,6 +81,11 @@ namespace OloEngine
             other.m_MaxParticles = 0;
         }
         return *this;
+    }
+
+    namespace
+    {
+        std::atomic<u64> s_GpuParticleInitCount{ 0 };
     }
 
     void GPUParticleSystem::Init(u32 maxParticles)
@@ -233,6 +240,10 @@ namespace OloEngine
         }
 
         m_Initialized = true;
+        // Counted only once the system is actually usable: a failed Init that
+        // bailed above would otherwise inflate the "re-created every frame"
+        // signal this counter exists to expose (#1171).
+        s_GpuParticleInitCount.fetch_add(1, std::memory_order_relaxed);
     }
 
     void GPUParticleSystem::Shutdown()
@@ -363,15 +374,24 @@ namespace OloEngine
         // particles is a visible property, and for tests is the difference
         // between "same set" and "same result".
 
-        // Reset counters. AliveCount is overwritten by the scan's total and
-        // DeadCount by the scatter pass, but EmitCount must start at zero and a
-        // defined struct beats three assignments that must stay in sync.
-        GPUParticleCounters counters{};
-        counters.AliveCount = 0;
-        counters.DeadCount = 0;
-        counters.EmitCount = 0;
-        counters.Pad = 0;
-        m_CounterSSBO->SetData(&counters, sizeof(GPUParticleCounters));
+        // Reset counters IN THE COMMAND STREAM, not from the CPU (issue #1171).
+        //
+        // This used to be a SetData of a zeroed struct, which is a CPU write
+        // into a buffer the frame's already-recorded dispatches still read. On
+        // OpenGL that is ordered — glNamedBufferSubData executes between the
+        // Emit dispatch and this one, exactly as written. On Vulkan the write
+        // is a mapped memcpy that lands IMMEDIATELY while the recorded
+        // dispatches execute at submit, so the zeroes arrived before Emit ever
+        // ran: Emit read deadCount == 0, took the `freeIdx == 0` undo path, and
+        // the system emitted nothing, forever, with no error anywhere.
+        //
+        // A clear stays in the command stream on both backends, which is the
+        // remedy StorageBuffer::ClearData documents for exactly this shape and
+        // the same lesson as amendment (80) / #691. ClearData zero-fills the
+        // whole 16-byte block, which is what the old struct did: AliveCount is
+        // overwritten by the scan's total and DeadCount by the scatter pass,
+        // and EmitCount must start at zero.
+        m_CounterSSBO->ClearData();
 
         m_Params = UBOStructures::GPUParticleParamsUBO{};
         m_Params.MaxParticles = m_MaxParticles;
@@ -432,6 +452,22 @@ namespace OloEngine
 
         RenderCommand::DispatchCompute(1, 1, 1);
         RenderCommand::MemoryBarrier(MemoryBarrierFlags::Command | MemoryBarrierFlags::ShaderStorage);
+    }
+
+    u64 GPUParticleSystem::GetTotalInitCount()
+    {
+        return s_GpuParticleInitCount.load(std::memory_order_relaxed);
+    }
+
+    GPUParticleSystem::ShaderHealth GPUParticleSystem::GetShaderHealth() const
+    {
+        const auto ok = [](const Ref<ComputeShader>& shader)
+        { return shader && shader->IsValid(); };
+        return ShaderHealth{ .Emit = ok(m_EmitShader),
+                             .Simulate = ok(m_SimulateShader),
+                             .Compact = ok(m_CompactShader),
+                             .CompactScatter = ok(m_CompactScatterShader),
+                             .BuildIndirect = ok(m_BuildIndirectShader) };
     }
 
     u32 GPUParticleSystem::GetAliveCount() const
