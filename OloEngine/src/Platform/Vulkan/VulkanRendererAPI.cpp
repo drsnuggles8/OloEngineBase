@@ -3128,8 +3128,16 @@ namespace OloEngine
 
     bool VulkanRendererAPI::MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
                                                   const VkDeviceSize offsetBytes, const u32 drawCount,
-                                                  const VkDeviceSize strideBytes, VkDrawIndirect2InfoKHR& outInfo)
+                                                  const VkDeviceSize commandSizeBytes, const VkDeviceSize strideBytes,
+                                                  VkDrawIndirect2InfoKHR& outInfo)
     {
+        // stride 0 means "tightly packed" on the GL twin (glMultiDrawElementsIndirect*
+        // defines it that way), and the facade passes the caller's value straight
+        // through. Forwarding a literal 0 to VkStridedDeviceAddressRangeKHR would
+        // make every command in a multi-draw read the FIRST record instead, so the
+        // facade's meaning is resolved here, once, before it reaches either the
+        // extent check or the range.
+        const VkDeviceSize stride = (strideBytes != 0) ? strideBytes : commandSizeBytes;
         // The range must actually hold the commands the draw will read:
         // VUID-VkDrawIndirect2InfoKHR-addressRange-13110 wants
         // size >= (drawCount - 1) * stride + sizeof(command). Clamping a
@@ -3142,7 +3150,7 @@ namespace OloEngine
             return false;
         }
         const VkDeviceSize remaining = indirect.SizeBytes - offsetBytes;
-        const VkDeviceSize needed = (static_cast<VkDeviceSize>(drawCount) - 1u) * strideBytes + strideBytes;
+        const VkDeviceSize needed = (static_cast<VkDeviceSize>(drawCount) - 1u) * stride + commandSizeBytes;
         if (remaining < needed)
         {
             return false;
@@ -3150,7 +3158,7 @@ namespace OloEngine
         outInfo = {};
         outInfo.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_2_INFO_KHR;
         outInfo.addressRange =
-            VulkanAddressCommands::MakeStridedRange(indirect.Address + offsetBytes, remaining, strideBytes);
+            VulkanAddressCommands::MakeStridedRange(indirect.Address + offsetBytes, remaining, stride);
         outInfo.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
         outInfo.drawCount = drawCount;
         return true;
@@ -3167,10 +3175,12 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             VkDrawIndirect2InfoKHR info{};
-            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand), info))
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand),
+                                       sizeof(VkDrawIndexedIndirectCommand), info))
             {
                 UnimplementedStub("DrawElementsIndirect(indirect range too small for the command)",
                                   StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
                 return;
             }
             vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
@@ -3188,10 +3198,12 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
             VkDrawIndirect2InfoKHR info{};
-            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndirectCommand), info))
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndirectCommand),
+                                       sizeof(VkDrawIndirectCommand), info))
             {
                 UnimplementedStub("DrawArraysIndirect(indirect range too small for the command)",
                                   StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
                 return;
             }
             vkCmdDrawIndirect2KHR(ctx.Cmd, &info);
@@ -3209,10 +3221,12 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
             VkDrawIndirect2InfoKHR info{};
-            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand), info))
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand),
+                                       sizeof(VkDrawIndexedIndirectCommand), info))
             {
                 UnimplementedStub("DrawBoundElementsIndirect(indirect range too small for the command)",
                                   StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
                 return;
             }
             vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
@@ -3269,8 +3283,15 @@ namespace OloEngine
             // cannot hold maxDrawCount commands is a VUID-13110 violation, and
             // the count buffer must have a u32 left at its offset (13115's
             // companion extent check). Dropped and counted, never clamped.
+            // Same stride-0-is-tightly-packed normalisation as the single-command
+            // draws (see MakeDrawIndirect2Info): the facade forwards the caller's
+            // value and GL defines 0 that way, so it is resolved before it reaches
+            // the extent check or the range.
+            const VkDeviceSize commandSize = sizeof(VkDrawIndexedIndirectCommand);
+            const VkDeviceSize stride = (strideBytes != 0) ? static_cast<VkDeviceSize>(strideBytes) : commandSize;
+            const VkDeviceSize neededIndirect = (static_cast<VkDeviceSize>(maxDrawCount) - 1u) * stride + commandSize;
             if (indirectOffsetBytes >= indirect.SizeBytes ||
-                (indirect.SizeBytes - indirectOffsetBytes) < static_cast<VkDeviceSize>(maxDrawCount) * strideBytes ||
+                (indirect.SizeBytes - indirectOffsetBytes) < neededIndirect ||
                 parameterOffsetBytes + sizeof(u32) > parameter.SizeBytes)
             {
                 UnimplementedStub("MultiDrawElementsIndirectCountRaw(indirect or count range too small)",
@@ -3282,7 +3303,7 @@ namespace OloEngine
             info.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_COUNT_2_INFO_KHR;
             const VkDeviceSize indirectRemaining = indirect.SizeBytes - indirectOffsetBytes;
             info.addressRange = VulkanAddressCommands::MakeStridedRange(
-                indirect.Address + indirectOffsetBytes, indirectRemaining, strideBytes);
+                indirect.Address + indirectOffsetBytes, indirectRemaining, stride);
             info.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
             info.countAddressRange =
                 VulkanAddressCommands::MakeRange(parameter.Address + parameterOffsetBytes, sizeof(u32));

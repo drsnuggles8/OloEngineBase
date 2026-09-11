@@ -131,11 +131,35 @@ above says must be recorded here before the runtime check moves.
 | --- | --- |
 | `VK_KHR_device_address_commands` | Listed **and** `VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR::deviceAddressCommands == VK_TRUE`. `specVersion` floor stays 1 (the only revision that exists). Enabled at `vkCreateDevice`, same gate rule as the other two. |
 
-**It does not narrow the hardware floor.** Every device lacking
-`VK_EXT_descriptor_heap` is already refused, and that is a strictly narrower set
-than the devices lacking this — so no device that the gate accepts today is
-refused by the new row. Verified on the driver floor (NVIDIA, RTX 4090, SDK
-1.4.357.0): extension revision 1, `deviceAddressCommands = true`.
+**It may narrow the hardware floor. The claim that it cannot was wrong.**
+#1179's body argued that every device lacking `VK_EXT_descriptor_heap` is
+already refused and that this is a strictly narrower set. `vk.xml` does not
+support that. The two extensions are independent:
+
+```
+VK_EXT_descriptor_heap        depends: ((VK_KHR_extended_flags,VK_KHR_maintenance5)
+                                       +(VK_KHR_buffer_device_address,VK_VERSION_1_2),VK_VERSION_1_4)
+VK_KHR_device_address_commands depends: (((VK_KHR_get_physical_device_properties2,VK_VERSION_1_1)
+                                       +VK_KHR_buffer_device_address),VK_VERSION_1_2)
+                                       +VK_KHR_synchronization2+VK_EXT_extended_dynamic_state),VK_VERSION_1_3
+```
+
+Neither names the other, so a device may expose the heap and not the address
+commands. Such a device satisfied this contract before #1179 and is refused
+after it. That is a real narrowing, and the only measurement behind the old
+claim was a single driver: NVIDIA, RTX 4090, SDK 1.4.357.0, where both are
+present at revision 1 with `deviceAddressCommands = VK_TRUE`. One data point is
+not a floor.
+
+**The row stays anyway, on this ADR's own terms rather than on a no-cost
+argument.** The alternative is a runtime fork between the address and handle
+command forms — "degrade rather than refuse", which is precisely what the
+all-or-nothing rule above forbids, and which would double the command surface
+#1179 set out to halve. The honest statement of the trade is: this backend
+prefers a smaller, provable command surface to a wider hardware floor, and a
+device that satisfies the rest of the contract but lacks this extension is
+refused with the capability named. If a driver on the intended floor turns up
+without it, that is an ADR amendment, not a code fallback.
 
 **What it buys, and what it does not.** The backend's command family stops
 taking `VkBuffer` handles: index binds, buffer and buffer→image copies, and the

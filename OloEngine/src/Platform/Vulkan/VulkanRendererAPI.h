@@ -697,7 +697,8 @@ namespace OloEngine
         // range — the handle form had no way to express the extent at all.
         [[nodiscard]] static bool MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
                                                         VkDeviceSize offsetBytes, u32 drawCount,
-                                                        VkDeviceSize strideBytes, VkDrawIndirect2InfoKHR& outInfo);
+                                                        VkDeviceSize commandSizeBytes, VkDeviceSize strideBytes,
+                                                        VkDrawIndirect2InfoKHR& outInfo);
         // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
         // draws and dispatches (§4: one contract, no compute special case).
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot
