@@ -3327,6 +3327,12 @@ namespace OloEngine
                 OLO_CORE_ERROR("[RHI/Vulkan] MultiDrawElementsIndirectCountRaw needs drawIndirectCount"
                                "/multiDrawIndirect, which this device did not enable — draw dropped");
             }
+            // The capability gate rejects BEFORE PrepareDraw, so nothing else
+            // records this against the shader: no stub census (it is a device
+            // capability, not an unresolved input) and no PrepareDrawCommon
+            // drop. Without this the shader-keyed census shows the draw as
+            // neither issued nor dropped (#1171).
+            CensusDrawDropped();
             ++ctx.DroppedDraws;
             return;
         }
@@ -3398,6 +3404,12 @@ namespace OloEngine
                                "device did not enable — the capability gate should have routed this away; "
                                "draw dropped");
             }
+            // The capability gate rejects BEFORE PrepareDraw, so nothing else
+            // records this against the shader: no stub census (it is a device
+            // capability, not an unresolved input) and no PrepareDrawCommon
+            // drop. Without this the shader-keyed census shows the draw as
+            // neither issued nor dropped (#1171).
+            CensusDrawDropped();
             ++ctx.DroppedDraws;
             return;
         }

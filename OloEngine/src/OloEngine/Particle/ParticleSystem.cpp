@@ -30,14 +30,18 @@ namespace OloEngine
 
     ParticleSystem& ParticleSystem::operator=(const ParticleSystem& other)
     {
-        // The GPU system does not survive an assignment, so its last emit
-        // request must not either — reporting the previous system's request
-        // is the stale-diagnostic failure this field exists to avoid (#1171).
-        m_LastGpuEmitRequest = 0;
         if (this == &other)
         {
             return *this;
         }
+
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        // BELOW the self-assignment guard on purpose: `a = a` leaves every
+        // other member alone, so clearing this one there would make a no-op
+        // assignment destroy a live diagnostic.
+        m_LastGpuEmitRequest = 0;
 
         // Copy all public settings
         Playing = other.Playing;
@@ -112,14 +116,18 @@ namespace OloEngine
 
     ParticleSystem& ParticleSystem::operator=(ParticleSystem&& other) noexcept
     {
-        // The GPU system does not survive an assignment, so its last emit
-        // request must not either — reporting the previous system's request
-        // is the stale-diagnostic failure this field exists to avoid (#1171).
-        m_LastGpuEmitRequest = 0;
         if (this == &other)
         {
             return *this;
         }
+
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        // BELOW the self-assignment guard on purpose: `a = a` leaves every
+        // other member alone, so clearing this one there would make a no-op
+        // assignment destroy a live diagnostic.
+        m_LastGpuEmitRequest = 0;
 
         Playing = other.Playing;
         Looping = other.Looping;
