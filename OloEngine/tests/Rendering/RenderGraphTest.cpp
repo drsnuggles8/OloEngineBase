@@ -40,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <set>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -4946,6 +4947,79 @@ TEST(RenderGraphTransientPool, ResizeEvictsPoolWhenNodeResizedButDisplayUnchange
     EXPECT_EQ(after.TexturePoolSize, 0u)
         << "A resize that restores a reduced-band node to full res must evict the "
            "transient texture pool even when the display size is unchanged (#563).";
+}
+
+TEST(RenderGraphTransientPool, TrimKeepsWhatTheLastFrameNeeded)
+{
+    // Issue #1186. Trim's cap is a ceiling for buckets nobody is using, not a
+    // bound on a bucket's steady-state demand: the GTAO pass needs four
+    // same-spec R8 textures every frame (AOBuffer, DenoisePing, DenoisePong,
+    // Edge) against the default cap of 2, so the pool created two fresh
+    // textures per frame and destroyed them at Trim. AO still rendered — the
+    // storage was live during Execute — but every between-frames diagnostic
+    // saw the two evicted objects as consumed-but-unbacked, and
+    // olo_render_validate never returned ok on any scene, path or backend.
+    if (RendererAPI::GetAPI() == RendererAPI::API::None)
+        GTEST_SKIP() << "TransientPool acquisition requires an active rendering backend";
+
+    OloEngine::Tests::RenderPropertyFixture::IsGpuAvailable();
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    TransientPool pool;
+    TextureSpecification spec;
+    spec.Width = 64;
+    spec.Height = 64;
+    spec.Format = ImageFormat::R8;
+
+    // One frame: acquire `count` same-spec textures, return them, trim to the
+    // default cap. Returns the objects the frame was handed.
+    const auto frame = [&pool, &spec](const u32 count)
+    {
+        std::set<const Texture*> handed;
+        for (u32 i = 0; i < count; ++i)
+            handed.insert(pool.AcquireTexture(spec).Raw());
+        pool.ReleaseAll();
+        pool.Trim(2u);
+        return handed;
+    };
+
+    const auto first = frame(4u);
+    ASSERT_EQ(first.size(), 4u);
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 4u) << "a bucket the frame needed four of keeps four, cap or no cap";
+
+    const auto second = frame(4u);
+    EXPECT_EQ(second, first) << "steady state: the next frame is served entirely from the pool, nothing is created";
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 4u);
+
+    // Demand drops under the cap: the cap is the floor, and the object this
+    // frame actually used is the one that survives ahead of untouched leftovers.
+    const auto third = frame(1u);
+    ASSERT_EQ(third.size(), 1u);
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 2u) << "cap applies once demand is under it";
+    EXPECT_TRUE(first.contains(*third.begin())) << "served from the pool, not created";
+
+    const auto fourth = frame(2u);
+    EXPECT_TRUE(fourth.contains(*third.begin())) << "the object used last frame is kept ahead of untouched leftovers";
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 2u);
+
+    // A release with nothing acquired — BuildFrameGraph makes one at the
+    // start of every frame, followed by a Trim — must not reset the demand:
+    // otherwise that trim evicts to the cap what the frame-end trim kept and
+    // the churn just moves to the other end of the frame.
+    (void)frame(4u);
+    ASSERT_EQ(pool.GetStats().TexturePoolSize, 4u);
+    (void)frame(0u);
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 4u) << "an empty release is not a frame; the last real demand stands";
+
+    // A real frame that never touches this bucket trims it to the cap — the
+    // bloom-on-then-off case Trim exists for keeps working.
+    TextureSpecification otherSpec = spec;
+    otherSpec.Width = 32;
+    otherSpec.Height = 32;
+    (void)pool.AcquireTexture(otherSpec);
+    pool.ReleaseAll();
+    pool.Trim(2u);
+    EXPECT_EQ(pool.GetStats().TexturePoolSize, 2u + 1u) << "untouched bucket trimmed to the cap, the touched one keeps its one";
 }
 
 TEST(RenderGraphTransientPool, UnreachableTransientResourceIsNotPlannedForAllocation)
