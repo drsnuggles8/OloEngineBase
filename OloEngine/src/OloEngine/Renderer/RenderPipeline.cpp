@@ -3003,6 +3003,42 @@ namespace OloEngine
             HashBool(h, false);
         }
         HashBool(h, SSRHistoryValid);
+
+        // WHETHER THE RESERVOIR HISTORIES HOLD ANYTHING YET (#1169). Read from
+        // the REGISTRY, not from the blackboard, and that distinction is the
+        // whole point.
+        //
+        // BuildFrameGraph returns from its cache without re-running any pass's
+        // Setup(), and ReSTIRDIPass / ReSTIRGIPass LATCH their history handles
+        // there. Arming either tier moves the topology fingerprint, so Setup()
+        // runs on that frame - but that is precisely the frame the histories are
+        // being CREATED, so they hold no content, AcquireTemporalHistory returns
+        // no Previous handle, and the pass latches the absence. Nothing moves the
+        // fingerprint again, so the tier keeps sampling histories it was never
+        // handed for the rest of the session: ACTIVE, correct, and permanently
+        // noisier, with only historyPlanesAvailable showing 0 of 5.
+        //
+        // These two bits break that cycle because they change OUTSIDE a
+        // populate: the registry marks an entry valid once the frame's
+        // extraction has published into it, one frame after the tier first
+        // executes. Hashing the BLACKBOARD's own handle instead would deadlock -
+        // that value only changes when a populate runs, and a populate only runs
+        // when the fingerprint changes.
+        //
+        // Self-limiting by construction, which an out-of-band
+        // InvalidateBuildFrameGraphCache() is not: each bit flips false->true
+        // once per arming and then holds, so this costs exactly one extra
+        // repopulate. An earlier attempt that forced the invalidation directly
+        // from PopulateBlackboard re-entered every frame and drove the editor
+        // into AOApplyRenderPass's "enabled without resolved graph input/output"
+        // assertion - measured, and the reason this is a fingerprint input
+        // rather than a call.
+        if (data.RGraph)
+        {
+            const auto& historyRegistry = data.RGraph->GetTemporalHistoryRegistry();
+            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRDIReservoirSampleHistoryKey)));
+            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRGIReservoirSampleHistoryKey)));
+        }
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.
         //
