@@ -26,6 +26,9 @@
 #include "MCP/McpShadowCapture.h"
 #include "MCP/McpVirtualShadowMapStats.h"
 #include "OloEngine/Asset/AssetManager.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanRendererAPI.h"
+#endif
 #include "OloEngine/Particle/GPUParticleData.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Atmosphere/Ephemeris.h"
@@ -4722,6 +4725,30 @@ namespace OloEngine::MCP
                         j["ok"] = false;
                 }
 
+                // Vulkan silent no-ops (#1171). A stub hit is the backend
+                // refusing a call and continuing — exactly the shape that makes
+                // a feature look "broken for no reason". They were counted but
+                // only ever surfaced by a one-time log line, so a refusal that
+                // repeats every frame was invisible after its first occurrence.
+                // outsideRecording is the one to read first: it means work was
+                // issued while no command buffer was open, and simply dropped.
+#if OLO_WITH_VULKAN
+                if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+                {
+                    const auto& vk = static_cast<const VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+                    Json stubs;
+                    stubs["total"] = vk.GetUnimplementedStubHitCount();
+                    stubs["deferredFeature"] = vk.GetStubHitCount(VulkanRendererAPI::StubKind::DeferredFeature);
+                    stubs["preconditionFailure"] = vk.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+                    stubs["outsideRecording"] = vk.GetStubHitCount(VulkanRendererAPI::StubKind::OutsideRecording);
+                    j["vulkanStubs"] = std::move(stubs);
+                    if (vk.GetUnimplementedStubHitCount() > 0)
+                    {
+                        j["ok"] = false;
+                    }
+                }
+#endif
+
                 j["meta"] = CaptureStampJson(host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0, host.Context());
                 return j; });
 
@@ -5166,6 +5193,30 @@ namespace OloEngine::MCP
                                 facts.GpuCounterAlive = static_cast<i64>(counters.AliveCount);
                                 facts.GpuCounterDead = static_cast<i64>(counters.DeadCount);
                                 facts.GpuCounterEmit = static_cast<i64>(counters.EmitCount);
+                            }
+                            // Sample the particle pool itself. The emit shader writes a
+                            // particle AND bumps the counters; reading the pool separates
+                            // "the dispatch never ran" from "it ran and only the atomics
+                            // did not land" (issue #1171).
+                            if (const auto& particleSSBO = gpu->GetParticleSSBO(); particleSSBO)
+                            {
+                                constexpr u32 kSample = 256u;
+                                const u32 sampled =
+                                    std::min(kSample, static_cast<u32>(particleSSBO->GetSize() / sizeof(GPUParticle)));
+                                u32 written = 0;
+                                for (u32 slot = 0; slot < sampled; ++slot)
+                                {
+                                    const auto particle =
+                                        particleSSBO->GetData<GPUParticle>(slot * static_cast<u32>(sizeof(GPUParticle)));
+                                    // w of PositionLifetime is remaining lifetime; a never-written
+                                    // slot is all zeros.
+                                    if (particle.PositionLifetime.w != 0.0f)
+                                    {
+                                        ++written;
+                                    }
+                                }
+                                facts.GpuParticleSlotsSampled = static_cast<i64>(sampled);
+                                facts.GpuParticleSlotsWritten = static_cast<i64>(written);
                             }
                             if (const auto& indirectSSBO = gpu->GetIndirectDrawSSBO(); indirectSSBO)
                             {
@@ -7829,6 +7880,12 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("ok", Schema::Bool().Desc("True iff hazards, resolveFailures and consumedButUnbacked are all empty (and 'compare', when given, did not error)."))
                                     .Prop("hazardCount", Schema::Int().Min(0))
+                                    .Prop("vulkanStubs", Schema::Object()
+                                                             .Desc("Vulkan calls the backend REFUSED and continued past — cumulative for the process, Vulkan only. Non-zero sets ok=false. `outsideRecording` means work was issued with no command buffer open and was dropped on the floor, which is invisible in a frame capture because it never reached the GPU.")
+                                                             .Prop("total", Schema::Int().Min(0))
+                                                             .Prop("deferredFeature", Schema::Int().Min(0))
+                                                             .Prop("preconditionFailure", Schema::Int().Min(0))
+                                                             .Prop("outsideRecording", Schema::Int().Min(0)))
                                     .Prop("hazards", Schema::Array(Schema::Object()
                                                                        .Prop("kind", Schema::String())
                                                                        .Prop("resource", Schema::String())
@@ -8018,6 +8075,8 @@ namespace OloEngine::MCP
                                                         .Prop("useGPU", Schema::Bool().Desc("GPU-driven emitters draw indirectly and are not counted in submission."))
                                                         .Prop("gpuAliveCount", Schema::Int().Desc("On-device alive count for a GPU emitter; -1 when the GPU system is not initialised. The CPU aliveCount is empty by design for these."))
                                                         .Prop("lastGpuEmitRequest", Schema::Int().Desc("Particles the CPU emitter handed the GPU system on the last update. Zero means the emitter asked for nothing — the dispatch was never reached."))
+                                                        .Prop("gpuParticleSlotsWritten", Schema::Int().Desc("Of the first gpuParticleSlotsSampled pool slots, how many carry a non-zero lifetime. Non-zero here with zero counters means the emit dispatch RAN and only its atomics failed to land."))
+                                                        .Prop("gpuParticleSlotsSampled", Schema::Int())
                                                         .Prop("lodSpawnRateMultiplier", Schema::Number().Desc("LOD spawn scaling; 0 suppresses emission entirely."))
                                                         .Prop("deadGpuStages", Schema::Array(Schema::String()).Desc("GPU compute stages that failed to compile. Each dispatch bails EARLY AND SILENTLY on an invalid shader, so any non-empty list explains every downstream symptom."))
                                                         .Prop("renderMode", Schema::String().Enum({ "billboard", "stretchedBillboard", "mesh" }))

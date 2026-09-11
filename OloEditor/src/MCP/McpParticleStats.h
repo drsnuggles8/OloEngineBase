@@ -62,6 +62,13 @@ namespace OloEditor::MCP
         // nothing" from "it asked and the dispatch did nothing".
         i64 LastGpuEmitRequest = -1;
         f32 LodSpawnRateMultiplier = -1.0f;
+        // How many of the first N slots in the particle SSBO carry a non-zero
+        // lifetime. The emit shader writes particles AND bumps the counters; if
+        // this is non-zero while the counters are not, the dispatch ran and only
+        // the atomics failed to land, which is a different bug from "the
+        // dispatch did nothing". -1 = not sampled.
+        i64 GpuParticleSlotsWritten = -1;
+        i64 GpuParticleSlotsSampled = -1;
         std::string RenderMode;
         f32 DistanceToCamera = 0.0f;
         f32 LODMaxDistance = 0.0f;
@@ -197,6 +204,8 @@ namespace OloEditor::MCP
             one["gpuIndirectInstanceCount"] = e.GpuIndirectInstanceCount;
             one["lastGpuEmitRequest"] = e.LastGpuEmitRequest;
             one["lodSpawnRateMultiplier"] = e.LodSpawnRateMultiplier;
+            one["gpuParticleSlotsWritten"] = e.GpuParticleSlotsWritten;
+            one["gpuParticleSlotsSampled"] = e.GpuParticleSlotsSampled;
             one["renderMode"] = e.RenderMode;
             one["distanceToCamera"] = e.DistanceToCamera;
             one["lodMaxDistance"] = e.LODMaxDistance;
