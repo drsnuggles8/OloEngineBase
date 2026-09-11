@@ -739,9 +739,17 @@ namespace OloEngine
 
         if (m_Streamed)
         {
+            // SetData takes PARTIAL writes — ParticleBatchRenderer uploads only
+            // the instances it filled, a prefix of a much larger buffer — so the
+            // pushed range has to be a HIGH-WATER MARK, not this write's size.
+            // Pushing only the prefix left a draw that indexed past it reading
+            // unrelated arena bytes instead of the buffer's own tail. The shadow
+            // is never shrunk, so bytes beyond this write still hold the last
+            // write that covered them, which is exactly what the persistent
+            // buffer holds too.
             m_Shadow.resize(m_Size);
             std::memcpy(m_Shadow.data(), data.data, data.size);
-            m_ShadowSize = data.size;
+            m_ShadowSize = std::max(m_ShadowSize, data.size);
             ++m_DataVersion;
         }
 

@@ -294,7 +294,7 @@ namespace OloEngine
         // total-only counter cannot distinguish from one that was dropped.
         struct DrawCensusEntry
         {
-            u64 Prepared = 0; ///< reached its vkCmdDraw* call
+            u64 Prepared = 0; ///< recorded a vkCmdDraw* command
             u64 Dropped = 0;  ///< refused at any stage of PrepareDraw
         };
         [[nodiscard]] std::unordered_map<std::string, DrawCensusEntry> GetDrawCensus() const
@@ -623,6 +623,8 @@ namespace OloEngine
         void UnimplementedStub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
         // Record one draw outcome against its shader (#1171 draw census).
         void CensusDraw(const std::string& shaderName, bool prepared) const;
+        // Records a draw that actually reached its Vulkan command.
+        void CensusDrawIssued() const;
 
         // Per-command-buffer state lives in VulkanRecordingContext (#806).
         using RenderingScope = VulkanRecordingContext::RenderingScope;

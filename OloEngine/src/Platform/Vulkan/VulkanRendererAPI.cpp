@@ -2335,6 +2335,14 @@ namespace OloEngine
         return true;
     }
 
+    void VulkanRendererAPI::CensusDrawIssued() const
+    {
+        // Called immediately after a vkCmdDraw*: the shader is still bound, and
+        // reaching here is the only thing that means "this draw issued".
+        const auto* shader = VulkanShader::GetCurrentlyBound();
+        CensusDraw(shader != nullptr ? shader->GetName() : std::string{ "<no shader bound>" }, true);
+    }
+
     void VulkanRendererAPI::CensusDraw(const std::string& shaderName, const bool prepared) const
     {
         const std::scoped_lock lock(m_DrawCensusMutex);
@@ -2503,10 +2511,12 @@ namespace OloEngine
                                    ? PushRootDataAddress(gpuWrittenRootData)
                                    : AssembleAndPushRootData(layout, shader->GetName().c_str(), vao,
                                                              /*commandOrderedBufferReads=*/true);
-        // Census the OUTCOME, here and only here: every earlier exit is a drop
-        // and counts itself. `Prepared` means the draw reached its Vulkan call,
-        // which is what the field is documented to mean (#1171).
-        CensusDraw(shader->GetName(), assembled);
+        // Only the DROP is censused here. `Prepared` means the draw reached its
+        // Vulkan command, and PrepareDraw succeeding is not that — an entry
+        // point can still fail BindIndexBufferFor afterwards. The successful
+        // count is taken at each vkCmdDraw* by CensusDrawIssued (#1171).
+        if (!assembled)
+            CensusDraw(shader->GetName(), false);
         if (assembled)
         {
             ++ctx.PreparedDraws;
@@ -2953,6 +2963,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
             vkCmdDraw(ctx.Cmd, vertexCount, 1, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -2970,6 +2981,7 @@ namespace OloEngine
             // VulkanPassSuiteTest's first full-graph frame).
             const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -2982,6 +2994,7 @@ namespace OloEngine
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
             const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, instanceCount, 0, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -2992,6 +3005,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
         {
             vkCmdDraw(ctx.Cmd, vertexCount, 1, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3014,6 +3028,7 @@ namespace OloEngine
             // Same 0 = whole-index-buffer facade contract as DrawIndexed.
             const u32 count = indexCount != 0 ? indexCount : ResolveIndexBufferFor(vao).Count;
             vkCmdDrawIndexed(ctx.Cmd, count, 1, 0, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3035,6 +3050,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, baseIndex, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3051,6 +3067,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             vkCmdDrawIndexed(ctx.Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3069,6 +3086,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_PATCH_LIST) && BindIndexBufferFor(vao))
         {
             vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, 0, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3116,6 +3134,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
             vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3129,6 +3148,7 @@ namespace OloEngine
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
             vkCmdDrawIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3142,6 +3162,7 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
             vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -3186,6 +3207,7 @@ namespace OloEngine
         {
             vkCmdDrawIndexedIndirectCount(ctx.Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
                                           maxDrawCount, strideBytes);
+            CensusDrawIssued();
         }
     }
 
@@ -3226,6 +3248,7 @@ namespace OloEngine
         if (PrepareDrawCommon(nullptr, /*meshPipeline=*/true))
         {
             vkCmdDrawMeshTasksEXT(ctx.Cmd, groupsX, groupsY, groupsZ);
+            CensusDrawIssued();
         }
     }
 
@@ -4411,6 +4434,7 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
             vkCmdDrawIndexed(ctx.Cmd, indexCount, 1, baseIndex, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -4420,6 +4444,7 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
             vkCmdDrawIndexed(ctx.Cmd, indexCount, instanceCount, baseIndex, 0, 0);
+            CensusDrawIssued();
         }
     }
 
@@ -4429,6 +4454,7 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)))
         {
             vkCmdDraw(ctx.Cmd, vertexCount, 1, firstVertex, 0);
+            CensusDrawIssued();
         }
     }
 

@@ -30,6 +30,10 @@ namespace OloEngine
 
     ParticleSystem& ParticleSystem::operator=(const ParticleSystem& other)
     {
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        m_LastGpuEmitRequest = 0;
         if (this == &other)
         {
             return *this;
@@ -108,6 +112,10 @@ namespace OloEngine
 
     ParticleSystem& ParticleSystem::operator=(ParticleSystem&& other) noexcept
     {
+        // The GPU system does not survive an assignment, so its last emit
+        // request must not either — reporting the previous system's request
+        // is the stale-diagnostic failure this field exists to avoid (#1171).
+        m_LastGpuEmitRequest = 0;
         if (this == &other)
         {
             return *this;
