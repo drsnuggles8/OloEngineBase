@@ -379,13 +379,30 @@ and resolving each candidate against the same anchors the engine itself uses -- 
 root, asset directory (`Project::GetAssetFileSystemPath`), the legacy project-prefixed
 spelling, then the working directory.
 
-**Always read `coverage`.** It names what was *not* searched: binary formats skipped (a
-`.glb` can carry references this scan cannot see), unreadable files, references that
-resolve to nothing, and whether the walk was truncated. An empty referrer list means
-*nothing was found in this set*, never *nothing references this asset*. Two known
-boundaries: a handle under a key whose name is not handle-shaped is not collected, and a
-bare filename with no directory separator counts only when it resolves (a scene's
-`Scene: Courtyard.olo` is its title, not a path).
+**Always read `coverage`.** It names what was *not* searched: formats skipped because
+nothing here can read them, unreadable files, references that resolve to nothing, and
+whether the walk finished. An empty referrer list means *nothing was found in this set*,
+never *nothing references this asset*.
+
+`coverage.scanCompleted` is the gate: it is true when the walk started, finished and read
+every text asset file it found. Those are **fixable** conditions, so every destructive
+command refuses when it is false and `force` does not waive it. It is deliberately *not*
+called "reliable" — it says nothing about formats this scan cannot read at all, which is a
+**permanent** boundary rather than a fault to repair. Every real project contains such
+files, so refusing on their mere presence would mean no asset is ever movable; they are
+reported instead, as `coverage.binaryFilesSkipped` and as `unscannableFiles` on each
+destructive result.
+
+Known boundaries, all stated rather than silent:
+
+* a handle under a key whose name is not handle-shaped is not collected;
+* a bare filename with no directory separator counts only when it resolves (a scene's
+  `Scene: Courtyard.olo` is its title, not a path), and a file naming itself is never a
+  reference;
+* `.gltf` **is** scanned — it is JSON and names its textures by URI relative to itself —
+  but a **minified** one is a single line and this is a line scanner, so it yields
+  nothing and is counted as unscannable. `.glb` and the other binary formats are never
+  scanned.
 
 A safe sequence is:
 

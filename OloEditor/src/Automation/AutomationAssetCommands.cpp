@@ -306,7 +306,7 @@ namespace OloEngine::Automation
                 { "truncated", index.Coverage.Truncated },
                 { "complete", index.Coverage.Complete },
                 { "incompleteReason", index.Coverage.IncompleteReason },
-                { "reliable", index.Coverage.Reliable() },
+                { "reliable", index.Coverage.ScanCompleted() },
                 { "projectRoot", scope.ProjectRoot.generic_string() },
                 { "assetDirectory", scope.AssetDirectory.generic_string() },
                 { "extraBaseDirectories", std::move(bases) },
@@ -406,7 +406,7 @@ namespace OloEngine::Automation
                                                 const AssetTarget& target, const ProjectView& project,
                                                 const AssetIndexScope& scope, bool force, std::string_view verb)
         {
-            if (!index.Coverage.Reliable())
+            if (!index.Coverage.ScanCompleted())
             {
                 Json refusal{ { "refused", true },
                               { "reason", index.Coverage.Truncated ? "index-truncated" : "scan-incomplete" },
@@ -833,7 +833,7 @@ namespace OloEngine::Automation
             const AssetIndex index = ScanProject(host, scope);
             if (host.IsCurrentCallCancelled())
                 return AutomationResult::Error("Cancelled while scanning the project.");
-            if (!index.Coverage.Reliable())
+            if (!index.Coverage.ScanCompleted())
             {
                 return AutomationResult::Structured(
                     Json{ { "moved", false },
@@ -936,6 +936,7 @@ namespace OloEngine::Automation
                       { "handleReferencesUnchanged", handleReferrers },
                       { "filesRewritten", std::move(rewritten) },
                       { "registryUpdated", registryUpdated == 1 },
+                      { "unscannableFiles", index.Coverage.BinaryFilesSkipped },
                       { "undoable", undoable },
                       { "coverage", DescribeCoverage(index, scope) } });
         }
@@ -1016,6 +1017,12 @@ namespace OloEngine::Automation
                       { "referencesBroken", static_cast<u32>(referrers.size()) },
                       { "brokenReferences", std::move(broken) },
                       { "importSettingsRemoved", sidecarRemoved && !sidecarEc },
+                      // At the DECISION POINT, not only inside coverage: the scan
+                      // cannot read these formats at all, so "0 referrers" is a
+                      // statement about the files it could read. A caller deleting
+                      // on the strength of an empty list should see this without
+                      // having to go digging.
+                      { "unscannableFiles", index.Coverage.BinaryFilesSkipped },
                       { "undoable", false },
                       { "coverage", DescribeCoverage(index, scope) } });
         }
@@ -1419,10 +1426,12 @@ namespace OloEngine::Automation
                                       "False when the scan could not see the whole project for any other reason "
                                       "-- an unusable root, a walk that could not finish, an unreadable file."))
                 .Prop("incompleteReason", Schema::String())
-                .Prop("reliable", Schema::Bool().Desc(
-                                      "complete AND not truncated. ONLY when this is true may an empty referrer "
-                                      "list be read as 'nothing references this'. Every destructive command "
-                                      "refuses when it is false, and 'force' does not waive that."))
+                .Prop("scanCompleted", Schema::Bool().Desc(
+                                           "complete AND not truncated: the scan finished over the formats it can "
+                                           "read. Every destructive command refuses when this is false, and "
+                                           "'force' does not waive it. It is NOT a promise that nothing references "
+                                           "the asset -- see binaryFilesSkipped for the formats no scan here can "
+                                           "read."))
                 .Prop("projectRoot", Schema::String())
                 .Prop("assetDirectory", Schema::String().Desc("The second resolution anchor; see 'note'."))
                 .Prop("extraBaseDirectories", Schema::Array(Schema::String()))
@@ -1545,6 +1554,9 @@ namespace OloEngine::Automation
                                                                .Prop("file", Schema::String())
                                                                .Prop("referencesRewritten", Schema::Int().Min(0))))
                      .Prop("registryUpdated", Schema::Bool())
+                     .Prop("unscannableFiles", Schema::Int().Min(0).Desc(
+                                                   "Files in formats this scan cannot read; a reference from one "
+                                                   "of them was not rewritten because it was never seen."))
                      .Prop("undoable", Schema::Bool())
                      .Prop("coverage", CoverageSchema())
                      .Required({ "moved", "refused", "coverage" }),
@@ -1562,7 +1574,7 @@ namespace OloEngine::Automation
                  Schema::Object()
                      .Prop("deleted", Schema::Bool())
                      .Prop("refused", Schema::Bool())
-                     .Prop("reason", Schema::String().Enum({ "referenced", "index-truncated" }))
+                     .Prop("reason", Schema::String().Enum({ "referenced", "index-truncated", "scan-incomplete" }))
                      .Prop("message", Schema::String())
                      .Prop("forced", Schema::Bool())
                      .Prop("handle", Schema::String())
@@ -1574,6 +1586,11 @@ namespace OloEngine::Automation
                      .Prop("brokenReferences", Schema::Array(ReferenceSchema()))
                      .Prop("importSettingsRemoved", Schema::Bool().Desc(
                                                         "Whether an .oloimport sidecar was removed alongside."))
+                     .Prop("unscannableFiles", Schema::Int().Min(0).Desc(
+                                                   "Files in formats this scan cannot read (see "
+                                                   "coverage.binaryExtensionsSkipped). A reference from one of "
+                                                   "them is invisible here, so an empty referrer list is a "
+                                                   "statement about the files that COULD be read."))
                      .Prop("undoable", Schema::Bool())
                      .Prop("coverage", CoverageSchema())
                      .Required({ "deleted", "refused", "coverage" }),

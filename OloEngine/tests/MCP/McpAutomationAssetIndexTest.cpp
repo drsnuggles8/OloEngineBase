@@ -304,7 +304,7 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(index.References.empty());
         EXPECT_FALSE(index.Coverage.Truncated) << "it did not hit the file limit -- it never started";
         EXPECT_FALSE(index.Coverage.Complete);
-        EXPECT_FALSE(index.Coverage.Reliable())
+        EXPECT_FALSE(index.Coverage.ScanCompleted())
             << "an empty index from a scan that never ran must never read as 'nothing references this'";
         EXPECT_FALSE(index.Coverage.IncompleteReason.empty()) << "and it has to say why";
     }
@@ -313,7 +313,7 @@ namespace OloEngine::Automation::Tests
     {
         AssetIndexScope broken;
         const AssetIndex index = BuildAssetIndex(broken);
-        EXPECT_FALSE(index.Coverage.Reliable());
+        EXPECT_FALSE(index.Coverage.ScanCompleted());
         EXPECT_FALSE(index.Coverage.IncompleteReason.empty());
     }
 
@@ -322,9 +322,52 @@ namespace OloEngine::Automation::Tests
         Write(m_Project / "Assets" / "Scenes" / "Fine.olo",
               "Scene: Fine\n  AlbedoPath: Assets/Textures/Checkerboard.png\n");
         const AssetIndex index = Build();
-        EXPECT_TRUE(index.Coverage.Reliable());
+        EXPECT_TRUE(index.Coverage.ScanCompleted());
         EXPECT_TRUE(index.Coverage.Complete);
         EXPECT_TRUE(index.Coverage.IncompleteReason.empty());
+    }
+
+    // A .gltf is JSON and names its textures by URI relative to itself. Assimp
+    // resolves them that way, so a texture reachable only from a .gltf is really
+    // referenced -- and leaving the format unscanned made it look deletable.
+    TEST_F(AutomationAssetIndexTest, FindsAReferenceFromAGltfRelativeToItself)
+    {
+        // The real DamagedHelmet.gltf shape: quoted key, space before the colon,
+        // trailing comma. None of those parsed before.
+        Write(m_Project / "Assets" / "Models" / "Helmet" / "Helmet.gltf",
+              "{\n"
+              "    \"images\" : [\n"
+              "        {\n"
+              "            \"uri\" : \"Default_albedo.jpg\",\n"
+              "            \"name\" : \"albedo\"\n"
+              "        }\n"
+              "    ]\n"
+              "}\n");
+        const auto texture = m_Project / "Assets" / "Models" / "Helmet" / "Default_albedo.jpg";
+        Write(texture, "jpg-ish");
+
+        const AssetIndex index = Build();
+        const auto referrers = FindReferrers(index, std::filesystem::weakly_canonical(texture), 0);
+        ASSERT_EQ(referrers.size(), 1u) << "a glTF URI is relative to the .gltf file itself";
+        EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::SourceRelative);
+        EXPECT_EQ(referrers[0].Key, "uri");
+        EXPECT_EQ(referrers[0].RawValue, "Default_albedo.jpg")
+            << "the trailing comma is punctuation, not part of the value";
+    }
+
+    // The source-relative anchor is tried LAST, so it can never take a value the
+    // engine's own resolver would have resolved differently.
+    TEST_F(AutomationAssetIndexTest, SourceRelativeNeverOutranksTheProjectAnchor)
+    {
+        Write(m_Project / "Assets" / "Scenes" / "Both.olo",
+              "Scene: Both\n  AlbedoPath: Assets/Textures/Checkerboard.png\n");
+        // A decoy at the same path relative to the SCENE's own directory.
+        Write(m_Project / "Assets" / "Scenes" / "Assets" / "Textures" / "Checkerboard.png", "decoy");
+
+        const AssetIndex index = Build();
+        const auto referrers = FindReferrers(index, ProjectTexture(), 0);
+        ASSERT_EQ(referrers.size(), 1u) << "the project-relative anchor must still win";
+        EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::ProjectRelative);
     }
 
     // --- the other graph direction ------------------------------------------

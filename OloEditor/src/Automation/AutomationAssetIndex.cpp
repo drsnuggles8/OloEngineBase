@@ -48,7 +48,16 @@ namespace OloEngine::Automation
                 ".oloparticle", ".oloprobe", ".olodialogue", ".olosg", ".olobt", ".olofsm",
                 ".oloinstances", ".olocine", ".olofluid", ".oloxpcurve", ".oloskilltree",
                 ".olocharclass", ".olovs", ".olotileset", ".oloitem", ".oloquest", ".oloproj",
-                ".yaml", ".yml", ".json", ".lua", ".cs"
+                ".yaml", ".yml", ".json", ".lua", ".cs",
+                // glTF is JSON, and it names its textures by URI relative to
+                // itself. Left out, a texture reachable only from a .gltf reads as
+                // unreferenced -- the exact silent-loss case this index exists for.
+                // Its sibling .glb is a binary container and stays unscanned, as
+                // does a MINIFIED .gltf: this is a line scanner, so a whole
+                // document on one line yields nothing. Both are counted in
+                // BinaryFilesSkipped / reported as unscannable rather than being
+                // quietly absent.
+                ".gltf"
             };
             return set;
         }
@@ -178,14 +187,31 @@ namespace OloEngine::Automation
                 while (cursor < text.size() && (text[cursor] == ' ' || text[cursor] == '\t'))
                     ++cursor;
             }
+            // A JSON key is quoted, and glTF writes `"uri" : "x.jpg"` -- quoted key
+            // AND a space before the colon. Accepting both is what makes a .gltf
+            // readable by this scanner at all; without it every texture reachable
+            // only from a glTF looks unreferenced. Harmless for YAML, which permits
+            // a quoted key and a space before the colon too.
+            const bool quotedKey = cursor < text.size() && text[cursor] == '"';
+            if (quotedKey)
+                ++cursor;
             const sizet keyStart = cursor;
             while (cursor < text.size() && IsKeyChar(text[cursor]))
                 ++cursor;
-            if (cursor == keyStart || cursor >= text.size() || text[cursor] != ':')
+            const sizet keyEnd = cursor;
+            if (quotedKey)
+            {
+                if (cursor >= text.size() || text[cursor] != '"')
+                    return {};
+                ++cursor;
+            }
+            while (cursor < text.size() && (text[cursor] == ' ' || text[cursor] == '\t'))
+                ++cursor;
+            if (keyEnd == keyStart || cursor >= text.size() || text[cursor] != ':')
                 return {};
             // A key must be followed by whitespace or end of line; "http://x" is a
             // value with a colon in it, not a key.
-            const sizet colon = cursor;
+            const sizet colon = keyEnd;
             ++cursor;
             if (cursor < text.size() && text[cursor] != ' ' && text[cursor] != '\t')
                 return {};
@@ -199,6 +225,14 @@ namespace OloEngine::Automation
             while (valueEnd > cursor && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\t' ||
                                          text[valueEnd - 1] == '\r'))
                 --valueEnd;
+            // JSON separates members with a comma; it is punctuation, not part of
+            // the value. Trailing whitespace is re-trimmed after it.
+            if (valueEnd > cursor && text[valueEnd - 1] == ',')
+            {
+                --valueEnd;
+                while (valueEnd > cursor && (text[valueEnd - 1] == ' ' || text[valueEnd - 1] == '\t'))
+                    --valueEnd;
+            }
             // A key with no scalar after it opens a nested block. Report it so the
             // scanner can push it as the parent of the indented lines below --
             // that is what makes `Materials:` / `  0: <handle>` readable as a
@@ -287,7 +321,8 @@ namespace OloEngine::Automation
             u32 BaseDirectoryIndex = 0;
         };
 
-        Resolution ResolveReferencePath(const std::string& rawValue, const AssetIndexScope& scope)
+        Resolution ResolveReferencePath(const std::string& rawValue, const AssetIndexScope& scope,
+                                        const std::filesystem::path& sourceDirectory)
         {
             std::string normalized = rawValue;
             std::ranges::replace(normalized, '\\', '/');
@@ -345,6 +380,18 @@ namespace OloEngine::Automation
                 resolution.Anchor = AssetReferenceAnchor::BaseDirectory;
                 resolution.BaseDirectoryIndex = index;
                 return resolution;
+            }
+            // LAST, after every anchor the engine's own importer uses, so this can
+            // only ever rescue a value that would otherwise be unresolved. glTF
+            // URIs are relative to the .gltf file and Assimp reads them that way.
+            if (!sourceDirectory.empty())
+            {
+                if (const std::filesystem::path candidate = sourceDirectory / value; FileExists(candidate))
+                {
+                    resolution.File = Canonical(candidate);
+                    resolution.Anchor = AssetReferenceAnchor::SourceRelative;
+                    return resolution;
+                }
             }
             return resolution;
         }
@@ -454,7 +501,7 @@ namespace OloEngine::Automation
                     const sizet dot = lowered.find_last_of('.');
                     if (dot != std::string::npos && ReferenceableSet().contains(lowered.substr(dot)))
                     {
-                        const Resolution resolution = ResolveReferencePath(parsed.Value, scope);
+                        const Resolution resolution = ResolveReferencePath(parsed.Value, scope, file.parent_path());
                         // A value with no directory separator is ambiguous between a
                         // reference and a NAME that happens to end in an asset
                         // extension -- every scene in this project opens with
@@ -466,7 +513,14 @@ namespace OloEngine::Automation
                         // note says so rather than guessing either way.
                         const bool bareName = parsed.Value.find('/') == std::string::npos &&
                                               parsed.Value.find('\\') == std::string::npos;
-                        if (bareName && resolution.Anchor == AssetReferenceAnchor::Unresolved)
+                        // A file naming ITSELF is not a reference -- every scene here
+                        // opens with `Scene: Courtyard.olo`, its title, which the
+                        // source-relative anchor happily resolves to the very file it is
+                        // written in. Dropped at extraction rather than only at query
+                        // time so the counts mean something: it was 99 of the 399
+                        // references in the sandbox project.
+                        if (bareName && (resolution.Anchor == AssetReferenceAnchor::Unresolved ||
+                                         resolution.File == file))
                         {
                             if (lastLine)
                                 break;
@@ -538,11 +592,15 @@ namespace OloEngine::Automation
         walked.ProjectRoot = Canonical(scope.ProjectRoot);
 
         std::unordered_set<std::string> binaryExtensions;
-        // skip_permission_denied so one unreadable directory does not abort the
-        // walk; the entries it would have contributed are simply absent, which the
-        // caller sees as a lower FilesScanned rather than as a wrong answer.
-        std::filesystem::recursive_directory_iterator it(
-            walked.ProjectRoot, std::filesystem::directory_options::skip_permission_denied, ec);
+        // NOT skip_permission_denied. That option drops an unreadable directory
+        // without setting an error, so its files simply never appear and the scan
+        // looks complete -- a lower FilesScanned that nothing points at, which is
+        // precisely the silent shortfall this coverage block exists to prevent.
+        // Letting the error surface instead ends the walk and marks the index
+        // incomplete, so a destructive command refuses and says why. Aborting on
+        // an unreadable directory is the safe direction: the alternative is
+        // deleting an asset that something in it referenced.
+        std::filesystem::recursive_directory_iterator it(walked.ProjectRoot, ec);
         if (ec)
         {
             index.Coverage.Complete = false;
@@ -740,6 +798,9 @@ namespace OloEngine::Automation
                 respelled = relativeTo(newTarget, scope.BaseDirectories[reference.BaseDirectoryIndex]);
                 break;
             }
+            case AssetReferenceAnchor::SourceRelative:
+                respelled = relativeTo(newTarget, reference.SourceFile.parent_path());
+                break;
             case AssetReferenceAnchor::Unresolved:
                 return {};
         }

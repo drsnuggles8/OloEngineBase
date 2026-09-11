@@ -92,6 +92,14 @@ namespace OloEngine::Automation
         AssetDirectoryRelative,
         LegacyProjectPrefixed, // ProjectRoot / (value minus its leading component).
         BaseDirectory,         // one of AssetIndexScope::BaseDirectories.
+        // The REFERRING FILE's own directory. Tried last, after every anchor
+        // EditorAssetManager::ImportAsset uses, so it can only ever resolve
+        // something that would otherwise be unresolved -- the index must never
+        // disagree with the engine about a path the engine can already resolve.
+        // It exists for glTF: a .gltf names its textures by URI relative to
+        // itself, and Assimp resolves them that way, so without this anchor a
+        // texture reachable only from a .gltf looked unreferenced.
+        SourceRelative,
     };
 
     // One reference found in one file, kept with enough context to REWRITE it:
@@ -152,16 +160,30 @@ namespace OloEngine::Automation
         // empty one at the call site. Without this, a scan that failed before it
         // read a single file returned zero references with Truncated false, and a
         // destructive command gating on Truncated alone would read that as
-        // "nothing references this asset" and go ahead. Use Reliable() rather than
+        // "nothing references this asset" and go ahead. Use ScanCompleted() rather
         // testing either flag by hand.
         bool Complete = true;
         // Why Complete is false, for the result. Empty when it is true.
         std::string IncompleteReason;
 
-        // Whether this index may be trusted to answer "what references X"
-        // NEGATIVELY. Every destructive command must check it; a read-only query
-        // may still report what it found, alongside the coverage that says so.
-        [[nodiscard]] bool Reliable() const
+        // Whether the scan finished over the set it can read. Deliberately NOT
+        // named Reliable(): it is not a promise that nothing references the asset,
+        // and a caller must not read it as one.
+        //
+        // What it covers: the walk started, finished, and read every text asset
+        // file it found. Those are FIXABLE conditions -- raise MaxFiles, fix the
+        // permissions, repair the root -- so a destructive command refuses on them
+        // and the user can act on the reason it gives.
+        //
+        // What it does NOT cover: formats this index cannot read at all
+        // (BinaryFilesSkipped). A .fbx or a .glb could in principle name an asset
+        // in a way nothing here can see. That boundary is PERMANENT, not a fault
+        // to repair, so it cannot gate a mutation: every real project contains
+        // such files -- the sandbox has 99 -- and refusing on their mere presence
+        // would mean no asset is ever movable or deletable, which is a broken
+        // command rather than a safe one. It is reported instead, in the coverage
+        // block and at the decision point of every destructive result.
+        [[nodiscard]] bool ScanCompleted() const
         {
             return Complete && !Truncated;
         }
@@ -183,8 +205,8 @@ namespace OloEngine::Automation
         // AssetReferenceAnchor::AssetDirectoryRelative). Empty disables that anchor.
         std::filesystem::path AssetDirectory;
         // Ordered base directories a relative reference is resolved against, most
-        // specific first. The referring file's own directory is always tried too
-        // (for the "../../assets/..." spelling) and does not belong here.
+        // specific first. The referring file's own directory is NOT one of these --
+        // it is tried last, automatically, as AssetReferenceAnchor::SourceRelative.
         std::vector<std::filesystem::path> BaseDirectories;
         // Bounds the walk. Exceeding it sets Coverage.Truncated rather than
         // quietly returning a short index.
