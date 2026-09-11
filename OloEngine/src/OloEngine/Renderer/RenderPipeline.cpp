@@ -179,6 +179,44 @@ namespace OloEngine
             .Plane = TemporalHistoryPlane::MomentsFirst,
         };
 
+        // ReSTIR GI (#1169). The same five planes, at ITS OWN layout version.
+        // Sharing DI's number would make a DI packing bump invalidate GI's
+        // reservoirs for a change that cannot affect them, which reads as "the
+        // tier restarts by itself": the two layouts share an ENCODING but not a
+        // SHAPE, because DI's identity lane carries a light index and GI's
+        // carries a sample age.
+        constexpr u32 kReSTIRGIHistoryLayoutVersion = ReSTIR::kGIReservoirLayoutVersion;
+        constexpr TemporalHistoryKey kReSTIRGIReservoirSampleHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirSample,
+        };
+        constexpr TemporalHistoryKey kReSTIRGIReservoirRadianceHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirRadiance,
+        };
+        constexpr TemporalHistoryKey kReSTIRGIReservoirStateHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::ReservoirState,
+        };
+        constexpr TemporalHistoryKey kReSTIRGISurfaceHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::SurfaceGeometry,
+        };
+        constexpr TemporalHistoryKey kReSTIRGIMomentsHistoryKey{
+            .Effect = TemporalHistoryEffect::ReSTIRGI,
+            .View = 0,
+            .Resolution = TemporalHistoryResolution::Scene,
+            .Plane = TemporalHistoryPlane::MomentsFirst,
+        };
+
         // The path tracer's accumulation: everything a reprojecting history
         // depends on EXCEPT the jitter (its rays come from the unjittered
         // projection, so a TAA / FSR2 toggle must not throw the sum away),
@@ -214,6 +252,14 @@ namespace OloEngine
             TemporalHistoryDependency::Scene |
             TemporalHistoryDependency::Backend |
             TemporalHistoryDependency::FeatureState;
+        // ReSTIR GI (#1169). The same set as DI's and for the same two
+        // omissions: no Jitter, because this tier is handed the unjittered
+        // projection and declaring a jitter dependency while rendering unjittered
+        // invalidates the whole history on every frame TAA moves it, which is
+        // every frame; and no SceneContent, because a reprojecting history
+        // survives a moved object by design and the #976 layer rejects the pixels
+        // it must.
+        constexpr TemporalHistoryDependency kReSTIRGIHistoryDependencies = kReSTIRDIHistoryDependencies;
         constexpr TemporalHistoryDependency kSSGIHistoryDependencies =
             TemporalHistoryDependency::ViewTransform |
             TemporalHistoryDependency::Projection |
@@ -1159,6 +1205,75 @@ namespace OloEngine
         // dynamic post chain. Deferred-only: when the path is forward / forward+
         // the SSGIColor resource is never declared (see PopulateBlackboard), so
         // the pass self-skips and downstream aliases back to the upstream colour.
+        // ReSTIR GI IS CONFIGURED BEFORE SSGI, AND THE ORDER IS LOAD-BEARING.
+        //
+        // #979's non-goal is that the GI tiers must not double-count, and SSGI's
+        // composite is a THIRD estimate of the same indirect-diffuse integral: if
+        // it runs while ReSTIR GI is live the frame adds both. The stand-down
+        // therefore has to be decided from THIS frame's verdict, which only
+        // exists once ResolveAvailabilityForFrame has run - so this block cannot
+        // sit with the other ray-tracing tiers further down, where SSGI would
+        // already have been enabled and the stats would be a frame stale. A
+        // one-frame stale verdict is a one-frame double count on every toggle,
+        // and "the room flashes brighter for a frame" is not a bug anyone files.
+        // ReSTIR GI (#1169, #979 Phase 3, second half).
+        if (SceneCompositePasses.ReSTIRGI)
+        {
+            auto& giPass = *SceneCompositePasses.ReSTIRGI;
+            const auto& giSettings = data.PostProcess.ReSTIRGI;
+            // UBO before the readiness check, for the reason the tiers above
+            // give: IsReadyForExecution() validates it.
+            giPass.SetParamsUBO(data.PostProcessGPU.ReSTIRGI);
+            giPass.SetSettings(giSettings);
+            giPass.SetEnabled(giSettings.Enabled && giPass.IsReadyForExecution());
+            // The SAME tables the path tracer's NEE samples: the bounce vertex's
+            // NEE draw and the oracle share the emitter set and the 1/totalArea
+            // density rather than each building one.
+            giPass.SetEmissiveTable(&data.PathTracerEmissive);
+            giPass.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
+            // The SAME environment pair the path tracer uses, from the same
+            // settings, so a bounce ray that escapes collects what the oracle's
+            // escaping ray collects. Two definitions of "the sky" is how the two
+            // stop agreeing about an outdoor scene's ambient.
+            // The third argument is the frame fact the intensity cannot carry:
+            // whether a prefiltered cube is bound at all. Execute gates the
+            // shader's ENVIRONMENT flag on the resolved heap slot for the same
+            // reason; this is the CPU-side half, so the engagement criterion and
+            // the shader agree about whether the scene has a sky.
+            giPass.SetEnvironment(data.PostProcess.GpuPathTracer.UniformEnvironmentRadiance,
+                                  data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity,
+                                  data.GlobalPrefilterMapID.IsValid());
+            // Whether the probe ladder is switched on at all - the DDGI tail,
+            // and half of the hand-off this tier must not break. THE SAME SWITCH
+            // the deferred shader's `enableProbes` reads, so the cache is read at
+            // the bounce vertex exactly when it would otherwise have been read at
+            // the primary one; a second source of truth here is how the cache
+            // ends up read twice or not at all.
+            //
+            // Whether a volume actually COVERS a given bounce vertex is a
+            // per-vertex fact no CPU flag can carry:
+            // sampleProbeVolumeIrradiance returns zero there, and the tail is
+            // simply absent for that sample.
+            giPass.SetProbeVolumeAvailable(
+                Renderer3D::GetRendererSettings().Deferred.EnableLightProbes);
+            // The SSGI switch as the USER set it. The pass stands SSGI down while
+            // it is live (a third estimate of the same integral double-counts) and
+            // COUNTS doing so, which is what makes "my SSGI slider does nothing"
+            // answerable from the statistics.
+            giPass.SetSSGIRequested(data.PostProcess.SSGIEnabled);
+            // The UNJITTERED projection, for the reason the DI tier takes one -
+            // and with one extra consequence here: the temporal draw reconstructs
+            // LAST FRAME'S SHADING POINT from the previous projection for its
+            // reconnection Jacobian, and a jittered matrix would move that point
+            // by a sub-pixel every frame inside a term that divides by the
+            // distance to a vertex which can be centimetres away.
+            const glm::mat4& giProjection =
+                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
+            giPass.SetCameraMatrices(data.ViewMatrix, giProjection, Renderer3D::GetRenderOrigin());
+            giPass.SetFrameIndex(data.StochasticFrameIndex);
+            giPass.ResolveAvailabilityForFrame();
+        }
+
         if (PostProcessPasses.SSGI)
         {
             const bool deferredPath = data.Settings.Path == RenderingPath::Deferred;
@@ -1166,7 +1281,18 @@ namespace OloEngine
             // also validates the UBO, so setting it first avoids dropping the
             // first frame SSGI is enabled.
             PostProcessPasses.SSGI->SetSSGIUBO(data.PostProcessGPU.SSGI);
-            const bool ssgiEnabled = data.PostProcess.SSGIEnabled && deferredPath &&
+            // STOOD DOWN WHILE ReSTIR GI OWNS THE TERM (issue #1169). The
+            // condition comes from SelectIndirectDiffuseSources, through the pass
+            // that just resolved it above - one function decides who adds
+            // indirect diffuse to this frame, and every consumer reads its
+            // answer rather than re-deriving one. The pass COUNTS the stand-down
+            // (ReSTIRGIStats::SSGIStoodDown), which is what makes "my SSGI slider
+            // does nothing" answerable without a bisect.
+            const bool ssgiOwnedElsewhere =
+                SceneCompositePasses.ReSTIRGI &&
+                !SceneCompositePasses.ReSTIRGI->GetIndirectDiffuseSources().SSGIComposite &&
+                data.PostProcess.SSGIEnabled;
+            const bool ssgiEnabled = data.PostProcess.SSGIEnabled && !ssgiOwnedElsewhere && deferredPath &&
                                      PostProcessPasses.SSGI->IsReadyForExecution();
             // Half resolution changes the SIZE of all four SSGI histories, so
             // flipping it has to drop them exactly as toggling the feature does
@@ -2630,6 +2756,19 @@ namespace OloEngine
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.SphereProxyAOEnabled);
         HashBool(h, data.PostProcess.SSGIEnabled);
+        // ...AND the RESOLVED verdict, which is a different bit. PopulateBlackboard
+        // declares SSGIColor (plus the whole denoiser chain and its four
+        // histories) on `SSGI->IsEnabled()`, and ConfigurePassesForFrame folds
+        // three more things into that: the deferred path, readiness, and - since
+        // #1169 - whether ReSTIR GI took the indirect-diffuse term. So the raw
+        // setting above can hold still while the declaration flips. HashPassState
+        // does not close this: it hashes the pass pointer and readiness only, and
+        // says so. Without this line a GI fallback (TLAS gone, shaders not ready)
+        // hands SSGI back the term against a cached topology in which SSGIColor
+        // was never declared, and SSGI looks simply absent - the same shape as the
+        // shadow-technique and RT-reflection holes documented below.
+        if (PostProcessPasses.SSGI)
+            HashBool(h, PostProcessPasses.SSGI->IsEnabled());
         // SSGI denoiser chain (issue #708). Half resolution sizes every graph
         // resource in the chain AND its four temporal histories, so it must be
         // hashed or flipping it reuses a cached build whose targets are the
@@ -2699,6 +2838,18 @@ namespace OloEngine
         {
             HashBool(h, data.PostProcess.ReSTIRDI.SpatialReuse);
             HashU32(h, data.PostProcess.ReSTIRDI.SpatialPasses);
+        }
+        // ReSTIR GI (#1169), on exactly the terms the DI block above states: the
+        // ARMED condition rather than the raw setting, plus the two settings that
+        // pick the history EXTRACTION SOURCE, because Setup() freezes that
+        // contract for as long as the cached topology survives.
+        const bool restirGIArmed = data.PostProcess.ReSTIRGI.Enabled && SceneCompositePasses.ReSTIRGI &&
+                                   SceneCompositePasses.ReSTIRGI->IsReadyForExecution();
+        HashBool(h, restirGIArmed);
+        if (restirGIArmed)
+        {
+            HashBool(h, data.PostProcess.ReSTIRGI.SpatialReuse);
+            HashU32(h, data.PostProcess.ReSTIRGI.SpatialPasses);
         }
         HashBool(h, data.PostProcess.ContactShadowEnabled);
         // The shadow TECHNIQUE (issue #1056). It gates whether PopulateBlackboard
@@ -2871,6 +3022,42 @@ namespace OloEngine
             HashBool(h, false);
         }
         HashBool(h, SSRHistoryValid);
+
+        // WHETHER THE RESERVOIR HISTORIES HOLD ANYTHING YET (#1169). Read from
+        // the REGISTRY, not from the blackboard, and that distinction is the
+        // whole point.
+        //
+        // BuildFrameGraph returns from its cache without re-running any pass's
+        // Setup(), and ReSTIRDIPass / ReSTIRGIPass LATCH their history handles
+        // there. Arming either tier moves the topology fingerprint, so Setup()
+        // runs on that frame - but that is precisely the frame the histories are
+        // being CREATED, so they hold no content, AcquireTemporalHistory returns
+        // no Previous handle, and the pass latches the absence. Nothing moves the
+        // fingerprint again, so the tier keeps sampling histories it was never
+        // handed for the rest of the session: ACTIVE, correct, and permanently
+        // noisier, with only historyPlanesAvailable showing 0 of 5.
+        //
+        // These two bits break that cycle because they change OUTSIDE a
+        // populate: the registry marks an entry valid once the frame's
+        // extraction has published into it, one frame after the tier first
+        // executes. Hashing the BLACKBOARD's own handle instead would deadlock -
+        // that value only changes when a populate runs, and a populate only runs
+        // when the fingerprint changes.
+        //
+        // Self-limiting by construction, which an out-of-band
+        // InvalidateBuildFrameGraphCache() is not: each bit flips false->true
+        // once per arming and then holds, so this costs exactly one extra
+        // repopulate. An earlier attempt that forced the invalidation directly
+        // from PopulateBlackboard re-entered every frame and drove the editor
+        // into AOApplyRenderPass's "enabled without resolved graph input/output"
+        // assertion - measured, and the reason this is a fingerprint input
+        // rather than a call.
+        if (data.RGraph)
+        {
+            const auto& historyRegistry = data.RGraph->GetTemporalHistoryRegistry();
+            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRDIReservoirSampleHistoryKey)));
+            HashBool(h, historyRegistry.IsValid(historyRegistry.Find(kReSTIRGIReservoirSampleHistoryKey)));
+        }
         // ...and the volumetric shadow volume (issue #723), for the third time
         // in a row, because the trap does not care that the PRODUCER dodged it.
         //
@@ -2962,6 +3149,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.ContactShadow);
         HashPassState(h, PostProcessPasses.GpuPathTracer);
         HashPassState(h, SceneCompositePasses.ReSTIRDI);
+        HashPassState(h, SceneCompositePasses.ReSTIRGI);
         HashPassState(h, PostProcessPasses.FSR2);
         HashPassState(h, PostProcessPasses.Bloom);
         HashPassState(h, PostProcessPasses.DOF);
@@ -3046,6 +3234,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.ReSTIRDI)
                         pipeline.SceneCompositePasses.ReSTIRDI->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.ReSTIRGI)
+                        pipeline.SceneCompositePasses.ReSTIRGI->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.RenderStreamPasses.FluidIntermediates)
                         pipeline.RenderStreamPasses.FluidIntermediates->ResizeFramebuffer(sceneW, sceneH);
 
@@ -4124,6 +4314,120 @@ namespace OloEngine
             }
         }
 
+        // ReSTIR GI (#1169), declared on exactly the terms the DI block above
+        // states: gated on the setting, the shaders and the four G-Buffer inputs,
+        // and deliberately NOT on the TLAS or the engagement criterion, because
+        // both are per-frame runtime state and making the GRAPH SHAPE depend on
+        // them would rebuild the graph on the frame geometry first appears and
+        // again every time the scene's last light is deleted. The pass handles
+        // both by clearing the radiance target to alpha 0, which the lighting
+        // shader reads as "the ambient ladder answers this pixel".
+        if (pipeline.SceneCompositePasses.ReSTIRGI)
+        {
+            const auto& gi = *pipeline.SceneCompositePasses.ReSTIRGI;
+            const bool giEnabled = gi.IsEnabled();
+            const bool giReady = gi.IsReadyForExecution();
+            const bool giHasDepth = board.Scene.SceneDepth.IsValid();
+            const bool giHasAlbedo = board.GBuffer.GBufferAlbedo.IsValid();
+            const bool giHasNormal = board.GBuffer.GBufferNormal.IsValid();
+            const bool giHasEmissive = board.GBuffer.GBufferEmissive.IsValid();
+            const bool giDeclared =
+                giEnabled && giReady && giHasDepth && giHasAlbedo && giHasNormal && giHasEmissive;
+
+            // WHEN THE PASS IS ARMED AND READY AND THE GRAPH STILL DECLARES
+            // NOTHING, SAY WHY - with the values, not a verdict. Keyed on the
+            // VERDICT rather than a one-shot bool, so a user who fixes one half of
+            // the gate and trips another gets the second message.
+            if (giEnabled && !giDeclared)
+            {
+                const u32 verdict = (giReady ? 2u : 0u) | (giHasDepth ? 4u : 0u) | (giHasAlbedo ? 8u : 0u) |
+                                    (giHasNormal ? 16u : 0u) | (giHasEmissive ? 32u : 0u);
+                if (pipeline.m_ReportedReSTIRGIVerdict != verdict)
+                {
+                    pipeline.m_ReportedReSTIRGIVerdict = verdict;
+                    OLO_CORE_WARN("ReSTIRGIPass: the tier is armed and its shaders are loaded, but the graph "
+                                  "declared no reservoir targets this frame, so the pass is culled and "
+                                  "indirect diffuse silently stays on the probe ladder. shadersReady={} "
+                                  "sceneDepth={} gbufferAlbedo={} gbufferNormal={} gbufferEmissive={}",
+                                  giReady, giHasDepth, giHasAlbedo, giHasNormal, giHasEmissive);
+                }
+            }
+            else
+            {
+                pipeline.m_ReportedReSTIRGIVerdict = kNoReSTIRGIVerdict;
+            }
+
+            if (giDeclared)
+            {
+                // Attachment 0 is the RGBA16F indirect radiance the lighting
+                // shader samples; attachment 1 is the RGBA32F variance moments,
+                // 32-bit because a second moment accumulated over 255 frames loses
+                // its low bits in half precision and the Variance view would then
+                // read a floor rather than the variance.
+                RGResourceDesc giRadianceDesc;
+                giRadianceDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                giRadianceDesc.Width = sceneBandWidth;
+                giRadianceDesc.Height = sceneBandHeight;
+                giRadianceDesc.Format = RGResourceFormat::RGBA16Float;
+                giRadianceDesc.Attachments = {
+                    RGResourceFormat::RGBA16Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                giRadianceDesc.DebugName = std::string(ResourceNames::ReSTIRGIRadiance);
+                board.Lighting.ReSTIRGIRadiance =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGIRadiance, giRadianceDesc);
+                board.Lighting.ReSTIRGIRadianceTexture =
+                    board.Lighting.ReSTIRGIRadiance.IsValid()
+                        ? graph.CreateFramebufferAttachmentView(ResourceNames::ReSTIRGIRadianceTexture,
+                                                                board.Lighting.ReSTIRGIRadiance, 0u)
+                        : RGTextureHandle{};
+
+                // The reservoir framebuffers, RGBA32F, with the same per-stage
+                // attachment counts DI's chain uses: the initial draw also writes
+                // the #976 surface record and the raw un-reused candidate, the
+                // temporal draw also writes the validity verdict, and the two
+                // spatial targets carry the three reservoir planes alone.
+                RGResourceDesc giReservoirDesc;
+                giReservoirDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+                giReservoirDesc.Format = RGResourceFormat::RGBA32Float;
+                giReservoirDesc.Width = sceneBandWidth;
+                giReservoirDesc.Height = sceneBandHeight;
+
+                giReservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGIInitial);
+                board.Scratch.ReSTIRGIInitial =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGIInitial, giReservoirDesc);
+
+                giReservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGITemporal);
+                board.Scratch.ReSTIRGITemporal =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGITemporal, giReservoirDesc);
+
+                giReservoirDesc.Attachments = {
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                    RGResourceFormat::RGBA32Float,
+                };
+                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGISpatial0);
+                board.Scratch.ReSTIRGISpatial0 =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial0, giReservoirDesc);
+                giReservoirDesc.DebugName = std::string(ResourceNames::ReSTIRGISpatial1);
+                board.Scratch.ReSTIRGISpatial1 =
+                    declareGraphOnlyFramebuffer(ResourceNames::ReSTIRGISpatial1, giReservoirDesc);
+            }
+        }
+
         // RTReflectionColor exists only on the deferred path when the ray-query
         // tier is enabled AND its shader loaded — the shader is created only on
         // a backend with GL_EXT_ray_query, so IsReadyForExecution() is also the
@@ -5063,6 +5367,72 @@ namespace OloEngine
             }
         }
 
+        // ReSTIR GI's five planes (#1169), gated on its radiance target having
+        // been declared this frame for the reason DI's are: the tier is off by
+        // default and five scene-band RGBA32F planes are not free.
+        if (board.Lighting.ReSTIRGIRadiance.IsValid())
+        {
+            TemporalHistoryDescriptor descriptor;
+            descriptor.Width = sceneBandWidth;
+            descriptor.Height = sceneBandHeight;
+            descriptor.Format = ImageFormat::RGBA32F;
+            descriptor.LayoutVersion = kReSTIRGIHistoryLayoutVersion;
+
+            const auto giSampleBinding = graph.AcquireTemporalHistory(
+                kReSTIRGIReservoirSampleHistoryKey, descriptor, kReSTIRGIHistoryDependencies,
+                ResourceNames::ReSTIRGIReservoirSampleHistory);
+            board.Temporal.ReSTIRGIReservoirSampleHistory = giSampleBinding.Previous;
+
+            const auto giRadianceBinding = graph.AcquireTemporalHistory(
+                kReSTIRGIReservoirRadianceHistoryKey, descriptor, kReSTIRGIHistoryDependencies,
+                ResourceNames::ReSTIRGIReservoirRadianceHistory);
+            board.Temporal.ReSTIRGIReservoirRadianceHistory = giRadianceBinding.Previous;
+
+            const auto giStateBinding = graph.AcquireTemporalHistory(
+                kReSTIRGIReservoirStateHistoryKey, descriptor, kReSTIRGIHistoryDependencies,
+                ResourceNames::ReSTIRGIReservoirStateHistory);
+            board.Temporal.ReSTIRGIReservoirStateHistory = giStateBinding.Previous;
+
+            const auto giSurfaceBinding = graph.AcquireTemporalHistory(
+                kReSTIRGISurfaceHistoryKey, descriptor, kReSTIRGIHistoryDependencies,
+                ResourceNames::ReSTIRGISurfaceHistory);
+            board.Temporal.ReSTIRGISurfaceHistory = giSurfaceBinding.Previous;
+
+            const auto giMomentsBinding = graph.AcquireTemporalHistory(
+                kReSTIRGIMomentsHistoryKey, descriptor, kReSTIRGIHistoryDependencies,
+                ResourceNames::ReSTIRGIMomentsHistory);
+            board.Temporal.ReSTIRGIMomentsHistory = giMomentsBinding.Previous;
+
+            // READ THE RECORDED LAYOUT VERSIONS BACK, and tell the pass - the same
+            // arrangement, and the same reason, as DI's above: from inside Execute
+            // a version bump is indistinguishable from a resize or a first frame,
+            // because the registry drops a mismatched history before a handle ever
+            // gets there. This is the only place that can see what the registry
+            // actually holds, so this is where
+            // ReSTIRGIFallbackReason::LayoutVersionMismatch gets a real input.
+            if (SceneCompositePasses.ReSTIRGI)
+            {
+                const auto& historyRegistry = graph.GetTemporalHistoryRegistry();
+                const std::array giTokens{ giSampleBinding.Token, giRadianceBinding.Token,
+                                           giStateBinding.Token, giSurfaceBinding.Token,
+                                           giMomentsBinding.Token };
+                bool giLayoutMatches = true;
+                for (const auto& token : giTokens)
+                {
+                    const TemporalHistoryDescriptor* recorded = historyRegistry.GetDescriptor(token);
+                    // A token with no descriptor is a plane the registry never
+                    // took, which is the ordinary first-frame path and the other
+                    // reasons already cover it - not a version disagreement.
+                    if (recorded != nullptr && recorded->LayoutVersion != ReSTIR::kGIReservoirLayoutVersion)
+                    {
+                        giLayoutMatches = false;
+                        break;
+                    }
+                }
+                SceneCompositePasses.ReSTIRGI->SetHistoryLayoutMatches(giLayoutMatches);
+            }
+        }
+
         // The GPU path tracer's accumulation (issue #1055), gated on its target
         // having been declared this frame for the reason the two above are:
         // the tracer is off by default and four scene-band RGBA32F planes are
@@ -5249,6 +5619,7 @@ namespace OloEngine
         inputs.Passes.SphereProxyAO = SceneCompositePasses.SphereProxyAO.Raw();
         inputs.Passes.RayTracedShadow = SceneCompositePasses.RayTracedShadow.Raw();
         inputs.Passes.ReSTIRDI = SceneCompositePasses.ReSTIRDI.Raw();
+        inputs.Passes.ReSTIRGI = SceneCompositePasses.ReSTIRGI.Raw();
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
@@ -5454,6 +5825,19 @@ namespace OloEngine
         SceneCompositePasses.ReSTIRDI->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
         SceneCompositePasses.ReSTIRDI->SetGPUScene(&Renderer3D::GetGPUScene());
         SceneCompositePasses.ReSTIRDI->SetParamsUBO(data.PostProcessGPU.ReSTIRDI);
+
+        // ReSTIR GI (#1169, #979 Phase 3, second half). Same slot band, AFTER the
+        // DI tier: the two own different terms and never contend, and the GI
+        // tier's bounce vertex reads the probe atlases the DDGI update pass
+        // published several nodes earlier. The tables, the settings, the
+        // environment, the camera and the probe-volume flag are per-frame handoff
+        // in ConfigurePassesForFrame().
+        SceneCompositePasses.ReSTIRGI = Ref<ReSTIRGIPass>::Create();
+        SceneCompositePasses.ReSTIRGI->SetName("ReSTIRGIPass");
+        SceneCompositePasses.ReSTIRGI->Init(scenePassSpec);
+        SceneCompositePasses.ReSTIRGI->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        SceneCompositePasses.ReSTIRGI->SetGPUScene(&Renderer3D::GetGPUScene());
+        SceneCompositePasses.ReSTIRGI->SetParamsUBO(data.PostProcessGPU.ReSTIRGI);
 
         SceneCompositePasses.OITPrepare = Ref<OITPrepareRenderPass>::Create();
         SceneCompositePasses.OITPrepare->SetName("OITPreparePass");

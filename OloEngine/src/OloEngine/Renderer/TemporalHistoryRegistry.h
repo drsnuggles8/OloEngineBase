@@ -23,6 +23,7 @@ namespace OloEngine
         RayTracedShadow, ///< Hybrid ray-traced shadow visibility mask (issue #1056)
         PathTracer,      ///< GPU reference path tracer's progressive accumulation (issue #1055)
         ReSTIRDI,        ///< ReSTIR DI screen-space reservoirs (issue #1140)
+        ReSTIRGI,        ///< ReSTIR GI screen-space reservoirs (issue #1169)
     };
 
     enum class TemporalHistoryPlane : u8

@@ -195,6 +195,19 @@ namespace OloEngine::RenderPipelineBuilderInternal
             graph.AddNode(PrepareGraphNode("ReSTIRDIPass", inputs.Passes->ReSTIRDI));
         }
 
+        // ReSTIR GI (issue #1169), on the same terms and for the same reasons as
+        // the DI node above, AFTER it. The order between the two is not a
+        // preference: the GI tier's bounce vertex reads the PROBE CACHE as its
+        // path tail, and the probe update pass has to have published its atlases
+        // first - which it has, several nodes earlier - while the DI tier owns a
+        // term this one never touches. Registering GI second also keeps
+        // DeferredLightingPass the immediate successor of whichever of the two is
+        // last, so the builder derives both radiance edges in registration order.
+        if (inputs.Passes->ReSTIRGI)
+        {
+            graph.AddNode(PrepareGraphNode("ReSTIRGIPass", inputs.Passes->ReSTIRGI));
+        }
+
         graph.AddNode(PrepareGraphNode("DeferredLightingPass", inputs.Passes->DeferredLighting));
     }
 } // namespace OloEngine::RenderPipelineBuilderInternal

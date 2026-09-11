@@ -2,6 +2,7 @@
 
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRDITechnique.h"
+#include "OloEngine/Renderer/ReSTIR/ReSTIRGITechnique.h"
 #include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
@@ -424,6 +425,13 @@ namespace OloEngine
         // effect: it replaces the deferred lighting pass's direct term, upstream
         // of every stage in this file.
         ReSTIRDISettings ReSTIRDI{};
+        // ReSTIR GI (issue #1169, #979 Phase 3, second half). Here for the same
+        // plumbing reason and with the same caveat: it is NOT a post effect. It
+        // replaces the deferred lighting pass's indirect-DIFFUSE term - the
+        // ambient ladder's diffuse rung - upstream of every stage in this file,
+        // and it stands SSGI down while it is live, because SSGI composites a
+        // THIRD estimate of the same integral and leaving it on double-counts.
+        ReSTIRGISettings ReSTIRGI{};
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque

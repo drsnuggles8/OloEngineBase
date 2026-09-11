@@ -690,6 +690,53 @@ namespace OloEngine
         static_assert(sizeof(ReSTIRDIUBO) == 320,
                       "ReSTIRDIUBO std140 size drifted from the GLSL ReSTIRDIParams block (320 B)");
 
+        // ReSTIR GI (issue #1169, #979 Phase 3, second half) — the block all
+        // FOUR reservoir draws share, mirroring the GLSL ReSTIRGIParams block in
+        // include/ReSTIRGIParams.glsl at UBO_RAY_TRACING (65).
+        // ReSTIRGIContractTest pins the size and the lane meanings.
+        //
+        // Its own block rather than an extension of the DI one: the two tiers
+        // never run in the same draw, they refill binding 65 per dispatch (#691),
+        // and a shared block would have to carry both tiers' lanes in every
+        // upload — including GI's two extra matrices, which DI deliberately does
+        // not have.
+        struct ReSTIRGIUBO
+        {
+            glm::mat4 InvView;       //   0 — view -> render-relative world
+            glm::mat4 InvProjection; //  64 — clip -> view, for the depth reconstruction
+            glm::mat4 View;          // 128
+            // THE PREVIOUS FRAME'S RECONSTRUCTION, and the reason GI carries one
+            // where ReSTIRDIUBO explicitly refuses to. DI's was dead: declared,
+            // never read, deleted. These two are READ by the temporal draw on
+            // every frame that reuses history, to reconstruct last frame's
+            // SHADING POINT for the reconnection Jacobian — which DI is licensed
+            // to treat as exactly 1 and GI is not, because GI's sample vertex can
+            // be centimetres away and dDestSq is in the denominator
+            // (docs/design/restir-gi-reconnection-shift.md §6.3). If a change
+            // ever makes them dead, delete them the way #1140 deleted DI's.
+            glm::mat4 PrevInvView;          // 192
+            glm::mat4 PrevInvProjection;    // 256
+            glm::uvec4 TlasAddressAndFrame; // 320 — xy = TLAS device address, z = instance mask, w = frame index
+            glm::uvec4 SlotCounts;          // 336 — x = instances, y = geometries, z = materials, w = LIVE lights
+            glm::uvec4 EmissiveTable;       // 352 — xy = table address, z = triangle count, w = OLO_RESTIR_GI_FLAG_*
+            glm::uvec4 MaterialTable;       // 368 — xy = table address, z = record count, w = sampler heap offset
+            glm::uvec4 ResamplingCounts;    // 384 — x = initial candidates, y = spatial neighbours, z = pass index, w = bias mode
+            glm::vec4 ReuseParams;          // 400 — x = temporal M cap, y = spatial radius px, z = ray epsilon, w = normal bias
+            glm::vec4 EstimatorParams;      // 416 — x = emissive area pdf, y = max bounce distance, z = radiance clamp, w = debug view
+            glm::vec4 GIParams;             // 432 — x = min reconnection distance, y = max sample age, z = glossy roughness, w = reserved
+            glm::vec4 Environment;          // 448 — rgb = uniform environment radiance, a = environment cube intensity
+            glm::vec4 PrevOriginDelta;      // 464 — xyz = previous render origin — this frame's (issue #429)
+            glm::vec4 ScreenParams;         // 480 — x = width, y = height, z = 1/width, w = 1/height
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(ReSTIRGIUBO);
+            }
+        };
+        static_assert(sizeof(ReSTIRGIUBO) % 16 == 0, "ReSTIRGIUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(ReSTIRGIUBO) == 496,
+                      "ReSTIRGIUBO std140 size drifted from the GLSL ReSTIRGIParams block (496 B)");
+
         struct RayTracingPathTracerUBO
         {
             glm::mat4 InvViewProjection; //   0 — clip -> render-relative world, GL clip convention
@@ -2798,12 +2845,26 @@ namespace OloEngine
         // black texel alone cannot carry.
         static constexpr u32 TEX_RESTIR_DI_RADIANCE = 73;
 
+        // ReSTIR GI's resolved one-bounce INDIRECT DIFFUSE (issue #1169). The
+        // deferred lighting shader uses it INSTEAD of the ambient ladder's
+        // diffuse rung when the tier is live; alpha 0 means the tier produced no
+        // value at this pixel, which is the distinction a black texel alone
+        // cannot carry.
+        //
+        // ADDING THIS SLOT MOVED HEAP_IMAGE_SLOT_BASE 75 -> 76, which is a SHADER
+        // EDIT: OLO_HEAP_IMAGE_BASE in include/BindlessHeap.glsl and the copy in
+        // BindlessHeapGpuTest.cpp's inline prologue moved with it in the same
+        // commit. See the derived-base warning below - every engine texture slot
+        // ever added has moved that base and none has moved the offset table's
+        // size, so the table size is a coincidence rather than a check.
+        static constexpr u32 TEX_RESTIR_GI_RADIANCE = 74;
+
         // First shader graph user texture slot — must stay after every
         // engine-reserved slot, which is why it MOVES when one is added rather
         // than the new slot being wedged in above it. It has moved three times
         // now; MAX_ENGINE_TEXTURE_SLOTS derives from it so nothing has to be
         // updated alongside.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 74;
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 75;
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -3904,6 +3965,10 @@ namespace OloEngine
                     // ReSTIR DI's resolved direct lighting (issue #1140).
                     // Declared once, in include/DeferredLightingShared.glsl.
                     return name == "u_ReSTIRDIRadiance";
+                case TEX_RESTIR_GI_RADIANCE:
+                    // ReSTIR GI's resolved indirect diffuse (issue #1169).
+                    // Declared once, in include/DeferredLightingShared.glsl.
+                    return name == "u_ReSTIRGIRadiance";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

@@ -74,6 +74,7 @@ namespace OloEngine
     class RayTracedReflectionPass;
     class GpuPathTracerPass;
     class ReSTIRDIPass;
+    class ReSTIRGIPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -1293,6 +1294,9 @@ namespace OloEngine
         // limits are invisible in a still frame, so a number is the only way a
         // user learns about them without reading the source.
         [[nodiscard]] static ReSTIRDIPass* GetReSTIRDIPass();
+        // ReSTIR GI (#1169). Null until the pipeline exists, and inert on a
+        // device with no ray tracing - the shaders are never created there.
+        [[nodiscard]] static ReSTIRGIPass* GetReSTIRGIPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
@@ -1880,6 +1884,7 @@ namespace OloEngine
             // frame, each rebinding its own buffer before its own draws, so one
             // shared allocation would have whichever uploaded last win.
             Ref<UniformBuffer> ReSTIRDI;
+            Ref<UniformBuffer> ReSTIRGI;
 
             PostProcessUBOData PostProcessData{};
             MotionBlurUBOData MotionBlurData{};
@@ -1913,6 +1918,7 @@ namespace OloEngine
                 // survived the renderer"), and 320 bytes of surviving uniform
                 // buffer is exactly this one.
                 ReSTIRDI.Reset();
+                ReSTIRGI.Reset();
             }
         };
 
