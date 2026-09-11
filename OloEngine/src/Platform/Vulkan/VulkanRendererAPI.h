@@ -689,12 +689,15 @@ namespace OloEngine
         // The single-command indirect draws all describe the same thing: one
         // VkDraw[Indexed]IndirectCommand at `offsetBytes` into the resolved
         // buffer. VkDrawIndirect2InfoKHR takes a STRIDED range, so the stride
-        // is the command size and the range is clamped to what remains after
-        // the offset — an over-long range is a VUID violation the handle form
-        // had no way to express.
-        [[nodiscard]] static VkDrawIndirect2InfoKHR MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
-                                                                          VkDeviceSize offsetBytes, u32 drawCount,
-                                                                          VkDeviceSize strideBytes);
+        // is the command size.
+        //
+        // Returns false when the resolved range cannot hold `drawCount`
+        // commands at `offsetBytes` (VUID-VkDrawIndirect2InfoKHR-addressRange-13110),
+        // so the caller drops the draw loudly instead of recording an invalid
+        // range — the handle form had no way to express the extent at all.
+        [[nodiscard]] static bool MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
+                                                        VkDeviceSize offsetBytes, u32 drawCount,
+                                                        VkDeviceSize strideBytes, VkDrawIndirect2InfoKHR& outInfo);
         // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
         // draws and dispatches (§4: one contract, no compute special case).
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot

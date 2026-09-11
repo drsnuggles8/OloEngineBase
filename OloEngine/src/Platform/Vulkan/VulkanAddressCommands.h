@@ -99,7 +99,7 @@ namespace OloEngine::VulkanAddressCommands
     }
 
     [[nodiscard]] inline VkStridedDeviceAddressRangeKHR MakeStridedRange(VkDeviceAddress address, VkDeviceSize size,
-                                                                        VkDeviceSize stride)
+                                                                         VkDeviceSize stride)
     {
         VkStridedDeviceAddressRangeKHR range{};
         range.address = address;

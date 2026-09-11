@@ -230,6 +230,19 @@ namespace OloEngine
             const VkDeviceAddress stagingAddress =
                 VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
             const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
+            if (dstAddress == 0)
+            {
+                // The header's documented precondition, enforced rather than
+                // assumed: `dst` must carry SHADER_DEVICE_ADDRESS_BIT, which is
+                // the one requirement the address form added. Every engine
+                // buffer family sets it, so reaching this means a new caller
+                // did not — and a copy to address 0 loses the device silently.
+                OLO_CORE_ERROR("{}: destination buffer has no device address "
+                               "(missing VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) — upload dropped",
+                               what);
+                vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+                return false;
+            }
 
             const bool ok = Submit(what,
                                    [&](VkCommandBuffer cmd)

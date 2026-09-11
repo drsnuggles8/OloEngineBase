@@ -2794,7 +2794,15 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
-        if (indexBuffer.Address == 0)
+        // SizeBytes matters as much as Address here. A raw arena allocated at 0
+        // bytes still gets a VkBuffer (AllocateBufferStorage creates at
+        // max(size,1)) and therefore a valid device address, while its Size
+        // stays 0 — and a 0-count VulkanIndexBuffer does the same. The handle
+        // form tolerated that pairing; the address form does not
+        // (VUID-VkBindIndexBuffer3InfoKHR-addressRange-13056: if size is 0 the
+        // address must be 0 too), so an empty index buffer takes the same
+        // counted "no index buffer" exit as a missing one.
+        if (indexBuffer.Address == 0 || indexBuffer.SizeBytes == 0)
         {
             static std::atomic<bool> s_Warned{ false };
             if (!s_Warned.exchange(true, std::memory_order_relaxed))
@@ -3118,20 +3126,34 @@ namespace OloEngine
         return {};
     }
 
-    VkDrawIndirect2InfoKHR VulkanRendererAPI::MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
-                                                                    const VkDeviceSize offsetBytes,
-                                                                    const u32 drawCount,
-                                                                    const VkDeviceSize strideBytes)
+    bool VulkanRendererAPI::MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
+                                                  const VkDeviceSize offsetBytes, const u32 drawCount,
+                                                  const VkDeviceSize strideBytes, VkDrawIndirect2InfoKHR& outInfo)
     {
-        VkDrawIndirect2InfoKHR info{};
-        info.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_2_INFO_KHR;
-        const VkDeviceSize remaining =
-            (offsetBytes < indirect.SizeBytes) ? indirect.SizeBytes - offsetBytes : VkDeviceSize{ 0 };
-        info.addressRange =
+        // The range must actually hold the commands the draw will read:
+        // VUID-VkDrawIndirect2InfoKHR-addressRange-13110 wants
+        // size >= (drawCount - 1) * stride + sizeof(command). Clamping a
+        // past-the-end offset to a 0-length range would hand the driver a
+        // structurally invalid command instead of refusing, so the shortfall is
+        // reported by the caller as a counted drop — ADR 0010's
+        // no-silent-fallback rule.
+        if (drawCount == 0 || offsetBytes >= indirect.SizeBytes)
+        {
+            return false;
+        }
+        const VkDeviceSize remaining = indirect.SizeBytes - offsetBytes;
+        const VkDeviceSize needed = (static_cast<VkDeviceSize>(drawCount) - 1u) * strideBytes + strideBytes;
+        if (remaining < needed)
+        {
+            return false;
+        }
+        outInfo = {};
+        outInfo.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_2_INFO_KHR;
+        outInfo.addressRange =
             VulkanAddressCommands::MakeStridedRange(indirect.Address + offsetBytes, remaining, strideBytes);
-        info.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
-        info.drawCount = drawCount;
-        return info;
+        outInfo.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
+        outInfo.drawCount = drawCount;
+        return true;
     }
 
     void VulkanRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
@@ -3144,8 +3166,13 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            const VkDrawIndirect2InfoKHR info =
-                MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand), info))
+            {
+                UnimplementedStub("DrawElementsIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                return;
+            }
             vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
         }
     }
@@ -3160,7 +3187,13 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
-            const VkDrawIndirect2InfoKHR info = MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndirectCommand));
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndirectCommand), info))
+            {
+                UnimplementedStub("DrawArraysIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                return;
+            }
             vkCmdDrawIndirect2KHR(ctx.Cmd, &info);
         }
     }
@@ -3175,8 +3208,13 @@ namespace OloEngine
             return;
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
-            const VkDrawIndirect2InfoKHR info =
-                MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand));
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand), info))
+            {
+                UnimplementedStub("DrawBoundElementsIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                return;
+            }
             vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
         }
     }
@@ -3227,11 +3265,22 @@ namespace OloEngine
             // #1179: both halves become ranges. The count buffer's range is a
             // single u32, not the rest of the buffer — stating its real extent
             // is the same win #809 bought on the index bind, one command over.
+            // Same refusal rule as the single-command draws: a range that
+            // cannot hold maxDrawCount commands is a VUID-13110 violation, and
+            // the count buffer must have a u32 left at its offset (13115's
+            // companion extent check). Dropped and counted, never clamped.
+            if (indirectOffsetBytes >= indirect.SizeBytes ||
+                (indirect.SizeBytes - indirectOffsetBytes) < static_cast<VkDeviceSize>(maxDrawCount) * strideBytes ||
+                parameterOffsetBytes + sizeof(u32) > parameter.SizeBytes)
+            {
+                UnimplementedStub("MultiDrawElementsIndirectCountRaw(indirect or count range too small)",
+                                  StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
+                return;
+            }
             VkDrawIndirectCount2InfoKHR info{};
             info.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_COUNT_2_INFO_KHR;
-            const VkDeviceSize indirectRemaining = (indirectOffsetBytes < indirect.SizeBytes)
-                                                       ? indirect.SizeBytes - indirectOffsetBytes
-                                                       : VkDeviceSize{ 0 };
+            const VkDeviceSize indirectRemaining = indirect.SizeBytes - indirectOffsetBytes;
             info.addressRange = VulkanAddressCommands::MakeStridedRange(
                 indirect.Address + indirectOffsetBytes, indirectRemaining, strideBytes);
             info.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
@@ -3377,6 +3426,12 @@ namespace OloEngine
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
+            return;
+        }
+        if (offsetBytes + sizeof(VkDispatchIndirectCommand) > args.SizeBytes)
+        {
+            UnimplementedStub("DispatchComputeIndirect(args range too small for the command)",
+                              StubKind::PreconditionFailure);
             return;
         }
         VkDispatchIndirect2InfoKHR info{};
@@ -5064,10 +5119,22 @@ namespace OloEngine
         // families differ on VK_BUFFER_USAGE_STORAGE_BUFFER_BIT (VulkanIndexBuffer
         // has none, the rest do) — so this is the one site that genuinely cannot
         // name the storage usage and says so. See VulkanAddressCommands::StorageUsage.
-        VulkanAddressCommands::CmdCopyRange(
-            ctx.Cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent,
-            VulkanAddressCommands::QueryAddress(device->GetDevice(), dst) + offsetBytes,
-            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
+        const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
+        if (dstAddress == 0)
+        {
+            // The one precondition the address form ADDED: the destination must
+            // carry SHADER_DEVICE_ADDRESS_BIT. Every engine buffer family sets
+            // it, so this is latent — but a 0 here would copy to address 0 and
+            // lose the device with no log line, which is exactly the silent
+            // failure ADR 0010 forbids.
+            UnimplementedStub("UploadBufferSubData(destination has no device address)",
+                              StubKind::PreconditionFailure);
+            VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
+            return;
+        }
+        VulkanAddressCommands::CmdCopyRange(ctx.Cmd, stagingAddress,
+                                            VulkanAddressCommands::StorageUsage::Absent, dstAddress + offsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
         globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -5199,11 +5266,20 @@ namespace OloEngine
             UnimplementedStub("CopyBufferSubData(no live VulkanDevice)", StubKind::PreconditionFailure);
             return;
         }
-        VulkanAddressCommands::CmdCopyRange(
-            ctx.Cmd, VulkanAddressCommands::QueryAddress(device->GetDevice(), src) + srcOffsetBytes,
-            VulkanAddressCommands::StorageUsage::Unknown,
-            VulkanAddressCommands::QueryAddress(device->GetDevice(), dst) + dstOffsetBytes,
-            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
+        const VkDeviceAddress srcAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), src);
+        const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
+        if (srcAddress == 0 || dstAddress == 0)
+        {
+            // See UploadBufferSubData: SHADER_DEVICE_ADDRESS_BIT is the address
+            // form's added precondition, and a 0 address must not reach a copy.
+            UnimplementedStub("CopyBufferSubData(endpoint has no device address)",
+                              StubKind::PreconditionFailure);
+            return;
+        }
+        VulkanAddressCommands::CmdCopyRange(ctx.Cmd, srcAddress + srcOffsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown,
+                                            dstAddress + dstOffsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
         globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
