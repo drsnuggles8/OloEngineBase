@@ -513,6 +513,22 @@ gtest's swallowed report, run the test binary under `cdb` with a script file
 (`-cf`), `sxd av`, `g`, `kn 60` — and pass `--gtest_catch_exceptions=0`, or
 gtest's SEH translator eats the exception and prints an empty "Stack trace:".
 
+### A masked site still crashes on a branch cut before the mask (2026-09-11)
+
+**When a Windows-ASan-only `SEH exception with code 0xc0000005` shows on a PR and not on
+master, run `git merge-base --is-ancestor 8e5050ad4 <branch>` before reading any code.**
+Master is not a control for this: the change-detection gate skips its Windows shards, so a
+green master workflow never ran the test.
+
+`AssetMoveCommand::Apply` — `catch (...) { RevertRewrites(...); throw; }` — killed
+`AutomationAssetCommandsTest.UndoRefusesWhenAReferringFileChangedUnderneath` on #1188 and
+#1189. Neither PR touched that code; both were cut from `75dd98f33` at 17:21, and the flag
+above landed at 18:01. Rebasing was the whole CI fix. A standalone TU of that exact shape —
+destructor-bearing locals in the `try`, a helper with its own try/catch inside the handler,
+then the rethrow — crashes without the flag and passes with it: one more row for the matrix,
+same verdict, the nesting changes nothing. All thirteen sites the scan in #1193 found were restructured
+per this section's rule in one pass regardless, because the flag masks and the rule fixes.
+
 ## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
 
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below

@@ -50,6 +50,7 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
+#include <exception>
 #include <stb_image/stb_image_write.h>
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -2477,6 +2478,10 @@ namespace OloEngine::MCP
             // main-thread job). The bytes are written into `capturedPng` by
             // reference — MarshalRead runs synchronously, so this is safe.
             std::vector<u8> capturedPng;
+            // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+            // executed lexically inside a catch handler faults in __CxxFrameHandler3
+            // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+            std::exception_ptr captureFailure;
             try
             {
                 if (posed)
@@ -2496,6 +2501,10 @@ namespace OloEngine::MCP
             }
             catch (...)
             {
+                captureFailure = std::current_exception();
+            }
+            if (captureFailure)
+            {
                 if (posed)
                 {
                     try
@@ -2509,7 +2518,7 @@ namespace OloEngine::MCP
                     {
                     }
                 }
-                throw;
+                std::rethrow_exception(captureFailure);
             }
 
             namespace fs = std::filesystem;

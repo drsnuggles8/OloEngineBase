@@ -4,6 +4,7 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpToolsCommon.h"
 
+#include <exception>
 #include <atomic>
 #include <memory>
 #include <string>
@@ -64,6 +65,10 @@ namespace OloEngine::MCP
             // `request` is captured BY VALUE: on the same timeout path, a reference to
             // this frame's local would already be dangling by the time the job ran.
             Json accepted;
+            // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+            // executed lexically inside a catch handler faults in __CxxFrameHandler3
+            // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+            std::exception_ptr marshalFailure;
             try
             {
                 accepted = host.MarshalRead(
@@ -146,11 +151,15 @@ namespace OloEngine::MCP
             }
             catch (...)
             {
+                marshalFailure = std::current_exception();
+            }
+            if (marshalFailure)
+            {
                 // MarshalRead gave up (timeout, or the server is stopping) but its job
                 // may still be queued. Disarm it before propagating, so it cannot
                 // inject after this call has reported failure.
                 abandoned->store(true, std::memory_order_release);
-                throw;
+                std::rethrow_exception(marshalFailure);
             }
 
             if (accepted.is_object() && accepted.contains("__error"))
