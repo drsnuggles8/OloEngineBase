@@ -113,6 +113,17 @@ namespace OloEngine::MCP
 
         // ---- filesystem helpers -------------------------------------------
 
+        // A path as real UTF-8 bytes. `path::string()` encodes through the ANSI
+        // code page on MSVC, so any narrow string built from it and later widened
+        // as UTF-8 is corrupted for a non-ASCII path — which is how a non-ASCII
+        // %TEMP% silently broke the gtest report path. Only this conversion is
+        // lossless, and it is the one every narrow path below goes through.
+        [[nodiscard]] std::string Utf8Of(const fs::path& path)
+        {
+            const std::u8string utf8 = path.u8string();
+            return std::string(reinterpret_cast<const char*>(utf8.data()), utf8.size());
+        }
+
         [[nodiscard]] std::string ReadWholeFile(const fs::path& path, bool& ok)
         {
             ok = false;
@@ -464,7 +475,7 @@ namespace OloEngine::MCP
         // gtest arguments carry no spaces or quotes; the executable path can.
         [[nodiscard]] std::string BuildCommandLine(const fs::path& exe, const std::vector<std::string>& arguments)
         {
-            std::string command = "\"" + exe.string() + "\"";
+            std::string command = "\"" + Utf8Of(exe) + "\"";
             for (const std::string& argument : arguments)
             {
                 command.push_back(' ');
@@ -908,7 +919,7 @@ namespace OloEngine::MCP
             watch.ConsolePath = consolePath;
 
             const std::vector<std::string> arguments{ "--gtest_list_tests", "--gtest_filter=" + filter,
-                                                      "--gtest_output=json:" + reportPath.string() };
+                                                      "--gtest_output=json:" + Utf8Of(reportPath) };
             const ChildResult child = RunChild(session.Binary.Path, arguments, session.RepoRoot / kChildWorkingDirectory, consolePath,
                                                std::chrono::seconds(300), watch);
             if (!child.Completed())
@@ -1155,7 +1166,7 @@ namespace OloEngine::MCP
             const fs::path consolePath = scratch.File("console.log");
 
             std::vector<std::string> arguments{ "--gtest_filter=" + filter,
-                                                "--gtest_output=json:" + reportPath.string() };
+                                                "--gtest_output=json:" + Utf8Of(reportPath) };
             if (args.value("shuffle", false))
             {
                 arguments.emplace_back("--gtest_shuffle");
