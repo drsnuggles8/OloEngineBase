@@ -761,22 +761,49 @@ TEST_F(VulkanResourceFactory, ReadbackBarriersFromTheRecordedLayoutNotAnAssumedO
     EXPECT_EQ(readback.size(), sizet{ 4 * 4 * 4 });
 }
 
-TEST_F(VulkanResourceFactory, Maintenance5IsEnabledOnAContractSatisfyingDevice)
+TEST_F(VulkanResourceFactory, DeviceAddressCommandEntryPointsAreLoaded)
 {
-    // maintenance5 is what lets the index-buffer bind state the buffer's real
-    // byte size (amendment (9b)'s "whole buffer" sentinel resolved to a
-    // number). It is MANDATORY on a Vulkan 1.4 device, and this fixture only
-    // runs on one — so an unavailable verdict here is a real signal (a driver
-    // reporting 1.4 without it, or volk not exporting vkCmdBindIndexBuffer2),
-    // not a machine to skip past. Reported rather than asserted: the backend
-    // degrades to the implicit whole-buffer bind, it does not break.
-    if (!m_Device->IsMaintenance5Enabled())
+    // #1179 replaced maintenance5's vkCmdBindIndexBuffer2 (which could state
+    // an index bind's real byte extent) with VK_KHR_device_address_commands,
+    // whose range carries that extent unconditionally.
+    //
+    // Unlike its predecessor this is ASSERTED, not reported: the extension is
+    // a VulkanCapabilities contract row, so a device that does not expose it
+    // is refused at selection and this fixture never reaches a device without
+    // it. A null pointer here therefore means the contract and the loader
+    // disagree — the device was accepted and the command is not callable —
+    // which is a crash at the next indexed draw, not a degraded path.
+    EXPECT_NE(vkCmdBindIndexBuffer3KHR, nullptr) << "index binds (every indexed draw)";
+    EXPECT_NE(vkCmdCopyMemoryKHR, nullptr) << "buffer copies";
+    EXPECT_NE(vkCmdCopyMemoryToImageKHR, nullptr) << "texture uploads";
+    EXPECT_NE(vkCmdDrawIndirect2KHR, nullptr) << "indirect draws";
+    EXPECT_NE(vkCmdDrawIndexedIndirect2KHR, nullptr) << "indexed indirect draws";
+    EXPECT_NE(vkCmdDispatchIndirect2KHR, nullptr) << "indirect dispatch";
+    // The count form additionally depends on drawIndirectCount, which IS
+    // feature-gated rather than contract-required, so it is only expected
+    // loaded when the device enabled it.
+    if (m_Device->IsDrawIndirectCountEnabled())
     {
-        GTEST_SUCCEED() << "maintenance5 unavailable on a 1.4 device — index binds fall back to "
-                           "vkCmdBindIndexBuffer (implicit whole-buffer extent)";
-        return;
+        EXPECT_NE(vkCmdDrawIndexedIndirectCount2KHR, nullptr) << "MDI with a GPU-written count";
     }
-    SUCCEED();
+}
+
+TEST_F(VulkanResourceFactory, DeviceAddressCommandsIsPartOfTheCapabilityContract)
+{
+    // The refuse-to-initialise half of ADR 0010: the contract must NAME the
+    // extension, so a device lacking it is rejected with the capability in the
+    // message rather than degrading to the handle-based commands. Asserting on
+    // RequiredDeviceExtensions is what keeps VulkanContext's enable list and
+    // the report's verdict from drifting apart — they read this one list.
+    const std::vector<const char*> required = VulkanCapabilities::RequiredDeviceExtensions();
+    const bool listed = std::any_of(required.begin(), required.end(), [](const char* name)
+                                    { return std::strcmp(name, VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME) == 0; });
+    EXPECT_TRUE(listed) << "VK_KHR_device_address_commands missing from the ADR 0010 contract";
+
+    const VulkanCapabilityReport report = VulkanCapabilities::Evaluate(m_Device->GetPhysicalDevice());
+    EXPECT_TRUE(report.HasDeviceAddressCommands);
+    EXPECT_TRUE(report.DeviceAddressCommandsFeature)
+        << "deviceAddressCommands is false on a device this fixture accepted";
 }
 
 TEST_F(VulkanResourceFactory, DescriptorSlotCacheKeysViewsAndRecyclesOnDestroy)

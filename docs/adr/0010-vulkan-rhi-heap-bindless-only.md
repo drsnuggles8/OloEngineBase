@@ -123,6 +123,42 @@ crossing between the two families needs a matched release/acquire ownership pair
 not merely the timeline semaphore that orders the submissions. Rules and evidence:
 [vulkan-async-compute-queue.md](../agent-rules/vulkan-async-compute-queue.md).
 
+**#1179 amendment (2026-09-11) — a THIRD contract row,
+`VK_KHR_device_address_commands`.** This is the widening the Phase 4 fill-in
+above says must be recorded here before the runtime check moves.
+
+| Requirement | Pinned value |
+| --- | --- |
+| `VK_KHR_device_address_commands` | Listed **and** `VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR::deviceAddressCommands == VK_TRUE`. `specVersion` floor stays 1 (the only revision that exists). Enabled at `vkCreateDevice`, same gate rule as the other two. |
+
+**It does not narrow the hardware floor.** Every device lacking
+`VK_EXT_descriptor_heap` is already refused, and that is a strictly narrower set
+than the devices lacking this — so no device that the gate accepts today is
+refused by the new row. Verified on the driver floor (NVIDIA, RTX 4090, SDK
+1.4.357.0): extension revision 1, `deviceAddressCommands = true`.
+
+**What it buys, and what it does not.** The backend's command family stops
+taking `VkBuffer` handles: index binds, buffer and buffer→image copies, and the
+indirect draw/dispatch family all take `{VkDeviceAddress, VkDeviceSize}` ranges.
+That is the precondition #1180 needs — once no command names a per-resource
+`VkBuffer` at record time, the handle stops being load-bearing and a buffer can
+become a suballocation of an engine-owned heap.
+
+It does **not** remove create-time usage bits, and #1179's issue body claiming it
+would was wrong. Each address form carries forward the usage VUID its handle form
+had — `VUID-VkBindIndexBuffer3InfoKHR-addressRange-13051` still demands
+`INDEX_BUFFER_BIT`, `VUID-VkDrawIndirect2InfoKHR-addressRange-13107` still demands
+`INDIRECT_BUFFER_BIT`, and `VUID-VkDeviceMemoryCopyKHR-srcRange-13017` /
+`-dstRange-13018` still demand the transfer pair. The conversion in fact **adds**
+one: `SHADER_DEVICE_ADDRESS_BIT`, without which the range cannot be queried at
+all, which is why staging and readback buffers gained it.
+
+The one genuinely new caller obligation is `VkAddressCommandFlagsKHR`, which must
+state whether the memory backing a range belongs to a buffer created with
+`STORAGE_BUFFER_BIT` — mandatory when it does (`VUID-*-13122`), forbidden when it
+does not (`VUID-*-13123`). The reasoning and the one legal "unknown" answer live
+in `Platform/Vulkan/VulkanAddressCommands.h`.
+
 ## Why Vulkan, not D3D12
 
 The renderer's shader pipeline already compiles every authored GLSL shader to

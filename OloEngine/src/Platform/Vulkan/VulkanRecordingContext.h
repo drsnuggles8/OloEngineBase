@@ -346,12 +346,15 @@ namespace OloEngine
         RenderingScope Scope;
         VulkanRenderTargetDesc ScopeTargets; ///< Valid while Scope.Active.
         PendingClear Pending;                ///< At most one outstanding clear request (see PendingClear).
-        VkBuffer BoundIndexBuffer = VK_NULL_HANDLE;
-        /// Extent the cached bind used (#809's real-size vkCmdBindIndexBuffer2).
-        /// Part of the cache key because a RAW element arena (issue #1052) can be
-        /// re-allocated at a new size under the same identity, and VMA may hand
-        /// back the same VkBuffer for the replacement — in which case the buffer
-        /// alone no longer distinguishes the two binds.
+        /// Device address of the cached index bind (#1179: the bind takes a
+        /// range, not a VkBuffer). 0 means nothing is bound.
+        VkDeviceAddress BoundIndexBufferAddress = 0;
+        /// Extent the cached bind used (#809's real-size bind, now the `size`
+        /// half of VkBindIndexBuffer3InfoKHR::addressRange). Part of the cache
+        /// key because a RAW element arena (issue #1052) can be re-allocated at
+        /// a new size under the same identity, and VMA may hand back the same
+        /// storage for the replacement — in which case the address alone no
+        /// longer distinguishes the two binds.
         VkDeviceSize BoundIndexBufferSize = 0;
         bool HeapBoundThisRecording = false;
         VulkanVertexArray* BoundVertexArray = nullptr; ///< BindVertexArrayRaw's publication.
@@ -409,7 +412,7 @@ namespace OloEngine
         // vkCmdExecuteCommands (state is undefined on the primary after it).
         void ForgetCommandBufferBinds()
         {
-            BoundIndexBuffer = VK_NULL_HANDLE;
+            BoundIndexBufferAddress = 0;
             BoundIndexBufferSize = 0;
             HeapBoundThisRecording = false;
             ScissorRectSet = false;

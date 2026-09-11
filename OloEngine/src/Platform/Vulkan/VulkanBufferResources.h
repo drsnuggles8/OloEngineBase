@@ -21,7 +21,7 @@
 //  - VulkanVertexBuffer / VulkanIndexBuffer: persistent VMA buffers (mesh
 //    data is upload-once); vertex data is PULLED via buffer device address
 //    (§5 — there is no vertex-input state), index data feeds
-//    vkCmdBindIndexBuffer.
+//    vkCmdBindIndexBuffer3KHR.
 //  - VulkanVertexArray: a pure CPU aggregate (buffer refs + layout). Vulkan
 //    has no VAO object; the draw path resolves the aggregate through
 //    VulkanRootObjectRegistry from the packet's vertexArrayID handle.
@@ -355,7 +355,7 @@ namespace OloEngine
     };
 
     // -------------------------------------------------------------------------
-    // VulkanIndexBuffer — persistent VMA buffer for vkCmdBindIndexBuffer.
+    // VulkanIndexBuffer — persistent VMA buffer for vkCmdBindIndexBuffer3KHR.
     // The engine's index format is fixed 32-bit (IndexBuffer.h contract).
     // -------------------------------------------------------------------------
     class VulkanIndexBuffer : public IndexBuffer
@@ -410,7 +410,7 @@ namespace OloEngine
     // The draw path resolves the packet's vertexArrayID through
     // VulkanRootObjectRegistry to this object, then takes the FIRST vertex
     // buffer's device address as the §5 pull stream and the index buffer for
-    // vkCmdBindIndexBuffer. Multi-stream pulling (a second vertex buffer
+    // vkCmdBindIndexBuffer3KHR. Multi-stream pulling (a second vertex buffer
     // holding per-instance attributes) is NOT modelled — instancing data
     // travels the InstanceData SSBO (glsl-shaders.md §6a), and a pass that
     // genuinely needs a second attribute stream surfaces as a loud draw-time
@@ -482,7 +482,7 @@ namespace OloEngine
         // ADR 0011 §5 removes the vertex ATTRIBUTE axis from the PSO — vertex
         // data is pulled through device addresses. The index buffer was never
         // one of those axes: it is not part of VkGraphicsPipelineCreateInfo at
-        // all, it is vkCmdBindIndexBuffer command state. So the pull model does
+        // all, it is vkCmdBindIndexBuffer3KHR command state. So the pull model does
         // not reach it and this records exactly what GL records.
         //
         // The HANDLE is stored, not the resolved VkBuffer: the arena is

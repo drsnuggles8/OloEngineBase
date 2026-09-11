@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanRayTracingBackend.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 
@@ -912,12 +913,17 @@ namespace OloEngine::RayTracing
                 OLO_CORE_WARN("[RayTracing/Vulkan] frame arena overflow staging {} TLAS instances", packed.size());
                 return used;
             }
-            VkBufferCopy copy{};
-            copy.srcOffset = staged.Offset;
-            copy.dstOffset = 0;
-            copy.size = packed.size() * sizeof(VkAccelerationStructureInstanceKHR);
-            vkCmdCopyBuffer(cmd, VulkanFrameArena::Get().GetSlotBuffer(VulkanFrameArena::Get().GetCurrentSlot()),
-                            instanceBuffer.Buffer, 1, &copy);
+            // #1179: Push() already handed back the staged range's device
+            // address, so the slot's VkBuffer (and its offset arithmetic) drop
+            // out entirely. The arena slot carries STORAGE_BUFFER_BIT by
+            // construction; the instance buffer is created
+            // ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY|TRANSFER_DST and
+            // does NOT, so the two sides take different addressFlags
+            // (VUID-13122 / VUID-13123).
+            VulkanAddressCommands::CmdCopyRange(cmd, staged.Gpu, VulkanAddressCommands::StorageUsage::Present,
+                                                instanceBuffer.Address,
+                                                VulkanAddressCommands::StorageUsage::Absent,
+                                                packed.size() * sizeof(VkAccelerationStructureInstanceKHR));
 
             VkBufferMemoryBarrier2 uploadBarrier{};
             uploadBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;

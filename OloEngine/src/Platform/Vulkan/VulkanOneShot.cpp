@@ -2,6 +2,7 @@
 
 #if OLO_WITH_VULKAN
 
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
@@ -206,7 +207,7 @@ namespace OloEngine
             VkBufferCreateInfo stagingInfo{};
             stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
             stagingInfo.size = sizeBytes;
-            stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
             stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
             VmaAllocationCreateInfo stagingAlloc{};
@@ -226,15 +227,22 @@ namespace OloEngine
 
             std::memcpy(stagingOut.pMappedData, data, sizeBytes);
             vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
+            const VkDeviceAddress stagingAddress =
+                VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
+            const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
 
             const bool ok = Submit(what,
                                    [&](VkCommandBuffer cmd)
                                    {
-                                       VkBufferCopy region{};
-                                       region.srcOffset = 0;
-                                       region.dstOffset = dstOffset;
-                                       region.size = sizeBytes;
-                                       vkCmdCopyBuffer(cmd, staging, dst, 1u, &region);
+                                       // `dst` is any caller-supplied buffer —
+                                       // vertex, index, storage, raw — and the
+                                       // families differ on STORAGE_BUFFER_BIT,
+                                       // so the storage usage is genuinely
+                                       // unknown here (VulkanAddressCommands).
+                                       VulkanAddressCommands::CmdCopyRange(
+                                           cmd, stagingAddress,
+                                           VulkanAddressCommands::StorageUsage::Absent, dstAddress + dstOffset,
+                                           VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
                                        VkBufferMemoryBarrier2 barrier{};
                                        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;

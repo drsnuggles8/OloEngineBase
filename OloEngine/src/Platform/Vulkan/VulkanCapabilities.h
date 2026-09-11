@@ -35,6 +35,8 @@ namespace OloEngine
         bool DescriptorHeapFeature = false;    // ...and its descriptorHeap feature bit
         bool HasShaderUntypedPointers = false; // VK_KHR_shader_untyped_pointers listed
         bool ShaderUntypedPointersFeature = false;
+        bool HasDeviceAddressCommands = false; // VK_KHR_device_address_commands listed
+        bool DeviceAddressCommandsFeature = false;
     };
 
     class VulkanCapabilities
