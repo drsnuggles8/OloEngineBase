@@ -1580,6 +1580,16 @@ namespace OloEngine
                 std::error_code probeEc;
                 auto texture = std::filesystem::exists(path, probeEc) ? Texture2D::Create(path.string(), srgb)
                                                                       : Ref<Texture2D>{};
+                // A probe that could not be ANSWERED is not the same as "absent":
+                // exists() returns false for a permission or I/O failure too and
+                // parks the reason in the error code. Say so, then continue the
+                // chain — a later candidate may still land, but the anomaly must
+                // not vanish into a successful load (CodeRabbit on #1189).
+                if (probeEc)
+                {
+                    OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: could not probe '{}': {} — treating it as absent",
+                                  path.string(), probeEc.message());
+                }
                 if (texture && texture->IsLoaded())
                 {
                     textures.push_back(texture);
@@ -1719,6 +1729,11 @@ namespace OloEngine
                             auto fallbackTexture = std::filesystem::exists(fallbackPathStr, fallbackEc)
                                                        ? Texture2D::Create(fallbackPathStr, srgb)
                                                        : Ref<Texture2D>{};
+                            if (fallbackEc)
+                            {
+                                OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: could not probe '{}': {} — treating it as absent",
+                                              fallbackPathStr, fallbackEc.message());
+                            }
                             if (fallbackTexture && fallbackTexture->IsLoaded())
                             {
                                 textures.push_back(fallbackTexture);
