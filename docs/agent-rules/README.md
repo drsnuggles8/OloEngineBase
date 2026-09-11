@@ -259,6 +259,7 @@ The same fact written in more than one place, with nothing enforcing agreement.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | The build pipeline and the runtime must agree on an asset layout. |
 | [audio-voice-budget.md](audio-voice-budget.md) | One config field costs four edits, one of them silent. |
 | [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) | Two build trees writing the same generated files. |
+| [build-trees-and-windows-asan.md §4b](build-trees-and-windows-asan.md#4b-live-toolchain-bug-a-throw-from-inside-a-catch-handler-avs-clang-cl--asan) | A throw executed inside a `catch` handler AVs under clang-cl ASan; the catch type and rethrow form are irrelevant. |
 | [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md) | A static destructor reading a `thread_local` that `__dyn_tls_dtor` already destroyed; 219 failures, one bug. |
 | [concurrent-cmake-configure.md](concurrent-cmake-configure.md) | Two configures sharing one `CMakeFiles/`; the nested `try_compile` that loses reports the error. |
 | [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md) | Four subsystems hold world-space state outside the rebased set. |

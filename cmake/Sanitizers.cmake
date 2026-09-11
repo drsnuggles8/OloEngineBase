@@ -111,6 +111,43 @@ if(OLO_ENABLE_ASAN)
         # (runtime-dir, then resource-dir/lib/windows) and pick whichever actually holds
         # the ASan import lib, so it works regardless of the LLVM version on PATH.
         if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            # clang-cl only, and it COSTS A CAPABILITY -- say so out loud rather than
+            # letting a quieter ASan look like a healthy one.
+            #
+            # ASan's use-after-return instrumentation moves a function's locals into a
+            # heap-allocated "fake stack" frame. MSVC-style EH does not survive that:
+            # when a throw is executed from inside a CATCH HANDLER, __CxxFrameHandler3
+            # reads the handler funclet's parent-frame pointer, gets NULL, and faults
+            # reading through it:
+            #
+            #   VCRUNTIME140!__FrameHandler3::GetUnwindTryBlock+0x1f
+            #   mov eax,dword ptr [rax+rcx+4]   ds:0000000000000154=????????
+            #                                   ^ rcx = establisher frame = 0
+            #
+            # This is a toolchain bug, not an engine defect, and it is the SECOND of its
+            # kind here -- issue #497 was clang-cl+ASan putting redzones on the EH
+            # metadata globals, fixed by the LLVM 23.1.0 pin. This one survives that pin
+            # (measured on clang 23.1.0). A 45-line repro and the full variant matrix are
+            # in docs/agent-rules/build-trees-and-windows-asan.md; the short version is
+            # that the catch TYPE, the rethrow FORM (bare `throw;` vs
+            # std::rethrow_exception) and the inlining level make no difference. Only
+            # whether the throw is lexically inside the handler does. `/Ob0` looks like a
+            # fix on some shapes and is not one.
+            #
+            # WHAT THIS FLAG GIVES UP, measured rather than assumed: stack-use-after-
+            # return detection on Windows, which we were not getting anyway. The Windows
+            # default is `detect_stack_use_after_return=0`, and neither CI nor any local
+            # recipe sets it to 1, so the instrumentation was PRESENT BUT INERT -- it
+            # caught nothing and broke EH. What it removes is the ability to turn that
+            # detection on later via ASAN_OPTIONS; doing so now needs this flag dropped
+            # and the EH bug re-checked against whatever clang is current. Every other
+            # ASan check is untouched (heap, globals, stack-buffer-overflow,
+            # use-after-scope), and the LINUX ASan job is not affected by any of this:
+            # it uses Itanium EH, keeps the instrumentation, and keeps the detection.
+            add_compile_options(-fsanitize-address-use-after-return=never)
+            message(STATUS "  clang-cl ASan: stack-use-after-return instrumentation OFF "
+                           "(MSVC EH miscompile; it was inert on Windows anyway)")
+
             set(_olo_asan_import_lib "clang_rt.asan_dynamic-x86_64.lib")
             set(_olo_asan_candidates "")
 
