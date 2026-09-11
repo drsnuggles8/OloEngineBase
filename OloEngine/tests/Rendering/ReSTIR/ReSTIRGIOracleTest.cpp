@@ -224,17 +224,32 @@ namespace OloEngine::Tests
 
         // One pixel's worth of the estimator: RIS over `candidates` bounces,
         // finalised the way ReSTIR_GI_InitialSample.glsl does.
+        // Every seed in this file is fixed, because these tests are meant to be
+        // reproducible. std::uniform_real_distribution does NOT preserve that
+        // across platforms: it is implementation-defined, so the SAME mt19937
+        // stream yields different values on libstdc++ and the MSVC STL. The
+        // Jacobian probe below draws a bounce vertex from this stream and then
+        // asserts the resulting J is far enough from 1 for its negative control
+        // to mean anything -- so the divergence turned a deterministic test into
+        // one that passed on Windows (J > 1.25) and failed on Linux (J = 1.20).
+        //
+        // 24 bits is the full float mantissa and the scaling is exact, so this
+        // yields the identical sequence everywhere.
+        [[nodiscard]] f32 Canonical01(std::mt19937& rng)
+        {
+            return static_cast<f32>(rng() >> 8) * 0x1.0p-24f;
+        }
+
         [[nodiscard]] GIReservoir SampleInitialReservoir(const Scene& scene, const glm::vec3& shadingPoint,
                                                          const glm::vec3& shadingNormal, u32 candidates,
                                                          std::mt19937& rng)
         {
-            std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
             GIReservoir reservoir{};
             for (u32 c = 0; c < candidates; ++c)
             {
                 GISample candidate;
                 f32 pdf = 0.0f;
-                if (!SampleBounce(scene, shadingPoint, shadingNormal, uniform(rng), uniform(rng), candidate,
+                if (!SampleBounce(scene, shadingPoint, shadingNormal, Canonical01(rng), Canonical01(rng), candidate,
                                   pdf))
                 {
                     // A rejected draw still counts toward M: it WAS a candidate
@@ -243,11 +258,11 @@ namespace OloEngine::Tests
                     reservoir.M += 1.0f;
                     // The acceptance number is consumed regardless, so the two
                     // arms stay aligned in the stream.
-                    (void)uniform(rng);
+                    (void)Canonical01(rng);
                     continue;
                 }
                 const f32 targetPdf = TargetPdf(scene, shadingPoint, shadingNormal, candidate);
-                ReservoirUpdate(reservoir, candidate, targetPdf / pdf, targetPdf, uniform(rng));
+                ReservoirUpdate(reservoir, candidate, targetPdf / pdf, targetPdf, Canonical01(rng));
             }
             FinalizeInitialCandidates(reservoir);
             return reservoir;
@@ -340,7 +355,6 @@ namespace OloEngine::Tests
         }
 
         std::mt19937 rng(0x5EEDu);
-        std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
         glm::dvec3 withJacobian(0.0);
         glm::dvec3 withoutJacobian(0.0);
         constexpr u32 kPixels = 40000;
@@ -359,7 +373,7 @@ namespace OloEngine::Tests
                 // denominator divides them back out. The centre's own shift is
                 // the identity, so its J is 1.
                 const f32 ownTarget = TargetPdf(scene, destination, normal, own.Sample);
-                ReservoirUpdate(merged, own.Sample, own.M * ownTarget * own.W, ownTarget, uniform(rng));
+                ReservoirUpdate(merged, own.Sample, own.M * ownTarget * own.W, ownTarget, Canonical01(rng));
 
                 // w = m * pHat_dest(y) * (W * J), with pHat LEFT ALONE. The
                 // Jacobian multiplies the CONTRIBUTION WEIGHT — see
@@ -374,7 +388,7 @@ namespace OloEngine::Tests
                     otherW = ShiftedContributionWeight(other.W, j);
                 }
                 ReservoirUpdate(merged, other.Sample, other.M * otherTarget * otherW, otherTarget,
-                                uniform(rng));
+                                Canonical01(rng));
 
                 FinalizeCombined(merged, BiasMode::Biased, own.M + other.M);
                 return ResolveReservoir(scene, destination, normal, merged);
@@ -422,7 +436,6 @@ namespace OloEngine::Tests
         constexpr u32 kPixels = 1500;
 
         std::mt19937 rng(0xFEEDu);
-        std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
 
         std::vector<GIReservoir> history(kPixels);
         glm::dvec3 accumulatedLateFrames(0.0);
@@ -439,7 +452,7 @@ namespace OloEngine::Tests
                 const f32 freshTarget = TargetPdf(scene, point, normal, fresh.Sample);
                 const f32 previousTarget = TargetPdf(scene, point, normal, previous.Sample);
                 ReservoirUpdate(merged, fresh.Sample, fresh.M * freshTarget * fresh.W, freshTarget,
-                                uniform(rng));
+                                Canonical01(rng));
                 if (!previous.IsEmpty())
                 {
                     // The shading point did not move, so the shift is the
@@ -450,7 +463,7 @@ namespace OloEngine::Tests
                     EXPECT_FLOAT_EQ(j, 1.0f);
                     ReservoirUpdate(merged, previous.Sample,
                                     previous.M * previousTarget * ShiftedContributionWeight(previous.W, j),
-                                    previousTarget, uniform(rng));
+                                    previousTarget, Canonical01(rng));
                 }
 
                 FinalizeCombined(merged, BiasMode::Biased, fresh.M + previous.M);
@@ -521,7 +534,6 @@ namespace OloEngine::Tests
         const glm::vec3 normal = scene.ReceiverNormal;
 
         std::mt19937 rng(0xB1A5u);
-        std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
         u32 compared = 0;
         for (u32 i = 0; i < 200; ++i)
         {
@@ -535,8 +547,8 @@ namespace OloEngine::Tests
             if (!(targetA > 0.0f) || !(targetB > 0.0f))
                 continue;
 
-            const f32 xi0 = uniform(rng);
-            const f32 xi1 = uniform(rng);
+            const f32 xi0 = Canonical01(rng);
+            const f32 xi1 = Canonical01(rng);
 
             GIReservoir biased{};
             ReservoirUpdate(biased, a.Sample, a.M * targetA * a.W, targetA, xi0);
