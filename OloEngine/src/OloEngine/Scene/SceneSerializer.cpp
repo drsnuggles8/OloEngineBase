@@ -6625,19 +6625,22 @@ namespace OloEngine
         out << YAML::EndMap; // Entity
     }
 
-    void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
+    namespace
     {
-        OLO_PROFILE_FUNCTION();
-
-        YAML::Emitter out;
-        out << YAML::BeginMap;
-        out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
-        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
-
-        out << YAML::Key << "PostProcessSettings";
-        out << YAML::BeginMap;
+        // THE ONE POST-PROCESS EMITTER, for both serializer entry points.
+        // SceneSerializer::Serialize (the file) and SceneSerializer::SerializeToYAML
+        // (the string the MCP surface and the runtime round-trip read) carried two
+        // hand-maintained copies of this list, and the copies had already drifted:
+        // #1140 added the ReSTIR DI keys to one of them and #1169 added the GI keys
+        // to the same one, so a scene saved through the string path silently
+        // dropped both tiers back to their defaults while ApplySceneSettings went
+        // on reading the keys. Nothing failed - the estimator just quietly became
+        // a different estimator.
+        //
+        // A second copy of a key list is a bug with a delay fuse. One function,
+        // both callers.
+        void EmitPostProcessSettings(YAML::Emitter& out, const PostProcessSettings& pp)
         {
-            auto const& pp = m_Scene->GetPostProcessSettings();
             out << YAML::Key << "TonemapOperator" << YAML::Value << std::to_underlying(pp.Tonemap);
             out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
             out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
@@ -6808,6 +6811,20 @@ namespace OloEngine
             out << YAML::Key << "FSR2SharpeningEnabled" << YAML::Value << pp.FSR2SharpeningEnabled;
             out << YAML::Key << "FSR2Sharpness" << YAML::Value << pp.FSR2Sharpness;
         }
+    } // namespace
+
+    void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
+        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
+
+        out << YAML::Key << "PostProcessSettings";
+        out << YAML::BeginMap;
+        EmitPostProcessSettings(out, m_Scene->GetPostProcessSettings());
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
@@ -7446,135 +7463,7 @@ namespace OloEngine
 
         out << YAML::Key << "PostProcessSettings";
         out << YAML::BeginMap;
-        {
-            auto const& pp = m_Scene->GetPostProcessSettings();
-            out << YAML::Key << "TonemapOperator" << YAML::Value << std::to_underlying(pp.Tonemap);
-            out << YAML::Key << "Exposure" << YAML::Value << pp.Exposure;
-            out << YAML::Key << "Gamma" << YAML::Value << pp.Gamma;
-            out << YAML::Key << "BloomEnabled" << YAML::Value << pp.BloomEnabled;
-            out << YAML::Key << "BloomThreshold" << YAML::Value << pp.BloomThreshold;
-            out << YAML::Key << "BloomIntensity" << YAML::Value << pp.BloomIntensity;
-            out << YAML::Key << "BloomIterations" << YAML::Value << pp.BloomIterations;
-            out << YAML::Key << "VignetteEnabled" << YAML::Value << pp.VignetteEnabled;
-            out << YAML::Key << "VignetteIntensity" << YAML::Value << pp.VignetteIntensity;
-            out << YAML::Key << "VignetteSmoothness" << YAML::Value << pp.VignetteSmoothness;
-            out << YAML::Key << "ChromaticAberrationEnabled" << YAML::Value << pp.ChromaticAberrationEnabled;
-            out << YAML::Key << "ChromaticAberrationIntensity" << YAML::Value << pp.ChromaticAberrationIntensity;
-            out << YAML::Key << "FXAAEnabled" << YAML::Value << pp.FXAAEnabled;
-            out << YAML::Key << "DOFEnabled" << YAML::Value << pp.DOFEnabled;
-            out << YAML::Key << "DOFFocusDistance" << YAML::Value << pp.DOFFocusDistance;
-            out << YAML::Key << "DOFFocusRange" << YAML::Value << pp.DOFFocusRange;
-            out << YAML::Key << "DOFBokehRadius" << YAML::Value << pp.DOFBokehRadius;
-            out << YAML::Key << "MotionBlurEnabled" << YAML::Value << pp.MotionBlurEnabled;
-            out << YAML::Key << "MotionBlurStrength" << YAML::Value << pp.MotionBlurStrength;
-            out << YAML::Key << "MotionBlurSamples" << YAML::Value << pp.MotionBlurSamples;
-            out << YAML::Key << "ColorGradingEnabled" << YAML::Value << pp.ColorGradingEnabled;
-            if (pp.m_AOTechniqueOverride)
-            {
-                out << YAML::Key << "ActiveAOTechnique" << YAML::Value << std::to_underlying(pp.ActiveAOTechnique);
-                out << YAML::Key << "GTAOEnabled" << YAML::Value << pp.GTAOEnabled;
-            }
-            out << YAML::Key << "SphereProxyAOEnabled" << YAML::Value << pp.SphereProxyAOEnabled;
-            out << YAML::Key << "SphereProxyAOStrength" << YAML::Value << pp.SphereProxyAOStrength;
-            out << YAML::Key << "SphereProxyAOMaxProxies" << YAML::Value << pp.SphereProxyAOMaxProxies;
-            out << YAML::Key << "SphereProxyAOMaxRadius" << YAML::Value << pp.SphereProxyAOMaxRadius;
-            out << YAML::Key << "SphereProxyAOInfluenceScale" << YAML::Value << pp.SphereProxyAOInfluenceScale;
-            out << YAML::Key << "SphereProxyAOMaxOcclusion" << YAML::Value << pp.SphereProxyAOMaxOcclusion;
-            out << YAML::Key << "SphereProxyAODebugView" << YAML::Value << pp.SphereProxyAODebugView;
-            out << YAML::Key << "SSAOEnabled" << YAML::Value << pp.SSAOEnabled;
-            out << YAML::Key << "SSAORadius" << YAML::Value << pp.SSAORadius;
-            out << YAML::Key << "SSAOBias" << YAML::Value << pp.SSAOBias;
-            out << YAML::Key << "SSAOIntensity" << YAML::Value << pp.SSAOIntensity;
-            out << YAML::Key << "SSAOSamples" << YAML::Value << pp.SSAOSamples;
-            out << YAML::Key << "SSAODebugView" << YAML::Value << pp.SSAODebugView;
-            out << YAML::Key << "SSREnabled" << YAML::Value << pp.SSREnabled;
-            out << YAML::Key << "SSRMaxDistance" << YAML::Value << pp.SSRMaxDistance;
-            out << YAML::Key << "SSRThickness" << YAML::Value << pp.SSRThickness;
-            out << YAML::Key << "SSRStride" << YAML::Value << pp.SSRStride;
-            out << YAML::Key << "SSRMaxSteps" << YAML::Value << pp.SSRMaxSteps;
-            out << YAML::Key << "SSRBinarySearchSteps" << YAML::Value << pp.SSRBinarySearchSteps;
-            out << YAML::Key << "SSRIntensity" << YAML::Value << pp.SSRIntensity;
-            out << YAML::Key << "SSRMaxRoughness" << YAML::Value << pp.SSRMaxRoughness;
-            out << YAML::Key << "SSREdgeFade" << YAML::Value << pp.SSREdgeFade;
-            out << YAML::Key << "SSRDebugView" << YAML::Value << pp.SSRDebugView;
-            out << YAML::Key << "SSRTemporalResolve" << YAML::Value << pp.SSRTemporalResolve;
-            out << YAML::Key << "SSRTemporalFeedback" << YAML::Value << pp.SSRTemporalFeedback;
-            out << YAML::Key << "SSRPreBlurRadius" << YAML::Value << pp.SSRPreBlurRadius;
-            out << YAML::Key << "SSRPostBlurRadius" << YAML::Value << pp.SSRPostBlurRadius;
-            // The ray-query reflection tier (#1057). Nested in its own struct
-            // because the pass takes it whole, so the keys are spelled out
-            // rather than following the flat SSR* naming above.
-            out << YAML::Key << "RTReflectionEnabled" << YAML::Value << pp.RayTracedReflection.Enabled;
-            out << YAML::Key << "RTReflectionIntensity" << YAML::Value << pp.RayTracedReflection.Intensity;
-            out << YAML::Key << "RTReflectionMaxRayDistance" << YAML::Value << pp.RayTracedReflection.MaxRayDistance;
-            out << YAML::Key << "RTReflectionNormalBias" << YAML::Value << pp.RayTracedReflection.RayOriginNormalBias;
-            out << YAML::Key << "RTReflectionRoughnessGateStart" << YAML::Value << pp.RayTracedReflection.RoughnessGateStart;
-            out << YAML::Key << "RTReflectionRoughnessGateEnd" << YAML::Value << pp.RayTracedReflection.RoughnessGateEnd;
-            out << YAML::Key << "RTReflectionTraceSunShadowRay" << YAML::Value << pp.RayTracedReflection.TraceSunShadowRay;
-            out << YAML::Key << "RTReflectionSkyAmbientLod" << YAML::Value << pp.RayTracedReflection.SkyAmbientLod;
-            out << YAML::Key << "RTReflectionTierDebugView" << YAML::Value << pp.RayTracedReflection.TierDebugView;
-            // The GPU reference path tracer (#1055). Nested struct, flat keys,
-            // like the reflection tier above.
-            out << YAML::Key << "GpuPathTracerEnabled" << YAML::Value << pp.GpuPathTracer.Enabled;
-            out << YAML::Key << "GpuPathTracerSamplesPerFrame" << YAML::Value << pp.GpuPathTracer.SamplesPerFrame;
-            out << YAML::Key << "GpuPathTracerMaxSamples" << YAML::Value << pp.GpuPathTracer.MaxSamples;
-            out << YAML::Key << "GpuPathTracerMaxBounces" << YAML::Value << pp.GpuPathTracer.MaxBounces;
-            out << YAML::Key << "GpuPathTracerRussianRouletteStartBounce" << YAML::Value << pp.GpuPathTracer.RussianRouletteStartBounce;
-            out << YAML::Key << "GpuPathTracerSeed" << YAML::Value << pp.GpuPathTracer.Seed;
-            out << YAML::Key << "GpuPathTracerNextEventEstimation" << YAML::Value << pp.GpuPathTracer.EnableNextEventEstimation;
-            out << YAML::Key << "GpuPathTracerSampleTextures" << YAML::Value << pp.GpuPathTracer.SampleTextures;
-            out << YAML::Key << "GpuPathTracerMaxRadianceClamp" << YAML::Value << pp.GpuPathTracer.MaxRadianceClamp;
-            out << YAML::Key << "GpuPathTracerRayEpsilon" << YAML::Value << pp.GpuPathTracer.RayEpsilon;
-            out << YAML::Key << "GpuPathTracerMaxRayDistance" << YAML::Value << pp.GpuPathTracer.MaxRayDistance;
-            out << YAML::Key << "GpuPathTracerUniformEnvironmentRadiance" << YAML::Value << pp.GpuPathTracer.UniformEnvironmentRadiance;
-            out << YAML::Key << "GpuPathTracerEnvironmentCubeIntensity" << YAML::Value << pp.GpuPathTracer.EnvironmentCubeIntensity;
-            out << YAML::Key << "GpuPathTracerDebugView" << YAML::Value << static_cast<u32>(pp.GpuPathTracer.DebugView);
-            out << YAML::Key << "GpuPathTracerSampleCountDisplayScale" << YAML::Value << pp.GpuPathTracer.SampleCountDisplayScale;
-            out << YAML::Key << "GpuPathTracerVarianceDisplayScale" << YAML::Value << pp.GpuPathTracer.VarianceDisplayScale;
-            out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
-            out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
-            out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
-            out << YAML::Key << "SSGIThickness" << YAML::Value << pp.SSGIThickness;
-            out << YAML::Key << "SSGIStride" << YAML::Value << pp.SSGIStride;
-            out << YAML::Key << "SSGIMaxSteps" << YAML::Value << pp.SSGIMaxSteps;
-            out << YAML::Key << "SSGIRayCount" << YAML::Value << pp.SSGIRayCount;
-            out << YAML::Key << "SSGIEdgeFade" << YAML::Value << pp.SSGIEdgeFade;
-            out << YAML::Key << "SSGIDebugView" << YAML::Value << pp.SSGIDebugView;
-            out << YAML::Key << "SSGITemporalResolve" << YAML::Value << pp.SSGITemporalResolve;
-            out << YAML::Key << "SSGITemporalFeedback" << YAML::Value << pp.SSGITemporalFeedback;
-            out << YAML::Key << "SSGIHalfResolution" << YAML::Value << pp.SSGIHalfResolution;
-            out << YAML::Key << "SSGIRayDistribution" << YAML::Value << pp.SSGIRayDistribution;
-            out << YAML::Key << "SSGIPreBlurRadius" << YAML::Value << pp.SSGIPreBlurRadius;
-            out << YAML::Key << "SSGIPostBlurRadius" << YAML::Value << pp.SSGIPostBlurRadius;
-            out << YAML::Key << "ContactShadowEnabled" << YAML::Value << pp.ContactShadowEnabled;
-            out << YAML::Key << "ContactShadowIntensity" << YAML::Value << pp.ContactShadowIntensity;
-            out << YAML::Key << "ContactShadowMaxDistance" << YAML::Value << pp.ContactShadowMaxDistance;
-            out << YAML::Key << "ContactShadowThickness" << YAML::Value << pp.ContactShadowThickness;
-            out << YAML::Key << "ContactShadowStride" << YAML::Value << pp.ContactShadowStride;
-            out << YAML::Key << "ContactShadowMaxSteps" << YAML::Value << pp.ContactShadowMaxSteps;
-            out << YAML::Key << "ContactShadowBias" << YAML::Value << pp.ContactShadowBias;
-            out << YAML::Key << "ContactShadowEdgeFade" << YAML::Value << pp.ContactShadowEdgeFade;
-            out << YAML::Key << "ContactShadowDebugView" << YAML::Value << pp.ContactShadowDebugView;
-            out << YAML::Key << "AutoExposureEnabled" << YAML::Value << pp.AutoExposureEnabled;
-            out << YAML::Key << "AutoExposureMinLogLuminance" << YAML::Value << pp.AutoExposureMinLogLuminance;
-            out << YAML::Key << "AutoExposureMaxLogLuminance" << YAML::Value << pp.AutoExposureMaxLogLuminance;
-            out << YAML::Key << "AutoExposureSpeedUp" << YAML::Value << pp.AutoExposureSpeedUp;
-            out << YAML::Key << "AutoExposureSpeedDown" << YAML::Value << pp.AutoExposureSpeedDown;
-            out << YAML::Key << "AutoExposureCompensation" << YAML::Value << pp.AutoExposureCompensation;
-            out << YAML::Key << "AutoExposureMinExposure" << YAML::Value << pp.AutoExposureMinExposure;
-            out << YAML::Key << "AutoExposureMaxExposure" << YAML::Value << pp.AutoExposureMaxExposure;
-            out << YAML::Key << "CASEnabled" << YAML::Value << pp.CASEnabled;
-            out << YAML::Key << "CASSharpness" << YAML::Value << pp.CASSharpness;
-            out << YAML::Key << "Upscale" << YAML::Value << std::to_underlying(pp.Upscale);
-            out << YAML::Key << "RCASSharpness" << YAML::Value << pp.RCASSharpness;
-            // FSR2 temporal upscaling (#684). Technique is written as its
-            // ordinal like Upscale above; SanitizeUpscale rejects an unknown
-            // one back to Spatial on load rather than saturating into the
-            // other valid algorithm.
-            out << YAML::Key << "UpscaleTechnique" << YAML::Value << std::to_underlying(pp.Technique);
-            out << YAML::Key << "FSR2SharpeningEnabled" << YAML::Value << pp.FSR2SharpeningEnabled;
-            out << YAML::Key << "FSR2Sharpness" << YAML::Value << pp.FSR2Sharpness;
-        }
+        EmitPostProcessSettings(out, m_Scene->GetPostProcessSettings());
         out << YAML::EndMap;
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
