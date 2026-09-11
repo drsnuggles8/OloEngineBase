@@ -179,3 +179,25 @@ Not covered: a stream written exactly **once** per frame never trips the
 detector, because one write cannot alias between draws of that frame. It can
 still race the previous frame's submission, which needs a ring — the "own wave"
 the original comment promised and nothing has built.
+
+## And again in the GPU particle counters (#1171)
+
+Third instance of the same shape, found two months later. `GPUParticleSystem::
+Compact()` reset its counter block every frame with a `SetData` of a zeroed
+struct — a CPU write into a buffer the frame's already-recorded dispatches
+still read. The emit dispatch therefore saw `deadCount == 0`, took its
+"no free slots" undo path, and the emitter produced **nothing**, on Vulkan only,
+with no error anywhere. The remedy was already documented on
+`StorageBuffer::ClearData`: **a clear stays in the GPU command stream on both
+backends**, so it orders against the recorded dispatches the way GL's
+`glNamedBufferSubData` does.
+
+The rule that catches this without a debugger: **any CPU write to a buffer a
+compute dispatch reads is suspect the moment more than one of them happens per
+frame.** Reach for `ClearData` / `ClearSubData` when the write is a reset, and
+for per-write versioning when it is real data.
+
+Probing it has its own trap: every buffer in that chain is rewritten each frame
+(counters by Compact, free list by CompactScatter), so three probe channels were
+silently clobbered before one survived. A probe publishing through a buffer the
+pipeline owns reads back the last writer's bytes, not the probe's.
