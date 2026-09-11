@@ -130,6 +130,7 @@ layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;
 // what says whether it is meaningful.
 layout(binding = 72) uniform sampler2D u_RayTracedShadowMask;
 layout(binding = 73) uniform sampler2D u_ReSTIRDIRadiance; // ReSTIR DI resolved direct lighting (#1140)
+layout(binding = 74) uniform sampler2D u_ReSTIRGIRadiance; // ReSTIR GI resolved indirect diffuse (#1169)
 
 // Clustered light lists (issue #435) — included after the ShadowData block +
 // atlas samplers so the evaluator can attenuate culled lights by their entry.

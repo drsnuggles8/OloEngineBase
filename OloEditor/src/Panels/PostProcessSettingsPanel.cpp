@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -103,6 +104,51 @@ namespace OloEngine
                          after.ReSTIRDI.MaxRadianceClamp);
             AppendChange(changes, "ReSTIRDIRayOriginNormalBias", before.ReSTIRDI.RayOriginNormalBias,
                          after.ReSTIRDI.RayOriginNormalBias);
+            AppendChange(changes, "ReSTIRGIEnabled", before.ReSTIRGI.Enabled, after.ReSTIRGI.Enabled);
+            AppendChange(changes, "ReSTIRGIInitialCandidates", before.ReSTIRGI.InitialCandidates,
+                         after.ReSTIRGI.InitialCandidates);
+            AppendChange(changes, "ReSTIRGIDDGITail", before.ReSTIRGI.DDGITail, after.ReSTIRGI.DDGITail);
+            AppendChange(changes, "ReSTIRGITemporalReuse", before.ReSTIRGI.TemporalReuse,
+                         after.ReSTIRGI.TemporalReuse);
+            AppendChange(changes, "ReSTIRGITemporalMCap", before.ReSTIRGI.TemporalMCap,
+                         after.ReSTIRGI.TemporalMCap);
+            AppendChange(changes, "ReSTIRGIMaxSampleAge", before.ReSTIRGI.MaxSampleAge,
+                         after.ReSTIRGI.MaxSampleAge);
+            AppendChange(changes, "ReSTIRGISpatialReuse", before.ReSTIRGI.SpatialReuse,
+                         after.ReSTIRGI.SpatialReuse);
+            AppendChange(changes, "ReSTIRGISpatialNeighbours", before.ReSTIRGI.SpatialNeighbours,
+                         after.ReSTIRGI.SpatialNeighbours);
+            AppendChange(changes, "ReSTIRGISpatialRadiusPixels", before.ReSTIRGI.SpatialRadiusPixels,
+                         after.ReSTIRGI.SpatialRadiusPixels);
+            AppendChange(changes, "ReSTIRGISpatialPasses", before.ReSTIRGI.SpatialPasses,
+                         after.ReSTIRGI.SpatialPasses);
+            AppendChange(changes, "ReSTIRGIReconnectionVisibility", before.ReSTIRGI.ReconnectionVisibility,
+                         after.ReSTIRGI.ReconnectionVisibility);
+            AppendChange(changes, "ReSTIRGISpatialReconnectionVisibility",
+                         before.ReSTIRGI.SpatialReconnectionVisibility,
+                         after.ReSTIRGI.SpatialReconnectionVisibility);
+            AppendChange(changes, "ReSTIRGIMinReconnectionDistance", before.ReSTIRGI.MinReconnectionDistance,
+                         after.ReSTIRGI.MinReconnectionDistance);
+            AppendChange(changes, "ReSTIRGIMaxBounceDistance", before.ReSTIRGI.MaxBounceDistance,
+                         after.ReSTIRGI.MaxBounceDistance);
+            AppendChange(changes, "ReSTIRGIMaxRadianceClamp", before.ReSTIRGI.MaxRadianceClamp,
+                         after.ReSTIRGI.MaxRadianceClamp);
+            AppendChange(changes, "ReSTIRGIRayOriginNormalBias", before.ReSTIRGI.RayOriginNormalBias,
+                         after.ReSTIRGI.RayOriginNormalBias);
+            if (before.ReSTIRGI.BiasMode != after.ReSTIRGI.BiasMode)
+            {
+                std::ostringstream oss;
+                oss << "ReSTIRGIBiasMode: " << ToString(before.ReSTIRGI.BiasMode) << " -> "
+                    << ToString(after.ReSTIRGI.BiasMode);
+                changes.push_back(oss.str());
+            }
+            if (before.ReSTIRGI.DebugView != after.ReSTIRGI.DebugView)
+            {
+                std::ostringstream oss;
+                oss << "ReSTIRGIDebugView: " << ToString(before.ReSTIRGI.DebugView) << " -> "
+                    << ToString(after.ReSTIRGI.DebugView);
+                changes.push_back(oss.str());
+            }
             if (before.ReSTIRDI.DebugView != after.ReSTIRDI.DebugView)
             {
                 std::ostringstream oss;
@@ -793,6 +839,193 @@ namespace OloEngine
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "%u lights past the shader's slot bound are NOT resampled",
                                                stats.LightsBeyondShaderBound);
+                        if (stats.SettingsClamped > 0)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "settings were CLAMPED - the frame did less than was asked");
+                    }
+                    else
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "stood down - %s",
+                                           std::string(ToString(stats.Fallback)).c_str());
+                    }
+                }
+            }
+            ImGui::Unindent();
+        }
+
+        // ReSTIR GI (issue #1169, #979 Phase 3, second half). Its own header,
+        // directly ABOVE the SSGI one, because the two own the SAME TERM: when
+        // this tier is live it stands SSGI down, and putting them next to each
+        // other is what makes that visible to someone dragging the SSGI slider
+        // and seeing nothing happen.
+        if (ImGui::CollapsingHeader("ReSTIR Global Illumination"))
+        {
+            ImGui::Indent();
+            auto& gi = settings.ReSTIRGI;
+            ImGui::Checkbox("Enable##ReSTIRGI", &gi.Enabled);
+            ImGui::TextDisabled("Deferred path, ray-tracing device only; replaces the diffuse ambient");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("One-bounce diffuse indirect by reservoir reuse. It replaces the WHOLE\n"
+                                  "diffuse ambient - the probe rung, the baked-lightmap rung and the\n"
+                                  "sky-irradiance rung - and stands SSGI down while it runs, because\n"
+                                  "all four estimate the same integral. DDGI is not switched off: the\n"
+                                  "probe cache moves to the BOUNCE VERTEX and keeps supplying bounces\n"
+                                  "2 and beyond, which one bounce cannot.");
+
+            if (gi.Enabled)
+            {
+                const auto dragU32 = [](const char* label, u32& value, u32 lo, u32 hi)
+                {
+                    ImGui::DragScalar(label, ImGuiDataType_U32, &value, 1.0f, &lo, &hi, "%u",
+                                      ImGuiSliderFlags_AlwaysClamp);
+                };
+
+                dragU32("Bounce Rays##ReSTIRGI", gi.InitialCandidates, 1u, kReSTIRGIMaxInitialCandidates);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Bounce rays per pixel per frame. Each costs a BOUNCE ray plus an\n"
+                                      "NEE shadow ray at the vertex it finds, which is why the default\n"
+                                      "is 1 where the DI tier's is 32: reuse, not candidate count, is\n"
+                                      "what lowers the variance here.");
+
+                ImGui::Checkbox("DDGI Tail##ReSTIRGI", &gi.DDGITail);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Read the probe cache AT THE BOUNCE VERTEX, as bounces 2 and\n"
+                                      "beyond. Off makes this tier strictly one bounce: an indoor scene\n"
+                                      "loses its multi-bounce fill and reads darker. A quality choice,\n"
+                                      "never a correctness one - the cache is read at x1, never at the\n"
+                                      "pixel, so it cannot double-count either way.");
+
+                ImGui::Separator();
+                ImGui::Checkbox("Temporal Reuse##ReSTIRGI", &gi.TemporalReuse);
+                if (gi.TemporalReuse)
+                {
+                    ImGui::DragFloat("M Cap##ReSTIRGI", &gi.TemporalMCap, 1.0f, 1.0f,
+                                     kReSTIRGIMaxTemporalMCap, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("How much of a pixel's estimate a stale sample can still claim.");
+                    dragU32("Max Sample Age##ReSTIRGI", gi.MaxSampleAge, 1u,
+                            ReSTIR::kMaxSampleAgeFrames);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Frames a sample may survive - a SECOND bound, not the same as\n"
+                                          "the M cap. The history-validity test only looks at the\n"
+                                          "RECEIVING surface, so a sample whose own vertex moved or was\n"
+                                          "re-lit passes it every frame. Watch the Sample Age view.");
+                }
+
+                ImGui::Separator();
+                ImGui::Checkbox("Spatial Reuse##ReSTIRGI", &gi.SpatialReuse);
+                if (gi.SpatialReuse)
+                {
+                    dragU32("Neighbours##ReSTIRGI", gi.SpatialNeighbours, 0u, kReSTIRGIMaxSpatialNeighbours);
+                    ImGui::DragFloat("Radius (px)##ReSTIRGI", &gi.SpatialRadiusPixels, 0.5f, 1.0f, 128.0f,
+                                     "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                    dragU32("Passes##ReSTIRGI", gi.SpatialPasses, 1u, 4u);
+                    ImGui::Checkbox("Per-Neighbour Reconnection Ray##ReSTIRGI",
+                                    &gi.SpatialReconnectionVisibility);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Test each neighbour's sample vertex for visibility from THIS\n"
+                                          "pixel. Costs one ray per neighbour and removes the residual\n"
+                                          "light leak the default arm has - reuse can otherwise light a\n"
+                                          "surface through a wall the neighbour's path never approached,\n"
+                                          "smoothly, because reuse is spatially coherent.");
+                }
+
+                ImGui::Separator();
+                if (ImGui::BeginCombo("Bias Mode##ReSTIRGI", std::string(ToString(gi.BiasMode)).c_str()))
+                {
+                    for (u32 i = 0; i < std::to_underlying(ReSTIR::BiasMode::Count); ++i)
+                    {
+                        const auto mode = static_cast<ReSTIR::BiasMode>(i);
+                        const bool selected = gi.BiasMode == mode;
+                        if (ImGui::Selectable(std::string(ToString(mode)).c_str(), selected))
+                            gi.BiasMode = mode;
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                ImGui::Checkbox("Reconnection Ray##ReSTIRGI", &gi.ReconnectionVisibility);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("One ray from the pixel to its surviving sample's VERTEX. That\n"
+                                      "segment never existed in the path that produced the sample, so\n"
+                                      "without it reuse lights surfaces through walls. Off is for\n"
+                                      "isolating the ray cost when profiling, not for shipping.");
+
+                ImGui::DragFloat("Min Reconnection Distance##ReSTIRGI", &gi.MinReconnectionDistance, 0.005f,
+                                 0.0f, 10.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Below this a reuse is REJECTED rather than scaled: the squared\n"
+                                      "distance to the vertex is in the Jacobian's denominator, so a\n"
+                                      "vertex a centimetre away produces a firefly that temporal reuse\n"
+                                      "then keeps alive. Watch the Reconnection Length view.");
+
+                ImGui::DragFloat("Max Bounce Distance##ReSTIRGI", &gi.MaxBounceDistance, 1.0f, 0.1f,
+                                 1.0e6f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+                ImGui::DragFloat("Radiance Clamp (0 = off)##ReSTIRGI", &gi.MaxRadianceClamp, 0.1f, 0.0f,
+                                 1.0e6f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("A clamp is a BIAS. Leave it at 0 for anything compared against\n"
+                                      "the path tracer.");
+                ImGui::DragFloat("Ray Normal Bias##ReSTIRGI", &gi.RayOriginNormalBias, 0.001f, 0.0f, 1.0f,
+                                 "%.3f", ImGuiSliderFlags_AlwaysClamp);
+
+                if (ImGui::BeginCombo("View##ReSTIRGI", std::string(ToString(gi.DebugView)).c_str()))
+                {
+                    for (u32 i = 0; i < std::to_underlying(ReSTIRGIDebugView::Count); ++i)
+                    {
+                        const auto view = static_cast<ReSTIRGIDebugView>(i);
+                        const bool selected = gi.DebugView == view;
+                        if (ImGui::Selectable(std::string(ToString(view)).c_str(), selected))
+                            gi.DebugView = view;
+                        if (selected)
+                            ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("What lands on screen instead of the resampled radiance: the raw\n"
+                                      "un-reused bounce, the history verdict, variance, reservoir\n"
+                                      "lineage (M, W and AGE), the vertex's own radiance, how far the\n"
+                                      "reconnection reaches, and where the Jacobian, the domain gate or\n"
+                                      "the clamp intervened. The roadmap's non-goal is explicit: a tier\n"
+                                      "whose intermediate state cannot be looked at is one noisy sample\n"
+                                      "plus an opaque denoiser.");
+
+                // What the tier actually did last frame. Read only while it is
+                // ENABLED, for the reason the tiers above give: a disabled pass
+                // may not execute at all and its counters would be stale.
+                if (const ReSTIRGIPass* pass = Renderer3D::GetReSTIRGIPass(); pass != nullptr)
+                {
+                    const ReSTIRGIStats& stats = pass->GetStats();
+                    ImGui::Separator();
+                    ImGui::Text("%u lights, %u emissive triangles, environment %s",
+                                stats.Engagement.LightCount, stats.Engagement.EmissiveTriangles,
+                                stats.Engagement.EnvironmentAvailable ? "yes" : "no");
+                    if (stats.Active)
+                    {
+                        ImGui::Text("%s, reservoir layout v%u", std::string(ToString(stats.BiasMode)).c_str(),
+                                    stats.ReservoirLayoutVersion);
+                        ImGui::Text("%u bounce rays/px, %u spatial neighbours x %u pass(es)",
+                                    stats.InitialCandidatesPerPixel, stats.SpatialNeighboursPerPixel,
+                                    stats.SpatialPasses);
+                        ImGui::Text("rays <= %llu / frame",
+                                    static_cast<unsigned long long>(stats.RaysDispatchedUpperBound));
+                        // THE HAND-OFF, said in one line, because it is the thing
+                        // a user staring at a too-bright or too-dark room needs.
+                        ImGui::Text("indirect diffuse: %s at the pixel, probe cache %s",
+                                    stats.Sources.ReSTIRGIAtPrimary ? "ReSTIR GI" : "probe ladder",
+                                    stats.Sources.DDGIAtSecondary ? "at the bounce vertex"
+                                                                  : "not read");
+                        if (stats.SSGIStoodDown > 0)
+                            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                                               "SSGI stood down - this tier owns the term");
+                        if (!stats.TemporalReuseRan)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "no reservoir history this frame - every pixel restarted");
+                        if (!stats.ReconnectionVisibilityRan)
+                            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                               "reconnection ray OFF - reuse lights through walls");
                         if (stats.SettingsClamped > 0)
                             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
                                                "settings were CLAMPED - the frame did less than was asked");

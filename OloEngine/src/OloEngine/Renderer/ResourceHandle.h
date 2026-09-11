@@ -512,6 +512,23 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view ReSTIRDIReservoirStateHistory = "ReSTIRDIReservoirStateHistory";
     inline constexpr std::string_view ReSTIRDISurfaceHistory = "ReSTIRDISurfaceHistory";
     inline constexpr std::string_view ReSTIRDIMomentsHistory = "ReSTIRDIMomentsHistory";
+    // ReSTIR GI (issue #1169). The same four-target chain shape as DI's, its
+    // resolved INDIRECT radiance, and its own five history planes. Separate
+    // names rather than shared ones: the two tiers run in the same frame, own
+    // different terms, and carry reservoirs at different LAYOUT VERSIONS - a
+    // shared plane would make a DI packing bump invalidate GI's history for no
+    // reason, which reads as "the tier restarts by itself".
+    inline constexpr std::string_view ReSTIRGIInitial = "ReSTIRGIInitial";
+    inline constexpr std::string_view ReSTIRGITemporal = "ReSTIRGITemporal";
+    inline constexpr std::string_view ReSTIRGISpatial0 = "ReSTIRGISpatial0";
+    inline constexpr std::string_view ReSTIRGISpatial1 = "ReSTIRGISpatial1";
+    inline constexpr std::string_view ReSTIRGIRadiance = "ReSTIRGIRadiance";
+    inline constexpr std::string_view ReSTIRGIRadianceTexture = "ReSTIRGIRadianceTexture";
+    inline constexpr std::string_view ReSTIRGIReservoirSampleHistory = "ReSTIRGIReservoirSampleHistory";
+    inline constexpr std::string_view ReSTIRGIReservoirRadianceHistory = "ReSTIRGIReservoirRadianceHistory";
+    inline constexpr std::string_view ReSTIRGIReservoirStateHistory = "ReSTIRGIReservoirStateHistory";
+    inline constexpr std::string_view ReSTIRGISurfaceHistory = "ReSTIRGISurfaceHistory";
+    inline constexpr std::string_view ReSTIRGIMomentsHistory = "ReSTIRGIMomentsHistory";
 
     // Weighted-blended OIT accumulation targets (particles and forward
     // transparent decals write these; OITResolvePass reads them and

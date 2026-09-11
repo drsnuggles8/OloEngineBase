@@ -99,6 +99,7 @@ namespace OloEngine
         // so they need no separate Read()/barrier — just carry the GL ids.
         m_SelectedInputs.RayTracedShadowMask = {};
         m_SelectedInputs.ReSTIRDIRadiance = {};
+        m_SelectedInputs.ReSTIRGIRadiance = {};
         m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
         m_SelectedInputs.ShadowMapAtlasRawID = blackboard.Shadows.ShadowMapAtlasRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
@@ -122,6 +123,12 @@ namespace OloEngine
             m_SelectedInputs.ReSTIRDIRadiance = blackboard.Lighting.ReSTIRDIRadianceTexture;
             [[maybe_unused]] const auto restirRead =
                 builder.Read(blackboard.Lighting.ReSTIRDIRadianceTexture, RGReadUsage::ShaderSample);
+        }
+        if (blackboard.Lighting.ReSTIRGIRadianceTexture.IsValid())
+        {
+            m_SelectedInputs.ReSTIRGIRadiance = blackboard.Lighting.ReSTIRGIRadianceTexture;
+            [[maybe_unused]] const auto restirGIRead =
+                builder.Read(blackboard.Lighting.ReSTIRGIRadianceTexture, RGReadUsage::ShaderSample);
         }
         if (blackboard.AO.AOBuffer.IsValid())
         {
@@ -301,7 +308,14 @@ namespace OloEngine
         // additionally tests the target's alpha per pixel, which is what covers
         // sky and unlit pixels inside a live frame.
         controls.MSAAParams.y = m_SelectedInputs.ReSTIRDIRadiance.IsValid() ? 1.0f : 0.0f;
-        controls.MSAAParams.z = 0.0f;
+        // The ReSTIR GI tier's "I answer for the indirect diffuse term" lane
+        // (issue #1169), on exactly the terms the DI lane above states: raised
+        // only when the pass actually produced a radiance target this frame, so a
+        // tier that stood down for ANY reason leaves the ambient ladder running by
+        // construction rather than by remembering to clear a flag. The shader
+        // additionally tests the target's alpha per pixel, which covers sky and
+        // unlit pixels inside a live frame.
+        controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? 1.0f : 0.0f;
         controls.MSAAParams.w = 0.0f;
         m_ControlsUBO->SetData(&controls, sizeof(controls));
         m_ControlsUBO->Bind();
@@ -458,6 +472,21 @@ namespace OloEngine
                 : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
                                                  : RHI::ResourceHandle{});
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_DI_RADIANCE, restirRadianceID,
+                                        RHI::HeapSlotLifetime::FrameTransient);
+
+        // ReSTIR GI's resolved indirect diffuse (issue #1169), on the same terms
+        // and with the same caveat: the white placeholder's alpha is 1, so if it
+        // were ever sampled the shader would read it as "the tier produced full
+        // white indirect light". What stops that is the ORDER of the two guards in
+        // oloReSTIRGIIndirectDiffuse — the MSAAParams.z lane is tested FIRST and is
+        // raised only when this handle is valid, so the placeholder is never
+        // reached by a sample.
+        const RHI::ResourceHandle restirGIRadianceID =
+            m_SelectedInputs.ReSTIRGIRadiance.IsValid()
+                ? context.ResolveTextureHandle(m_SelectedInputs.ReSTIRGIRadiance)
+                : (Renderer3D::GetWhiteTexture() ? Renderer3D::GetWhiteTexture()->GetRHIHandle()
+                                                 : RHI::ResourceHandle{});
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_RESTIR_GI_RADIANCE, restirGIRadianceID,
                                         RHI::HeapSlotLifetime::FrameTransient);
 
         // Comparison-OFF raw-depth views for the PCSS blocker search (plain

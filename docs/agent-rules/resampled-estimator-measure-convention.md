@@ -11,6 +11,20 @@ plausible image.
 This came out of #1140 (ReSTIR DI). It transfers to anything that resamples: ReSTIR GI, ReSTIR PT /
 GRIS, a light-BVH cache, a reprojected reflection sample.
 
+**#1169 (ReSTIR GI) is the first place it was applied rather than derived**, and
+[design/restir-gi-reconnection-shift.md](../design/restir-gi-reconnection-shift.md) is what that
+looks like as a document written *before* the code. Two things it adds that this rule did not
+anticipate, both worth reading before the next estimator:
+
+- the **degenerate arm is derived, not chosen**. DI's "a delta light shifts with J = 1" and GI's "an
+  environment sample shifts with J = 1" are the same sentence for different reasons, and GI's is
+  obtained as the limit of the vertex receding — which is then asserted as a limit, so the special
+  case is a consequence rather than a decision somebody could have made differently;
+- the shift's **domain** needs guarding separately from its Jacobian. A term can be finite and
+  correct at a configuration the shift does not actually cover (a vertex behind the destination's
+  surface, or centimetres from it), and the identity in §2 says nothing about those — they have to
+  be rejected, not scaled, and rejecting them is a different piece of code from computing J.
+
 ## Why the usual checks do not catch it
 
 A resampling estimator has three parts that each look right in isolation:

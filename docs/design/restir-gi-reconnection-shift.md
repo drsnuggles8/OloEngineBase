@@ -32,20 +32,37 @@ they are the whole reason this estimator is allowed to reuse a neighbour's sampl
 anything:
 
 1. a stored `L_o(x1)` is valid from *any* shading point that can see `x1`;
-2. a sample whose `x1` is **not** diffuse enough must never be stored, or reuse invents directional
-   energy that was never there. §6.1.
+2. the vertex's **specular lobe is dropped**, which is a stated non-goal rather than an
+   approximation nobody declared — this tier estimates one-bounce indirect *diffuse*. It is still
+   counted, so a scene of polished floors producing little GI is attributable. §6.1.
 
-`L_o(x1)` is composed of three terms, and which of them exists is a configuration question, not an
-approximation:
+`L_o(x1)` is the **reflected** radiance leaving the vertex, and nothing else:
 
 ```
-L_o(x1) = L_e(x1)                     emission at the sample vertex
-        + L_direct(x1)                one NEE draw from the shared light set, shadow-ray tested
-        + L_tail(x1)                  the probe cache, read AT x1 — see §5
+L_o(x1) = (albedo(x1) * (1 - metallic(x1)) / pi)
+          * ( E_direct(x1)              one NEE draw from the shared light set, shadow-ray tested
+            + E_tail(x1) )              the probe cache, read AT x1 — see §5
 ```
 
 On a **ray miss** the sample is the environment in direction `w`; `L_o` is the environment radiance
 and the sample is stored as a direction rather than a point (§3, §4.3).
+
+### §1.1 Emission at the sample vertex is NOT in it, and that is the whole reason
+
+The obvious term to add is `L_e(x1)`. It must not be there, and the argument is one sentence:
+**light that leaves a surface and arrives with no reflection in between is DIRECT lighting**, so it
+is the direct tier's by definition. ReSTIR DI samples the emissive-triangle table from `x0` and would
+be estimating exactly the same transport — adding `L_e(x1)` here double-counts every emissive surface
+in the scene, EXACTLY, with the two estimates agreeing about the answer and the sum being twice it.
+
+The failure mode is the one this whole document is organised against: an emissive-lit room comes out
+twice as bright, which reads as "the new GI tier is a bit strong" and gets fixed with an intensity
+slider.
+
+It follows that ReSTIR GI is *indirect*: every path it estimates has at least one reflection. What
+the clustered tier does with emissive geometry when ReSTIR DI is off — nothing; it glows and lights
+nothing — is a pre-existing gap that #1140 filled for its own tier, and it is not this one's to fill
+by smuggling a direct term into an indirect estimator.
 
 ---
 
@@ -177,10 +194,22 @@ sample kind and never from inspecting the vector) and its normal lane is the "no
 > **The probe cache is read at exactly ONE vertex per path. Enabling ReSTIR GI moves which vertex
 > that is; it does not add a second read.**
 
-| | probe cache read at | diffuse indirect at `x0` comes from |
+| | probe cache read at | diffuse ambient at `x0` comes from |
 |---|---|---|
-| ReSTIR GI **off** | `x0` — the ambient ladder's rung 2 in `ComputeDeferredLit` | DDGI / baked SH |
-| ReSTIR GI **on** | `x1` — inside the GI initial-sample draw, as `L_tail` (§1) | the resolved ReSTIR GI radiance |
+| ReSTIR GI **off** | `x0` — the ambient ladder in `ComputeDeferredLit` | the ladder: lightmap, else probes/DDGI, else sky irradiance |
+| ReSTIR GI **on** | `x1` — inside the GI initial-sample draw, as `E_tail` (§1) | the resolved ReSTIR GI radiance |
+
+**ReSTIR GI owns the WHOLE diffuse ambient when it is on**, not just the probe rung. That is forced
+rather than chosen: a bounce ray that escapes collects the environment, so the sky's diffuse
+contribution is already inside the resampled estimate, and leaving the ladder's sky-irradiance rung
+on underneath would count it twice. The same applies to a baked lightmap, which is itself a complete
+diffuse-GI solution.
+
+**And the estimate is not multiplied by the ambient-occlusion term.** `ComputeDeferredLit` computes
+`ambient * ao`; ReSTIR GI's occlusion is already exact, because it traced the rays. Multiplying a
+ray-traced visibility estimate by a screen-space approximation of the same visibility darkens every
+corner twice — and it darkens it by a factor nobody can attribute, because both halves look
+plausible. AO keeps multiplying the SPECULAR half of the ambient, which ReSTIR GI does not touch.
 
 So DDGI remains exactly what #979 calls it — *fallback / cache / lower tier* — and it keeps supplying
 bounces 2 and beyond, which a one-bounce estimator cannot. The two terms live at different vertices
@@ -216,16 +245,19 @@ is invisible in a still frame when it is missing.
 DI's stored radiance is direction-independent *by construction*: the emitter's own cosine, texture
 and cone are folded in at selection time and the result is what leaves that point toward anyone.
 
-GI's stored radiance is direction-independent only **under the diffuse restriction**. Reconnecting to
-a glossy vertex and reusing its `L_o` transplants a view-dependent highlight to a pixel that is not
-at that view — which reads as a smear of extra light following the camera, and reads as *plausible
-indirect specular*.
+GI's is direction-independent only because **the definition in §1 makes it so** — the vertex is
+shaded with its diffuse lobe alone. Evaluating the full closure at `x1` toward `x0` would make the
+stored value depend on where `x0` is, and reusing it at a neighbour would transplant a view-dependent
+highlight onto a pixel that is not at that view: a smear of extra light following the camera, which
+reads as *plausible indirect specular*.
 
-So admissibility is a **gate at storage time**, where it is decidable: a vertex is reconnectable only
-if its roughness is at or above `kMinimumReconnectionRoughness` and it is not near-metallic. A vertex
-that fails is not stored, the pixel keeps an empty reservoir for that candidate, and the rejection is
-**counted** — a scene of polished floors that silently produces no GI is otherwise indistinguishable
-from a tier that is switched off.
+So the restriction is a **definition, not a gate**, and that distinction matters for what the code
+looks like. There is no roughness threshold below which a sample is rejected — rejecting one would
+leave a hole in the estimate, which is worse than the term it was avoiding. What there is instead is
+a **count**: `GlossyVertexBounces` records the pixels whose bounce landed on a vertex rough enough
+(below `kDefaultGlossyVertexRoughness`) that the dropped specular lobe is a visible fraction of what
+left it. A chrome-floored scene legitimately produces far less GI than a full path tracer would, and
+"the tier looks like it is off" has to be attributable to that rather than guessed at.
 
 ### §6.2 The reconnection segment is a NEW segment, and it can be occluded
 

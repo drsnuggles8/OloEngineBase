@@ -279,6 +279,17 @@ namespace OloEngine::MCP::PostProcess
     {                                                                                                                                                                                                                    \
         token, "restirdi", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRDI, &ReSTIRDISettings::name>, nullptr, nullptr \
     }
+// ReSTIR GI's settings (#1169), nested the same way.
+#define OLO_RESTIR_GI_BOOL(token, name, desc)                                                                                                                                                                                         \
+    FieldInfo                                                                                                                                                                                                                         \
+    {                                                                                                                                                                                                                                 \
+        token, "restirgi", FieldType::Bool, 0.0, 1.0, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, nullptr, nullptr \
+    }
+#define OLO_RESTIR_GI_NUM(token, name, type, lo, hi, desc)                                                                                                                                                               \
+    FieldInfo                                                                                                                                                                                                            \
+    {                                                                                                                                                                                                                    \
+        token, "restirgi", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, nullptr, nullptr \
+    }
 #define OLO_FOG_BOOL(token, name, desc)                                                                                                      \
     FieldInfo                                                                                                                                \
     {                                                                                                                                        \
@@ -561,6 +572,79 @@ namespace OloEngine::MCP::PostProcess
                        static_cast<double>(std::to_underlying(ReSTIRDIDebugView::Count) - 1u),
                        "0 radiance, 1 raw candidate, 2 history validity, 3 variance, 4 reservoir M, "
                        "5 reservoir W, 6 sample kind, 7 bias/clamp state."),
+
+        // ReSTIR GI (#1169). Every field the estimator's behaviour depends on is
+        // writable from MCP, for the reason the DI block above gives and for one
+        // more: the in-MOTION checks #979 asks for cannot be driven by hand, and
+        // a knob only reachable through the editor panel cannot be part of a
+        // reproducible measurement.
+        OLO_RESTIR_GI_BOOL("ReSTIRGIEnabled", Enabled,
+                           "Arm the ReSTIR GI tier - one-bounce diffuse indirect by reservoir reuse. It REPLACES "
+                           "the ambient ladder's diffuse rung and stands SSGI down while it is live; the reason "
+                           "it stood down, if it did, is in the renderer statistics."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIInitialCandidates", InitialCandidates, FieldType::Int, 1.0,
+                          static_cast<double>(kReSTIRGIMaxInitialCandidates),
+                          "Bounce rays per pixel per frame. Each one costs a BOUNCE ray plus an NEE shadow ray at "
+                          "the vertex it finds, which is why the default is 1 where the DI tier's is 32: reuse, "
+                          "not candidate count, is what lowers the variance here."),
+        OLO_RESTIR_GI_BOOL("ReSTIRGIDDGITail", DDGITail,
+                           "Read the probe cache AT THE BOUNCE VERTEX as the path tail - bounces 2 and beyond. "
+                           "Off makes the tier strictly one bounce: an indoor scene loses its multi-bounce fill "
+                           "and reads darker. A quality choice, never a correctness one."),
+        OLO_RESTIR_GI_BOOL("ReSTIRGITemporalReuse", TemporalReuse,
+                           "Merge last frame's reservoir, gated on the #976 history layer AND on the sample's "
+                           "age, through a real reconnection Jacobian."),
+        OLO_RESTIR_GI_NUM("ReSTIRGITemporalMCap", TemporalMCap, FieldType::Float, 1.0,
+                          static_cast<double>(kReSTIRGIMaxTemporalMCap),
+                          "Cap on the confidence weight M: how much of a pixel's estimate a stale sample can "
+                          "still claim."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIMaxSampleAge", MaxSampleAge, FieldType::Int, 1.0,
+                          static_cast<double>(ReSTIR::kMaxSampleAgeFrames),
+                          "Frames a sample may survive. The SECOND staleness bound, and not the same as the M "
+                          "cap: #976 only looks at the receiving surface, so a sample whose own vertex moved or "
+                          "was re-lit passes it every frame."),
+        OLO_RESTIR_GI_BOOL("ReSTIRGISpatialReuse", SpatialReuse,
+                           "Merge neighbouring pixels' reservoirs through the reconnection shift and its "
+                           "Jacobian."),
+        OLO_RESTIR_GI_NUM("ReSTIRGISpatialNeighbours", SpatialNeighbours, FieldType::Int, 0.0,
+                          static_cast<double>(kReSTIRGIMaxSpatialNeighbours),
+                          "Neighbours sampled per spatial pass. The unbiased mode costs one target-function "
+                          "evaluation per neighbour PAIR, so this is quadratic there."),
+        OLO_RESTIR_GI_NUM("ReSTIRGISpatialRadiusPixels", SpatialRadiusPixels, FieldType::Float, 1.0, 128.0,
+                          "Neighbour search radius in pixels. Wider than the DI tier's default because the "
+                          "indirect signal is smoother and a GI pixel has far fewer candidates to start with."),
+        OLO_RESTIR_GI_NUM("ReSTIRGISpatialPasses", SpatialPasses, FieldType::Int, 1.0, 4.0,
+                          "Spatial passes run in sequence, each drawing a different neighbour set."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIBiasMode", BiasMode, FieldType::Int, 0.0,
+                          static_cast<double>(std::to_underlying(ReSTIR::BiasMode::Count) - 1u),
+                          "0 = biased (1/M), cheap and darkens where reuse helps most; 1 = unbiased "
+                          "(MIS-weighted, the generalised balance heuristic)."),
+        OLO_RESTIR_GI_BOOL("ReSTIRGIReconnectionVisibility", ReconnectionVisibility,
+                           "Trace one ray from the pixel to its surviving sample's VERTEX. The reconnection "
+                           "segment never existed in the path that produced the sample, so without this reuse "
+                           "lights surfaces through walls - smoothly, because reuse is spatially coherent."),
+        OLO_RESTIR_GI_BOOL("ReSTIRGISpatialReconnectionVisibility", SpatialReconnectionVisibility,
+                           "The same ray per spatial NEIGHBOUR. Costs k rays per pixel and removes the residual "
+                           "leak the default arm has. Off by default, and the default arm HAVING a residual leak "
+                           "is the point of saying so here."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIMinReconnectionDistance", MinReconnectionDistance, FieldType::Float, 0.0,
+                          10.0,
+                          "Metres. Below it a reuse is REJECTED rather than scaled: the squared distance to the "
+                          "vertex is in the Jacobian's denominator, and a vertex a centimetre away produces a "
+                          "firefly temporal reuse then keeps alive."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIMaxBounceDistance", MaxBounceDistance, FieldType::Float, 0.1, 1000000.0,
+                          "Metres a bounce ray travels before it is treated as an escape. What a small value "
+                          "drops is long-range indirect, which is what the probe cache at the vertex is good at."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIMaxRadianceClamp", MaxRadianceClamp, FieldType::Float, 0.0, 1000000.0,
+                          "Firefly clamp on the resolved radiance. A clamp is a BIAS: leave it at 0 for anything "
+                          "compared against the path tracer."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIRayOriginNormalBias", RayOriginNormalBias, FieldType::Float, 0.0, 1.0,
+                          "World-space offset along the geometric normal before a ray leaves a surface, metres."),
+        OLO_RESTIR_GI_NUM("ReSTIRGIDebugView", DebugView, FieldType::Int, 0.0,
+                          static_cast<double>(std::to_underlying(ReSTIRGIDebugView::Count) - 1u),
+                          "0 radiance, 1 raw candidate, 2 history validity, 3 variance, 4 reservoir M, "
+                          "5 reservoir W, 6 sample kind, 7 sample AGE, 8 sample radiance, "
+                          "9 reconnection length, 10 bias/clamp state."),
 
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),

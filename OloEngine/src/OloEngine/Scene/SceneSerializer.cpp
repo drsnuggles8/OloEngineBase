@@ -6739,6 +6739,31 @@ namespace OloEngine
             out << YAML::Key << "ReSTIRDIMaxRadianceClamp" << YAML::Value << pp.ReSTIRDI.MaxRadianceClamp;
             out << YAML::Key << "ReSTIRDIRayOriginNormalBias" << YAML::Value << pp.ReSTIRDI.RayOriginNormalBias;
             out << YAML::Key << "ReSTIRDIDebugView" << YAML::Value << static_cast<u32>(pp.ReSTIRDI.DebugView);
+
+            // ReSTIR GI (issue #1169). Every knob a scene can set, written flat
+            // with the tier's prefix the way DI's are - a nested map would read
+            // better and would break every scene written before it.
+            out << YAML::Key << "ReSTIRGIEnabled" << YAML::Value << pp.ReSTIRGI.Enabled;
+            out << YAML::Key << "ReSTIRGIInitialCandidates" << YAML::Value << pp.ReSTIRGI.InitialCandidates;
+            out << YAML::Key << "ReSTIRGIDDGITail" << YAML::Value << pp.ReSTIRGI.DDGITail;
+            out << YAML::Key << "ReSTIRGITemporalReuse" << YAML::Value << pp.ReSTIRGI.TemporalReuse;
+            out << YAML::Key << "ReSTIRGITemporalMCap" << YAML::Value << pp.ReSTIRGI.TemporalMCap;
+            out << YAML::Key << "ReSTIRGIMaxSampleAge" << YAML::Value << pp.ReSTIRGI.MaxSampleAge;
+            out << YAML::Key << "ReSTIRGISpatialReuse" << YAML::Value << pp.ReSTIRGI.SpatialReuse;
+            out << YAML::Key << "ReSTIRGISpatialNeighbours" << YAML::Value << pp.ReSTIRGI.SpatialNeighbours;
+            out << YAML::Key << "ReSTIRGISpatialRadiusPixels" << YAML::Value << pp.ReSTIRGI.SpatialRadiusPixels;
+            out << YAML::Key << "ReSTIRGISpatialPasses" << YAML::Value << pp.ReSTIRGI.SpatialPasses;
+            out << YAML::Key << "ReSTIRGIBiasMode" << YAML::Value << static_cast<u32>(pp.ReSTIRGI.BiasMode);
+            out << YAML::Key << "ReSTIRGIReconnectionVisibility" << YAML::Value
+                << pp.ReSTIRGI.ReconnectionVisibility;
+            out << YAML::Key << "ReSTIRGISpatialReconnectionVisibility" << YAML::Value
+                << pp.ReSTIRGI.SpatialReconnectionVisibility;
+            out << YAML::Key << "ReSTIRGIMinReconnectionDistance" << YAML::Value
+                << pp.ReSTIRGI.MinReconnectionDistance;
+            out << YAML::Key << "ReSTIRGIMaxBounceDistance" << YAML::Value << pp.ReSTIRGI.MaxBounceDistance;
+            out << YAML::Key << "ReSTIRGIMaxRadianceClamp" << YAML::Value << pp.ReSTIRGI.MaxRadianceClamp;
+            out << YAML::Key << "ReSTIRGIRayOriginNormalBias" << YAML::Value << pp.ReSTIRGI.RayOriginNormalBias;
+            out << YAML::Key << "ReSTIRGIDebugView" << YAML::Value << static_cast<u32>(pp.ReSTIRGI.DebugView);
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -7028,6 +7053,44 @@ namespace OloEngine
                 // downgraded scene is exactly the case the shader cannot be the backstop
                 // for.
                 restir = SanitizeReSTIRDISettings(restir);
+
+                // ReSTIR GI (issue #1169).
+                auto& restirGI = pp.ReSTIRGI;
+                TrySet(restirGI.Enabled, ppNode["ReSTIRGIEnabled"]);
+                TrySet(restirGI.InitialCandidates, ppNode["ReSTIRGIInitialCandidates"]);
+                TrySet(restirGI.DDGITail, ppNode["ReSTIRGIDDGITail"]);
+                TrySet(restirGI.TemporalReuse, ppNode["ReSTIRGITemporalReuse"]);
+                TrySet(restirGI.TemporalMCap, ppNode["ReSTIRGITemporalMCap"]);
+                TrySet(restirGI.MaxSampleAge, ppNode["ReSTIRGIMaxSampleAge"]);
+                TrySet(restirGI.SpatialReuse, ppNode["ReSTIRGISpatialReuse"]);
+                TrySet(restirGI.SpatialNeighbours, ppNode["ReSTIRGISpatialNeighbours"]);
+                TrySet(restirGI.SpatialRadiusPixels, ppNode["ReSTIRGISpatialRadiusPixels"]);
+                TrySet(restirGI.SpatialPasses, ppNode["ReSTIRGISpatialPasses"]);
+                if (const auto giBiasNode = ppNode["ReSTIRGIBiasMode"])
+                {
+                    u32 biasMode = 0;
+                    TrySet(biasMode, giBiasNode);
+                    if (biasMode < std::to_underlying(ReSTIR::BiasMode::Count))
+                        restirGI.BiasMode = static_cast<ReSTIR::BiasMode>(biasMode);
+                }
+                TrySet(restirGI.ReconnectionVisibility, ppNode["ReSTIRGIReconnectionVisibility"]);
+                TrySet(restirGI.SpatialReconnectionVisibility,
+                       ppNode["ReSTIRGISpatialReconnectionVisibility"]);
+                TrySet(restirGI.MinReconnectionDistance, ppNode["ReSTIRGIMinReconnectionDistance"]);
+                TrySet(restirGI.MaxBounceDistance, ppNode["ReSTIRGIMaxBounceDistance"]);
+                TrySet(restirGI.MaxRadianceClamp, ppNode["ReSTIRGIMaxRadianceClamp"]);
+                TrySet(restirGI.RayOriginNormalBias, ppNode["ReSTIRGIRayOriginNormalBias"]);
+                if (const auto giViewNode = ppNode["ReSTIRGIDebugView"])
+                {
+                    u32 view = 0;
+                    TrySet(view, giViewNode);
+                    if (view < std::to_underlying(ReSTIRGIDebugView::Count))
+                        restirGI.DebugView = static_cast<ReSTIRGIDebugView>(view);
+                }
+                // Applied on LOAD as well as before every upload, for the reason
+                // the DI line above gives: a hand-edited or downgraded scene is
+                // exactly the case the shader cannot be the backstop for.
+                restirGI = SanitizeReSTIRGISettings(restirGI);
                 u32 debugView = static_cast<u32>(pt.DebugView);
                 TrySet(debugView, ppNode["GpuPathTracerDebugView"]);
                 // An out-of-range value is turned back into Radiance by the
