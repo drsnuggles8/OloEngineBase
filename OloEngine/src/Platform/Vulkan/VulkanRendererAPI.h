@@ -264,6 +264,44 @@ namespace OloEngine
             return m_UnfedStorageBindings.load(std::memory_order_relaxed);
         }
 
+        // Compute-dispatch census (#1171). "The dispatch is issued" was an
+        // INFERENCE for a long time — nothing recorded which compute shaders
+        // actually reached the backend, so a dispatch lost upstream of here and
+        // one recorded into a doomed command buffer looked identical. Keyed by
+        // shader name, split by whether a recording bracket was open, so an
+        // absent name means the call never arrived rather than being refused.
+        struct ComputeDispatchCensusEntry
+        {
+            u64 Recorded = 0;  ///< reached vkCmdDispatch
+            u64 NoBracket = 0; ///< refused: no command buffer open
+            u64 NoShader = 0;  ///< refused: no valid compute shader bound
+        };
+        [[nodiscard]] std::unordered_map<std::string, ComputeDispatchCensusEntry> GetComputeDispatchCensus() const
+        {
+            const std::scoped_lock lock(m_ComputeCensusMutex);
+            return m_ComputeCensus;
+        }
+        void ResetComputeDispatchCensus() const
+        {
+            const std::scoped_lock lock(m_ComputeCensusMutex);
+            m_ComputeCensus.clear();
+        }
+
+        // Draw census by shader name (#1171), the draw-side twin of the compute
+        // census. `prepared` counts draws that reached their vkCmdDraw*; an
+        // ABSENT shader name means no draw was ever attempted with it, which a
+        // total-only counter cannot distinguish from one that was dropped.
+        struct DrawCensusEntry
+        {
+            u64 Prepared = 0;
+            u64 Dropped = 0;
+        };
+        [[nodiscard]] std::unordered_map<std::string, DrawCensusEntry> GetDrawCensus() const
+        {
+            const std::scoped_lock lock(m_DrawCensusMutex);
+            return m_DrawCensus;
+        }
+
         [[nodiscard]] u64 GetUnimplementedStubHitCount() const
         {
             return m_UnimplementedStubHits;
@@ -817,6 +855,10 @@ namespace OloEngine
         mutable u64 m_UnimplementedStubHits = 0;
         mutable std::array<u64, static_cast<sizet>(StubKind::Count)> m_StubHitsByKind{};
         mutable std::unordered_set<std::string> m_WarnedStubs;
+        mutable std::mutex m_DrawCensusMutex;
+        mutable std::unordered_map<std::string, DrawCensusEntry> m_DrawCensus;
+        mutable std::mutex m_ComputeCensusMutex;
+        mutable std::unordered_map<std::string, ComputeDispatchCensusEntry> m_ComputeCensus;
 
         VulkanRecordedPipelineState m_State;
 

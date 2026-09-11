@@ -56,6 +56,21 @@ namespace OloEditor::MCP
         i64 GpuCounterAlive = -1;
         i64 GpuCounterDead = -1;
         i64 GpuCounterEmit = -1;
+        i64 GpuCounterPad = -1;
+        // Free-list health. The emit shader claims a slot via
+        // freeList[deadCount-1] and UNDOES its atomic when that entry is out of
+        // range, which leaves the counters looking untouched — indistinguishable
+        // from "the shader never ran" unless the list itself is inspected.
+        i64 FreeListFirst = -1;
+        i64 FreeListLast = -1;
+        i64 FreeListOutOfRange = -1;
+        i64 FreeListSampled = -1;
+        // Mean rendered size over the first alive particles, read through the
+        // compacted alive list — the quantity a billboard's on-screen area is
+        // proportional to, and the one that is directly comparable between
+        // backends. -1 when nothing is alive.
+        f32 MeanAliveSize = -1.0f;
+        i64 AliveSampled = -1;
         i64 GpuIndirectInstanceCount = -1;
         // How many particles the CPU emitter handed the GPU system last update,
         // and the LOD multiplier feeding it. Separates "the emitter asked for
@@ -200,8 +215,15 @@ namespace OloEditor::MCP
             one["deadGpuStages"] = e.DeadGpuStages;
             one["gpuCounters"] = { { "alive", e.GpuCounterAlive },
                                    { "dead", e.GpuCounterDead },
-                                   { "emit", e.GpuCounterEmit } };
+                                   { "emit", e.GpuCounterEmit },
+                                   { "pad", e.GpuCounterPad } };
             one["gpuIndirectInstanceCount"] = e.GpuIndirectInstanceCount;
+            one["meanAliveSize"] = e.MeanAliveSize;
+            one["aliveSampled"] = e.AliveSampled;
+            one["gpuFreeList"] = { { "first", e.FreeListFirst },
+                                   { "last", e.FreeListLast },
+                                   { "outOfRange", e.FreeListOutOfRange },
+                                   { "sampled", e.FreeListSampled } };
             one["lastGpuEmitRequest"] = e.LastGpuEmitRequest;
             one["lodSpawnRateMultiplier"] = e.LodSpawnRateMultiplier;
             one["gpuParticleSlotsWritten"] = e.GpuParticleSlotsWritten;

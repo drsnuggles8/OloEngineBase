@@ -30,6 +30,7 @@
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #endif
 #include "OloEngine/Particle/GPUParticleData.h"
+#include "OloEngine/Particle/GPUParticleSystem.h"
 #include "OloEngine/Particle/ParticleBatchRenderer.h"
 #include "OloEngine/Atmosphere/Ephemeris.h"
 #include "OloEngine/Atmosphere/WeatherSystem.h"
@@ -4742,6 +4743,39 @@ namespace OloEngine::MCP
                     stubs["preconditionFailure"] = vk.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
                     stubs["outsideRecording"] = vk.GetStubHitCount(VulkanRendererAPI::StubKind::OutsideRecording);
                     j["vulkanStubs"] = std::move(stubs);
+
+                    // Which compute shaders actually reached the backend, and
+                    // with what outcome. An ABSENT name means the dispatch never
+                    // arrived at all — the one thing a success-only counter
+                    // cannot say, and the distinction #1171 turned on.
+                    Json dispatches = Json::object();
+                    for (const auto& [name, entry] : vk.GetComputeDispatchCensus())
+                    {
+                        dispatches[name] = { { "recorded", entry.Recorded },
+                                             { "refusedNoBracket", entry.NoBracket },
+                                             { "refusedNoShader", entry.NoShader } };
+                    }
+                    j["computeDispatchCensus"] = std::move(dispatches);
+
+                    // Draws PrepareDraw refused. A dropped draw is a silently
+                    // black frame — the counter already existed and nothing
+                    // surfaced it (#691, #1171).
+                    Json drawsByShader = Json::object();
+                    for (const auto& [name, entry] : vk.GetDrawCensus())
+                    {
+                        drawsByShader[name] = { { "prepared", entry.Prepared }, { "dropped", entry.Dropped } };
+                    }
+                    j["drawCensus"] = std::move(drawsByShader);
+
+                    j["drawObservability"] = { { "prepared", vk.GetPreparedDrawsThisRecording() },
+                                               { "dropped", vk.GetDroppedDrawsThisRecording() },
+                                               { "conditionallySkipped",
+                                                 vk.GetConditionallySkippedDrawsThisRecording() },
+                                               { "gpuWrittenRoot", vk.GetGpuWrittenRootDrawsThisRecording() } };
+                    if (vk.GetDroppedDrawsThisRecording() > 0)
+                    {
+                        j["ok"] = false;
+                    }
                     if (vk.GetUnimplementedStubHitCount() > 0)
                     {
                         j["ok"] = false;
@@ -5193,6 +5227,7 @@ namespace OloEngine::MCP
                                 facts.GpuCounterAlive = static_cast<i64>(counters.AliveCount);
                                 facts.GpuCounterDead = static_cast<i64>(counters.DeadCount);
                                 facts.GpuCounterEmit = static_cast<i64>(counters.EmitCount);
+                                facts.GpuCounterPad = static_cast<i64>(counters.Pad);
                             }
                             // Sample the particle pool itself. The emit shader writes a
                             // particle AND bumps the counters; reading the pool separates
@@ -5201,11 +5236,16 @@ namespace OloEngine::MCP
                             if (const auto& particleSSBO = gpu->GetParticleSSBO(); particleSSBO)
                             {
                                 constexpr u32 kSample = 256u;
-                                const u32 sampled =
-                                    std::min(kSample, static_cast<u32>(particleSSBO->GetSize() / sizeof(GPUParticle)));
+                                const u32 slots = static_cast<u32>(particleSSBO->GetSize() / sizeof(GPUParticle));
+                                const u32 sampled = std::min(kSample, slots);
                                 u32 written = 0;
-                                for (u32 slot = 0; slot < sampled; ++slot)
+                                for (u32 i = 0; i < sampled; ++i)
                                 {
+                                    // Sample the TAIL. Emit claims freeList[deadCount-1]
+                                    // first, so a freshly emitted particle lands at the
+                                    // HIGH end of the pool; scanning from slot 0 reads
+                                    // untouched memory and reports a false zero.
+                                    const u32 slot = slots - 1u - i;
                                     const auto particle =
                                         particleSSBO->GetData<GPUParticle>(slot * static_cast<u32>(sizeof(GPUParticle)));
                                     // w of PositionLifetime is remaining lifetime; a never-written
@@ -5217,6 +5257,64 @@ namespace OloEngine::MCP
                                 }
                                 facts.GpuParticleSlotsSampled = static_cast<i64>(sampled);
                                 facts.GpuParticleSlotsWritten = static_cast<i64>(written);
+                            }
+                            // Free list: the emit shader reads freeList[deadCount-1]
+                            // and undoes its claim when the entry is out of range,
+                            // which hides the failure in the counters (#1171).
+                            // Mean size over the first alive particles, via the
+                            // compacted alive list. Billboard area scales with this,
+                            // so it is the directly comparable number across backends.
+                            if (const auto& aliveSSBO = gpu->GetAliveIndexSSBO();
+                                aliveSSBO && facts.GpuCounterAlive > 0)
+                            {
+                                if (const auto& particleSSBO = gpu->GetParticleSSBO(); particleSSBO)
+                                {
+                                    const u32 alive = static_cast<u32>(facts.GpuCounterAlive);
+                                    const u32 sample = std::min(64u, alive);
+                                    f64 total = 0.0;
+                                    u32 counted = 0;
+                                    for (u32 i = 0; i < sample; ++i)
+                                    {
+                                        const u32 index = aliveSSBO->GetData<u32>(i * sizeof(u32));
+                                        if (index >= gpu->GetMaxParticles())
+                                        {
+                                            continue;
+                                        }
+                                        const auto particle = particleSSBO->GetData<GPUParticle>(
+                                            index * static_cast<u32>(sizeof(GPUParticle)));
+                                        total += particle.InitialVelocitySize.w;
+                                        ++counted;
+                                    }
+                                    facts.AliveSampled = static_cast<i64>(counted);
+                                    facts.MeanAliveSize =
+                                        counted > 0 ? static_cast<f32>(total / counted) : -1.0f;
+                                }
+                            }
+                            if (const auto& freeSSBO = gpu->GetFreeListSSBO(); freeSSBO)
+                            {
+                                const u32 maxParticles = gpu->GetMaxParticles();
+                                const u32 entries = freeSSBO->GetSize() / static_cast<u32>(sizeof(u32));
+                                if (entries > 0u)
+                                {
+                                    facts.FreeListFirst = static_cast<i64>(freeSSBO->GetData<u32>(0));
+                                    facts.FreeListLast =
+                                        static_cast<i64>(freeSSBO->GetData<u32>((entries - 1u) * sizeof(u32)));
+                                    // Sample the TAIL: the emit shader consumes from the
+                                    // high end first, so that is where a partial upload
+                                    // would bite.
+                                    const u32 sample = std::min(256u, entries);
+                                    u32 bad = 0;
+                                    for (u32 i = 0; i < sample; ++i)
+                                    {
+                                        const u32 index = entries - 1u - i;
+                                        if (freeSSBO->GetData<u32>(index * sizeof(u32)) >= maxParticles)
+                                        {
+                                            ++bad;
+                                        }
+                                    }
+                                    facts.FreeListSampled = static_cast<i64>(sample);
+                                    facts.FreeListOutOfRange = static_cast<i64>(bad);
+                                }
                             }
                             if (const auto& indirectSSBO = gpu->GetIndirectDrawSSBO(); indirectSSBO)
                             {
@@ -5246,6 +5344,10 @@ namespace OloEngine::MCP
                 }
 
                 Json j = OloEditor::MCP::ParticleStatsJson(submission, emitters);
+                // Re-created GPU systems (#1171). Climbing once per frame means
+                // the pool, counters and free list are wiped every frame, which
+                // reads exactly like a simulation that never runs.
+                j["gpuSystemInitCount"] = GPUParticleSystem::GetTotalInitCount();
                 if (!hasPose)
                 {
                     j["note"] = "No editor camera pose available, so distanceToCamera / lodMaxDistance are "
@@ -7880,6 +7982,9 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("ok", Schema::Bool().Desc("True iff hazards, resolveFailures and consumedButUnbacked are all empty (and 'compare', when given, did not error)."))
                                     .Prop("hazardCount", Schema::Int().Min(0))
+                                    .Prop("drawCensus", Schema::Object().Desc("Cumulative draws attempted per shader name: prepared (reached vkCmdDraw*) and dropped. A shader ABSENT here never had a draw issued with it at all."))
+                                    .Prop("drawObservability", Schema::Object().Desc("PrepareDraw outcomes for the last recording. `dropped` is the one that matters: a refused draw produces a silently black frame with at most a warn-once. Non-zero sets ok=false. Vulkan only.").Prop("prepared", Schema::Int()).Prop("dropped", Schema::Int()).Prop("conditionallySkipped", Schema::Int()).Prop("gpuWrittenRoot", Schema::Int()))
+                                    .Prop("computeDispatchCensus", Schema::Object().Desc("Cumulative compute dispatches that reached the Vulkan backend, keyed by compute-shader name: recorded (reached vkCmdDispatch), refusedNoBracket (no command buffer open), refusedNoShader. A shader ABSENT from this map never dispatched at all, which is a different failure from being refused."))
                                     .Prop("vulkanStubs", Schema::Object()
                                                              .Desc("Vulkan calls the backend REFUSED and continued past — cumulative for the process, Vulkan only. Non-zero sets ok=false. `outsideRecording` means work was issued with no command buffer open and was dropped on the floor, which is invisible in a frame capture because it never reached the GPU.")
                                                              .Prop("total", Schema::Int().Min(0))
@@ -8075,6 +8180,9 @@ namespace OloEngine::MCP
                                                         .Prop("useGPU", Schema::Bool().Desc("GPU-driven emitters draw indirectly and are not counted in submission."))
                                                         .Prop("gpuAliveCount", Schema::Int().Desc("On-device alive count for a GPU emitter; -1 when the GPU system is not initialised. The CPU aliveCount is empty by design for these."))
                                                         .Prop("lastGpuEmitRequest", Schema::Int().Desc("Particles the CPU emitter handed the GPU system on the last update. Zero means the emitter asked for nothing — the dispatch was never reached."))
+                                                        .Prop("meanAliveSize", Schema::Number().Desc("Mean rendered size over the first alive particles, read through the compacted alive list. Billboard screen area scales with this, so it is directly comparable between backends."))
+                                                        .Prop("aliveSampled", Schema::Int())
+                                                        .Prop("gpuFreeList", Schema::Object().Desc("Free-slot list health. The emit shader claims freeList[deadCount-1] and UNDOES its atomic when that entry is >= maxParticles, so a corrupt list leaves the counters looking untouched — identical to the shader never running.").Prop("first", Schema::Int()).Prop("last", Schema::Int()).Prop("outOfRange", Schema::Int()).Prop("sampled", Schema::Int()))
                                                         .Prop("gpuParticleSlotsWritten", Schema::Int().Desc("Of the first gpuParticleSlotsSampled pool slots, how many carry a non-zero lifetime. Non-zero here with zero counters means the emit dispatch RAN and only its atomics failed to land."))
                                                         .Prop("gpuParticleSlotsSampled", Schema::Int())
                                                         .Prop("lodSpawnRateMultiplier", Schema::Number().Desc("LOD spawn scaling; 0 suppresses emission entirely."))
@@ -8083,6 +8191,7 @@ namespace OloEngine::MCP
                                                         .Prop("distanceToCamera", Schema::Number())
                                                         .Prop("lodMaxDistance", Schema::Number().Desc("Beyond this the emitter stops spawning."))
                                                         .Prop("beyondLOD", Schema::Bool())))
+                    .Prop("gpuSystemInitCount", Schema::Int().Min(0).Desc("Process-wide count of GPU particle systems ever initialised. Climbing every frame means each frame's simulation state is thrown away and re-created, so every counter reads its freshly-initialised value."))
                     .Prop("verdict", Schema::String().Desc("Which side of the submit/rasterise line a blank frame failed on. Says so explicitly when it cannot tell two causes apart."))
                     .Prop("note", Schema::String().Desc("Present only when the editor camera pose was unavailable, so the distance/LOD columns are unreported rather than guessed."))
                     .Required({ "emitterCount", "aliveTotal", "submission", "emitters", "verdict" });

@@ -2369,7 +2369,18 @@ namespace OloEngine
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
             }
             ++ctx.DroppedDraws;
+            {
+                const std::scoped_lock lock(m_DrawCensusMutex);
+                ++m_DrawCensus[shader != nullptr ? shader->GetName() : std::string{ "<no shader bound>" }].Dropped;
+            }
             return false;
+        }
+
+        // Census the ATTEMPT, keyed on the shader, so an absent name means no
+        // draw was ever issued with it (#1171).
+        {
+            const std::scoped_lock lock(m_DrawCensusMutex);
+            ++m_DrawCensus[shader->GetName()].Prepared;
         }
 
         // The pipeline KIND is the bound shader's stage set (issue #813): a
@@ -3217,14 +3228,28 @@ namespace OloEngine
     void VulkanRendererAPI::DispatchCompute(u32 groupsX, u32 groupsY, u32 groupsZ)
     {
         auto& ctx = Ctx();
+        // Census first, and keyed on the shader whatever the outcome: the whole
+        // point is that an ABSENT name means the call never arrived, which a
+        // counter incremented only on success could not express (#1171).
+        auto* censusShader = VulkanComputeShader::GetCurrentlyBound();
+        const std::string censusName =
+            censusShader != nullptr ? censusShader->GetName() : std::string{ "<no shader bound>" };
+        const auto census = [&](u64 ComputeDispatchCensusEntry::* field)
+        {
+            const std::scoped_lock lock(m_ComputeCensusMutex);
+            ++(m_ComputeCensus[censusName].*field);
+        };
+
         if (ctx.Cmd == VK_NULL_HANDLE)
         {
+            census(&ComputeDispatchCensusEntry::NoBracket);
             UnimplementedStub("DispatchCompute(outside recording bracket)", StubKind::OutsideRecording);
             return;
         }
         auto* shader = VulkanComputeShader::GetCurrentlyBound();
         if (shader == nullptr || !shader->IsValid())
         {
+            census(&ComputeDispatchCensusEntry::NoShader);
             static std::atomic<bool> s_Warned{ false };
             if (!s_Warned.exchange(true, std::memory_order_relaxed))
             {
@@ -3256,6 +3281,7 @@ namespace OloEngine
         {
             return;
         }
+        census(&ComputeDispatchCensusEntry::Recorded);
         vkCmdDispatch(ctx.Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
     }
 
