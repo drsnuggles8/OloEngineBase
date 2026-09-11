@@ -139,6 +139,13 @@ namespace OloEngine
             // Nothing warned: the draws were issued, never dropped, and simply
             // produced no fragments. Say it explicitly, and withdraw it below
             // like the blend and depth opinions around it (issue #896).
+            //
+            // NOT re-enabled afterwards, deliberately: culling is per-draw state
+            // that CommandDispatch applies from each packet's own render state,
+            // and every other camera-facing-quad pass here (FluidIntermediates,
+            // Overdraw, DeferredLighting) disables and leaves it. Re-enabling
+            // would impose "culling on" as ambient state on whatever follows,
+            // which is not what this pass found.
             RenderCommand::DisableCulling();
 
             ParticleBatchRenderer::SetOITMode(true);
@@ -156,7 +163,6 @@ namespace OloEngine
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
-            RenderCommand::EnableCulling();
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
 
@@ -187,11 +193,17 @@ namespace OloEngine
             // Nothing warned: the draws were issued, never dropped, and simply
             // produced no fragments. Say it explicitly, and withdraw it below
             // like the blend and depth opinions around it (issue #896).
+            //
+            // NOT re-enabled afterwards, deliberately: culling is per-draw state
+            // that CommandDispatch applies from each packet's own render state,
+            // and every other camera-facing-quad pass here (FluidIntermediates,
+            // Overdraw, DeferredLighting) disables and leaves it. Re-enabling
+            // would impose "culling on" as ambient state on whatever follows,
+            // which is not what this pass found.
             RenderCommand::DisableCulling();
 
             m_RenderCallback();
 
-            RenderCommand::EnableCulling();
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
             // All three opinions this path stated, withdrawn (issue #896) —

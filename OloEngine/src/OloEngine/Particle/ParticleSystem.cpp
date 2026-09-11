@@ -688,6 +688,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Diagnostics are state too: a stale emit request read after a reset
+        // says the emitter asked for particles it never asked for (#1171).
+        m_LastGpuEmitRequest = 0;
         m_Time = 0.0f;
         m_HasWarmedUp = false;
         m_Pool.Resize(m_Pool.GetMaxParticles());

@@ -169,6 +169,18 @@ namespace OloEditor::MCP
 
         if (alive == 0)
         {
+            // A live GPU emitter outranks an idle CPU one. Without this, a scene
+            // with one stopped CPU emitter beside a GPU emitter simulating 41000
+            // particles blamed "simulation" — the CPU counters were zero and the
+            // GPU's were never consulted. That is the false lead this file exists
+            // to remove, produced by this function.
+            if (gpuAlive > 0)
+            {
+                return "No CPU-simulated particle is alive, but the GPU simulation reports live particles. The "
+                       "CPU batch renderer's counters say nothing about those: look at the compute chain "
+                       "(emit/simulate/compact/build-indirect) and the INDIRECT draw before reading anything "
+                       "into the CPU zero.";
+            }
             if (playing == 0)
             {
                 return "Every emitter is stopped (Playing == false), so nothing is simulated and nothing "

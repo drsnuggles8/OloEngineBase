@@ -720,15 +720,22 @@ namespace OloEngine
         const u64 generation = VulkanFrameArena::Get().GetFrameGeneration();
         const bool countsTowardDetection = m_InitialUploadDone;
         m_InitialUploadDone = true;
-        if (!m_Streamed && countsTowardDetection && generation != 0 && generation == m_LastWriteGeneration)
+        // Scope the BASELINE to the same condition as the check. Recording the
+        // construction write's generation here would make the next write in that
+        // same frame — the first that counts — look like a second write, and
+        // latch the static mesh this exclusion exists to protect.
+        if (countsTowardDetection)
         {
-            OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame — "
-                          "snapshotting it per draw from now on (issue #1171). Before this seam existed every draw "
-                          "in the frame read the LAST write's bytes.",
-                          m_DeviceAddress, m_Size);
-            m_Streamed = true;
+            if (!m_Streamed && generation != 0 && generation == m_LastWriteGeneration)
+            {
+                OLO_CORE_WARN("[RHI/Vulkan] vertex stream {:#x} ({} bytes) is rewritten more than once per frame "
+                              "— snapshotting it per draw from now on (issue #1171). Before this seam existed "
+                              "every draw in the frame read the LAST write's bytes.",
+                              m_DeviceAddress, m_Size);
+                m_Streamed = true;
+            }
+            m_LastWriteGeneration = generation;
         }
-        m_LastWriteGeneration = generation;
 
         if (m_Streamed)
         {
@@ -760,6 +767,11 @@ namespace OloEngine
 
         auto& arena = VulkanFrameArena::Get();
         const u64 generation = arena.GetFrameGeneration();
+        // Held across the check AND the push: two items racing here would
+        // otherwise both push, and one would publish an address the other's
+        // memo then overwrites (amendment (92) rule 6 covers the WRITE side in
+        // SetData; this is the read side the fork does not prime).
+        const std::scoped_lock lock(m_PullMemoMutex);
         if (m_PushedVersion == m_DataVersion && m_PushedFrameGeneration == generation && m_CurrentAddress != 0)
         {
             return m_CurrentAddress;

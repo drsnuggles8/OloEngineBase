@@ -64,12 +64,18 @@ namespace OloEngine
         {
             VkFormatProperties props{};
             vkGetPhysicalDeviceFormatProperties(device->GetPhysicalDevice(), format, &props);
-            constexpr VkFormatFeatureFlags required =
-                VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
+            // LINEAR filtering is part of the requirement, not a nicety: the
+            // terrain VT cache binds with a default RHI::SamplerDesc, whose
+            // Vulkan lowering is VK_FILTER_LINEAR on both min and mag. Accepting
+            // the image without it would defer the failure to a sampler the
+            // device cannot honour.
+            constexpr VkFormatFeatureFlags required = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+                                                      VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+                                                      VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
             if ((props.optimalTilingFeatures & required) != required)
             {
                 OLO_CORE_ERROR("VulkanTexture2DArray: this device cannot sample or receive transfers in "
-                               "VK_FORMAT_BC7_UNORM_BLOCK (optimalTilingFeatures {:#x}) — refusing the array "
+                               "VK_FORMAT_BC7_UNORM_BLOCK with a linear sampler (optimalTilingFeatures {:#x}) — refusing "
                                "rather than handing back one that would sample as garbage",
                                static_cast<u32>(props.optimalTilingFeatures));
                 return;

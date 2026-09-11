@@ -275,6 +275,7 @@ namespace OloEngine
             u64 Recorded = 0;  ///< reached vkCmdDispatch
             u64 NoBracket = 0; ///< refused: no command buffer open
             u64 NoShader = 0;  ///< refused: no valid compute shader bound
+            u64 Dropped = 0;   ///< refused later: pipeline build or root-data assembly failed
         };
         [[nodiscard]] std::unordered_map<std::string, ComputeDispatchCensusEntry> GetComputeDispatchCensus() const
         {
@@ -293,8 +294,8 @@ namespace OloEngine
         // total-only counter cannot distinguish from one that was dropped.
         struct DrawCensusEntry
         {
-            u64 Prepared = 0;
-            u64 Dropped = 0;
+            u64 Prepared = 0; ///< reached its vkCmdDraw* call
+            u64 Dropped = 0;  ///< refused at any stage of PrepareDraw
         };
         [[nodiscard]] std::unordered_map<std::string, DrawCensusEntry> GetDrawCensus() const
         {
@@ -620,6 +621,8 @@ namespace OloEngine
         // Const: several facade getters are const-qualified and still must
         // count their stub hit (nothing may fall through silently).
         void UnimplementedStub(const char* entryPoint, StubKind kind = StubKind::DeferredFeature) const;
+        // Record one draw outcome against its shader (#1171 draw census).
+        void CensusDraw(const std::string& shaderName, bool prepared) const;
 
         // Per-command-buffer state lives in VulkanRecordingContext (#806).
         using RenderingScope = VulkanRecordingContext::RenderingScope;

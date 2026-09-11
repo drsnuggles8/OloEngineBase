@@ -169,6 +169,34 @@ namespace OloEditor::MCP::Tests
         EXPECT_EQ(j.at("emitters")[1].at("gpuAliveCount").get<i64>(), 41000);
     }
 
+    // A dead compute stage outranks every other explanation, including a live
+    // GPU alive count: the dispatch helpers bail silently, so nothing
+    // downstream of a stage that never compiled can be trusted.
+    TEST(McpParticleStats, DeadComputeStageOutranksEveryOtherVerdict)
+    {
+        ParticleEmitterFacts gpu = MakeEmitter(0, true, /*useGPU=*/true);
+        gpu.GpuAliveCount = 41000;
+        gpu.DeadGpuStages = { "emit", "simulate" };
+
+        const std::string verdict = ExplainParticleFrame(ParticleSubmissionFacts{ .DrawCalls = 5 }, { gpu });
+        EXPECT_TRUE(Mentions(verdict, "FAILED TO COMPILE")) << verdict;
+        EXPECT_TRUE(Mentions(verdict, "emit, simulate")) << verdict;
+        EXPECT_FALSE(Mentions(verdict, "compute chain")) << verdict;
+    }
+
+    // The regression CodeRabbit caught: a stopped CPU emitter beside a live GPU
+    // one blamed CPU simulation, because the branch never consulted gpuAlive.
+    TEST(McpParticleStats, IdleCpuEmitterBesideALiveGpuOneDoesNotBlameSimulation)
+    {
+        ParticleEmitterFacts cpu = MakeEmitter(/*alive=*/0, /*playing=*/true, /*useGPU=*/false);
+        ParticleEmitterFacts gpu = MakeEmitter(0, true, /*useGPU=*/true);
+        gpu.GpuAliveCount = 41000;
+
+        const std::string verdict = ExplainParticleFrame(ParticleSubmissionFacts{ .DrawCalls = 5 }, { cpu, gpu });
+        EXPECT_FALSE(Mentions(verdict, "fault is in simulation")) << verdict;
+        EXPECT_TRUE(Mentions(verdict, "GPU simulation reports live particles")) << verdict;
+    }
+
     // A mixed scene must still flag the CPU emitter rather than being excused by
     // the GPU one — the "every emitter is GPU-driven" branch is deliberately all,
     // not any.

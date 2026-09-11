@@ -262,7 +262,11 @@ namespace OloEngine
         BoundingSphere m_BoundingSphere{ glm::vec3(0.0f), 0.0f };
         f32 m_Time = 0.0f;
         f32 m_LODSpawnRateMultiplier = 1.0f;
-        u32 m_LastGpuEmitRequest = 0; ///< #1171 diagnostics, see GetLastGpuEmitRequest.
+        ///< #1171 diagnostics, see GetLastGpuEmitRequest. Deliberately NOT copied
+        ///< or moved: m_GPUSystem is not either, so a copy starts with no GPU
+        ///< system and must not claim its predecessor's last emit request.
+        ///< Reset() clears it for the same reason.
+        u32 m_LastGpuEmitRequest = 0;
         bool m_HasWarmedUp = false;
         FastRandomPCG m_Random; // Per-system deterministic RNG (see SeedRandom/DeriveSeed)
         bool m_RandomSeeded = false;

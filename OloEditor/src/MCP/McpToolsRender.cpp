@@ -4753,7 +4753,8 @@ namespace OloEngine::MCP
                     {
                         dispatches[name] = { { "recorded", entry.Recorded },
                                              { "refusedNoBracket", entry.NoBracket },
-                                             { "refusedNoShader", entry.NoShader } };
+                                             { "refusedNoShader", entry.NoShader },
+                                             { "dropped", entry.Dropped } };
                     }
                     j["computeDispatchCensus"] = std::move(dispatches);
 
@@ -5238,21 +5239,28 @@ namespace OloEngine::MCP
                                 constexpr u32 kSample = 256u;
                                 const u32 slots = static_cast<u32>(particleSSBO->GetSize() / sizeof(GPUParticle));
                                 const u32 sampled = std::min(kSample, slots);
+                                // ONE ranged readback, not `sampled` of them. Each typed
+                                // GetData is a separate GPU-to-CPU readback that can force
+                                // a frame flush, which turned this diagnostic into a stall.
+                                //
+                                // Sample the TAIL: emit claims freeList[deadCount-1] first,
+                                // so a freshly emitted particle lands at the HIGH end of the
+                                // pool, and scanning from slot 0 reads untouched memory and
+                                // reports a false zero.
                                 u32 written = 0;
-                                for (u32 i = 0; i < sampled; ++i)
+                                if (sampled > 0u)
                                 {
-                                    // Sample the TAIL. Emit claims freeList[deadCount-1]
-                                    // first, so a freshly emitted particle lands at the
-                                    // HIGH end of the pool; scanning from slot 0 reads
-                                    // untouched memory and reports a false zero.
-                                    const u32 slot = slots - 1u - i;
-                                    const auto particle =
-                                        particleSSBO->GetData<GPUParticle>(slot * static_cast<u32>(sizeof(GPUParticle)));
-                                    // w of PositionLifetime is remaining lifetime; a never-written
-                                    // slot is all zeros.
-                                    if (particle.PositionLifetime.w != 0.0f)
+                                    std::vector<GPUParticle> tail(sampled);
+                                    particleSSBO->GetData(tail.data(), sampled * static_cast<u32>(sizeof(GPUParticle)),
+                                                          (slots - sampled) * static_cast<u32>(sizeof(GPUParticle)));
+                                    for (const GPUParticle& particle : tail)
                                     {
-                                        ++written;
+                                        // w of PositionLifetime is remaining lifetime; a
+                                        // never-written slot is all zeros.
+                                        if (particle.PositionLifetime.w != 0.0f)
+                                        {
+                                            ++written;
+                                        }
                                     }
                                 }
                                 facts.GpuParticleSlotsSampled = static_cast<i64>(sampled);
@@ -5271,11 +5279,16 @@ namespace OloEngine::MCP
                                 {
                                     const u32 alive = static_cast<u32>(facts.GpuCounterAlive);
                                     const u32 sample = std::min(64u, alive);
+                                    // The INDICES are contiguous, so they come back in one
+                                    // read; the particle fetches they name are scattered and
+                                    // stay individual.
+                                    std::vector<u32> indices(sample);
+                                    aliveSSBO->GetData(indices.data(), sample * static_cast<u32>(sizeof(u32)), 0);
                                     f64 total = 0.0;
                                     u32 counted = 0;
                                     for (u32 i = 0; i < sample; ++i)
                                     {
-                                        const u32 index = aliveSSBO->GetData<u32>(i * sizeof(u32));
+                                        const u32 index = indices[i];
                                         if (index >= gpu->GetMaxParticles())
                                         {
                                             continue;
@@ -5297,17 +5310,19 @@ namespace OloEngine::MCP
                                 if (entries > 0u)
                                 {
                                     facts.FreeListFirst = static_cast<i64>(freeSSBO->GetData<u32>(0));
-                                    facts.FreeListLast =
-                                        static_cast<i64>(freeSSBO->GetData<u32>((entries - 1u) * sizeof(u32)));
-                                    // Sample the TAIL: the emit shader consumes from the
-                                    // high end first, so that is where a partial upload
-                                    // would bite.
+                                    // Sample the TAIL in ONE ranged read: the emit shader
+                                    // consumes from the high end first, so that is where a
+                                    // partial upload would bite, and 256 typed reads here
+                                    // cost 256 readbacks.
                                     const u32 sample = std::min(256u, entries);
+                                    std::vector<u32> tail(sample);
+                                    freeSSBO->GetData(tail.data(), sample * static_cast<u32>(sizeof(u32)),
+                                                      (entries - sample) * static_cast<u32>(sizeof(u32)));
+                                    facts.FreeListLast = static_cast<i64>(tail.back());
                                     u32 bad = 0;
-                                    for (u32 i = 0; i < sample; ++i)
+                                    for (const u32 slot : tail)
                                     {
-                                        const u32 index = entries - 1u - i;
-                                        if (freeSSBO->GetData<u32>(index * sizeof(u32)) >= maxParticles)
+                                        if (slot >= maxParticles)
                                         {
                                             ++bad;
                                         }
@@ -5334,7 +5349,11 @@ namespace OloEngine::MCP
                                 facts.RenderMode = "mesh";
                                 break;
                         }
-                        const glm::vec3 emitterPos = entity.GetComponent<TransformComponent>().Translation;
+                        // GetComponent asserts when absent, and a diagnostic must not
+                        // be the thing that trips on a half-built entity.
+                        const glm::vec3 emitterPos = entity.HasComponent<TransformComponent>()
+                                                         ? entity.GetComponent<TransformComponent>().Translation
+                                                         : glm::vec3(0.0f);
                         facts.DistanceToCamera = hasPose ? glm::length(emitterPos - cameraPos) : 0.0f;
                         facts.LODMaxDistance = hasPose ? psc.System.LODMaxDistance : 0.0f;
                         facts.LastGpuEmitRequest = static_cast<i64>(psc.System.GetLastGpuEmitRequest());
@@ -7984,7 +8003,7 @@ namespace OloEngine::MCP
                                     .Prop("hazardCount", Schema::Int().Min(0))
                                     .Prop("drawCensus", Schema::Object().Desc("Cumulative draws attempted per shader name: prepared (reached vkCmdDraw*) and dropped. A shader ABSENT here never had a draw issued with it at all."))
                                     .Prop("drawObservability", Schema::Object().Desc("PrepareDraw outcomes for the last recording. `dropped` is the one that matters: a refused draw produces a silently black frame with at most a warn-once. Non-zero sets ok=false. Vulkan only.").Prop("prepared", Schema::Int()).Prop("dropped", Schema::Int()).Prop("conditionallySkipped", Schema::Int()).Prop("gpuWrittenRoot", Schema::Int()))
-                                    .Prop("computeDispatchCensus", Schema::Object().Desc("Cumulative compute dispatches that reached the Vulkan backend, keyed by compute-shader name: recorded (reached vkCmdDispatch), refusedNoBracket (no command buffer open), refusedNoShader. A shader ABSENT from this map never dispatched at all, which is a different failure from being refused."))
+                                    .Prop("computeDispatchCensus", Schema::Object().Desc("Cumulative compute dispatches that reached the Vulkan backend, keyed by compute-shader name: recorded (reached vkCmdDispatch), refusedNoBracket (no command buffer open), refusedNoShader, and dropped (pipeline build or root-data assembly failed — silent before #1171). A shader ABSENT from this map never dispatched at all, which is a different failure from being refused."))
                                     .Prop("vulkanStubs", Schema::Object()
                                                              .Desc("Vulkan calls the backend REFUSED and continued past — cumulative for the process, Vulkan only. Non-zero sets ok=false. `outsideRecording` means work was issued with no command buffer open and was dropped on the floor, which is invisible in a frame capture because it never reached the GPU.")
                                                              .Prop("total", Schema::Int().Min(0))
@@ -8166,7 +8185,7 @@ namespace OloEngine::MCP
             tool.OutputSchema =
                 Schema::Object()
                     .Prop("emitterCount", Schema::Int().Min(0))
-                    .Prop("aliveTotal", Schema::Int().Min(0).Desc("Live particles summed across every emitter."))
+                    .Prop("aliveTotal", Schema::Int().Min(0).Desc("Live CPU-simulated particles, summed across the CPU emitters ONLY. A GPU emitter's CPU pool is empty by design and is excluded — read its gpuAliveCount instead."))
                     .Prop("submission", Schema::Object()
                                             .Desc("ParticleBatchRenderer::GetStats() for the last batch — the CPU billboard/trail/mesh path only.")
                                             .Prop("drawCalls", Schema::Int().Min(0))

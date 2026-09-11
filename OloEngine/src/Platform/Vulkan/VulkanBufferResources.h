@@ -43,6 +43,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <atomic>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 #ifdef OLO_DEBUG
@@ -367,6 +368,13 @@ namespace OloEngine
         // Returns 0 only on arena overflow, which the arena counts and warns
         // about; the caller substitutes the null block rather than reading a
         // stale stream.
+        //
+        // Safe to call from several RecordParallel items at once. Unlike
+        // VulkanUniformBuffer, whose address the fork primes before the region,
+        // nothing primes a streamed vertex stream — the draw path reaches it
+        // through the VAO, which the fork does not walk. So the memo is taken
+        // under a lock rather than assumed single-threaded; contention is one
+        // push per stream per frame.
         [[nodiscard]] VkDeviceAddress GetPullAddress() const;
 
       private:
@@ -396,7 +404,9 @@ namespace OloEngine
         u64 m_DataVersion = 0;
         // Memoization of the per-frame push, hence mutable: GetPullAddress()
         // is logically a read of "where are my current bytes", and the draw
-        // path holds the VAO (and so the stream) by const pointer.
+        // path holds the VAO (and so the stream) by const pointer. Guarded
+        // because worker items can reach it concurrently (see GetPullAddress).
+        mutable std::mutex m_PullMemoMutex;
         mutable u64 m_PushedVersion = ~u64{ 0 };
         mutable u64 m_PushedFrameGeneration = ~u64{ 0 };
         mutable VkDeviceAddress m_CurrentAddress = 0;

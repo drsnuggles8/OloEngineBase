@@ -92,8 +92,6 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_GpuParticleInitCount.fetch_add(1, std::memory_order_relaxed);
-
         if (m_Initialized)
         {
             Shutdown();
@@ -242,6 +240,10 @@ namespace OloEngine
         }
 
         m_Initialized = true;
+        // Counted only once the system is actually usable: a failed Init that
+        // bailed above would otherwise inflate the "re-created every frame"
+        // signal this counter exists to expose (#1171).
+        s_GpuParticleInitCount.fetch_add(1, std::memory_order_relaxed);
     }
 
     void GPUParticleSystem::Shutdown()

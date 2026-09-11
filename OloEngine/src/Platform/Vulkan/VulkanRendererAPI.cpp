@@ -2335,6 +2335,13 @@ namespace OloEngine
         return true;
     }
 
+    void VulkanRendererAPI::CensusDraw(const std::string& shaderName, const bool prepared) const
+    {
+        const std::scoped_lock lock(m_DrawCensusMutex);
+        auto& entry = m_DrawCensus[shaderName];
+        ++(prepared ? entry.Prepared : entry.Dropped);
+    }
+
     bool VulkanRendererAPI::PrepareDrawCommon(const VulkanVertexArray* vao, const bool meshPipeline)
     {
         auto& ctx = Ctx();
@@ -2369,18 +2376,8 @@ namespace OloEngine
                 OLO_CORE_WARN("[RHI/Vulkan] draw with no ready shader bound — dropped");
             }
             ++ctx.DroppedDraws;
-            {
-                const std::scoped_lock lock(m_DrawCensusMutex);
-                ++m_DrawCensus[shader != nullptr ? shader->GetName() : std::string{ "<no shader bound>" }].Dropped;
-            }
+            CensusDraw(shader != nullptr ? shader->GetName() : std::string{ "<no shader bound>" }, false);
             return false;
-        }
-
-        // Census the ATTEMPT, keyed on the shader, so an absent name means no
-        // draw was ever issued with it (#1171).
-        {
-            const std::scoped_lock lock(m_DrawCensusMutex);
-            ++m_DrawCensus[shader->GetName()].Prepared;
         }
 
         // The pipeline KIND is the bound shader's stage set (issue #813): a
@@ -2403,12 +2400,14 @@ namespace OloEngine
                                             : "is a task/mesh shader but was dispatched via a classic draw");
             }
             ++ctx.DroppedDraws;
+            CensusDraw(shader->GetName(), false);
             return false;
         }
 
         if (!EnsureRenderingScopeForDraw())
         {
             ++ctx.DroppedDraws;
+            CensusDraw(shader->GetName(), false);
             return false;
         }
 
@@ -2428,6 +2427,7 @@ namespace OloEngine
                                shader->GetName());
             }
             ++ctx.DroppedDraws;
+            CensusDraw(shader->GetName(), false);
             return false;
         }
 
@@ -2503,6 +2503,10 @@ namespace OloEngine
                                    ? PushRootDataAddress(gpuWrittenRootData)
                                    : AssembleAndPushRootData(layout, shader->GetName().c_str(), vao,
                                                              /*commandOrderedBufferReads=*/true);
+        // Census the OUTCOME, here and only here: every earlier exit is a drop
+        // and counts itself. `Prepared` means the draw reached its Vulkan call,
+        // which is what the field is documented to mean (#1171).
+        CensusDraw(shader->GetName(), assembled);
         if (assembled)
         {
             ++ctx.PreparedDraws;
@@ -3266,6 +3270,9 @@ namespace OloEngine
             VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout);
         if (pipeline == VK_NULL_HANDLE)
         {
+            // Silent before (#1171): a pipeline that fails to build dropped the
+            // dispatch with no counter and no log.
+            census(&ComputeDispatchCensusEntry::Dropped);
             return;
         }
 
@@ -3279,6 +3286,9 @@ namespace OloEngine
         if (!AssembleAndPushRootData(layout, shader->GetName().c_str(), nullptr,
                                      /*commandOrderedBufferReads=*/false))
         {
+            // Arena overflow drops the dispatch. Counted by the arena, but it
+            // was invisible per-shader until now (#1171).
+            census(&ComputeDispatchCensusEntry::Dropped);
             return;
         }
         census(&ComputeDispatchCensusEntry::Recorded);
