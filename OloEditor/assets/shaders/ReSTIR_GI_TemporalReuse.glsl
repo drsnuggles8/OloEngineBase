@@ -272,7 +272,11 @@ void main()
     if (OloGIReconnectionInDomain(history.Sample, surface.Position, surface.ShadingNormal, minReconnection))
         historyJacobian = OloGIShiftJacobian(history.Sample, surface.Position, previousPoint);
 
-    if (!(historyJacobian > 0.0))
+    // The same CONDITIONING bound the spatial draw applies, and it belongs here
+    // too even though a well-reprojected pixel's J is ~1: a disocclusion the #976
+    // test happens to accept, or a reprojection that lands a pixel off, is exactly
+    // the case that produces a large J - and this is the stage that feeds it back.
+    if (!OloGIShiftJacobianAcceptable(historyJacobian))
     {
         // Out of domain, or a degenerate configuration. REJECTED, never scaled:
         // a shift that quietly returns something for an out-of-domain input is

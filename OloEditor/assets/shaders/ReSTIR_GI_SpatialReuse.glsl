@@ -283,7 +283,15 @@ void main()
         // the fixed sample vertex.
         const float jacobian = OloGIShiftJacobian(neighbour.Reservoir.Sample, centreSurface.Position,
                                                   neighbour.ShadingPoint);
-        if (!(jacobian > 0.0))
+        // THE CONDITIONING BOUND, not just "is it finite". J is a RATIO, so
+        // E[J] > 1 over a neighbourhood by Jensen even when every individual J is
+        // correct - and this reservoir is what next frame's TEMPORAL draw merges,
+        // so that excess compounds once per frame until the image saturates.
+        // Measured in the live editor before OloGIShiftJacobianAcceptable existed:
+        // the stored vertex radiance stayed correct the whole time and only W
+        // grew, which is exactly why it took the SampleRadiance and ReservoirW
+        // views to find rather than the beauty frame.
+        if (!OloGIShiftJacobianAcceptable(jacobian))
         {
             jacobianRejections += 1u;
             continue;

@@ -192,6 +192,25 @@ float OloGIAreaPdfToSolidAnglePdf(float areaPdf, OloGISample s, vec3 shadingPoin
     return OloSolidAnglePdfFromAreaPdf(areaPdf, s.Position, s.Normal, shadingPoint);
 }
 
+// ReservoirGI.h's kMaxShiftJacobian. A CONDITIONING bound, like
+// OLO_RESERVOIR_MIN_SHIFT_COSINE, and not optional: J is a RATIO, so E[J] > 1
+// over a neighbourhood by Jensen even when every individual J is correct. Fed
+// back through temporal reuse - the spatial draw writes the reservoir next
+// frame's temporal draw merges - that compounds once per frame and the image
+// saturates to white in seconds. Measured in the live editor before this
+// constant existed.
+//
+// SYMMETRIC IN THE RECIPROCAL, because the shift is: J(a->b) * J(b->a) = 1, so a
+// one-sided gate would make whether a configuration is rejected depend on which
+// pixel happens to be the destination.
+const float OLO_GI_MAX_SHIFT_JACOBIAN = 8.0;
+
+bool OloGIShiftJacobianAcceptable(float jacobian)
+{
+    return jacobian > 0.0 && jacobian <= OLO_GI_MAX_SHIFT_JACOBIAN &&
+           jacobian * OLO_GI_MAX_SHIFT_JACOBIAN >= 1.0;
+}
+
 // -----------------------------------------------------------------------------
 // Age — the second staleness bound (design note §10)
 // -----------------------------------------------------------------------------

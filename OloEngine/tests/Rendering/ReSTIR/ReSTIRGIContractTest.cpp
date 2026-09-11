@@ -99,6 +99,19 @@ namespace OloEngine::Tests
             return static_cast<u32>(std::stoul(match[1].str()));
         }
 
+        // `const float NAME = 8.0;`. A NaN on no match rather than a sentinel:
+        // every float this scans has a legitimate value a sentinel could collide
+        // with, and a NaN fails EXPECT_FLOAT_EQ loudly.
+        [[nodiscard]] f32 ScanConstFloat(const std::string& source, const char* name)
+        {
+            const std::regex pattern(std::string("const\\s+float\\s+") + name +
+                                     "\\s*=\\s*(-?[0-9.eE+-]+)f?\\s*;");
+            std::smatch match;
+            if (!std::regex_search(source, match, pattern))
+                return std::numeric_limits<f32>::quiet_NaN();
+            return std::stof(match[1].str());
+        }
+
         // A sample vertex and two shading points that see it from genuinely
         // different angles and distances — the configuration a spatial reuse
         // actually faces, rather than a symmetric one where every arm agrees.
@@ -301,6 +314,51 @@ namespace OloEngine::Tests
         EXPECT_TRUE(ReconnectionInDomain(sky, dest, normal, kMinimum));
         sky.Position = glm::vec3(0.0f, 0.0f, -1.0f);
         EXPECT_FALSE(ReconnectionInDomain(sky, dest, normal, kMinimum));
+    }
+
+    // THE CONDITIONING BOUND ON J, and why it is symmetric in the reciprocal.
+    //
+    // This gate was added after the tier was measured saturating to white in the
+    // live editor within seconds. J is a RATIO, so E[J] > 1 over a neighbourhood
+    // by Jensen even when every individual J is correct; the spatial draw writes
+    // the reservoir next frame's temporal draw merges, so that excess compounds
+    // once per frame. Nothing else caught it: the stored vertex radiance stayed
+    // correct throughout and only the contribution weight grew.
+    //
+    // The SYMMETRY is derived, not cautious. The shift satisfies
+    // J(a->b) * J(b->a) = 1 (asserted above), so a one-sided gate would make
+    // whether a configuration is rejected depend on which of the two pixels
+    // happens to be the destination — and the estimator's bias would then depend
+    // on the traversal order of a loop.
+    TEST(ReSTIRGIContract, TheShiftJacobianGateIsSymmetricInTheReciprocal)
+    {
+        EXPECT_TRUE(ShiftJacobianAcceptable(1.0f));
+        EXPECT_TRUE(ShiftJacobianAcceptable(kMaxShiftJacobian));
+        EXPECT_TRUE(ShiftJacobianAcceptable(1.0f / kMaxShiftJacobian));
+        EXPECT_FALSE(ShiftJacobianAcceptable(kMaxShiftJacobian * 1.01f));
+        EXPECT_FALSE(ShiftJacobianAcceptable(1.0f / (kMaxShiftJacobian * 1.01f)));
+        // Zero is already a rejection — a degenerate configuration — and must not
+        // become "acceptable" by being small.
+        EXPECT_FALSE(ShiftJacobianAcceptable(0.0f));
+        EXPECT_FALSE(ShiftJacobianAcceptable(-1.0f));
+
+        // The property, over the same randomised geometry the identity uses: a
+        // configuration is accepted from one end exactly when it is accepted from
+        // the other. This is what a one-sided gate would break.
+        std::mt19937 rng(0xCA11u);
+        u32 asymmetric = 0;
+        for (u32 i = 0; i < 512; ++i)
+        {
+            const ShiftFixture fixture = MakeRandomShift(rng);
+            const f32 forward = GIShiftJacobian(fixture.Sample, fixture.DestPoint, fixture.SourcePoint);
+            const f32 backward = GIShiftJacobian(fixture.Sample, fixture.SourcePoint, fixture.DestPoint);
+            if (!(forward > 0.0f) || !(backward > 0.0f))
+                continue;
+            if (ShiftJacobianAcceptable(forward) != ShiftJacobianAcceptable(backward))
+                ++asymmetric;
+        }
+        EXPECT_EQ(asymmetric, 0u)
+            << asymmetric << " configurations were accepted from one end and rejected from the other";
     }
 
     // -------------------------------------------------------------------------
@@ -623,6 +681,20 @@ namespace OloEngine::Tests
         // The age lane's ceiling. An age past it would WRAP in the shader and
         // make the oldest samples look the freshest.
         EXPECT_EQ(ScanConstUint(reservoir, "OLO_GI_MAX_SAMPLE_AGE"), kMaxSampleAgeFrames);
+
+        // The conditioning bound on J. A shader that gated at a different value
+        // from the CPU would keep exactly the reuses the CPU test says explode.
+        EXPECT_FLOAT_EQ(ScanConstFloat(reservoir, "OLO_GI_MAX_SHIFT_JACOBIAN"), kMaxShiftJacobian);
+        // And both reuse draws must actually APPLY it. A constant nothing calls
+        // is the shape this defect had before the gate existed.
+        for (const char* draw : { "ReSTIR_GI_SpatialReuse.glsl", "ReSTIR_GI_TemporalReuse.glsl" })
+        {
+            const auto drawPath = ResolveShaderPath(draw);
+            ASSERT_TRUE(std::filesystem::exists(drawPath)) << drawPath.string();
+            EXPECT_NE(ReadTextFile(drawPath).find("OloGIShiftJacobianAcceptable"), std::string::npos)
+                << draw << " no longer gates the shift Jacobian, so an ill-conditioned reuse compounds "
+                           "through temporal feedback until the image saturates";
+        }
 
         // The debug views are read from the UBO as an integer, so the GLSL macro
         // and the enum must agree or the wrong AOV lands on screen.

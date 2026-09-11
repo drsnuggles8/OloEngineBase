@@ -169,6 +169,41 @@ namespace OloEngine::ReSTIR
     // shadow — that GI exists to render is where this fires.
     inline constexpr f32 kDefaultMinimumReconnectionDistance = 0.05f;
 
+    // THE LARGEST SHIFT JACOBIAN A REUSE MAY CARRY.
+    //
+    // This is a CONDITIONING bound, the same kind of thing as
+    // kMinimumShiftCosine, and it is not optional: J is a RATIO, so over a
+    // neighbourhood E[J] > 1 by Jensen even when every individual J is correct.
+    // On its own that is a small brightening. Fed back through temporal reuse -
+    // spatial writes the reservoir that next frame's temporal draw merges - it
+    // compounds once per frame and the image saturates to white in a couple of
+    // seconds. MEASURED exactly that way in the live editor before this constant
+    // existed, with the tier reporting itself perfectly healthy throughout: the
+    // stored vertex radiance stayed correct and only W grew, which is why the
+    // SampleRadiance and ReservoirW debug views are what found it.
+    //
+    // Neither the minimum reconnection DISTANCE nor the neighbour similarity gate
+    // catches this. A five-centimetre floor never fires in a room measured in
+    // metres, and two pixels that pass a 5%-relative depth test at 25 m can still
+    // be a metre apart in depth and see their vertices at wildly different
+    // distances.
+    //
+    // THE GATE IS SYMMETRIC IN THE RECIPROCAL, and that is derived rather than
+    // cautious: the shift satisfies J(a->b) * J(b->a) = 1, so a one-sided gate
+    // would make whether a configuration is rejected depend on which of the two
+    // pixels happens to be the destination - and the estimator's bias would then
+    // depend on the traversal order of a loop.
+    inline constexpr f32 kMaxShiftJacobian = 8.0f;
+
+    // Whether a shift is well-enough conditioned to carry a contribution weight.
+    // Zero is already a rejection (a degenerate configuration); this adds the
+    // two tails.
+    [[nodiscard]] inline bool ShiftJacobianAcceptable(f32 jacobian)
+    {
+        return jacobian > 0.0f && jacobian <= kMaxShiftJacobian &&
+               jacobian * kMaxShiftJacobian >= 1.0f;
+    }
+
     // The roughness at or above which a bounce vertex's DROPPED SPECULAR LOBE is
     // small enough not to be worth reporting. This is a REPORTING threshold and
     // not a correctness gate — the diffuse restriction makes the stored radiance
