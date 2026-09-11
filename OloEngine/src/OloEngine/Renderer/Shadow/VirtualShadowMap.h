@@ -1032,6 +1032,7 @@ namespace OloEngine
         Ref<StorageBuffer> m_InertPageTable;
         Ref<StorageBuffer> m_InertLocalLights;
         Ref<UniformBuffer> m_InertGlobalsUBO;
+        Ref<UniformBuffer> m_InertPassUBO;
 
         Ref<StorageBuffer> m_PageTable;     // kTotalVirtualPages uints
         Ref<StorageBuffer> m_MetaTable;     // physical page -> owner

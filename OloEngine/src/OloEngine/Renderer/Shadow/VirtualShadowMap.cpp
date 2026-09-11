@@ -107,6 +107,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         m_Settings = settings;
+        // The inert sampling stubs are created HERE, on the main thread and before
+        // the disabled early-return, so that BindForSampling never has to create
+        // or upload anything from inside a recorded item. Everything they hold is
+        // constant (a disabled globals block, an all-zero pass block, one-entry
+        // SSBOs), so they are filled exactly once and only ever bound — no
+        // per-frame ResolveRecordingUpload, which asserts for UBO 82 because the
+        // sampling pass never prepared it (#1190).
+        EnsureInertSamplingBindings();
         if (!m_Settings.Enabled)
             return;
 
@@ -2104,6 +2112,20 @@ namespace OloEngine
     // globals block below sets exactly that. The point is that the guarantee now
     // rests on a bound buffer rather than on the RHI's null block happening to
     // read zeros (#1190).
+    // Inert stand-ins for the four sampling-side bindings the shared header
+    // declares, for the case where VSM was never initialised at all (Init()
+    // returns before CreateResources() when the feature is off). One entry each;
+    // the shader is guaranteed not to index the two SSBOs because vsmShadowFactor
+    // returns on VSM_ENABLED == 0, and the globals block below sets exactly that.
+    // The point is that the guarantee rests on bound buffers rather than on the
+    // RHI's null block happening to read zeros (#1190).
+    //
+    // Created once, on the main thread, from Init(); their contents never change,
+    // so they are uploaded here and only bound afterwards. That is what lets
+    // BindForSampling run inside a parallel-recorded item without a recording
+    // seam: ResolveRecordingUpload is for buffers whose data changes mid-frame,
+    // and it asserts "Unprepared recording upload binding 82" for the pass block,
+    // which only the VSM draw pass ever prepared.
     void VirtualShadowMap::EnsureInertSamplingBindings()
     {
         if (m_InertGlobalsUBO)
@@ -2112,16 +2134,16 @@ namespace OloEngine
         using SB = StorageBuffer;
         m_InertPageTable = SB::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_PAGE_TABLE);
         m_InertLocalLights = SB::Create(sizeof(glm::vec4), ShaderBindingLayout::SSBO_VSM_LOCAL_LIGHTS);
-        m_InertGlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
 
-        // UBO 82 (VirtualShadowPass) is DELIBERATELY not covered here, though the
-        // shared header declares it beside the globals. It belongs to the VSM
-        // DRAW pass, and ResolveRecordingUpload asserts
-        // "Unprepared recording upload binding 82" when a pass that never
-        // declared it tries to publish one — tried, and it takes the editor down
-        // on the first frame. Feeding it needs the draw pass's prepared-upload
-        // set, not a stub from here; it reads defined zeros from the null block
-        // meanwhile, which for a UBO is the survivable half of #1052.
+        VSM::GlobalsUBO disabled{};
+        disabled.Params2.x = 0; // VSM_ENABLED
+        disabled.Params4.x = 0; // local lights
+        m_InertGlobalsUBO = UniformBuffer::Create(VSM::GlobalsUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW);
+        m_InertGlobalsUBO->SetData(&disabled, VSM::GlobalsUBO::GetSize());
+
+        const VSM::PassUBO inertPass{};
+        m_InertPassUBO = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
+        m_InertPassUBO->SetData(&inertPass, VSM::PassUBO::GetSize());
     }
 
     void VirtualShadowMap::BindForSampling()
@@ -2129,17 +2151,12 @@ namespace OloEngine
         if (!m_Initialized)
         {
             // Not "nothing to do": the shared header declares SSBO 68 / 78 and
-            // UBO 81 whether or not this system ever ran, so returning here left
-            // three bindings with no occupant in every PBR and deferred shader.
+            // UBO 81 / 82 whether or not this system ever ran, so returning here
+            // left four bindings with no occupant in every PBR and deferred
+            // shader. The stubs were created and filled by Init(); bind them.
             EnsureInertSamplingBindings();
-
-            VSM::GlobalsUBO disabled{};
-            disabled.Params2.x = 0; // VSM_ENABLED
-            disabled.Params4.x = 0; // local lights
-            auto inertUBO = CommandDispatch::ResolveRecordingUpload(ShaderBindingLayout::UBO_VIRTUAL_SHADOW,
-                                                                    m_InertGlobalsUBO);
-            inertUBO->SetData(&disabled, VSM::GlobalsUBO::GetSize());
-            inertUBO->Bind();
+            m_InertGlobalsUBO->Bind();
+            m_InertPassUBO->Bind();
             m_InertPageTable->Bind();
             m_InertLocalLights->Bind();
             return;
