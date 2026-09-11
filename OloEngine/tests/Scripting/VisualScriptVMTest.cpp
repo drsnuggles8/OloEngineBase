@@ -694,9 +694,11 @@ TEST_F(VisualScriptVMTest, GuardBudgetRefillsEachTick)
 
 TEST_F(VisualScriptVMTest, GuardDeepExecChainIsBoundedNotAStackOverflow)
 {
-    // 400 chained Print nodes — past the 128 depth cap. Exec descent is real C++
-    // recursion, so without the cap this is a stack overflow rather than a test
-    // failure.
+    // 400 chained Print nodes — past the 128 depth cap. Since ADR 0023 an exec
+    // chain costs no C++ stack, so this can no longer overflow one; the cap is
+    // kept as policy, so that a graph that was a reported error before does not
+    // silently become legal. The depth rides on the exec frame — drop it and
+    // this runs all 400 quietly.
     const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
     NodeId previous = begin;
     std::string previousPin = "Then";
@@ -713,43 +715,6 @@ TEST_F(VisualScriptVMTest, GuardDeepExecChainIsBoundedNotAStackOverflow)
     m_Instance.BeginPlay(runtime);
     EXPECT_FALSE(m_Instance.GetErrors().empty()) << "exceeding the depth cap must be reported";
     EXPECT_LT(m_Log.size(), 400u) << "the chain must have been cut short, not run to completion";
-}
-
-TEST_F(VisualScriptVMTest, BreakpointPauseAbandonsEveryLaterBranchInTheRun)
-{
-    // Hitting a breakpoint only RETURNS from one ExecuteFrom frame, so without an
-    // explicit re-check the caller keeps going: the sequence's second branch ran
-    // to completion while the debugger reported "paused". That is the worst kind
-    // of debugger bug — the side effects the author is stepping through happen
-    // behind the paused canvas.
-    AddVariable("First", PinType::Bool, PinValue::MakeBool(false));
-    AddVariable("Second", PinType::Bool, PinValue::MakeBool(false));
-
-    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
-    const NodeId sequence = Graph().AddNode(std::string(NodeTypes::kSequence)).m_Id;
-    Graph().FindNode(sequence)->SetProperty(std::string(NodeProps::kOutputCount), "2");
-    Graph().AddLink(begin, "Then", sequence, "Enter");
-
-    const NodeId setFirst = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
-    Graph().FindNode(setFirst)->SetProperty(std::string(NodeProps::kVariableName), "First");
-    Graph().FindNode(setFirst)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
-    const NodeId setSecond = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
-    Graph().FindNode(setSecond)->SetProperty(std::string(NodeProps::kVariableName), "Second");
-    Graph().FindNode(setSecond)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
-
-    Graph().AddLink(sequence, "Then 0", setFirst, "Enter");
-    Graph().AddLink(sequence, "Then 1", setSecond, "Enter");
-
-    ASSERT_TRUE(Instantiate());
-    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, setFirst));
-
-    RuntimeContext runtime = MakeRuntime();
-    m_Instance.BeginPlay(runtime);
-
-    EXPECT_TRUE(m_Instance.Debug().m_Paused);
-    EXPECT_FALSE(m_Instance.GetVariable("First").AsBool()) << "breaking happens BEFORE the node body runs";
-    EXPECT_FALSE(m_Instance.GetVariable("Second").AsBool())
-        << "a pause must abandon the whole run, including branches the paused node never reached";
 }
 
 TEST_F(VisualScriptVMTest, ResumingAfterABreakpointRunsTheGraphAgain)
@@ -787,6 +752,390 @@ TEST_F(VisualScriptVMTest, ResumingAfterABreakpointRunsTheGraphAgain)
     m_Instance.DebugResume();
     m_Instance.Tick(runtime);
     EXPECT_GT(m_Instance.GetVariable("Count").AsFloat(), whilePaused) << "resuming must let the graph run again";
+}
+
+//==============================================================================
+// Node-granular stepping (issue #1069, ADR 0023)
+//
+// The exec stack lives on the instance, so a pause has something to resume
+// from. These are the properties that buys, and they are the ones a rewrite of
+// the drain loop would break silently: a step that runs two nodes, a resume
+// that drops the rest of the tick, a loop whose index restarts, and a loop left
+// wedged shut after the budget abandoned it.
+//==============================================================================
+
+TEST_F(VisualScriptVMTest, StepAdvancesExactlyOneNodeAtATime)
+{
+    // OnUpdate -> Print A -> Print B -> Print C. Print is the cleanest step
+    // observer there is: one visible side effect per node, in order.
+    const NodeId update = Graph().AddNode(std::string(NodeTypes::kOnUpdate)).m_Id;
+    NodeId previous = update;
+    std::string previousPin = "Then";
+    std::vector<NodeId> prints;
+    for (const char* message : { "A", "B", "C" })
+    {
+        const NodeId print = Graph().AddNode("Utility.Print").m_Id;
+        Graph().FindNode(print)->m_PinDefaults["Message"] = PinValue::MakeString(message);
+        Graph().AddLink(previous, previousPin, print, "Enter");
+        previous = print;
+        previousPin = "Then";
+        prints.push_back(print);
+    }
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, prints[0]));
+    m_Instance.Tick(runtime);
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+    ASSERT_TRUE(m_Log.empty()) << "the breakpoint stops BEFORE the node it is on";
+
+    // One press, one node — and the breakpoint it is standing on does not eat
+    // the press, or stepping off a breakpoint would be impossible.
+    m_Instance.DebugStepNodes(1);
+    m_Instance.Tick(runtime);
+    EXPECT_TRUE(m_Instance.Debug().m_Paused) << "a step re-arms the pause";
+    ASSERT_EQ(m_Log.size(), 1u);
+    EXPECT_EQ(m_Log[0], "A");
+
+    m_Instance.DebugStepNodes(1);
+    m_Instance.Tick(runtime);
+    ASSERT_EQ(m_Log.size(), 2u);
+    EXPECT_EQ(m_Log[1], "B");
+
+    m_Instance.DebugStepNodes(1);
+    m_Instance.Tick(runtime);
+    ASSERT_EQ(m_Log.size(), 3u);
+    EXPECT_EQ(m_Log[2], "C");
+}
+
+TEST_F(VisualScriptVMTest, SteppingRunsEachSideEffectExactlyOnce)
+{
+    // The reason #1069 refused to build stepping on the old VM: the only way to
+    // "step" a non-resumable VM was to re-run the tick and stop one node later,
+    // which repeats everything before the breakpoint. If that ever comes back,
+    // this counter reads 2, or 3, instead of 1.
+    AddVariable("Count", PinType::Float, PinValue::MakeFloat(0.0f));
+
+    const NodeId update = Graph().AddNode(std::string(NodeTypes::kOnUpdate)).m_Id;
+    const NodeId get = Graph().AddNode(std::string(NodeTypes::kGetVariable)).m_Id;
+    Graph().FindNode(get)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+    const NodeId add = Graph().AddNode("Math.Add").m_Id;
+    Graph().FindNode(add)->m_PinDefaults["B"] = PinValue::MakeFloat(1.0f);
+    const NodeId set = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(set)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+    const NodeId after = Graph().AddNode("Utility.Print").m_Id;
+    Graph().FindNode(after)->m_PinDefaults["Message"] = PinValue::MakeString("done");
+
+    Graph().AddLink(update, "Then", set, "Enter");
+    Graph().AddLink(get, "Value", add, "A");
+    Graph().AddLink(add, "Result", set, "Value");
+    Graph().AddLink(set, "Then", after, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, set));
+    m_Instance.Tick(runtime);
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Count").AsFloat(), 0.0f);
+
+    m_Instance.DebugStepNodes(1);
+    m_Instance.Tick(runtime);
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Count").AsFloat(), 1.0f) << "the increment happened once";
+    EXPECT_TRUE(m_Log.empty()) << "and only the ONE node ran";
+
+    m_Instance.DebugStepNodes(1);
+    m_Instance.Tick(runtime);
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Count").AsFloat(), 1.0f) << "stepping on must not redo it";
+    EXPECT_EQ(m_Log.size(), 1u);
+}
+
+TEST_F(VisualScriptVMTest, SteppingWalksALoopBodyOneIterationAtATime)
+{
+    // The case the issue opened with: "a graph with a loop body gives you no way
+    // to watch the exec token move". Each step is one node, so a three-iteration
+    // loop is a countable walk rather than one opaque jump.
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId loop = Graph().AddNode("Flow.ForLoop").m_Id;
+    Graph().FindNode(loop)->m_PinDefaults["First"] = PinValue::MakeInt(1);
+    Graph().FindNode(loop)->m_PinDefaults["Last"] = PinValue::MakeInt(3);
+    const NodeId print = Graph().AddNode("Utility.Print").m_Id;
+    const NodeId toString = Graph().AddNode("Utility.ToString").m_Id;
+
+    Graph().AddLink(begin, "Then", loop, "Enter");
+    Graph().AddLink(loop, "Loop Body", print, "Enter");
+    Graph().AddLink(loop, "Index", toString, "Value");
+    Graph().AddLink(toString, "Result", print, "Message");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+
+    // Break on the body so BeginPlay stops in front of iteration 1.
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, print));
+    m_Instance.BeginPlay(runtime);
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+    ASSERT_TRUE(m_Log.empty());
+
+    // Each iteration is two frames — the Print, then the loop node re-entering
+    // itself — so stepping two at a time lands on the next body node.
+    for (i32 iteration = 1; iteration <= 3; ++iteration)
+    {
+        m_Instance.DebugStepNodes(2);
+        m_Instance.Tick(runtime);
+        ASSERT_EQ(m_Log.size(), static_cast<sizet>(iteration)) << "iteration " << iteration;
+    }
+
+    // The Index output has to move with the walk, or the body would see the same
+    // value every time and the loop would be a step-shaped no-op.
+    EXPECT_EQ(m_Instance.PeekOutput(0, loop, "Index").AsInt(), 3);
+
+    m_Instance.Debug().m_Breakpoints.clear();
+    m_Instance.DebugResume();
+    m_Instance.Tick(runtime);
+    EXPECT_EQ(m_Log.size(), 3u) << "the loop ran exactly its authored range, once";
+}
+
+TEST_F(VisualScriptVMTest, ResumingAfterABreakpointFinishesTheInterruptedTick)
+{
+    // Before ADR 0023 this was the debugger's quiet lie: pausing threw the rest
+    // of the tick away and "Resume" started the NEXT one, so breaking anywhere
+    // changed what the graph did. The Sequence here has a branch after the
+    // breakpoint; it must not run while paused, and must run on resume.
+    AddVariable("First", PinType::Bool, PinValue::MakeBool(false));
+    AddVariable("Second", PinType::Bool, PinValue::MakeBool(false));
+
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId sequence = Graph().AddNode(std::string(NodeTypes::kSequence)).m_Id;
+    Graph().FindNode(sequence)->SetProperty(std::string(NodeProps::kOutputCount), "2");
+    Graph().AddLink(begin, "Then", sequence, "Enter");
+
+    const NodeId setFirst = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(setFirst)->SetProperty(std::string(NodeProps::kVariableName), "First");
+    Graph().FindNode(setFirst)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
+    const NodeId setSecond = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(setSecond)->SetProperty(std::string(NodeProps::kVariableName), "Second");
+    Graph().FindNode(setSecond)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
+
+    Graph().AddLink(sequence, "Then 0", setFirst, "Enter");
+    Graph().AddLink(sequence, "Then 1", setSecond, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, setFirst));
+
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+    EXPECT_FALSE(m_Instance.GetVariable("First").AsBool()) << "breaking happens BEFORE the node body runs";
+    EXPECT_FALSE(m_Instance.GetVariable("Second").AsBool())
+        << "a pause must hold the whole run, including branches the paused node never reached";
+    EXPECT_GT(m_Instance.GetPendingExecCount(), 0u) << "the held work is queued, not discarded";
+
+    m_Instance.Debug().m_Breakpoints.clear();
+    m_Instance.DebugResume();
+    m_Instance.Tick(runtime);
+    EXPECT_TRUE(m_Instance.GetVariable("First").AsBool()) << "resume runs the node it stopped in front of";
+    EXPECT_TRUE(m_Instance.GetVariable("Second").AsBool()) << "resume FINISHES the tick it interrupted";
+    EXPECT_EQ(m_Instance.GetPendingExecCount(), 0u);
+}
+
+TEST_F(VisualScriptVMTest, ForLoopReadsFirstAndLastOnceOnEntry)
+{
+    // The index moved out of a C++ local and into NodeState when the loop became
+    // re-entrant; the bounds had to move with it. Re-pulling Last per iteration
+    // would look harmless and would let a loop body silently move its own end
+    // point, because BeginIteration invalidates the pure memo on purpose.
+    AddVariable("Limit", PinType::Int, PinValue::MakeInt(3));
+    AddVariable("Count", PinType::Float, PinValue::MakeFloat(0.0f));
+
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId loop = Graph().AddNode("Flow.ForLoop").m_Id;
+    Graph().FindNode(loop)->m_PinDefaults["First"] = PinValue::MakeInt(1);
+    const NodeId limit = Graph().AddNode(std::string(NodeTypes::kGetVariable)).m_Id;
+    Graph().FindNode(limit)->SetProperty(std::string(NodeProps::kVariableName), "Limit");
+
+    // First thing the body does is set Limit to 0 — a loop that re-read Last
+    // would stop after one iteration.
+    const NodeId clearLimit = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(clearLimit)->SetProperty(std::string(NodeProps::kVariableName), "Limit");
+    Graph().FindNode(clearLimit)->m_PinDefaults["Value"] = PinValue::MakeInt(0);
+
+    const NodeId get = Graph().AddNode(std::string(NodeTypes::kGetVariable)).m_Id;
+    Graph().FindNode(get)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+    const NodeId add = Graph().AddNode("Math.Add").m_Id;
+    Graph().FindNode(add)->m_PinDefaults["B"] = PinValue::MakeFloat(1.0f);
+    const NodeId set = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(set)->SetProperty(std::string(NodeProps::kVariableName), "Count");
+
+    Graph().AddLink(begin, "Then", loop, "Enter");
+    Graph().AddLink(limit, "Value", loop, "Last");
+    Graph().AddLink(loop, "Loop Body", clearLimit, "Enter");
+    Graph().AddLink(clearLimit, "Then", set, "Enter");
+    Graph().AddLink(get, "Value", add, "A");
+    Graph().AddLink(add, "Result", set, "Value");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Count").AsFloat(), 3.0f)
+        << "the range was fixed when the loop was entered, as the C++ locals used to fix it";
+}
+
+TEST_F(VisualScriptVMTest, LoopReenteredThroughAnExecCycleIsRefusedNotMiscounted)
+{
+    // The one behaviour ADR 0023 knowingly changes. Exec cycles are legal
+    // (ADR 0014 section 4), so a body CAN wire back into its own loop's Enter.
+    // Under descent that recursed with a fresh index; the index is in NodeState
+    // now, so the re-entry would reset the iteration the outer entry is holding.
+    // Refused loudly rather than silently miscounted.
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId loop = Graph().AddNode("Flow.ForLoop").m_Id;
+    Graph().FindNode(loop)->m_PinDefaults["First"] = PinValue::MakeInt(1);
+    Graph().FindNode(loop)->m_PinDefaults["Last"] = PinValue::MakeInt(3);
+    const NodeId print = Graph().AddNode("Utility.Print").m_Id;
+    Graph().FindNode(print)->m_PinDefaults["Message"] = PinValue::MakeString("body");
+
+    Graph().AddLink(begin, "Then", loop, "Enter");
+    Graph().AddLink(loop, "Loop Body", print, "Enter");
+    Graph().AddLink(print, "Then", loop, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    EXPECT_FALSE(m_Instance.GetErrors().empty()) << "the re-entry must be reported, not silent";
+    bool named = false;
+    for (const std::string& error : m_Instance.GetErrors())
+    {
+        named = named || error.find("re-entered") != std::string::npos;
+    }
+    EXPECT_TRUE(named) << "and the error must say what happened";
+    EXPECT_EQ(m_Log.size(), 3u) << "the outer loop still ran its own range exactly once";
+}
+
+TEST_F(VisualScriptVMTest, ALoopAbandonedByTheNodeBudgetStartsAgainNextTick)
+{
+    // A pending re-entry owns NodeState::m_Flag as its "still iterating" marker.
+    // The budget running out inside the body throws that frame away, so the VM
+    // has to release the marker on the way — otherwise the loop reads its own
+    // leftover marker as a re-entry next tick and refuses itself for the rest of
+    // play, which is a hang that looks like a logic bug in the graph.
+    m_Asset->m_NodeBudgetPerTick = 50;
+
+    const NodeId update = Graph().AddNode(std::string(NodeTypes::kOnUpdate)).m_Id;
+    const NodeId loop = Graph().AddNode("Flow.ForLoop").m_Id;
+    Graph().FindNode(loop)->m_PinDefaults["First"] = PinValue::MakeInt(1);
+    Graph().FindNode(loop)->m_PinDefaults["Last"] = PinValue::MakeInt(1000);
+    const NodeId print = Graph().AddNode("Utility.Print").m_Id;
+    Graph().FindNode(print)->m_PinDefaults["Message"] = PinValue::MakeString("x");
+
+    Graph().AddLink(update, "Then", loop, "Enter");
+    Graph().AddLink(loop, "Loop Body", print, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    m_Instance.Tick(runtime);
+    const sizet afterFirst = m_Log.size();
+    ASSERT_GT(afterFirst, 0u);
+    ASSERT_TRUE(m_Instance.DidExceedBudget()) << "the loop must have been cut short, or this proves nothing";
+    EXPECT_EQ(m_Instance.GetPendingExecCount(), 0u) << "abandoned work is unwound, not left queued";
+
+    m_Instance.ClearErrors();
+    m_Instance.Tick(runtime);
+    EXPECT_GT(m_Log.size(), afterFirst) << "the loop must run again, not stay wedged shut";
+    for (const std::string& error : m_Instance.GetErrors())
+    {
+        EXPECT_EQ(error.find("re-entered"), std::string::npos) << "the leftover marker was not released: " << error;
+    }
+}
+
+TEST_F(VisualScriptVMTest, SteppingThroughAFunctionCallStillMarshalsItsResults)
+{
+    // A call is queued now: the callee runs, and a bookkeeping frame afterwards
+    // copies the results back and releases the re-entry guard. That frame is the
+    // one piece of the old synchronous epilogue with nowhere obvious to live, so
+    // step across it and check the value still lands.
+    AddVariable("Result", PinType::Float, PinValue::MakeFloat(0.0f));
+
+    VisualScriptGraph& function = m_Asset->m_Functions.emplace_back();
+    function.m_Name = "Double";
+    function.m_Inputs.push_back({ "In", PinType::Float, PinValue::MakeFloat(0.0f) });
+    function.m_Outputs.push_back({ "Out", PinType::Float, PinValue::MakeFloat(0.0f) });
+    const NodeId entry = function.AddNode(std::string(NodeTypes::kFunctionEntry)).m_Id;
+    const NodeId multiply = function.AddNode("Math.Multiply").m_Id;
+    function.FindNode(multiply)->m_PinDefaults["B"] = PinValue::MakeFloat(2.0f);
+    const NodeId ret = function.AddNode(std::string(NodeTypes::kFunctionReturn)).m_Id;
+    function.AddLink(entry, "Then", ret, "Enter");
+    function.AddLink(entry, "In", multiply, "A");
+    function.AddLink(multiply, "Result", ret, "Out");
+
+    const NodeId update = Graph().AddNode(std::string(NodeTypes::kOnUpdate)).m_Id;
+    const NodeId call = Graph().AddNode(std::string(NodeTypes::kFunctionCall)).m_Id;
+    Graph().FindNode(call)->SetProperty(std::string(NodeProps::kFunctionName), "Double");
+    Graph().FindNode(call)->m_PinDefaults["In"] = PinValue::MakeFloat(21.0f);
+    const NodeId set = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(set)->SetProperty(std::string(NodeProps::kVariableName), "Result");
+
+    Graph().AddLink(update, "Then", call, "Enter");
+    Graph().AddLink(call, "Then", set, "Enter");
+    Graph().AddLink(call, "Out", set, "Value");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    m_Instance.Debug().m_Breakpoints.insert(DebugState::MakeKey(0, call));
+    m_Instance.Tick(runtime);
+    ASSERT_TRUE(m_Instance.Debug().m_Paused);
+
+    // One node at a time, well past what this graph needs, so the walk crosses
+    // the call, the callee and the bookkeeping frame without ever running two
+    // nodes for one press.
+    for (i32 i = 0; i < 12; ++i)
+    {
+        m_Instance.DebugStepNodes(1);
+        m_Instance.Tick(runtime);
+    }
+    EXPECT_FLOAT_EQ(m_Instance.GetVariable("Result").AsFloat(), 42.0f);
+    EXPECT_TRUE(m_Instance.GetErrors().empty()) << "the re-entry guard must have been released";
+}
+
+TEST_F(VisualScriptVMTest, ADelayInOneSequenceBranchStillLetsTheNextBranchRun)
+{
+    // Latent semantics under the drain loop: a suspending node queues nothing,
+    // so the stack simply moves on to what was already queued — which is exactly
+    // what returning-without-triggering did under descent. Worth pinning because
+    // it is the one place the rewrite could have changed behaviour for free.
+    AddVariable("Second", PinType::Bool, PinValue::MakeBool(false));
+
+    const NodeId begin = Graph().AddNode(std::string(NodeTypes::kOnBeginPlay)).m_Id;
+    const NodeId sequence = Graph().AddNode(std::string(NodeTypes::kSequence)).m_Id;
+    Graph().FindNode(sequence)->SetProperty(std::string(NodeProps::kOutputCount), "2");
+    const NodeId delay = Graph().AddNode("Flow.Delay").m_Id;
+    Graph().FindNode(delay)->m_PinDefaults["Duration"] = PinValue::MakeFloat(5.0f);
+    const NodeId afterDelay = Graph().AddNode("Utility.Print").m_Id;
+    Graph().FindNode(afterDelay)->m_PinDefaults["Message"] = PinValue::MakeString("late");
+    const NodeId setSecond = Graph().AddNode(std::string(NodeTypes::kSetVariable)).m_Id;
+    Graph().FindNode(setSecond)->SetProperty(std::string(NodeProps::kVariableName), "Second");
+    Graph().FindNode(setSecond)->m_PinDefaults["Value"] = PinValue::MakeBool(true);
+
+    Graph().AddLink(begin, "Then", sequence, "Enter");
+    Graph().AddLink(sequence, "Then 0", delay, "Enter");
+    Graph().AddLink(delay, "Completed", afterDelay, "Enter");
+    Graph().AddLink(sequence, "Then 1", setSecond, "Enter");
+
+    ASSERT_TRUE(Instantiate());
+    RuntimeContext runtime = MakeRuntime();
+    m_Instance.BeginPlay(runtime);
+
+    EXPECT_TRUE(m_Instance.GetVariable("Second").AsBool()) << "branch 1 must not wait on branch 0's Delay";
+    EXPECT_TRUE(m_Log.empty()) << "and branch 0 must genuinely be parked";
+    EXPECT_EQ(m_Instance.GetPendingLatentCount(), 1u);
 }
 
 //==============================================================================

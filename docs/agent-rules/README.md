@@ -145,7 +145,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Scripting, networking and tooling
 
 - [script-structural-command-safe-point.md](script-structural-command-safe-point.md): a script binding that changes the registry structurally queues a command, never acts inline.
-- [visual-script-vm.md](visual-script-vm.md): a loop node charges its own iteration, memoization is per exec step, and `PinType` numbering is on disk.
+- [visual-script-vm.md](visual-script-vm.md): `Trigger` queues a branch, it does not run one (§1), so a loop node charges its own iteration and keeps it in `NodeState`; memoization is per exec step, and `PinType` numbering is on disk.
 - [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
@@ -341,7 +341,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | Doc | The ordering or lifetime rule |
 |---|---|
 | [script-structural-command-safe-point.md](script-structural-command-safe-point.md) | Never mutate the registry mid-iteration. |
-| [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame. |
+| [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame, and one that keeps its index on the C++ stack across a `Trigger` restarts it. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
