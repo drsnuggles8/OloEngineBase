@@ -1285,9 +1285,26 @@ jobs:
     # The hosted arm is pinned to ubuntu-24.04 (noble) because the LLVM apt repo
     # URL hardcodes the distro codename; if ubuntu-latest jumped release the apt
     # source would 404.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
@@ -1778,9 +1795,26 @@ jobs:
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
     # fail, it queues for 24 hours.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
@@ -2201,9 +2235,26 @@ jobs:
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
     # fail, it queues for 24 hours.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
