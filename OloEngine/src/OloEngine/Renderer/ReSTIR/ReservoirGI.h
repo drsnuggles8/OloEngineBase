@@ -346,7 +346,21 @@ namespace OloEngine::ReSTIR
         const f32 minimum = std::max(minimumDistance, 0.0f);
         if (!(distanceSq > minimum * minimum))
             return false;
-        return glm::dot(destNormal, toVertex / std::sqrt(distanceSq)) > 0.0f;
+        const glm::vec3 direction = toVertex / std::sqrt(distanceSq);
+        if (!(glm::dot(destNormal, direction) > 0.0f))
+            return false;
+        // BOTH ENDS OF THE RECONNECTION SEGMENT, not just the destination's.
+        // The stored normal was oriented toward the pixel that TRACED the vertex
+        // (the bounce writes `if (dot(n, -direction) < 0) n = -n`), and the
+        // Jacobian takes |cos| at the vertex - so neither of them notices a reuse
+        // arriving from BEHIND the sample. Without this the stored outgoing
+        // radiance, which is the front face's, is transported to a pixel that can
+        // only see the back face: light through a one-sided wall, and as a smooth
+        // gradient rather than as anything that looks like an error.
+        //
+        // The distant arm has no vertex to be behind - its sample is a direction
+        // with no surface - so only the destination hemisphere is meaningful there.
+        return glm::dot(sample.Normal, -direction) > 0.0f;
     }
 
     // The reconnection shift's Jacobian, converting a density expressed in solid

@@ -163,10 +163,19 @@ namespace OloEngine
         // intensity applied to the prefiltered cube on top of it. THE SAME PAIR
         // GpuPathTracerSettings carries, taken from the same settings, so the
         // tier and the oracle it is validated against agree about the sky.
-        void SetEnvironment(const glm::vec3& uniformRadiance, f32 cubeIntensity) noexcept
+        //
+        // `cubeBound` is the third argument because the intensity ALONE cannot
+        // answer whether there is a sky: it defaults to 1.0, so a scene with no
+        // environment map at all reported an environment, and the engagement
+        // criterion's NoIndirectSourceInScene arm became unreachable - a
+        // stand-down that can never fire is a stand-down that was never tested.
+        // Whether a prefiltered cube is actually bound is a frame fact only the
+        // pipeline holds, so it is passed in the way SetProbeVolumeAvailable is.
+        void SetEnvironment(const glm::vec3& uniformRadiance, f32 cubeIntensity, bool cubeBound) noexcept
         {
             m_UniformEnvironmentRadiance = uniformRadiance;
             m_EnvironmentCubeIntensity = cubeIntensity;
+            m_EnvironmentCubeBound = cubeBound;
         }
 
         // Whether the probe ladder has anything to hand the BOUNCE VERTEX. Fed
@@ -288,6 +297,7 @@ namespace OloEngine
         glm::vec3 m_RenderOrigin{ 0.0f };
         glm::vec3 m_UniformEnvironmentRadiance{ 0.0f };
         f32 m_EnvironmentCubeIntensity = 1.0f;
+        bool m_EnvironmentCubeBound = false;
         bool m_ProbeVolumeAvailable = false;
         bool m_SSGIRequested = false;
         u32 m_FrameIndex = 0;

@@ -108,9 +108,22 @@ swapped, which is why §7's reciprocal identity is a meaningful check.
 
 **Its domain is not all paths.** `S` is defined only where the reconnection segment `x0' -> x1`
 exists as a light-transport path: `x1` must be visible from `x0'`, `x1` must be on the upper
-hemisphere of `x0'`, and the vertex must satisfy §6's admissibility gates. Outside that domain the
-reuse is **rejected**, never scaled. A shift that quietly returns something for an out-of-domain
-input is how light leaks through a wall with a perfectly smooth falloff.
+hemisphere of `x0'`, **`x0'` must be on the upper hemisphere of `x1`**, and the vertex must satisfy
+§6's admissibility gates. Outside that domain the reuse is **rejected**, never scaled. A shift that
+quietly returns something for an out-of-domain input is how light leaks through a wall with a
+perfectly smooth falloff.
+
+The hemisphere condition is stated at **both ends** on purpose, and neither end implies the other.
+The one at `x0'` is the obvious one: a vertex behind the reusing surface contributes nothing to it.
+The one at `x1` is the one a reviewer has to be told about, because two other pieces of the
+implementation actively hide it. The bounce stores `n1` oriented toward the pixel that *traced* the
+vertex, so the stored normal already points the right way for the source and says nothing about the
+destination; and the Jacobian takes `|cos|` at the vertex, so an arriving-from-behind reuse produces
+a perfectly finite, plausible number. What is stored at `x1` is `L_o(x1, ->x0)`, the **front face's**
+outgoing radiance under the diffuse restriction of §6.1; transporting it to a pixel that can only
+see the back face is a one-sided wall leaking light, and a smooth gradient rather than an artefact.
+
+An **environment** sample has no vertex to be behind, so only the condition at `x0'` applies to it.
 
 For an **environment** sample there is no vertex to reconnect to: the shift carries the *direction*
 unchanged, which is the correct limit of reconnection at infinite distance (§4.3).

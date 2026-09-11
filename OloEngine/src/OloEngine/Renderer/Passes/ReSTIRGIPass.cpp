@@ -257,8 +257,12 @@ namespace OloEngine
         // out of the criterion would stand the tier down on exactly the scenes it
         // renders best. Non-zero intensity OR a non-black uniform term — either is
         // a sky an escaping ray can collect.
+        // A BOUND CUBE at non-zero intensity, or a non-black uniform term. The
+        // bound-ness is what makes this a measurement rather than a constant: the
+        // intensity defaults to 1.0, so testing it alone made this true in every
+        // scene ever loaded and NoIndirectSourceInScene unreachable.
         const bool environmentAvailable =
-            m_EnvironmentCubeIntensity > 0.0f ||
+            (m_EnvironmentCubeBound && m_EnvironmentCubeIntensity > 0.0f) ||
             glm::dot(m_UniformEnvironmentRadiance, m_UniformEnvironmentRadiance) > 0.0f;
 
         m_Stats.Engagement.LightCount = lightCount;
@@ -487,10 +491,18 @@ namespace OloEngine
         // find nothing usable, and look like a scene with no coherence — which is
         // the failure that never gets reported. Requiring both makes it a
         // stand-down TemporalReuseRan counts.
+        //
+        // THE MOMENTS PLANE IS NOT IN IT, unlike DI's. Only the RESOLVE draw reads
+        // moments, and it reads them under its own OLO_RESTIR_GI_FLAG_MOMENTS_VALID
+        // (set below, on the plane alone) because the Variance view is a diagnostic
+        // for the temporal-reuse-off configuration too. Requiring it here as well
+        // would let a missing diagnostic plane stand the whole ESTIMATOR down -
+        // every pixel restarting each frame so that a debug view could stay
+        // consistent, reported as a truthful `temporalReuseRan=false` that names
+        // the wrong cause.
         const bool historyUsable = m_Settings.TemporalReuse && m_HavePrevFrame && velocityID.IsValid() &&
                                    sampleHistoryID.IsValid() && radianceHistoryID.IsValid() &&
-                                   stateHistoryID.IsValid() && surfaceHistoryID.IsValid() &&
-                                   momentsHistoryID.IsValid();
+                                   stateHistoryID.IsValid() && surfaceHistoryID.IsValid();
 
         const bool environmentCube = prefilterID.IsValid() && m_EnvironmentCubeIntensity > 0.0f;
         // The DDGI TAIL, as it will actually run. The setting alone is not enough:
@@ -500,15 +512,15 @@ namespace OloEngine
 
         u32 flags = 0;
         if (historyUsable)
-            flags |= 1u; // OLO_RESTIR_GI_FLAG_HISTORY_VALID
+            flags |= ReSTIRGIFlags::HistoryValid;
         if (texturesAvailable)
-            flags |= 2u; // OLO_RESTIR_GI_FLAG_TEXTURES
+            flags |= ReSTIRGIFlags::Textures;
         if (m_Settings.ReconnectionVisibility)
-            flags |= 4u; // OLO_RESTIR_GI_FLAG_RECONNECTION_VISIBILITY
+            flags |= ReSTIRGIFlags::ReconnectionVisibility;
         if (m_Settings.TemporalReuse)
-            flags |= 8u; // OLO_RESTIR_GI_FLAG_TEMPORAL_REUSE
+            flags |= ReSTIRGIFlags::TemporalReuse;
         if (m_Settings.SpatialReuse)
-            flags |= 16u; // OLO_RESTIR_GI_FLAG_SPATIAL_REUSE
+            flags |= ReSTIRGIFlags::SpatialReuse;
         // The moments plane on its own terms: bound, therefore accumulating. NOT
         // gated on TemporalReuse, because the Variance view is a diagnostic for the
         // temporal-reuse-off configuration too — and unit 5 falls back to the
@@ -516,13 +528,13 @@ namespace OloEngine
         // accumulator off that target's alpha, which carries the glossy-vertex
         // fraction and would read as a history length.
         if (momentsHistoryID.IsValid())
-            flags |= 32u; // OLO_RESTIR_GI_FLAG_MOMENTS_VALID
+            flags |= ReSTIRGIFlags::MomentsValid;
         if (ddgiTail)
-            flags |= 64u; // OLO_RESTIR_GI_FLAG_DDGI_TAIL
+            flags |= ReSTIRGIFlags::DDGITail;
         if (m_Settings.SpatialReconnectionVisibility)
-            flags |= 128u; // OLO_RESTIR_GI_FLAG_SPATIAL_RECONNECTION_VISIBILITY
+            flags |= ReSTIRGIFlags::SpatialReconnectionVisibility;
         if (environmentCube)
-            flags |= 256u; // OLO_RESTIR_GI_FLAG_ENVIRONMENT
+            flags |= ReSTIRGIFlags::Environment;
         params.EmissiveTable = glm::uvec4(static_cast<u32>(emissiveAddress & 0xFFFFFFFFull),
                                           static_cast<u32>(emissiveAddress >> 32u), emissiveCount, flags);
 

@@ -1235,8 +1235,14 @@ namespace OloEngine
             // settings, so a bounce ray that escapes collects what the oracle's
             // escaping ray collects. Two definitions of "the sky" is how the two
             // stop agreeing about an outdoor scene's ambient.
+            // The third argument is the frame fact the intensity cannot carry:
+            // whether a prefiltered cube is bound at all. Execute gates the
+            // shader's ENVIRONMENT flag on the resolved heap slot for the same
+            // reason; this is the CPU-side half, so the engagement criterion and
+            // the shader agree about whether the scene has a sky.
             giPass.SetEnvironment(data.PostProcess.GpuPathTracer.UniformEnvironmentRadiance,
-                                  data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity);
+                                  data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity,
+                                  data.GlobalPrefilterMapID.IsValid());
             // Whether the probe ladder is switched on at all - the DDGI tail,
             // and half of the hand-off this tier must not break. THE SAME SWITCH
             // the deferred shader's `enableProbes` reads, so the cache is read at
@@ -2750,6 +2756,19 @@ namespace OloEngine
         HashBool(h, data.PostProcess.GTAOEnabled);
         HashBool(h, data.PostProcess.SphereProxyAOEnabled);
         HashBool(h, data.PostProcess.SSGIEnabled);
+        // ...AND the RESOLVED verdict, which is a different bit. PopulateBlackboard
+        // declares SSGIColor (plus the whole denoiser chain and its four
+        // histories) on `SSGI->IsEnabled()`, and ConfigurePassesForFrame folds
+        // three more things into that: the deferred path, readiness, and - since
+        // #1169 - whether ReSTIR GI took the indirect-diffuse term. So the raw
+        // setting above can hold still while the declaration flips. HashPassState
+        // does not close this: it hashes the pass pointer and readiness only, and
+        // says so. Without this line a GI fallback (TLAS gone, shaders not ready)
+        // hands SSGI back the term against a cached topology in which SSGIColor
+        // was never declared, and SSGI looks simply absent - the same shape as the
+        // shadow-technique and RT-reflection holes documented below.
+        if (PostProcessPasses.SSGI)
+            HashBool(h, PostProcessPasses.SSGI->IsEnabled());
         // SSGI denoiser chain (issue #708). Half resolution sizes every graph
         // resource in the chain AND its four temporal histories, so it must be
         // hashed or flipping it reuses a cached build whose targets are the

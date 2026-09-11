@@ -158,7 +158,16 @@ bool OloGIReconnectionInDomain(OloGISample s, vec3 destShadingPoint, vec3 destNo
     float minimum = max(minimumDistance, 0.0);
     if (!(distanceSq > minimum * minimum))
         return false;
-    return dot(destNormal, toVertex * inversesqrt(distanceSq)) > 0.0;
+    vec3 direction = toVertex * inversesqrt(distanceSq);
+    if (!(dot(destNormal, direction) > 0.0))
+        return false;
+    // BOTH ENDS OF THE RECONNECTION SEGMENT. The stored normal was oriented
+    // toward the pixel that TRACED the vertex, and the Jacobian takes |cos|
+    // there, so without this a reuse arriving from BEHIND the sample transports
+    // the front face's radiance to a pixel that can only see the back face.
+    // Mirrors ReconnectionInDomain in ReservoirGI.h; the distant arm has no
+    // vertex to be behind.
+    return dot(s.Normal, -direction) > 0.0;
 }
 
 // J = (cos(phiDest) / cos(phiSource)) * (dSourceSq / dDestSq), with BOTH cosines

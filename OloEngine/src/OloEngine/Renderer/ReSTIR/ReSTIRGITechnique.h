@@ -537,6 +537,33 @@ namespace OloEngine
     }
 
     // -------------------------------------------------------------------------
+    // The parameter-block flag word
+    // -------------------------------------------------------------------------
+
+    // The OLO_RESTIR_GI_FLAG_* bits, named on the C++ side rather than written as
+    // literals at the one call site that packs them. They MIRROR
+    // ReSTIRGIParams.glsl and are not free to move: the shader reads them out of
+    // a UBO lane, so a divergence is not a compile error on either side - it is
+    // four draws silently reading a different flag than the one the pass set, and
+    // the symptom is a feature that looks switched off.
+    //
+    // ReSTIRGIContract.ParameterFlagsMatchTheShader scans the #defines and
+    // asserts these values, which is the only thing that can actually hold the
+    // two spellings together.
+    namespace ReSTIRGIFlags
+    {
+        inline constexpr u32 HistoryValid = 1u;
+        inline constexpr u32 Textures = 2u;
+        inline constexpr u32 ReconnectionVisibility = 4u;
+        inline constexpr u32 TemporalReuse = 8u;
+        inline constexpr u32 SpatialReuse = 16u;
+        inline constexpr u32 MomentsValid = 32u;
+        inline constexpr u32 DDGITail = 64u;
+        inline constexpr u32 SpatialReconnectionVisibility = 128u;
+        inline constexpr u32 Environment = 256u;
+    } // namespace ReSTIRGIFlags
+
+    // -------------------------------------------------------------------------
     // The counters
     // -------------------------------------------------------------------------
 
