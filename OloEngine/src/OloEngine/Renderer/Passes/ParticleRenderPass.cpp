@@ -130,6 +130,17 @@ namespace OloEngine
             RenderCommand::SetBlendFuncForAttachment(0, RHI::BlendFactor::One, RHI::BlendFactor::One);               // additive
             RenderCommand::SetBlendFuncForAttachment(1, RHI::BlendFactor::Zero, RHI::BlendFactor::OneMinusSrcColor); // multiplicative
 
+            // Particles are CAMERA-FACING quads: their winding is whatever the
+            // billboard basis happens to produce, and it is not a statement
+            // about facing (issue #1171). This pass never had an opinion on
+            // culling, so it inherited the previous pass's — and under Vulkan's
+            // flipped clip-space Y the same quad that is front-facing on OpenGL
+            // comes out BACK-facing, so every particle in the scene was culled.
+            // Nothing warned: the draws were issued, never dropped, and simply
+            // produced no fragments. Say it explicitly, and withdraw it below
+            // like the blend and depth opinions around it (issue #896).
+            RenderCommand::DisableCulling();
+
             ParticleBatchRenderer::SetOITMode(true);
 
             m_RenderCallback();
@@ -145,6 +156,7 @@ namespace OloEngine
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
             context.SetBlendState(false);
 
+            RenderCommand::EnableCulling();
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
 
@@ -166,8 +178,20 @@ namespace OloEngine
             RenderCommand::SetBlendStateForAttachment(2, false);
             RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
 
+            // Particles are CAMERA-FACING quads: their winding is whatever the
+            // billboard basis happens to produce, and it is not a statement
+            // about facing (issue #1171). This pass never had an opinion on
+            // culling, so it inherited the previous pass's — and under Vulkan's
+            // flipped clip-space Y the same quad that is front-facing on OpenGL
+            // comes out BACK-facing, so every particle in the scene was culled.
+            // Nothing warned: the draws were issued, never dropped, and simply
+            // produced no fragments. Say it explicitly, and withdraw it below
+            // like the blend and depth opinions around it (issue #896).
+            RenderCommand::DisableCulling();
+
             m_RenderCallback();
 
+            RenderCommand::EnableCulling();
             RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
             context.SetDepthMask(true);
             // All three opinions this path stated, withdrawn (issue #896) —
