@@ -164,11 +164,20 @@ namespace OloEngine::RayTracing
             return GeometryClass::Unsupported;
         }
 
-        // Deformed geometry does not reach GPU Scene today: skinned, cloth,
-        // virtualized-cluster and particle entities are excluded upstream and
-        // counted in GPUSceneUnsupportedCategory instead. The class and its
-        // refit policy exist and are tested, so the day a deformed-vertex
-        // stream lands in GPU Scene this is the one line that changes.
+        // Deformed geometry does not reach GPU Scene today: skinned, cloth and
+        // particle entities are excluded upstream and counted in
+        // GPUSceneUnsupportedCategory instead. The class and its refit policy
+        // exist and are tested, so the day a deformed-vertex stream lands in
+        // GPU Scene this is the one line that changes.
+        //
+        // Virtualized-cluster entities USED to be on that list and no longer
+        // are (issue #1144, ADR 0023). Nothing here knows about them: each
+        // virtual-mesh part arrives as an ordinary rigid geometry + instance
+        // pair built from the DAG's coarsest cut, so it classifies Static and
+        // takes the build-once path like any other fixed mesh. That is the
+        // whole reason the proxy is a FIXED cut rather than the live one — a
+        // per-frame cut would need a new class and a new refit policy right
+        // here.
         //
         // Masked takes precedence over the motion classes because it decides
         // the BLAS geometry FLAGS (opaque or not), which is a property of the

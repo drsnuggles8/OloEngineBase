@@ -100,7 +100,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md): phase 1 tests the previous frame's final pyramid; pass order decides who sees old depth.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
 - [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md): a caster family reaches a shadow technique only if somebody wired it there, and the gap is invisible.
-- [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it.
+- [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it, and a terminal group is marked `FLT_MAX`, which is finite.
 - [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md): the LOD plane faces the mesh, not the camera, and the error metric must be a ratio.
 - [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md): every writer of mip 0 owes the rest of the chain.
 - [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md): crack-freedom is a vertex-set property; picking must not inherit the tessellation gate.
@@ -146,11 +146,12 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Scripting, networking and tooling
 
 - [script-structural-command-safe-point.md](script-structural-command-safe-point.md): a script binding that changes the registry structurally queues a command, never acts inline.
-- [visual-script-vm.md](visual-script-vm.md): a loop node charges its own iteration, memoization is per exec step, and `PinType` numbering is on disk.
+- [visual-script-vm.md](visual-script-vm.md): `Trigger` queues a branch, it does not run one (§1), so a loop node charges its own iteration and keeps it in `NodeState`; memoization is per exec step, and `PinType` numbering is on disk.
 - [runtime-scene-switching.md](runtime-scene-switching.md): the host applies a scene swap after the tick; five ordering rules and the `Project` mount.
 - [server-authoritative-networking-loop.md](server-authoritative-networking-loop.md): grep for callers of the entry point, not for tests.
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
 - [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
+- [automation-build-invocation.md](automation-build-invocation.md): a build started from inside the editor goes through `build-lock.ps1` or it does not happen, the editor process is the lock's identity, cancellation kills the job object rather than the shim, and `OloEditor` is refused by allow-list.
 
 ## Concurrency and memory
 
@@ -190,6 +191,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [light-path-photometric-parity.md](light-path-photometric-parity.md) | Two lighting bugs survived 4300 green tests. |
 | [shader-tuning-constants-need-a-unit.md](shader-tuning-constants-need-a-unit.md) | Every directional shadow in the project sat metres away from its caster, and the tests pinned the constant's VALUE, which had not changed. |
 | [glsl-shaders.md](glsl-shaders.md) §1a | A new `#extension` is green on every PR check and red on the next nightly: same-repo PRs route the Linux sanitizer jobs to the box that has the current SDK, so the arm with the older toolchain is only ever reached by the nightly — which then fails ~4,000 tests in, as `'descriptor_heap' : unrecognized layout identifier` against a line in an include file. |
+| [glsl-shaders.md](glsl-shaders.md) §1 | Adding a padding lane called `_padding0` to a shared UBO block fails SPIR-V with `nameless block contains a member that already has a name at global scope` — a hard Vulkan-only error that every OpenGL test is blind to, in three shaders at once. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer, so a new format fails as a corrupt version of the old one rather than as an unsupported format. |
@@ -310,6 +312,7 @@ The check passes for a correct implementation and for a broken one.
 |---|---|
 | [live-verification-noise-floor.md](live-verification-noise-floor.md) | A crop check that a mirrored, wrong position scored better on; read tools that answer 200 with a stale frame from an iconified window. |
 | [gpu-readback-stats-channel.md](gpu-readback-stats-channel.md) | A GPU counter that stopped updating is byte-identical to one that is constant. |
+| [automation-build-invocation.md](automation-build-invocation.md) | A build's exit code is 0 three different ways without anything having been built — the lock's stand-down, a no-op incremental, and a build that never started next to last week's binary. |
 | [incomplete-texture-samples-as-zero.md](incomplete-texture-samples-as-zero.md) | A sampled zero is a value, not an error: the frame is wrong exactly where the feature is active and right where it is not, on one vendor only. |
 | [std-distributions-are-not-portable.md](std-distributions-are-not-portable.md) | Two platforms disagree about procedural content, or a test passes on one and fails on the other with no GPU difference behind it. |
 | [procedural-generator-golden-coupling.md](procedural-generator-golden-coupling.md) | A red that recurs every run gets normalised and blinds the suite. |
@@ -343,7 +346,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | Doc | The ordering or lifetime rule |
 |---|---|
 | [script-structural-command-safe-point.md](script-structural-command-safe-point.md) | Never mutate the registry mid-iteration. |
-| [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame. |
+| [visual-script-vm.md](visual-script-vm.md) | A loop node that forgets to charge its own iteration hangs the frame, and one that keeps its index on the C++ stack across a `Trigger` restarts it. |
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
@@ -352,7 +355,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5); coarse-to-fine fill is one dispatch per level with barriers (§3a). |
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
 | [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md) | A lazily-created registry is destroyed BEFORE the namespace-scope statics whose destructors unregister from it. |
-| [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it. |
+| [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it (§1); an `isfinite` test accepts the `FLT_MAX` terminal marker and silently selects an empty cut (§5b). |
 | [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) | A read from a pooled resource whose lifetime already ended. |
 | [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) | TOCTOU between a decrement and a re-read. |
 | [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) | A locked scope calling a sibling that locks the same non-recursive mutex; unlock the callee, don't move the caller. |

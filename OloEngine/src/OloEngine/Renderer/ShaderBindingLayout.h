@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -172,6 +173,39 @@ namespace OloEngine
             i32 AlphaMode = 0;           // 0=Opaque, 1=Mask, 2=Blend (matches AlphaMode enum)
             i32 PBRModel = 0;            // 0=Legacy, 1=ClosureV2 (matches PBRModel enum, issue #975)
 
+            // PHYSICAL TRANSMISSION / IOR / VOLUME (issue #970).
+            //
+            // INSERTED HERE, BEFORE HeapOffsets, NOT APPENDED AFTER IT. The
+            // heap-offset lanes must stay LAST: include/BindlessHeap.glsl and
+            // CommandDispatch::WriteMaterialHeapOffsets both index them as the
+            // trailing block, and a slot-based (non-bindless) shader declares
+            // only the PREFIX ending before them. Putting these six scalars in
+            // front keeps BOTH of those true -- the prefix simply grows by 32 B
+            // and the offsets move as one.
+            //
+            // Every field is neutral at its default, so a material that never
+            // touches the new Material setters uploads exactly the bytes it
+            // uploaded before: transmission 0 makes the shader skip the closure
+            // entirely, and sigma 0 makes exp(-sigma * d) == 1.
+            //
+            // Bare scalars rather than a vec3 for the sigma: std140 aligns a
+            // vec3 to 16 B, so a `vec3 AttenuationSigma` here would insert
+            // invisible padding that the GLSL side would have to reproduce
+            // exactly. Three floats have no such trap.
+            f32 TransmissionFactor = 0.0f; // KHR_materials_transmission, 0 = no transmission
+            f32 IOR = 1.5f;                // KHR_materials_ior, 1.5 == the F0 0.04 the shaders assume
+            f32 ThicknessFactor = 0.0f;    // KHR_materials_volume, 0 = thin-walled
+            // Beer-Lambert extinction, derived on the CPU by
+            // Material::GetAttenuationSigma so no infinity ever reaches GLSL.
+            f32 AttenuationSigmaR = 0.0f;
+            f32 AttenuationSigmaG = 0.0f;
+            f32 AttenuationSigmaB = 0.0f;
+            // Two spare lanes keeping the block 16-byte aligned. Named per the
+            // GPU-mirror convention (CLAUDE.md, Conventions); the GLSL side
+            // spells them _padding0/_padding1 on purpose.
+            f32 Pad0 = 0.0f;
+            f32 Pad1 = 0.0f;
+
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
             // WHY THESE LIVE HERE AND NOT IN THE SHARED OFFSET TABLE. That table is
@@ -201,7 +235,7 @@ namespace OloEngine
                 return sizeof(PBRMaterialUBO);
             }
         };
-        static_assert(sizeof(PBRMaterialUBO) == 144, "PBRMaterialUBO std140 size drifted from GLSL expectation (144 B)");
+        static_assert(sizeof(PBRMaterialUBO) == 176, "PBRMaterialUBO std140 size drifted from GLSL expectation (176 B)");
         static_assert(sizeof(PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO must be 16-byte aligned for std140");
 
         struct ModelUBO
@@ -2197,11 +2231,22 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::ForwardPlusUBO) == 48, "ForwardPlusUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO size must be 16-byte aligned for std140");
     // 96 -> 144: three uvec4 of per-material heap offsets (issue #691).
-    // Every .glsl declaring PBRMaterialUBO must gain the matching trailing
-    // `uvec4 u_MaterialHeapOffsets[3];` — this assert is what stops the C++ and
-    // GLSL layouts drifting, which std140 would otherwise punish by silently
-    // shifting every field after the divergence.
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 144, "PBRMaterialUBO unexpected size — update GLSL layout");
+    // 144 -> 176: the physical transmission / IOR / volume scalars (issue #970),
+    // INSERTED BEFORE those heap-offset lanes so they stay trailing.
+    // Every .glsl declaring PBRMaterialUBO must gain the matching eight
+    // trailing scalars AND keep `uvec4 u_MaterialHeapOffsets[3];` last — this
+    // assert is what stops the C++ and GLSL layouts drifting, which std140
+    // would otherwise punish by silently shifting every field after the
+    // divergence.
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 176, "PBRMaterialUBO unexpected size — update GLSL layout");
+    // The physical block sits exactly where the shaders expect it: right after
+    // the PBRModel selector at 92 and immediately before the heap offsets.
+    // offsetof rather than a comment, so a reordering fails the build instead
+    // of quietly relayouting every bindless material read.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, TransmissionFactor) == 96,
+                  "PBRMaterialUBO transmission block must start at 96 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 128,
+                  "PBRMaterialUBO heap offsets must stay trailing at 128 B (issue #691 lane layout)");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
@@ -3950,6 +3995,14 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_IBLIntensity;
     int u_AlphaMode;
     int u_PBRModel;
+    float u_TransmissionFactor;
+    float u_IOR;
+    float u_ThicknessFactor;
+    float u_AttenuationSigmaR;
+    float u_AttenuationSigmaG;
+    float u_AttenuationSigmaB;
+    float _pbrMaterialPad0;
+    float _pbrMaterialPad1;
 };)";
         }
 

@@ -298,6 +298,8 @@ and for what to do when adding a tool.
 | `olo_tests_list` | the GoogleTest cases `OloEngine-Tests` holds, each with source file, line and its `OLO_TEST_LAYER` classification (the renderer pyramid L1–L11 and the Functional / unit axes), plus a per-layer count. Filter by gtest expression, `suite`, explicit `cases` or `layer`. A selection that matches nothing is an **error**, not an empty list |
 | `olo_tests_run` | run a filtered selection as a child process and get **structured** per-case results — pass/fail/skip/disabled, the verbatim gtest failure text, per-case timings, each case's layer — with no console parsing. Runs the binary, not the editor's renderer, so the CPU-only suites inherit no GPU skip condition. Failures only by default (`includePassed` for the whole set). Never silently partial: a zero-match selection, a child that crashed / timed out / was cancelled, and a report that does not account for every selected case are all errors that **name** what is missing. See [Structured test execution](#structured-test-execution-olo_tests_list--olo_tests_run) |
 | `olo_project_validate` | every project validator in one call — asset-registry problems, shader compile/link errors, recent script errors, and the live render graph's hazard sweep — as one structured report. Each section invokes the standalone command's own handler, so it reports exactly what the editor panels show. A validator that cannot run here comes back `unavailable` **with its reason** and makes the report's `ok` false: an unrun check is never a clean bill of health |
+| `olo_build_list` | the CMake targets `olo_build_run` can build, each with its artefact path, size and **build timestamp**, plus whether the tree is configured and whether a build-lock slot is free right now. Builds nothing. This is how you answer *is the binary I am about to run older than my change?* — an exit code cannot tell a fresh artefact from last week's, a timestamp can. Targets the editor holds open (`OloEditor` itself, `OloEngine-ScriptCore`) are listed with `buildable:false` and the mechanism that refuses them |
+| `olo_build_run` | build one or more targets and get **structured** per-target results: outcome, exit code, wall time, the artefact's path and timestamp, and every compiler/linker diagnostic as a record with file, line, column and code — no console scraping. Always goes through `build-lock.ps1`. A build that could not start is an **error** naming the reason, never an empty success; so is exit 0 with no artefact, and so is the lock **stand-down** that exits 0 having built nothing. `up-to-date` is reported separately from `rebuilt`. See [Structured build invocation](#structured-build-invocation-olo_build_list--olo_build_run) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306)
 
@@ -600,6 +602,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `input` | `olo_input_inject` |
 | `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick` |
 | `tests` | `olo_tests_list`, `olo_tests_run` |
+| `build` | `olo_build_list`, `olo_build_run` |
 | `validation` | `olo_project_validate` |
 
 `tools/search` params (both optional):
@@ -910,6 +913,104 @@ binary you just built or from last week's. By default the newest artefact across
 
 Long runs report progress through the standard mechanism and honour
 cancellation — see [Progress notifications & cancellation](#progress-notifications--cancellation).
+
+### Structured build invocation (`olo_build_list` / `olo_build_run`)
+
+Issue #1163. The half of the loop before the tests: **produce** the thing, then
+run it. Until these existed, an agent that wanted `OloEngine-Tests` built before
+running it had to leave the control plane entirely.
+
+This slice was deferred out of #1130 on purpose, because the design question was
+unresolved and building it wrong is worse than not having it. Every build in this
+repo goes through `.claude/skills/run-oloengine/build-lock.ps1`, which bounds
+concurrent builds across every worktree, derives its job count from free memory,
+and kills its build if the launching session dies. The full derivation of the
+concurrency contract is in
+[automation-build-invocation.md](../agent-rules/automation-build-invocation.md);
+the four answers, in one line each:
+
+1. **Acquire, never bypass** — with a bounded, caller-set wait
+   (`lockWaitSeconds`, default 300; `0` fails fast). The wait is a real FIFO
+   ticket, so it never jumps another worktree, and when the budget expires the
+   error **names the holder**.
+2. **The editor process is the lock identity** — the child is spawned directly
+   from the editor, so `build-lock.ps1`'s parent watch pins `OloEditor.exe` and
+   reaps the build when the editor dies.
+3. **Cancellation kills the tree, not the shim** — the child lives in a Win32 job
+   object with `KILL_ON_JOB_CLOSE`, so cancelling stops pwsh, cmake, ninja and
+   every compiler together, and the lock releases *after* the build stopped
+   rather than before.
+4. **The editor may not build itself** — `OloEditor` and `OloEngine-ScriptCore`
+   are refused, and the refusal is an **allow-list** so `all` / `ALL_BUILD` /
+   `install` and any future target cannot leak through.
+
+**A zero exit code is not evidence that anything was built.** This is the rule
+the whole result shape exists for, and there are three separate ways to get one:
+
+- `build-lock.ps1` **stands down with exit 0** when an identical build for this
+  worktree was queued later (its `Test-Superseded` path). Nothing ran.
+- An incremental build with nothing to do also exits 0 and touches no artefact.
+  That is legitimate — and indistinguishable from the above without looking.
+- A build that never started leaves last week's binary exactly where you look.
+
+So the verdict comes from the **artefact**, stat'd on both sides of the build and
+compared against the instant it started, and the cases stay separate:
+
+| `outcome` | means |
+|---|---|
+| `rebuilt` | the artefact was replaced by this call |
+| `up-to-date` | the build ran, had nothing to do; the artefact is from an **earlier** build — check `artifact.modifiedUtc` before trusting it to contain your change |
+| `failed` | non-zero exit, or the lock's parent watch killed an orphan |
+| `missing-artifact` | exit 0 and **nothing at the artefact path**. Never a pass |
+| `not-built` | the lock stood down, or never acquired within the wait budget |
+| `skipped` | an earlier target in the same call failed, so this one was never attempted |
+
+Diagnostics come back as records, not text:
+
+```jsonc
+{ "severity": "error", "file": "OloEngine/src/OloEngine/Renderer/Foo.cpp",
+  "line": 212, "column": 9, "code": "C2065",
+  "message": "'hazards': undeclared identifier" }
+```
+
+MSVC `cl` emits no column, so `column` is omitted rather than faked. A record
+that came from several translation units (a header warning included forty times)
+is collapsed with an `occurrences` count — forty copies is one defect. Errors are
+emitted before warnings so `maxDiagnostics` can never hide the reason a build
+failed, and any excess is counted in `diagnosticsOmitted`.
+
+The `lock` block carries what the script actually did, including its verbatim
+transcript: whether the lock was contended, who held it, and the job count it
+chose (it rewrites your `--parallel`, in either direction, from measured free
+memory at acquire time).
+
+**Read `queuedSeconds` before concluding a build is slow.** `wallSeconds` covers
+the queue wait too, and on a busy box that is most of it — a measured run here
+built a 15 KB DLL in 22 s after 1451 s queued behind three other worktrees. The
+two numbers lead to opposite actions, so they are reported separately (and
+omitted, rather than zeroed, when the acquire was not observed).
+
+Targets are built **one at a time, in order**, each with its own lock ticket, and
+the list stops at the first failure. `--target A --target B` would build both
+under one `cmake`, and per-target wall time would then be a guess.
+
+Two things to know before using it:
+
+- **Building `OloEngine` runs `GenerateBindings`**, which can rewrite the tracked
+  generated sources under `OloEngine/src/Generated/`. The working tree moves.
+- **`bin/` is under the source tree**, not the build tree, so `build-cached/` and
+  `build/` write the same `bin/Debug/OloRuntime/OloRuntime.exe`. The artefact
+  path cannot say which tree produced it; the timestamp can say when.
+
+`olo_build_run` pairs with `BuildGamePanel`, it does not duplicate it: the panel
+**packages** a game by copying a prebuilt `OloRuntime` and can only warn when
+that binary is stale. This command is what produces it — literally the answer to
+the panel's own *"Build OloRuntime in <config> configuration first"* error.
+Packaging stays out of scope here.
+
+Long builds report progress through the standard mechanism (queueing for the lock
+across the first 5%, then ninja's own edge counter) and honour cancellation — see
+[Progress notifications & cancellation](#progress-notifications--cancellation).
 
 ### Whole-project validation (`olo_project_validate`)
 
@@ -2348,11 +2449,11 @@ characters, inline lists at 12 items, each stating what it elided. The full payl
 in the assistant block and in `structuredContent`. Path redaction, when enabled, scrubs both
 blocks identically.
 
-**Current adopters (14):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
+**Current adopters (15):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
 `olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_render_frame_breakdown`,
 `olo_render_graph_topology_export`, `olo_render_why_not_visible`, `olo_render_target_stats`,
 `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_physics_why_no_collision`,
-`olo_tests_run`, `olo_project_validate`.
+`olo_tests_run`, `olo_project_validate`, `olo_build_run`.
 
 That list is ratcheted in both directions by
 `McpAudienceBlocksTest.BuiltinAdoptionMatchesTheDeliberateList`, which compares the real

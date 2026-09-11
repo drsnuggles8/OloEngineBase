@@ -349,12 +349,11 @@ namespace OloEngine::VisualScript
             plan->m_Functions.push_back(compiler.Compile(function));
 
             // A latent node inside a FUNCTION cannot work, and fails silently
-            // rather than loudly: NodeContext::CallFunction runs the body
-            // synchronously and pops the return frame the moment ExecuteFrom comes
-            // back. A Delay parks instead of finishing, so the call returns
-            // immediately with empty results, and when the latent later resumes its
-            // Function.Return finds no frame at all. Supporting it needs persistent
-            // call frames; until then, refusing at COMPILE time is the only honest
+            // rather than loudly: a Delay parks instead of triggering, so the
+            // callee's branch drains empty, the call's EndCall frame pops the
+            // return frame with nothing in it, and when the latent resumes a tick
+            // later its Function.Return finds no frame at all. Supporting it needs
+            // persistent call frames; until then, refusing at COMPILE time is the only honest
             // outcome — the author sees an error on the graph instead of a function
             // that quietly returns nothing. Latents in the EVENT graph are
             // unaffected; that is where they are designed to live.
@@ -519,6 +518,7 @@ namespace OloEngine::VisualScript
         m_BegunPlay = true;
         BeginTickBookkeeping();
         FireEntries(VisualScriptPlan::MakeEventKey("Engine", NodeTypes::kOnBeginPlay), PinValue{}, UUID(0), runtime);
+        SettleStepAtTickEnd();
     }
 
     void VisualScriptInstance::Tick(RuntimeContext& runtime)
@@ -534,11 +534,28 @@ namespace OloEngine::VisualScript
             return;
         }
         BeginTickBookkeeping();
+
+        // A tick a breakpoint interrupted left its remaining work on the exec
+        // stack. Finish that before starting a new tick — otherwise "Resume"
+        // silently drops the rest of the tick it stopped in, which is what it
+        // did before ADR 0023 and what made breaking anywhere change the run.
+        if (!m_ExecStack.empty())
+        {
+            Drain(runtime);
+            if (m_Debug.m_Paused)
+            {
+                return;
+            }
+        }
+
         // Latents first: a Delay that expires this frame should run its
         // continuation before this frame's OnUpdate, so a graph that alternates
         // between the two sees them in authored order rather than one tick late.
         AdvanceLatents(runtime);
-        FireEntries(VisualScriptPlan::MakeEventKey("Engine", NodeTypes::kOnUpdate), PinValue{}, UUID(0), runtime);
+        if (!m_Debug.m_Paused)
+        {
+            FireEntries(VisualScriptPlan::MakeEventKey("Engine", NodeTypes::kOnUpdate), PinValue{}, UUID(0), runtime);
+        }
 
         // A step tick is exactly one tick with breakpoints suppressed; re-arm the
         // pause at the end of it so the next tick stops again.
@@ -546,6 +563,21 @@ namespace OloEngine::VisualScript
         {
             m_Debug.m_StepOneTick = false;
             m_Debug.m_Paused = true;
+        }
+        SettleStepAtTickEnd();
+    }
+
+    void VisualScriptInstance::SettleStepAtTickEnd()
+    {
+        // A node step that outlived the work available this tick — the graph ran
+        // out of nodes before the step was spent. Stop here rather than leaving
+        // the graph running free until the next node turns up, which for a graph
+        // with no OnUpdate handler would be never.
+        if (m_Debug.m_StepNodes > 0 && m_ExecStack.empty())
+        {
+            m_Debug.m_StepNodes = 0;
+            m_Debug.m_Paused = true;
+            m_Debug.m_PausedAt = 0;
         }
     }
 
@@ -556,7 +588,14 @@ namespace OloEngine::VisualScript
             return;
         }
         BeginTickBookkeeping();
+        // Anything a breakpoint interrupted is dropped rather than finished:
+        // play is stopping, so its side effects are no longer wanted. Clearing
+        // also releases the in-flight markers a pending loop or call owns.
+        ClearExecState();
+        m_Debug.m_Paused = false;
+        m_Debug.m_StepNodes = 0;
         FireEntries(VisualScriptPlan::MakeEventKey("Engine", NodeTypes::kOnEndPlay), PinValue{}, UUID(0), runtime);
+        ClearExecState();
         m_PendingLatents.clear();
         m_BegunPlay = false;
     }
@@ -594,9 +633,9 @@ namespace OloEngine::VisualScript
         u32 ran = 0;
 
         // A parked branch must not be lost because this tick's budget happened to
-        // be spent before the event arrived: ExecuteFrom silently bails when the
-        // budget is gone, and the record would already have been erased. Leaving
-        // it parked costs one more tick and keeps the wait alive.
+        // be spent before the event arrived: the drain silently abandons frames
+        // when the budget is gone, and the record would already have been erased.
+        // Leaving it parked costs one more tick and keeps the wait alive.
         if (m_Budget == 0)
         {
             return 0;
@@ -624,8 +663,6 @@ namespace OloEngine::VisualScript
         {
             m_CurrentEventPayload = event.m_Payload;
             m_CurrentEventOther = event.m_OtherEntity;
-            const CompiledGraph& graph = GraphAt(pending.m_Graph);
-            const CompiledNode& node = graph.m_Nodes[static_cast<sizet>(pending.m_Node)];
 
             // Publish the arriving payload onto the waiting node's own output pin.
             // Resuming jumps straight to the resume pin's targets and never re-runs
@@ -633,11 +670,18 @@ namespace OloEngine::VisualScript
             // Flow.WaitForEvent would read as an empty value forever.
             PublishResumePayload(pending.m_Graph, pending.m_Node, event.m_Payload);
 
-            for (const ExecTarget& target : node.m_PinInfo[static_cast<sizet>(pending.m_ResumePin)].m_ExecTargets)
-            {
-                ExecuteFrom(pending.m_Graph, target.m_Node, target.m_Pin, runtime, 0);
-            }
+            // One wait at a time: m_CurrentEventPayload is set per resume above,
+            // so a second wait's branch must not run while the first's payload
+            // is still the current one.
+            const sizet mark = m_ExecStack.size();
+            PushExecTargets(pending.m_Graph, pending.m_Node, static_cast<sizet>(pending.m_ResumePin), 0);
+            ReversePushed(mark);
+            Drain(runtime);
             ++ran;
+            if (m_Debug.m_Paused)
+            {
+                return ran;
+            }
         }
 
         const auto& entries = m_Plan->GetEventGraph().m_EventEntries;
@@ -659,10 +703,16 @@ namespace OloEngine::VisualScript
         }
         m_CurrentEventPayload = payload;
         m_CurrentEventOther = otherEntity;
+        // Queued together, not one at a time: a breakpoint inside entry 0 must
+        // leave entry 1 owed rather than dropped, which is what Resume finishing
+        // the tick means. The stack still runs entry 0 to completion first.
+        const sizet mark = m_ExecStack.size();
         for (const i32 nodeIndex : it->second)
         {
-            ExecuteFrom(0, nodeIndex, -1, runtime, 0);
+            m_ExecStack.push_back(ExecFrame{ 0, nodeIndex, -1, 0, ExecFrame::Kind::Run });
         }
+        ReversePushed(mark);
+        Drain(runtime);
     }
 
     void VisualScriptInstance::AdvanceLatents(RuntimeContext& runtime)
@@ -692,73 +742,212 @@ namespace OloEngine::VisualScript
         // walks backwards to make erasure cheap, which would otherwise make two
         // Delays that expire on the same frame fire in the wrong order.
         std::ranges::reverse(ready);
+        const sizet mark = m_ExecStack.size();
         for (const PendingLatent& pending : ready)
         {
-            const CompiledGraph& graph = GraphAt(pending.m_Graph);
-            const CompiledNode& node = graph.m_Nodes[static_cast<sizet>(pending.m_Node)];
-            for (const ExecTarget& target : node.m_PinInfo[static_cast<sizet>(pending.m_ResumePin)].m_ExecTargets)
-            {
-                ExecuteFrom(pending.m_Graph, target.m_Node, target.m_Pin, runtime, 0);
-            }
+            PushExecTargets(pending.m_Graph, pending.m_Node, static_cast<sizet>(pending.m_ResumePin), 0);
+        }
+        ReversePushed(mark);
+        Drain(runtime);
+    }
+
+    void VisualScriptInstance::ReversePushed(sizet mark)
+    {
+        if (mark < m_ExecStack.size())
+        {
+            std::reverse(m_ExecStack.begin() + static_cast<std::ptrdiff_t>(mark), m_ExecStack.end());
         }
     }
 
-    void VisualScriptInstance::ExecuteFrom(i32 graphIndex, i32 nodeIndex, i32 entryPin, RuntimeContext& runtime, u32 depth)
+    void VisualScriptInstance::PushExecTargets(i32 graphIndex, i32 nodeIndex, sizet pin, u32 depth)
     {
-        if (depth > kMaxExecDepth)
-        {
-            ReportError("Exec chain deeper than " + std::to_string(kMaxExecDepth) + " nodes; halted");
-            return;
-        }
-        // A breakpoint must stop the WHOLE run, not just the node that hit it.
-        // Returning from the break below only unwinds ONE level, so without this
-        // guard a Sequence's later pins, the remaining entries of a multi-handler
-        // event, and anything after a nested ExecuteFrom all kept executing while
-        // the debugger claimed to be stopped. The budget guard gets this behaviour
-        // for free because its counter stays at zero once exhausted; the pause flag
-        // has to be re-checked explicitly. Checked BEFORE ConsumeBudget so a paused
-        // graph does not burn its per-tick budget while the author reads the canvas.
-        if (m_Debug.m_Paused)
-        {
-            return;
-        }
-        if (!ConsumeBudget())
-        {
-            return;
-        }
-
         const CompiledGraph& graph = GraphAt(graphIndex);
         if (nodeIndex < 0 || static_cast<sizet>(nodeIndex) >= graph.m_Nodes.size())
         {
             return;
         }
         const CompiledNode& node = graph.m_Nodes[static_cast<sizet>(nodeIndex)];
-        if (node.m_Type == nullptr || !node.m_Type->m_Execute)
+        if (pin >= node.m_PinInfo.size())
         {
             return;
         }
+        // Safe to hold the reference across the pushes: the plan is a Ref the
+        // instance keeps alive, and pushing touches only m_ExecStack.
+        for (const ExecTarget& target : node.m_PinInfo[pin].m_ExecTargets)
+        {
+            m_ExecStack.push_back(ExecFrame{ graphIndex, target.m_Node, target.m_Pin, depth, ExecFrame::Kind::Run });
+        }
+    }
 
-        // ── Editor debugger (issue #634) ──────────────────────────────────────
+    u64 VisualScriptInstance::FrameKey(const ExecFrame& frame) const
+    {
+        const CompiledGraph& graph = GraphAt(frame.m_Graph);
+        if (frame.m_Node < 0 || static_cast<sizet>(frame.m_Node) >= graph.m_Nodes.size())
+        {
+            return 0;
+        }
+        return DebugState::MakeKey(frame.m_Graph, graph.m_Nodes[static_cast<sizet>(frame.m_Node)].m_SourceId);
+    }
+
+    u64 VisualScriptInstance::PeekNextNodeKey() const
+    {
+        for (sizet i = m_ExecStack.size(); i > 0; --i)
+        {
+            const ExecFrame& frame = m_ExecStack[i - 1];
+            if (frame.m_Kind != ExecFrame::Kind::EndCall)
+            {
+                return FrameKey(frame);
+            }
+        }
+        return 0;
+    }
+
+    void VisualScriptInstance::ReleaseResumeFrame(const ExecFrame& frame)
+    {
+        // A node that parked a resume owns NodeState::m_Flag as its "still
+        // iterating" marker (see NodeContext::TriggerAndReturn). Discarding the
+        // frame without clearing it would leave the loop wedged shut for the
+        // rest of play, because the next fresh entry reads it as a re-entry.
+        if (frame.m_Kind != ExecFrame::Kind::Resume)
+        {
+            return;
+        }
+        const CompiledGraph& graph = GraphAt(frame.m_Graph);
+        if (frame.m_Node < 0 || static_cast<sizet>(frame.m_Node) >= graph.m_Nodes.size())
+        {
+            return;
+        }
+        m_Storage[static_cast<sizet>(frame.m_Graph)].m_States[static_cast<sizet>(frame.m_Node)].m_Flag = false;
+    }
+
+    void VisualScriptInstance::UnwindAbandonedWork()
+    {
+        // Budget is gone, so nothing else may RUN — but the bookkeeping frames
+        // must still fire. Under ADR 0014's descent this came for free: the code
+        // after a recursive call ran on the way out however the call ended.
+        while (!m_ExecStack.empty())
+        {
+            const ExecFrame frame = m_ExecStack.back();
+            m_ExecStack.pop_back();
+            if (frame.m_Kind == ExecFrame::Kind::EndCall)
+            {
+                FinishFunctionCall(frame);
+            }
+            else
+            {
+                ReleaseResumeFrame(frame);
+            }
+        }
+    }
+
+    void VisualScriptInstance::ClearExecState()
+    {
+        for (const ExecFrame& frame : m_ExecStack)
+        {
+            ReleaseResumeFrame(frame);
+        }
+        m_ExecStack.clear();
+        m_ReturnStack.clear();
+        for (GraphStorage& storage : m_Storage)
+        {
+            storage.m_Running = false;
+        }
+    }
+
+    void VisualScriptInstance::Drain(RuntimeContext& runtime)
+    {
+        while (!m_ExecStack.empty())
+        {
+            // A breakpoint stops the WHOLE run, not just the node that hit it —
+            // and the stack keeps everything it interrupted, so Resume finishes
+            // the tick rather than abandoning it.
+            if (m_Debug.m_Paused)
+            {
+                return;
+            }
+            const ExecFrame frame = m_ExecStack.back();
+            m_ExecStack.pop_back();
+            if (!RunFrame(frame, runtime))
+            {
+                continue;
+            }
+            if (m_Debug.m_StepNodes > 0 && --m_Debug.m_StepNodes == 0)
+            {
+                // The step is spent. m_PausedAt names the node that has NOT run
+                // yet, exactly as a breakpoint does, so the canvas and the pin
+                // watch read the same way either way.
+                m_Debug.m_Paused = true;
+                m_Debug.m_PausedAt = PeekNextNodeKey();
+                return;
+            }
+        }
+    }
+
+    bool VisualScriptInstance::RunFrame(const ExecFrame& frame, RuntimeContext& runtime)
+    {
+        if (frame.m_Kind == ExecFrame::Kind::EndCall)
+        {
+            FinishFunctionCall(frame);
+            return false;
+        }
+
+        if (frame.m_Depth > kMaxExecDepth)
+        {
+            ReportError("Exec chain deeper than " + std::to_string(kMaxExecDepth) + " nodes; halted");
+            return false;
+        }
+
+        // A resume is not a new node execution: NodeContext::BeginIteration has
+        // already charged the iteration, and charging here as well would halve
+        // every loop's effective budget.
+        //
+        // A resume with the budget already gone is deliberately still RUN, and
+        // not charged either. The body's own BeginIteration is what reports the
+        // exhaustion and takes the loop's exit path — short-circuiting here
+        // instead skips both, so the graph stopped without ever setting
+        // DidExceedBudget. That is the contract in
+        // docs/agent-rules/visual-script-vm.md §1 doing its job: a node that
+        // parks a resume must call BeginIteration, or nothing bounds it.
+        if (frame.m_Kind == ExecFrame::Kind::Run && !ConsumeBudget())
+        {
+            UnwindAbandonedWork();
+            return false;
+        }
+
+        const CompiledGraph& graph = GraphAt(frame.m_Graph);
+        if (frame.m_Node < 0 || static_cast<sizet>(frame.m_Node) >= graph.m_Nodes.size())
+        {
+            return false;
+        }
+        const CompiledNode& node = graph.m_Nodes[static_cast<sizet>(frame.m_Node)];
+        if (node.m_Type == nullptr || !node.m_Type->m_Execute)
+        {
+            return false;
+        }
+
+        // -- Editor debugger (issues #634, #1069) ------------------------------
         // Both checks are one bool test each when the panel is not watching this
         // entity, which is every entity in a shipping run.
         if (m_Debug.m_TraceEnabled || !m_Debug.m_Breakpoints.empty())
         {
-            const u64 key = DebugState::MakeKey(graphIndex, node.m_SourceId);
+            const u64 key = DebugState::MakeKey(frame.m_Graph, node.m_SourceId);
             if (m_Debug.m_TraceEnabled)
             {
                 m_Debug.m_ExecutionOrder[key] = ++m_Debug.m_ExecutionCounter;
             }
-            // Break BEFORE running the body, and suppress breakpoints entirely
-            // during a step tick. Stopping before the node is what makes the pin
-            // values the canvas shows the ones this node is about to consume,
-            // rather than the ones it just produced.
-            if (!m_Debug.m_StepOneTick && m_Debug.m_Breakpoints.contains(key))
+            // Break BEFORE running the body, and suppress breakpoints while
+            // stepping — a step already stops here, so breaking as well would
+            // spend the press without advancing. Stopping before the node is
+            // what makes the pin values the canvas shows the ones this node is
+            // about to consume, rather than the ones it just produced.
+            const bool stepping = m_Debug.m_StepOneTick || m_Debug.m_StepNodes > 0;
+            if (!stepping && m_Debug.m_Breakpoints.contains(key))
             {
                 m_Debug.m_Paused = true;
                 m_Debug.m_PausedAt = key;
-                // Returning unwinds the whole exec descent — the rest of this
-                // run is abandoned, exactly as the budget guard does.
-                return;
+                // Put the frame back: it has not run, and Resume owes it.
+                m_ExecStack.push_back(frame);
+                return false;
             }
         }
 
@@ -768,9 +957,61 @@ namespace OloEngine::VisualScript
         // once per edge.
         ++m_EvalStamp;
 
-        NodeContext context(*this, graphIndex, nodeIndex, entryPin, runtime);
-        context.SetDepth(depth);
+        NodeContext context(*this, frame.m_Graph, frame.m_Node, frame.m_Pin, runtime);
+        context.SetDepth(frame.m_Depth);
+        context.SetResume(frame.m_Kind == ExecFrame::Kind::Resume);
+
+        // Whatever the body queues, it queued in reading order; the stack pops
+        // backwards, so flip it once. This is the whole reason Sequence, and
+        // every other body, needed no change when descent went away.
+        const sizet mark = m_ExecStack.size();
         node.m_Type->m_Execute(context);
+        ReversePushed(mark);
+        return true;
+    }
+
+    void VisualScriptInstance::FinishFunctionCall(const ExecFrame& frame)
+    {
+        const CompiledGraph& callerGraph = GraphAt(frame.m_Graph);
+        if (frame.m_Node < 0 || static_cast<sizet>(frame.m_Node) >= callerGraph.m_Nodes.size())
+        {
+            return;
+        }
+        const CompiledNode& callNode = callerGraph.m_Nodes[static_cast<sizet>(frame.m_Node)];
+        const i32 functionGraph = callNode.m_FunctionIndex + 1;
+        if (callNode.m_FunctionIndex < 0 || static_cast<sizet>(functionGraph) >= m_Storage.size())
+        {
+            return;
+        }
+
+        std::vector<PinValue> results;
+        if (!m_ReturnStack.empty())
+        {
+            results = std::move(m_ReturnStack.back());
+            m_ReturnStack.pop_back();
+        }
+        m_Storage[static_cast<sizet>(functionGraph)].m_Running = false;
+
+        // Results land on the call node's output pins, which sit after its input
+        // params and its "Then" exec output: 1 + paramCount + 1 + i.
+        const sizet paramCount = GraphAt(functionGraph).m_Inputs.size();
+        const sizet resultBase = 1 + paramCount + 1;
+        for (sizet i = 0; i < results.size(); ++i)
+        {
+            const sizet pin = resultBase + i;
+            if (pin >= callNode.m_PinInfo.size())
+            {
+                break;
+            }
+            const i32 slot = callNode.m_PinInfo[pin].m_ValueSlot;
+            if (slot < 0)
+            {
+                continue;
+            }
+            PinValue converted = results[i].ConvertTo(callNode.m_Pins[pin].m_Type);
+            (void)converted.SanitizeNonFinite();
+            m_Storage[static_cast<sizet>(frame.m_Graph)].m_Values[static_cast<sizet>(slot)] = std::move(converted);
+        }
     }
 
     PinValue VisualScriptInstance::EvaluateOutput(i32 graphIndex, i32 nodeIndex, sizet pin, RuntimeContext& runtime)
@@ -930,19 +1171,17 @@ namespace OloEngine::VisualScript
 
     void NodeContext::Trigger(sizet pin) const
     {
-        const CompiledNode& node = GetCompiledNode();
-        if (pin >= node.m_PinInfo.size())
-        {
-            return;
-        }
-        // Copy the target list: executing a target can, through a Function.Call,
-        // reach code that recompiles nothing but DOES re-enter this graph, and a
-        // reference into m_PinInfo must not outlive that.
-        const std::vector<ExecTarget> targets = node.m_PinInfo[pin].m_ExecTargets;
-        for (const ExecTarget& target : targets)
-        {
-            m_Instance.ExecuteFrom(m_GraphIndex, target.m_Node, target.m_Pin, m_Runtime, m_Depth + 1);
-        }
+        m_Instance.PushExecTargets(m_GraphIndex, m_NodeIndex, pin, m_Depth + 1);
+    }
+
+    void NodeContext::TriggerAndReturn(sizet pin) const
+    {
+        // Order matters and is inverted on purpose: RunFrame flips everything
+        // this body pushed, so the resume queued LAST here is popped LAST there
+        // — after the branch and everything the branch itself queues.
+        m_Instance.PushExecTargets(m_GraphIndex, m_NodeIndex, pin, m_Depth + 1);
+        m_Instance.m_ExecStack.push_back(
+            ExecFrame{ m_GraphIndex, m_NodeIndex, m_EntryPin, m_Depth, ExecFrame::Kind::Resume });
     }
 
     void NodeContext::SuspendForSeconds(sizet resumePin, f32 seconds) const
@@ -1105,18 +1344,15 @@ namespace OloEngine::VisualScript
 
         storage.m_Running = true;
         m_Instance.m_ReturnStack.emplace_back(function.m_Outputs.size());
-        m_Instance.ExecuteFrom(functionGraph, function.m_EntryNode, -1, m_Runtime, m_Depth + 1);
-        std::vector<PinValue> results = std::move(m_Instance.m_ReturnStack.back());
-        m_Instance.m_ReturnStack.pop_back();
-        storage.m_Running = false;
 
-        // Results land on the call node's output pins, which sit after its input
-        // params and its "Then" exec output: 1 + paramCount + 1 + i.
-        const sizet resultBase = 1 + paramCount + 1;
-        for (sizet i = 0; i < results.size(); ++i)
-        {
-            SetOutput(resultBase + i, results[i]);
-        }
+        // Queue the callee, then the frame that marshals its results back. The
+        // epilogue that used to sit here as plain C++ after the recursive call
+        // is VisualScriptInstance::FinishFunctionCall now; RunFrame's flip puts
+        // it under the callee, so it fires once the callee has fully drained.
+        m_Instance.m_ExecStack.push_back(
+            ExecFrame{ functionGraph, function.m_EntryNode, -1, m_Depth + 1, ExecFrame::Kind::Run });
+        m_Instance.m_ExecStack.push_back(
+            ExecFrame{ m_GraphIndex, m_NodeIndex, m_EntryPin, m_Depth, ExecFrame::Kind::EndCall });
         return true;
     }
 

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/Renderer3DDrawHelpers.h"
@@ -25,6 +26,51 @@
 #include <numeric>
 
 #include <atomic>
+
+namespace
+{
+    // THE ONE PLACE the "transmission has no G-Buffer representation" rule lives
+    // (issue #970).
+    //
+    // The G-Buffer carries albedo/metallic, normal/roughness/AO, emissive/flags,
+    // velocity, entity-ID and baked GI — and nothing that could hold a
+    // transmission factor, an IOR, a thickness or an extinction coefficient. A
+    // transmissive material written into it comes back out of
+    // DeferredLightingPass as an ordinary opaque surface.
+    //
+    // So it is rerouted exactly the way a forward-only shader override already
+    // is: ForwardOverlayPass binds the scene framebuffer and runs AFTER the
+    // deferred composite, so the forward PBR shader — which does have the
+    // closure — shades the surface over the finished deferred image, and
+    // Deferred and Forward show the same glass.
+    //
+    // WHY IT IS A FUNCTION RATHER THAN REPEATED AT EACH SITE. Five submission
+    // paths choose a shader — DrawMesh, SelectInstancedShaderRouting,
+    // DrawAnimatedMesh, DrawMeshParallel and DrawAnimatedMeshParallel — and every
+    // one of them has to make the SAME decision, or a transmissive material
+    // renders opaque on whichever path a given scene happens to take. The first
+    // cut of this feature wrote the rule inline at two of the five and left the
+    // skinned and parallel paths silently opaque; that is the same class of
+    // divergence issue #515's routing bug came from.
+    //
+    // Returns true when the caller must shade with `forwardShader` and reroute
+    // the draw to ForwardOverlayPass. When there is nowhere correct to send it,
+    // the draw is COUNTED and warned once rather than quietly shaded opaque
+    // (CLAUDE.md, no silent fallbacks).
+    [[nodiscard]] bool ShouldRerouteTransmissiveToForwardOverlay(const OloEngine::Material& material, bool deferred,
+                                                                 bool hasForwardOverlayPass,
+                                                                 const OloEngine::Ref<OloEngine::Shader>& forwardShader)
+    {
+        if (!deferred || !material.IsTransmissive())
+            return false;
+
+        if (hasForwardOverlayPass && forwardShader)
+            return true;
+
+        OloEngine::NoteTransmissiveDrawWithoutForwardOverlay();
+        return false;
+    }
+} // namespace
 
 namespace OloEngine
 {
@@ -116,9 +162,85 @@ namespace OloEngine
                matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
     }
 
+    namespace
+    {
+        // Stage ONE virtual-mesh part's ray-tracing proxy into the canonical
+        // GPU Scene (issue #1144), and count the outcome either way.
+        //
+        // The material record is resolved through the SAME two calls the
+        // classic path makes (Scene.cpp's StageGPUSceneSubmesh), from the same
+        // (override, imported) pair the raster material above was resolved
+        // from — so the proxy a ray hits shades with the material the raster
+        // path drew, and a mesh shared with a classic MeshComponent entity
+        // resolves to one shared material record rather than two.
+        void StageVirtualProxy(VirtualMeshRegistry& registry, u32 entryIndex, u32 partIndex, AssetHandle meshHandle,
+                               const Ref<MeshSource>& meshSource, u32 submeshIndex, u64 stableEntityId,
+                               const glm::mat4& modelMatrix, const Material* overrideMaterial,
+                               const Material& resolvedMaterial, bool castShadows,
+                               VirtualMeshRegistry::SubmissionDiagnostics& diagnostics)
+        {
+            if (!registry.EnsureProxyGeometry(entryIndex))
+            {
+                // Counted here rather than inside the registry: the registry
+                // has no idea whether anyone wanted to trace this. The GPU
+                // Scene category is reported by ExtractGPUSceneVirtualProxy on
+                // the paths that reach it; this branch never does, so it
+                // reports it itself and the two cannot double-count.
+                ++diagnostics.ProxylessParts;
+                Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);
+                return;
+            }
+
+            const VirtualMeshRegistry::MeshEntry& entry = registry.GetEntry(entryIndex);
+            const GPUSceneMaterialKey materialKey =
+                Renderer3D::ResolveGPUSceneMaterialKey(overrideMaterial, stableEntityId, meshSource, submeshIndex);
+            Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
+
+            // The registry's own caster rule, applied to the proxy so the two
+            // agree: an alpha-masked part does not cast a raster shadow either
+            // (a cutout leaf would project as a solid quad), and it must not
+            // cast a ray-traced one for the same reason.
+            const bool proxyCastsShadow = castShadows && resolvedMaterial.GetAlphaMode() != AlphaMode::Mask;
+            const bool staged = Renderer3D::ExtractGPUSceneVirtualProxy(
+                stableEntityId, partIndex, entry.ProxyVertexBuffer, entry.ProxyIndexBuffer,
+                static_cast<u32>(entry.Proxy.Indices.size()), static_cast<u32>(entry.Proxy.Vertices.size()),
+                modelMatrix, materialKey, proxyCastsShadow);
+            if (staged)
+            {
+                ++diagnostics.ProxyParts;
+            }
+            else
+            {
+                ++diagnostics.ProxylessParts;
+            }
+
+            // An emissive virtual mesh is hit by rays and shades correctly, but
+            // the path tracer's next-event estimation will not sample it as an
+            // area light — the emissive table gathers triangles from a
+            // MeshSource submesh, and those are the full-resolution triangles,
+            // not the proxy the TLAS holds. Warn once per mesh: this is a
+            // permanent property of the asset and this runs per instance per
+            // frame.
+            const glm::vec3 emissive(resolvedMaterial.GetEmissiveFactor());
+            if (std::max({ emissive.x, emissive.y, emissive.z }) > 0.0f)
+            {
+                static std::unordered_set<u64> s_WarnedEmissiveVirtualMeshes;
+                if (s_WarnedEmissiveVirtualMeshes.insert(static_cast<u64>(meshHandle)).second)
+                {
+                    OLO_CORE_WARN_TAG("Renderer3D",
+                                      "virtual mesh {:x} has an EMISSIVE material. Its ray-tracing proxy is in the "
+                                      "TLAS, so rays hit it and it shades correctly, but the path tracer's "
+                                      "area-light table does not gather virtual geometry (issue #1144) — it will "
+                                      "not be sampled by next-event estimation. Warned once per mesh.",
+                                      static_cast<u64>(meshHandle));
+                }
+            }
+        }
+    } // namespace
+
     bool Renderer3D::SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                        const glm::mat4& modelMatrix, const Material* overrideMaterial,
-                                       const Material& defaultMaterial, i32 entityID,
+                                       const Material& defaultMaterial, i32 entityID, u64 stableEntityId,
                                        f32 errorThresholdPixels, bool castShadows,
                                        const glm::vec4& lightmapScaleOffset)
     {
@@ -186,6 +308,17 @@ namespace OloEngine
             }
         }
 
+        // Ray-tracing proxy coverage is counted PER PART, beside the rest of the
+        // virtual-geometry submission diagnostics, so "N of M virtual parts are
+        // in the TLAS" is answerable from one place (issue #1144).
+        //
+        // Skipped WHOLE when nobody is extracting — the same rule
+        // ExtractGPUSceneMesh applies. Staging and counting are one decision
+        // here: counting a part as proxyless because no extraction was open
+        // would report a fault where there is only an idle frame.
+        auto& vgDiagnostics = registry.GetMutableSubmissionDiagnostics();
+        const bool stageProxies = s_Data.GPUSceneExtractionActive;
+
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
         // everything, else the material the SUBMESH was imported with (so a multi-material
         // mesh like Sponza shades each part correctly), else the caller's default.
@@ -210,6 +343,36 @@ namespace OloEngine
             // Two-sided geometry (foliage sheets) must not be backface-culled — the classic
             // path does the same in Renderer3DDrawHelpers::BuildRenderState.
             submission.PartTwoSided.push_back(material->GetFlag(MaterialFlag::TwoSided) ? 1u : 0u);
+
+            if (stageProxies)
+            {
+                // AlphaMode::Blend is the one part kind the virtual raster path
+                // REFUSES: VirtualMeshRegistry::PrepareFrame skips it, because
+                // the deferred G-Buffer has nowhere to put a blended fragment
+                // and drawing it opaque is worse than not drawing it. Staging a
+                // proxy for it anyway would put geometry in the TLAS that is on
+                // no screen — an invisible caster, which is precisely the
+                // failure the Scene loop's Forward/Forward+ gate exists to
+                // prevent. It is counted and reported like any other part that
+                // could not be represented.
+                //
+                // The predicate is the same one PrepareFrame applies, read off
+                // the SAME resolved Material rather than off the round-tripped
+                // PODMaterialData copy. If one of them ever moves, the other
+                // has to move with it or a Blend part is traced without being
+                // drawn again.
+                if (material->GetAlphaMode() == AlphaMode::Blend)
+                {
+                    ++vgDiagnostics.ProxylessParts;
+                    ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);
+                }
+                else
+                {
+                    StageVirtualProxy(registry, parts.FirstEntry + partIndex, partIndex, meshHandle, meshSource,
+                                      entry.SubmeshIndex, stableEntityId, modelMatrix, overrideMaterial, *material,
+                                      castShadows, vgDiagnostics);
+                }
+            }
         }
 
         registry.Submit(submission);
@@ -242,6 +405,14 @@ namespace OloEngine
         data.alphaMode = std::to_underlying(material.GetAlphaMode());
         data.alphaCutoff = material.GetAlphaCutoff();
         data.pbrModel = std::to_underlying(material.GetPBRModel());
+
+        // Physical transmission / IOR / volume (issue #970). GetAttenuationSigma
+        // does the -log(colour)/distance derivation here, once per submission,
+        // so the +infinity default distance never reaches the UBO or GLSL.
+        data.transmissionFactor = material.GetTransmissionFactor();
+        data.ior = material.GetIOR();
+        data.thicknessFactor = material.GetThicknessFactor();
+        data.attenuationSigma = material.GetAttenuationSigma();
 
         // PBR texture renderer IDs.
         data.albedoMapID = material.GetAlbedoMap() ? material.GetAlbedoMap()->GetRHIHandle() : RHI::NullResource;
@@ -392,11 +563,20 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
+            // Transmission has no G-Buffer representation (issue #970) — see
+            // ShouldRerouteTransmissiveToForwardOverlay at the top of this file.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (ShouldRerouteTransmissiveToForwardOverlay(
+                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
+            {
+                shaderToUse = s_Data.PBRShader;
+                overlayRoute = true;
+            }
             // Route PBR default shader to the G-Buffer write variant when the
             // deferred path is active. Material overrides still win (so
             // custom shaders, e.g. terrain/foliage, keep their forward
             // pipeline until their own G-Buffer variants land in later phases).
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+            else if (deferred && s_Data.PBRGBufferShader)
                 shaderToUse = s_Data.PBRGBufferShader;
             else
                 shaderToUse = s_Data.PBRShader;
@@ -531,7 +711,16 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferShader)
+            // Transmission has no G-Buffer representation (issue #970) — see
+            // ShouldRerouteTransmissiveToForwardOverlay at the top of this file.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (ShouldRerouteTransmissiveToForwardOverlay(
+                    material, deferred, s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr, s_Data.PBRShader))
+            {
+                routing.ShaderToUse = s_Data.PBRShader;
+                routing.OverlayRoute = true;
+            }
+            else if (deferred && s_Data.PBRGBufferShader)
                 routing.ShaderToUse = s_Data.PBRGBufferShader;
             else
                 routing.ShaderToUse = s_Data.PBRShader;
@@ -1207,7 +1396,19 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            if (s_Data.Settings.Path == RenderingPath::Deferred && s_Data.PBRGBufferSkinnedShader)
+            // Transmission has no G-Buffer representation (issue #970). The
+            // SKINNED forward shader has the same closure as the static one, so
+            // a rigged glass mesh reroutes exactly like a static one — this path
+            // was missed on the first cut and rendered skinned glass opaque.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (ShouldRerouteTransmissiveToForwardOverlay(material, deferred,
+                                                          s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
+                                                          s_Data.PBRSkinnedShader))
+            {
+                shaderToUse = s_Data.PBRSkinnedShader;
+                overlayRoute = true;
+            }
+            else if (deferred && s_Data.PBRGBufferSkinnedShader)
                 shaderToUse = s_Data.PBRGBufferSkinnedShader;
             else
                 shaderToUse = s_Data.PBRSkinnedShader;
@@ -1687,7 +1888,26 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
-            shaderToUse = ctx.SceneContext->PBRShader;
+            // Transmission has no G-Buffer representation (issue #970).
+            //
+            // ctx.SceneContext->PBRShader is ALREADY swapped to PBRGBufferShader
+            // on the Deferred path (RenderPipeline.cpp), so a transmissive
+            // material would look deferred-capable here and the overlayReroute
+            // gate below would stay false — the draw would land in the G-Buffer
+            // and shade opaque. Selecting the genuine forward shader instead
+            // makes that same gate route it to ForwardOverlayPass, with no
+            // second copy of the rule.
+            const bool deferred = s_Data.Settings.Path == RenderingPath::Deferred;
+            if (ShouldRerouteTransmissiveToForwardOverlay(material, deferred,
+                                                          s_Data.Pipeline->RenderStreamPasses.ForwardOverlay != nullptr,
+                                                          s_Data.PBRShader))
+            {
+                shaderToUse = s_Data.PBRShader;
+            }
+            else
+            {
+                shaderToUse = ctx.SceneContext->PBRShader;
+            }
         }
         else
         {
@@ -1866,6 +2086,20 @@ namespace OloEngine
         }
         else if (material.GetType() == MaterialType::PBR)
         {
+            // Transmission has no G-Buffer representation (issue #970), and
+            // unlike DrawMeshParallel this path has NO overlay reroute — the
+            // gate below DROPS a forward-only shader outright. Selecting the
+            // forward skinned shader here would therefore make the mesh vanish,
+            // which is worse than shading it opaque.
+            //
+            // So the G-Buffer shader is kept and the draw is COUNTED instead: a
+            // rigged, transmissive mesh on the parallel path renders opaque, and
+            // says so, until this path grows an overlay reroute of its own. The
+            // serial DrawAnimatedMesh handles the same material correctly.
+            if (s_Data.Settings.Path == RenderingPath::Deferred && material.IsTransmissive())
+            {
+                NoteTransmissiveDrawWithoutForwardOverlay();
+            }
             shaderToUse = ctx.SceneContext->PBRSkinnedShader;
         }
         else

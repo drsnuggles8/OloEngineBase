@@ -1,6 +1,7 @@
 # ADR 0014 — Visual scripting: exec-token push with synchronous branch descent
 
-- **Status:** Accepted
+- **Status:** Accepted; §2 superseded by
+  [ADR 0023](0023-visual-script-exec-stack-owned-by-the-vm.md)
 - **Date:** 2026-08-14
 - **Issue:** [#634](https://github.com/drsnuggles8/OloEngineBase/issues/634)
 
@@ -36,6 +37,12 @@ flow and dataflow could be allowed to cross — so they cannot drift apart betwe
 compiler and (later) the editor's link-drag feedback.
 
 ### 2. Control flow is an exec token pushed by **synchronous descent**, not a work queue
+
+> **Superseded by [ADR 0023](0023-visual-script-exec-stack-owned-by-the-vm.md)** (issue
+> #1069). The exec stack now lives on the instance and is drained by a loop, so a pause has
+> something to resume from. The reasoning below is kept because 0023 argues against it
+> directly, and because its two named properties still hold: `Sequence` is unchanged,
+> `ForLoop` gains two lines, and `kMaxExecDepth` is still a reported error.
 
 When a node triggers an exec output, the VM runs that whole branch to completion **right
 there**, recursively, before returning to the caller.
@@ -134,12 +141,11 @@ genuinely never change.
 
 **Deliberately not built** — carried to [#793](https://github.com/drsnuggles8/OloEngineBase/issues/793):
 
-- **Node-granular single-step.** The debugger breaks *before* a node and can resume or run
-  one more whole tick, but it cannot advance one node at a time. Exec descent has no
-  resumable continuation, so "step one node" would mean re-running the tick from its entry
-  and repeating every side effect that preceded the breakpoint — a debugger that lies about
-  what it just did is worse than one that admits its granularity. Doing it properly means a
-  continuation-based VM.
+- **Node-granular single-step.** ~~The debugger breaks *before* a node and can resume or run
+  one more whole tick, but it cannot advance one node at a time.~~ **Built** in
+  [#1069](https://github.com/drsnuggles8/OloEngineBase/issues/1069) —
+  [ADR 0023](0023-visual-script-exec-stack-owned-by-the-vm.md) moved the exec stack onto the
+  instance, which is the resumable continuation this bullet said was missing.
 - **A `Get/Set arbitrary component field` node.** Needs an *engine-side* field registry; the
   generated `McpFieldRegistry` lives under `OloEditor/`.
 - **Migrating the seven existing canvases onto `GraphCanvas`** (below).

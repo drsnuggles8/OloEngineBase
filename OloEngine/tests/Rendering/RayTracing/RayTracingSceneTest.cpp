@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -648,6 +649,127 @@ namespace OloEngine::Tests
         EXPECT_NEAR(m_Backend->LastInstances[0].Transform[0].w, 3.0f, 1e-4f);
         EXPECT_NEAR(m_Backend->LastInstances[0].Transform[1].w, 4.0f, 1e-4f);
         EXPECT_NEAR(m_Backend->LastInstances[0].Transform[2].w, 5.0f, 1e-4f);
+    }
+
+    // =========================================================================
+    // Virtual geometry's ray-tracing proxy (issue #1144)
+    // =========================================================================
+    //
+    // Virtualized entities used to be excluded from GPU Scene entirely, so
+    // this file's own comment at RayTracingScene.cpp:166 said they were
+    // "counted in GPUSceneUnsupportedCategory instead". They now arrive as an
+    // ordinary rigid geometry + instance pair built from the DAG's coarsest
+    // cut. Nothing in RayTracingScene needed to change for that, which is the
+    // claim these two tests pin: a proxy is INDISTINGUISHABLE from any other
+    // static mesh here, so it gets a build-once BLAS and a TLAS instance
+    // rather than a special case.
+
+    TEST_F(RayTracingSceneFixture, AVirtualGeometryProxyTracesAsAnOrdinaryStaticMesh)
+    {
+        // Shaped like a real proxy: one dedicated buffer pair covering the
+        // whole range (FirstIndex 0, BaseVertex 0), a coarse-cut-sized
+        // triangle count, and the part index in the key's third slot.
+        GPUSceneGeometryInput proxy = MakeTraceableGeometry(0xA000, 0xB000, /*indexCount*/ 4236, /*vertexCount*/ 2160);
+        proxy.m_FirstIndex = 0;
+        proxy.m_BaseVertex = 0;
+
+        BeginFrame();
+        StageInstance(0xE117, MakeGeometryKey(0xA000, 0xB000, /*part*/ 0), proxy, MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Class, GeometryClass::Static)
+            << "a proxy is a fixed cut and must never be classified as deformable";
+        EXPECT_EQ(m_Backend->Builds[0].IndexCount, 4236u);
+        EXPECT_EQ(m_Backend->Builds[0].FirstIndex, 0u);
+        EXPECT_EQ(m_Backend->Builds[0].BaseVertex, 0);
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesTraced, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesSkipped, 0u)
+            << "the whole point of #1144: a virtualized entity is no longer skipped";
+        EXPECT_EQ(m_Scene.GetStats().Resident.UnsupportedInstances, 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AStationaryVirtualGeometryProxyIsBuiltOnceAndNeverAgain)
+    {
+        // The cost argument for approach 1 over a per-frame BLAS from the live
+        // cut. The proxy does not depend on the camera, so a settled scene
+        // records ZERO builds after the first frame — if this ever regresses,
+        // every virtual mesh in the scene rebuilds a BLAS every frame and the
+        // symptom is a frame-time cliff, not a wrong picture.
+        GPUSceneGeometryInput proxy = MakeTraceableGeometry(0xA000, 0xB000, 300, 180);
+        const auto stageFrame = [&](const glm::mat4& transform)
+        {
+            BeginFrame();
+            StageInstance(0xE117, MakeGeometryKey(0xA000, 0xB000, 0), proxy, MakeMaterial(), transform);
+            EndFrame();
+            m_Scene.Update(m_GPUScene);
+        };
+
+        stageFrame(glm::mat4(1.0f));
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+
+        stageFrame(glm::mat4(1.0f));
+        EXPECT_EQ(m_Backend->Builds.size(), 1u) << "a stationary proxy rebuilt its BLAS";
+
+        // ...and MOVING it still does not: a rigid transform change is a TLAS
+        // event. This is the existing static-geometry contract, asserted here
+        // because a virtual mesh on a moving platform is the case where a
+        // reader would expect the proxy to need rebuilding.
+        stageFrame(glm::translate(glm::mat4(1.0f), glm::vec3(5.0f, 0.0f, 0.0f)));
+        EXPECT_EQ(m_Backend->Builds.size(), 1u) << "moving a proxy rebuilt its BLAS";
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesTraced, 1u);
+    }
+
+    TEST(RayTracingPacking, TheShadowCasterLaneSurvivesTheMaskFold)
+    {
+        // The opt-out an entity gets from VirtualMeshComponent::CastShadows
+        // (issue #1144). Two things have to hold or it silently does nothing.
+
+        // 1. The lane must survive PackInstanceMask, which FOLDS the u32 down
+        //    by OR-ing its four bytes. Clearing bit 0 of only the low byte of
+        //    0xFFFFFFFF is the obvious spelling and it is wrong — the upper
+        //    three bytes OR it straight back in.
+        EXPECT_EQ(RT::PackInstanceMask(0xFFFFFFFEu), RT::kInstanceMaskAll)
+            << "clearing the bit in one byte of a u32 mask does NOT clear it after the fold";
+        EXPECT_EQ(RT::PackInstanceMask(RT::kVisibilityMaskNoShadowCast),
+                  static_cast<u8>(RT::kInstanceMaskAll & ~RT::kInstanceMaskShadowCaster));
+
+        // 2. The masked instance must be skipped by a SHADOW ray and hit by
+        //    every other one. This is the AND the hardware performs, spelled
+        //    out: get it backwards and a mesh either never casts or always
+        //    does, and both read as "the toggle does nothing".
+        const u8 noCast = RT::PackInstanceMask(RT::kVisibilityMaskNoShadowCast);
+        const u8 casts = RT::PackInstanceMask(std::numeric_limits<u32>::max());
+        EXPECT_EQ(noCast & RT::kInstanceMaskShadowCaster, 0u) << "a non-caster is still hit by a shadow ray";
+        EXPECT_NE(casts & RT::kInstanceMaskShadowCaster, 0u) << "the DEFAULT instance stopped casting shadows";
+        EXPECT_NE(noCast & RT::kInstanceMaskAll, 0u)
+            << "a non-caster vanished from reflections and the path tracer too, which is not the opt-out asked for";
+
+        // 3. The GLSL side is a hand-written mirror
+        //    (RayTracedShadow.glsl's RT_SHADOW_INSTANCE_MASK); pin the value
+        //    here so a change on this side is at least half-caught.
+        static_assert(RT::kInstanceMaskShadowCaster == 0x01u,
+                      "RT_SHADOW_INSTANCE_MASK in assets/shaders/RayTracedShadow.glsl must change with this");
+    }
+
+    TEST_F(RayTracingSceneFixture, AProxyThatDoesNotCastShadowsStaysInTheTlasWithItsLaneCleared)
+    {
+        // The opt-out must not be implemented by dropping the instance: the
+        // mesh is still visible, so it must still reflect and still be hit by
+        // the path tracer. Only the shadow lane goes.
+        BeginFrame();
+        StageInstance(0xE117, MakeGeometryKey(0xA000, 0xB000, 0), MakeTraceableGeometry(), MakeMaterial(),
+                      glm::mat4(1.0f), RT::kVisibilityMaskNoShadowCast);
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u) << "the opt-out removed the instance from the TLAS entirely";
+        EXPECT_EQ(m_Backend->LastInstances[0].Mask & RT::kInstanceMaskShadowCaster, 0u);
+        EXPECT_NE(m_Backend->LastInstances[0].Mask, 0u) << "the instance became hittable by nothing";
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesTraced, 1u);
     }
 
     // =========================================================================

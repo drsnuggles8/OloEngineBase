@@ -83,21 +83,42 @@ namespace OloEngine::VisualScript
                            ExecOut("Loop Body"), Out("Index", PinType::Int), ExecOut("Completed") },
                          [](NodeContext& ctx)
                          {
-                             const i64 first = ctx.GetInputInt(1);
-                             const i64 last = ctx.GetInputInt(2);
-                             for (i64 i = first; i <= last; ++i)
+                             // The C++ `for` this used to be became one entry per
+                             // iteration when the exec stack moved onto the
+                             // instance (ADR 0023): the body returns between
+                             // iterations, so the index lives in NodeState.
+                             NodeState& state = ctx.State();
+                             if (!ctx.IsResume())
                              {
-                                 // Charge the iteration BEFORE running the body:
-                                 // an empty body consumes nothing, so without
-                                 // this a huge range would spin for free.
-                                 if (!ctx.BeginIteration())
+                                 if (state.m_Flag)
                                  {
+                                     // Reachable: exec cycles are legal, so a
+                                     // body can wire back to this Enter pin.
+                                     // Under descent that recursed with a fresh
+                                     // index; here it would reset the one the
+                                     // outer iteration is holding.
+                                     ctx.Error("For Loop re-entered while still iterating; the second entry is ignored");
                                      return;
                                  }
-                                 ctx.SetOutput(4, PinValue::MakeInt(i));
-                                 ctx.Trigger(3);
+                                 state.m_Flag = true;
+                                 state.m_Counter = ctx.GetInputInt(1);
+                                 // First and Last are read ONCE, on entry, as the
+                                 // C++ locals were. Re-pulling Last per iteration
+                                 // would let the body move its own end point,
+                                 // because BeginIteration invalidates the memo.
+                                 state.m_Scratch = PinValue::MakeInt(ctx.GetInputInt(2));
                              }
-                             ctx.Trigger(5);
+                             // Charge the iteration BEFORE running the body: an
+                             // empty body consumes nothing, so without this a
+                             // huge range would spin for free.
+                             if (state.m_Counter > state.m_Scratch.AsInt() || !ctx.BeginIteration())
+                             {
+                                 state.m_Flag = false;
+                                 ctx.Trigger(5);
+                                 return;
+                             }
+                             ctx.SetOutput(4, PinValue::MakeInt(state.m_Counter++));
+                             ctx.TriggerAndReturn(3);
                          });
 
         //-- While loop -----------------------------------------------------------
@@ -106,15 +127,27 @@ namespace OloEngine::VisualScript
                          { ExecIn(), In("Condition", PinValue::MakeBool(false)), ExecOut("Loop Body"), ExecOut("Completed") },
                          [](NodeContext& ctx)
                          {
-                             while (ctx.GetInputBool(1))
+                             // Shorter than the C++ `while` it replaces: re-entry
+                             // IS the iteration (ADR 0023). The condition is still
+                             // re-read every time, which is the whole point of a
+                             // While and why BeginIteration must bump the memo.
+                             NodeState& state = ctx.State();
+                             if (!ctx.IsResume())
                              {
-                                 if (!ctx.BeginIteration())
+                                 if (state.m_Flag)
                                  {
+                                     ctx.Error("While Loop re-entered while still iterating; the second entry is ignored");
                                      return;
                                  }
-                                 ctx.Trigger(2);
+                                 state.m_Flag = true;
                              }
-                             ctx.Trigger(3);
+                             if (!ctx.GetInputBool(1) || !ctx.BeginIteration())
+                             {
+                                 state.m_Flag = false;
+                                 ctx.Trigger(3);
+                                 return;
+                             }
+                             ctx.TriggerAndReturn(2);
                          });
 
         //-- Gate -----------------------------------------------------------------

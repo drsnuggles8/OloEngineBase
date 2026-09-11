@@ -153,6 +153,23 @@ namespace OloEngine
                                                       f32 zNear, f32 projectionScale, f32 threshold) const;
         [[nodiscard]] std::vector<u32> SelectClustersProjected(const glm::vec3& cameraPosition,
                                                                f32 zNear, f32 projectionScale, f32 threshold) const;
+
+        // The absolute object-space threshold that selects the COARSEST cut,
+        // i.e. the DAG's root clusters. Every finite group error is at or under
+        // it and only the terminal (FLT_MAX) groups are over it, which is
+        // exactly rule 1 of the selection contract at its limit.
+        //
+        // Derived from the group errors rather than hard-coded to some large
+        // constant: a mesh authored in centimetres has errors three orders of
+        // magnitude larger than the same mesh in metres, so a fixed threshold
+        // picks a different cut per unit system while this one does not.
+        [[nodiscard]] f32 CoarsestCutThreshold() const;
+
+        // The coarsest watertight cut, through the same tested rule as every
+        // other cut (SelectClusters) rather than a second "walk the terminal
+        // groups" implementation — the two would be free to disagree, and a
+        // cut that disagrees with the rule is a cracked surface.
+        [[nodiscard]] std::vector<u32> SelectCoarsestCut() const;
     };
 
     // One DAG plus the submesh/material it belongs to.

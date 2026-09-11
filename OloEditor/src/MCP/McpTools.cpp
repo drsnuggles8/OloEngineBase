@@ -4,6 +4,7 @@
 #include "MCP/McpToolsCommon.h"
 #include "MCP/McpServer.h"
 #include "Automation/AutomationAssetCommands.h"
+#include "Automation/AutomationBuildCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
 
 #include "OloEngine/Core/Log.h"
@@ -213,6 +214,7 @@ namespace OloEngine::MCP
         RegisterBenchmarkTools(registry);
         RegisterEditorTools(registry);
         RegisterTestingTools(registry);
+        Automation::RegisterBuildCommands(registry);
         RegisterValidationTools(registry);
     }
 

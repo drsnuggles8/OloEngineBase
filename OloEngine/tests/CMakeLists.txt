@@ -171,6 +171,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualLightmapUVPackingTest.cpp
 		Rendering/VirtualMeshBuilderTest.cpp
 		Rendering/VirtualMeshCookIdentityTest.cpp
+		Rendering/VirtualMeshProxyTest.cpp
 		Rendering/VirtualClusterCullParityTest.cpp
 		Rendering/VirtualClusterTwoPhaseOcclusionTest.cpp
 		Rendering/VirtualMeshletEligibilityTest.cpp
@@ -489,6 +490,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
+		Rendering/PropertyTests/TransmissionVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
@@ -591,6 +593,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/MaterialCopyTest.cpp
+		Rendering/MaterialTransmissionTest.cpp
+		Rendering/GltfPhysicalMaterialImportTest.cpp
 		Rendering/RendererShutdownTest.cpp
 		Rendering/RenderPathDriftTest.cpp
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
@@ -852,6 +856,10 @@ add_executable(OloEngine-Tests
 		${_olo_automation_component_registry_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEntityCommands.cpp
+		# Structured build invocation (issue #1163). RegisterBuiltinCommands
+		# composes it, so the test binary needs the TU to link at all; its pure
+		# core is covered by McpAutomationBuildTest below.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationBuildCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
 		# Asset query / safe CRUD / import (issue #1128). The index is editor-free
@@ -943,6 +951,13 @@ add_executable(OloEngine-Tests
 		# OLO_TEST_LAYER classification merge, and the reconciliation that makes a
 		# partial run an error. Header-only (MCP/McpTestExecution.h) — nothing here
 		# launches a child process.
+		# Structured build invocation (#1163): the target/config/build-dir
+		# tables that are also the injection boundary, compiler-diagnostic
+		# parsing, the build-lock transcript reader, and the freshness verdict
+		# that refuses to read a zero exit code as evidence of a build.
+		# Header-only (Automation/AutomationBuildInvocation.h) — nothing here
+		# launches a child process or takes the lock.
+		MCP/McpAutomationBuildTest.cpp
 		MCP/McpTestExecutionTest.cpp
 		# Whole-project validation report shaping (#1130). Header-only
 		# (MCP/McpProjectValidation.h), no extra editor TU pulled in.

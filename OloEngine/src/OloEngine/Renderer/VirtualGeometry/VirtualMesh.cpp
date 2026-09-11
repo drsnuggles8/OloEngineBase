@@ -79,6 +79,40 @@ namespace OloEngine
         return selected;
     }
 
+    f32 VirtualMesh::CoarsestCutThreshold() const
+    {
+        // The largest FINITE group error in the DAG. Rule 1 of the selection
+        // contract is a STRICT ">", so a group sitting exactly at this value
+        // is not selected while a terminal (FLT_MAX) group still is — which is
+        // precisely the root cut.
+        //
+        // Zero for a DAG whose every group is terminal (a mesh too small to
+        // simplify even once). That is the right answer, not a degenerate one:
+        // its leaf clusters carry RefinedGroup == -1 and pass rule 2 at any
+        // threshold, so the cut is the whole mesh, which IS its coarsest
+        // representation.
+        // Terminal is `>= FLT_MAX`, NOT `!std::isfinite` — FLT_MAX *is* a
+        // finite float, so an isfinite() filter here accepts the terminal
+        // marker, drives the threshold to FLT_MAX, and rule 1's strict `>`
+        // then selects NOTHING. Same predicate ProjectError uses above.
+        constexpr f32 terminal = std::numeric_limits<f32>::max();
+        f32 threshold = 0.0f;
+        for (const VirtualClusterGroup& group : Groups)
+        {
+            const f32 error = group.LODBounds.Error;
+            if (error < terminal && error > threshold)
+            {
+                threshold = error;
+            }
+        }
+        return threshold;
+    }
+
+    std::vector<u32> VirtualMesh::SelectCoarsestCut() const
+    {
+        return SelectClusters(CoarsestCutThreshold());
+    }
+
     bool VirtualMesh::IsClusterSelectedProjected(u32 clusterIndex, const glm::vec3& cameraPosition,
                                                  f32 zNear, f32 projectionScale, f32 threshold) const
     {

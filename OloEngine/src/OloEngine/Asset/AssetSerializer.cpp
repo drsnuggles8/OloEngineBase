@@ -808,6 +808,32 @@ namespace OloEngine
         return materialAsset;
     }
 
+    namespace
+    {
+        // True when any physical glTF extension field (issue #970) is off its
+        // neutral default, i.e. when the material has something to say that a
+        // pre-#970 build would not have written.
+        //
+        // Float comparisons are inequalities, never == / != (CLAUDE.md):
+        // transmission and thickness are "greater than zero" gates, and the IOR
+        // and attenuation checks use an epsilon band around the default.
+        [[nodiscard]] bool HasNonDefaultPhysicalMaterial(const Material& material)
+        {
+            constexpr f32 kEpsilon = 1.0e-6f;
+
+            if (material.IsTransmissive() || material.HasVolume())
+                return true;
+            if (std::abs(material.GetIOR() - kDefaultIOR) > kEpsilon)
+                return true;
+            if (std::isfinite(material.GetAttenuationDistance()))
+                return true;
+
+            const glm::vec3& attenuation = material.GetAttenuationColor();
+            return std::abs(attenuation.x - 1.0f) > kEpsilon || std::abs(attenuation.y - 1.0f) > kEpsilon ||
+                   std::abs(attenuation.z - 1.0f) > kEpsilon;
+        }
+    } // namespace
+
     std::string MaterialAssetSerializer::SerializeToYAML(Ref<MaterialAsset> materialAsset) const
     {
         YAML::Emitter out;
@@ -897,6 +923,40 @@ namespace OloEngine
                 }
 
                 out << YAML::EndMap;
+
+                // Physical glTF material extensions (issue #970).
+                //
+                // A DEDICATED BLOCK, not another entry in the Properties map
+                // above. That map is a generic uniform bag: DeserializeFromYAML
+                // feeds every entry back through Material::Set(name, value), so
+                // a value written from GetBaseColorFactor() returns as a UNIFORM
+                // named "BaseColor" and never reaches SetBaseColorFactor. Riding
+                // it would mean these fields serialize and silently fail to come
+                // back. The block below is read by name into the typed setters,
+                // which is what makes the round-trip real.
+                //
+                // WRITTEN ONLY WHEN THE MATERIAL IS ACTUALLY PHYSICAL, so every
+                // existing .omaterial re-saves byte-identical and the feature
+                // adds no diff noise to assets that do not use it.
+                if (HasNonDefaultPhysicalMaterial(*material))
+                {
+                    out << YAML::Key << "PhysicalMaterial" << YAML::Value << YAML::BeginMap;
+                    out << YAML::Key << "TransmissionFactor" << YAML::Value << material->GetTransmissionFactor();
+                    out << YAML::Key << "IOR" << YAML::Value << material->GetIOR();
+                    out << YAML::Key << "ThicknessFactor" << YAML::Value << material->GetThicknessFactor();
+                    out << YAML::Key << "AttenuationColor" << YAML::Value << YAML::Flow << YAML::BeginSeq
+                        << material->GetAttenuationColor().x << material->GetAttenuationColor().y
+                        << material->GetAttenuationColor().z << YAML::EndSeq;
+                    // The glTF default attenuation distance is +infinity, and an
+                    // infinity is exactly what a YAML round-trip handles worst.
+                    // ABSENCE carries that value instead: the key is emitted only
+                    // when the distance is finite, and the reader defaults a
+                    // missing key back to +infinity. Same semantics as glTF,
+                    // where an omitted attenuationDistance means infinite.
+                    if (std::isfinite(material->GetAttenuationDistance()))
+                        out << YAML::Key << "AttenuationDistance" << YAML::Value << material->GetAttenuationDistance();
+                    out << YAML::EndMap;
+                }
 
                 // Serialize material flags
                 out << YAML::Key << "MaterialFlags" << YAML::Value << material->GetFlags();
@@ -1074,6 +1134,29 @@ namespace OloEngine
                     }
                 }
             }
+        }
+
+        // Physical glTF material extensions (issue #970). Read by name into the
+        // typed setters -- see the emit side for why these cannot ride the
+        // generic Properties bag. Every setter sanitizes, so a hand-edited or
+        // corrupt file cannot put a NaN into the material UBO.
+        if (const auto physicalNode = materialNode["PhysicalMaterial"]; physicalNode && physicalNode.IsMap())
+        {
+            if (physicalNode["TransmissionFactor"])
+                material->SetTransmissionFactor(physicalNode["TransmissionFactor"].as<f32>(0.0f));
+            if (physicalNode["IOR"])
+                material->SetIOR(physicalNode["IOR"].as<f32>(kDefaultIOR));
+            if (physicalNode["ThicknessFactor"])
+                material->SetThicknessFactor(physicalNode["ThicknessFactor"].as<f32>(0.0f));
+            if (physicalNode["AttenuationColor"])
+                material->SetAttenuationColor(physicalNode["AttenuationColor"].as<glm::vec3>(glm::vec3(1.0f)));
+
+            // A MISSING key is the +infinity default, not an error: the emit
+            // side omits the key precisely to express "no absorption". Reading
+            // it as absent-means-infinite is what closes that round-trip.
+            material->SetAttenuationDistance(
+                physicalNode["AttenuationDistance"] ? physicalNode["AttenuationDistance"].as<f32>(0.0f)
+                                                    : std::numeric_limits<f32>::infinity());
         }
 
         // Load material flags

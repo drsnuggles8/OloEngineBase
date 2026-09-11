@@ -31,6 +31,7 @@
 #include <bit>
 #include <fstream>
 #include <cmath>
+#include <limits>
 
 #include <glm/gtc/type_ptr.hpp>
 #include <yaml-cpp/yaml.h>
@@ -2685,6 +2686,38 @@ namespace OloEngine
             {
                 matc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
             }
+            // Physical glTF material extensions (issue #970). Every setter
+            // sanitizes (isfinite + clamp), so a hand-edited scene cannot put a
+            // NaN attenuation or a negative thickness into the material UBO.
+            if (materialComponent["TransmissionFactor"])
+            {
+                matc.m_Material.SetTransmissionFactor(materialComponent["TransmissionFactor"].as<f32>(0.0f));
+            }
+            if (materialComponent["IOR"])
+            {
+                matc.m_Material.SetIOR(materialComponent["IOR"].as<f32>(kDefaultIOR));
+            }
+            if (materialComponent["ThicknessFactor"])
+            {
+                matc.m_Material.SetThicknessFactor(materialComponent["ThicknessFactor"].as<f32>(0.0f));
+            }
+            if (auto attenuationNode = materialComponent["AttenuationColor"]; attenuationNode)
+            {
+                glm::vec3 attenuation(1.0f);
+                if (attenuationNode.IsSequence() && attenuationNode.size() == 3)
+                {
+                    for (sizet i = 0; i < 3; ++i)
+                        attenuation[static_cast<glm::length_t>(i)] = attenuationNode[i].as<f32>(1.0f);
+                }
+                matc.m_Material.SetAttenuationColor(attenuation);
+            }
+            // A MISSING key is +infinity ("no absorption"), not zero -- see the
+            // emit side. Reading absence as the default is what closes the
+            // round-trip for a clear material.
+            matc.m_Material.SetAttenuationDistance(materialComponent["AttenuationDistance"]
+                                                       ? materialComponent["AttenuationDistance"].as<f32>(0.0f)
+                                                       : std::numeric_limits<f32>::infinity());
+
             if (materialComponent["ShaderGraphHandle"])
             {
                 auto handleVal = materialComponent["ShaderGraphHandle"].as<u64>();
@@ -4803,6 +4836,32 @@ namespace OloEngine
             // append, never renumber (see PBRModel.h).
             if (matComponent.m_Material.GetPBRModel() != PBRModel::Legacy)
                 out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(matComponent.m_Material.GetPBRModel());
+
+            // Physical glTF material extensions (issue #970). Each key is
+            // OMITTED AT ITS DEFAULT, exactly like Emissive / NormalScale /
+            // PBRModel above, so every scene that predates the feature
+            // re-serializes byte-identical.
+            if (const f32 transmission = matComponent.m_Material.GetTransmissionFactor(); transmission > 0.0f)
+                out << YAML::Key << "TransmissionFactor" << YAML::Value << transmission;
+            if (const f32 ior = matComponent.m_Material.GetIOR(); std::abs(ior - kDefaultIOR) > 1e-6f)
+                out << YAML::Key << "IOR" << YAML::Value << ior;
+            if (const f32 thickness = matComponent.m_Material.GetThicknessFactor(); thickness > 0.0f)
+                out << YAML::Key << "ThicknessFactor" << YAML::Value << thickness;
+            if (const glm::vec3 attenuation = matComponent.m_Material.GetAttenuationColor();
+                std::abs(attenuation.r - 1.0f) > 1e-6f || std::abs(attenuation.g - 1.0f) > 1e-6f ||
+                std::abs(attenuation.b - 1.0f) > 1e-6f)
+            {
+                out << YAML::Key << "AttenuationColor" << YAML::Value << attenuation;
+            }
+            // ABSENCE MEANS +INFINITY, the glTF default and the "no absorption"
+            // value. Writing an infinity into YAML and reading it back is the
+            // fragile part, so the key simply is not written when the distance
+            // is infinite -- which is also what keeps existing scenes untouched.
+            if (const f32 attenuationDistance = matComponent.m_Material.GetAttenuationDistance();
+                std::isfinite(attenuationDistance))
+            {
+                out << YAML::Key << "AttenuationDistance" << YAML::Value << attenuationDistance;
+            }
 
             if (matComponent.m_ShaderGraphHandle != 0)
                 out << YAML::Key << "ShaderGraphHandle" << YAML::Value << static_cast<u64>(matComponent.m_ShaderGraphHandle);
