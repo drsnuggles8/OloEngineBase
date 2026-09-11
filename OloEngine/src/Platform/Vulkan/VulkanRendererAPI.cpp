@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #if OLO_WITH_VULKAN
@@ -395,7 +396,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = sizeBytes;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo stagingAlloc{};
         stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -411,6 +412,7 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, data, sizeBytes);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         // Transfer commands are illegal inside a dynamic-rendering scope.
         EndRenderingScope();
@@ -425,10 +427,10 @@ namespace OloEngine
         dep.pImageMemoryBarriers = toTransfer.data();
         ctx.RecordBarrier(dep);
 
-        VkBufferImageCopy region{};
-        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u };
-        region.imageExtent = { width, height, 1u };
-        vkCmdCopyBufferToImage(ctx.Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        VulkanAddressCommands::CmdCopyRangeToImage(
+            ctx.Cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, sizeBytes, image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, mip, baseLayer, 1u }, { 0, 0, 0 },
+            { width, height, 1u });
 
         // Left in TRANSFER_DST with the tracker in agreement; the bind-time
         // visibility seam transitions to SHADER_READ_ONLY at the next sample.
@@ -2764,8 +2766,12 @@ namespace OloEngine
         {
             // The engine's index format is fixed 32-bit (IndexBuffer.h), so the
             // byte extent is the element count times four.
-            return { indexBuffer->GetVkBuffer(), static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32),
-                     indexBuffer->GetCount() };
+            return { static_cast<VkDeviceAddress>(indexBuffer->GetDeviceAddress()),
+                     static_cast<VkDeviceSize>(indexBuffer->GetCount()) * sizeof(u32), indexBuffer->GetCount(),
+                     // VulkanIndexBuffer is created INDEX|TRANSFER_DST|
+                     // TRANSFER_SRC|SHADER_DEVICE_ADDRESS (+ AS build input) —
+                     // no STORAGE_BUFFER_BIT, so VUID-13123 forbids the flag.
+                     VulkanAddressCommands::StorageUsage::Absent };
         }
         // The raw element buffer (SetVertexArrayIndexBuffer, #1052). Resolved
         // here rather than cached on the VAO so a re-allocate under the same
@@ -2774,7 +2780,12 @@ namespace OloEngine
         if (const auto* raw = VulkanRawBufferRegistry::Get().Lookup(vao->GetRawIndexBuffer());
             raw != nullptr && raw->Buffer != VK_NULL_HANDLE)
         {
-            return { raw->Buffer, static_cast<VkDeviceSize>(raw->Size), static_cast<u32>(raw->Size / sizeof(u32)) };
+            return { raw->DeviceAddress, static_cast<VkDeviceSize>(raw->Size),
+                     static_cast<u32>(raw->Size / sizeof(u32)),
+                     // The raw family's one conservative usage set includes
+                     // STORAGE_BUFFER_BIT (it is the dual-role element/SSBO
+                     // arena), so VUID-13122 REQUIRES the flag here.
+                     VulkanAddressCommands::StorageUsage::Present };
         }
         return {};
     }
@@ -2783,7 +2794,15 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
-        if (indexBuffer.Buffer == VK_NULL_HANDLE)
+        // SizeBytes matters as much as Address here. A raw arena allocated at 0
+        // bytes still gets a VkBuffer (AllocateBufferStorage creates at
+        // max(size,1)) and therefore a valid device address, while its Size
+        // stays 0 — and a 0-count VulkanIndexBuffer does the same. The handle
+        // form tolerated that pairing; the address form does not
+        // (VUID-VkBindIndexBuffer3InfoKHR-addressRange-13056: if size is 0 the
+        // address must be 0 too), so an empty index buffer takes the same
+        // counted "no index buffer" exit as a missing one.
+        if (indexBuffer.Address == 0 || indexBuffer.SizeBytes == 0)
         {
             static std::atomic<bool> s_Warned{ false };
             if (!s_Warned.exchange(true, std::memory_order_relaxed))
@@ -2792,7 +2811,7 @@ namespace OloEngine
             }
             return false;
         }
-        if (indexBuffer.Buffer != ctx.BoundIndexBuffer || indexBuffer.SizeBytes != ctx.BoundIndexBufferSize)
+        if (indexBuffer.Address != ctx.BoundIndexBufferAddress || indexBuffer.SizeBytes != ctx.BoundIndexBufferSize)
         {
             // #809 (maintenance5, core in 1.4): bind the buffer's REAL byte
             // size instead of the implicit whole-buffer bind. The facade's
@@ -2805,21 +2824,26 @@ namespace OloEngine
             // is the count times four. ResolveIndexBufferFor computes it for
             // both occupant kinds.
             //
-            // The cache key is the buffer AND the extent: VulkanIndexBuffer's
+            // The cache key is the address AND the extent: VulkanIndexBuffer's
             // count is fixed at construction, but a RAW arena is re-allocated
             // at a new size under the same identity when the page budget
-            // changes, and VMA is free to return the same VkBuffer for the
-            // replacement — so the handle alone cannot distinguish the two.
-            const auto* device = VulkanDevice::Get();
-            if (device != nullptr && device->IsMaintenance5Enabled())
-            {
-                vkCmdBindIndexBuffer2(ctx.Cmd, indexBuffer.Buffer, 0, indexBuffer.SizeBytes, VK_INDEX_TYPE_UINT32);
-            }
-            else
-            {
-                vkCmdBindIndexBuffer(ctx.Cmd, indexBuffer.Buffer, 0, VK_INDEX_TYPE_UINT32);
-            }
-            ctx.BoundIndexBuffer = indexBuffer.Buffer;
+            // changes, and VMA is free to return the same storage for the
+            // replacement — so the address alone cannot distinguish the two.
+            //
+            // #1179: the bind is now vkCmdBindIndexBuffer3KHR, which takes the
+            // range directly. That retires the maintenance5 / plain-bind fork
+            // this branch used to carry — the address form has ALWAYS carried
+            // an explicit size, so there is no implicit-whole-buffer arm left
+            // to fall back to, and no runtime gate: the extension is a
+            // capability-contract row, so an unsatisfying device never reaches
+            // a draw.
+            VkBindIndexBuffer3InfoKHR bindInfo{};
+            bindInfo.sType = VK_STRUCTURE_TYPE_BIND_INDEX_BUFFER_3_INFO_KHR;
+            bindInfo.addressRange = VulkanAddressCommands::MakeRange(indexBuffer.Address, indexBuffer.SizeBytes);
+            bindInfo.addressFlags = VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
+            bindInfo.indexType = VK_INDEX_TYPE_UINT32;
+            vkCmdBindIndexBuffer3KHR(ctx.Cmd, &bindInfo);
+            ctx.BoundIndexBufferAddress = indexBuffer.Address;
             ctx.BoundIndexBufferSize = indexBuffer.SizeBytes;
         }
         return true;
@@ -3064,48 +3088,125 @@ namespace OloEngine
     // lowers to the conservative global barrier, whose ALL_COMMANDS /
     // MEMORY_READ scopes cover DRAW_INDIRECT + INDIRECT_COMMAND_READ.
 
-    VkBuffer VulkanRendererAPI::ResolveIndirectBuffer(const RHI::ResourceHandle indirectBuffer, const char* entryPoint) const
+    VulkanRendererAPI::ResolvedIndirectBuffer
+    VulkanRendererAPI::ResolveIndirectBuffer(const RHI::ResourceHandle indirectBuffer, const char* entryPoint) const
     {
-        // Every Vulkan-backend buffer registers its VkBuffer as the identity's
-        // native (VulkanStorageBuffer / VulkanVertexBuffer / the raw-buffer
-        // registry all Sync it), so generic resolution covers them all.
         if (RHI::ResourceRegistry::Get().KindOf(indirectBuffer) != RHI::ResourceKind::Buffer)
         {
             UnimplementedStub(entryPoint);
-            return VK_NULL_HANDLE;
+            return {};
         }
-        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(indirectBuffer);
-        if (native == 0u)
+        // #1179: the address forms need an ADDRESS, and the RHI registry only
+        // resolves handle -> native (the VkBuffer). So the lookup goes through
+        // the object side tables instead. The raw registry is tried first
+        // because a raw buffer has no engine object at all; VulkanStorageBuffer
+        // is the other indirect-args producer (GPU particles, virtual geometry).
+        if (const auto* raw = VulkanRawBufferRegistry::Get().Lookup(indirectBuffer);
+            raw != nullptr && raw->DeviceAddress != 0)
         {
-            UnimplementedStub(entryPoint);
-            return VK_NULL_HANDLE;
+            return { raw->DeviceAddress, static_cast<VkDeviceSize>(raw->Size),
+                     VulkanAddressCommands::StorageUsage::Present };
         }
-        return reinterpret_cast<VkBuffer>(native);
+        if (const auto* entry = VulkanRootObjectRegistry::Get().Lookup(indirectBuffer);
+            entry != nullptr && entry->Kind == VulkanRootObjectKind::StorageBuffer)
+        {
+            const auto* storage = static_cast<const VulkanStorageBuffer*>(entry->Object);
+            if (storage != nullptr && storage->GetDeviceAddress() != 0)
+            {
+                return { static_cast<VkDeviceAddress>(storage->GetDeviceAddress()),
+                         static_cast<VkDeviceSize>(storage->GetSize()),
+                         VulkanAddressCommands::StorageUsage::Present };
+            }
+        }
+        // A Buffer-kind handle that resolves to neither is either stale or a
+        // buffer family that cannot legally be an indirect source anyway (a
+        // vertex buffer is created without INDIRECT_BUFFER_BIT). Counted, not
+        // silently dropped — ADR 0010's no-silent-fallback rule.
+        UnimplementedStub(entryPoint);
+        return {};
+    }
+
+    bool VulkanRendererAPI::MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
+                                                  const VkDeviceSize offsetBytes, const u32 drawCount,
+                                                  const VkDeviceSize commandSizeBytes, const VkDeviceSize strideBytes,
+                                                  VkDrawIndirect2InfoKHR& outInfo)
+    {
+        // stride 0 means "tightly packed" on the GL twin (glMultiDrawElementsIndirect*
+        // defines it that way), and the facade passes the caller's value straight
+        // through. Forwarding a literal 0 to VkStridedDeviceAddressRangeKHR would
+        // make every command in a multi-draw read the FIRST record instead, so the
+        // facade's meaning is resolved here, once, before it reaches either the
+        // extent check or the range.
+        const VkDeviceSize stride = (strideBytes != 0) ? strideBytes : commandSizeBytes;
+        // The range must actually hold the commands the draw will read:
+        // VUID-VkDrawIndirect2InfoKHR-addressRange-13110 wants
+        // size >= (drawCount - 1) * stride + sizeof(command). Clamping a
+        // past-the-end offset to a 0-length range would hand the driver a
+        // structurally invalid command instead of refusing, so the shortfall is
+        // reported by the caller as a counted drop — ADR 0010's
+        // no-silent-fallback rule.
+        if (drawCount == 0 || offsetBytes >= indirect.SizeBytes)
+        {
+            return false;
+        }
+        const VkDeviceSize remaining = indirect.SizeBytes - offsetBytes;
+        const VkDeviceSize needed = (static_cast<VkDeviceSize>(drawCount) - 1u) * stride + commandSizeBytes;
+        if (remaining < needed)
+        {
+            return false;
+        }
+        outInfo = {};
+        outInfo.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_2_INFO_KHR;
+        outInfo.addressRange =
+            VulkanAddressCommands::MakeStridedRange(indirect.Address + offsetBytes, remaining, stride);
+        outInfo.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
+        outInfo.drawCount = drawCount;
+        return true;
     }
 
     void VulkanRendererAPI::DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         auto& ctx = Ctx();
-        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawElementsIndirect(unresolvable indirect buffer)");
-        if (indirect == VK_NULL_HANDLE)
+        const ResolvedIndirectBuffer indirect =
+            ResolveIndirectBuffer(indirectBuffer, "DrawElementsIndirect(unresolvable indirect buffer)");
+        if (indirect.Address == 0)
             return;
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand),
+                                       sizeof(VkDrawIndexedIndirectCommand), info))
+            {
+                UnimplementedStub("DrawElementsIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
+                return;
+            }
+            vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
         }
     }
 
     void VulkanRendererAPI::DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer)
     {
         auto& ctx = Ctx();
-        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawArraysIndirect(unresolvable indirect buffer)");
-        if (indirect == VK_NULL_HANDLE)
+        const ResolvedIndirectBuffer indirect =
+            ResolveIndirectBuffer(indirectBuffer, "DrawArraysIndirect(unresolvable indirect buffer)");
+        if (indirect.Address == 0)
             return;
         const auto* vao = static_cast<const VulkanVertexArray*>(vertexArray.Raw());
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
         {
-            vkCmdDrawIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndirectCommand),
+                                       sizeof(VkDrawIndirectCommand), info))
+            {
+                UnimplementedStub("DrawArraysIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
+                return;
+            }
+            vkCmdDrawIndirect2KHR(ctx.Cmd, &info);
         }
     }
 
@@ -3113,12 +3214,22 @@ namespace OloEngine
                                                       RHI::PrimitiveTopology topology)
     {
         auto& ctx = Ctx();
-        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "DrawBoundElementsIndirect(unresolvable indirect buffer)");
-        if (indirect == VK_NULL_HANDLE)
+        const ResolvedIndirectBuffer indirect =
+            ResolveIndirectBuffer(indirectBuffer, "DrawBoundElementsIndirect(unresolvable indirect buffer)");
+        if (indirect.Address == 0)
             return;
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
-            vkCmdDrawIndexedIndirect(ctx.Cmd, indirect, 0, 1, 0);
+            VkDrawIndirect2InfoKHR info{};
+            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand),
+                                       sizeof(VkDrawIndexedIndirectCommand), info))
+            {
+                UnimplementedStub("DrawBoundElementsIndirect(indirect range too small for the command)",
+                                  StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
+                return;
+            }
+            vkCmdDrawIndexedIndirect2KHR(ctx.Cmd, &info);
         }
     }
 
@@ -3133,13 +3244,17 @@ namespace OloEngine
             UnimplementedStub("MultiDrawElementsIndirectCountRaw(unresolvable vertex array)", StubKind::PreconditionFailure);
             return;
         }
-        const VkBuffer indirect = ResolveIndirectBuffer(indirectBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable indirect buffer)");
-        const VkBuffer parameter = ResolveIndirectBuffer(parameterBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable parameter buffer)");
-        if (indirect == VK_NULL_HANDLE || parameter == VK_NULL_HANDLE)
+        const ResolvedIndirectBuffer indirect =
+            ResolveIndirectBuffer(indirectBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable indirect buffer)");
+        const ResolvedIndirectBuffer parameter =
+            ResolveIndirectBuffer(parameterBuffer, "MultiDrawElementsIndirectCountRaw(unresolvable parameter buffer)");
+        if (indirect.Address == 0 || parameter.Address == 0)
             return;
 
-        // vkCmdDrawIndexedIndirectCount is core 1.2 but feature-gated
-        // (drawIndirectCount), and maxDrawCount > 1 additionally needs
+        // The count form is feature-gated (drawIndirectCount) — #1179 moved
+        // it to vkCmdDrawIndexedIndirectCount2KHR, whose volk pointer exists
+        // only when that feature's core command does — and maxDrawCount > 1
+        // additionally needs
         // multiDrawIndirect — both enabled-when-supported at device init.
         // Universal on the ADR 0010 desktop floor; a device without them
         // drops the draw LOUDLY rather than faking it with a CPU loop over a
@@ -3161,8 +3276,40 @@ namespace OloEngine
         const auto* vao = static_cast<const VulkanVertexArray*>(entry->Object);
         if (PrepareDraw(vao, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) && BindIndexBufferFor(vao))
         {
-            vkCmdDrawIndexedIndirectCount(ctx.Cmd, indirect, indirectOffsetBytes, parameter, parameterOffsetBytes,
-                                          maxDrawCount, strideBytes);
+            // #1179: both halves become ranges. The count buffer's range is a
+            // single u32, not the rest of the buffer — stating its real extent
+            // is the same win #809 bought on the index bind, one command over.
+            // Same refusal rule as the single-command draws: a range that
+            // cannot hold maxDrawCount commands is a VUID-13110 violation, and
+            // the count buffer must have a u32 left at its offset (13115's
+            // companion extent check). Dropped and counted, never clamped.
+            // Same stride-0-is-tightly-packed normalisation as the single-command
+            // draws (see MakeDrawIndirect2Info): the facade forwards the caller's
+            // value and GL defines 0 that way, so it is resolved before it reaches
+            // the extent check or the range.
+            const VkDeviceSize commandSize = sizeof(VkDrawIndexedIndirectCommand);
+            const VkDeviceSize stride = (strideBytes != 0) ? static_cast<VkDeviceSize>(strideBytes) : commandSize;
+            const VkDeviceSize neededIndirect = (static_cast<VkDeviceSize>(maxDrawCount) - 1u) * stride + commandSize;
+            if (indirectOffsetBytes >= indirect.SizeBytes ||
+                (indirect.SizeBytes - indirectOffsetBytes) < neededIndirect ||
+                parameterOffsetBytes + sizeof(u32) > parameter.SizeBytes)
+            {
+                UnimplementedStub("MultiDrawElementsIndirectCountRaw(indirect or count range too small)",
+                                  StubKind::PreconditionFailure);
+                ++ctx.DroppedDraws;
+                return;
+            }
+            VkDrawIndirectCount2InfoKHR info{};
+            info.sType = VK_STRUCTURE_TYPE_DRAW_INDIRECT_COUNT_2_INFO_KHR;
+            const VkDeviceSize indirectRemaining = indirect.SizeBytes - indirectOffsetBytes;
+            info.addressRange = VulkanAddressCommands::MakeStridedRange(
+                indirect.Address + indirectOffsetBytes, indirectRemaining, stride);
+            info.addressFlags = VulkanAddressCommands::FlagsFor(indirect.Storage);
+            info.countAddressRange =
+                VulkanAddressCommands::MakeRange(parameter.Address + parameterOffsetBytes, sizeof(u32));
+            info.countAddressFlags = VulkanAddressCommands::FlagsFor(parameter.Storage);
+            info.maxDrawCount = maxDrawCount;
+            vkCmdDrawIndexedIndirectCount2KHR(ctx.Cmd, &info);
         }
     }
 
@@ -3275,8 +3422,9 @@ namespace OloEngine
         // VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT comes from
         // VulkanStorageBuffer::CreateBuffer setting it on every storage buffer,
         // which is what makes an SSBO legal as a dispatch-argument source.
-        const VkBuffer args = ResolveIndirectBuffer(argsBuffer, "DispatchComputeIndirect(unresolvable args buffer)");
-        if (args == VK_NULL_HANDLE)
+        const ResolvedIndirectBuffer args =
+            ResolveIndirectBuffer(argsBuffer, "DispatchComputeIndirect(unresolvable args buffer)");
+        if (args.Address == 0)
             return;
 
         // Dispatches are illegal inside a dynamic-rendering scope.
@@ -3301,7 +3449,18 @@ namespace OloEngine
         {
             return;
         }
-        vkCmdDispatchIndirect(ctx.Cmd, args, static_cast<VkDeviceSize>(offsetBytes));
+        if (offsetBytes + sizeof(VkDispatchIndirectCommand) > args.SizeBytes)
+        {
+            UnimplementedStub("DispatchComputeIndirect(args range too small for the command)",
+                              StubKind::PreconditionFailure);
+            return;
+        }
+        VkDispatchIndirect2InfoKHR info{};
+        info.sType = VK_STRUCTURE_TYPE_DISPATCH_INDIRECT_2_INFO_KHR;
+        info.addressRange = VulkanAddressCommands::MakeRange(args.Address + offsetBytes,
+                                                             sizeof(VkDispatchIndirectCommand));
+        info.addressFlags = VulkanAddressCommands::FlagsFor(args.Storage);
+        vkCmdDispatchIndirect2KHR(ctx.Cmd, &info);
     }
 
     void VulkanRendererAPI::SetFrameBackbuffer(const RHI::ResourceHandle handle, const VkImageView view,
@@ -4935,7 +5094,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = sizeBytes;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo stagingAlloc{};
         stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -4951,6 +5110,7 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, data, sizeBytes);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, sizeBytes);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         // Transfer commands are illegal inside a dynamic-rendering scope.
         EndRenderingScope();
@@ -4976,11 +5136,26 @@ namespace OloEngine
         globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-        VkBufferCopy region{};
-        region.srcOffset = 0;
-        region.dstOffset = offsetBytes;
-        region.size = sizeBytes;
-        vkCmdCopyBuffer(ctx.Cmd, staging, dst, 1, &region);
+        // The destination is any engine buffer the facade was handed, and the
+        // families differ on VK_BUFFER_USAGE_STORAGE_BUFFER_BIT (VulkanIndexBuffer
+        // has none, the rest do) — so this is the one site that genuinely cannot
+        // name the storage usage and says so. See VulkanAddressCommands::StorageUsage.
+        const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
+        if (dstAddress == 0)
+        {
+            // The one precondition the address form ADDED: the destination must
+            // carry SHADER_DEVICE_ADDRESS_BIT. Every engine buffer family sets
+            // it, so this is latent — but a 0 here would copy to address 0 and
+            // lose the device with no log line, which is exactly the silent
+            // failure ADR 0010 forbids.
+            UnimplementedStub("UploadBufferSubData(destination has no device address)",
+                              StubKind::PreconditionFailure);
+            VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
+            return;
+        }
+        VulkanAddressCommands::CmdCopyRange(ctx.Cmd, stagingAddress,
+                                            VulkanAddressCommands::StorageUsage::Absent, dstAddress + offsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
         globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
@@ -5104,11 +5279,28 @@ namespace OloEngine
         globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
-        VkBufferCopy region{};
-        region.srcOffset = srcOffsetBytes;
-        region.dstOffset = dstOffsetBytes;
-        region.size = sizeBytes;
-        vkCmdCopyBuffer(ctx.Cmd, src, dst, 1, &region);
+        // Both endpoints are facade-supplied buffers of unknown family, the
+        // UploadBufferSubData case on both sides (see the note there).
+        const auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            UnimplementedStub("CopyBufferSubData(no live VulkanDevice)", StubKind::PreconditionFailure);
+            return;
+        }
+        const VkDeviceAddress srcAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), src);
+        const VkDeviceAddress dstAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), dst);
+        if (srcAddress == 0 || dstAddress == 0)
+        {
+            // See UploadBufferSubData: SHADER_DEVICE_ADDRESS_BIT is the address
+            // form's added precondition, and a 0 address must not reach a copy.
+            UnimplementedStub("CopyBufferSubData(endpoint has no device address)",
+                              StubKind::PreconditionFailure);
+            return;
+        }
+        VulkanAddressCommands::CmdCopyRange(ctx.Cmd, srcAddress + srcOffsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown,
+                                            dstAddress + dstOffsetBytes,
+                                            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
         globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
@@ -5534,7 +5726,7 @@ namespace OloEngine
         // VkPipelineVertexInputStateCreateInfo. That reads like it removes this
         // entry point along with the rest of vertex-input state. It does not.
         // The index buffer is not part of VkGraphicsPipelineCreateInfo in the
-        // first place — it is bound with vkCmdBindIndexBuffer, plain command
+        // first place — it is bound with vkCmdBindIndexBuffer3KHR, plain command
         // state, contributing zero PSO permutation axes — so §5's "remove the
         // axis entirely" cannot apply to it, and no ADR contract changes here.
         // BindIndexBufferFor has been doing exactly this for object-backed VAOs
@@ -5542,7 +5734,7 @@ namespace OloEngine
         //
         // (The alternative — feeding the hardware MDI arm from the same index
         // SSBO the software raster reads — was rejected:
-        // vkCmdDrawIndexedIndirectCount REQUIRES a bound index buffer, so it
+        // the indexed indirect-count draw REQUIRES a bound index buffer, so it
         // would mean rewriting VirtualMeshRegistry's DrawElementsIndirectCommand
         // records into a non-indexed encoding and forking VG's GL and Vulkan
         // draw paths, which is what the raw facade exists to avoid.)
@@ -5702,7 +5894,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = uploadSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo stagingAlloc{};
         stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -5718,11 +5910,14 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
-        VkBufferImageCopy region{};
-        region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-        region.imageOffset = { xOffset, yOffset, 0 };
-        region.imageExtent = { width, height, 1u };
+        // #1179: the copy's geometry, shared by the one-shot arm and the
+        // in-recording arm below — vkCmdCopyMemoryToImageKHR builds its region
+        // from these at each call rather than from a shared VkBufferImageCopy.
+        const VkImageSubresourceLayers copySubresource{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
+        const VkOffset3D copyOffset{ xOffset, yOffset, 0 };
+        const VkExtent3D copyExtent{ width, height, 1u };
 
         if (ctx.Cmd == VK_NULL_HANDLE)
         {
@@ -5756,7 +5951,9 @@ namespace OloEngine
                     oneShotDep.pImageMemoryBarriers = &toDst;
                     vkCmdPipelineBarrier2(cmd, &oneShotDep);
 
-                    vkCmdCopyBufferToImage(cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                    VulkanAddressCommands::CmdCopyRangeToImage(
+                        cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, uploadSize, image,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copySubresource, copyOffset, copyExtent);
 
                     VkImageMemoryBarrier2 toRead = toDst;
                     toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -5794,7 +5991,9 @@ namespace OloEngine
         dep.pImageMemoryBarriers = toTransfer.data();
         ctx.RecordBarrier(dep);
 
-        vkCmdCopyBufferToImage(ctx.Cmd, staging, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        VulkanAddressCommands::CmdCopyRangeToImage(
+            ctx.Cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, uploadSize, image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copySubresource, copyOffset, copyExtent);
 
         // Left in TRANSFER_DST with the tracker in agreement — the bind-time
         // visibility seam transitions produced runs to SHADER_READ_ONLY at
@@ -6137,7 +6336,7 @@ namespace OloEngine
         VkBufferCreateInfo readbackInfo{};
         readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         readbackInfo.size = stagedSize;
-        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        readbackInfo.usage = VulkanAddressCommands::kReadbackDstUsage;
         readbackInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo readbackAlloc{};
         readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;

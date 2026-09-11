@@ -69,10 +69,20 @@ namespace OloEngine
                     Outcome* outOutcome = nullptr);
 
         // Staged upload into a non-mappable buffer: host staging → one-shot
-        // vkCmdCopyBuffer → an availability barrier covering every later
+        // vkCmdCopyMemoryKHR → an availability barrier covering every later
         // submission's reads (a fence wait alone does not make transfer
         // writes visible across submissions) → staging destroyed. Blocking,
         // like Submit.
+        //
+        // PRECONDITION (#1179): `dst` must have been created with
+        // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT as well as
+        // VK_BUFFER_USAGE_TRANSFER_DST_BIT. The copy is address-based now, so
+        // the destination's address is queried here — and
+        // vkGetBufferDeviceAddress on a buffer without the bit is invalid
+        // usage. Every engine buffer family sets it (vertex, index, storage,
+        // raw, ray-tracing), so this holds for every caller today; it is
+        // written down because it is the one requirement the address form
+        // ADDED and nothing in the signature says so.
         bool UploadToBuffer(VkBuffer dst, u64 dstOffset, const void* data, u64 sizeBytes, const char* what);
 
 #ifndef OLO_DIST

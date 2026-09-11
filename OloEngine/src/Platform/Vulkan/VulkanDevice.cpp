@@ -440,6 +440,16 @@ namespace OloEngine
         untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
         untypedFeatures.shaderUntypedPointers = VK_TRUE;
         untypedFeatures.pNext = &heapFeatures;
+        // #1179: VK_KHR_device_address_commands. Same gate rule as the two
+        // above — a capability-contract row (VulkanCapabilities), so the
+        // device was already refused if the bit is absent, and enabling it
+        // here turns a driver that advertises-but-rejects into a
+        // vkCreateDevice failure rather than a null vkCmdBindIndexBuffer3KHR
+        // at the first draw.
+        VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
+        addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
+        addressCommandFeatures.deviceAddressCommands = VK_TRUE;
+        addressCommandFeatures.pNext = &untypedFeatures;
 
         // synchronization2 backs the vkCmdPipelineBarrier2/vkQueueSubmit2 calls in
         // SwapBuffers. Core in 1.3 and MANDATORY for 1.3+ devices, so it needs no
@@ -465,7 +475,7 @@ namespace OloEngine
         // VUID-RuntimeSpirv-LocalSizeId-06434). Same class again: core in 1.3
         // and MANDATORY there, default OFF at device creation.
         vulkan13Features.maintenance4 = VK_TRUE;
-        vulkan13Features.pNext = &untypedFeatures;
+        vulkan13Features.pNext = &addressCommandFeatures;
 
         // #691: two more core-promoted-but-default-OFF features, both
         // MANDATORY at the 1.3+ floor so neither is a capability-gate row:
@@ -495,10 +505,11 @@ namespace OloEngine
         vulkan11Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
         vulkan11Features.pNext = &vulkan12Features;
 
-        // #809: the 1.4 aggregate. Its two consumed bits (hostImageCopy,
-        // maintenance5) are filled in from the support probe below. Both are
-        // the synchronization2 class: core at the ADR 0010 floor, MANDATORY
-        // for a 1.4 device, and still default OFF at device creation.
+        // #809: the 1.4 aggregate. Its one consumed bit (hostImageCopy) is
+        // filled in from the support probe below. It is the synchronization2
+        // class: core at the ADR 0010 floor, MANDATORY for a 1.4 device, and
+        // still default OFF at device creation. (maintenance5 rode here until
+        // #1179 retired its only consumer.)
         //
         // Amendment (51) sweep, done at the moment this struct joined the
         // chain: nothing else chained here is a feature that 1.4 promoted, so
@@ -702,12 +713,18 @@ namespace OloEngine
         VkPhysicalDeviceVulkan12Features supported12{};
         supported12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
         supported12.pNext = &supported11;
-        // #809: hostImageCopy + maintenance5 ride the same probe. Both are
-        // required-to-be-supported on a 1.4 device, but "required by the spec"
-        // is not "present in this driver" -- a device that reports 1.4 without
-        // them, or a layer that filters them out, must degrade to the staging
-        // path rather than call through a null volk pointer, so the probe
-        // result is what gates every use.
+        // #809: hostImageCopy rides this probe. It is required-to-be-supported
+        // on a 1.4 device, but "required by the spec" is not "present in this
+        // driver" -- a device that reports 1.4 without it, or a layer that
+        // filters it out, must degrade to the staging path rather than call
+        // through a null volk pointer, so the probe result gates every use.
+        //
+        // #1179: maintenance5 used to ride here too, for the one reason that
+        // vkCmdBindIndexBuffer2 could state an index bind's real extent. The
+        // bind is now vkCmdBindIndexBuffer3KHR, whose range carries the extent
+        // unconditionally, so nothing in the backend consumes maintenance5 any
+        // more and it is no longer requested -- the maintenance6 rule one
+        // comment down, applied to its neighbour.
         VkPhysicalDeviceVulkan14Features supported14{};
         supported14.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
         supported14.pNext = &supported12;
@@ -749,9 +766,7 @@ namespace OloEngine
         // backend consumes any of its relaxations, and an unused feature bit
         // is dead weight the validation layer still has to reason about.
         const bool wantHostImageCopy = supported14.hostImageCopy == VK_TRUE;
-        const bool wantMaintenance5 = supported14.maintenance5 == VK_TRUE;
         vulkan14Features.hostImageCopy = supported14.hostImageCopy;
-        vulkan14Features.maintenance5 = supported14.maintenance5;
 
         // Device-fault reporting costs nothing until a device loss, at which
         // point it is the difference between "VkResult -4" and a fault
@@ -902,7 +917,7 @@ namespace OloEngine
         volkLoadDevice(m_Device);
 
         // Ray tracing, committed after volkLoadDevice for the reason
-        // m_Maintenance5Enabled documents below: an enabled feature bit is not
+        // m_HostImageCopyEnabled documents below: an enabled feature bit is not
         // proof the command is callable, because volk only populates a pointer
         // the loader/ICD actually exported. Every entry point this subsystem
         // calls is null-checked here, once, rather than at each call site.
@@ -1007,7 +1022,6 @@ namespace OloEngine
         // only populates a core-1.4 pointer when the loader/ICD actually
         // exports it, so an enabled feature bit is not on its own proof the
         // command is callable.
-        m_Maintenance5Enabled = wantMaintenance5 && vkCmdBindIndexBuffer2 != nullptr;
         // OLO_VULKAN_NO_HOST_IMAGE_COPY=1 forces every upload back onto the
         // staging + one-shot path. Same genre as
         // OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL: a one-line A/B for the question
@@ -1048,12 +1062,11 @@ namespace OloEngine
             vkGetPhysicalDeviceProperties2(m_PhysicalDevice, &hostCopyProps2);
             m_HostCopyMemoryTypeNeutral = hostCopyProps.identicalMemoryTypeRequirements == VK_TRUE;
         }
-        OLO_CORE_INFO("[Vulkan] 1.4 conveniences: host image copy {}{}, maintenance5 {}",
+        OLO_CORE_INFO("[Vulkan] 1.4 conveniences: host image copy {}{}",
                       m_HostImageCopyEnabled ? "enabled" : "unavailable (staging upload path)",
                       m_HostImageCopyEnabled && !m_HostCopyMemoryTypeNeutral
                           ? " (host-transfer usage changes memory type requirements — kept off render targets)"
-                          : "",
-                      m_Maintenance5Enabled ? "enabled" : "unavailable (implicit whole-buffer index binds)");
+                          : "");
 
         // Mesh-shader limits + the loud capability verdict (issue #813). The
         // vkGetPhysicalDeviceProperties2 probe is this backend's first —
@@ -1238,7 +1251,6 @@ namespace OloEngine
         // Shutdown/Init cycle re-probes rather than reusing a verdict (and a
         // per-format memo) minted against the previous device.
         m_HostImageCopyEnabled = false;
-        m_Maintenance5Enabled = false;
         m_HostCopySrcLayouts.clear();
         m_HostCopyDstLayouts.clear();
         m_HostCopyMemoryTypeNeutral = false;

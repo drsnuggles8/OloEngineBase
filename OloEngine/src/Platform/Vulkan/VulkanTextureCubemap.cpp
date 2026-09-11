@@ -2,6 +2,7 @@
 
 #if OLO_WITH_VULKAN
 
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -212,7 +213,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = uploadSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo stagingAlloc{};
         stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -228,6 +229,7 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
         const VkImageLayout priorLayout = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
@@ -245,10 +247,10 @@ namespace OloEngine
                                                                                           : VK_ACCESS_2_MEMORY_WRITE_BIT,
                                                  VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels, 0u,
                                                  6u);
-                VkBufferImageCopy region{};
-                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u };
-                region.imageExtent = { mipWidth, mipHeight, 1u };
-                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                VulkanAddressCommands::CmdCopyRangeToImage(
+                    cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, uploadSize, m_Image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u },
+                    { 0, 0, 0 }, { mipWidth, mipHeight, 1u });
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,

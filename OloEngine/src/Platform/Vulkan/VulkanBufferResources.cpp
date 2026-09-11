@@ -326,10 +326,22 @@ namespace OloEngine
         // INDEX_BUFFER (issue #1052, the same lesson one role later): the raw
         // family is also where a dual-purpose ELEMENT buffer lands —
         // VirtualMeshRegistry's index arena is a GL element buffer AND
-        // SSBO_VIRTUAL_INDICES — so SetVertexArrayIndexBuffer's
-        // vkCmdBindIndexBuffer needs the bit at CREATE time too. A raw buffer's
-        // role is whatever its caller picks, so the usage set has to cover
-        // every role the facade offers rather than the one the last caller used.
+        // SSBO_VIRTUAL_INDICES — so SetVertexArrayIndexBuffer's index bind
+        // needs the bit at CREATE time too. A raw buffer's role is whatever
+        // its caller picks, so the usage set has to cover every role the
+        // facade offers rather than the one the last caller used.
+        //
+        // #1179 moved that bind to vkCmdBindIndexBuffer3KHR, which takes a
+        // device address rather than this VkBuffer — and the bit STAYS.
+        // VK_KHR_device_address_commands replaces the handle in the command
+        // signature, not the buffer's create-time usage declaration:
+        // VUID-VkBindIndexBuffer3InfoKHR-addressRange-13051 still requires
+        // INDEX_BUFFER_BIT on the buffer the address was queried from, exactly
+        // as the handle form did. The same holds one line up for
+        // INDIRECT_BUFFER (VUID-VkDrawIndirect2InfoKHR-addressRange-13107) and
+        // for the TRANSFER pair (VUID-VkDeviceMemoryCopyKHR-srcRange-13017 /
+        // -dstRange-13018). What the address forms DO need extra is
+        // SHADER_DEVICE_ADDRESS, which this set already carries.
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                            VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;

@@ -293,21 +293,14 @@ namespace OloEngine
         {
             return m_HostImageCopyEnabled;
         }
-        // maintenance5: TRUE -> index-buffer binds go through
-        // vkCmdBindIndexBuffer2 with the buffer's REAL byte size instead of
-        // the implicit whole-buffer bind, so an out-of-range index count is a
-        // validation error rather than an out-of-bounds read (amendment (9b)'s
-        // DrawIndexed(va, 0) "whole buffer" sentinel resolves to a number the
-        // bind can actually state).
-        //
-        // maintenance6 is deliberately NOT enabled: nothing in the backend
-        // uses any of its relaxations, and a feature bit nothing consumes is
-        // dead weight the validation layer still has to reason about (the
-        // same rule the EDS3 and mesh-shader bits above follow).
-        [[nodiscard]] bool IsMaintenance5Enabled() const
-        {
-            return m_Maintenance5Enabled;
-        }
+        // maintenance5 and maintenance6 are deliberately NOT enabled: nothing
+        // in the backend uses any of their relaxations, and a feature bit
+        // nothing consumes is dead weight the validation layer still has to
+        // reason about (the same rule the EDS3 and mesh-shader bits above
+        // follow). maintenance5 was enabled until #1179 for exactly one
+        // reason — vkCmdBindIndexBuffer2 could state an index bind's real
+        // extent — and vkCmdBindIndexBuffer3KHR now carries that extent in its
+        // address range unconditionally.
 
         // Per-format half of the host-image-copy gate: an image may only carry
         // VK_IMAGE_USAGE_HOST_TRANSFER_BIT when its format+tiling advertises
@@ -389,7 +382,6 @@ namespace OloEngine
         bool m_DeviceFaultEnabled = false;
         bool m_MeshShaderEnabled = false;
         bool m_HostImageCopyEnabled = false;
-        bool m_Maintenance5Enabled = false;
         // Host-image-copy layout lists, read once after device creation.
         std::vector<VkImageLayout> m_HostCopySrcLayouts;
         std::vector<VkImageLayout> m_HostCopyDstLayouts;
@@ -413,7 +405,7 @@ namespace OloEngine
         // Ray tracing (#978). Every one of these is committed AFTER
         // vkCreateDevice returns and AFTER volkLoadDevice has run, because
         // until both have happened the flags would describe a request rather
-        // than the logical device (the m_Maintenance5Enabled rule).
+        // than the logical device (the m_HostImageCopyEnabled rule).
         bool m_RayQueryEnabled = false;
         bool m_RayTracingPipelineEnabled = false;
         RayTracing::UnsupportedReason m_RayTracingUnsupportedReason = RayTracing::UnsupportedReason::ExtensionMissing;

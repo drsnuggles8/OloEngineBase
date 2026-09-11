@@ -187,6 +187,12 @@ namespace
         untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
         untypedFeatures.shaderUntypedPointers = VK_TRUE;
         untypedFeatures.pNext = &heapFeatures;
+        // #1179's contract row — mirrored here for the same reason as the two
+        // above: this test's claim is "the gate's enables are accepted".
+        VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
+        addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
+        addressCommandFeatures.deviceAddressCommands = VK_TRUE;
+        addressCommandFeatures.pNext = &untypedFeatures;
 
         // Mirror VulkanContext::Init's chain exactly, sync2 included — this test's
         // claim is "the gate's enables are accepted", so the enable list must not
@@ -194,7 +200,7 @@ namespace
         VkPhysicalDeviceVulkan13Features vulkan13Features{};
         vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         vulkan13Features.synchronization2 = VK_TRUE;
-        vulkan13Features.pNext = &untypedFeatures;
+        vulkan13Features.pNext = &addressCommandFeatures;
 
         const std::vector<const char*> extensions = VulkanCapabilities::RequiredDeviceExtensions();
 

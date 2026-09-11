@@ -2,6 +2,7 @@
 
 #if OLO_WITH_VULKAN
 
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
@@ -768,7 +769,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = uploadSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         VmaAllocationCreateInfo stagingAlloc{};
@@ -787,6 +788,10 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+        // #1179: the copy takes a range, not this handle. Queried once here
+        // rather than inside the record lambda — the address is fixed for the
+        // buffer's lifetime, and the lambda runs on the one-shot command buffer.
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         const bool ok = VulkanOneShot::Submit(
             "VulkanTexture2D::UploadPixels",
@@ -809,10 +814,10 @@ namespace OloEngine
                                                  VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_BLIT_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u, m_MipLevels);
 
-                VkBufferImageCopy region{};
-                region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                region.imageExtent = { m_Width, m_Height, 1u };
-                vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                VulkanAddressCommands::CmdCopyRangeToImage(
+                    cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent, uploadSize, m_Image,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u }, { 0, 0, 0 },
+                    { m_Width, m_Height, 1u });
 
                 if (generateMips)
                 {
@@ -1051,7 +1056,7 @@ namespace OloEngine
         VkBufferCreateInfo stagingInfo{};
         stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         stagingInfo.size = uploadSize;
-        stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        stagingInfo.usage = VulkanAddressCommands::kStagingSrcUsage;
         stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo stagingAlloc{};
         stagingAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -1068,6 +1073,7 @@ namespace OloEngine
         }
         std::memcpy(stagingOut.pMappedData, uploadData, uploadSize);
         vmaFlushAllocation(device->GetAllocator(), stagingAllocation, 0, uploadSize);
+        const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         // PARTIAL update: the untouched texels must survive, so oldLayout is
         // the steady-state SHADER_READ_ONLY every upload leaves the image in
@@ -1090,12 +1096,12 @@ namespace OloEngine
                                                                                    VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0u,
                                                                                    1u);
 
-                                                  VkBufferImageCopy region{};
-                                                  region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u };
-                                                  region.imageOffset = { static_cast<i32>(x), static_cast<i32>(y), 0 };
-                                                  region.imageExtent = { width, height, 1u };
-                                                  vkCmdCopyBufferToImage(cmd, staging, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                                         1u, &region);
+                                                  VulkanAddressCommands::CmdCopyRangeToImage(
+                                                      cmd, stagingAddress, VulkanAddressCommands::StorageUsage::Absent,
+                                                      uploadSize, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                      { VK_IMAGE_ASPECT_COLOR_BIT, 0u, 0u, 1u },
+                                                      { static_cast<i32>(x), static_cast<i32>(y), 0 },
+                                                      { width, height, 1u });
 
                                                   VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                                                                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
