@@ -80,6 +80,7 @@ add_executable(OloEngine-Tests
 		AssetPackTest.cpp
 		RuntimeAssetPackTest.cpp
 		AssetRegistryInvariantsTest.cpp
+		AssetDependencyDirectionTest.cpp
 		RuntimeAssetManagerTest.cpp
 		AssetLoadedEventTest.cpp
 		${_olo_component_round_trip_src}
@@ -861,6 +862,14 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationBuildCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
+		# Asset query / safe CRUD / import (issue #1128). The index is editor-free
+		# and AssetManager-free by construction, which is what lets the tests drive
+		# it against a temp directory with no project and no registry.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetIndex.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationFileWrite.cpp
+		MCP/McpAutomationAssetIndexTest.cpp
+		MCP/McpAutomationAssetCommandsTest.cpp
 		MCP/McpAutomationComponentsTest.cpp
 		MCP/McpAutomationEntitiesTest.cpp
 		MCP/McpAutomationSceneLifecycleTest.cpp

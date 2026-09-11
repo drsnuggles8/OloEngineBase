@@ -33,6 +33,12 @@
 		"Automation/AutomationSceneCommands.cpp"
 		"Automation/AutomationSceneDocument.h"
 		"Automation/AutomationSceneDocument.cpp"
+		"Automation/AutomationAssetIndex.h"
+		"Automation/AutomationAssetIndex.cpp"
+		"Automation/AutomationAssetCommands.h"
+		"Automation/AutomationAssetCommands.cpp"
+		"Automation/AutomationFileWrite.h"
+		"Automation/AutomationFileWrite.cpp"
 
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"

@@ -1002,7 +1002,7 @@ namespace OloEngine
                 AssetHandle textureHandle = textureNode.second.as<AssetHandle>(0);
                 if (textureHandle != 0)
                 {
-                    AssetManager::RegisterDependency(textureHandle, handle);
+                    AssetManager::RegisterDependency(handle, textureHandle);
                 }
             }
         }
@@ -2404,7 +2404,7 @@ namespace OloEngine
                 AssetHandle colliderMeshHandle = meshColliderNode["ColliderMesh"].as<AssetHandle>(0);
                 if (colliderMeshHandle != 0)
                 {
-                    AssetManager::RegisterDependency(colliderMeshHandle, handle);
+                    AssetManager::RegisterDependency(handle, colliderMeshHandle);
                     OLO_CORE_TRACE("MeshColliderSerializer: Registered dependency - MeshCollider {0} depends on ColliderMesh {1}", handle, colliderMeshHandle);
                 }
             }
@@ -4089,7 +4089,7 @@ namespace OloEngine
             AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0);
             if (meshSourceHandle != 0)
             {
-                AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
+                AssetManager::RegisterDependency(metadata.Handle, meshSourceHandle);
                 OLO_CORE_TRACE("MeshSerializer: Registered MeshSource dependency - Mesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
             }
         }
@@ -4344,7 +4344,7 @@ namespace OloEngine
             // Register mesh source dependency
             if (AssetHandle meshSourceHandle = meshNode["MeshSource"].as<u64>(0); meshSourceHandle != 0)
             {
-                AssetManager::RegisterDependency(meshSourceHandle, metadata.Handle);
+                AssetManager::RegisterDependency(metadata.Handle, meshSourceHandle);
                 OLO_CORE_TRACE("StaticMeshSerializer: Registered MeshSource dependency - StaticMesh {0} depends on MeshSource {1}", metadata.Handle, meshSourceHandle);
             }
 
@@ -4362,7 +4362,7 @@ namespace OloEngine
 
                         if (materialHandle != 0)
                         {
-                            AssetManager::RegisterDependency(materialHandle, metadata.Handle);
+                            AssetManager::RegisterDependency(metadata.Handle, materialHandle);
                             OLO_CORE_TRACE("StaticMeshSerializer: Registered material dependency - StaticMesh {0} depends on Material {1} at index {2}", metadata.Handle, materialHandle, materialIndex);
                         }
                     }
@@ -4556,14 +4556,14 @@ namespace OloEngine
         {
             AssetHandle animationSource = animationNode["AnimationSource"].as<AssetHandle>();
             if (animationSource != 0)
-                AssetManager::RegisterDependency(animationSource, handle);
+                AssetManager::RegisterDependency(handle, animationSource);
         }
 
         if (animationNode["Mesh"])
         {
             AssetHandle mesh = animationNode["Mesh"].as<AssetHandle>();
             if (mesh != 0)
-                AssetManager::RegisterDependency(mesh, handle);
+                AssetManager::RegisterDependency(handle, mesh);
         }
     }
 
