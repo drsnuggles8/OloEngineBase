@@ -702,9 +702,9 @@ namespace OloEngine
         // not have.
         struct ReSTIRGIUBO
         {
-            glm::mat4 InvView;           //   0 — view -> render-relative world
-            glm::mat4 InvProjection;     //  64 — clip -> view, for the depth reconstruction
-            glm::mat4 View;              // 128
+            glm::mat4 InvView;       //   0 — view -> render-relative world
+            glm::mat4 InvProjection; //  64 — clip -> view, for the depth reconstruction
+            glm::mat4 View;          // 128
             // THE PREVIOUS FRAME'S RECONSTRUCTION, and the reason GI carries one
             // where ReSTIRDIUBO explicitly refuses to. DI's was dead: declared,
             // never read, deleted. These two are READ by the temporal draw on
@@ -714,8 +714,8 @@ namespace OloEngine
             // be centimetres away and dDestSq is in the denominator
             // (docs/design/restir-gi-reconnection-shift.md §6.3). If a change
             // ever makes them dead, delete them the way #1140 deleted DI's.
-            glm::mat4 PrevInvView;       // 192
-            glm::mat4 PrevInvProjection; // 256
+            glm::mat4 PrevInvView;          // 192
+            glm::mat4 PrevInvProjection;    // 256
             glm::uvec4 TlasAddressAndFrame; // 320 — xy = TLAS device address, z = instance mask, w = frame index
             glm::uvec4 SlotCounts;          // 336 — x = instances, y = geometries, z = materials, w = LIVE lights
             glm::uvec4 EmissiveTable;       // 352 — xy = table address, z = triangle count, w = OLO_RESTIR_GI_FLAG_*

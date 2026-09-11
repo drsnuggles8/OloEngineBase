@@ -186,7 +186,7 @@ namespace OloEngine::ReSTIR
     //
     // Returns whether the candidate replaced the incumbent — the caller needs it
     // to carry along any per-sample bookkeeping the reservoir does not hold.
-    template <typename ReservoirT, typename SampleT>
+    template<typename ReservoirT, typename SampleT>
     inline bool ReservoirUpdate(ReservoirT& r, const SampleT& sample, f32 weight, f32 targetPdf, f32 xi)
     {
         // A non-finite or negative weight is DROPPED, not clamped: clamping it
@@ -210,7 +210,7 @@ namespace OloEngine::ReSTIR
     // from a source pdf at ONE pixel. Always 1/M: those candidates DO share a
     // domain, so 1/M is the correct unbiased normaliser and the bias mode does
     // not apply. That distinction is why this is its own function.
-    template <typename ReservoirT>
+    template<typename ReservoirT>
     inline void FinalizeInitialCandidates(ReservoirT& r)
     {
         r.W = ComputeContributionWeight(r.WeightSum, r.M, r.TargetPdf);
@@ -225,7 +225,7 @@ namespace OloEngine::ReSTIR
     //                 candidate's MIS weight into its update weight. Passing a
     //                 summed M here as well is the "normalised twice" bug the
     //                 shared ComputeContributionWeight exists to make visible.
-    template <typename ReservoirT>
+    template<typename ReservoirT>
     inline void FinalizeCombined(ReservoirT& r, BiasMode mode, f32 summedM)
     {
         const f32 normaliser = (mode == BiasMode::UnbiasedMIS) ? 1.0f : summedM;
@@ -237,7 +237,7 @@ namespace OloEngine::ReSTIR
     // unchanged across the cap — capping M alone would silently multiply the
     // pixel's radiance by (cap / M), which brightens exactly the pixels that have
     // been stable longest.
-    template <typename ReservoirT>
+    template<typename ReservoirT>
     inline void ApplyTemporalMCap(ReservoirT& r, f32 cap)
     {
         if (!(cap > 0.0f) || !(r.M > cap))

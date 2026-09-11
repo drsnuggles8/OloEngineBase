@@ -225,8 +225,8 @@ namespace OloEngine::Tests
         // One pixel's worth of the estimator: RIS over `candidates` bounces,
         // finalised the way ReSTIR_GI_InitialSample.glsl does.
         [[nodiscard]] GIReservoir SampleInitialReservoir(const Scene& scene, const glm::vec3& shadingPoint,
-                                                        const glm::vec3& shadingNormal, u32 candidates,
-                                                        std::mt19937& rng)
+                                                         const glm::vec3& shadingNormal, u32 candidates,
+                                                         std::mt19937& rng)
         {
             std::uniform_real_distribution<f32> uniform(0.0f, 1.0f);
             GIReservoir reservoir{};

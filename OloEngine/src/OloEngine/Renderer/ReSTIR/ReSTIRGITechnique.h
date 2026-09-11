@@ -288,17 +288,17 @@ namespace OloEngine
     // that.
     enum class ReSTIRGIDebugView : u32
     {
-        Radiance = 0,          ///< The resampled one-bounce indirect diffuse. The normal case.
-        RawCandidate = 1,      ///< The initial sample with no reuse at all — the un-denoised signal.
-        HistoryValidity = 2,   ///< The #976 validity verdict that gated temporal reuse.
-        Variance = 3,          ///< Per-pixel variance of the resolved radiance.
-        ReservoirM = 4,        ///< Confidence weight: how many candidates this pixel's sample stands for.
-        ReservoirW = 5,        ///< The unbiased contribution weight.
-        SampleKind = 6,        ///< Surface hit vs environment escape.
-        SampleAge = 7,         ///< Frames since the surviving sample's vertex was traced. Lineage.
-        SampleRadiance = 8,    ///< L_o at the bounce vertex, before the shift and the BRDF at x0.
+        Radiance = 0,           ///< The resampled one-bounce indirect diffuse. The normal case.
+        RawCandidate = 1,       ///< The initial sample with no reuse at all — the un-denoised signal.
+        HistoryValidity = 2,    ///< The #976 validity verdict that gated temporal reuse.
+        Variance = 3,           ///< Per-pixel variance of the resolved radiance.
+        ReservoirM = 4,         ///< Confidence weight: how many candidates this pixel's sample stands for.
+        ReservoirW = 5,         ///< The unbiased contribution weight.
+        SampleKind = 6,         ///< Surface hit vs environment escape.
+        SampleAge = 7,          ///< Frames since the surviving sample's vertex was traced. Lineage.
+        SampleRadiance = 8,     ///< L_o at the bounce vertex, before the shift and the BRDF at x0.
         ReconnectionLength = 9, ///< Distance from this pixel to its sample vertex — where J is stressed.
-        BiasClampState = 10,   ///< Where the Jacobian, the domain gate, the clamp or the ray intervened.
+        BiasClampState = 10,    ///< Where the Jacobian, the domain gate, the clamp or the ray intervened.
 
         Count
     };

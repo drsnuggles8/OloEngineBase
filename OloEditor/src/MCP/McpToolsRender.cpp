@@ -318,8 +318,8 @@ namespace OloEngine::MCP
                 case TemporalHistoryEffect::RayTracedShadow:
                     return "RayTracedShadow";
                 case TemporalHistoryEffect::ReSTIRGI:
-                return "ReSTIRGI";
-            case TemporalHistoryEffect::ReSTIRDI:
+                    return "ReSTIRGI";
+                case TemporalHistoryEffect::ReSTIRDI:
                     return "restir-di";
                 case TemporalHistoryEffect::PathTracer:
                     return "PathTracer";

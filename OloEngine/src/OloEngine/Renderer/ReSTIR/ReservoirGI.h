@@ -442,7 +442,7 @@ namespace OloEngine::ReSTIR
         u32 rawAge = 0;
         UnpackReservoirIdentity(packed, rawKind, rawAge);
         kind = (rawKind < std::to_underlying(GISampleKind::Count)) ? static_cast<GISampleKind>(rawKind)
-                                                                  : GISampleKind::None;
+                                                                   : GISampleKind::None;
         age = std::min(rawAge, kMaxSampleAgeFrames);
     }
 
