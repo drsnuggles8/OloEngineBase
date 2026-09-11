@@ -1263,7 +1263,6 @@ TEST(MeshOptimization, MeasureModelExtentMatchesTheBoundingBox)
     EXPECT_FLOAT_EQ(MeshOptimization::MeasureModelExtent(*empty), 0.0f);
 }
 
-
 // =============================================================================
 // CreateSphere's pole rows (issue #1191)
 // =============================================================================
