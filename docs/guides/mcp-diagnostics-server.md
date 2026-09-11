@@ -399,10 +399,17 @@ Known boundaries, all stated rather than silent:
 * a bare filename with no directory separator counts only when it resolves (a scene's
   `Scene: Courtyard.olo` is its title, not a path), and a file naming itself is never a
   reference;
-* `.gltf` **is** scanned — it is JSON and names its textures by URI relative to itself —
-  but a **minified** one is a single line and this is a line scanner, so it yields
-  nothing and is counted as unscannable. `.glb` and the other binary formats are never
-  scanned.
+* `.gltf` **is** scanned, minified or not — it is JSON and names its textures by URI
+  relative to itself, which is how Assimp loads them. It is the only format resolved
+  that way; a `.olo` naming `Local.png` does **not** resolve against its own directory,
+  because `EditorAssetManager::ImportAsset` has no such anchor and the index must not
+  claim something resolves that the engine will not load.
+* Beyond `key: value` scalars, every scanned file is also swept for **quoted string
+  literals** ending in an asset extension, which is what reads a minified glTF, a
+  `AssetManager.Load("Assets/…")` in a script, and a YAML flow sequence. `.glb` and the
+  other binary formats are never scanned and are reported as `unscannableFiles`.
+* A file naming **itself** — a scene's title, a script's header comment quoting its own
+  path — is not a reference and is dropped.
 
 A safe sequence is:
 

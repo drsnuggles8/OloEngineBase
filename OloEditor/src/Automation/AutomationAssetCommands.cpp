@@ -306,7 +306,7 @@ namespace OloEngine::Automation
                 { "truncated", index.Coverage.Truncated },
                 { "complete", index.Coverage.Complete },
                 { "incompleteReason", index.Coverage.IncompleteReason },
-                { "reliable", index.Coverage.ScanCompleted() },
+                { "scanCompleted", index.Coverage.ScanCompleted() },
                 { "projectRoot", scope.ProjectRoot.generic_string() },
                 { "assetDirectory", scope.AssetDirectory.generic_string() },
                 { "extraBaseDirectories", std::move(bases) },

@@ -52,11 +52,10 @@ namespace OloEngine::Automation
                 // glTF is JSON, and it names its textures by URI relative to
                 // itself. Left out, a texture reachable only from a .gltf reads as
                 // unreferenced -- the exact silent-loss case this index exists for.
-                // Its sibling .glb is a binary container and stays unscanned, as
-                // does a MINIFIED .gltf: this is a line scanner, so a whole
-                // document on one line yields nothing. Both are counted in
-                // BinaryFilesSkipped / reported as unscannable rather than being
-                // quietly absent.
+                // A MINIFIED one is read too, by the quoted-literal sweep below:
+                // the whole document is one line, so no key parses, but the URIs
+                // are still quoted strings. Its sibling .glb is a binary container
+                // and stays genuinely unscanned, counted in BinaryFilesSkipped.
                 ".gltf"
             };
             return set;
@@ -321,6 +320,17 @@ namespace OloEngine::Automation
             u32 BaseDirectoryIndex = 0;
         };
 
+        // glTF is the ONE format whose references the engine resolves relative to
+        // the referring file -- Assimp reads a URI that way. Everything else goes
+        // through EditorAssetManager::ImportAsset, which has no such anchor, so
+        // enabling it for a .olo would let this index claim a sibling file resolves
+        // when the engine would never load it: a refused delete that should have
+        // gone ahead, and a rewrite of a path nothing reads.
+        bool UsesSourceRelativeReferences(const std::filesystem::path& sourceFile)
+        {
+            return LowerExtension(sourceFile) == ".gltf";
+        }
+
         Resolution ResolveReferencePath(const std::string& rawValue, const AssetIndexScope& scope,
                                         const std::filesystem::path& sourceDirectory)
         {
@@ -407,6 +417,67 @@ namespace OloEngine::Automation
             return !input.bad();
         }
 
+        // ---- quoted string literals -------------------------------------------
+        //
+        // The line scanner above reads `key: value`. That is most of what these
+        // formats contain, and none of what some of them contain:
+        //
+        //   * a MINIFIED .gltf is the whole document on one line, so no key ever
+        //     parses and every texture it names was invisible;
+        //   * a .lua or .cs names an asset inside a call -- AssetManager.Load(
+        //     "Assets/Textures/x.png") -- which is not a key/value line either;
+        //   * a YAML flow sequence, ["a.png", "b.png"], likewise.
+        //
+        // All three are the same shape: a quoted string that happens to be a path.
+        // So after the key parse fails to produce one, sweep the line for quoted
+        // literals ending in a known asset extension. Over-collecting is the safe
+        // direction -- resolution is the filter -- and it turns three separate
+        // "this format is not really scanned" admissions into actual coverage.
+        struct QuotedLiteral
+        {
+            std::string Text;
+            std::string Key; // the `"key":` it follows, when there is one.
+            u32 Column = 0;
+        };
+
+        std::vector<QuotedLiteral> QuotedLiterals(std::string_view line)
+        {
+            std::vector<QuotedLiteral> found;
+            std::string previous;
+            bool previousWasKey = false;
+            for (sizet i = 0; i < line.size(); ++i)
+            {
+                if (line[i] != '"')
+                    continue;
+                const sizet start = i + 1;
+                sizet end = start;
+                while (end < line.size() && line[end] != '"')
+                {
+                    // A backslash escapes the next character, so an escaped quote
+                    // does not end the literal.
+                    if (line[end] == '\\' && end + 1 < line.size())
+                        ++end;
+                    ++end;
+                }
+                if (end >= line.size())
+                    break;
+                std::string text(line.substr(start, end - start));
+                // `"key" : "value"` -- a literal followed by a colon is the KEY of
+                // the next one, which is what gives a minified glTF's URI its name.
+                sizet after = end + 1;
+                while (after < line.size() && (line[after] == ' ' || line[after] == '	'))
+                    ++after;
+                const bool isKey = after < line.size() && line[after] == ':';
+                if (!isKey)
+                    found.push_back(QuotedLiteral{ text, previousWasKey ? previous : std::string{},
+                                                   static_cast<u32>(start) });
+                previous = std::move(text);
+                previousWasKey = isKey;
+                i = end;
+            }
+            return found;
+        }
+
         // One open block: the key that owns the more-indented lines below it.
         struct BlockScope
         {
@@ -430,6 +501,55 @@ namespace OloEngine::Automation
             return nullptr;
         }
 
+        // Shared by the key/value path and the literal sweep so the two cannot
+        // drift on what counts, what resolves, or what gets recorded.
+        bool LooksReferenceable(const std::string& value)
+        {
+            std::string lowered = value;
+            std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch)
+                                   { return static_cast<char>(std::tolower(ch)); });
+            const sizet dot = lowered.find_last_of('.');
+            return dot != std::string::npos && ReferenceableSet().contains(lowered.substr(dot));
+        }
+
+        void RecordPathReference(const std::filesystem::path& file, u32 lineNumber, std::string key,
+                                 const std::string& value, u32 column, const AssetIndexScope& scope,
+                                 AssetIndex& index)
+        {
+            const Resolution resolution = ResolveReferencePath(
+                value, scope,
+                UsesSourceRelativeReferences(file) ? file.parent_path() : std::filesystem::path{});
+            // A file naming ITSELF is never a reference. Every scene opens with
+            // its own title and every Lua script here carries a header comment
+            // quoting its own path; both resolve straight back to the file they
+            // are written in. Dropped at extraction rather than only at query
+            // time so the counts mean something.
+            if (resolution.File == file)
+                return;
+            // A bare filename with no separator is ambiguous between a reference
+            // and a NAME that happens to end in an asset extension, and there is
+            // no way to tell; it counts only when it resolves.
+            if (resolution.Anchor == AssetReferenceAnchor::Unresolved &&
+                value.find('/') == std::string::npos &&
+                value.find('\\') == std::string::npos)
+            {
+                return;
+            }
+            AssetReference reference;
+            reference.SourceFile = file;
+            reference.Line = lineNumber;
+            reference.Key = std::move(key);
+            reference.RawValue = value;
+            reference.Kind = AssetReferenceKind::Path;
+            reference.ResolvedFile = resolution.File;
+            reference.Anchor = resolution.Anchor;
+            reference.BaseDirectoryIndex = resolution.BaseDirectoryIndex;
+            reference.ValueColumn = column;
+            if (resolution.Anchor == AssetReferenceAnchor::Unresolved)
+                ++index.Coverage.UnresolvedReferences;
+            index.References.push_back(std::move(reference));
+        }
+
         void ScanFile(const std::filesystem::path& file, const std::string& text, const AssetIndexScope& scope,
                       AssetIndex& index)
         {
@@ -443,102 +563,79 @@ namespace OloEngine::Automation
                 const std::string_view line(text.data() + lineStart, lineEnd - lineStart);
                 const bool lastLine = lineEnd == text.size();
                 lineStart = lineEnd + 1;
+
+                // Whether the key/value parse already claimed a path on this line,
+                // so the literal sweep below does not record it a second time.
+                bool claimedByKeyParse = false;
                 const ScalarLine parsed = ParseScalarLine(line);
-                if (!parsed.Found)
+                if (parsed.Found)
                 {
-                    if (lastLine)
-                        break;
-                    continue;
+                    while (!stack.empty() && stack.back().Indent >= parsed.Indent)
+                        stack.pop_back();
                 }
-                while (!stack.empty() && stack.back().Indent >= parsed.Indent)
-                    stack.pop_back();
-                if (!parsed.HasValue)
+
+                if (parsed.Found && !parsed.HasValue)
                 {
                     stack.push_back(BlockScope{ parsed.Indent, parsed.Key });
-                    if (lastLine)
-                        break;
-                    continue;
                 }
-
-                // The name a key filter is applied to, and the name reported. They
-                // differ only for an indexed map entry, where "Materials/0" says
-                // far more to a reader than "0".
-                std::string qualifyKey = parsed.Key;
-                std::string reportedKey = parsed.Key;
-                if (IsDecimalDigits(parsed.Key))
+                else if (parsed.Found)
                 {
-                    if (const BlockScope* ancestor = QualifyingAncestor(stack); ancestor != nullptr)
+                    // The name a key filter is applied to, and the name reported.
+                    // They differ only for an indexed map entry, where "Materials/0"
+                    // says far more to a reader than "0".
+                    std::string qualifyKey = parsed.Key;
+                    std::string reportedKey = parsed.Key;
+                    if (IsDecimalDigits(parsed.Key))
                     {
-                        qualifyKey = ancestor->Key;
-                        reportedKey = ancestor->Key + "/" + parsed.Key;
-                    }
-                }
-
-                if (IsDecimalDigits(parsed.Value))
-                {
-                    u64 handle = 0;
-                    const char* first = parsed.Value.data();
-                    const char* last = first + parsed.Value.size();
-                    if (HandleKeyQualifies(qualifyKey) &&
-                        std::from_chars(first, last, handle).ec == std::errc{} && handle != 0)
-                    {
-                        AssetReference reference;
-                        reference.SourceFile = file;
-                        reference.Line = lineNumber;
-                        reference.Key = std::move(reportedKey);
-                        reference.RawValue = parsed.Value;
-                        reference.Kind = AssetReferenceKind::Handle;
-                        reference.HandleValue = handle;
-                        reference.ValueColumn = parsed.ValueColumn;
-                        index.References.push_back(std::move(reference));
-                    }
-                }
-                else
-                {
-                    std::string lowered = parsed.Value;
-                    std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch)
-                                           { return static_cast<char>(std::tolower(ch)); });
-                    const sizet dot = lowered.find_last_of('.');
-                    if (dot != std::string::npos && ReferenceableSet().contains(lowered.substr(dot)))
-                    {
-                        const Resolution resolution = ResolveReferencePath(parsed.Value, scope, file.parent_path());
-                        // A value with no directory separator is ambiguous between a
-                        // reference and a NAME that happens to end in an asset
-                        // extension -- every scene in this project opens with
-                        // `Scene: Courtyard.olo`, which is its title, not a path.
-                        // Keeping those would report 99 of them as broken references
-                        // and drown the one real breakage in the same list. So a
-                        // bare filename counts only when it actually resolves; when
-                        // it does not, we genuinely cannot tell, and the coverage
-                        // note says so rather than guessing either way.
-                        const bool bareName = parsed.Value.find('/') == std::string::npos &&
-                                              parsed.Value.find('\\') == std::string::npos;
-                        // A file naming ITSELF is not a reference -- every scene here
-                        // opens with `Scene: Courtyard.olo`, its title, which the
-                        // source-relative anchor happily resolves to the very file it is
-                        // written in. Dropped at extraction rather than only at query
-                        // time so the counts mean something: it was 99 of the 399
-                        // references in the sandbox project.
-                        if (bareName && (resolution.Anchor == AssetReferenceAnchor::Unresolved ||
-                                         resolution.File == file))
+                        if (const BlockScope* ancestor = QualifyingAncestor(stack); ancestor != nullptr)
                         {
-                            if (lastLine)
-                                break;
-                            continue;
+                            qualifyKey = ancestor->Key;
+                            reportedKey = ancestor->Key + "/" + parsed.Key;
                         }
-                        AssetReference reference;
-                        reference.SourceFile = file;
-                        reference.Line = lineNumber;
-                        reference.Key = std::move(reportedKey);
-                        reference.RawValue = parsed.Value;
-                        reference.Kind = AssetReferenceKind::Path;
-                        reference.ResolvedFile = resolution.File;
-                        reference.Anchor = resolution.Anchor;
-                        reference.BaseDirectoryIndex = resolution.BaseDirectoryIndex;
-                        reference.ValueColumn = parsed.ValueColumn;
-                        if (resolution.Anchor == AssetReferenceAnchor::Unresolved)
-                            ++index.Coverage.UnresolvedReferences;
-                        index.References.push_back(std::move(reference));
+                    }
+
+                    if (IsDecimalDigits(parsed.Value))
+                    {
+                        u64 handle = 0;
+                        const char* first = parsed.Value.data();
+                        const char* last = first + parsed.Value.size();
+                        if (HandleKeyQualifies(qualifyKey) &&
+                            std::from_chars(first, last, handle).ec == std::errc{} && handle != 0)
+                        {
+                            AssetReference reference;
+                            reference.SourceFile = file;
+                            reference.Line = lineNumber;
+                            reference.Key = std::move(reportedKey);
+                            reference.RawValue = parsed.Value;
+                            reference.Kind = AssetReferenceKind::Handle;
+                            reference.HandleValue = handle;
+                            reference.ValueColumn = parsed.ValueColumn;
+                            index.References.push_back(std::move(reference));
+                        }
+                    }
+                    else if (LooksReferenceable(parsed.Value))
+                    {
+                        RecordPathReference(file, lineNumber, std::move(reportedKey), parsed.Value,
+                                            parsed.ValueColumn, scope, index);
+                        claimedByKeyParse = true;
+                    }
+                }
+
+                // The literal sweep, for everything the key parse cannot read: a
+                // MINIFIED glTF (the whole document on one line, so no key parses
+                // at all), a script call such as AssetManager.Load("Assets/x.png"),
+                // a YAML flow sequence. Without it those formats counted toward
+                // FilesScanned while contributing nothing, which made an index that
+                // had never looked at them report itself complete.
+                if (!claimedByKeyParse)
+                {
+                    for (const QuotedLiteral& literal : QuotedLiterals(line))
+                    {
+                        if (!LooksReferenceable(literal.Text))
+                            continue;
+                        RecordPathReference(file, lineNumber,
+                                            literal.Key.empty() ? std::string("(string)") : literal.Key,
+                                            literal.Text, literal.Column, scope, index);
                     }
                 }
 

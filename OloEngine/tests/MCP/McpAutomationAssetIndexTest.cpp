@@ -370,6 +370,71 @@ namespace OloEngine::Automation::Tests
         EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::ProjectRelative);
     }
 
+    // A minified .gltf is the whole document on one line, so not a single key
+    // parses -- yet the file counted toward FilesScanned and the index called
+    // itself complete. A move then skipped the rewrite and a delete could remove
+    // a referenced texture. The quoted-literal sweep is what reads it.
+    TEST_F(AutomationAssetIndexTest, FindsAReferenceInAMinifiedGltf)
+    {
+        Write(m_Project / "Assets" / "Models" / "Mini" / "Mini.gltf",
+              "{\"asset\":{\"version\":\"2.0\"},\"images\":[{\"uri\":\"Albedo.png\"}]}\n");
+        const auto texture = m_Project / "Assets" / "Models" / "Mini" / "Albedo.png";
+        Write(texture, "png-ish");
+
+        const AssetIndex index = Build();
+        const auto referrers = FindReferrers(index, std::filesystem::weakly_canonical(texture), 0);
+        ASSERT_EQ(referrers.size(), 1u) << "a one-line glTF still names its textures";
+        EXPECT_EQ(referrers[0].Key, "uri") << "the literal before the colon names it";
+        EXPECT_EQ(referrers[0].RawValue, "Albedo.png");
+        EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::SourceRelative);
+    }
+
+    // A script names an asset inside a call, which is not a key/value line. These
+    // formats were in the scanned set while contributing nothing, so the index
+    // reported itself complete over files it had never really read.
+    TEST_F(AutomationAssetIndexTest, FindsAReferenceInsideAScriptCall)
+    {
+        Write(m_Project / "Assets" / "Scripts" / "Boot.lua",
+              "local tex = AssetManager.Load(\"Assets/Textures/Checkerboard.png\")\n");
+
+        const AssetIndex index = Build();
+        const auto referrers = FindReferrers(index, ProjectTexture(), 0);
+        ASSERT_EQ(referrers.size(), 1u) << "a quoted path in a script is a reference";
+        EXPECT_EQ(referrers[0].Key, "(string)");
+        EXPECT_EQ(referrers[0].Anchor, AssetReferenceAnchor::ProjectRelative);
+    }
+
+    // SourceRelative exists because Assimp resolves a glTF URI that way. Nothing
+    // else in the engine does, so enabling it everywhere would let this index
+    // claim a sibling file resolves when EditorAssetManager::ImportAsset would
+    // never find it -- a refused delete that should have gone ahead.
+    TEST_F(AutomationAssetIndexTest, SourceRelativeIsGltfOnly)
+    {
+        Write(m_Project / "Assets" / "Scenes" / "Sibling.olo",
+              "Scene: Sibling\n  AlbedoPath: Local.png\n");
+        Write(m_Project / "Assets" / "Scenes" / "Local.png", "sibling texture");
+
+        const AssetIndex index = Build();
+        const auto referrers = FindReferrers(
+            index, std::filesystem::weakly_canonical(m_Project / "Assets" / "Scenes" / "Local.png"), 0);
+        EXPECT_TRUE(referrers.empty())
+            << "a .olo does not resolve its paths relative to itself, and the index must not pretend it does";
+    }
+
+    // A file naming itself -- a scene title, a Lua header comment quoting its own
+    // path -- is not a reference. Eleven of the sandbox project's scripts do the
+    // latter, and the literal sweep collected every one until this was widened
+    // past the bare-filename case it originally covered.
+    TEST_F(AutomationAssetIndexTest, AFileQuotingItsOwnPathIsNotAReference)
+    {
+        const auto script = m_Project / "Assets" / "Scripts" / "Self.lua";
+        Write(script, "-- Attach with ScriptFile = \"Scripts/Self.lua\"\n");
+
+        const AssetIndex index = Build();
+        EXPECT_TRUE(FindReferrers(index, std::filesystem::weakly_canonical(script), 0).empty());
+        EXPECT_TRUE(FindDependencies(index, script).empty());
+    }
+
     // --- the other graph direction ------------------------------------------
 
     TEST_F(AutomationAssetIndexTest, DependenciesAreTheReferencesInsideTheFile)
