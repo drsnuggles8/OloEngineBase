@@ -30,6 +30,35 @@ namespace OloEngine
 
         // @brief Create a unit cube mesh
         // @return Mesh with vertices from -0.5 to 0.5 on all axes
+        // ---- shared default primitives (issue #1191) ------------------------
+        // The seven defaults a scene entity can name in its MeshComponent. One
+        // MeshSource per kind is built on first use and SHARED by every entity
+        // that asks for it; each call still returns its own Mesh wrapper, so
+        // per-entity state on Mesh (submesh selection) stays per-entity while the
+        // geometry, its optimisation pass, its degenerate census and its GPU
+        // buffers are built once. Before this, MaterialLab's 119 sphere entities
+        // built 119 identical sources on every scene load.
+        //
+        // Headless (no device) callers get a fresh, uncached source: MeshSource::
+        // Build keeps CPU data only without a device, and caching one of those
+        // would hand a later device-backed caller a source with no GPU buffers.
+        enum class SharedDefault : u8
+        {
+            Cube,
+            Sphere,
+            Plane,
+            Cylinder,
+            Cone,
+            Icosphere,
+            Torus,
+            Count
+        };
+        [[nodiscard]] static Ref<Mesh> CreateSharedDefault(SharedDefault kind);
+        // Drop every shared source. Renderer3D::Shutdown calls this: the sources
+        // own GPU buffers, and a static Ref that outlives the renderer is exactly
+        // what RendererMemoryTracker's teardown check exists to catch.
+        static void ReleaseSharedSources();
+
         [[nodiscard]] static Ref<Mesh> CreateCube();
 
         // @brief Create a sphere mesh

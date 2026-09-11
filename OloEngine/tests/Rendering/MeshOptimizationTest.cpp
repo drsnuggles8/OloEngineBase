@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -1322,4 +1323,36 @@ TEST(MeshPrimitivesSphere, PoleRowsCostOneTriangleEachNotTwo)
     // And it is strictly fewer than the old quad-everywhere count, so this cannot
     // pass by the formula above happening to match what it replaced.
     EXPECT_LT(expectedTriangles, bands * 2u * sectorSpans);
+}
+
+// =============================================================================
+// Shared default primitives (issue #1191)
+// =============================================================================
+
+TEST(MeshPrimitivesShared, DefaultPrimitivesShareOneSourcePerKind)
+{
+    using Kind = MeshPrimitives::SharedDefault;
+    auto a = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+    auto b = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+    auto c = MeshPrimitives::CreateSharedDefault(Kind::Cube);
+    ASSERT_TRUE(a && b && c);
+    EXPECT_NE(a.Raw(), b.Raw()) << "every caller gets its own Mesh wrapper";
+
+    if (RenderCommand::IsDeviceAvailable())
+    {
+        EXPECT_EQ(a->GetMeshSource().Raw(), b->GetMeshSource().Raw()) << "same kind: one shared MeshSource";
+        EXPECT_NE(a->GetMeshSource().Raw(), c->GetMeshSource().Raw()) << "different kind: different source";
+
+        MeshPrimitives::ReleaseSharedSources();
+        auto d = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+        ASSERT_TRUE(d);
+        EXPECT_NE(d->GetMeshSource().Raw(), a->GetMeshSource().Raw())
+            << "release must drop the shared source so a restarted renderer never sees dead buffers";
+    }
+    else
+    {
+        // Headless: nothing is cached, because a source built without a device
+        // has no GPU buffers and must not be handed to a later device-backed caller.
+        EXPECT_NE(a->GetMeshSource().Raw(), b->GetMeshSource().Raw()) << "headless: no sharing";
+    }
 }

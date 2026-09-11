@@ -1,10 +1,12 @@
 #include "OloEnginePCH.h"
 #include "MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "MeshSource.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 
+#include <array>
 #include <iterator>
 
 namespace OloEngine
@@ -136,6 +138,64 @@ namespace OloEngine
     void MeshPrimitives::Shutdown()
     {
         s_FullscreenTriangleVA.Reset();
+    }
+
+    namespace
+    {
+        using SharedSourceTable = std::array<Ref<MeshSource>, static_cast<sizet>(MeshPrimitives::SharedDefault::Count)>;
+
+        SharedSourceTable& SharedDefaultSources()
+        {
+            static SharedSourceTable s_Sources;
+            return s_Sources;
+        }
+
+        Ref<Mesh> BuildDefault(MeshPrimitives::SharedDefault kind)
+        {
+            switch (kind)
+            {
+                case MeshPrimitives::SharedDefault::Cube:
+                    return MeshPrimitives::CreateCube();
+                case MeshPrimitives::SharedDefault::Sphere:
+                    return MeshPrimitives::CreateSphere();
+                case MeshPrimitives::SharedDefault::Plane:
+                    return MeshPrimitives::CreatePlane();
+                case MeshPrimitives::SharedDefault::Cylinder:
+                    return MeshPrimitives::CreateCylinder();
+                case MeshPrimitives::SharedDefault::Cone:
+                    return MeshPrimitives::CreateCone();
+                case MeshPrimitives::SharedDefault::Icosphere:
+                    return MeshPrimitives::CreateIcosphere();
+                case MeshPrimitives::SharedDefault::Torus:
+                    return MeshPrimitives::CreateTorus();
+                case MeshPrimitives::SharedDefault::Count:
+                    break;
+            }
+            OLO_CORE_ASSERT(false, "CreateSharedDefault: unknown primitive kind");
+            return nullptr;
+        }
+    } // namespace
+
+    Ref<Mesh> MeshPrimitives::CreateSharedDefault(SharedDefault kind)
+    {
+        if (!RenderCommand::IsDeviceAvailable())
+            return BuildDefault(kind);
+
+        auto& shared = SharedDefaultSources()[static_cast<sizet>(kind)];
+        if (!shared)
+        {
+            auto built = BuildDefault(kind);
+            if (!built)
+                return nullptr;
+            shared = built->GetMeshSource();
+        }
+        return Ref<Mesh>::Create(shared, 0);
+    }
+
+    void MeshPrimitives::ReleaseSharedSources()
+    {
+        for (auto& source : SharedDefaultSources())
+            source.Reset();
     }
 
     Ref<Mesh> MeshPrimitives::CreateCube()

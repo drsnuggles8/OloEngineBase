@@ -338,24 +338,27 @@ namespace OloEngine
         }
     }
 
+    // One shared MeshSource per primitive kind (issue #1191): every entity that
+    // names the same default primitive gets its own Mesh over the same source,
+    // instead of building, optimising and uploading an identical one per entity.
     static Ref<Mesh> CreateMeshFromPrimitive(MeshPrimitive primitive)
     {
         switch (primitive)
         {
             case MeshPrimitive::Cube:
-                return MeshPrimitives::CreateCube();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Cube);
             case MeshPrimitive::Sphere:
-                return MeshPrimitives::CreateSphere();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Sphere);
             case MeshPrimitive::Plane:
-                return MeshPrimitives::CreatePlane();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Plane);
             case MeshPrimitive::Cylinder:
-                return MeshPrimitives::CreateCylinder();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Cylinder);
             case MeshPrimitive::Cone:
-                return MeshPrimitives::CreateCone();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Cone);
             case MeshPrimitive::Icosphere:
-                return MeshPrimitives::CreateIcosphere();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Icosphere);
             case MeshPrimitive::Torus:
-                return MeshPrimitives::CreateTorus();
+                return MeshPrimitives::CreateSharedDefault(MeshPrimitives::SharedDefault::Torus);
             default:
                 return nullptr;
         }
