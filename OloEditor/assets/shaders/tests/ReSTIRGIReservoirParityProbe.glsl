@@ -60,8 +60,13 @@ void main()
     // is the top, where `age << 3` is largest and where a saturation that was
     // written as a wrap would show.
     float ageT = clamp(v_TexCoord.x, 0.0, 1.0);
-    uint age = uint(min(floor(ageT * float(AGE_STEPS)), float(AGE_STEPS - 1))) *
-               (OLO_GI_MAX_SAMPLE_AGE / uint(AGE_STEPS - 1));
+    uint ageBand = uint(min(floor(ageT * float(AGE_STEPS)), float(AGE_STEPS - 1)));
+    // The top band is the EXACT cap. The stride is integer division
+    // (4096 / 255 == 16), so band 255 alone would reach 4080 and the one value a
+    // too-narrow lane saturates or wraps at would never be compared. The CPU
+    // side special-cases the same band.
+    uint age = (ageBand == uint(AGE_STEPS - 1)) ? OLO_GI_MAX_SAMPLE_AGE
+                                                : ageBand * (OLO_GI_MAX_SAMPLE_AGE / uint(AGE_STEPS - 1));
 
     // Decode the packed y axis: which kind band, and where inside it.
     float scaled = clamp(v_TexCoord.y, 0.0, 1.0) * float(KIND_STEPS);

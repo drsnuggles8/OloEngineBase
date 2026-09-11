@@ -189,6 +189,10 @@ add_executable(OloEngine-Tests
 		# table against the reference emitter set, the accumulation-restart
 		# rules, and the vertex layout the ray-query helpers hard-code.
 		Rendering/PathTracing/GpuPathTracerContractTest.cpp
+		# Shared by both ReSTIR contract tests: resolving the shader tree and
+		# scanning a GLSL constant out of it. One copy, because two of them had
+		# already drifted into resolving the path differently.
+		Rendering/ReSTIR/ShaderSourceScan.h
 		# #1140: ReSTIR DI's headless half — the shift Jacobian pinned by the
 		# area/solid-angle measure identity, RIS unbiasedness, both bias modes'
 		# normalisers, the corruption guards, and the GLSL constants scanned out of

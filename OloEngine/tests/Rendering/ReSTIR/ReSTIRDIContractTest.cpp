@@ -39,6 +39,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 
+#include "Rendering/ReSTIR/ShaderSourceScan.h"
+
 #include <glm/glm.hpp>
 
 #include <cmath>
@@ -57,64 +59,10 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // THE COMPILE-TIME ANCHOR, NOT THE WORKING DIRECTORY. These shaders are
-        // tracked repo assets: they are always present, so failing to find one is
-        // a broken checkout or a moved file, never an environment this test
-        // should excuse itself from.
-        //
-        // It guessed three CWD-relative candidates before and GTEST_SKIP'd when
-        // none matched. That is the wrong shape twice over. It reads as "no
-        // device here" when the truth would be "the C++/GLSL twins were never
-        // compared", and the CWD is not stable across a full run — several
-        // suites chdir during theirs, which is exactly why
-        // OLO_TEST_EDITOR_ROOT exists and why the other file-reading tests use
-        // it. A filtered run would pass and the full-suite run would quietly
-        // stop checking.
-        [[nodiscard]] std::filesystem::path ResolveShaderPath(const char* relative)
-        {
-            return std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / relative;
-        }
-
-        [[nodiscard]] std::string ReadTextFile(const std::filesystem::path& path)
-        {
-            std::ifstream file(path);
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            return buffer.str();
-        }
-
-        // `#define NAME 12u` or `#define NAME 12`.
-        [[nodiscard]] u32 ScanDefine(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("#define\\s+") + name + "\\s+(\\d+)u?");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
-
-        // `const uint NAME = 12u;`
-        [[nodiscard]] u32 ScanConstUint(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("const\\s+uint\\s+") + name + "\\s*=\\s*(\\d+)u?\\s*;");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
-
-        // `const float NAME = 4095.0;`. A NaN on no match rather than a
-        // sentinel value: every float this scans has a legitimate value a
-        // sentinel could collide with, and a NaN fails EXPECT_FLOAT_EQ loudly.
-        [[nodiscard]] f32 ScanConstFloat(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("const\\s+float\\s+") + name +
-                                     "\\s*=\\s*(-?[0-9.eE+-]+)f?\\s*;");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return std::numeric_limits<f32>::quiet_NaN();
-            return std::stof(match[1].str());
-        }
+        // The GLSL scanners, shared with ReSTIRGIContractTest. They used to be a
+        // copy in each file; the copies diverged, and the divergence was a path
+        // resolver that could scan a different worktree's shaders.
+        using namespace OloEngine::Tests::ShaderScan;
 
         // A deterministic emitter point and two shading points that see it from
         // different angles and distances — the configuration a spatial reuse

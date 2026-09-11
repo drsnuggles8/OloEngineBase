@@ -64,6 +64,15 @@ namespace OloEngine::Tests
         // the TOP of the cap rather than the bottom 255 frames — which is where a
         // saturation written as a wrap would show and where nothing else looks.
         constexpr u32 kAgeStride = ReSTIR::kMaxSampleAgeFrames / (kAgeSteps - 1);
+        // The stride is INTEGER division, so it cannot be trusted to land on the
+        // cap: 4096 / 255 is 16, and 255 * 16 is 4080. The sweep therefore stopped
+        // sixteen frames short of the one value that matters most - the exact cap,
+        // which is where a lane written one bit too narrow saturates or wraps. The
+        // top band is pinned to the cap for that reason, and the shader does the
+        // same so the two grids stay identical.
+        static_assert(kAgeStride > 0, "kAgeSteps has outgrown the age cap; the sweep would collapse to zero");
+        static_assert(kAgeStride * (kAgeSteps - 1) <= ReSTIR::kMaxSampleAgeFrames,
+                      "the age sweep would run past the cap and the comparison would test the clamp, not the pack");
 
         constexpr u32 kWidth = 256;  // age axis
         constexpr u32 kHeight = 252; // packed (kind band, normal direction) axis; 252 = 3 * 84
@@ -143,9 +152,11 @@ namespace OloEngine::Tests
 
             GridPoint point;
             const f32 ageT = std::clamp(u, 0.0f, 1.0f);
-            point.Age = static_cast<u32>(std::min(std::floor(ageT * static_cast<f32>(kAgeSteps)),
-                                                  static_cast<f32>(kAgeSteps - 1))) *
-                        kAgeStride;
+            const u32 ageBand = static_cast<u32>(std::min(std::floor(ageT * static_cast<f32>(kAgeSteps)),
+                                                          static_cast<f32>(kAgeSteps - 1)));
+            // The top band IS the cap, not 255 strides short of it. Mirrors the
+            // probe's line.
+            point.Age = (ageBand == kAgeSteps - 1) ? ReSTIR::kMaxSampleAgeFrames : ageBand * kAgeStride;
 
             const f32 scaled = std::clamp(v, 0.0f, 1.0f) * static_cast<f32>(kKindSteps);
             const f32 band = std::min(std::floor(scaled), static_cast<f32>(kKindSteps - 1));

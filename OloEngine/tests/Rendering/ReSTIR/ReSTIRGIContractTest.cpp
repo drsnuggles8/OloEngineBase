@@ -39,6 +39,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 
+#include "Rendering/ReSTIR/ShaderSourceScan.h"
+
 #include <glm/glm.hpp>
 
 #include <cmath>
@@ -56,61 +58,11 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // The shader tree, relative to whatever directory the test binary was
-        // started from. The test binary runs from the repo root (CLAUDE.md), and
-        // the walk upward is what keeps a run from a build directory working
-        // rather than silently skipping the scan.
-        [[nodiscard]] std::filesystem::path ResolveShaderPath(std::string_view relative)
-        {
-            std::filesystem::path candidate = std::filesystem::current_path();
-            for (int depth = 0; depth < 6; ++depth)
-            {
-                const auto probe = candidate / "OloEditor" / "assets" / "shaders" / relative;
-                if (std::filesystem::exists(probe))
-                    return probe;
-                candidate = candidate.parent_path();
-            }
-            return std::filesystem::path("OloEditor/assets/shaders") / relative;
-        }
-
-        [[nodiscard]] std::string ReadTextFile(const std::filesystem::path& path)
-        {
-            std::ifstream file(path);
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            return buffer.str();
-        }
-
-        [[nodiscard]] u32 ScanDefine(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("#define\\s+") + name + "\\s+(\\d+)u?");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
-
-        [[nodiscard]] u32 ScanConstUint(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("const\\s+uint\\s+") + name + "\\s*=\\s*(\\d+)u?\\s*;");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
-
-        // `const float NAME = 8.0;`. A NaN on no match rather than a sentinel:
-        // every float this scans has a legitimate value a sentinel could collide
-        // with, and a NaN fails EXPECT_FLOAT_EQ loudly.
-        [[nodiscard]] f32 ScanConstFloat(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("const\\s+float\\s+") + name +
-                                     "\\s*=\\s*(-?[0-9.eE+-]+)f?\\s*;");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return std::numeric_limits<f32>::quiet_NaN();
-            return std::stof(match[1].str());
-        }
+        // The GLSL scanners live in ShaderSourceScan.h, shared with the DI
+        // contract test: two copies of a path resolver is how one of them ended
+        // up walking the current directory while the other read the build-time
+        // root.
+        using namespace OloEngine::Tests::ShaderScan;
 
         // A sample vertex and two shading points that see it from genuinely
         // different angles and distances — the configuration a spatial reuse
@@ -306,8 +258,31 @@ namespace OloEngine::Tests
         behind.Position = glm::vec3(0.0f, 0.0f, -1.0f);
         EXPECT_FALSE(ReconnectionInDomain(behind, dest, normal, kMinimum));
 
+        // THE OTHER HEMISPHERE, at the VERTEX, and it is not the same condition.
+        // The vertex is in front of the destination and far enough away, so every
+        // gate above accepts it - but its normal points AWAY, so the destination
+        // sees its back face while the stored radiance is the front face's.
+        //
+        // Two pieces of the implementation hide this if the gate does not catch
+        // it: the bounce stores the normal flipped toward the pixel that TRACED
+        // the vertex (so it says nothing about any other pixel), and the Jacobian
+        // takes |cos| there (so it returns a finite, plausible number either
+        // way). What it looks like on screen is a one-sided wall transmitting a
+        // smooth gradient of light - see §3 of the design note.
+        GISample backFacing = distant;
+        backFacing.Normal = glm::vec3(0.0f, 0.0f, 1.0f); // pointing away from `dest`
+        EXPECT_FALSE(ReconnectionInDomain(backFacing, dest, normal, kMinimum))
+            << "a vertex whose front face is turned away from the destination was accepted, so its "
+               "outgoing radiance is about to be transported through its own back face";
+
+        // And the boundary is the plane itself, not a band around it: a normal
+        // exactly edge-on carries no outgoing radiance toward the destination.
+        backFacing.Normal = glm::vec3(1.0f, 0.0f, 0.0f);
+        EXPECT_FALSE(ReconnectionInDomain(backFacing, dest, normal, kMinimum));
+
         // An ENVIRONMENT sample has no vertex, so the only question is the
-        // hemisphere — the minimum distance has nothing to apply to.
+        // hemisphere at the destination — the minimum distance has nothing to
+        // apply to, and there is no surface to be behind.
         GISample sky{};
         sky.Kind = GISampleKind::Environment;
         sky.Position = glm::vec3(0.0f, 0.0f, 1.0f);
@@ -729,6 +704,47 @@ namespace OloEngine::Tests
             << "include/ReservoirGI.glsl no longer instantiates the shared state operations";
     }
 
+    // The flag word the pass packs and all four draws unpack. Every bit is a
+    // FEATURE GATE, so a drift does not fail to compile on either side and does
+    // not throw: the draw reads a bit the pass never set and the feature is
+    // simply absent, which is the least reportable failure a renderer has.
+    //
+    // This is the check that lets ReSTIRGIPass write named constants instead of
+    // literals — the names are worth nothing on their own, because C++ cannot
+    // see the #defines they are copied from.
+    TEST(ReSTIRGIContract, ParameterFlagsMatchTheShader)
+    {
+        const auto path = ResolveShaderPath("include/ReSTIRGIParams.glsl");
+        ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
+        const std::string params = ReadTextFile(path);
+        ASSERT_FALSE(params.empty());
+
+        const std::vector<std::pair<const char*, u32>> flags{
+            { "OLO_RESTIR_GI_FLAG_HISTORY_VALID", ReSTIRGIFlags::HistoryValid },
+            { "OLO_RESTIR_GI_FLAG_TEXTURES", ReSTIRGIFlags::Textures },
+            { "OLO_RESTIR_GI_FLAG_RECONNECTION_VISIBILITY", ReSTIRGIFlags::ReconnectionVisibility },
+            { "OLO_RESTIR_GI_FLAG_TEMPORAL_REUSE", ReSTIRGIFlags::TemporalReuse },
+            { "OLO_RESTIR_GI_FLAG_SPATIAL_REUSE", ReSTIRGIFlags::SpatialReuse },
+            { "OLO_RESTIR_GI_FLAG_MOMENTS_VALID", ReSTIRGIFlags::MomentsValid },
+            { "OLO_RESTIR_GI_FLAG_DDGI_TAIL", ReSTIRGIFlags::DDGITail },
+            { "OLO_RESTIR_GI_FLAG_SPATIAL_RECONNECTION_VISIBILITY",
+              ReSTIRGIFlags::SpatialReconnectionVisibility },
+            { "OLO_RESTIR_GI_FLAG_ENVIRONMENT", ReSTIRGIFlags::Environment },
+        };
+
+        u32 seen = 0;
+        for (const auto& [name, value] : flags)
+        {
+            EXPECT_EQ(ScanDefine(params, name), value) << name;
+            // Each bit is a DISTINCT single bit. Two gates sharing one would make
+            // enabling either enable both, and a value that is not a power of two
+            // would clear its neighbour on every frame that sets it.
+            EXPECT_EQ(value & (value - 1u), 0u) << name << " is not a single bit";
+            EXPECT_EQ(seen & value, 0u) << name << " reuses a bit an earlier flag already owns";
+            seen |= value;
+        }
+    }
+
     // The UBO the four draws share. A drift here is not a compile error on
     // either side — it is every lane after the drift read at the wrong offset,
     // which produces a plausible wrong image.
@@ -772,12 +788,54 @@ namespace OloEngine::Tests
     // The five history planes must be five DIFFERENT keys, and none of them may
     // collide with DI's. A collision is not a crash: it is one tier reading the
     // other's reservoirs, at a layout that happens to be the same shape.
+    //
+    // THE KEYS, not the enumerators they are built from. Comparing adjacent
+    // enumerators proves only that an enum has distinct members, which the
+    // language already guarantees; what the registry indexes by is the composed
+    // TemporalHistoryKey, and it is the composition that can collapse - a plane
+    // spelled identically under both effects, or a resolution band that was
+    // supposed to separate two entries and does not.
     TEST(ReSTIRGIContract, ReservoirHistoryPlanesAreDistinctFromEachOtherAndFromDIs)
     {
-        EXPECT_NE(TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRDI);
-        EXPECT_NE(TemporalHistoryPlane::ReservoirSample, TemporalHistoryPlane::ReservoirRadiance);
-        EXPECT_NE(TemporalHistoryPlane::ReservoirRadiance, TemporalHistoryPlane::ReservoirState);
-        EXPECT_NE(TemporalHistoryPlane::ReservoirState, TemporalHistoryPlane::SurfaceGeometry);
-        EXPECT_NE(TemporalHistoryPlane::SurfaceGeometry, TemporalHistoryPlane::MomentsFirst);
+        // The same ten keys RenderPipeline.cpp registers, rebuilt here: those
+        // constants live in an anonymous namespace in the .cpp, so this states
+        // the shape rather than reaching for them.
+        const auto makeKey = [](TemporalHistoryEffect effect, TemporalHistoryPlane plane)
+        {
+            return TemporalHistoryKey{
+                .Effect = effect,
+                .View = 0,
+                .Resolution = TemporalHistoryResolution::Scene,
+                .Plane = plane,
+            };
+        };
+        constexpr std::array kPlanes{
+            TemporalHistoryPlane::ReservoirSample,
+            TemporalHistoryPlane::ReservoirRadiance,
+            TemporalHistoryPlane::ReservoirState,
+            TemporalHistoryPlane::SurfaceGeometry,
+            TemporalHistoryPlane::MomentsFirst,
+        };
+
+        std::vector<TemporalHistoryKey> keys;
+        for (const auto effect : { TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRDI })
+            for (const auto plane : kPlanes)
+                keys.push_back(makeKey(effect, plane));
+        ASSERT_EQ(keys.size(), 10u);
+
+        const TemporalHistoryKeyHash hash{};
+        for (sizet i = 0; i < keys.size(); ++i)
+        {
+            for (sizet j = i + 1; j < keys.size(); ++j)
+            {
+                EXPECT_FALSE(keys[i] == keys[j])
+                    << "history keys " << i << " and " << j
+                    << " are equal, so one tier's reuse draw samples the other's reservoirs";
+                // The registry is a hash map, so a hash collision is a real cost
+                // even though it is not a correctness failure. Ten keys that
+                // differ in two small fields should not produce one.
+                EXPECT_NE(hash(keys[i]), hash(keys[j])) << "history keys " << i << " and " << j << " hash alike";
+            }
+        }
     }
 } // namespace OloEngine::Tests
