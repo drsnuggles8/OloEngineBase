@@ -1,0 +1,193 @@
+Scene: TransmissionTest.olo
+PostProcessSettings:
+  TonemapOperator: 0
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  BloomThreshold: 1
+  BloomIntensity: 0.35
+  BloomIterations: 4
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  FXAAEnabled: true
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.4
+  SSAOBias: 0.025
+  SSAOIntensity: 0.7
+  SSAOSamples: 32
+  SSAODebugView: false
+Entities:
+  # -- Camera, level with the row of spheres --
+  - Entity: 970000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.1, 7]
+      Rotation: [-0.05, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.01
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Skybox + IBL. NOT decoration: transmitted radiance is sampled from the
+  # -- prefiltered environment, so without IBL every sphere below transmits black.
+  - Entity: 970000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+      EnableSkybox: true
+      Rotation: 0
+      Exposure: 1
+      BlurAmount: 0
+      EnableIBL: true
+      IBLIntensity: 1
+      Tint: [1, 1, 1]
+  - Entity: 970000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.3, -1, -0.4]
+      Color: [1, 0.97, 0.92]
+      Intensity: 4
+      CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  - Entity: 970000000000004
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -0.6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [25, 1, 25]
+    MeshComponent:
+      Primitive: 3
+    MaterialComponent:
+      AlbedoColor: [0.10, 0.10, 0.12]
+      Metallic: 0
+      Roughness: 0.9
+  # -- Left to right: an opaque control, clear thin glass, a thickness sweep
+  # -- through ONE orange medium (only ThicknessFactor changes), and a
+  # -- high-IOR pane. Absorption deepens and shifts colour with depth.
+  - Entity: 970000000000100
+    TagComponent:
+      Tag: Opaque_Control
+    TransformComponent:
+      Translation: [-4.5, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.8, 0.15, 0.15]
+      Metallic: 0
+      Roughness: 0.35
+  - Entity: 970000000000101
+    TagComponent:
+      Tag: ThinGlass_Clear
+    TransformComponent:
+      Translation: [-2.7, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1.0, 1.0, 1.0]
+      Metallic: 0
+      Roughness: 0.02
+      TransmissionFactor: 1.0
+  - Entity: 970000000000102
+    TagComponent:
+      Tag: Volume_t0.25
+    TransformComponent:
+      Translation: [-0.9, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1.0, 1.0, 1.0]
+      Metallic: 0
+      Roughness: 0.02
+      TransmissionFactor: 1.0
+      ThicknessFactor: 0.25
+      AttenuationColor: [0.9, 0.4, 0.2]
+      AttenuationDistance: 0.5
+  - Entity: 970000000000103
+    TagComponent:
+      Tag: Volume_t0.75
+    TransformComponent:
+      Translation: [0.9, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1.0, 1.0, 1.0]
+      Metallic: 0
+      Roughness: 0.02
+      TransmissionFactor: 1.0
+      ThicknessFactor: 0.75
+      AttenuationColor: [0.9, 0.4, 0.2]
+      AttenuationDistance: 0.5
+  - Entity: 970000000000104
+    TagComponent:
+      Tag: Volume_t1.5
+    TransformComponent:
+      Translation: [2.7, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1.0, 1.0, 1.0]
+      Metallic: 0
+      Roughness: 0.02
+      TransmissionFactor: 1.0
+      ThicknessFactor: 1.5
+      AttenuationColor: [0.9, 0.4, 0.2]
+      AttenuationDistance: 0.5
+  - Entity: 970000000000105
+    TagComponent:
+      Tag: ThinGlass_IOR2.42
+    TransformComponent:
+      Translation: [4.5, 0.7, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.8, 0.8, 0.8]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1.0, 1.0, 1.0]
+      Metallic: 0
+      Roughness: 0.02
+      TransmissionFactor: 1.0
+      IOR: 2.42

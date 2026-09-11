@@ -234,8 +234,16 @@ and for what to do when adding a tool.
 | `olo_shader_errors` | shaders with compile/link errors |
 | `olo_shader_get` | one shader's uniforms/buffers/samplers/instructions (+ optional GLSL) |
 | `olo_shader_reload` | reload + recompile one shader from disk by name; returns post-reload status + the compile/link log (the shader inner loop) |
-| `olo_assets_list` | paginated registered assets (handle, type, path) + type filter |
+| `olo_assets_list` | paginated registered assets (handle, type, path); filter by `typeFilter`, `namePattern` (filename substring) and `pathPattern` (path substring), combined with AND |
 | `olo_assets_problems` | assets that failed to load or are missing/invalid |
+| `olo_asset_get` | one asset's registry metadata by `handle` or `path` — type, project-relative path, on-disk state, size. Answers for an unregistered file too, which is exactly when somebody is about to delete it |
+| `olo_asset_references` | **what references this asset** (`direction: referrers`, the default) or what it needs (`dependencies`), without opening the editor. Derived by scanning the project's text asset files — `AssetRegistry.oar` is binary and the AssetManager dependency graph covers neither scenes nor unloaded assets. **Always read `coverage`**: an empty list means nothing was found in the scanned set, not that nothing references the asset. See [Safe asset operations](#safe-asset-operations) |
+| `olo_asset_create` | **(consented write)** create a default-valued asset of a supported type at a project path and register it. Destination must be inside the asset directory, must not exist, and its extension must map back to the requested type; `createDirectories:true` creates a missing parent folder. Not undoable |
+| `olo_asset_move` | **(consented write)** move or rename an asset **and rewrite every reference to it**, each in the style its own file used, so referring scenes and materials keep resolving. All-or-nothing; the asset keeps its handle. `createDirectories:true` creates a missing parent folder — there is no directory command, so without it moving into a new folder is impossible rather than two-step. One editor undo step when the host has an editor history (the result says `undoable`); undo refuses if a referring file changed in the meantime |
+| `olo_asset_delete` | **(consented write)** delete an asset and drop it from the registry. **Refused by default when anything references it**, naming every referrer; `force:true` proceeds and reports exactly which references it broke. A truncated reference scan is refused regardless of `force`. Not undoable |
+| `olo_asset_import` | **(consented write)** register a file on disk as a project asset, minting its handle. Idempotent. Not undoable, and deliberately not pretending to be — an import mutates the persisted registry |
+| `olo_asset_reimport` | **(consented write)** reload a registered asset's data from disk. Reports `reimported:false` with an explanation when the reload fails, because a failed reload leaves the previously loaded data live and is invisible in the editor. Not undoable |
+| `olo_asset_import_settings` | **(consented write)** read (omit `settings`) or merge (provide `settings`) an asset's per-asset import settings, stored in an `<asset>.oloimport` JSON sidecar; a null value removes its key. `appliedByImporter` is **false** — the engine has no per-asset import-settings pipeline yet, so these are stored and returned but no importer consults them. Not undoable |
 | `olo_script_get_api` | C# / Lua scripting API digest (types + members), with a type filter |
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
@@ -291,6 +299,8 @@ and for what to do when adding a tool.
 | `olo_tests_list` | the GoogleTest cases `OloEngine-Tests` holds, each with source file, line and its `OLO_TEST_LAYER` classification (the renderer pyramid L1–L11 and the Functional / unit axes), plus a per-layer count. Filter by gtest expression, `suite`, explicit `cases` or `layer`. A selection that matches nothing is an **error**, not an empty list |
 | `olo_tests_run` | run a filtered selection as a child process and get **structured** per-case results — pass/fail/skip/disabled, the verbatim gtest failure text, per-case timings, each case's layer — with no console parsing. Runs the binary, not the editor's renderer, so the CPU-only suites inherit no GPU skip condition. Failures only by default (`includePassed` for the whole set). Never silently partial: a zero-match selection, a child that crashed / timed out / was cancelled, and a report that does not account for every selected case are all errors that **name** what is missing. See [Structured test execution](#structured-test-execution-olo_tests_list--olo_tests_run) |
 | `olo_project_validate` | every project validator in one call — asset-registry problems, shader compile/link errors, recent script errors, and the live render graph's hazard sweep — as one structured report. Each section invokes the standalone command's own handler, so it reports exactly what the editor panels show. A validator that cannot run here comes back `unavailable` **with its reason** and makes the report's `ok` false: an unrun check is never a clean bill of health |
+| `olo_build_list` | the CMake targets `olo_build_run` can build, each with its artefact path, size and **build timestamp**, plus whether the tree is configured and whether a build-lock slot is free right now. Builds nothing. This is how you answer *is the binary I am about to run older than my change?* — an exit code cannot tell a fresh artefact from last week's, a timestamp can. Targets the editor holds open (`OloEditor` itself, `OloEngine-ScriptCore`) are listed with `buildable:false` and the mechanism that refuses them |
+| `olo_build_run` | build one or more targets and get **structured** per-target results: outcome, exit code, wall time, the artefact's path and timestamp, and every compiler/linker diagnostic as a record with file, line, column and code — no console scraping. Always goes through `build-lock.ps1`. A build that could not start is an **error** naming the reason, never an empty success; so is exit 0 with no artefact, and so is the lock **stand-down** that exits 0 having built nothing. `up-to-date` is reported separately from `rebuilt`. See [Structured build invocation](#structured-build-invocation-olo_build_list--olo_build_run) |
 
 ### Write consent — Disabled / Prompt / Allow all (issue #306)
 
@@ -355,6 +365,80 @@ Threading: the write handler runs on a cpp-httplib worker thread and blocks ther
 while the main (UI) thread renders the modal and records your decision — the same
 main-thread-marshal discipline the read tools use, so the editor's render loop never
 blocks on an agent.
+
+### Safe asset operations
+
+Deleting a referenced asset is data loss with a **delayed symptom**: the scene still
+loads, the mesh renders untextured, and nothing says why. So the whole asset command set
+is built on one question -- *what references this?* -- and every destructive command
+answers it first.
+
+**Where the answer comes from.** `AssetRegistry.oar` is binary, and the
+`EditorAssetManager` dependency graph cannot answer it either: no serializer registers a
+scene's references, and an edge only appears once an asset has been deserialized. So
+`olo_asset_references` **derives** the answer by scanning the project's text asset files
+(`.olo`, `.olomaterial`, `.oloprefab`, the rest of the YAML-shaped set, plus `.lua`/`.cs`)
+and resolving each candidate against the same anchors the engine itself uses -- project
+root, asset directory (`Project::GetAssetFileSystemPath`), the legacy project-prefixed
+spelling, then the working directory.
+
+**Always read `coverage`.** It names what was *not* searched: formats skipped because
+nothing here can read them, unreadable files, references that resolve to nothing, and
+whether the walk finished. An empty referrer list means *nothing was found in this set*,
+never *nothing references this asset*.
+
+`coverage.scanCompleted` is the gate: it is true when the walk started, finished and read
+every text asset file it found. Those are **fixable** conditions, so every destructive
+command refuses when it is false and `force` does not waive it. It is deliberately *not*
+called "reliable" — it says nothing about formats this scan cannot read at all, which is a
+**permanent** boundary rather than a fault to repair. Every real project contains such
+files, so refusing on their mere presence would mean no asset is ever movable; they are
+reported instead, as `coverage.binaryFilesSkipped` and as `unscannableFiles` on each
+destructive result.
+
+Known boundaries, all stated rather than silent:
+
+* a handle under a key whose name is not handle-shaped is not collected;
+* a bare filename with no directory separator counts only when it resolves (a scene's
+  `Scene: Courtyard.olo` is its title, not a path), and a file naming itself is never a
+  reference;
+* `.gltf` **is** scanned, minified or not — it is JSON and names its textures by URI
+  relative to itself, which is how Assimp loads them. It is the only format resolved
+  that way; a `.olo` naming `Local.png` does **not** resolve against its own directory,
+  because `EditorAssetManager::ImportAsset` has no such anchor and the index must not
+  claim something resolves that the engine will not load.
+* Beyond `key: value` scalars, every scanned file is also swept for **quoted string
+  literals** ending in an asset extension, which is what reads a minified glTF, a
+  `AssetManager.Load("Assets/…")` in a script, and a YAML flow sequence. `.glb` and the
+  other binary formats are never scanned and are reported as `unscannableFiles`.
+* A file naming **itself** — a scene's title, a script's header comment quoting its own
+  path — is not a reference and is dropped.
+
+A safe sequence is:
+
+1. `olo_asset_references` on the asset. Read `count` **and** `coverage`.
+2. To relocate it, `olo_asset_move`. Every reference is re-spelled in the style its own
+   file already used, so a project-relative path stays project-relative and a legacy
+   project-prefixed one keeps its prefix. It is all-or-nothing: if any reference cannot
+   be rewritten, nothing is written. The asset keeps its handle, so handle-shaped
+   references need no change and are reported separately as
+   `handleReferencesUnchanged`.
+3. To remove it, `olo_asset_delete`. With referrers it refuses and names them; `force:true`
+   proceeds and lists exactly what it broke under `brokenReferences`. A **truncated**
+   reference scan is refused regardless of `force` -- that is a claim about the quality of
+   the list, not about the risk you are accepting, and no flag waives it.
+
+`olo_asset_move` is one editor undo step when the host has an editor history, and it
+takes the reference rewrites back with it. Undo refuses -- loudly -- if a referring file
+changed in the meantime, rather than clobbering that change. A headless caller has no
+history and gets `undoable:false` rather than a promise of a Ctrl-Z that does not exist.
+
+Everything goes through `AssetManager`, never a raw filesystem edit, so the registry,
+the hot-reload watcher and handle identity stay consistent. Writes commit through a
+sibling temporary file and one atomic replace, which is what stops the watcher caching a
+half-written asset; the `.tmp` suffix is absent from the extension map, so dropping one
+next to an asset cannot trigger a spurious auto-import. The same is true of the
+`.oloimport` settings sidecar.
 
 ### Structural scene authoring
 
@@ -512,13 +596,14 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
-| `assets` | `olo_assets_list`, `olo_assets_problems` |
+| `assets` | `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_camera_freeze_culling`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 | `input` | `olo_input_inject` |
 | `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick` |
 | `tests` | `olo_tests_list`, `olo_tests_run` |
+| `build` | `olo_build_list`, `olo_build_run` |
 | `validation` | `olo_project_validate` |
 
 `tools/search` params (both optional):
@@ -829,6 +914,104 @@ binary you just built or from last week's. By default the newest artefact across
 
 Long runs report progress through the standard mechanism and honour
 cancellation — see [Progress notifications & cancellation](#progress-notifications--cancellation).
+
+### Structured build invocation (`olo_build_list` / `olo_build_run`)
+
+Issue #1163. The half of the loop before the tests: **produce** the thing, then
+run it. Until these existed, an agent that wanted `OloEngine-Tests` built before
+running it had to leave the control plane entirely.
+
+This slice was deferred out of #1130 on purpose, because the design question was
+unresolved and building it wrong is worse than not having it. Every build in this
+repo goes through `.claude/skills/run-oloengine/build-lock.ps1`, which bounds
+concurrent builds across every worktree, derives its job count from free memory,
+and kills its build if the launching session dies. The full derivation of the
+concurrency contract is in
+[automation-build-invocation.md](../agent-rules/automation-build-invocation.md);
+the four answers, in one line each:
+
+1. **Acquire, never bypass** — with a bounded, caller-set wait
+   (`lockWaitSeconds`, default 300; `0` fails fast). The wait is a real FIFO
+   ticket, so it never jumps another worktree, and when the budget expires the
+   error **names the holder**.
+2. **The editor process is the lock identity** — the child is spawned directly
+   from the editor, so `build-lock.ps1`'s parent watch pins `OloEditor.exe` and
+   reaps the build when the editor dies.
+3. **Cancellation kills the tree, not the shim** — the child lives in a Win32 job
+   object with `KILL_ON_JOB_CLOSE`, so cancelling stops pwsh, cmake, ninja and
+   every compiler together, and the lock releases *after* the build stopped
+   rather than before.
+4. **The editor may not build itself** — `OloEditor` and `OloEngine-ScriptCore`
+   are refused, and the refusal is an **allow-list** so `all` / `ALL_BUILD` /
+   `install` and any future target cannot leak through.
+
+**A zero exit code is not evidence that anything was built.** This is the rule
+the whole result shape exists for, and there are three separate ways to get one:
+
+- `build-lock.ps1` **stands down with exit 0** when an identical build for this
+  worktree was queued later (its `Test-Superseded` path). Nothing ran.
+- An incremental build with nothing to do also exits 0 and touches no artefact.
+  That is legitimate — and indistinguishable from the above without looking.
+- A build that never started leaves last week's binary exactly where you look.
+
+So the verdict comes from the **artefact**, stat'd on both sides of the build and
+compared against the instant it started, and the cases stay separate:
+
+| `outcome` | means |
+|---|---|
+| `rebuilt` | the artefact was replaced by this call |
+| `up-to-date` | the build ran, had nothing to do; the artefact is from an **earlier** build — check `artifact.modifiedUtc` before trusting it to contain your change |
+| `failed` | non-zero exit, or the lock's parent watch killed an orphan |
+| `missing-artifact` | exit 0 and **nothing at the artefact path**. Never a pass |
+| `not-built` | the lock stood down, or never acquired within the wait budget |
+| `skipped` | an earlier target in the same call failed, so this one was never attempted |
+
+Diagnostics come back as records, not text:
+
+```jsonc
+{ "severity": "error", "file": "OloEngine/src/OloEngine/Renderer/Foo.cpp",
+  "line": 212, "column": 9, "code": "C2065",
+  "message": "'hazards': undeclared identifier" }
+```
+
+MSVC `cl` emits no column, so `column` is omitted rather than faked. A record
+that came from several translation units (a header warning included forty times)
+is collapsed with an `occurrences` count — forty copies is one defect. Errors are
+emitted before warnings so `maxDiagnostics` can never hide the reason a build
+failed, and any excess is counted in `diagnosticsOmitted`.
+
+The `lock` block carries what the script actually did, including its verbatim
+transcript: whether the lock was contended, who held it, and the job count it
+chose (it rewrites your `--parallel`, in either direction, from measured free
+memory at acquire time).
+
+**Read `queuedSeconds` before concluding a build is slow.** `wallSeconds` covers
+the queue wait too, and on a busy box that is most of it — a measured run here
+built a 15 KB DLL in 22 s after 1451 s queued behind three other worktrees. The
+two numbers lead to opposite actions, so they are reported separately (and
+omitted, rather than zeroed, when the acquire was not observed).
+
+Targets are built **one at a time, in order**, each with its own lock ticket, and
+the list stops at the first failure. `--target A --target B` would build both
+under one `cmake`, and per-target wall time would then be a guess.
+
+Two things to know before using it:
+
+- **Building `OloEngine` runs `GenerateBindings`**, which can rewrite the tracked
+  generated sources under `OloEngine/src/Generated/`. The working tree moves.
+- **`bin/` is under the source tree**, not the build tree, so `build-cached/` and
+  `build/` write the same `bin/Debug/OloRuntime/OloRuntime.exe`. The artefact
+  path cannot say which tree produced it; the timestamp can say when.
+
+`olo_build_run` pairs with `BuildGamePanel`, it does not duplicate it: the panel
+**packages** a game by copying a prebuilt `OloRuntime` and can only warn when
+that binary is stale. This command is what produces it — literally the answer to
+the panel's own *"Build OloRuntime in <config> configuration first"* error.
+Packaging stays out of scope here.
+
+Long builds report progress through the standard mechanism (queueing for the lock
+across the first 5%, then ninja's own edge counter) and honour cancellation — see
+[Progress notifications & cancellation](#progress-notifications--cancellation).
 
 ### Whole-project validation (`olo_project_validate`)
 
@@ -2267,11 +2450,11 @@ characters, inline lists at 12 items, each stating what it elided. The full payl
 in the assistant block and in `structuredContent`. Path redaction, when enabled, scrubs both
 blocks identically.
 
-**Current adopters (14):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
+**Current adopters (15):** `olo_gpu_resources`, `olo_memory_report`, `olo_perf_snapshot`,
 `olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_render_frame_breakdown`,
 `olo_render_graph_topology_export`, `olo_render_why_not_visible`, `olo_render_target_stats`,
 `olo_cluster_grid_stats`, `olo_shadow_atlas_layout`, `olo_physics_why_no_collision`,
-`olo_tests_run`, `olo_project_validate`.
+`olo_tests_run`, `olo_project_validate`, `olo_build_run`.
 
 That list is ratcheted in both directions by
 `McpAudienceBlocksTest.BuiltinAdoptionMatchesTheDeliberateList`, which compares the real

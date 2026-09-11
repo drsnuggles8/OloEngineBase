@@ -13,6 +13,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Scene/Components.h"
 
@@ -257,6 +258,45 @@ namespace OloEngine
                         ImGui::Separator();
                     }
                     ImGui::Text("Instances this frame: %u", frameInstances);
+
+                    // Ray-tracing coverage (issue #1144). Virtual geometry used
+                    // to be absent from the TLAS entirely, which was invisible
+                    // in the editor: a Nanite mesh simply cast no ray-traced
+                    // shadow and the user had no way to learn why. Both halves
+                    // are printed, always, so "all of it is proxied" and "none
+                    // of it is" are different readings rather than one blank
+                    // line.
+                    //
+                    // The counter measures STAGING — parts staged into the
+                    // canonical GPU Scene as a proxy — not tracing. Those are
+                    // different questions and the answer differs by backend:
+                    // on OpenGL there is no ray tracing at all, so a staged
+                    // proxy is in no TLAS however green this line looks.
+                    // Saying "N / N in the TLAS" there would report the one
+                    // failure this pair exists to surface as a success, so the
+                    // capability is printed with it rather than assumed.
+                    const u32 proxyParts = vgDiagnostics.ProxyParts;
+                    const u32 proxylessParts = vgDiagnostics.ProxylessParts;
+                    if (proxyParts > 0 || proxylessParts > 0)
+                    {
+                        ImGui::Text("Ray-tracing proxies staged: %u / %u parts", proxyParts,
+                                    proxyParts + proxylessParts);
+                        const auto rtCaps = RenderCommand::GetRayTracingCapabilities();
+                        if (!rtCaps.Supported)
+                        {
+                            ImGui::TextDisabled("...but nothing traces them here: %s",
+                                                std::string(rtCaps.ReasonText()).c_str());
+                        }
+                        if (proxylessParts > 0)
+                        {
+                            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f),
+                                               "%u part(s) have NO ray-tracing proxy", proxylessParts);
+                            ImGui::TextWrapped("They are absent from the TLAS: no ray-traced shadow, no ray-traced "
+                                               "reflection, no path-traced hit. A part whose cluster DAG failed to "
+                                               "build draws nothing at all and is counted here too. See "
+                                               "OloEngine.log.");
+                        }
+                    }
 
                     ImGui::Separator();
                     ImGui::TextDisabled("Streaming residency");

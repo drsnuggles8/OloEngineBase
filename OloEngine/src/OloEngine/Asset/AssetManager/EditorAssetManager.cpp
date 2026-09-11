@@ -438,13 +438,17 @@ namespace OloEngine
             }
         }
 
-        // Update dependencies
-        UpdateDependencies(assetHandle);
-
         // Track reload generation for stale-handle detection
         IncrementAssetGeneration(assetHandle);
 
-        // Notify dependent assets that this asset has been updated
+        // Notify the assets that DEPEND ON this one that it has been updated --
+        // a material whose texture was reloaded, a static mesh whose mesh source
+        // changed. This used to be preceded by an UpdateDependencies(assetHandle)
+        // call that walked m_AssetDependencies (what this asset depends on) and
+        // notified THOSE, which was the wrong direction; it only worked because
+        // the serializers registered every edge backwards, so the two errors
+        // cancelled. Both are fixed together, because fixing either alone breaks
+        // hot-reload notification.
         UpdateDependents(assetHandle);
 
         // Notify listeners via engine event system (on main thread)
@@ -1157,31 +1161,6 @@ namespace OloEngine
 
         OLO_CORE_TRACE("Loaded asset: {}", metadata.FilePath.string());
         return asset;
-    }
-
-    void EditorAssetManager::UpdateDependencies(AssetHandle handle)
-    {
-        // First, gather the dependent handles while holding the dependency lock
-        std::unordered_set<AssetHandle> dependents;
-        {
-            TSharedLock<FSharedMutex> lock(m_DependenciesMutex);
-            auto it = m_AssetDependencies.find(handle);
-            if (it != m_AssetDependencies.end())
-            {
-                dependents = it->second;
-            }
-        }
-
-        // Then iterate over dependents without holding any locks to prevent deadlock
-        for (AssetHandle dependent : dependents)
-        {
-            // Notify dependent assets that this asset has changed
-            auto asset = GetAsset(dependent);
-            if (asset)
-            {
-                asset->OnDependencyUpdated(handle);
-            }
-        }
     }
 
 #if OLO_ASYNC_ASSETS

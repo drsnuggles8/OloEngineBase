@@ -65,7 +65,16 @@ namespace OloEngine
         // UV set read at import). Persisting it here means a re-open of the project does
         // not silently drop the unwrap a bake produced — a mesh whose section is empty
         // simply has no lightmap parameterization yet.
-        constexpr u32 CurrentVersion = 6; // v6: appends LightmapUVs (issue #439)
+        //
+        // v7 appends no section. It exists to INVALIDATE every v6 cache, the same
+        // way v3 and v5 did before it: ImportedMaterialCodec went to wire version
+        // 2 for the physical glTF material fields (issue #970), and a v6 .omesh
+        // holds a v1 material blob. That blob decodes perfectly well -- into
+        // NEUTRAL defaults -- so without this bump an already-imported
+        // transmissive glTF keeps its warm cache and renders OPAQUE, with no
+        // error anywhere. ReadTimestamp gates validity on Version ==
+        // CurrentVersion (strict), so moving it forces one cold re-import.
+        constexpr u32 CurrentVersion = 7; // v7: invalidates v6 for the #970 material fields
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed

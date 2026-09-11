@@ -5431,6 +5431,8 @@ namespace OloEngine::MCP
                     { "submitted", diagnostics.Submitted },
                     { "fellBackToClassic", diagnostics.FellBackToClassic },
                     { "silentlyDrewNothing", diagnostics.SilentlyDrewNothing() },
+                    { "rayTracedProxyParts", diagnostics.ProxyParts },
+                    { "partsWithoutRayTracingProxy", diagnostics.ProxylessParts },
                 };
 
                 if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
@@ -5456,6 +5458,13 @@ namespace OloEngine::MCP
                 else if (registry.GetFrameInstances().empty())
                     j["note"] = "No virtual-mesh instances were submitted this frame: the scene contains no "
                                 "VirtualMeshComponent, or every one of them is disabled or has no mesh assigned.";
+                else if (diagnostics.ProxylessParts > 0)
+                    j["note"] = std::to_string(diagnostics.ProxylessParts) +
+                                " virtual-mesh part(s) have NO ray-tracing proxy (issue #1144): they are absent "
+                                "from the TLAS, so no ray-traced shadow, no ray-traced reflection, no path-traced "
+                                "hit. Check olo_rt_scene_stats and OloEngine.log; a proxy is skipped when the "
+                                "part's cluster DAG would not build (that part draws nothing at all), when the DAG "
+                                "carries no usable coarse cut, or when its buffers could not be created.";
                 return j; });
             return ToolResult::Structured(result);
         }
@@ -8270,7 +8279,9 @@ namespace OloEngine::MCP
                                                              .Prop("registrationFailures", Schema::Int().Min(0).Desc("...that resolved but whose cluster DAG failed to build."))
                                                              .Prop("submitted", Schema::Int().Min(0).Desc("...that actually reached the renderer."))
                                                              .Prop("fellBackToClassic", Schema::Bool().Desc("Master switch off: drawn through the classic mesh path, so zero VG counters are expected."))
-                                                             .Prop("silentlyDrewNothing", Schema::Bool().Desc("TRUE means the scene asked for virtual geometry and got none. Any measurement taken here is vacuous.")))
+                                                             .Prop("silentlyDrewNothing", Schema::Bool().Desc("TRUE means the scene asked for virtual geometry and got none. Any measurement taken here is vacuous."))
+                                                             .Prop("rayTracedProxyParts", Schema::Int().Min(0).Desc("Virtual-mesh PARTS staged into the canonical GPU Scene as a ray-tracing proxy this frame (issue #1144). This is a STAGING count, not proof of tracing: whether the TLAS actually holds them depends on the backend, so read olo_rt_scene_stats' capability + tlasInstances alongside it (OpenGL has no ray tracing at all, and a staged proxy is then in no TLAS)."))
+                                                             .Prop("partsWithoutRayTracingProxy", Schema::Int().Min(0).Desc("...and the parts that got none: absent from the TLAS, so no ray-traced shadow, reflection or path-traced hit. Includes a part whose cluster DAG failed to build, which draws nothing at all. Also counted as GPUSceneUnsupportedCategory::Virtualized.")))
                                     .Prop("note", Schema::String().Desc("Plain-language explanation of a zero (broken scene / classic fallback / non-Deferred path / genuinely no virtual meshes); omitted when there is nothing to caveat."))
                                     .Required({ "renderingPath", "frameInstances", "frameClusters", "cull", "residency", "settings", "diagnostics" });
             tool.MainMarshaled = true;

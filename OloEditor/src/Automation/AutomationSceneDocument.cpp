@@ -1,24 +1,19 @@
 #include "OloEnginePCH.h"
 #include "Automation/AutomationSceneDocument.h"
 
+#include "Automation/AutomationFileWrite.h"
+
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "UndoRedo/EditorCommand.h"
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <system_error>
 #include <utility>
-
-#ifdef OLO_PLATFORM_WINDOWS
-#include "Platform/Windows/WindowsHWrapper.h"
-#endif
 
 namespace OloEngine::Automation
 {
@@ -64,83 +59,9 @@ namespace OloEngine::Automation
 
     namespace
     {
-        using FileContents = std::optional<std::string>;
-
-        FileContents ReadFile(const std::filesystem::path& path)
-        {
-            std::error_code error;
-            const auto status = std::filesystem::symlink_status(path, error);
-            if (error && error != std::errc::no_such_file_or_directory)
-                throw std::filesystem::filesystem_error("Cannot inspect scene destination", path, error);
-            if (!std::filesystem::exists(status))
-                return std::nullopt;
-            if (!std::filesystem::is_regular_file(status))
-                throw std::runtime_error("Scene destination must be a regular file: " + path.string());
-            std::ifstream input(path, std::ios::binary);
-            if (!input)
-                throw std::runtime_error("Cannot read scene destination: " + path.string());
-            std::string bytes{ std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>() };
-            if (input.bad())
-                throw std::runtime_error("Failed while reading scene destination: " + path.string());
-            return bytes;
-        }
-
-        void RequireFileContents(const std::filesystem::path& path, const FileContents& expected)
-        {
-            if (ReadFile(path) != expected)
-                throw std::runtime_error("Scene file changed outside this undo operation; refusing to overwrite: " + path.string());
-        }
-
-        // Commit a sibling temporary file with one rename/replace. Readers see
-        // the complete old or new scene, and a failed write leaves the old file.
-        void ReplaceFileContents(const std::filesystem::path& path, const FileContents& expected,
-                                 const FileContents& replacement)
-        {
-            RequireFileContents(path, expected);
-            if (!replacement)
-            {
-                if (expected && !std::filesystem::remove(path))
-                    throw std::runtime_error("Cannot remove scene file: " + path.string());
-                return;
-            }
-
-            auto temporary = path;
-            temporary += ".automation-" + std::to_string(static_cast<u64>(UUID())) + ".tmp";
-            if (std::filesystem::exists(temporary))
-                throw std::runtime_error("Temporary scene file already exists: " + temporary.string());
-            bool temporaryOwned = false;
-            try
-            {
-                std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-                if (!output)
-                    throw std::runtime_error("Cannot create temporary scene file: " + temporary.string());
-                temporaryOwned = true;
-                output.write(replacement->data(), static_cast<std::streamsize>(replacement->size()));
-                output.flush();
-                if (!output)
-                    throw std::runtime_error("Cannot write scene file: " + path.string());
-                output.close();
-                if (!output)
-                    throw std::runtime_error("Cannot close scene file: " + path.string());
-                RequireFileContents(path, expected);
-#ifdef OLO_PLATFORM_WINDOWS
-                if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-                    throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Cannot replace scene file");
-#else
-                std::filesystem::rename(temporary, path);
-#endif
-            }
-            catch (...)
-            {
-                if (temporaryOwned)
-                {
-                    std::error_code ignored;
-                    std::filesystem::remove(temporary, ignored);
-                }
-                throw;
-            }
-        }
-
+        // Atomic, guarded file replacement lives in AutomationFileWrite.h -- the
+        // asset commands (#1128) need byte-identical behaviour, and two copies of
+        // this guard would be two chances to get it subtly different.
         std::filesystem::path ResolveDestination(const SceneDocumentAccess& access,
                                                  const std::filesystem::path& requested)
         {
@@ -289,7 +210,7 @@ namespace OloEngine::Automation
         after.Path = ResolveDestination(access, path.empty() ? before.Path : path);
         if (!path.empty())
             after.Name = after.Path.stem().string();
-        auto oldBytes = ReadFile(after.Path);
+        auto oldBytes = ReadFileContents(after.Path);
         auto newBytes = SerializeDocument(after);
         if (oldBytes && *oldBytes == newBytes && before.Path == after.Path && before.Name == after.Name &&
             SerializeDocument(before) == newBytes)

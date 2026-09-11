@@ -201,7 +201,14 @@ jobs:
     # is load-bearing rather than decorative. Since #1015 this job DOES run on a
     # same-repo pull_request that touches the Steam seam, so the fork boundary in
     # this expression is live, not decorative.
+    #
+    # NOT ON THE BOX FOR A `push` (#1084). A master push is a fleet cache warm, and the
+    # self-hosted compiler cache is a LOCAL ccache directory that no other runner can
+    # read -- so the warm banks nothing fleet-wide while holding one of two olo-ci
+    # runners, and while it queues the next merge evicts it via the single-pending-slot
+    # rule. asan.yml's Linux jobs carry the full note and the measurements.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     needs: detect-changes

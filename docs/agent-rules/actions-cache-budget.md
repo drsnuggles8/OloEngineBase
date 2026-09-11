@@ -44,6 +44,20 @@ Issue [#1073](https://github.com/drsnuggles8/OloEngineBase/issues/1073).
    worst case, not from the set. Both halves, measured, with the arithmetic:
    [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md).
 
+7. **A cache is only as warm as its producer's cadence, and only a default-branch run
+   is a producer.** The snapshot decays with **source drift**, not with the clock, so
+   size the cadence against the merge rate — ~12 a day here. One nightly was not
+   enough: restoring the 04:39 nightly at 12:46 gave **46.76 %** hits and a
+   **123.8 min** build, restoring a 12:46 warm at 18:10 gave **99.88 %** and
+   **19.6 min** (#1084, same job, same afternoon). Warming spends runner time, not
+   cap — *Warming costs runner time, not cap*, below.
+8. **Judge a warm by WHICH translation units hit, not by the hit rate.** 99.88 %
+   (2 misses of 1668) built in 19.6 min; 98.49 % (25 misses of 1661) took 30.3, because
+   the `OloEditor/src/MCP/Mcp*.cpp` objects are ~5.4 min and run serialized at the end.
+   `sccache --show-stats` cannot answer that;
+   [`scripts/Report-NinjaBuildTail.ps1`](../../scripts/Report-NinjaBuildTail.ps1) reads
+   it out of `.ninja_log` on every `Windows / build` run.
+
 ---
 
 ## What happened
@@ -187,7 +201,7 @@ before compression:
 | `Windows-vulkan-prebuilt-sdk-true-1.4.357.0` **and** `-1.4.321.0` | **256 + 229 MiB measured** 2026-09-09 — **one dependency, two live entries.** This is the version-in-the-key case rule 6's bullet list warns about: `cache-prune.yml` strips a trailing *hex* hash, and `1.4.321.0` is not hex, so the bump superseded nothing and the old entry sits until the 30-day age-out collects it (created 2026-07-07, last read 2026-09-08). 485 MiB for one SDK is the measured price of that key shape. |
 | `ffmpeg-Windows-n7.1-637be53f…` | **4 MiB, and dead.** Its hash no longer matches any workflow, so nothing will ever restore it; the age-out collects it. The FFmpeg cache had in fact **never been saved on any run** — the path cached was not the path CMake installs into, so every save exited zero on a `Path Validation Error` (#1141). The working lineage that replaces it is keyed `ffmpeg-<os>-<hash of build-ffmpeg.sh + cmake/ffmpeg.cmake>` and banks ~19 MB uncompressed. |
 | **measured subtotal** | **1813 MiB** (4 + 229 + 256 + 291 + 327 + 706), measured 2026-09-09 |
-| `sccache-windows-2025-release` | **2044 MiB** — measured 2026-09-08 and again 2026-09-09. At its 2 G cap and evicting. Warm PR runs return 94.77 / 95.01 / 98.49 %, so the cap is not currently costing much, but it has no headroom left either. |
+| `sccache-windows-2025-release-vk<sdk>` | **2044 MiB** — measured 2026-09-08 and again 2026-09-09 under the key's old, unstamped spelling. At its 2 G cap and evicting. Warm PR runs return 94.77 / 95.01 / 98.49 %, so the cap is not currently costing much, but it has no headroom left either. **#1084 put the Vulkan SDK version in the key**, mirroring what #1118 did to the ASan sibling and for the same reason: sccache hashes the preprocessed output, so a key without the stamp restores a pre-bump entry cleanly and misses on every TU that reaches a Vulkan header. Two consequences for this table. The rename starts a **fresh lineage**, so the first stamped entry holds one build's objects rather than an accumulation — expect it to measure *under* 2044 MiB at first, as `sccache-asan-windows-2025` did (1230 → 667 MiB), and do not read that drop as a saving. And the unstamped predecessor is collected by `cache-prune.yml`'s `-vk<version>` strip, which groups both spellings together, rather than being stranded for thirty days. |
 | `sccache-asan-windows-2025-vk1.4.357.0` | **667 MiB measured** 2026-09-09 — down from **1230 MiB** on 2026-09-08, and the drop is the useful part. #1118 renamed the key to carry the SDK version, which started a **fresh lineage**: this entry holds one build's objects, where the old one had accumulated objects from many source generations in a single dir. **So an object set measured off a long-lived entry overstates what one build needs** — the `du -sm` 1241 MiB that rule 6's arithmetic used for this job was such a measurement. Its 1500M cap now has ~830 MiB spare. |
 | **steady set** | **7968 MiB measured** 2026-09-09 by summing `size_in_bytes` over the API listing, 11 entries (the floored rows above sum to 7964). Against a ~9537 MiB wall and `cache-prune.yml`'s 8800 MiB working ceiling that is **832 MiB of headroom to the ceiling** — down from 1738 MiB on 2026-09-08, because #1118's 1300M cap cost the sanitizer trio ~1200 MiB and the Vulkan SDK bump stranded another 229. **Against the 25 GB cap set the same day it is ~17 GB** (see *The cap moved*): the measurement stands, the "nothing sizeable can be added" conclusion it carried does not. What binds is `cache-prune.yml`'s working ceiling, **20000 MiB**, leaving this set **12032 MiB** of room. That headroom, not any object set, is what a cap has to be sized against — see [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md). |
 
@@ -297,6 +311,33 @@ green check** — this section is what happens when that distinction is not made
 needed. Read `created_at`, `last_accessed_at` **and the hit rate** — the first two only
 tell you the entry is being written and read, not that it is worth anything.
 
+## Warming costs runner time, not cap
+
+#1084 added a build-only `push: master` run to `Windows.yml` (`build`) and `asan.yml`
+(`asan-windows`). It is worth being precise about which budget that spends, because the
+instinct is to check it against the cap and the cap is not what it touches.
+
+**Entries: unchanged.** Every key here ends in `-<run_id>-<attempt>` and is saved through
+`save-cache-pruned`, which deletes this ref's superseded entries under the same lineage
+prefix on a **confirmed save** — not only on a refused one. So the store holds one entry
+per (lineage, ref) whether that lineage is written once a day or fifteen times. Warming
+raises the **save rate**, and the save rate was never the thing the cap counted.
+
+**Runner time: one hosted `windows-2025` job per workflow per warm**, plus `asan.yml`'s
+seconds-long `detect-changes`. The shards, the test tree, the shader pack and the three
+self-hosted Linux sanitizer jobs are all gated off on `github.event_name != 'push'`. The
+Linux jobs are excluded on their own merits, not for tidiness: they cache on the box's
+local disk, so a warm would bank nothing, and their queue is already the largest single
+term in the per-PR wait (p90 128 min, max 304).
+
+**And the burst is bounded by concurrency, not by hope.** `cancel-in-progress` is false
+for a push, and a concurrency group holds at most one PENDING run — a third merge cancels
+the second's pending run and takes its place. So a burst of twelve merges collapses to
+"the warm in flight, plus the newest commit", and the run in flight is never the one
+cancelled, so nothing starves. The `push` and `schedule` lanes are kept in **separate**
+groups (`github.event_name` is part of the group) precisely so this cannot reach the
+nightly: sharing a group would let the next merge cancel a pending full test run.
+
 ## Who actually has a claim on the cap
 
 Measured 2026-09-06 by reading every workflow's triggers and `runs-on`. Rule 5 above only
@@ -310,6 +351,13 @@ suggest:
 | `dist-archive.yml / archive` | windows-2025 | only 4 paths (`CMakeLists.txt`, two `cmake/*.cmake`, its own file) | vcpkg only. A full Dist build with **no compiler cache**, and that is correct — a job that runs on a few percent of PRs should not hold ~2 GiB. |
 | `steam-stub.yml / single-valve-tu` | ubuntu-24.04 | only Steam-seam changes | none; it compiles one TU |
 | `pre-commit`, `detect-changes`, `cancel-merged-pr-runs` | ubuntu-latest | every PR | none; seconds |
+
+Rule 5 says the store exists for hosted jobs on a pull request, and the two `windows-2025`
+rows are the only ones that qualify. The **producers** of what those rows restore have a
+claim by extension and are not on this table because they never run on a PR: the nightly
+cron, and since #1084 the build-only `push: master` warm in the same two workflows. A
+producer that is throttled to protect the cap simply moves the cost onto every PR that
+restores what it did not write.
 
 The two `windows-2025` rows are conditional as of #1076: `Windows.yml` and `asan.yml` carry the
 routing to send them to a self-hosted runner behind `vars.OLO_WINDOWS_SELF_HOSTED`, and every

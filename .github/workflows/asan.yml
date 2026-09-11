@@ -1,7 +1,10 @@
 name: Sanitizers
 on:
-  # NO `push: [master]` -- deliberately, and replaced by the nightly cron below
-  # (#1009 item E). Two things are going on and the second is the easy one to miss.
+  # NO FULL `push: [master]` RUN -- deliberately, and replaced by the nightly cron
+  # below (#1009 item E). What a master push DOES get, since #1084, is the
+  # `asan-windows` build job on its own as a cache warm: no shards, no Linux
+  # sanitizers, no test tree. Two things are going on and the second is the easy one
+  # to miss.
   #
   # 1. It was mostly a second opinion on identical code. GitHub's `pull_request`
   #    event builds `refs/pull/N/merge` -- the PR merged into master -- so by the
@@ -23,6 +26,25 @@ on:
   #    master trigger outright and no PR could ever restore a warm cache again --
   #    a change that reads as a pure saving and is in fact the opposite.
   #
+  #    ONE WARM A DAY IS NOT ENOUGH (#1084). The snapshot decays with SOURCE DRIFT,
+  #    not with the clock, and this repo merges ~12 pull requests a day. Windows.yml
+  #    carries the measurement -- its binding step ran 123.8 min off an eight-hour-old
+  #    nightly and 19.6 min off a five-hour-old warm on the same afternoon -- and the
+  #    trigger note there owns the full reasoning and the cost.
+  #
+  #    THIS JOB IS WARMED FOR A SPECIFIC REASON, not for symmetry. The two Windows
+  #    jobs are within 6-8 min of each other on a warm PR, so whichever one is colder
+  #    binds the wait. Warming only Windows.yml would hand the critical path to this
+  #    one every afternoon. Its afternoon hit rate has never been sampled, which is
+  #    the honest state: the exposure is structural (same store, same daily producer,
+  #    same drift), the number is not measured.
+  #
+  #    ONLY `asan-windows` runs on a push. The three Linux sanitizer jobs are
+  #    self-hosted and cache on the box's local disk, so a warm would buy them
+  #    nothing -- and they are the run's largest wait already (queue p90 128 min,
+  #    max 304), so putting twelve more of them a day into that queue would be a
+  #    straight loss.
+  #
   # The cron therefore has to run to COMPLETION, which is what the
   # `cancel-in-progress` expression below guarantees by excluding non-PR events.
   pull_request:
@@ -31,6 +53,18 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'LICENSE'
+
+  # THE CACHE WARM (#1084) -- `asan-windows` only; every other job below is gated off
+  # on `github.event_name != 'push'`. It has to be the DEFAULT BRANCH: an
+  # `actions/cache` entry written on a PR ref is readable by that one pull request,
+  # so a warm banked anywhere else is invisible to every other branch.
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'LICENSE'
+
   schedule:
     - cron: '23 1 * * *' # nightly 01:23 UTC — off the on-the-hour surge, and clear
                          # of gpu-conformance (00:47) and cross-vendor (03:47).
@@ -64,12 +98,17 @@ concurrency:
   # flake. Keyed on the input, the two arms are independent runs.
   # `only` is in the key for the same reason `force_hosted` is (below): a TSan-only
   # dispatch fired beside a full one on the same ref must not cancel it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}
+  # `github.event_name` is in the key for a third instance of the same reason: the
+  # `push` warm and the `schedule` nightly both run on `refs/heads/master`, and since
+  # neither is cancellable they would share one group -- where a group holds at most
+  # one PENDING run, so the next merge would cancel the pending nightly. The nightly
+  # is the full sanitizer run and must never be cancelled.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
-  # what it banks is a partial snapshot at best. The nightly is this workflow's only
-  # default-branch cache producer (see the trigger note above), so it must never be
-  # cancellable. Under the old expression a `push` run was cancellable too, which is
+  # what it banks is a partial snapshot at best. The nightly and the `push` warm are
+  # this workflow's default-branch cache producers (see the trigger note above), so
+  # neither may be cancellable. Under the old expression a `push` run was cancellable too, which is
   # how the master sccache snapshot came to be six days stale while every PR run
   # restored it and reported a 0% hit rate.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -279,8 +318,14 @@ jobs:
     # the entire cache in one step -- silently, because it still restores and the
     # build still goes green. The key below carries the image string for the same
     # reason; when `runs-on` is bumped, bump it with it.
+    #
+    # `!= 'push'` alongside `!= 'schedule'` (#1084): both are cache warms for the whole
+    # fleet, and every sccache step here is gated on
+    # `runner.environment == 'github-hosted'`, so a warm routed to the box would bank
+    # nothing to the shared store and still report success.
     runs-on: ${{ vars.OLO_WINDOWS_SELF_HOSTED == 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","windows","x64","olo-ci-win"]') || 'windows-2025' }}
 
@@ -712,6 +757,9 @@ jobs:
     # launches no test process and costs seconds.
     - name: Measure the unsharded case count
       id: ctest-total
+      # NOT ON THE CACHE WARM (#1084). A `push` run exists to bank the sccache entry;
+      # this step and the two below feed the shards, and no shard runs on a warm.
+      if: github.event_name != 'push'
       shell: bash
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: |
@@ -757,6 +805,7 @@ jobs:
     #     in practice -- but "in practice" is exactly the kind of assumption that
     #     turns into a silent 100 %-skip later, so the shard asserts it.
     - name: Package the instrumented test tree
+      if: github.event_name != 'push'
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -788,6 +837,7 @@ jobs:
     # retention-days 1: this is scratch, not a deliverable. A multi-hundred-MB
     # artifact per run held for 90 days is a storage bill for nothing.
     - name: Upload the instrumented test tree
+      if: github.event_name != 'push'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: asan-windows-test-tree
@@ -819,6 +869,10 @@ jobs:
   asan-windows-tests:
     name: ASan (Windows) tests ${{ matrix.shard }}/4
     needs: asan-windows
+    # NOT ON THE CACHE WARM (#1084). A `push` run builds and banks the sccache entry
+    # and stops there; the suite already ran on the pull request that produced this
+    # merge commit. The nightly is still the full run.
+    if: github.event_name != 'push'
     # THE SHARDS FOLLOW THE BUILD JOB (#1076 x #1083). gtest_discover_tests bakes the
     # absolute exe and WORKING_DIRECTORY paths into the generated test list, so a
     # shard on a different runner kind would be pointing at a path that is not there.
@@ -1092,7 +1146,10 @@ jobs:
     # killed mid-flight, and `always()` would then run this job and post a red
     # "a shard did not complete" on a run nobody abandoned for a reason worth
     # reading. Braced because a bare leading `!` is a YAML tag indicator.
-    if: ${{ !cancelled() && needs.asan-windows.result == 'success' }}
+    # `github.event_name != 'push'` for the same reason the shards carry it: on a
+    # cache warm there are no shards, so there is no coverage to prove -- and without
+    # this clause the job would run and post a red "no shard reports found".
+    if: ${{ !cancelled() && needs.asan-windows.result == 'success' && github.event_name != 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1165,7 +1222,11 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+    # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
+    # self-hosted and caches on the box's local disk, so a warm would bank nothing --
+    # it would only add to the queue that is already this run's largest wait.
+    if: ${{ github.event_name != 'push'
+        && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-lsan') }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
     # expression as vulkan-off.yml, whose comment owns the security reasoning:
@@ -1224,9 +1285,26 @@ jobs:
     # The hosted arm is pinned to ubuntu-24.04 (noble) because the LLVM apt repo
     # URL hardcodes the distro codename; if ubuntu-latest jumped release the apt
     # source would 404.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
@@ -1707,15 +1785,36 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+    # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
+    # self-hosted and caches on the box's local disk, so a warm would bank nothing --
+    # it would only add to the queue that is already this run's largest wait.
+    if: ${{ github.event_name != 'push'
+        && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
     # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
     # fail, it queues for 24 hours.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:
@@ -2103,7 +2202,11 @@ jobs:
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
     needs: detect-changes
-    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+    # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
+    # self-hosted and caches on the box's local disk, so a warm would bank nothing --
+    # it would only add to the queue that is already this run's largest wait.
+    if: ${{ github.event_name != 'push'
+        && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'tsan') }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
     #
@@ -2132,9 +2235,26 @@ jobs:
     # and the `force_hosted` A/B live on that job. Keep the three expressions
     # byte-identical: a job that drifts onto a label set nobody serves does not
     # fail, it queues for 24 hours.
+    # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
+    # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
+    # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
+    # ccache, not sccache -- setup-linux-build points the self-hosted compiler cache at
+    # a LOCAL directory on persistent disk ($HOME/.cache/olo/ccache), shared by every
+    # self-hosted job on the machine. It is warmed continuously by the PR runs that
+    # already build here, so a master push adds nothing to it; what the push DOES add
+    # is an hour or more of exclusive hold on one of only two olo-ci runners.
+    #
+    # AND A HELD RUNNER IS A LOST WARM, WHICH IS THE HALF THAT LOOKS LIKE IT CANNOT
+    # HAPPEN. A concurrency group keeps at most one PENDING run, so while a warm waits
+    # for a runner the next merge EVICTS it -- not `cancel-in-progress`, which is
+    # correctly false here, but the pending-slot rule. On 2026-09-11 three consecutive
+    # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
+    # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
+    # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
+                 && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     permissions:

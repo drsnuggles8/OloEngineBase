@@ -427,7 +427,13 @@ namespace OloEngine
         const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
         params.TlasAddressAndFrame = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                                 static_cast<u32>(tlasAddress >> 32u),
-                                                RayTracing::kInstanceMaskAll, m_FrameIndex);
+                                                // The .z lane is the cull mask of ONE ray in this pass:
+                                                // ReSTIRDICommon.glsl's visibility ray, which is a shadow
+                                                // ray. It takes the shadow-caster lane so an instance that
+                                                // opted out of casting (issue #1144) is skipped here too,
+                                                // rather than being shadowed by ReSTIR and not by the RT
+                                                // shadow tier.
+                                                RayTracing::kInstanceMaskShadowCaster, m_FrameIndex);
 
         const u32 lightSlots = std::min(m_GPUScene->GetLightSlotCount(), kReSTIRDIMaxLightSlots);
         params.SlotCounts = glm::uvec4(m_GPUScene->GetInstanceSlotCount(), m_GPUScene->GetGeometrySlotCount(),

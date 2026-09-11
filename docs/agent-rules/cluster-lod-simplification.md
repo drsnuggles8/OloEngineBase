@@ -119,6 +119,21 @@ saw. Locked vertices survive it — `computeVertexIds` gives each a unique id so
 
 ---
 
+## 5b. Terminal groups are marked `FLT_MAX`, and `FLT_MAX` is finite
+
+**Test a group for terminal with `>= std::numeric_limits<f32>::max()`, never with
+`!std::isfinite`.** `VirtualLODBounds::Error` marks a terminal (coarsest) group with `FLT_MAX`,
+which is an ordinary finite float — `std::isfinite(FLT_MAX)` is `true`. `ProjectError` already gets
+this right; anything new that classifies group errors has to.
+
+The failure mode is silence, not a wrong number. Deriving a coarsest-cut threshold as "the largest
+finite group error" with an `isfinite` filter admits the terminal marker, so the threshold becomes
+`FLT_MAX`, and the cut rule's strict `Error > threshold` then selects **nothing**. Every downstream
+consumer is handed a valid, empty answer: in #1144 that meant every ray-tracing proxy came back
+invalid, all 25 Sponza parts reported "no proxy", and the feature looked fully wired while doing
+nothing. A CPU test over a real DAG catches it in a second; reading the code does not, because the
+line looks obviously correct.
+
 ## 5. Measuring a builder change
 
 - **~~The cook is not reachable from a plain editor run.~~ CORRECTED 2026-08-21 (issue #864).**

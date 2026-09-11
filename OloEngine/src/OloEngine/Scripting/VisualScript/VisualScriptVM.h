@@ -24,11 +24,14 @@ namespace OloEngine
 namespace OloEngine::VisualScript
 {
     //==============================================================================
-    // The runtime half of issue #634. The execution model — exec-token push with
-    // synchronous branch descent, lazy data pull with per-exec-step memoization,
-    // and latent suspend/resume — is written up in
-    // docs/adr/0014-visual-script-execution-model.md. Read that before changing
-    // how Trigger / Suspend / the memo stamp interact.
+    // The runtime half of issue #634. The execution model — lazy data pull with
+    // per-exec-step memoization and latent suspend/resume — is written up in
+    // docs/adr/0014-visual-script-execution-model.md. Control flow is NOT that
+    // ADR's synchronous descent any more: the exec stack lives on the instance
+    // and is drained by a loop, per
+    // docs/adr/0023-visual-script-exec-stack-owned-by-the-vm.md, which is what
+    // gives the debugger something to resume from. Read both before changing how
+    // Trigger / TriggerAndReturn / Suspend / the memo stamp interact.
     //==============================================================================
 
     /// A resolved exec-wire endpoint: which node to run, and which of its exec
@@ -39,6 +42,38 @@ namespace OloEngine::VisualScript
     {
         i32 m_Node = -1;
         i32 m_Pin = -1;
+    };
+
+    /// One entry on the instance-owned exec stack — what used to be a C++ stack
+    /// frame under ADR 0014's synchronous descent. See ADR 0023.
+    ///
+    /// The stack is LIFO and a node body's pushes are reversed when the body
+    /// returns, so the first pin a node triggers is the first one popped and its
+    /// whole branch drains before the second is reached. That is where
+    /// `Sequence`'s "branch 0 completes before branch 1" comes from now — the
+    /// node itself knows nothing about it.
+    struct ExecFrame
+    {
+        enum class Kind : u8
+        {
+            /// Execute this node's body as a fresh entry.
+            Run,
+            /// Re-enter a body that asked for it with NodeContext::TriggerAndReturn.
+            Resume,
+            /// A Function.Call's callee has finished: marshal its results back
+            /// onto the call node and release the re-entry guard. Bookkeeping,
+            /// not a node body, so it never counts as a debugger step.
+            EndCall,
+        };
+
+        i32 m_Graph = 0;
+        i32 m_Node = -1;
+        /// Run: the exec input pin the token arrived on. Unused otherwise.
+        i32 m_Pin = -1;
+        /// Carried rather than derived: with no C++ recursion left, this is the
+        /// only thing that still bounds an exec chain (kMaxExecDepth).
+        u32 m_Depth = 0;
+        Kind m_Kind = Kind::Run;
     };
 
     /// Per-pin compilation result. Which fields are meaningful depends on the
@@ -218,9 +253,32 @@ namespace OloEngine::VisualScript
         void SetOutput(sizet pin, PinValue value) const;
 
         //-- Control flow ----------------------------------------------------------
-        /// Run the branch wired to exec output `pin` to completion, right now.
-        /// Loop nodes call this once per iteration.
+        /// Queue the branch wired to exec output `pin`. It runs to completion
+        /// before anything this body queues after it, and before whatever the
+        /// caller had queued — so from a node body's point of view this is still
+        /// ADR 0014's "run that branch now", minus the C++ recursion.
         void Trigger(sizet pin) const;
+        /// Run `pin`'s branch, then re-enter THIS body with IsResume() true.
+        /// The only way a node body gets control back after a branch, and so the
+        /// only thing a loop node needs beyond Trigger (ADR 0023).
+        ///
+        /// Two rules for a body that calls it:
+        /// - carry the iteration in State(), not in a C++ local — the body
+        ///   returns between iterations;
+        /// - use `NodeState::m_Flag` as the "still iterating" marker and nothing
+        ///   else. The VM clears it if the pending resume is ever discarded (the
+        ///   node budget ran out inside the branch, or play stopped), which is
+        ///   what stops an abandoned loop from being wedged shut next tick.
+        ///
+        /// Must not be mixed with Trigger in the same body entry: the resume
+        /// would come back before the triggered branch.
+        void TriggerAndReturn(sizet pin) const;
+        /// True when the VM is re-entering this body after a TriggerAndReturn
+        /// branch finished, rather than delivering a fresh exec token.
+        [[nodiscard]] bool IsResume() const
+        {
+            return m_IsResume;
+        }
         /// Stop here; resume by triggering `resumePin` after `seconds` of scaled
         /// game time. Only legal from a node flagged Latent.
         void SuspendForSeconds(sizet resumePin, f32 seconds) const;
@@ -299,11 +357,15 @@ namespace OloEngine::VisualScript
         /// Function.Return only: hand `values` back to the in-flight call.
         void PublishReturnValues(const std::vector<PinValue>& values) const;
 
-        /// Set by the VM before invoking a node body — the exec-descent depth
-        /// this node sits at, so Trigger can bound recursion.
+        /// Set by the VM before invoking a node body — the exec-chain depth this
+        /// node sits at, so Trigger can bound the chain.
         void SetDepth(u32 depth)
         {
             m_Depth = depth;
+        }
+        void SetResume(bool resume)
+        {
+            m_IsResume = resume;
         }
 
       private:
@@ -313,6 +375,7 @@ namespace OloEngine::VisualScript
         i32 m_NodeIndex;
         i32 m_EntryPin;
         u32 m_Depth = 0;
+        bool m_IsResume = false;
     };
 
     //==============================================================================
@@ -342,11 +405,15 @@ namespace OloEngine::VisualScript
         bool m_Paused = false;
         u64 m_PausedAt = 0;
         /// One tick of execution with breakpoints suppressed, then pause again.
-        /// Node-granular stepping is deliberately absent: exec descent has no
-        /// continuation to resume from, so it would mean re-running the tick and
-        /// repeating every side effect before the breakpoint. See
-        /// docs/agent-rules/visual-script-vm.md.
         bool m_StepOneTick = false;
+        /// Node-granular step (issue #1069): run exactly this many node bodies
+        /// with breakpoints suppressed, then pause again. 0 = not stepping.
+        ///
+        /// It is a count rather than a bool so "step 10" costs nothing extra,
+        /// and it is spent by the drain loop rather than by the tick, which is
+        /// what makes one press advance exactly one node. Bookkeeping frames
+        /// (a finished function call) are not nodes and do not spend it.
+        u32 m_StepNodes = 0;
     };
 
     //==============================================================================
@@ -436,7 +503,10 @@ namespace OloEngine::VisualScript
         {
             return m_Debug;
         }
-        /// Clears the pause and lets the graph run again from the next tick.
+        /// Clears the pause. The interrupted tick's remaining work is still on
+        /// the exec stack, so the next Tick FINISHES it before starting a new
+        /// one — which is what "resume" is supposed to mean, and what it did not
+        /// mean before ADR 0023.
         void DebugResume()
         {
             m_Debug.m_Paused = false;
@@ -447,6 +517,25 @@ namespace OloEngine::VisualScript
         {
             m_Debug.m_StepOneTick = true;
             m_Debug.m_Paused = false;
+        }
+        /// Runs exactly `count` more node bodies, then pauses again (issue
+        /// #1069). Stepping past the end of a tick's work stops at the end of
+        /// that tick rather than running on into the next one.
+        void DebugStepNodes(u32 count = 1)
+        {
+            m_Debug.m_StepNodes = count;
+            m_Debug.m_Paused = false;
+        }
+        /// The node the graph is stopped in front of and has NOT yet run, as a
+        /// DebugState key, or 0 when nothing is queued. Same meaning as
+        /// DebugState::m_PausedAt, but valid while running too — the editor's
+        /// step button reads it to say what comes next.
+        [[nodiscard]] u64 PeekNextNodeKey() const;
+        /// How much interrupted work is still queued. 0 while idle; the editor
+        /// uses it to tell "paused mid-tick" from "paused before a tick".
+        [[nodiscard]] sizet GetPendingExecCount() const
+        {
+            return m_ExecStack.size();
         }
 
       private:
@@ -474,10 +563,41 @@ namespace OloEngine::VisualScript
         //-- Execution core --------------------------------------------------------
         // Not const: a pure node's first pull in an exec step RUNS it, which
         // writes its output slots and bumps its memo stamp.
-        void ExecuteFrom(i32 graphIndex, i32 nodeIndex, i32 entryPin, RuntimeContext& runtime, u32 depth);
+
+        /// Pops frames until the stack is empty, a breakpoint pauses, or the
+        /// debugger's step allowance runs out. The whole of control flow.
+        void Drain(RuntimeContext& runtime);
+        /// Runs one popped frame. Returns true when it invoked a node body,
+        /// which is what a debugger step counts.
+        bool RunFrame(const ExecFrame& frame, RuntimeContext& runtime);
+        /// Queues every target of an exec output pin. Pushed in authored order;
+        /// see ReversePushed for why that comes out right.
+        void PushExecTargets(i32 graphIndex, i32 nodeIndex, sizet pin, u32 depth);
+        /// The stack is LIFO but a body queues its branches in reading order, so
+        /// everything pushed since `mark` is flipped once. Call it after any run
+        /// of pushes that must pop in the order it was written.
+        void ReversePushed(sizet mark);
+        /// Marshals a finished Function.Call's results and releases its re-entry
+        /// guard — the epilogue that used to be the C++ code after the recursive
+        /// call in NodeContext::CallFunction.
+        void FinishFunctionCall(const ExecFrame& frame);
+        /// Throws away queued work that can no longer run (the node budget is
+        /// gone), while still running the bookkeeping frames, so an abandoned
+        /// function call still releases its guard and an abandoned loop still
+        /// clears its in-flight marker.
+        void UnwindAbandonedWork();
+        /// Drops every in-flight run outright — play stopped, or the plan was
+        /// swapped underneath us.
+        void ClearExecState();
+        /// Clears the NodeState marker a pending TriggerAndReturn owns. See
+        /// NodeContext::TriggerAndReturn for the contract.
+        void ReleaseResumeFrame(const ExecFrame& frame);
+        [[nodiscard]] u64 FrameKey(const ExecFrame& frame) const;
         [[nodiscard]] PinValue EvaluateInput(i32 graphIndex, i32 nodeIndex, sizet pin, RuntimeContext& runtime);
         [[nodiscard]] PinValue EvaluateOutput(i32 graphIndex, i32 nodeIndex, sizet pin, RuntimeContext& runtime);
         void BeginTickBookkeeping();
+        /// Re-arms the pause when a node step outlived the work the tick had.
+        void SettleStepAtTickEnd();
         void FireEntries(const std::string& key, const PinValue& payload, UUID otherEntity, RuntimeContext& runtime);
         void AdvanceLatents(RuntimeContext& runtime);
         /// Writes an arriving event's payload onto a resumed latent node's own
@@ -495,6 +615,11 @@ namespace OloEngine::VisualScript
         /// Index 0 is the event graph; 1..N mirror m_Plan->GetFunctions().
         std::vector<GraphStorage> m_Storage;
         std::vector<PendingLatent> m_PendingLatents;
+        /// Control flow in flight (ADR 0023). Empty whenever the graph is idle,
+        /// so an entity that never runs a node pays one empty vector; non-empty
+        /// between ticks means a breakpoint interrupted a tick and Resume owes
+        /// that work.
+        std::vector<ExecFrame> m_ExecStack;
         /// Bumped on every exec-node execution. A pure node re-evaluates only
         /// when its stamp is older, so a diamond-shaped pure sub-graph is
         /// computed once per exec step instead of once per edge.
@@ -518,10 +643,12 @@ namespace OloEngine::VisualScript
         std::vector<std::string> m_Errors;
         DebugState m_Debug;
 
-        /// Depth cap for Trigger recursion. Exec descent is genuine C++
-        /// recursion (that is what makes Sequence and the loop nodes trivial),
-        /// so a deeply chained graph must hit a bounded error rather than a
-        /// stack overflow.
+        /// Cap on how long an exec chain may get, and on how deep the pure-pull
+        /// evaluator may recurse. The two are the same number for different
+        /// reasons since ADR 0023: exec chains no longer use the C++ stack at
+        /// all, so their bound is policy — a graph that was a reported error
+        /// before must not silently become legal — while the pure evaluator is
+        /// still genuine recursion and this is still what keeps it off the edge.
         static constexpr u32 kMaxExecDepth = 128;
         /// Cap on distinct errors kept per instance, so a graph erroring every
         /// node every tick cannot grow unboundedly.

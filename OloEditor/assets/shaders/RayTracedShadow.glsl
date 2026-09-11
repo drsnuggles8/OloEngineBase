@@ -88,6 +88,18 @@ void main()
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference_uvec2 : require
 
+// INSTANCE-MASK LANE. Bit 0 of the TLAS instance mask is "this instance casts a
+// ray-traced shadow"; the ray's cull mask is ANDed with it, so an instance that
+// clears the bit is skipped by THIS ray while every other pass — which traces
+// with the full 0xFF — still hits it. GPU Scene's default VisibilityMask is
+// all-ones, so an instance that says nothing keeps occluding exactly as before;
+// only a deliberate opt-out (today: a VirtualMeshComponent with CastShadows
+// off, issue #1144) changes.
+//
+// >>> Mirrors RayTracing::kInstanceMaskShadowCaster in RayTracingTypes.h by
+//     hand. Change one and the other must change with it. <<<
+#define RT_SHADOW_INSTANCE_MASK 0x01u
+
 layout(location = 0) out vec4 o_Visibility;
 // Per channel, the distance to the blocker that stopped the last ray of that
 // channel; 0 when nothing blocked. It is fed to the temporal resolve's
@@ -313,7 +325,7 @@ void main()
             // cheapest possible visibility ray and needs no traversal loop.
             rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddressAndCounts.xy),
                                   gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
-                                  0xFFu, origin, RT_SHADOW_RAY_TMIN, direction, tMax);
+                                  RT_SHADOW_INSTANCE_MASK, origin, RT_SHADOW_RAY_TMIN, direction, tMax);
             rayQueryProceedEXT(rayQuery);
             if (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
             {

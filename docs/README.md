@@ -30,6 +30,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [guides/ai-goap.md](guides/ai-goap.md) — GOAP planner / AI action system.
 - [guides/ai-perception.md](guides/ai-perception.md) — AI perception (sight/sound/awareness).
 - [guides/cinematic-sequencer.md](guides/cinematic-sequencer.md) — cinematic sequencer / timeline.
+- [guides/gltf-material-extensions.md](guides/gltf-material-extensions.md) — what the glTF transmission / IOR / volume extensions import and render, and where that stops.
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.
 - [guides/mcp-diagnostics-server.md](guides/mcp-diagnostics-server.md) — the read-only MCP diagnostics server (tools, resources, prompts, attach flow).
@@ -92,6 +93,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [adr/0020-reflection-tier-selection-contract.md](adr/0020-reflection-tier-selection-contract.md) — the four reflection sources are competing estimates of one quantity; they composite bottom-up by confidence with the bottom tier pinned at 1, so the weights sum to exactly one and a double-count is impossible by construction.
 - [adr/0021-structural-connectivity-is-derived-from-collider-adjacency.md](adr/0021-structural-connectivity-is-derived-from-collider-adjacency.md) — a destructible structure's support graph is derived from collider adjacency, not authored per piece; the component carries only anchor/timing policy; same-course neighbours support each other so a lintel can cantilever, but the flood charges for each sideways step, because free lateral transfer makes a wall all-or-nothing.
 - [adr/0022-reference-tracer-owns-its-sampling-model.md](adr/0022-reference-tracer-owns-its-sampling-model.md) — the reference path tracer's scene description may be as rich as a bake needs, but its sampling model is its own (level 0, never the raster's mip chain) and is pinned by tests that do not involve the raster path; parity fixtures stay in the subset both worlds express, so they keep pinning what they always pinned.
+- [adr/0023-virtual-geometry-is-ray-traced-through-a-fixed-proxy.md](adr/0023-virtual-geometry-is-ray-traced-through-a-fixed-proxy.md) — a cluster LOD DAG cannot be a BLAS (the cut is per view, per frame), so each virtual-mesh part is ray-traced through one FIXED proxy built from the DAG's coarsest cut: watertight and view-independent by construction, classified Static, built once. Whatever still gets no proxy stays counted in `GPUSceneUnsupportedCategory::Virtualized`, now per part.
 
 ## bug-investigations/ — postmortems & deep-dives
 

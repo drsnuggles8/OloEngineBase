@@ -180,6 +180,13 @@ caller-supplied macro. Closing that needs the shader-visible sampler heap ADR 00
 records — it is not an acceleration-structure problem.
 
 Deformed geometry has a class, a refit heuristic and tests, but **no live producer**: skinned,
-cloth, virtualized-cluster and particle entities never reach the canonical GPU Scene at all
-(`Scene.cpp` skips them and counts them in `GPUSceneUnsupportedCategory`). The policy is exercised
-by tests, not by a scene, and that is stated rather than hidden.
+cloth and particle entities never reach the canonical GPU Scene at all (`Scene.cpp` skips them and
+counts them in `GPUSceneUnsupportedCategory`). The policy is exercised by tests, not by a scene, and
+that is stated rather than hidden.
+
+Virtualized-cluster (Nanite-style) entities were on that list until issue #1144 and are not any
+more, but they did **not** become a producer for the deformed class. Each virtual-mesh part is
+traced through one FIXED proxy mesh built from the DAG's coarsest cut, so it classifies `Static` and
+takes the build-once path — see [ADR 0023](../adr/0023-virtual-geometry-is-ray-traced-through-a-fixed-proxy.md).
+Tracing the live per-frame cut instead is what would have needed a new class here, and that is the
+main reason it was not done.
