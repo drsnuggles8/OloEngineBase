@@ -736,6 +736,14 @@ namespace OloEngine::Tests
         for (const auto& [name, value] : flags)
         {
             EXPECT_EQ(ScanDefine(params, name), value) << name;
+            // NON-ZERO FIRST, because the power-of-two test below does not cover
+            // it: `0 & (0 - 1)` is 0, so a flag that became zero on BOTH sides
+            // would satisfy every other assertion here while naming a gate that
+            // can never be set. The feature would then be permanently off with a
+            // fully green contract test — the exact "the draw reads a bit the
+            // pass never set" failure this test exists to catch, arrived at from
+            // the other direction.
+            EXPECT_NE(value, 0u) << name << " is zero, so its gate can never be set";
             // Each bit is a DISTINCT single bit. Two gates sharing one would make
             // enabling either enable both, and a value that is not a power of two
             // would clear its neighbour on every frame that sets it.
