@@ -2,6 +2,7 @@
 
 #if OLO_WITH_VULKAN
 
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanQueueSelection.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
@@ -486,7 +487,7 @@ namespace OloEngine
         VkBufferCreateInfo readbackInfo{};
         readbackInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         readbackInfo.size = size;
-        readbackInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        readbackInfo.usage = VulkanAddressCommands::kReadbackDstUsage;
         readbackInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo readbackAlloc{};
         readbackAlloc.usage = VMA_MEMORY_USAGE_AUTO;
@@ -500,6 +501,7 @@ namespace OloEngine
             std::memset(outData, 0, size);
             return;
         }
+        const VkDeviceAddress readbackAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), readback);
 
         const bool ok = VulkanOneShot::Submit(
             "VulkanStorageBuffer::GetData",
@@ -524,11 +526,12 @@ namespace OloEngine
                 dep.pBufferMemoryBarriers = &pre;
                 vkCmdPipelineBarrier2(cmd, &dep);
 
-                VkBufferCopy region{};
-                region.srcOffset = offset;
-                region.dstOffset = 0;
-                region.size = size;
-                vkCmdCopyBuffer(cmd, m_Buffer, readback, 1u, &region);
+                // The source is this storage buffer (STORAGE_BUFFER_BIT by
+                // construction); the readback target is TRANSFER_DST +
+                // SHADER_DEVICE_ADDRESS only, so it pairs with Absent.
+                VulkanAddressCommands::CmdCopyRange(
+                    cmd, m_DeviceAddress + offset, VulkanAddressCommands::StorageUsage::Present, readbackAddress,
+                    VulkanAddressCommands::StorageUsage::Absent, size);
             });
 
         if (ok)

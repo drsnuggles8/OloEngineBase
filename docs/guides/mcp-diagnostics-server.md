@@ -217,7 +217,8 @@ and for what to do when adding a tool.
 | `olo_scene_status` | read the active scene's name, path, dirty state, and available undo/redo state without opening a dialog |
 | `olo_scene_new` | **(consented write)** install an empty scene in Edit mode as one undoable operation; undo restores the previous scene and document state |
 | `olo_scene_save` / `olo_scene_save_as` | **(consented write)** persist the active scene with checked file writes; save-as requires an explicit `path`. Changed saves are undoable, including prior file contents and document metadata. Undo/redo refuses to overwrite an externally modified destination |
-| `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y |
+| `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y. Not usable as a step of `olo_transaction_apply` — they walk the stack a transaction is grouping |
+| `olo_transaction_apply` | **(consented write)** apply several commands as ONE atomic step: all of them apply or none do. A failing step rolls the whole batch back and a successful batch commits as a single undo entry, so one Ctrl-Z takes it back. A step argument of the exact form `"${id.field}"` is replaced by an earlier step's result — the entity id step 1 minted, used by step 4, with no round trip. Only commands that declare how they are taken back may be steps; an irreversible one (asset import, bake, build) and undo/redo itself are refused **before anything runs**. `dryRun:true` validates the whole batch and applies nothing. See [Transactions](#transactions-olo_transaction_apply) |
 | `olo_entity_list_fields` | the writable (component, field) pairs of one entity with each field's type, current value, and — for a range-validated field — its `min`/`max`. The read-only discovery half of `olo_entity_set_field`; optional `component` filter. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_entity_set_field` | **(consented write)** set one component field by (`component`, `field`, `value`) — undoable (a single Ctrl-Z), UUID-keyed. The registry is **generated from every component definition** (issue #607), so it spans the whole ECS surface (meshes/materials/VirtualMesh, lights, fog/probes, physics bodies + colliders, text/UI, nav, water, terrain, …), not a curated handful. Out-of-range values are **clamped** to the serializer's own range (`clamped:true` + `requestedValue`); the result echoes `value` **read back from the component** plus `changed:true/false`. Gated behind **Agent writes**. See [Component field writes](#component-field-writes-olo_entity_set_field) |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
@@ -264,6 +265,7 @@ and for what to do when adding a tool.
 | `olo_rt_scene_stats` | The hardware ray-tracing scene (#978): whether ray query is usable and why not when it is not, resident BLAS population by geometry class, TLAS instances, acceleration-structure and scratch memory, compaction savings, and this frame's build/refit/compaction/retire counts. `unavailable` (no RT on this device) and `noData` (RT live, no TLAS built yet) are distinct. The `gpuScene` block — emitted whatever the status is — reports the canonical scene the structures are BUILT FROM: live instance/geometry/material records and `notStagedTotal`, the renderable geometry that produced none. Read it first: a small `tlasInstances` beside a large `notStagedTotal` means most of the scene is not in the acceleration structure at all (#1065) |
 | `olo_pathtracer_stats` | The GPU reference path tracer's counters for the last completed frame (#1055): `status` (`unavailable` / `disabled` / `fallback` with the reason / `active`), the accumulation state (samples per pixel, samples added, `consecutiveRestarts` — a climbing count means the image can never converge), the scene as the tracer saw it (emissive triangles and area, punctual and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials), the texture path (`texturesAvailable`, and the counted limits `hitsShadedUntextured` / `maskedGeometryTracedAsSolid` / `materialTexturesUnresolved` where it is not), and the settings the frame ran with. Read it before trusting a traced frame as ground truth: every `true` limit names a term the frame is missing |
 | `olo_restir_stats` | The ReSTIR DI tier's verdict and counters for the last completed frame (#1140): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), the MEASURED engagement criterion's own inputs (emitter count, the per-pixel candidate budget it must exceed, the hysteresis margin), the light census, and what the estimator actually did — which normalisation ran, the reservoir layout version, `historyPlanesAvailable` against `historyPlanesRequired`, and whether temporal and visibility reuse ran at all. Read it before trusting a resampled frame: `visibilityReuseRan` false means light leaks through occluders, `temporalReuseRan` false means every pixel restarted this frame, `lightsBeyondShaderBound` and `emittersBeyondEncodableIndex` name emitters the tier cannot reach, and `settingsClamped` means the frame did LESS than was asked. This is the tool that turns "the frame is black" into a named cause; it found `TargetUnavailable` and an unbound GPU Scene during bring-up. Directional lights are deliberately absent from every count — the clustered loop keeps them so they keep their cascades, their ray-traced shadow mask channel and their cloud shadow |
+| `olo_restir_gi_stats` | The ReSTIR GI tier's verdict and counters for the last completed frame (#1169): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), and the four blocks that answer a different question each. READ `indirectDiffuse` FIRST when a room looks twice as bright or has lost its indirect light: it names which mechanism added the term at the primary vertex, at which vertex the probe cache was read, and whether SSGI was stood down (`ssgiStoodDown`, which is what makes "my SSGI slider does nothing" answerable). The cache is read at exactly ONE vertex per path and enabling this tier MOVES which one - never both, which is what keeps this tier and DDGI from double-counting. `engagement` carries the measured criterion's inputs, and unlike the DI tier's it is not a count comparison: this tier stands down only when the scene has no light, no emissive triangle and no environment, because DDGI is a coarser CACHE of the same integral rather than an enumeration of it. `estimator` says what the frame actually did - `reconnectionVisibilityRan` false means reuse is lighting surfaces through walls, `temporalReuseRan` false means every pixel restarted this frame, `historyPlanesAvailable` against `historyPlanesRequired` says why, and `settingsClamped` means the frame did LESS than was asked. Sibling of `olo_restir_stats` above; the two tiers are independent and either can stand down without the other |
 | `olo_ddgi_probe_stats` | one synchronous DDGI diagnostics readback: live/active/relit/captured/blended probe counters, active-probe bounce coverage, and each active cascade's origin/spacing/lattice bounds. `bounceCoverage:null` means no active probe had a measurable bounce hit; numeric zero remains valid data |
 | `olo_perf_pass_timings` SSGI row | SSGI is independently GPU-timed as top-level `SSGIPass`; its cost is not folded into `DeferredLightingPass` |
 | `olo_render_probe_pixel` baked GI | G-Buffer mode includes decoded `bakedGI` irradiance/coverage and raw `GBufferBakedGI` RT5 values |
@@ -476,6 +478,59 @@ actions use the same history, so keyboard and automation saves can be interleave
 Reopening a file uses the existing
 scene-open path and starts a fresh history. A saved scene remains a normal `.olo` asset.
 
+### Transactions (`olo_transaction_apply`)
+
+**Batch a multi-step edit and it applies atomically or not at all.** Without one, building
+anything non-trivial is N independent calls, and a failure at call 7 leaves a scene that is
+neither the before nor the after — discovered much later, which is the damage this exists to
+stop.
+
+```json
+{ "description": "Rig a turret",
+  "steps": [
+    { "id": "base", "command": "olo_entity_create",   "arguments": { "name": "Turret" } },
+    { "id": "gun",  "command": "olo_entity_create",   "arguments": { "name": "Gun", "parent": "${base.entity}" } },
+    {               "command": "olo_component_add",   "arguments": { "entity": "${gun.entity}", "component": "SpriteRendererComponent" } }
+  ] }
+```
+
+**Symbolic outputs.** A step argument whose value is the *whole* string `"${id}"` or
+`"${id.field}"` is replaced by that earlier step's structured result — above, the UUID
+`base` minted, with no call in between. The whole-string rule is what removes escaping
+entirely: `"cost: ${5}"` is a literal, because it is not the whole value. A reference may
+only read a step that has **already** run, so a forward or self reference is refused at
+build time, as is a field the source command's `outputSchema` says will not be there. The
+wiring is even type-checked before anything runs: the value does not exist yet, but its
+declared type does.
+
+**What may be a step.** Only a command that has DECLARED how it is taken back —
+`AutomationCommand::Undo`. An irreversible one (`olo_asset_import`, `olo_asset_create`, a
+bake, `olo_build_invoke`), undo/redo itself, a nested transaction, and anything that never
+declared are all **refused at build time**, before the first step runs. So is a command
+registered `MainMarshaled:false` (the asset and build-listing commands), whose whole-project
+scan must not be dragged onto the game thread. 12 of the 121 registered commands qualify
+today — the whole structural-authoring surface; the measured split and the reasoning are in
+[docs/analysis/automation-transactability-boundary.md](../analysis/automation-transactability-boundary.md).
+
+**Failure.** The batch stops, every applied step is taken back in reverse, and the report
+says which step failed and why. `applied:false`, `rolledBack:true`, and every step carries
+its own `rolledBack` / `failed` / `skipped` status. If a rollback is itself incomplete — a
+guarded scene-save restore can refuse an externally modified file — `rollbackError` says so
+loudly rather than reporting a clean failure.
+
+**Success is ONE undo entry**, not N: Ctrl-Z takes the whole batch back as a unit. A batch of
+read-only steps commits no entry at all.
+
+**Authority is decided once, for the whole batch**, at the highest tier any member needs
+(ADR 0005). `olo_transaction_apply` is itself a consented write and is classed by what it
+*can* do, never by what one call's arguments ask for — so `dryRun:true` is gated too. A
+caller without consent is refused at the registry door and never builds a batch, which is
+what stops a high-authority command being laundered into one.
+
+**Limits.** 64 steps, refused by the declared schema above that. The whole batch runs inside
+a single main-thread critical section, so no editor frame runs between steps and nothing
+unrelated can land inside the undo group.
+
 ### Component field writes (`olo_entity_set_field`)
 
 `olo_entity_set_field` mutates one component field on one entity, through the
@@ -594,7 +649,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |

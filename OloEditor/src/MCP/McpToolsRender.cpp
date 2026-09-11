@@ -68,6 +68,7 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -323,6 +324,8 @@ namespace OloEngine::MCP
                     return "Cloudscape";
                 case TemporalHistoryEffect::RayTracedShadow:
                     return "RayTracedShadow";
+                case TemporalHistoryEffect::ReSTIRGI:
+                    return "ReSTIRGI";
                 case TemporalHistoryEffect::ReSTIRDI:
                     return "restir-di";
                 case TemporalHistoryEffect::PathTracer:
@@ -6618,6 +6621,105 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        // ReSTIR GI (#1169). Read like every other previous-frame stat: the pass
+        // fills ReSTIRGIStats while it runs, so the payload describes the last
+        // completed frame, and a pass whose targets were never declared does not
+        // execute at all - the status says which.
+        Json BuildReSTIRGIStatsReport()
+        {
+            Json report = Json::object();
+            const ReSTIRGIPass* pass = Renderer3D::HasInitialized() ? Renderer3D::GetReSTIRGIPass() : nullptr;
+            const bool available = pass != nullptr;
+            const ReSTIRGISettings settings =
+                available ? Renderer3D::GetPostProcessSettings().ReSTIRGI : ReSTIRGISettings{};
+            const bool enabled = available && settings.Enabled;
+
+            Json availability = Json::object();
+            availability["available"] = available;
+            availability["enabled"] = enabled;
+            if (!available)
+            {
+                availability["active"] = false;
+                availability["status"] = "unavailable";
+                availability["fallbackReason"] = "the renderer is not up";
+                report["availability"] = std::move(availability);
+                return report;
+            }
+
+            const ReSTIRGIStats& stats = pass->GetStats();
+            availability["active"] = stats.Active;
+            availability["status"] = !enabled ? "disabled" : (stats.Active ? "active" : "fallback");
+            availability["fallbackReason"] =
+                stats.Active ? std::string("none") : std::string(ToString(stats.Fallback));
+            report["availability"] = std::move(availability);
+
+            report["freshness"] = Json{ { "model", "previousFrame" }, { "stale", !stats.Active } };
+
+            // The criterion's OWN inputs, so "why is indirect diffuse still on the
+            // probe ladder" is answerable from the payload rather than by
+            // re-deriving the rule.
+            report["engagement"] = Json{
+                { "lightCount", stats.Engagement.LightCount },
+                { "emissiveTriangles", stats.Engagement.EmissiveTriangles },
+                { "environmentAvailable", stats.Engagement.EnvironmentAvailable },
+                { "engaged", ReSTIRGIEngagePredicate(stats.Engagement) },
+            };
+
+            // THE HAND-OFF (#979's non-goal), reported rather than inferred. This
+            // is the block to read when a room looks twice as bright or has lost
+            // its indirect light: it says which mechanism added the term, at which
+            // VERTEX the probe cache was read, and whether SSGI was stood down.
+            report["indirectDiffuse"] = Json{
+                { "ddgiAtPrimary", stats.Sources.DDGIAtPrimary },
+                { "restirGIAtPrimary", stats.Sources.ReSTIRGIAtPrimary },
+                { "ddgiAtSecondary", stats.Sources.DDGIAtSecondary },
+                { "ssgiComposite", stats.Sources.SSGIComposite },
+                { "ssgiStoodDown", stats.SSGIStoodDown },
+            };
+
+            report["estimator"] = Json{
+                { "biasMode", std::string(ToString(stats.BiasMode)) },
+                { "reservoirLayoutVersion", stats.ReservoirLayoutVersion },
+                { "initialCandidatesPerPixel", stats.InitialCandidatesPerPixel },
+                { "spatialNeighboursPerPixel", stats.SpatialNeighboursPerPixel },
+                { "spatialPasses", stats.SpatialPasses },
+                { "temporalReuseRan", stats.TemporalReuseRan },
+                { "historyPlanesAvailable", stats.HistoryPlanesAvailable },
+                { "historyPlanesRequired", ReSTIRGIStats::kHistoryPlaneCount },
+                { "reconnectionVisibilityRan", stats.ReconnectionVisibilityRan },
+                { "spatialReconnectionVisibilityRan", stats.SpatialReconnectionVisibilityRan },
+                { "ddgiTailRan", stats.DDGITailRan },
+                { "maxSampleAge", stats.MaxSampleAge },
+                { "raysDispatchedUpperBound", stats.RaysDispatchedUpperBound },
+                { "settingsClamped", stats.SettingsClamped },
+            };
+            report["settings"] = Json{
+                { "initialCandidates", settings.InitialCandidates },
+                { "ddgiTail", settings.DDGITail },
+                { "temporalReuse", settings.TemporalReuse },
+                { "temporalMCap", settings.TemporalMCap },
+                { "maxSampleAge", settings.MaxSampleAge },
+                { "spatialReuse", settings.SpatialReuse },
+                { "spatialNeighbours", settings.SpatialNeighbours },
+                { "spatialRadiusPixels", settings.SpatialRadiusPixels },
+                { "spatialPasses", settings.SpatialPasses },
+                { "reconnectionVisibility", settings.ReconnectionVisibility },
+                { "spatialReconnectionVisibility", settings.SpatialReconnectionVisibility },
+                { "minReconnectionDistance", settings.MinReconnectionDistance },
+                { "maxBounceDistance", settings.MaxBounceDistance },
+                { "maxRadianceClamp", settings.MaxRadianceClamp },
+                { "debugView", std::string(ToString(settings.DebugView)) },
+            };
+            return report;
+        }
+
+        ToolResult Handle_ReSTIRGIStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 { return BuildReSTIRGIStatsReport(); });
+            return ToolResult::Structured(result);
+        }
+
         ToolResult Handle_GpuPathTracerStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
@@ -8745,6 +8847,108 @@ namespace OloEngine::MCP
                     .Required({ "availability" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReSTIRDIStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_restir_gi_stats";
+            tool.Toolset = "render";
+            tool.Title = "ReSTIR GI statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the ReSTIR GI tier's counters for the last completed frame (issue #1169): whether it is "
+                "active and, when it is not, WHY ('status' distinguishes 'unavailable' - no renderer - from "
+                "'disabled' and from 'fallback', where the tier is switched on but standing down for the reason "
+                "named). READ 'indirectDiffuse' FIRST when a room looks twice as bright or has lost its indirect "
+                "light: it says which mechanism added the term at the primary vertex, at which vertex the probe "
+                "cache was read, and whether SSGI was stood down. The cache is read at exactly ONE vertex per "
+                "path and enabling this tier MOVES which one - it is never read twice, which is what keeps this "
+                "tier and DDGI from double-counting. 'engagement' carries the MEASURED criterion's inputs, which "
+                "unlike the DI tier's is not a count comparison: it stands down only when the scene has no light, "
+                "no emissive triangle and no environment, because DDGI is a coarser CACHE of this integral rather "
+                "than an enumeration of it. 'estimator' says which normalisation ran (the pass CLAMPS "
+                "out-of-range settings, so the settings are not authoritative about what the frame did), whether "
+                "the reconnection ray ran, and whether the DDGI tail ran. 'reconnectionVisibilityRan' false means "
+                "reuse is lighting surfaces through walls; 'temporalReuseRan' false means every pixel restarted "
+                "this frame; 'settingsClamped' means the frame did LESS than was asked.";
+            tool.InputSchema = Schema::EmptyObject();
+            // The payload BuildReSTIRGIStatsReport actually emits. A tool that
+            // returns structuredContent without declaring its shape hands the
+            // client an unvalidated blob, and the DI twin above declares one - so
+            // the two sibling tools would have disagreed about whether their
+            // output has a contract at all.
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability",
+                          Schema::Object()
+                              .Prop("available", Schema::Bool())
+                              .Prop("enabled", Schema::Bool())
+                              .Prop("active", Schema::Bool())
+                              .Prop("status",
+                                    Schema::String().Enum({ "unavailable", "disabled", "fallback", "active" }))
+                              .Prop("fallbackReason",
+                                    Schema::String().Desc("'none' when active; otherwise WHY the tier stood down."))
+                              .Required({ "available", "enabled", "active", "status", "fallbackReason" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String())
+                                           .Prop("stale", Schema::Bool()))
+                    .Prop("engagement",
+                          Schema::Object()
+                              .Prop("lightCount", Schema::Int().Min(0))
+                              .Prop("emissiveTriangles", Schema::Int().Min(0))
+                              .Prop("environmentAvailable", Schema::Bool().Desc(
+                                                                "A prefiltered cube is bound at non-zero intensity, "
+                                                                "or the uniform environment term is non-black."))
+                              .Prop("engaged", Schema::Bool().Desc(
+                                                   "The criterion's verdict on these inputs, not a second rule.")))
+                    .Prop("indirectDiffuse",
+                          Schema::Object()
+                              .Prop("ddgiAtPrimary", Schema::Bool())
+                              .Prop("restirGIAtPrimary", Schema::Bool())
+                              .Prop("ddgiAtSecondary", Schema::Bool().Desc(
+                                                           "The probe cache is read at exactly ONE vertex per path; "
+                                                           "this and ddgiAtPrimary are never both true."))
+                              .Prop("ssgiComposite", Schema::Bool())
+                              .Prop("ssgiStoodDown", Schema::Int().Min(0).Desc(
+                                                         "SSGI was asked for and this tier took the term.")))
+                    .Prop("estimator",
+                          Schema::Object()
+                              .Prop("biasMode", Schema::String())
+                              .Prop("reservoirLayoutVersion", Schema::Int().Min(0))
+                              .Prop("initialCandidatesPerPixel", Schema::Int().Min(0))
+                              .Prop("spatialNeighboursPerPixel", Schema::Int().Min(0))
+                              .Prop("spatialPasses", Schema::Int().Min(0))
+                              .Prop("temporalReuseRan", Schema::Bool())
+                              .Prop("historyPlanesAvailable", Schema::Int().Min(0))
+                              .Prop("historyPlanesRequired", Schema::Int().Min(0).Desc(
+                                                                 "A shortfall is why temporal reuse stood down."))
+                              .Prop("reconnectionVisibilityRan", Schema::Bool().Desc(
+                                                                     "False means reuse is lighting through walls."))
+                              .Prop("spatialReconnectionVisibilityRan", Schema::Bool())
+                              .Prop("ddgiTailRan", Schema::Bool())
+                              .Prop("maxSampleAge", Schema::Int().Min(0))
+                              .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
+                              .Prop("settingsClamped", Schema::Int().Min(0)))
+                    .Prop("settings", Schema::Object()
+                                          .Prop("initialCandidates", Schema::Int().Min(0))
+                                          .Prop("ddgiTail", Schema::Bool())
+                                          .Prop("temporalReuse", Schema::Bool())
+                                          .Prop("temporalMCap", Schema::Number().Min(0))
+                                          .Prop("maxSampleAge", Schema::Int().Min(0))
+                                          .Prop("spatialReuse", Schema::Bool())
+                                          .Prop("spatialNeighbours", Schema::Int().Min(0))
+                                          .Prop("spatialRadiusPixels", Schema::Number().Min(0))
+                                          .Prop("spatialPasses", Schema::Int().Min(0))
+                                          .Prop("reconnectionVisibility", Schema::Bool())
+                                          .Prop("spatialReconnectionVisibility", Schema::Bool())
+                                          .Prop("minReconnectionDistance", Schema::Number().Min(0))
+                                          .Prop("maxBounceDistance", Schema::Number().Min(0))
+                                          .Prop("maxRadianceClamp", Schema::Number().Min(0))
+                                          .Prop("debugView", Schema::String()))
+                    .Required({ "availability" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ReSTIRGIStats;
             registry.Register(std::move(tool));
         }
 

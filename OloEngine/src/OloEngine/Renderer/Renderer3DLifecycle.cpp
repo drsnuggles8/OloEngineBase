@@ -454,6 +454,13 @@ namespace OloEngine
             UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
         s_Data.PostProcessGPU.ReSTIRDI = UniformBuffer::Create(
             UBOStructures::ReSTIRDIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+        // The SAME binding, refilled per dispatch (#691): UBO_TERRAIN_BRUSH (83)
+        // is the last engine binding and UBO_BINDING_LIMIT (84) is the GL 4.6
+        // guaranteed floor, so there is no free binding for a fifth ray-tracing
+        // block. Its own BUFFER, though, because the two tiers' blocks are
+        // different sizes and one shared allocation would have to be the larger.
+        s_Data.PostProcessGPU.ReSTIRGI = UniformBuffer::Create(
+            UBOStructures::ReSTIRGIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
         s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);

@@ -259,6 +259,15 @@ namespace OloEngine
             RGFramebufferHandle ReSTIRDITemporal;
             RGFramebufferHandle ReSTIRDISpatial0;
             RGFramebufferHandle ReSTIRDISpatial1;
+            // ReSTIR GI (issue #1169), the same chain shape and the same
+            // reasons - 32-bit because a reservoir's WeightSum and its SAMPLE
+            // VERTEX both lose meaningful precision in half, and a vertex that
+            // drifts moves the Jacobian, which is the one term whose error is
+            // invisible in the image.
+            RGFramebufferHandle ReSTIRGIInitial;
+            RGFramebufferHandle ReSTIRGITemporal;
+            RGFramebufferHandle ReSTIRGISpatial0;
+            RGFramebufferHandle ReSTIRGISpatial1;
         };
 
         // -----------------------------------------------------------------------
@@ -315,6 +324,16 @@ namespace OloEngine
             // is the half of the guard that cannot be forgotten.
             RGFramebufferHandle ReSTIRDIRadiance;
             RGTextureHandle ReSTIRDIRadianceTexture;
+            // ReSTIR GI's resolved one-bounce INDIRECT DIFFUSE (issue #1169).
+            // The deferred lighting pass uses it INSTEAD of the ambient ladder's
+            // diffuse rung, and alpha 0 marks a pixel the tier produced no value
+            // for - so a sky pixel, an unlit pixel and a stood-down frame all
+            // fall through to the ladder per-pixel rather than going dark.
+            //
+            // Invalid whenever the tier stood down, which is what makes the
+            // fallback visible to the GRAPH rather than only to the shader.
+            RGFramebufferHandle ReSTIRGIRadiance;
+            RGTextureHandle ReSTIRGIRadianceTexture;
         };
 
         struct PostProcessSlot
@@ -423,6 +442,15 @@ namespace OloEngine
             RGTextureHandle ReSTIRDIReservoirStateHistory;
             RGTextureHandle ReSTIRDISurfaceHistory;
             RGTextureHandle ReSTIRDIMomentsHistory;
+            // ReSTIR GI temporal state (issue #1169). The surface plane carries
+            // one extra job here: the temporal draw reconstructs LAST FRAME'S
+            // SHADING POINT from its view depth for the reconnection Jacobian,
+            // which DI is licensed to treat as exactly 1 and GI is not.
+            RGTextureHandle ReSTIRGIReservoirSampleHistory;
+            RGTextureHandle ReSTIRGIReservoirRadianceHistory;
+            RGTextureHandle ReSTIRGIReservoirStateHistory;
+            RGTextureHandle ReSTIRGISurfaceHistory;
+            RGTextureHandle ReSTIRGIMomentsHistory;
             // GPU path tracer accumulation (issue #1055): last frame's running
             // sums, all RGBA32F. Invalid on the first frame and after any
             // invalidation, in which case the pass restarts its sample count.

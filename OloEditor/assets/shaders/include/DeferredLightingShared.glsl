@@ -15,6 +15,8 @@
 //   - sampler2DArray u_ShadowMapCSMRaw (33), u_ShadowAtlasRaw (34) — PCSS blocker search
 //   - sampler2D u_ReSTIRDIRadiance (73) — ReSTIR DI's resolved direct lighting
 //     (issue #1140), plus u_MSAAParams.y as the "the tier is live" lane
+//   - sampler2D u_ReSTIRGIRadiance (74) — ReSTIR GI's resolved indirect diffuse
+//     (issue #1169), plus u_MSAAParams.z as its "the tier is live" lane
 //   - sampler2D u_RayTracedShadowMask (72) — hybrid ray-traced visibility mask,
 //     plus the ShadowData block's u_RayTracedShadowLightIndices /
 //     u_RayTracedShadowParams routing lanes (issue #1056)
@@ -135,6 +137,52 @@ bool oloReSTIRDIDirectLighting(out vec3 radiance)
     if (u_MSAAParams.y < 0.5)
         return false;
     vec4 resolved = texelFetch(u_ReSTIRDIRadiance, ivec2(gl_FragCoord.xy), 0);
+    if (resolved.a < 0.5)
+        return false;
+    if (any(isnan(resolved.rgb)) || any(isinf(resolved.rgb)))
+        return false;
+    radiance = max(resolved.rgb, vec3(0.0));
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// The indirect-diffuse tier seam (issue #1169).
+//
+// ReSTIR GI answers for the WHOLE diffuse ambient when it is live — not just
+// the probe rung — and that is forced rather than chosen: a bounce ray that
+// escapes collects the environment, so the sky's diffuse contribution is
+// already inside the resampled estimate, and leaving the ladder's
+// sky-irradiance rung on underneath would count it twice. A baked lightmap is
+// itself a complete diffuse-GI solution and goes the same way.
+//
+// The SPECULAR half of the ambient — the prefiltered IBL and the reflection
+// probes — is untouched. This is a diffuse tier and says so; a tier that
+// quietly ate the specular ambient would darken every metal in the scene by an
+// amount an exposure tweak hides.
+//
+// AND THE RESULT IS NOT MULTIPLIED BY AO. ComputeDeferredLit computes
+// `ambient * ao`; this estimate's occlusion is already exact, because it traced
+// the rays. Multiplying a ray-traced visibility estimate by a screen-space
+// approximation of the same visibility darkens every corner twice, by a factor
+// nobody can attribute because both halves look plausible. AO keeps multiplying
+// the specular half.
+//
+// Two conditions, and both are load-bearing, exactly as in the DI seam above.
+// u_MSAAParams.z is only raised when OloEngine::SelectReSTIRGITechnique returned
+// ReSTIRGI, so the CPU has already counted the reason if it did not. The ALPHA
+// test is the second half: the resolve writes alpha 1 only where it produced a
+// value, so a sky pixel, an unlit pixel and a pixel the tier stood down on all
+// fall through to the ambient ladder PER PIXEL rather than going dark.
+//
+// texelFetch, not texture(): the radiance target is declared at the scene band,
+// the resolution this pass shades at, so there is exactly one texel per shaded
+// pixel and filtering would only smear the estimator's own edges.
+bool oloReSTIRGIIndirectDiffuse(out vec3 radiance)
+{
+    radiance = vec3(0.0);
+    if (u_MSAAParams.z < 0.5)
+        return false;
+    vec4 resolved = texelFetch(u_ReSTIRGIRadiance, ivec2(gl_FragCoord.xy), 0);
     if (resolved.a < 0.5)
         return false;
     if (any(isnan(resolved.rgb)) || any(isinf(resolved.rgb)))
@@ -406,8 +454,32 @@ vec3 ComputeDeferredLit(
     }
 #endif
 
+    // THE INDIRECT-DIFFUSE TIER, decided once and applied in two places: it
+    // suppresses the ladder's diffuse rungs below, and it supplies the term
+    // itself at the composite. Asking twice would let the two answers drift.
+    vec3 restirIndirect;
+    bool restirGIActive = oloReSTIRGIIndirectDiffuse(restirIndirect);
+
     vec3 ambient = vec3(0.0);
-    if (bakedGI.a > 0.5)
+    if (restirGIActive)
+    {
+        // The SPECULAR half only, and only when IBL is on at all.
+        // calculateCombinedAmbientPrefiltered's DIFFUSE half is what ReSTIR GI
+        // replaced, so passing it a zero irradiance keeps the specular IBL /
+        // probe term while dropping the diffuse one — rather than skipping the
+        // call, which would drop both.
+        //
+        // With IBL off there is no specular ambient to keep, so the whole term
+        // is zero: calculateSimpleAmbient would have put a flat DIFFUSE fill
+        // back, which is the one thing this tier has just replaced.
+        if (enableIBL)
+        {
+            ambient = calculateCombinedAmbientPrefiltered(vec3(0.0), N, V, albedo, metallic, roughness,
+                                                          u_BRDFLutMap, prefilteredColor);
+            ambient *= iblIntensity;
+        }
+    }
+    else if (bakedGI.a > 0.5)
     {
         // Rung 1 — baked lightmap, mirroring include/AmbientLadder.glsl's first
         // branch (the forward path's definition of this rung). The gate is
@@ -465,7 +537,11 @@ vec3 ComputeDeferredLit(
         ambient = calculateSimpleAmbient(albedo, metallic, ao);
     }
 
+    // ambient * ao, then the resampled indirect diffuse UNMULTIPLIED — see
+    // oloReSTIRGIIndirectDiffuse for why the AO term must not touch it.
     vec3 color = ambient * ao + Lo + emissive;
+    if (restirGIActive)
+        color += restirIndirect;
 
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);

@@ -190,6 +190,10 @@ add_executable(OloEngine-Tests
 		# table against the reference emitter set, the accumulation-restart
 		# rules, and the vertex layout the ray-query helpers hard-code.
 		Rendering/PathTracing/GpuPathTracerContractTest.cpp
+		# Shared by both ReSTIR contract tests: resolving the shader tree and
+		# scanning a GLSL constant out of it. One copy, because two of them had
+		# already drifted into resolving the path differently.
+		Rendering/ReSTIR/ShaderSourceScan.h
 		# #1140: ReSTIR DI's headless half — the shift Jacobian pinned by the
 		# area/solid-angle measure identity, RIS unbiasedness, both bias modes'
 		# normalisers, the corruption guards, and the GLSL constants scanned out of
@@ -200,6 +204,17 @@ add_executable(OloEngine-Tests
 		# quadrature for an area emitter, with a negative control that fails if
 		# dropping the Jacobian does NOT bias the result.
 		Rendering/ReSTIR/ReSTIRDIOracleTest.cpp
+		# #1169: ReSTIR GI's headless half - the reconnection Jacobian pinned by
+		# the same measure identity, its environment arm derived as a limit, the
+		# age cap, the settings sanitizer, the technique table, the GLSL constants
+		# scanned out of the shader source, and the DDGI hand-off asserted as an
+		# exclusivity property over every combination of inputs.
+		Rendering/ReSTIR/ReSTIRGIContractTest.cpp
+		# #1169: does the assembled one-bounce estimator compute the right number?
+		# Measured against dense stratified HEMISPHERE quadrature over an
+		# analytically-shaded Lambertian occluder, with a negative control that
+		# fails if dropping the Jacobian does NOT bias the result.
+		Rendering/ReSTIR/ReSTIRGIOracleTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
@@ -397,6 +412,7 @@ add_executable(OloEngine-Tests
 		Rendering/Shadow/RayTracedShadowSpaceTest.cpp
 		Rendering/PropertyTests/RayTracedShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReSTIRDIVisualEvidenceTest.cpp
+		Rendering/PropertyTests/ReSTIRGIVisualEvidenceTest.cpp
 		# #1055: the GPU path tracer on a device that cannot trace — the path
 		# every CI runner takes. Drives the real pipeline on the GL fixture and
 		# demonstrates a byte-identical frame plus a named reason.
@@ -474,6 +490,10 @@ add_executable(OloEngine-Tests
 		# packing produced denormals the GPU flushed to zero, which no headless
 		# test could see because the arithmetic was right and the STORE lost it.
 		Rendering/ReSTIR/ReSTIRDIReservoirGpuParityTest.cpp
+		# #1169: the GI reservoir ENCODING across a real RGBA32F target. The same
+		# lesson as DI's, one layout over: the arithmetic can be right on both
+		# sides while the STORE loses the value, and no headless test can see it.
+		Rendering/ReSTIR/ReSTIRGIReservoirGpuParityTest.cpp
 		Rendering/PropertyTests/ShaderMathIdentityTests.cpp
 		Rendering/PropertyTests/GLStateGuardTest.cpp
 		Rendering/PropertyTests/RendererValidateTest.cpp
@@ -868,6 +888,13 @@ add_executable(OloEngine-Tests
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetIndex.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationFileWrite.cpp
+		# Atomic multi-command transactions (issue #1127). The layer is
+		# transport-free and editor-free at the seam -- it reaches the editor only
+		# through IAutomationHost and CommandHistory -- so the tests drive real
+		# batches against a scene with no server and no GL context.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransaction.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransactionCommands.cpp
+		MCP/McpAutomationTransactionTest.cpp
 		MCP/McpAutomationAssetIndexTest.cpp
 		MCP/McpAutomationAssetCommandsTest.cpp
 		MCP/McpAutomationComponentsTest.cpp

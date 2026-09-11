@@ -14,6 +14,7 @@ namespace OloEngine
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
             VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
             VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
+            VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME,
         };
     }
 
@@ -54,6 +55,7 @@ namespace OloEngine
         report.HasSwapchain = hasExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
         report.HasDescriptorHeap = hasExtension(VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME);
         report.HasShaderUntypedPointers = hasExtension(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
+        report.HasDeviceAddressCommands = hasExtension(VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME);
 
         if (!report.HasSwapchain)
         {
@@ -67,6 +69,10 @@ namespace OloEngine
         {
             report.Missing.emplace_back(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
         }
+        if (!report.HasDeviceAddressCommands)
+        {
+            report.Missing.emplace_back(VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME);
+        }
 
         // Feature bits — chained only for extensions the device actually lists, so
         // the query never hands the driver a struct it cannot recognise.
@@ -77,6 +83,8 @@ namespace OloEngine
         heapFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_FEATURES_EXT;
         VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untypedFeatures{};
         untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
+        VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
+        addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
 
         void** chainTail = &features2.pNext;
         if (report.HasDescriptorHeap)
@@ -89,11 +97,18 @@ namespace OloEngine
             *chainTail = &untypedFeatures;
             chainTail = &untypedFeatures.pNext;
         }
+        if (report.HasDeviceAddressCommands)
+        {
+            *chainTail = &addressCommandFeatures;
+            chainTail = &addressCommandFeatures.pNext;
+        }
         vkGetPhysicalDeviceFeatures2(device, &features2);
 
         report.DescriptorHeapFeature = report.HasDescriptorHeap && heapFeatures.descriptorHeap == VK_TRUE;
         report.ShaderUntypedPointersFeature =
             report.HasShaderUntypedPointers && untypedFeatures.shaderUntypedPointers == VK_TRUE;
+        report.DeviceAddressCommandsFeature =
+            report.HasDeviceAddressCommands && addressCommandFeatures.deviceAddressCommands == VK_TRUE;
 
         if (report.HasDescriptorHeap && !report.DescriptorHeapFeature)
         {
@@ -102,6 +117,10 @@ namespace OloEngine
         if (report.HasShaderUntypedPointers && !report.ShaderUntypedPointersFeature)
         {
             report.Missing.emplace_back("VkPhysicalDeviceShaderUntypedPointersFeaturesKHR::shaderUntypedPointers");
+        }
+        if (report.HasDeviceAddressCommands && !report.DeviceAddressCommandsFeature)
+        {
+            report.Missing.emplace_back("VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR::deviceAddressCommands");
         }
 
         report.Satisfied = report.Missing.empty();

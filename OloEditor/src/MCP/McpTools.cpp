@@ -6,6 +6,7 @@
 #include "Automation/AutomationAssetCommands.h"
 #include "Automation/AutomationBuildCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
+#include "Automation/AutomationTransactionCommands.h"
 
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
@@ -216,6 +217,12 @@ namespace OloEngine::MCP
         RegisterTestingTools(registry);
         Automation::RegisterBuildCommands(registry);
         RegisterValidationTools(registry);
+        // LAST of the registry's own domains (issue #1127): a transaction
+        // dispatches back into this same registry, so it is registered once
+        // everything it can batch already exists. Order is cosmetic for
+        // dispatch -- Find() is by name -- but it keeps tools/list reading
+        // bottom-up from the primitives to the thing that composes them.
+        Automation::RegisterTransactionCommands(registry);
     }
 
     void RegisterBuiltinTools(McpServer& server)

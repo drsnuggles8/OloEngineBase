@@ -47,6 +47,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [design/animation-retargeting.md](design/animation-retargeting.md) — animation retargeting (humanoid bone roles, rebasing).
 - [design/locomotion.md](design/locomotion.md) — character locomotion (issue #631).
 - [design/soundgraph-metasounds.md](design/soundgraph-metasounds.md) — SoundGraph / MetaSounds-style audio graph refactor.
+- [design/restir-gi-reconnection-shift.md](design/restir-gi-reconnection-shift.md) — ReSTIR GI (#1169): the measure convention, the reconnection shift and its Jacobian, the DDGI hand-off, and why the DI chain is not renameable. **Cited from source as `restir-gi-reconnection-shift.md §X`** — keep the section numbering stable.
 
 > Roadmap docs describe intended/future work — verify "doneness" against the **code**, not these files.
 

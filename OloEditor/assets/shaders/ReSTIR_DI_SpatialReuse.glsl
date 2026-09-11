@@ -337,8 +337,19 @@ void main()
                 // fetch cost this mode is documented as having.
                 const OloReSTIRSurface surfaceJ =
                     (j == 0u) ? centreSurface : LoadNeighbourSurface(candidates[j].UV);
+                // THE VIEW DIRECTION AT surfaceJ, not the centre's. pHat_j is
+                // candidate j's OWN target function, and j is a different pixel
+                // looking from a different angle — the closure's specular lobe
+                // depends on that angle, so reusing the centre's evaluates a
+                // function no reservoir ever used and skews the heuristic's
+                // denominator by however much the two view rays diverge. Small
+                // at a one-texel offset and growing with the search radius,
+                // which is the shape that never gets attributed: it reads as
+                // "the unbiased mode is slightly off at large radii".
+                const vec3 viewDirectionJ =
+                    normalize((u_InvView * vec4(0.0, 0.0, 0.0, 1.0)).xyz - surfaceJ.Position);
                 const float targetAtJ =
-                    OloReSTIRTargetPdf(surfaceJ, candidates[i].Reservoir.Sample, viewDirection);
+                    OloReSTIRTargetPdf(surfaceJ, candidates[i].Reservoir.Sample, viewDirectionJ);
                 if (targetAtJ > 0.0)
                     denominator += candidates[j].Reservoir.M * targetAtJ;
                 if (j == i)

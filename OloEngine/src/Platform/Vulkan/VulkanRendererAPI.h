@@ -29,6 +29,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanImageLayoutTracker.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 
@@ -625,6 +626,8 @@ namespace OloEngine
         void CensusDraw(const std::string& shaderName, bool prepared) const;
         // Records a draw that actually reached its Vulkan command.
         void CensusDrawIssued() const;
+        // Records a draw refused AFTER PrepareDraw already returned true.
+        void CensusDrawDropped() const;
 
         // Per-command-buffer state lives in VulkanRecordingContext (#806).
         using RenderingScope = VulkanRecordingContext::RenderingScope;
@@ -692,16 +695,55 @@ namespace OloEngine
         // recorded (issue #1052). `Buffer == VK_NULL_HANDLE` means neither.
         struct ResolvedIndexBuffer
         {
-            VkBuffer Buffer = VK_NULL_HANDLE;
+            /// #1179: the bind takes a device-address range, so this — not a
+            /// VkBuffer — is the identity. 0 means "no index buffer".
+            VkDeviceAddress Address = 0;
             VkDeviceSize SizeBytes = 0; ///< #809's real-extent bind
             u32 Count = 0;              ///< the DrawIndexed(va, 0) whole-buffer sentinel
+            /// Which VkBindIndexBuffer3InfoKHR::addressFlags this occupant
+            /// needs. The two kinds genuinely differ — VulkanIndexBuffer is
+            /// created without VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, the raw
+            /// dual-role element/SSBO arena with it — and VUID-13122/13123
+            /// make the flag mandatory in one case and forbidden in the other.
+            VulkanAddressCommands::StorageUsage Storage = VulkanAddressCommands::StorageUsage::Absent;
         };
         [[nodiscard]] static ResolvedIndexBuffer ResolveIndexBufferFor(const VulkanVertexArray* vao);
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
-        // Handle -> VkBuffer for the indirect-draw family (#691). Any
-        // Vulkan-backend buffer identity resolves (its registry native IS the
-        // VkBuffer); null + a counted stub on kind mismatch / stale handles.
-        [[nodiscard]] VkBuffer ResolveIndirectBuffer(RHI::ResourceHandle indirectBuffer, const char* entryPoint) const;
+        // Handle -> {device address, extent} for the indirect-draw family
+        // (#691, converted to address form by #1179). Address 0 + a counted
+        // stub on kind mismatch / stale handles.
+        //
+        // This resolves through the OBJECT rather than through
+        // RHI::ResourceRegistry's handle -> native hop, because the native is
+        // the VkBuffer and the address forms need an address. Both sources
+        // that can legally back an indirect buffer keep one: VulkanStorageBuffer
+        // on the object, the raw registry in its entry.
+        struct ResolvedIndirectBuffer
+        {
+            VkDeviceAddress Address = 0;
+            VkDeviceSize SizeBytes = 0;
+            /// Both indirect-capable sources are created with
+            /// VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, so VUID-13122 requires the
+            /// flag. Carried per-resolution anyway rather than hard-coded at
+            /// the call sites, so a future source without the bit is one edit
+            /// here instead of a silent VUID violation at every draw.
+            VulkanAddressCommands::StorageUsage Storage = VulkanAddressCommands::StorageUsage::Present;
+        };
+        [[nodiscard]] ResolvedIndirectBuffer ResolveIndirectBuffer(RHI::ResourceHandle indirectBuffer,
+                                                                   const char* entryPoint) const;
+        // The single-command indirect draws all describe the same thing: one
+        // VkDraw[Indexed]IndirectCommand at `offsetBytes` into the resolved
+        // buffer. VkDrawIndirect2InfoKHR takes a STRIDED range, so the stride
+        // is the command size.
+        //
+        // Returns false when the resolved range cannot hold `drawCount`
+        // commands at `offsetBytes` (VUID-VkDrawIndirect2InfoKHR-addressRange-13110),
+        // so the caller drops the draw loudly instead of recording an invalid
+        // range — the handle form had no way to express the extent at all.
+        [[nodiscard]] static bool MakeDrawIndirect2Info(const ResolvedIndirectBuffer& indirect,
+                                                        VkDeviceSize offsetBytes, u32 drawCount,
+                                                        VkDeviceSize commandSizeBytes, VkDeviceSize strideBytes,
+                                                        VkDrawIndirect2InfoKHR& outInfo);
         // Root-struct assembly + arena push + vkCmdPushDataEXT — shared by
         // draws and dispatches (§4: one contract, no compute special case).
         // Kind-aware: CombinedImageSampler bindings read the TEXTURE slot

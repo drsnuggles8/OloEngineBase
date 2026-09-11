@@ -39,6 +39,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/TemporalHistoryRegistry.h"
 
+#include "Rendering/ReSTIR/ShaderSourceScan.h"
+
 #include <glm/glm.hpp>
 
 #include <cmath>
@@ -57,51 +59,10 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // THE COMPILE-TIME ANCHOR, NOT THE WORKING DIRECTORY. These shaders are
-        // tracked repo assets: they are always present, so failing to find one is
-        // a broken checkout or a moved file, never an environment this test
-        // should excuse itself from.
-        //
-        // It guessed three CWD-relative candidates before and GTEST_SKIP'd when
-        // none matched. That is the wrong shape twice over. It reads as "no
-        // device here" when the truth would be "the C++/GLSL twins were never
-        // compared", and the CWD is not stable across a full run — several
-        // suites chdir during theirs, which is exactly why
-        // OLO_TEST_EDITOR_ROOT exists and why the other file-reading tests use
-        // it. A filtered run would pass and the full-suite run would quietly
-        // stop checking.
-        [[nodiscard]] std::filesystem::path ResolveShaderPath(const char* relative)
-        {
-            return std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / relative;
-        }
-
-        [[nodiscard]] std::string ReadTextFile(const std::filesystem::path& path)
-        {
-            std::ifstream file(path);
-            std::stringstream buffer;
-            buffer << file.rdbuf();
-            return buffer.str();
-        }
-
-        // `#define NAME 12u` or `#define NAME 12`.
-        [[nodiscard]] u32 ScanDefine(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("#define\\s+") + name + "\\s+(\\d+)u?");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
-
-        // `const uint NAME = 12u;`
-        [[nodiscard]] u32 ScanConstUint(const std::string& source, const char* name)
-        {
-            const std::regex pattern(std::string("const\\s+uint\\s+") + name + "\\s*=\\s*(\\d+)u?\\s*;");
-            std::smatch match;
-            if (!std::regex_search(source, match, pattern))
-                return ~0u;
-            return static_cast<u32>(std::stoul(match[1].str()));
-        }
+        // The GLSL scanners, shared with ReSTIRGIContractTest. They used to be a
+        // copy in each file; the copies diverged, and the divergence was a path
+        // resolver that could scan a different worktree's shaders.
+        using namespace OloEngine::Tests::ShaderScan;
 
         // A deterministic emitter point and two shading points that see it from
         // different angles and distances — the configuration a spatial reuse
@@ -730,11 +691,20 @@ namespace OloEngine::Tests
         const auto reservoirPath = ResolveShaderPath("include/Reservoir.glsl");
         ASSERT_TRUE(std::filesystem::exists(paramsPath)) << paramsPath.string();
         ASSERT_TRUE(std::filesystem::exists(reservoirPath)) << reservoirPath.string();
+        // The bias modes and the float-lane encoding moved to the domain-neutral
+        // core when #1169 split it out; the DI sample kinds and the layout
+        // version stayed. Both files are scanned rather than one, because a
+        // constant that migrated between them without its C++ twin migrating is
+        // exactly the drift this test exists to catch.
+        const auto corePath = ResolveShaderPath("include/ReservoirCore.glsl");
+        ASSERT_TRUE(std::filesystem::exists(corePath)) << corePath.string();
 
         const std::string params = ReadTextFile(paramsPath);
         const std::string reservoir = ReadTextFile(reservoirPath);
+        const std::string core = ReadTextFile(corePath);
         ASSERT_FALSE(params.empty()) << paramsPath.string();
         ASSERT_FALSE(reservoir.empty()) << reservoirPath.string();
+        ASSERT_FALSE(core.empty()) << corePath.string();
 
         EXPECT_EQ(ScanDefine(params, "OLO_RESTIR_MAX_INITIAL_CANDIDATES"), kReSTIRDIMaxInitialCandidates);
         EXPECT_EQ(ScanDefine(params, "OLO_RESTIR_MAX_SPATIAL_NEIGHBOURS"), kReSTIRDIMaxSpatialNeighbours);
@@ -755,10 +725,33 @@ namespace OloEngine::Tests
         EXPECT_EQ(ScanConstUint(reservoir, "OLO_LIGHT_SAMPLE_KIND_COUNT"),
                   std::to_underlying(LightSampleKind::Count));
 
-        EXPECT_EQ(ScanConstUint(reservoir, "OLO_RESTIR_BIAS_MODE_BIASED"),
+        EXPECT_EQ(ScanConstUint(core, "OLO_RESTIR_BIAS_MODE_BIASED"),
                   std::to_underlying(BiasMode::Biased));
-        EXPECT_EQ(ScanConstUint(reservoir, "OLO_RESTIR_BIAS_MODE_UNBIASED_MIS"),
+        EXPECT_EQ(ScanConstUint(core, "OLO_RESTIR_BIAS_MODE_UNBIASED_MIS"),
                   std::to_underlying(BiasMode::UnbiasedMIS));
+
+        // The float-lane encoding is the core's now, and every one of these is a
+        // number a wrong value would corrupt SILENTLY: the kind mask decides
+        // which family a reservoir reads back as, and the exact-integer limit is
+        // the threshold above which a `+ 0.5` round flips the low bit. Scanned
+        // here because Reservoir.glsl no longer carries them, and a constant
+        // that stops being checked at all looks exactly like one that passes.
+        EXPECT_EQ(ScanConstUint(core, "OLO_RESERVOIR_KIND_BITS"), kReservoirKindBits);
+        EXPECT_EQ(ScanConstUint(core, "OLO_RESERVOIR_KIND_MASK"), kReservoirKindMask);
+        EXPECT_FLOAT_EQ(ScanConstFloat(core, "OLO_RESERVOIR_OCT_SCALE"), kReservoirOctScale);
+        EXPECT_FLOAT_EQ(ScanConstFloat(core, "OLO_RESERVOIR_OCT_STRIDE"), kReservoirOctStride);
+        EXPECT_FLOAT_EQ(ScanConstFloat(core, "OLO_RESERVOIR_NO_NORMAL"), kReservoirNoNormal);
+        EXPECT_FLOAT_EQ(ScanConstFloat(core, "OLO_RESERVOIR_EXACT_INTEGER_LIMIT"),
+                        kReservoirExactIntegerLimit);
+        EXPECT_FLOAT_EQ(ScanConstFloat(core, "OLO_RESERVOIR_MIN_SHIFT_COSINE"), kMinimumShiftCosine);
+
+        // Reservoir.glsl must still EXPORT the four state operations under their
+        // pre-split names, or every DI draw stops compiling. They come from the
+        // core's macro now, so the check is that the macro is invoked with DI's
+        // prefix rather than that four function definitions are present.
+        EXPECT_NE(reservoir.find("OLO_DEFINE_RESERVOIR_STATE_OPS(OloReservoir, OloLightSample, OloReservoir)"),
+                  std::string::npos)
+            << "include/Reservoir.glsl no longer instantiates the shared state operations under DI's names";
 
         // The debug views are read from the UBO as an integer, so the GLSL macro
         // and the enum must agree or the wrong AOV lands on screen.

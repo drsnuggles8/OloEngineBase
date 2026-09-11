@@ -66,7 +66,8 @@ namespace OloEngine::Automation
         }
 
         void Register(AutomationRegistry& registry, std::string name, std::string description,
-                      Json input, DocumentOperation operation = {})
+                      Json input, DocumentOperation operation = {},
+                      AutomationUndo undo = AutomationUndo::Unspecified)
         {
             const bool write = static_cast<bool>(operation);
             AutomationCommand command;
@@ -77,7 +78,9 @@ namespace OloEngine::Automation
             command.OutputSchema = DocumentSchema();
             command.MainMarshaled = true;
             command.ProjectWrite = write;
-            command.Undo = write ? AutomationUndo::EditorUndoStack : AutomationUndo::None;
+            command.Undo = undo != AutomationUndo::Unspecified
+                               ? undo
+                               : (write ? AutomationUndo::EditorUndoStack : AutomationUndo::None);
             command.Annotations = Json{ { "readOnlyHint", !write }, { "destructiveHint", write }, { "idempotentHint", !write }, { "openWorldHint", false } };
             command.Handler = MakeHandler(std::move(operation));
             registry.Register(std::move(command));
@@ -108,21 +111,19 @@ namespace OloEngine::Automation
                          throw std::runtime_error("save_as requires a nonempty path.");
                      return SaveSceneDocument(access, history, std::filesystem::path(path));
                  });
-        Register(registry, "olo_editor_undo", "Undo one editor operation. A scene save refuses to overwrite an externally modified file.",
-                 Schema::Object().NoAdditional(),
-                 [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
+        // HistoryControl, not EditorUndoStack: these two WALK the undo stack
+        // rather than adding to it, which is the one thing a transaction step may
+        // not do (#1127). Ctrl-Z still reaches them -- undoing an undo is a redo --
+        // so this is a statement about batching, not about reversibility.
+        Register(registry, "olo_editor_undo", "Undo one editor operation. A scene save refuses to overwrite an externally modified file. Not usable as a transaction step.", Schema::Object().NoAdditional(), [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
                  {
                      const bool changed = history.CanUndo();
                      history.Undo();
-                     return changed;
-                 });
-        Register(registry, "olo_editor_redo", "Redo one editor operation. Saved scenes reuse the exact bytes originally saved.",
-                 Schema::Object().NoAdditional(),
-                 [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
+                     return changed; }, AutomationUndo::HistoryControl);
+        Register(registry, "olo_editor_redo", "Redo one editor operation. Saved scenes reuse the exact bytes originally saved. Not usable as a transaction step.", Schema::Object().NoAdditional(), [](const SceneDocumentAccess&, CommandHistory& history, const Json&)
                  {
                      const bool changed = history.CanRedo();
                      history.Redo();
-                     return changed;
-                 });
+                     return changed; }, AutomationUndo::HistoryControl);
     }
 } // namespace OloEngine::Automation
