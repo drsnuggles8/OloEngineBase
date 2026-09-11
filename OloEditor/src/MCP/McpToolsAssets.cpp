@@ -7,6 +7,7 @@
 #include "OloEngine/Project/Project.h"
 
 #include <algorithm>
+#include <cctype>
 #include <string>
 #include <vector>
 

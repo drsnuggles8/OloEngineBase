@@ -509,11 +509,24 @@ namespace OloEngine::Automation
     AssetIndex BuildAssetIndex(const AssetIndexScope& scope)
     {
         AssetIndex index;
+        // An empty index from a scan that never ran is indistinguishable, at the
+        // call site, from "nothing references this asset" -- so say so here rather
+        // than handing back a clean-looking zero.
         if (scope.ProjectRoot.empty())
+        {
+            index.Coverage.Complete = false;
+            index.Coverage.IncompleteReason = "No project root was given; nothing was scanned.";
             return index;
+        }
         std::error_code ec;
         if (!std::filesystem::is_directory(scope.ProjectRoot, ec) || ec)
+        {
+            index.Coverage.Complete = false;
+            index.Coverage.IncompleteReason =
+                "The project root is not a readable directory (" + scope.ProjectRoot.generic_string() +
+                (ec ? "): " + ec.message() : ")") + "; nothing was scanned.";
             return index;
+        }
 
         // Walk from the CANONICAL root, so every path the iterator hands back is
         // already canonical and can be compared to a resolved reference directly.
@@ -531,7 +544,11 @@ namespace OloEngine::Automation
         std::filesystem::recursive_directory_iterator it(
             walked.ProjectRoot, std::filesystem::directory_options::skip_permission_denied, ec);
         if (ec)
+        {
+            index.Coverage.Complete = false;
+            index.Coverage.IncompleteReason = "Could not start walking the project: " + ec.message();
             return index;
+        }
         const std::filesystem::recursive_directory_iterator end;
         while (it != end)
         {
@@ -550,6 +567,9 @@ namespace OloEngine::Automation
             {
                 if (walkBroke)
                 {
+                    index.Coverage.Complete = false;
+                    index.Coverage.IncompleteReason = "The directory walk stopped early at " +
+                                                      file.parent_path().generic_string() + ".";
                     index.Coverage.UnreadableFiles.push_back(file.parent_path().generic_string() +
                                                              " (directory walk stopped here)");
                     break;
@@ -566,6 +586,9 @@ namespace OloEngine::Automation
                 }
                 if (walkBroke)
                 {
+                    index.Coverage.Complete = false;
+                    index.Coverage.IncompleteReason = "The directory walk stopped early at " +
+                                                      file.parent_path().generic_string() + ".";
                     index.Coverage.UnreadableFiles.push_back(file.parent_path().generic_string() +
                                                              " (directory walk stopped here)");
                     break;
@@ -579,7 +602,14 @@ namespace OloEngine::Automation
             }
             std::string text;
             if (!ReadFileText(file, text))
+            {
+                // A file we could not read is a file whose references we do not
+                // know. Countable AND disqualifying, not merely listed.
+                index.Coverage.Complete = false;
+                index.Coverage.IncompleteReason =
+                    "One or more project files could not be read; their references are unknown.";
                 index.Coverage.UnreadableFiles.push_back(file.generic_string());
+            }
             else
             {
                 ++index.Coverage.FilesScanned;
@@ -587,6 +617,9 @@ namespace OloEngine::Automation
             }
             if (walkBroke)
             {
+                index.Coverage.Complete = false;
+                index.Coverage.IncompleteReason = "The directory walk stopped early at " +
+                                                  file.parent_path().generic_string() + ".";
                 index.Coverage.UnreadableFiles.push_back(file.parent_path().generic_string() +
                                                          " (directory walk stopped here)");
                 break;
@@ -652,6 +685,20 @@ namespace OloEngine::Automation
         if (Canonical(oldTarget) != reference.ResolvedFile)
             return {};
 
+        // The non-throwing overload throughout: a filesystem error here would
+        // otherwise escape as filesystem_error before PlanReferenceEdits can turn
+        // it into its controlled refusal, and a move that throws mid-plan is
+        // exactly the half-applied state the plan-first design exists to avoid.
+        // An error becomes an empty path, which every branch below already treats
+        // as "cannot re-spell".
+        const auto relativeTo = [](const std::filesystem::path& target,
+                                   const std::filesystem::path& base) -> std::filesystem::path
+        {
+            std::error_code ec;
+            std::filesystem::path result = std::filesystem::relative(target, base, ec);
+            return ec ? std::filesystem::path{} : result;
+        };
+
         std::filesystem::path respelled;
         switch (reference.Anchor)
         {
@@ -659,12 +706,12 @@ namespace OloEngine::Automation
                 respelled = newTarget;
                 break;
             case AssetReferenceAnchor::ProjectRelative:
-                respelled = std::filesystem::relative(newTarget, scope.ProjectRoot);
+                respelled = relativeTo(newTarget, scope.ProjectRoot);
                 break;
             case AssetReferenceAnchor::AssetDirectoryRelative:
                 if (scope.AssetDirectory.empty())
                     return {};
-                respelled = std::filesystem::relative(newTarget, scope.AssetDirectory);
+                respelled = relativeTo(newTarget, scope.AssetDirectory);
                 break;
             case AssetReferenceAnchor::LegacyProjectPrefixed:
             {
@@ -676,14 +723,21 @@ namespace OloEngine::Automation
                 const std::filesystem::path leading = original.begin() == original.end()
                                                           ? std::filesystem::path{}
                                                           : *original.begin();
-                respelled = leading / std::filesystem::relative(newTarget, scope.ProjectRoot);
+                // Check the remainder BEFORE re-attaching the prefix: joining a
+                // stale leading component onto an empty relative path would
+                // produce a path that names the prefix directory itself.
+                if (const std::filesystem::path remainder = relativeTo(newTarget, scope.ProjectRoot);
+                    !remainder.empty())
+                {
+                    respelled = leading / remainder;
+                }
                 break;
             }
             case AssetReferenceAnchor::BaseDirectory:
             {
                 if (reference.BaseDirectoryIndex >= scope.BaseDirectories.size())
                     return {};
-                respelled = std::filesystem::relative(newTarget, scope.BaseDirectories[reference.BaseDirectoryIndex]);
+                respelled = relativeTo(newTarget, scope.BaseDirectories[reference.BaseDirectoryIndex]);
                 break;
             }
             case AssetReferenceAnchor::Unresolved:

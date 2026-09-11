@@ -93,6 +93,15 @@ namespace OloEngine::Tests
             m_Manager = manager;
         }
 
+        // Process-global state, in a binary that runs many cases per process; see
+        // the matching note in McpAutomationAssetCommandsTest. Unload() is the only
+        // way back -- SetAssetManager asserts on null.
+        void TearDown() override
+        {
+            m_Manager = nullptr;
+            Project::Unload();
+        }
+
         std::filesystem::path m_Project;
         Ref<EditorAssetManager> m_Manager;
     };

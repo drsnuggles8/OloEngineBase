@@ -291,6 +291,42 @@ namespace OloEngine::Automation::Tests
         EXPECT_LE(index.Coverage.FilesScanned, 3u);
     }
 
+    // A scan that never ran returns zero references. Without a flag saying so,
+    // that is indistinguishable at the call site from "nothing references this
+    // asset" -- and a destructive command gating only on Truncated would read the
+    // clean-looking zero and go ahead. Reliable() is what both commands check.
+    TEST_F(AutomationAssetIndexTest, AScanThatCouldNotRunIsNotReportedAsClean)
+    {
+        AssetIndexScope broken = m_Scope;
+        broken.ProjectRoot = m_Root / "does-not-exist";
+
+        const AssetIndex index = BuildAssetIndex(broken);
+        EXPECT_TRUE(index.References.empty());
+        EXPECT_FALSE(index.Coverage.Truncated) << "it did not hit the file limit -- it never started";
+        EXPECT_FALSE(index.Coverage.Complete);
+        EXPECT_FALSE(index.Coverage.Reliable())
+            << "an empty index from a scan that never ran must never read as 'nothing references this'";
+        EXPECT_FALSE(index.Coverage.IncompleteReason.empty()) << "and it has to say why";
+    }
+
+    TEST_F(AutomationAssetIndexTest, AnEmptyProjectRootIsAlsoUnreliable)
+    {
+        AssetIndexScope broken;
+        const AssetIndex index = BuildAssetIndex(broken);
+        EXPECT_FALSE(index.Coverage.Reliable());
+        EXPECT_FALSE(index.Coverage.IncompleteReason.empty());
+    }
+
+    TEST_F(AutomationAssetIndexTest, AHealthyScanIsReliable)
+    {
+        Write(m_Project / "Assets" / "Scenes" / "Fine.olo",
+              "Scene: Fine\n  AlbedoPath: Assets/Textures/Checkerboard.png\n");
+        const AssetIndex index = Build();
+        EXPECT_TRUE(index.Coverage.Reliable());
+        EXPECT_TRUE(index.Coverage.Complete);
+        EXPECT_TRUE(index.Coverage.IncompleteReason.empty());
+    }
+
     // --- the other graph direction ------------------------------------------
 
     TEST_F(AutomationAssetIndexTest, DependenciesAreTheReferencesInsideTheFile)

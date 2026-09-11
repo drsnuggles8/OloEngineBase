@@ -24,6 +24,19 @@
 //     file, decided what to change and came back to write it must not clobber an
 //     edit somebody made in between -- and undo must not restore over a file that
 //     moved on. Refusing is the only correct answer; there is no safe fallback.
+//
+// THE GUARD IS A NARROW WINDOW, NOT AN ATOMIC COMPARE-AND-SWAP. The check reads
+// the file and the replace is a separate syscall, so a writer that lands between
+// the two is not detected and its bytes are lost. The window is re-checked
+// immediately before the swap, which shrinks it to about the cost of one rename,
+// but it does not close it: doing that needs a platform-specific conditional
+// replacement (Win32 ReplaceFile with a backup, or an O_EXCL dance on POSIX) and
+// the cooperation of every other writer, including the editor's own save path and
+// whatever text editor the user has the file open in. Stated rather than implied,
+// because a guard that reads as atomic and is not is worse than one whose limits
+// are written down. In practice the contending writer is a human with the file
+// open, and the seconds-to-minutes gap between their save and ours is many orders
+// of magnitude wider than this window.
 
 #include "OloEngine/Core/Base.h"
 

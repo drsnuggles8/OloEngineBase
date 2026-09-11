@@ -130,6 +130,17 @@ namespace OloEngine::Automation::Tests
             RegisterAssetAuthoringCommands(m_Registry);
         }
 
+        // Project::Load and SetAssetManager install PROCESS-GLOBAL state, and this
+        // binary runs many cases in one process. Leaving them set hands the next
+        // fixture a project rooted in this case's temp directory -- the same class
+        // of cross-test leakage that already made one case here pass alone and
+        // fail in a full run. Unload() is the only way back: SetAssetManager
+        // asserts on null.
+        void TearDown() override
+        {
+            Project::Unload();
+        }
+
         [[nodiscard]] std::filesystem::path TexturePath() const
         {
             return m_Project / "Assets" / "Textures" / "Checkerboard.png";
@@ -367,6 +378,53 @@ namespace OloEngine::Automation::Tests
         (void)Call("olo_asset_move",
                    Json{ { "path", "Assets/Textures/Checkerboard.png" }, { "destination", "Outside.png" } });
         EXPECT_EQ(Read(ScenePath()), before) << "validation happens before any file is written";
+    }
+
+    // --- containment ---------------------------------------------------------
+    //
+    // ResolveTarget accepts an ABSOLUTE path, and write consent is a gate on
+    // touching the project -- never a licence for the rest of the disk. Without a
+    // containment check on the TARGET (as opposed to the destination, which was
+    // always checked), olo_asset_delete would remove any file on the machine.
+    TEST_F(AutomationAssetCommandsTest, DeleteRefusesATargetOutsideTheProject)
+    {
+        const auto outside = OloEngine::Tests::TempDir("outside") / "Innocent.png";
+        Write(outside, "not the project's business");
+
+        const auto result = Call("olo_asset_delete",
+                                 Json{ { "path", outside.generic_string() }, { "force", true } });
+        ASSERT_TRUE(result.Result.IsError) << result.Result.Content.dump(2);
+        EXPECT_TRUE(std::filesystem::exists(outside))
+            << "an absolute path outside the asset directory must never be deleted, force or not";
+    }
+
+    TEST_F(AutomationAssetCommandsTest, MoveRefusesASourceOutsideTheProject)
+    {
+        const auto outside = OloEngine::Tests::TempDir("outside") / "Innocent.png";
+        Write(outside, "not the project's business");
+
+        const auto result = Call("olo_asset_move", Json{ { "path", outside.generic_string() },
+                                                         { "destination", "Assets/Textures/Stolen.png" },
+                                                         { "createDirectories", true } });
+        EXPECT_TRUE(result.Result.IsError) << result.Result.Content.dump(2);
+        EXPECT_TRUE(std::filesystem::exists(outside));
+    }
+
+    TEST_F(AutomationAssetCommandsTest, ImportSettingsReadAnythingButWriteOnlyInsideTheProject)
+    {
+        const auto outside = OloEngine::Tests::TempDir("outside") / "Innocent.png";
+        Write(outside, "not the project's business");
+
+        // Reading is harmless and stays allowed -- "what is this file" is useful.
+        const Json read = Success("olo_asset_import_settings", Json{ { "path", outside.generic_string() } });
+        EXPECT_FALSE(read.at("exists").get<bool>());
+
+        // Writing a sidecar next to an arbitrary file is not.
+        const auto written = Call("olo_asset_import_settings",
+                                  Json{ { "path", outside.generic_string() },
+                                        { "settings", Json{ { "flipUV", true } } } });
+        EXPECT_TRUE(written.Result.IsError) << written.Result.Content.dump(2);
+        EXPECT_FALSE(std::filesystem::exists(outside.string() + ".oloimport"));
     }
 
     // --- import -------------------------------------------------------------

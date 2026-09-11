@@ -143,6 +143,28 @@ namespace OloEngine::Automation
         // True when MaxFiles stopped the walk. A truncated index may be missing
         // referrers, so a caller MUST refuse a destructive operation on it.
         bool Truncated = false;
+        // False when the scan could not see everything it was asked to for any
+        // OTHER reason: an unusable project root, a walk that could not start or
+        // could not finish, a file it could not read.
+        //
+        // Separate from Truncated only in what caused it -- both mean the referrer
+        // set may be SHORT, and a short referrer set is indistinguishable from an
+        // empty one at the call site. Without this, a scan that failed before it
+        // read a single file returned zero references with Truncated false, and a
+        // destructive command gating on Truncated alone would read that as
+        // "nothing references this asset" and go ahead. Use Reliable() rather than
+        // testing either flag by hand.
+        bool Complete = true;
+        // Why Complete is false, for the result. Empty when it is true.
+        std::string IncompleteReason;
+
+        // Whether this index may be trusted to answer "what references X"
+        // NEGATIVELY. Every destructive command must check it; a read-only query
+        // may still report what it found, alongside the coverage that says so.
+        [[nodiscard]] bool Reliable() const
+        {
+            return Complete && !Truncated;
+        }
     };
 
     struct AssetIndex

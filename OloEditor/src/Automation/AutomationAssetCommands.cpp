@@ -242,9 +242,13 @@ namespace OloEngine::Automation
                 if (const auto size = std::filesystem::file_size(target.AbsolutePath, ec); !ec)
                     described["sizeBytes"] = static_cast<u64>(size);
             }
+            // By path COMPONENT, not string prefix: "/work/proj-backup/A.png"
+            // starts_with("/work/proj") and is not in the project at all.
+            std::error_code relativeEc;
+            const std::filesystem::path relativeToRoot =
+                std::filesystem::relative(target.AbsolutePath, project.Root, relativeEc);
             described["inProject"] =
-                !std::filesystem::relative(target.AbsolutePath, project.Root).empty() &&
-                target.AbsolutePath.generic_string().starts_with(project.Root.generic_string());
+                !relativeEc && !relativeToRoot.empty() && *relativeToRoot.begin() != "..";
             return described;
         }
 
@@ -300,6 +304,9 @@ namespace OloEngine::Automation
                 { "unreadableFiles", std::move(unreadable) },
                 { "unresolvedReferences", index.Coverage.UnresolvedReferences },
                 { "truncated", index.Coverage.Truncated },
+                { "complete", index.Coverage.Complete },
+                { "incompleteReason", index.Coverage.IncompleteReason },
+                { "reliable", index.Coverage.Reliable() },
                 { "projectRoot", scope.ProjectRoot.generic_string() },
                 { "assetDirectory", scope.AssetDirectory.generic_string() },
                 { "extraBaseDirectories", std::move(bases) },
@@ -399,14 +406,18 @@ namespace OloEngine::Automation
                                                 const AssetTarget& target, const ProjectView& project,
                                                 const AssetIndexScope& scope, bool force, std::string_view verb)
         {
-            if (index.Coverage.Truncated)
+            if (!index.Coverage.Reliable())
             {
                 Json refusal{ { "refused", true },
-                              { "reason", "index-truncated" },
+                              { "reason", index.Coverage.Truncated ? "index-truncated" : "scan-incomplete" },
                               { "message", std::string("Refusing to ") + std::string(verb) +
-                                               " this asset: the reference scan hit its file limit, so the referrer "
-                                               "list is incomplete and cannot be trusted. Raise the limit or reduce "
-                                               "the project scan set; 'force' deliberately does NOT waive this." },
+                                               " this asset: the reference scan did not see the whole project, so "
+                                               "the referrer list is incomplete and cannot be trusted. " +
+                                               (index.Coverage.Truncated
+                                                    ? std::string("It hit its file limit.")
+                                                    : index.Coverage.IncompleteReason) +
+                                               " 'force' deliberately does NOT waive this -- it is a claim about "
+                                               "the quality of the list, not about the risk you are accepting." },
                               { "asset", DescribeTarget(target, project) },
                               { "coverage", DescribeCoverage(index, scope) } };
                 return refusal;
@@ -431,6 +442,35 @@ namespace OloEngine::Automation
 
         // ---- destination validation (create / move) ---------------------------
 
+        // Is `candidate` inside `directory`? By path COMPONENT: a bare string
+        // prefix says yes for "/work/proj-backup" against "/work/proj".
+        bool IsInside(const std::filesystem::path& candidate, const std::filesystem::path& directory)
+        {
+            if (directory.empty())
+                return false;
+            std::error_code ec;
+            const std::filesystem::path relative =
+                std::filesystem::relative(candidate, Canonicalize(directory), ec);
+            return !ec && !relative.empty() && *relative.begin() != "..";
+        }
+
+        // Every command that WRITES has to check this, not just the ones that take
+        // a destination. ResolveTarget accepts an absolute path, so without it
+        // olo_asset_delete would std::filesystem::remove any file on the machine
+        // and olo_asset_import_settings would drop a sidecar next to it -- write
+        // consent is a gate on touching the PROJECT, never a licence for the whole
+        // disk. Read-only commands are deliberately not gated: answering "what is
+        // this file, and does anything point at it" about a path outside the
+        // project is useful and harmless.
+        Json RequireWritableTarget(const ProjectView& project, const AssetTarget& target, std::string_view verb)
+        {
+            if (IsInside(target.AbsolutePath, project.AssetDirectory))
+                return Json::object();
+            return Failure("Refusing to " + std::string(verb) + " a path outside the project asset directory (" +
+                           Canonicalize(project.AssetDirectory).generic_string() +
+                           "). Got: " + target.AbsolutePath.generic_string());
+        }
+
         // A destination must land INSIDE the project asset directory. Writing an
         // engine asset anywhere else produces a file the registry will not track
         // and the watcher will not see -- which looks like it worked and is not
@@ -445,7 +485,7 @@ namespace OloEngine::Automation
             std::filesystem::path destination = ResolveProjectPath(project, std::filesystem::path(raw));
             const std::string assetDir = Canonicalize(project.AssetDirectory).generic_string();
             const std::string candidate = destination.generic_string();
-            if (!candidate.starts_with(assetDir + "/"))
+            if (!IsInside(destination, project.AssetDirectory))
             {
                 return Failure("destination must be inside the project asset directory (" + assetDir +
                                "). Got: " + candidate);
@@ -616,6 +656,20 @@ namespace OloEngine::Automation
                     std::error_code undoEc;
                     std::filesystem::rename(destination, source, undoEc);
                     rollback();
+                    if (undoEc)
+                    {
+                        // The asset is at the destination and the references point
+                        // at the source. Saying "rolled the move back" here would
+                        // be false, and a false all-clear on a half-applied move is
+                        // worse than the failure itself.
+                        OLO_CORE_ERROR("Asset move rollback failed: {} still sits at {} ({})", source.string(),
+                                       destination.string(), undoEc.message());
+                        return Failure("Moved the asset but could not move its import-settings sidecar (" +
+                                       sidecarEc.message() + "), AND could not move the asset back (" +
+                                       undoEc.message() + "). The asset file is now at " +
+                                       destination.generic_string() + " while every reference points at " +
+                                       source.generic_string() + ". This needs fixing by hand.");
+                    }
                     return Failure("Moved the asset but could not move its import-settings sidecar (" +
                                    sidecarEc.message() + "); rolled the move back.");
                 }
@@ -664,6 +718,28 @@ namespace OloEngine::Automation
             }
 
           private:
+            // Put the first `count` rewrites back the way they were. Used by both
+            // failure paths below, because a half-rewritten project is strictly
+            // worse than a refused undo.
+            void RevertRewrites(bool forward, sizet count) const
+            {
+                for (sizet i = count; i-- > 0;)
+                {
+                    const PendingEdit& edit = m_Record.Edits[i];
+                    const FileContents after(edit.After);
+                    try
+                    {
+                        ReplaceFileContents(edit.File, forward ? after : edit.Before,
+                                            forward ? edit.Before : after);
+                    }
+                    catch (const std::exception& error)
+                    {
+                        OLO_CORE_ERROR("Asset move undo rollback failed for {}: {}", edit.File.string(),
+                                       error.what());
+                    }
+                }
+            }
+
             void Apply(bool forward)
             {
                 const std::filesystem::path& from = forward ? m_Record.Source : m_Record.Destination;
@@ -684,29 +760,25 @@ namespace OloEngine::Automation
                 }
                 catch (...)
                 {
-                    for (sizet i = written; i-- > 0;)
-                    {
-                        const PendingEdit& edit = m_Record.Edits[i];
-                        const FileContents after(edit.After);
-                        std::error_code ignored;
-                        try
-                        {
-                            ReplaceFileContents(edit.File, forward ? after : edit.Before,
-                                                forward ? edit.Before : after);
-                        }
-                        catch (const std::exception& error)
-                        {
-                            OLO_CORE_ERROR("Asset move undo rollback failed for {}: {}", edit.File.string(),
-                                           error.what());
-                        }
-                    }
+                    RevertRewrites(forward, written);
                     throw;
                 }
 
                 std::error_code ec;
                 std::filesystem::rename(from, to, ec);
                 if (ec)
-                    throw std::runtime_error("Cannot move the asset file back: " + ec.message());
+                {
+                    // The rewrites already landed. Without putting them back, every
+                    // referring file now points at a location the asset is not at --
+                    // the exact silent breakage this command set exists to prevent,
+                    // and reached by an ordinary Ctrl-Z. CommitMove guards the
+                    // forward move this way; the undo path has to as well.
+                    RevertRewrites(forward, m_Record.Edits.size());
+                    throw std::runtime_error("Cannot move the asset file back to " + to.generic_string() + ": " +
+                                             ec.message() + ". The reference rewrites were rolled back, so the "
+                                                            "project still points at " +
+                                             from.generic_string() + ".");
+                }
                 if (m_Record.HadSidecar)
                 {
                     std::error_code sidecarEc;
@@ -748,6 +820,8 @@ namespace OloEngine::Automation
                     return resolved;
                 if (!target.ExistsOnDisk)
                     return Failure("The asset file does not exist on disk: " + target.AbsolutePath.generic_string());
+                if (Json contained = RequireWritableTarget(project, target, "move"); IsFailure(contained))
+                    return contained;
                 if (!args.at("destination").is_string())
                     return Failure("destination must be a string.");
                 return ValidateDestination(project, args.at("destination").get<std::string>(),
@@ -759,14 +833,16 @@ namespace OloEngine::Automation
             const AssetIndex index = ScanProject(host, scope);
             if (host.IsCurrentCallCancelled())
                 return AutomationResult::Error("Cancelled while scanning the project.");
-            if (index.Coverage.Truncated)
+            if (!index.Coverage.Reliable())
             {
                 return AutomationResult::Structured(
                     Json{ { "moved", false },
                           { "refused", true },
-                          { "reason", "index-truncated" },
-                          { "message", "Refusing to move: the reference scan hit its file limit, so the set of "
-                                       "references to rewrite is incomplete." },
+                          { "reason", index.Coverage.Truncated ? "index-truncated" : "scan-incomplete" },
+                          { "message", std::string("Refusing to move: the reference scan did not see the whole "
+                                                   "project, so the set of references to rewrite is incomplete. ") +
+                                           (index.Coverage.Truncated ? std::string("It hit its file limit.")
+                                                                     : index.Coverage.IncompleteReason) },
                           { "coverage", DescribeCoverage(index, scope) } });
             }
 
@@ -878,7 +954,7 @@ namespace OloEngine::Automation
                     return resolved;
                 if (!target.ExistsOnDisk)
                     return Failure("The asset file does not exist on disk: " + target.AbsolutePath.generic_string());
-                return Json::object(); });
+                return RequireWritableTarget(project, target, "delete"); });
             if (IsFailure(prepared))
                 return AutomationResult::Error(prepared.at("__error").get<std::string>());
 
@@ -1253,6 +1329,13 @@ namespace OloEngine::Automation
             }
             if (!args.at("settings").is_object())
                 return AutomationResult::Error("settings must be a JSON object.");
+            // Reading settings for any path is harmless; WRITING a sidecar next to
+            // an arbitrary file on the machine is not.
+            if (Json contained = RequireWritableTarget(project, target, "write import settings for");
+                IsFailure(contained))
+            {
+                return AutomationResult::Error(contained.at("__error").get<std::string>());
+            }
 
             // Merge rather than replace, so setting one key does not silently drop
             // every other. A null VALUE removes its key -- the only way to unset
@@ -1331,8 +1414,15 @@ namespace OloEngine::Automation
                 .Prop("unresolvedReferences", Schema::Int().Min(0).Desc(
                                                   "Path values that resolve to no file on disk -- broken today."))
                 .Prop("truncated", Schema::Bool().Desc(
-                                       "The scan hit its file limit. The reference set is INCOMPLETE, and every "
-                                       "destructive command refuses on it."))
+                                       "The scan hit its file limit. The reference set is INCOMPLETE."))
+                .Prop("complete", Schema::Bool().Desc(
+                                      "False when the scan could not see the whole project for any other reason "
+                                      "-- an unusable root, a walk that could not finish, an unreadable file."))
+                .Prop("incompleteReason", Schema::String())
+                .Prop("reliable", Schema::Bool().Desc(
+                                      "complete AND not truncated. ONLY when this is true may an empty referrer "
+                                      "list be read as 'nothing references this'. Every destructive command "
+                                      "refuses when it is false, and 'force' does not waive that."))
                 .Prop("projectRoot", Schema::String())
                 .Prop("assetDirectory", Schema::String().Desc("The second resolution anchor; see 'note'."))
                 .Prop("extraBaseDirectories", Schema::Array(Schema::String()))
@@ -1353,9 +1443,14 @@ namespace OloEngine::Automation
                 .Prop("resolvedFile", Schema::String());
         }
 
+        // `idempotent` defaults to "read-only commands are, writes are not", which
+        // is true of every command here except olo_asset_import: importing a file
+        // that is already registered returns its existing handle and changes
+        // nothing, so advertising false there would talk a client out of a retry
+        // that is perfectly safe.
         void Register(AutomationRegistry& registry, std::string name, std::string title, std::string description,
                       Schema::Node input, Schema::Node output, AutomationHandler handler, bool projectWrite,
-                      AutomationUndo undo, bool destructive)
+                      AutomationUndo undo, bool destructive, std::optional<bool> idempotent = std::nullopt)
         {
             AutomationCommand command;
             command.Name = std::move(name);
@@ -1366,7 +1461,7 @@ namespace OloEngine::Automation
             command.OutputSchema = output;
             command.Annotations = Json{ { "readOnlyHint", !projectWrite },
                                         { "destructiveHint", destructive },
-                                        { "idempotentHint", !projectWrite },
+                                        { "idempotentHint", idempotent.value_or(!projectWrite) },
                                         { "openWorldHint", false } };
             command.ProjectWrite = projectWrite;
             // NOT MainMarshaled. These commands marshal the registry reads and
@@ -1495,7 +1590,7 @@ namespace OloEngine::Automation
                      .Prop("imported", Schema::Bool())
                      .Prop("alreadyRegistered", Schema::Bool())
                      .Prop("undoable", Schema::Bool()),
-                 AssetImport, true, AutomationUndo::Irreversible, false);
+                 AssetImport, true, AutomationUndo::Irreversible, false, /*idempotent*/ true);
 
         Register(registry, "olo_asset_reimport", "Reimport asset",
                  "Reload a registered asset's data from disk (the hot-reload path). Reports reimported:false with "
