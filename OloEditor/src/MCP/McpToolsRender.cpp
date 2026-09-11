@@ -8544,6 +8544,81 @@ namespace OloEngine::MCP
                 "reuse is lighting surfaces through walls; 'temporalReuseRan' false means every pixel restarted "
                 "this frame; 'settingsClamped' means the frame did LESS than was asked.";
             tool.InputSchema = Schema::EmptyObject();
+            // The payload BuildReSTIRGIStatsReport actually emits. A tool that
+            // returns structuredContent without declaring its shape hands the
+            // client an unvalidated blob, and the DI twin above declares one - so
+            // the two sibling tools would have disagreed about whether their
+            // output has a contract at all.
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability",
+                          Schema::Object()
+                              .Prop("available", Schema::Bool())
+                              .Prop("enabled", Schema::Bool())
+                              .Prop("active", Schema::Bool())
+                              .Prop("status",
+                                    Schema::String().Enum({ "unavailable", "disabled", "fallback", "active" }))
+                              .Prop("fallbackReason",
+                                    Schema::String().Desc("'none' when active; otherwise WHY the tier stood down."))
+                              .Required({ "available", "enabled", "active", "status", "fallbackReason" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String())
+                                           .Prop("stale", Schema::Bool()))
+                    .Prop("engagement",
+                          Schema::Object()
+                              .Prop("lightCount", Schema::Int().Min(0))
+                              .Prop("emissiveTriangles", Schema::Int().Min(0))
+                              .Prop("environmentAvailable", Schema::Bool().Desc(
+                                                                "A prefiltered cube is bound at non-zero intensity, "
+                                                                "or the uniform environment term is non-black."))
+                              .Prop("engaged", Schema::Bool().Desc(
+                                                   "The criterion's verdict on these inputs, not a second rule.")))
+                    .Prop("indirectDiffuse",
+                          Schema::Object()
+                              .Prop("ddgiAtPrimary", Schema::Bool())
+                              .Prop("restirGIAtPrimary", Schema::Bool())
+                              .Prop("ddgiAtSecondary", Schema::Bool().Desc(
+                                                           "The probe cache is read at exactly ONE vertex per path; "
+                                                           "this and ddgiAtPrimary are never both true."))
+                              .Prop("ssgiComposite", Schema::Bool())
+                              .Prop("ssgiStoodDown", Schema::Int().Min(0).Desc(
+                                                         "SSGI was asked for and this tier took the term.")))
+                    .Prop("estimator",
+                          Schema::Object()
+                              .Prop("biasMode", Schema::String())
+                              .Prop("reservoirLayoutVersion", Schema::Int().Min(0))
+                              .Prop("initialCandidatesPerPixel", Schema::Int().Min(0))
+                              .Prop("spatialNeighboursPerPixel", Schema::Int().Min(0))
+                              .Prop("spatialPasses", Schema::Int().Min(0))
+                              .Prop("temporalReuseRan", Schema::Bool())
+                              .Prop("historyPlanesAvailable", Schema::Int().Min(0))
+                              .Prop("historyPlanesRequired", Schema::Int().Min(0).Desc(
+                                                                 "A shortfall is why temporal reuse stood down."))
+                              .Prop("reconnectionVisibilityRan", Schema::Bool().Desc(
+                                                                     "False means reuse is lighting through walls."))
+                              .Prop("spatialReconnectionVisibilityRan", Schema::Bool())
+                              .Prop("ddgiTailRan", Schema::Bool())
+                              .Prop("maxSampleAge", Schema::Int().Min(0))
+                              .Prop("raysDispatchedUpperBound", Schema::Int().Min(0).Desc("Derived, not measured."))
+                              .Prop("settingsClamped", Schema::Int().Min(0)))
+                    .Prop("settings", Schema::Object()
+                                          .Prop("initialCandidates", Schema::Int().Min(0))
+                                          .Prop("ddgiTail", Schema::Bool())
+                                          .Prop("temporalReuse", Schema::Bool())
+                                          .Prop("temporalMCap", Schema::Number().Min(0))
+                                          .Prop("maxSampleAge", Schema::Int().Min(0))
+                                          .Prop("spatialReuse", Schema::Bool())
+                                          .Prop("spatialNeighbours", Schema::Int().Min(0))
+                                          .Prop("spatialRadiusPixels", Schema::Number().Min(0))
+                                          .Prop("spatialPasses", Schema::Int().Min(0))
+                                          .Prop("reconnectionVisibility", Schema::Bool())
+                                          .Prop("spatialReconnectionVisibility", Schema::Bool())
+                                          .Prop("minReconnectionDistance", Schema::Number().Min(0))
+                                          .Prop("maxBounceDistance", Schema::Number().Min(0))
+                                          .Prop("maxRadianceClamp", Schema::Number().Min(0))
+                                          .Prop("debugView", Schema::String()))
+                    .Required({ "availability" });
+            tool.MainMarshaled = true;
             tool.Handler = Handle_ReSTIRGIStats;
             registry.Register(std::move(tool));
         }
