@@ -350,7 +350,16 @@ namespace OloEngine::Tests
             // deviation. A geometry that barely moved J would leave the negative
             // control inside the Monte Carlo noise and it would pass whether or
             // not the Jacobian is applied.
-            EXPECT_GT(std::abs(j - 1.0f), 0.25f)
+            //
+            // The floor is 0.15, not 0.25: the probe's bounce vertex is one
+            // float-contraction away from platform-identical even with the
+            // seed stream pinned (Canonical01 above), and the same seed lands at
+            // J = 1.201 on Linux/clang (both sanitizer jobs) against J > 1.25 on
+            // MSVC. The negative control below was measured to hold at 1.20 —
+            // the 2x bias margin passed on every Linux run that tripped this
+            // floor — so 0.15 is a floor the control was actually observed to
+            // survive, where 0.25 was the Windows value with no margin at all.
+            EXPECT_GT(std::abs(j - 1.0f), 0.15f)
                 << "geometry too symmetric for this test to mean anything, J=" << j;
         }
 
