@@ -51,6 +51,10 @@ namespace OloEngine
     class VulkanDeferredReclaim
     {
       public:
+        // Matches VulkanContextData::kFramesInFlight. Public: the descriptor heap's
+        // transient ring is sized by it too (one sub-ring per frame in flight, #1198).
+        static constexpr u64 kFramesInFlight = 2;
+
         // Process-wide instance, deliberately leaked (see
         // VulkanImageInfoRegistry::Get for the rationale).
         [[nodiscard]] static VulkanDeferredReclaim& Get();
@@ -139,9 +143,6 @@ namespace OloEngine
         // DestroyEntry with any escape contained, so one bad entry cannot
         // strand the rest of a drain.
         static void DestroyEntryGuarded(const Entry& entry) noexcept;
-
-        // Matches VulkanContextData::kFramesInFlight.
-        static constexpr u64 kFramesInFlight = 2;
 
         std::vector<Entry> m_Entries;
         u64 m_Generation = 0;

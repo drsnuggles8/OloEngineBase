@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h" // the shared kDescriptorHeap* capacities
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
+#include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
@@ -46,15 +47,23 @@ namespace OloEngine
         // descriptors — the GL backend's discipline, kept for the same
         // reason: an unwritten heap slot is undefined memory, not zero, and
         // "every reachable slot is defined" must hold from the first frame.
+        // One transient sub-ring per frame in flight (HeapDesc::
+        // FrameTransientRingFrames): the engine heap's reserved range grows by
+        // the extra sub-rings, and the slot cache keeps everything past it.
+        constexpr u32 kFramesInFlight = static_cast<u32>(VulkanDeferredReclaim::kFramesInFlight);
+        constexpr u32 kEngineHeapSlots =
+            kDescriptorHeapPersistentSlots + kDescriptorHeapTransientSlots * kFramesInFlight;
+        static_assert(kEngineHeapSlots < VulkanResourceHeap::kSlotCapacity,
+                      "the engine heap must leave the slot cache room in the resource heap");
         const bool fresh = resourceHeap.GetReservedSlots() == 0u;
-        if (!resourceHeap.ReserveSlotRange(kDescriptorHeapSlots))
+        if (!resourceHeap.ReserveSlotRange(kEngineHeapSlots))
         {
-            OLO_CORE_ERROR("VulkanDescriptorHeapBackend: cannot reserve {} engine-heap slots", kDescriptorHeapSlots);
+            OLO_CORE_ERROR("VulkanDescriptorHeapBackend: cannot reserve {} engine-heap slots", kEngineHeapSlots);
             return false;
         }
         if (fresh)
         {
-            for (u32 slot = 0; slot < kDescriptorHeapSlots; ++slot)
+            for (u32 slot = 0; slot < kEngineHeapSlots; ++slot)
             {
                 (void)Get().WriteNullAt(slot, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
             }
@@ -66,6 +75,7 @@ namespace OloEngine
         heapDesc.ResourceSlotCapacity = kDescriptorHeapPersistentSlots;
         heapDesc.SamplerSlotCapacity = kDescriptorHeapSamplerSlots;
         heapDesc.FrameTransientRingSlots = kDescriptorHeapTransientSlots;
+        heapDesc.FrameTransientRingFrames = kFramesInFlight;
 #ifdef OLO_DEBUG
         heapDesc.PoisonOnFree = true;
 #else

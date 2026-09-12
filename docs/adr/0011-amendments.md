@@ -2784,3 +2784,47 @@ does not create one.
 
 Rules and evidence:
 [vulkan-async-compute-queue.md](../agent-rules/vulkan-async-compute-queue.md).
+
+## Amendments from issue #1198 (2026-09-12) — the transient ring and frames in flight
+
+### (99) The frame-transient ring is one sub-ring per frame in flight; a reset makes views stale at once and rewrites a sub-ring only when it comes around
+
+`HeapDesc::FrameTransientRingSlots` always said "per frame-in-flight"; the ring
+was one region that restarted at slot 0 every CPU frame. The heap publishes
+descriptors **in place** into a single live table, so with two frames in flight
+every CPU frame rewrote — in Debug with poison first, then with its own views —
+the slots the previous frame's GPU work was still indexing. The graphics queue
+mostly got away with it. The async-compute batch that GTAO runs on lags behind
+the graphics segment it waits on, and after a render-path switch the same slot
+index changes descriptor *type* between frames (a storage image, then a sampled
+view), so the still-running dispatch stored through a sampled-image descriptor:
+`READ of invalid address`, a shader instruction pointer in the device-fault
+record, and nothing for GPU-assisted validation to report because the
+descriptor was valid at record time. Plain master reproduced it on 2 of 3 live
+forward→forward+ switches on MaterialLab; with `OLO_VK_ASYNC_COMPUTE=0` never.
+
+The rule now:
+
+1. **`FrameTransientRingFrames` sub-rings** of `FrameTransientRingSlots` each.
+   Frame N allocates from sub-ring N mod Frames. Vulkan passes the reclaim
+   queue's `kFramesInFlight` (2); OpenGL passes 1 and keeps the single-ring
+   behaviour bit for bit.
+2. **`ResetFrameTransients` still retires every view the frame minted
+   immediately** — generation advance, bookkeeping release — so §1.2's "a
+   transient offset held past the point of write is already stale" holds
+   unchanged, and `OffsetOf` answers invalid the moment the frame ends.
+3. **The published table for that sub-ring is not touched until the sub-ring
+   comes around again.** The poison chosen at release (`ViewSlot::Descriptor`,
+   `PoisonPending`) is written when `ResetFrameTransients` moves onto the
+   sub-ring, one lap later. `RenderGraph::Execute` runs after the backend's
+   frame wait, which is what proves the sub-ring's previous user retired; the
+   heap does not know about fences and does not need to.
+4. **The backend reserves persistent + transient × frames** slots of its
+   resource heap (Vulkan: 4096 + 1024 × 2 = 6144 of 8192).
+
+What did not change: the persistent region, memoisation, the sampler heap, the
+null block, and every single-ring test — `frames` defaults to 1.
+`RHIDescriptorHeapTest.TransientRingAlternatesBetweenFramesInFlight` pins the
+two-ring contract: alternation, immediate staleness, the untouched sub-ring in
+between, the one-lap poison.
+
