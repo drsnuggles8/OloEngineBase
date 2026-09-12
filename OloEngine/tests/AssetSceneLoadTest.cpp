@@ -62,6 +62,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -384,6 +385,22 @@ namespace OloEngine::Tests
                     failures.push_back({ path.generic_string(), reason.str() });
                 }
             }
+
+            // Release this scene's footprint before the next one. Three steps, and
+            // the third is the one that matters: the scene is dropped (its components
+            // hold the asset Refs), the manager lets go of everything it loaded for it
+            // while keeping the registry, and the GPU objects are actually deleted.
+            // Every GL buffer and texture destructor only QUEUES its glDelete* on
+            // FrameResourceManager, to run at the next frame boundary -- and this test
+            // renders no frame, so without the flush the driver kept every scene's
+            // vertex, index and texture storage alive until Shutdown: 5.7 GB committed
+            // across the sandbox scenes on the Windows dev box, ~400 MB per Sponza-class
+            // scene, doubling under --gtest_repeat, with the loaded-asset set already
+            // empty. The largest footprint in the suite, on runners that share a
+            // 14 GiB cgroup between two test processes.
+            scene.Reset();
+            assetManager->UnloadLoadedAssets();
+            FrameResourceManager::Get().FlushAllDeletionQueues();
         }
 
         if (!failures.empty())
