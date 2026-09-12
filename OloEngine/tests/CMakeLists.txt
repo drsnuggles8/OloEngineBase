@@ -1595,10 +1595,14 @@ if(OLO_TESTS_CTEST_ARGS)
 	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
 endif()
 
-# Three discovery calls over one binary, each a disjoint slice by gtest filter
+# Three discovery passes over one binary, each a disjoint slice by gtest filter
 # (positive patterns, then `-` negatives): the mesh-cache offenders (serialised,
-# and they load a full model so they weigh double too), the heavy set (weighted
-# and scheduled first), and everything else. Every case lands in exactly one.
+# and they load a full model so they weigh double too) and the heavy set
+# (weighted and scheduled first) are registered PER CASE by gtest_discover_tests;
+# everything else -- the light majority whose whole cost is process start-up --
+# is registered PER SUITE by cmake/OloSuiteDiscovery.cmake, one process per
+# suite (sharded past 40 cases). Every case lands in exactly one pass; the
+# script's own filter is the negation of the other two.
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
@@ -1613,10 +1617,56 @@ gtest_discover_tests(OloEngine-Tests
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 	PROPERTIES PROCESSORS 2 COST 100
 )
-gtest_discover_tests(OloEngine-Tests
-	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
-	DISCOVERY_TIMEOUT 120
-	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
-	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
+# The light majority, one ctest entry per SUITE. Wired the way gtest_discover_tests
+# wires POST_BUILD discovery: a -P script runs after every link of the target and
+# rewrites a per-config tests file, which a small include file pulls into ctest
+# through the directory's TEST_INCLUDE_FILES. The include file is generated at
+# configure time; the tests file only exists after a build, and until then ctest
+# sees one NOT_BUILT placeholder instead of silently nothing.
+set(_olo_suite_base "${CMAKE_CURRENT_BINARY_DIR}/OloEngine-Tests_suites")
+get_property(_olo_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_olo_is_multi_config)
+	string(APPEND _olo_suite_base "_$<CONFIG>")
+endif()
+set(_olo_suite_tests_file "${_olo_suite_base}_tests.cmake")
+set(_olo_suite_include_file "${_olo_suite_base}_include.cmake")
+add_custom_command(
+	TARGET OloEngine-Tests POST_BUILD
+	BYPRODUCTS "${_olo_suite_tests_file}"
+	COMMAND "${CMAKE_COMMAND}"
+		"-DTEST_EXECUTABLE=$<TARGET_FILE:OloEngine-Tests>"
+		"-DTEST_WORKING_DIR=${CMAKE_SOURCE_DIR}/OloEditor"
+		"-DTEST_EXTRA_ARGS=${OLO_TESTS_CTEST_ARGS}"
+		"-DTEST_EXCLUDE_FILTER=${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
+		"-DCTEST_FILE=${_olo_suite_tests_file}"
+		-DTEST_DISCOVERY_TIMEOUT=120
+		-DCHUNK_SIZE=40
+		-DDEFAULT_TIMEOUT=600
+		-P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OloSuiteDiscovery.cmake"
+	VERBATIM
 )
+# A POST_BUILD command only re-runs when the target relinks, so an edit to the
+# discovery script alone would leave a stale tests file behind; making the script
+# a link dependency forces the relink, and with it the re-discovery.
+set_property(TARGET OloEngine-Tests APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OloSuiteDiscovery.cmake")
+file(GENERATE OUTPUT "${_olo_suite_include_file}" CONTENT
+"if(EXISTS \"${_olo_suite_tests_file}\")
+  include(\"${_olo_suite_tests_file}\")
+else()
+  add_test(OloEngine-Tests_suites_NOT_BUILT OloEngine-Tests_suites_NOT_BUILT)
+endif()
+")
+if(_olo_is_multi_config)
+	# TEST_INCLUDE_FILES takes no generator expressions: point it at a fixed file
+	# that forwards to the per-config one ctest is running, exactly as the
+	# GoogleTest module does for its own discovery.
+	string(REPLACE [[_$<CONFIG>]] [[_${CTEST_CONFIGURATION_TYPE}]] _olo_suite_include_cfg "${_olo_suite_include_file}")
+	string(REPLACE [[_$<CONFIG>]] "" _olo_suite_include_file "${_olo_suite_include_file}")
+	file(WRITE "${_olo_suite_include_file}"
+"if(EXISTS \"${_olo_suite_include_cfg}\")
+  include(\"${_olo_suite_include_cfg}\")
+endif()
+")
+endif()
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${_olo_suite_include_file}")
 
