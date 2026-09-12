@@ -34,7 +34,9 @@
 #endif
 #include <windows.h>
 #else
+#include <cerrno>
 #include <csignal>
+#include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -195,6 +197,18 @@ namespace OloEngine::Tests
         std::filesystem::create_directories(outPath.parent_path(), outEc);
         const std::string outPathStr = outPath.string();
 
+        // Built BEFORE the fork: the test binary is multithreaded (the memory-ceiling
+        // watchdog), so the child may only make async-signal-safe calls until exec,
+        // and a vector push_back allocates (CodeRabbit on #1204).
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 2);
+        argv.push_back(const_cast<char*>(exePath.c_str()));
+        for (const auto& a : args)
+        {
+            argv.push_back(const_cast<char*>(a.c_str()));
+        }
+        argv.push_back(nullptr);
+
         const pid_t pid = ::fork();
         if (pid < 0)
         {
@@ -220,13 +234,6 @@ namespace OloEngine::Tests
             {
                 ::_exit(127);
             }
-            std::vector<char*> argv;
-            argv.push_back(const_cast<char*>(exePath.c_str()));
-            for (const auto& a : args)
-            {
-                argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
             ::execv(exePath.c_str(), argv.data());
             ::_exit(127); // exec failed
         }
@@ -245,7 +252,17 @@ namespace OloEngine::Tests
             }
             if (r < 0)
             {
-                result.Error = "waitpid failed";
+                if (errno == EINTR)
+                {
+                    continue; // a signal landed mid-call; ask again
+                }
+                // A real failure must not read as a clean exit: callers assert on
+                // ExitCode and only print Error when the launch itself failed
+                // (CodeRabbit on #1204).
+                result.Error = std::string("waitpid failed: ") + std::strerror(errno);
+                result.ExitCode = -1;
+                ::kill(pid, SIGKILL);
+                result.Output = ReadCapturedOutput(outPath);
                 return result;
             }
             if (waited >= timeoutMs)

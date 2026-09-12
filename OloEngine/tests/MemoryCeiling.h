@@ -36,6 +36,10 @@ namespace OloEngine::Tests
     // Starts the polling thread. A ceiling of 0 starts nothing. Call once, from main.
     void StartMemoryCeilingWatchdog(u64 ceilingMb);
 
+    // Stops and joins the thread. main calls it before every return, so the watchdog
+    // can never outlive the statics it reads. Safe to call when nothing was started.
+    void StopMemoryCeilingWatchdog();
+
     // Records the running test's name so the watchdog's message can carry it.
     // Appends a gtest listener; call after InitGoogleTest and before RUN_ALL_TESTS.
     void RegisterMemoryCeilingListener();

@@ -310,6 +310,22 @@ namespace OloEngine::Tests
 
         for (const auto& path : scenes)
         {
+            // Runs on EVERY way out of the iteration -- the exception and
+            // `!ok` paths `continue` past the end of the body, and skipping the
+            // cleanup there would leave that scene's assets and queued GPU
+            // deletions alive under the next scene (CodeRabbit on #1204).
+            // Declared before `scene` and the serializer so it destructs after
+            // both have released their Refs.
+            struct PerSceneCleanup
+            {
+                Ref<EditorAssetManager>& Mgr;
+                ~PerSceneCleanup()
+                {
+                    Mgr->UnloadLoadedAssets();
+                    FrameResourceManager::Get().FlushAllDeletionQueues();
+                }
+            } perSceneCleanup{ assetManager };
+
             auto scene = Scene::Create();
             SceneSerializer serializer(scene);
             bool ok = false;
@@ -386,7 +402,8 @@ namespace OloEngine::Tests
                 }
             }
 
-            // Release this scene's footprint before the next one. Three steps, and
+            // Release this scene's footprint before the next one (PerSceneCleanup
+            // above does the last two steps on every exit path). Three steps, and
             // the third is the one that matters: the scene is dropped (its components
             // hold the asset Refs), the manager lets go of everything it loaded for it
             // while keeping the registry, and the GPU objects are actually deleted.
@@ -399,8 +416,6 @@ namespace OloEngine::Tests
             // empty. The largest footprint in the suite, on runners that share a
             // 14 GiB cgroup between two test processes.
             scene.Reset();
-            assetManager->UnloadLoadedAssets();
-            FrameResourceManager::Get().FlushAllDeletionQueues();
         }
 
         if (!failures.empty())

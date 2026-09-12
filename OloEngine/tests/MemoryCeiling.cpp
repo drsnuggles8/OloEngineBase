@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +24,12 @@ namespace OloEngine::Tests
         // this watchdog matters most.
         std::mutex s_RunningTestMutex;
         std::string s_RunningTest;
+
+        // The watchdog is OWNED, not detached: main stops and joins it before
+        // returning, so it can never outlive the statics above and read them
+        // mid-destruction (CodeRabbit on #1204).
+        std::thread s_Watchdog;
+        std::atomic<bool> s_StopRequested{ false };
 
         class RunningTestNameListener final : public ::testing::EmptyTestEventListener
         {
@@ -61,19 +67,17 @@ namespace OloEngine::Tests
 
     void StartMemoryCeilingWatchdog(const u64 ceilingMb)
     {
-        if (ceilingMb == 0)
+        if (ceilingMb == 0 || s_Watchdog.joinable())
         {
             return;
         }
 
-        // Detached on purpose: it must outlive nothing and be joined by nobody.
-        // The process either exits normally (the thread dies with it) or the
-        // thread ends the process itself.
-        std::thread(
+        s_StopRequested.store(false, std::memory_order_release);
+        s_Watchdog = std::thread(
             [ceilingMb]
             {
                 const u64 ceilingBytes = ceilingMb * 1024ull * 1024ull;
-                for (;;)
+                while (!s_StopRequested.load(std::memory_order_acquire))
                 {
                     std::this_thread::sleep_for(kPollInterval);
                     const u64 resident = CurrentResidentBytes();
@@ -98,7 +102,16 @@ namespace OloEngine::Tests
                     // over its budget and unwinding it could push it further.
                     std::_Exit(kMemoryCeilingExitCode);
                 }
-            })
-            .detach();
+            });
+    }
+
+    void StopMemoryCeilingWatchdog()
+    {
+        if (!s_Watchdog.joinable())
+        {
+            return;
+        }
+        s_StopRequested.store(true, std::memory_order_release);
+        s_Watchdog.join();
     }
 } // namespace OloEngine::Tests

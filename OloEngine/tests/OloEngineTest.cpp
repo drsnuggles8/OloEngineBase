@@ -104,6 +104,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr,
                      "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
                      "matched no tests (expected the BenchmarkCapture suite).\n");
+        OloEngine::Tests::StopMemoryCeilingWatchdog();
         OloEngine::Renderer::Shutdown();
         return 2;
     }
@@ -116,6 +117,8 @@ int main(int argc, char** argv)
     // GPUResourceInspector / FrameResourceManager — Meyer's singletons already
     // destroyed by then — which segfaults on the way out. Mirror the production
     // app shutdown and release these now, while those singletons are still alive.
+    // Joined before the statics it reads are destroyed (CodeRabbit on #1204).
+    OloEngine::Tests::StopMemoryCeilingWatchdog();
     OloEngine::Renderer::Shutdown();
 
     return result;

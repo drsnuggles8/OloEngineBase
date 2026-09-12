@@ -47,6 +47,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 #include <volk.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -55,6 +56,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 #include <map>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -73,8 +75,19 @@ namespace
     // device is 1.1 s / 210 MB (ACO) and 2.6 s / 220 MB (LLVM backend); the
     // failure it guards was 207 s / 14 300 MB. Sanitizer builds instrument the
     // engine but not Mesa, so the driver side of this cost barely moves.
+    //
+    // The memory budget is on the PEAK resident set sampled every 25 ms while
+    // vkCreateComputePipelines runs, not on what is retained after it returns:
+    // the compiler frees its IR on the way out, so a before/after delta would
+    // pass a shader that took gigabytes and gave them back. The hard stops are
+    // the process-wide memory ceiling (MemoryCeiling.h: a compile that keeps
+    // growing is killed at 6 GiB with this test's name) and ctest's timeout for
+    // a hang; the shader being compiled is printed BEFORE the call so either
+    // stop names it. A child process per shader would give each its own hard
+    // limits, but the null device would have to be brought up 80+ times; the
+    // in-process sampler plus the two stops covers the failure this guards.
     constexpr double kWallBudgetSeconds = 30.0;
-    constexpr u64 kResidentBudgetMb = 1024;
+    constexpr u64 kPeakResidentBudgetMb = 1024;
 
     // The shaders whose blow-up this test exists for. If they ever stop being
     // part of the measured set (renamed, made Vulkan-incompatible, moved), the
@@ -305,7 +318,57 @@ namespace
         bool Built = false;
         VkResult Result = VK_SUCCESS;
         double Seconds = 0.0;
-        u64 ResidentDeltaMb = 0;
+        u64 PeakResidentGrowthMb = 0; // sampled peak during the compile, above the pre-compile resident set
+    };
+
+    // Samples the resident set on a thread while the compile runs and keeps the peak.
+    class ResidentPeakSampler
+    {
+      public:
+        ResidentPeakSampler()
+            : m_Baseline(Tests::CurrentResidentBytes()),
+              m_Thread(
+                  [this]
+                  {
+                      while (!m_Stop.load(std::memory_order_acquire))
+                      {
+                          const u64 now = Tests::CurrentResidentBytes();
+                          u64 seen = m_Peak.load(std::memory_order_relaxed);
+                          while (now > seen && !m_Peak.compare_exchange_weak(seen, now, std::memory_order_relaxed))
+                          {
+                          }
+                          std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                      }
+                  })
+        {
+        }
+        ~ResidentPeakSampler()
+        {
+            Stop();
+        }
+        ResidentPeakSampler(const ResidentPeakSampler&) = delete;
+        ResidentPeakSampler& operator=(const ResidentPeakSampler&) = delete;
+
+        // Stops sampling and returns the peak growth over the baseline, in MB.
+        u64 Stop()
+        {
+            if (m_Thread.joinable())
+            {
+                m_Stop.store(true, std::memory_order_release);
+                m_Thread.join();
+            }
+            // One last sample after the call returned, so a short compile that
+            // ended between two polls is still measured.
+            const u64 last = Tests::CurrentResidentBytes();
+            const u64 peak = std::max(m_Peak.load(std::memory_order_relaxed), last);
+            return peak > m_Baseline ? (peak - m_Baseline) / (1024ull * 1024ull) : 0;
+        }
+
+      private:
+        u64 m_Baseline = 0;
+        std::atomic<u64> m_Peak{ 0 };
+        std::atomic<bool> m_Stop{ false };
+        std::thread m_Thread;
     };
 
     BuildOutcome BuildComputePipeline(VkDevice device, const std::vector<u32>& spirv, const ReflectedLayout& layout)
@@ -356,13 +419,14 @@ namespace
         pipelineInfo.stage.pName = "main";
         pipelineInfo.layout = pipelineLayout;
 
-        const u64 residentBefore = Tests::CurrentResidentBytes();
-        const auto start = std::chrono::steady_clock::now();
         VkPipeline pipeline = VK_NULL_HANDLE;
-        outcome.Result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
-        outcome.Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-        const u64 residentAfter = Tests::CurrentResidentBytes();
-        outcome.ResidentDeltaMb = residentAfter > residentBefore ? (residentAfter - residentBefore) / (1024ull * 1024ull) : 0;
+        {
+            ResidentPeakSampler sampler;
+            const auto start = std::chrono::steady_clock::now();
+            outcome.Result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline);
+            outcome.Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            outcome.PeakResidentGrowthMb = sampler.Stop();
+        }
         outcome.Built = outcome.Result == VK_SUCCESS;
 
         if (pipeline != VK_NULL_HANDLE)
@@ -400,8 +464,8 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
     std::ranges::sort(shaders);
     ASSERT_FALSE(shaders.empty()) << "no compute shaders under " << shaderDir.string();
 
-    std::printf("[ ShaderCompileBudget ] %s: %zu compute shaders, budget %.0f s / %llu MB each\n", null.Name.c_str(),
-                shaders.size(), kWallBudgetSeconds, static_cast<unsigned long long>(kResidentBudgetMb));
+    std::printf("[ ShaderCompileBudget ] %s: %zu compute shaders, budget %.0f s / peak +%llu MB each\n",
+                null.Name.c_str(), shaders.size(), kWallBudgetSeconds, static_cast<unsigned long long>(kPeakResidentBudgetMb));
 
     std::vector<std::string> measured;
     std::vector<std::string> notVulkanCompilable;
@@ -434,6 +498,10 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
             continue;
         }
 
+        // Announced BEFORE the compile: if the memory ceiling or ctest's timeout
+        // stops this process mid-compile, the last line printed names the shader.
+        std::printf("[ ShaderCompileBudget ] %-44s compiling...\n", fileName.c_str());
+        std::fflush(stdout);
         const BuildOutcome outcome = BuildComputePipeline(null.Device, spirv, layout);
         if (!outcome.Built)
         {
@@ -443,15 +511,15 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
             continue;
         }
         measured.push_back(fileName);
-        const bool within = outcome.Seconds <= kWallBudgetSeconds && outcome.ResidentDeltaMb <= kResidentBudgetMb;
-        std::printf("[ ShaderCompileBudget ] %-44s %7.2f s  %+6llu MB%s\n", fileName.c_str(), outcome.Seconds,
-                    static_cast<unsigned long long>(outcome.ResidentDeltaMb), within ? "" : "   OVER BUDGET");
+        const bool within = outcome.Seconds <= kWallBudgetSeconds && outcome.PeakResidentGrowthMb <= kPeakResidentBudgetMb;
+        std::printf("[ ShaderCompileBudget ] %-44s %7.2f s  peak +%6llu MB%s\n", fileName.c_str(), outcome.Seconds,
+                    static_cast<unsigned long long>(outcome.PeakResidentGrowthMb), within ? "" : "   OVER BUDGET");
         ::testing::Test::RecordProperty(fileName + "_seconds", std::to_string(outcome.Seconds));
-        ::testing::Test::RecordProperty(fileName + "_resident_delta_mb", std::to_string(outcome.ResidentDeltaMb));
+        ::testing::Test::RecordProperty(fileName + "_peak_resident_growth_mb", std::to_string(outcome.PeakResidentGrowthMb));
         if (!within)
         {
             std::ostringstream what;
-            what << fileName << ": " << outcome.Seconds << " s, +" << outcome.ResidentDeltaMb << " MB";
+            what << fileName << ": " << outcome.Seconds << " s, peak +" << outcome.PeakResidentGrowthMb << " MB";
             overBudget.push_back(what.str());
         }
     }
@@ -461,7 +529,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 
     EXPECT_TRUE(overBudget.empty()) << overBudget.size()
                                     << " compute shader(s) over the AMD compile budget (" << kWallBudgetSeconds
-                                    << " s / " << kResidentBudgetMb
+                                    << " s / peak +" << kPeakResidentBudgetMb
                                     << " MB). This is the BC6HGpuEncoder failure class: fine on NVIDIA and "
                                        "llvmpipe, minutes and gigabytes on Mesa's AMD path; see "
                                        "docs/agent-rules/amd-mesa-shader-compile-blowup.md.\n"
