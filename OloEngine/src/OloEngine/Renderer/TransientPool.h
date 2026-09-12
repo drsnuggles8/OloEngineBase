@@ -55,12 +55,21 @@ namespace OloEngine
         // Called each frame after rendering completes.
         void ReleaseAll();
 
-        // Trim each descriptor bucket to at most maxPerBucket objects, evicting
-        // any excess from the back of each pool vector. Call after ReleaseAll()
-        // to prevent VRAM bloat from high-watermark frames where a feature was
-        // temporarily enabled (e.g., bloom on → off leaves bloom FBs in the pool).
-        // Default maxPerBucket = 2 tolerates one extra slot from same-descriptor
-        // overlapping transients; use 1 for the most aggressive trim.
+        // Trim each descriptor bucket to at most maxPerBucket objects — or to
+        // what the frame ReleaseAll() just closed acquired from it, whichever
+        // is larger. Call after ReleaseAll() to prevent VRAM bloat from
+        // high-watermark frames where a feature was temporarily enabled (e.g.,
+        // bloom on → off leaves bloom FBs in the pool).
+        //
+        // The cap is a ceiling for buckets nobody needs any more, not a bound
+        // on a bucket's steady-state demand. A cap below that demand does not
+        // save VRAM: the overflow is created fresh every frame and destroyed
+        // here, and every between-frames diagnostic then sees the evicted
+        // objects as consumed-but-unbacked (issue #1186 — the GTAO pass needs
+        // four same-spec R8 textures against the default cap of 2).
+        //
+        // Eviction takes the FRONT of a bucket first: ReleaseAll() appends the
+        // frame's returns, so the front is whatever nobody acquired this frame.
         void Trim(u32 maxPerBucket);
 
         // Clear all pooled objects (called during shutdown or context loss).
@@ -213,6 +222,14 @@ namespace OloEngine
         // Last COMPLETED frame's acquisition order, snapshotted by ReleaseAll()
         // just before it empties the lists above — see GetAcquireOrder().
         std::vector<AcquiredInfo> m_LastFrameAcquireOrder;
+
+        // How many objects each bucket handed out in the last frame ReleaseAll()
+        // closed that acquired anything at all. Trim() keeps at least that many
+        // per bucket — see there. A release with nothing acquired (the
+        // defensive one at the start of BuildFrameGraph) leaves it untouched.
+        std::unordered_map<TextureDescriptorKey, u32, TextureDescriptorKeyHash> m_LastFrameTextureDemand;
+        std::unordered_map<u64, u32> m_LastFrameFramebufferDemand;
+        std::unordered_map<u32, u32> m_LastFrameBufferDemand;
     };
 
 } // namespace OloEngine

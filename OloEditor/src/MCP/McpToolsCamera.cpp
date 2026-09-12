@@ -4,6 +4,7 @@
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include <exception>
 #include <algorithm>
 #include <atomic>
 #include <memory>
@@ -215,6 +216,10 @@ namespace OloEngine::MCP
             };
 
             Json marshaled;
+            // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+            // executed lexically inside a catch handler faults in __CxxFrameHandler3
+            // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+            std::exception_ptr captureFailure;
             try
             {
                 u64 appliedFrame = 0;
@@ -296,6 +301,10 @@ namespace OloEngine::MCP
             }
             catch (...)
             {
+                captureFailure = std::current_exception();
+            }
+            if (captureFailure)
+            {
                 // Don't leave the user's camera stranded at the capture pose if a
                 // marshal failed mid-flow — including a step-1 apply that timed out
                 // here but whose job runs later. `restorePriorPose` (captured by value)
@@ -316,7 +325,7 @@ namespace OloEngine::MCP
                     {
                     }
                 }
-                throw;
+                std::rethrow_exception(captureFailure);
             }
 
             if (marshaled.is_object() && marshaled.contains("__error"))

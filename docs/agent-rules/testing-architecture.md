@@ -104,9 +104,10 @@ If a feature touches multiple surfaces, write one test per surface — and write
 - **Golden rebase** (only when a deliberate visual change lands): `<test binary> --olo-golden-rebase --gtest_filter=GoldenImage*`.
 - **Perf rebase** (only when moving to new hardware or after an intentional optimisation): `<test binary> --olo-perf-rebase --gtest_filter=PerfRegression*`.
 
-**Working directory: prefer `OloEditor/`.** That is what `ctest` uses — both
-`gtest_discover_tests` calls in [OloEngine/tests/CMakeLists.txt](../../OloEngine/tests/CMakeLists.txt)
-pass `WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor`, because many tests call
+**Working directory: prefer `OloEditor/`.** That is what `ctest` uses — every
+discovery pass in [OloEngine/tests/CMakeLists.txt](../../OloEngine/tests/CMakeLists.txt)
+(the two `gtest_discover_tests` calls and `cmake/OloSuiteDiscovery.cmake`)
+passes `WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor`, because many tests call
 `Shader::Create("assets/shaders/...")`.
 
 Running from the repo root also works — the engine finds those assets anyway, and
@@ -121,10 +122,28 @@ interleaved pairs, Debug:
 | repo root | 2.06 s |
 | `OloEditor/` | 0.71 s |
 
-That 1.35 s is per *process*, and `ctest` spawns one per case — which is why it
-sets the working directory rather than leaving it to chance. It is also the
-"~2 s" process startup quoted in the next section. `olo_tests_run` (issue #1130)
-runs its child from `OloEditor/` for the same reason.
+That 1.35 s is per *process*, and `ctest` spawns one per heavy case and one per
+light suite — which is why it sets the working directory rather than leaving it
+to chance. It is also the "~2 s" process startup quoted in the next section.
+`olo_tests_run` (issue #1130) runs its child from `OloEditor/` for the same reason.
+
+### How ctest slices the binary (three passes, one process each)
+
+Measured on the self-hosted Linux runners (ASan, 2026-09-12): 8,109 cases, 111 min
+of summed case time, and **7,785 cases under one second** — 83 of those minutes
+was the engine's per-process start-up (0.64 s a launch), paid once per case
+because every case used to be its own ctest entry. So the registration is now
+three disjoint passes over the one binary, each a gtest filter:
+
+| pass | cases | one process per | why |
+|---|---|---|---|
+| `OLO_MESH_CACHE_TESTS` (`gtest_discover_tests`) | a handful | case | share the on-disk mesh cache; serialised with `RESOURCE_LOCK`, weighted `PROCESSORS 2` |
+| `OLO_HEAVY_TESTS` (`gtest_discover_tests`) | ~560 | case | memory-heavy or long (visual evidence, GPU contracts, path tracer, fluids, benchmarks); `PROCESSORS 2` so `--parallel 4` never runs four of them, `COST 100` so they start first |
+| everything else (`cmake/OloSuiteDiscovery.cmake`) | ~7,600 | **suite** (`Suite.*`, sharded past 40 cases into `Suite.*[i/n]`) | their whole cost was start-up |
+
+A new heavy or long test goes into `OLO_HEAVY_TESTS` by suite pattern; a new light
+test needs nothing. The CI `--exclude-regex` lists are `^Suite\.` shaped and match
+both a per-case entry (`Suite.Case`) and a suite entry (`Suite.*`).
 
 ### Reproducing flaky CI-only core-starvation races
 
@@ -139,7 +158,7 @@ See the script header for parameters. Issue #281 (flaky Jolt physics-step crash)
 
 ## 6. Parallel-safety contract (`ctest --parallel`)
 
-CI runs the suite with `ctest --parallel` ([`.github/workflows/Windows.yml`](../../.github/workflows/Windows.yml)). Because `gtest_discover_tests` registers **every** `TEST` / `TEST_F` case as its own ctest entry, each case runs in its **own `OloEngine-Tests.exe` process** — and under `-j`, *different cases of the same fixture run concurrently in different processes*. Two rules follow for every test you write:
+CI runs the suite with `ctest --parallel` ([`.github/workflows/Windows.yml`](../../.github/workflows/Windows.yml)). The heavy set runs one case per **`OloEngine-Tests.exe` process** and the light majority one *suite* per process (see §5), so under `-j` *different suites — and different cases of a heavy fixture — run concurrently in different processes*, while the cases of a light suite run back to back in one. Two rules follow for every test you write (the first now also covers what a case leaves behind for the next case of its suite):
 
 ### 6.1 Never share a mutable OS resource between test cases
 

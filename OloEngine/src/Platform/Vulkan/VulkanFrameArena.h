@@ -109,7 +109,22 @@ namespace OloEngine
         // Worker contexts claim this much from the shared cursor at a time
         // and bump inside it (VulkanRecordingContext::ArenaBlock). Requests
         // larger than half of it go to the shared cursor directly.
-        static constexpr u64 kWorkerBlockBytes = 64ull * 1024;
+        //
+        // SIZED AGAINST THE NUMBER OF BLOCKS A FRAME CLAIMS, not against one
+        // item's appetite. The block is per recording ITEM, and a deferred
+        // frame records on the order of 255 of them, so the slot pays this
+        // much per item whether the item pushes 80 bytes or fills the block.
+        // At the original 64 KiB that is 16.7 MiB of a 16.78 MiB slot — the
+        // whole budget, spent almost entirely on untouched block tails, after
+        // which every root-data push is dropped and the frame renders with
+        // unbound material and skybox buffers (issue #1185). Measured on the
+        // #1185 repro: 255 claims/frame, 16 719 616 B of cursor, 20 000+
+        // dropped allocations.
+        //
+        // 8 KiB keeps the property the block exists for — one shared CAS per
+        // item instead of one per draw, since a typical item's pushes are a
+        // few hundred bytes — while bounding a 255-item frame at ~2 MiB.
+        static constexpr u64 kWorkerBlockBytes = 8ull * 1024;
 
         // Make host writes visible to the GPU on a non-coherent placement
         // (no-op on coherent memory). Push() calls it itself; a caller that
