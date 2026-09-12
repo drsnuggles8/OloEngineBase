@@ -1567,7 +1567,8 @@ namespace OloEngine
             }
             else
             {
-                // EXISTENCE FIRST, because the candidates below are PROBES and a
+                // REGULAR-FILE CHECK FIRST (a directory "exists" too, and would reach the
+                // same backend error), because the candidates below are PROBES and a
                 // probe miss is not a load failure. Handing a path that is not
                 // there to Texture2D::Create reaches the backend's
                 // "Image texture data is null! Failed to load" ERROR, so a load
@@ -1578,8 +1579,8 @@ namespace OloEngine
                 // honest line is the OLO_CORE_WARN at the end of the chain, when
                 // EVERY candidate has failed.
                 std::error_code probeEc;
-                auto texture = std::filesystem::exists(path, probeEc) ? Texture2D::Create(path.string(), srgb)
-                                                                      : Ref<Texture2D>{};
+                auto texture = std::filesystem::is_regular_file(path, probeEc) ? Texture2D::Create(path.string(), srgb)
+                                                                               : Ref<Texture2D>{};
                 // A probe that could not be ANSWERED is not the same as "absent":
                 // exists() returns false for a permission or I/O failure too and
                 // parks the reason in the error code. Say so, then continue the
@@ -1726,7 +1727,7 @@ namespace OloEngine
                             OLO_CORE_TRACE("AnimatedModel::LoadMaterialTextures: '{}' not found, trying fallback '{}'",
                                            path.string(), fallbackPathStr);
                             std::error_code fallbackEc;
-                            auto fallbackTexture = std::filesystem::exists(fallbackPathStr, fallbackEc)
+                            auto fallbackTexture = std::filesystem::is_regular_file(fallbackPathStr, fallbackEc)
                                                        ? Texture2D::Create(fallbackPathStr, srgb)
                                                        : Ref<Texture2D>{};
                             if (fallbackEc)
