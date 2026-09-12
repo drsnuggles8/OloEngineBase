@@ -8,7 +8,8 @@
 // for a command this build of oloctl has never heard of.
 //
 // Only the frame is static: the usage line, the connection options, and the
-// four built-in subcommands, which belong to the CLI rather than the registry.
+// five built-in subcommands (help, version, catalogue, call, events), which
+// belong to the CLI rather than the registry.
 
 #include "OloCtl/CommandCatalogue.h"
 #include "OloCtl/CommandTree.h"
@@ -32,4 +33,9 @@ namespace OloCtl
     // why, rather than printing an empty tree that looks like an editor with no
     // commands.
     [[nodiscard]] std::string RenderOfflineHelp(const std::string& connectionError);
+
+    // `oloctl events follow` in full: its flags, the NDJSON contract, the
+    // termination rules and its exit codes. Static, because the verb is oloctl's
+    // own rather than a registry command; needs no catalogue.
+    [[nodiscard]] std::string RenderEventsHelp();
 } // namespace OloCtl

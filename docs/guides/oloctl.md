@@ -39,6 +39,10 @@ which case `oloctl` reports the ambiguity instead of picking one.
 
 `oloctl catalogue` prints the whole mapping as JSON, so a script never has to guess it.
 
+A toolset may not be named `help`, `version`, `catalogue`, `call` or `events`: those are
+`oloctl`'s own subcommands and are dispatched first, so such a group can never be reached by
+typing it. `oloctl` warns about one on every run, and `OloCtlCommandTreeTest` refuses it.
+
 ## Arguments
 
 Options come from the command's declared `inputSchema`, and values are typed by it:
@@ -171,11 +175,71 @@ around the consent model rather than a convenience.
 When writes land, they go through the editor's consent gate, the same one an MCP call goes
 through. There will not be a CLI-specific bypass.
 
+## Following events
+
+`oloctl events follow` prints the editor's diagnostics events to stdout as they happen, one
+compact JSON object per line (NDJSON), until told to stop. It is the CLI consumer of the
+automation event bus (issue #1131).
+
+```bash
+oloctl events follow                                   # every event from now on, until Ctrl+C
+oloctl events follow --until play                      # exit 0 once Play has started
+oloctl events follow --category script_error --for 60  # script errors for the next minute
+oloctl events follow --since-id 0 --count 20           # the oldest 20 the editor still holds
+oloctl events follow | jq -c 'select(.category == "scene_save")'
+```
+
+| flag | meaning |
+|---|---|
+| `--since-id <id>` | start after this event id. `0` means from the oldest record the editor still holds. Default: new events only, from the first poll |
+| `--category <c>` | print only this category; repeat for several. One of `scene_load`, `play`, `stop`, `entity_spawn`, `entity_destroy`, `asset_reload`, `script_error`, `scene_save`, `scene_dirty`, `asset_import`, `compile_finished`, `command_completed` |
+| `--until <c>` | exit 0 after printing an event of this category. It only decides when to stop: with `--category`, the filter stays exactly what you asked for, so an `--until` category outside it never arrives |
+| `--count <n>` | exit 0 after printing `n` events |
+| `--for <seconds>` | exit 0 after this much wall-clock time |
+
+With none of `--until`, `--count` and `--for`, it runs until interrupted. A bad category is a
+usage error (exit 2) naming the valid ones; nothing is sent to the editor.
+
+**NDJSON, and nothing else on stdout.** Each line is the editor's event record verbatim
+(`id`, `category`, `message`, and when present `time`, `entity`, `context`, `data`), dumped
+compact. `--json`, `--structured` and `--compact` do not change this output. Every line is
+flushed as it is written, so a pipe sees an event when it happens, not when the buffer fills.
+Warnings and errors go to stderr, as everywhere in `oloctl`.
+
+**It is a loop over `olo_events_wait`**, the registry's long-poll over the engine's
+diagnostics event ring, through the same request path every other `oloctl` call takes: no
+SSE, no second transport. Each poll asks for events after a cursor and returns as soon as
+one exists, or empty after the wait; `oloctl` prints what came back, takes the `lastId` the
+editor reported as the next cursor, and polls again. A poll waits at most 10 s and at most
+half of `--timeout`, so the read timeout always outlasts the long-poll; `--timeout` below
+2000 ms is refused (exit 2). It needs an editor that has `olo_events_wait`: an older one
+answers "Unknown tool" and `oloctl` exits 1 saying the editor predates the event bus.
+
+**The dropped warning.** The ring holds 512 records. When the editor reports that records
+between the cursor and the oldest it still holds were evicted before `oloctl` read them, one
+line goes to stderr: `oloctl: N event(s) were dropped before id X: the cursor fell behind the
+editor's 512-record window.` The stream continues from the oldest record still held; the
+dropped ones are gone. A follower that keeps up never sees it; one started with a stale
+`--since-id`, or on a very busy editor, does.
+
+| exit | meaning |
+|---|---|
+| 0 | stopped by `--until`, `--count` or `--for` |
+| 1 | `olo_events_wait` reported an error (including the "editor too old" case), or stdout was closed under the follow |
+| 2 | usage: bad flag, bad category, `--timeout` below 2 s |
+| 3 | the editor could not be reached, or stopped answering mid-stream |
+| 5 | a poll answered without the `events` / `lastId` payload the contract promises |
+
+The verb is dispatched before the catalogue is fetched, so it works against an editor whose
+`olo_tool_search` is unreachable, and pays no catalogue round-trip on start.
+
 ## What it does not do
 
 - **It does not start an editor.** Driving a headless host is its own epic (#1132).
 - **It does not stream progress.** A long-running command blocks until it answers; the
   editor's progress notifications need the SSE transport, which this client does not speak.
+  It does follow the editor's **events** (`oloctl events follow`, above) — that is a loop
+  over a request/response command, not a push channel.
 - **It does not replace `.claude/skills/run-oloengine/driver.ps1`.** The driver launches the
   editor, waits for its window, screenshots it through Win32, and registers the MCP server
   with Claude Code. `oloctl` subsumes only the part after that — *talking* to a running

@@ -322,18 +322,29 @@ TEST(McpAutomationRegistry, AnAvailabilityPredicateThatThrowsMeansUnavailable)
     EXPECT_FALSE(gated.AvailableOn(host));
 }
 
-TEST(McpAutomationRegistry, NoBuiltinCommandDeclaresAnAvailabilityPredicateYet)
+TEST(McpAutomationRegistry, OnlyTheEditorActionsDeclareAnAvailabilityPredicate)
 {
-    // The predicate is new machinery with a deliberately empty adopter set: #1123
-    // is a pure extraction, so tools/list must be byte-identical, and a command
-    // that opted in would change it. This pins that, so the first adopter is a
-    // deliberate act with a visible diff rather than a silent narrowing.
+    // The predicate shipped in #1123 with a deliberately empty adopter set (a pure
+    // extraction must leave tools/list byte-identical). The first adopters are
+    // #1131's four editor actions: each runs an editor toolbar/menu code path
+    // through an EditorMcpContext hook, so a host with no editor genuinely
+    // cannot serve them. This pins the set, so a further adopter is a deliberate
+    // act with a visible diff rather than a silent narrowing of the listing.
     AutomationRegistry registry;
     OloEngine::MCP::RegisterBuiltinCommands(registry);
 
+    const std::set<std::string> adopters{ "olo_editor_pause", "olo_editor_step", "olo_editor_gizmo_set",
+                                          "olo_editor_build_shader_pack" };
     const AutomationRegistry::CommandSnapshot snapshot = registry.Snapshot();
+    std::set<std::string> found;
     for (const AutomationCommand& command : *snapshot)
-        EXPECT_FALSE(static_cast<bool>(command.IsAvailable)) << command.Name << " declares an availability predicate";
+    {
+        EXPECT_EQ(static_cast<bool>(command.IsAvailable), adopters.contains(command.Name))
+            << command.Name << (command.IsAvailable ? " declares" : " lacks") << " an availability predicate";
+        if (command.IsAvailable)
+            found.insert(command.Name);
+    }
+    EXPECT_EQ(found, adopters);
 }
 
 TEST(McpAutomationRegistry, SceneAuthoringCommandsDeclareConsentAndUndoSemantics)
@@ -449,8 +460,16 @@ TEST(McpAutomationRegistry, EveryRegistryCommandIsReachableThroughTheMcpAdapterW
 
     const AutomationRegistry::CommandSnapshot snapshot = server.Registry().Snapshot();
     ASSERT_FALSE(snapshot->empty());
-    EXPECT_EQ(listed.size(), snapshot->size())
-        << "the full profile must list exactly the registry, no more and no fewer";
+    // The full profile lists exactly the registry MINUS what this host cannot
+    // serve (AutomationCommand::IsAvailable): the server here owns no editor, so
+    // the #1131 editor actions are registered but honestly absent from the
+    // listing, and unlisted-but-registered must mean exactly that and nothing else.
+    sizet available = 0;
+    for (const AutomationCommand& command : *snapshot)
+        available += command.AvailableOn(server) ? 1u : 0u;
+    EXPECT_LT(available, snapshot->size()) << "a hookless server should leave the editor actions unavailable";
+    EXPECT_EQ(listed.size(), available)
+        << "the full profile must list exactly the available registry, no more and no fewer";
 
     for (const AutomationCommand& command : *snapshot)
     {
@@ -462,6 +481,11 @@ TEST(McpAutomationRegistry, EveryRegistryCommandIsReachableThroughTheMcpAdapterW
                 entry = &candidate;
                 break;
             }
+        }
+        if (!command.AvailableOn(server))
+        {
+            EXPECT_EQ(entry, nullptr) << command.Name << " is unavailable on this host but the adapter lists it";
+            continue;
         }
         ASSERT_NE(entry, nullptr) << command.Name << " is registered but the adapter does not list it";
         // Byte-for-byte the entry the adapter builds from the command: the schema a

@@ -5,6 +5,7 @@
 
 #include "OloEngine/Scripting/C#/ScriptGlue.h"
 #include "OloEngine/Scripting/ScriptError.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/Buffer.h"
 #include "OloEngine/Core/FileSystem.h"
@@ -348,8 +349,24 @@ namespace OloEngine
         return true;
     }
 
+    namespace
+    {
+        // The automation event bus (#1131): a script assembly reload is a
+        // "compile finished" from an agent's point of view, whichever of the
+        // three editor paths (menu, Ctrl+R, olo_reload_script) triggered it.
+        void RecordAssemblyReload(const std::filesystem::path& assembly, bool ok, f64 seconds)
+        {
+            // Mono reports no error/warning counts for a reload; 0 is "not measured".
+            DiagnosticsEventLog::Get().RecordCompileFinished("script", assembly.filename().string(), ok, 0, 0, seconds);
+        }
+    } // namespace
+
     bool ScriptEngine::ReloadAssembly()
     {
+        const auto reloadStart = std::chrono::steady_clock::now();
+        const auto elapsedSeconds = [reloadStart]
+        { return std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count(); };
+
         // Same reasoning as ShutdownMono: the outgoing domain's RPC handlers must
         // not survive it. Scripts re-register on load. Lua's are untouched.
         RpcRegistry::ClearOwnedBy(ERpcOwner::CSharp);
@@ -370,6 +387,7 @@ namespace OloEngine
             // pre-reload contents (LoadAssemblyClasses ran only on the success path), so
             // report the failure to the caller rather than pretending the reload worked.
             OLO_CORE_ERROR("[ScriptEngine] Failed to reload app assembly: {}", s_Data->AppAssemblyFilepath.string());
+            RecordAssemblyReload(s_Data->AppAssemblyFilepath, false, elapsedSeconds());
             return false;
         }
         LoadAssemblyClasses();
@@ -378,6 +396,7 @@ namespace OloEngine
 
         // Retrieve and instantiate class
         s_Data->EntityClass = Ref<ScriptClass>::Create("OloEngine", "Entity", true);
+        RecordAssemblyReload(s_Data->AppAssemblyFilepath, true, elapsedSeconds());
         return true;
     }
 

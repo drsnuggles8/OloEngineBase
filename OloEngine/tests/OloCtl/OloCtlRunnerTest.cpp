@@ -19,8 +19,11 @@
 #include "OloCtl/CommandCatalogue.h"
 #include "OloCtl/CommandSource.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 using OloCtl::AuthorityClass;
@@ -66,7 +69,15 @@ namespace
                 return outcome;
             }
             outcome.Ok = true;
-            outcome.Result = m_Result;
+            if (m_Scripted.empty())
+            {
+                outcome.Result = m_Result;
+                return outcome;
+            }
+            // Scripted answers are handed out in order; once they run out the last
+            // one repeats, so a follower that keeps polling keeps getting an answer.
+            outcome.Result = m_Scripted[std::min(m_NextScripted, m_Scripted.size() - 1)];
+            ++m_NextScripted;
             return outcome;
         }
 
@@ -82,6 +93,11 @@ namespace
         {
             m_Result = std::move(result);
         }
+        void ScriptResults(std::vector<Json> results)
+        {
+            m_Scripted = std::move(results);
+            m_NextScripted = 0;
+        }
 
         struct Invocation
         {
@@ -95,6 +111,8 @@ namespace
         std::string m_ConnectionError;
         std::string m_TransportError;
         Json m_Result = Json{ { "content", Json::array() }, { "isError", false } };
+        std::vector<Json> m_Scripted;
+        std::size_t m_NextScripted = 0;
     };
 
     CatalogueEntry Entry(std::string name, std::string toolset, AuthorityClass authority)
@@ -144,6 +162,45 @@ namespace
         std::ostringstream err;
         const int code = RunCli(ParseCommandLine(args), source, out, err);
         return { code, out.str(), err.str() };
+    }
+
+    // ---- olo_events_wait answers, in the shape the editor's handler returns ----
+
+    Json Event(unsigned long long id, const char* category)
+    {
+        return Json{ { "id", id }, { "category", category }, { "message", std::string(category) + " happened" } };
+    }
+
+    Json WaitResponse(std::vector<Json> events, unsigned long long lastId, unsigned long long dropped = 0)
+    {
+        const bool timedOut = events.empty();
+        return Json{ { "content", Json::array() },
+                     { "isError", false },
+                     { "structuredContent",
+                       Json{ { "count", events.size() },
+                             { "lastId", lastId },
+                             { "dropped", dropped },
+                             { "timedOut", timedOut },
+                             { "cancelled", false },
+                             { "events", std::move(events) } } } };
+    }
+
+    // stdout split into lines; every line must parse as one JSON object.
+    std::vector<Json> NdjsonLines(const std::string& text)
+    {
+        std::vector<Json> lines;
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line))
+        {
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+            Json parsed = Json::parse(line, nullptr, false);
+            EXPECT_FALSE(parsed.is_discarded()) << "not a JSON line: " << line;
+            EXPECT_TRUE(parsed.is_object()) << "not an event object: " << line;
+            lines.push_back(std::move(parsed));
+        }
+        return lines;
     }
 } // namespace
 
@@ -468,4 +525,258 @@ TEST(OloCtlRunner, NoArgumentsIsAUsageErrorWithHelpOnStderr)
     EXPECT_EQ(run.Code, ExitCode::Usage);
     EXPECT_TRUE(run.Out.empty()) << "an accidental bare `oloctl` must not put help into a pipe";
     EXPECT_NE(run.Err.find("Usage:"), std::string::npos);
+}
+
+// ---- events follow (#1131) --------------------------------------------------
+//
+// The CLI consumer of the event bus is a loop over olo_events_wait through the
+// same ICommandSource::Invoke as every other verb. What these pin: the NDJSON
+// discipline (one object per line, nothing else on stdout), the cursor
+// hand-back, the termination rules, and that a transport failure, an error
+// result and a usage slip land on the exit codes a script is told to expect.
+
+TEST(OloCtlRunner, EventsFollowPrintsOneJsonObjectPerEventAndNothingElse)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "scene_load"), Event(2, "entity_spawn") }, 2),
+                           WaitResponse({}, 2), // an idle poll: timed out, no events
+                           WaitResponse({ Event(3, "play") }, 3) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--count", "3" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    const std::vector<Json> lines = NdjsonLines(run.Out);
+    ASSERT_EQ(lines.size(), 3u) << run.Out;
+    EXPECT_EQ(lines[0]["id"], 1);
+    EXPECT_EQ(lines[1]["id"], 2);
+    EXPECT_EQ(lines[2]["category"], "play");
+    EXPECT_EQ(lines[2]["message"], "play happened") << "the event record is printed verbatim";
+    EXPECT_TRUE(run.Err.empty()) << run.Err;
+
+    ASSERT_EQ(source.Invocations.size(), 3u) << "an idle poll must be followed by another poll";
+    for (const FakeSource::Invocation& invocation : source.Invocations)
+        EXPECT_EQ(invocation.Name, "olo_events_wait");
+    EXPECT_EQ(source.Invocations.front().Arguments["waitMs"], 10000) << "the default long-poll is 10 s";
+    EXPECT_FALSE(source.Invocations.front().Arguments.contains("sinceId"))
+        << "without --since-id the first poll lets the editor start at now";
+}
+
+TEST(OloCtlRunner, EventsFollowUntilStopsAfterTheNamedCategory)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "scene_load"), Event(2, "play"), Event(3, "entity_spawn") }, 3) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--until", "play" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    const std::vector<Json> lines = NdjsonLines(run.Out);
+    ASSERT_EQ(lines.size(), 2u) << "the play event is printed, and nothing after it: " << run.Out;
+    EXPECT_EQ(lines.back()["category"], "play");
+    EXPECT_EQ(source.Invocations.size(), 1u);
+}
+
+TEST(OloCtlRunner, EventsFollowCountStopsAfterThatManyEvents)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "play"), Event(2, "stop"), Event(3, "play") }, 3) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--count", "2" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    EXPECT_EQ(NdjsonLines(run.Out).size(), 2u) << run.Out;
+    EXPECT_EQ(source.Invocations.front().Arguments["count"], 2) << "the server is asked for no more than needed";
+}
+
+TEST(OloCtlRunner, EventsFollowPassesTheLastIdBackAsTheNextSinceId)
+{
+    FakeSource source(TestCatalogue());
+    // The first answer's lastId (5) is past its last event (1): ids 2-5 were
+    // filtered out by the editor. The cursor is lastId, not the last printed id,
+    // or the next poll would re-fetch what the editor already skipped.
+    source.ScriptResults({ WaitResponse({ Event(1, "play") }, 5),
+                           WaitResponse({ Event(6, "stop"), Event(7, "play") }, 7) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--count", "3" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    ASSERT_EQ(source.Invocations.size(), 2u);
+    EXPECT_FALSE(source.Invocations[0].Arguments.contains("sinceId"));
+    EXPECT_EQ(source.Invocations[1].Arguments["sinceId"], 5);
+    EXPECT_EQ(source.Invocations[1].Arguments["count"], 2) << "the remaining budget after one printed event";
+}
+
+TEST(OloCtlRunner, EventsFollowSinceIdIsSentVerbatimIncludingZero)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "play") }, 1) });
+
+    const CliRun zero = Invoke(source, { "events", "follow", "--since-id", "0", "--count", "1" });
+    EXPECT_EQ(zero.Code, ExitCode::Ok) << zero.Err;
+    ASSERT_EQ(source.Invocations.size(), 1u);
+    EXPECT_EQ(source.Invocations[0].Arguments["sinceId"], 0) << "0 is the editor's no-lower-bound, so it is sent";
+
+    const CliRun forty = Invoke(source, { "events", "follow", "--since-id=40", "--count", "1" });
+    EXPECT_EQ(forty.Code, ExitCode::Ok) << forty.Err;
+    ASSERT_EQ(source.Invocations.size(), 2u);
+    EXPECT_EQ(source.Invocations[1].Arguments["sinceId"], 40);
+}
+
+TEST(OloCtlRunner, EventsFollowForwardsTheCategoryFilterAndUntilDoesNotWidenIt)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "play") }, 1) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--category", "play", "--category=stop", "--until",
+                                        "scene_load", "--count", "1" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    ASSERT_EQ(source.Invocations.size(), 1u);
+    EXPECT_EQ(source.Invocations.front().Arguments["categories"], (Json::array({ "play", "stop" })));
+    EXPECT_FALSE(source.Invocations.front().Arguments.contains("until"))
+        << "--until decides termination locally; it is not an argument of olo_events_wait";
+}
+
+TEST(OloCtlRunner, EventsFollowRejectsAnUnknownCategoryBeforePolling)
+{
+    FakeSource source(TestCatalogue());
+
+    const CliRun category = Invoke(source, { "events", "follow", "--category", "bogus" });
+    EXPECT_EQ(category.Code, ExitCode::Usage);
+    EXPECT_TRUE(category.Out.empty()) << category.Out;
+    EXPECT_NE(category.Err.find("bogus"), std::string::npos) << category.Err;
+    EXPECT_NE(category.Err.find("scene_load"), std::string::npos) << "the valid tokens are named: " << category.Err;
+    EXPECT_NE(category.Err.find("command_completed"), std::string::npos) << category.Err;
+
+    const CliRun until = Invoke(source, { "events", "follow", "--until", "Play" });
+    EXPECT_EQ(until.Code, ExitCode::Usage) << "--until is validated the same way";
+
+    EXPECT_TRUE(source.Invocations.empty()) << "a usage error must not reach the editor";
+}
+
+TEST(OloCtlRunner, EventsFollowUsageSlipsAreUsageErrors)
+{
+    FakeSource source(TestCatalogue());
+
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--count", "0" }).Code, ExitCode::Usage);
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--count", "-1" }).Code, ExitCode::Usage);
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--since-id", "x" }).Code, ExitCode::Usage);
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--for", "0" }).Code, ExitCode::Usage);
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--until" }).Code, ExitCode::Usage) << "a missing value";
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--until", "--count", "1" }).Code, ExitCode::Usage)
+        << "a value never begins with --";
+    EXPECT_EQ(Invoke(source, { "events", "follow", "--limit", "1" }).Code, ExitCode::Usage) << "an unknown option";
+    EXPECT_EQ(Invoke(source, { "events", "follow", "extra" }).Code, ExitCode::Usage) << "a stray positional";
+    EXPECT_EQ(Invoke(source, { "events", "bogus" }).Code, ExitCode::Usage) << "an unknown sub-verb";
+    EXPECT_TRUE(source.Invocations.empty());
+}
+
+TEST(OloCtlRunner, EventsFollowWarnsOnStderrWhenTheCursorFellBehind)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(600, "play") }, 600, /*dropped=*/3) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--since-id", "80", "--count", "1" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok);
+    EXPECT_NE(run.Err.find("3 event(s) were dropped before id 600"), std::string::npos) << run.Err;
+    EXPECT_NE(run.Err.find("512"), std::string::npos) << "the window size is named: " << run.Err;
+    EXPECT_EQ(NdjsonLines(run.Out).size(), 1u) << "the warning must not disturb stdout: " << run.Out;
+}
+
+TEST(OloCtlRunner, EventsFollowReportsATransportFailureAsAConnectionError)
+{
+    FakeSource source(TestCatalogue());
+    source.FailTransport("the editor stopped answering");
+
+    const CliRun run = Invoke(source, { "events", "follow" });
+
+    EXPECT_EQ(run.Code, ExitCode::Connection);
+    EXPECT_TRUE(run.Out.empty()) << run.Out;
+    EXPECT_NE(run.Err.find("the editor stopped answering"), std::string::npos) << run.Err;
+}
+
+// An editor older than the event bus has no olo_events_wait: tools/call answers
+// with an error result, and the follower says what that means rather than
+// retrying forever.
+TEST(OloCtlRunner, EventsFollowReportsAnErrorResultAndNamesAnEditorThatPredatesTheBus)
+{
+    FakeSource source(TestCatalogue());
+    source.SetResult(Json{ { "content", Json::array({ Json{ { "type", "text" },
+                                                            { "text", "Unknown tool: olo_events_wait" } } }) },
+                           { "isError", true } });
+
+    const CliRun run = Invoke(source, { "events", "follow" });
+
+    EXPECT_EQ(run.Code, ExitCode::CommandError);
+    EXPECT_TRUE(run.Out.empty()) << run.Out;
+    EXPECT_NE(run.Err.find("Unknown tool: olo_events_wait"), std::string::npos) << run.Err;
+    EXPECT_NE(run.Err.find("predates"), std::string::npos) << run.Err;
+    EXPECT_EQ(source.Invocations.size(), 1u) << "an error result is not retried";
+}
+
+// The verb is dispatched before the catalogue fetch: it hard-codes the one
+// registry name it needs, so it must work when the fetch would fail.
+TEST(OloCtlRunner, EventsFollowNeedsNoCatalogue)
+{
+    FakeSource source(TestCatalogue());
+    source.FailToConnect("olo_tool_search is unreachable");
+    source.ScriptResults({ WaitResponse({ Event(1, "play") }, 1) });
+
+    const CliRun run = Invoke(source, { "events", "follow", "--count", "1" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    EXPECT_EQ(NdjsonLines(run.Out).size(), 1u);
+    EXPECT_EQ(run.Err.find("olo_tool_search"), std::string::npos) << "the catalogue was never fetched: " << run.Err;
+}
+
+TEST(OloCtlRunner, EventsFollowRefusesATimeoutTooShortForTheLongPoll)
+{
+    FakeSource source(TestCatalogue());
+    source.ScriptResults({ WaitResponse({ Event(1, "play") }, 1) });
+
+    const CliRun tooShort = Invoke(source, { "--timeout", "1000", "events", "follow", "--count", "1" });
+    EXPECT_EQ(tooShort.Code, ExitCode::Usage);
+    EXPECT_TRUE(tooShort.Out.empty());
+    EXPECT_NE(tooShort.Err.find("2000"), std::string::npos) << tooShort.Err;
+    EXPECT_TRUE(source.Invocations.empty());
+
+    // Just above the floor: the long-poll is half the read timeout, never more.
+    const CliRun aboveFloor = Invoke(source, { "--timeout", "3000", "events", "follow", "--count", "1" });
+    EXPECT_EQ(aboveFloor.Code, ExitCode::Ok) << aboveFloor.Err;
+    ASSERT_EQ(source.Invocations.size(), 1u);
+    EXPECT_EQ(source.Invocations.front().Arguments["waitMs"], 1500);
+}
+
+TEST(OloCtlRunner, EventsHelpGoesToStdoutAndNeedsNoEditor)
+{
+    FakeSource source(TestCatalogue());
+    source.FailToConnect("no running editor found");
+
+    const std::vector<std::vector<std::string>> spellings{ { "events" },
+                                                           { "events", "--help" },
+                                                           { "events", "follow", "--help" } };
+    for (const std::vector<std::string>& args : spellings)
+    {
+        const CliRun run = Invoke(source, args);
+        EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+        EXPECT_NE(run.Out.find("events follow"), std::string::npos) << run.Out;
+        EXPECT_NE(run.Out.find("--since-id"), std::string::npos) << run.Out;
+        EXPECT_NE(run.Out.find("until interrupted"), std::string::npos) << run.Out;
+        EXPECT_TRUE(run.Err.empty()) << run.Err;
+    }
+    EXPECT_TRUE(source.Invocations.empty());
+}
+
+// A registry toolset named `events` can never be typed, because the verb is
+// dispatched first. The catalogue report says so, as it does for `call`.
+TEST(OloCtlRunner, AGroupNamedEventsIsReportedAsShadowed)
+{
+    Catalogue catalogue = TestCatalogue();
+    catalogue.Entries.push_back(Entry("olo_events_tail", "events", AuthorityClass::ReadOnly));
+    FakeSource source(std::move(catalogue));
+
+    const CliRun run = Invoke(source, { "scene", "list-entities" });
+
+    EXPECT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    EXPECT_NE(run.Err.find("`events` shares its name with an oloctl subcommand"), std::string::npos) << run.Err;
 }

@@ -64,7 +64,7 @@ namespace OloEngine
             return m_FilePath;
         }
 
-        void Reload() override;
+        bool Reload() override;
 
         // --- Async compilation status (override base class) ---
         [[nodiscard]] ShaderCompilationStatus GetCompilationStatus() const override

@@ -375,16 +375,47 @@ namespace OloEngine::MCP
         // heartbeat once the stream has been idle. Returns false when a write fails
         // (client gone) so the caller ends the stream. Reads only the lock-safe event
         // log — no main-thread marshal needed (mirrors olo_events_tail).
+        //
+        // `redactPaths` applies the session's path redaction to every pushed
+        // record, exactly as tools/call and resources/read apply it to theirs
+        // (#1131). Before that, the stream was the one carrier that skipped it: a
+        // redacted `olo_events_tail` result and an unredacted push of the same
+        // record differed by precisely the paths redaction exists to hide.
         [[nodiscard]] bool ServiceEventStream(httplib::DataSink& sink, u64& cursor,
-                                              std::chrono::steady_clock::time_point& lastWrite)
+                                              std::chrono::steady_clock::time_point& lastWrite, bool redactPaths)
         {
             DiagnosticEventQuery query;
             query.SinceId = cursor;
             query.MaxCount = 0; // deliver every new event — no newest-N cap on a live stream.
-            const DiagnosticEventQueryResult snap = DiagnosticsEventLog::Get().QueryWithCursor(query);
+            // Block on the ring for one poll interval instead of scanning it and
+            // sleeping (#1131): a new record is pushed on the wake, and an idle
+            // stream spends the interval in a timed wait rather than a locked scan.
+            // The list-changed and subscription checks above still run every
+            // interval, because the wait returns after it whether or not anything
+            // arrived.
+            const DiagnosticEventQueryResult snap =
+                DiagnosticsEventLog::Get().WaitWithCursor(query, kStreamPollInterval, []
+                                                          { return false; });
+            if (snap.Dropped != 0)
+            {
+                // The cursor fell behind the ring's window (a stalled client, or a
+                // Last-Event-ID too far back): say how many records are gone rather
+                // than resuming as if the history were continuous. A warning-level
+                // logging notification, so a client that only reads events cannot
+                // mistake it for one.
+                const u64 resumedAt = snap.Events.empty() ? snap.LastId + 1 : snap.Events.front().Id;
+                const std::string frame = FormatSseData(
+                    MakeLogNotification("warning", Json{ { "gap", snap.Dropped }, { "resumedAt", resumedAt } }));
+                if (!sink.write(frame.data(), frame.size()))
+                    return false;
+                lastWrite = std::chrono::steady_clock::now();
+            }
             for (const auto& event : snap.Events)
             {
-                const std::string frame = FormatSseEvent(event.Id, MakeEventNotification(event));
+                Json notification = MakeEventNotification(event);
+                if (redactPaths)
+                    RedactStructuredContent(notification["params"]["data"]);
+                const std::string frame = FormatSseEvent(event.Id, notification);
                 if (!sink.write(frame.data(), frame.size()))
                     return false;
                 lastWrite = std::chrono::steady_clock::now();
@@ -735,6 +766,10 @@ namespace OloEngine::MCP
         }
 
         m_Port = port;
+        // A server that was stopped and started again must not report every call
+        // as cancelled: clear the flag Stop() set, now that the port is bound and
+        // nothing from the previous run can still be waiting on it.
+        m_Stopping.store(false, std::memory_order_release);
         m_Running.store(true, std::memory_order_release);
         m_ListenThread = std::thread([this]
                                      {
@@ -775,6 +810,10 @@ namespace OloEngine::MCP
         // Signal first so handlers waiting on unclaimed main-thread jobs abort
         // instead of deadlocking against this thread (Stop runs on the game thread).
         m_Running.store(false, std::memory_order_release);
+        // ...and so every in-flight call reads as cancelled (IsCurrentCallCancelled):
+        // a blocked olo_events_wait returns within its next 250 ms slice instead of
+        // holding the pool join below for up to a minute.
+        m_Stopping.store(true, std::memory_order_release);
 
         // Release any worker blocked in RequestConsent as a Deny BEFORE joining the
         // http worker pool below — otherwise the join would wait forever on a thread
@@ -1198,7 +1237,10 @@ namespace OloEngine::MCP
                 startCursor = parsed;
         }
 
-        res.set_header("Cache-Control", "no-cache");
+        // no-store, not no-cache: the stream is authenticated and carries records
+        // shaped by the session's redaction setting, and no-cache still lets a
+        // private cache keep a copy it merely has to revalidate.
+        res.set_header("Cache-Control", "no-store");
         // Conventional SSE hint: tell any intermediary not to buffer the stream.
         res.set_header("X-Accel-Buffering", "no");
 
@@ -1306,11 +1348,10 @@ namespace OloEngine::MCP
                     subscriptionTokens = std::move(stillSubscribed);
                 }
 
-                if (!ServiceEventStream(sink, cursor, lastWrite))
+                // Also paces the loop: it blocks for kStreamPollInterval when the
+                // ring is quiet, so httplib's back-to-back provider calls never spin.
+                if (!ServiceEventStream(sink, cursor, lastWrite, RedactPaths()))
                     return false;
-
-                // Pace the loop (httplib calls the provider back-to-back).
-                std::this_thread::sleep_for(kStreamPollInterval);
                 return true;
             },
             [this](bool /*success*/)
@@ -1351,13 +1392,18 @@ namespace OloEngine::MCP
 
     bool McpServer::IsCurrentCallCancelled() const
     {
+        // A server that is stopping cancels every call: Stop() joins the worker
+        // pool, and a handler parked in a long wait (olo_events_wait polls this
+        // every 250 ms) would otherwise hold the game thread for its whole timeout.
+        if (m_Stopping.load(std::memory_order_acquire))
+            return true;
         const ActiveCallScope* scope = t_ActiveCall;
         return scope != nullptr && scope->CancelFlag && scope->CancelFlag->load(std::memory_order_acquire);
     }
 
     void McpServer::HandleStreamingPost(const std::string& body, httplib::Response& res)
     {
-        res.set_header("Cache-Control", "no-cache");
+        res.set_header("Cache-Control", "no-store"); // authenticated tool results: never storable, see HandleGetStream
         res.set_header("X-Accel-Buffering", "no");
         res.set_chunked_content_provider(
             "text/event-stream",
@@ -1687,8 +1733,8 @@ namespace OloEngine::MCP
             // A tool this host cannot serve is not listed AND not callable — see
             // AutomationCommand::IsAvailable. Distinct from exposure below, and
             // checked first: advertising something that cannot run is worse than
-            // hiding something that can. No builtin declares one, so this changes
-            // nothing observable today.
+            // hiding something that can. The #1131 editor actions (pause, step,
+            // gizmo, shader pack) declare one: they need an editor hook.
             if (!tool.AvailableOn(*this))
                 continue;
             // Exposure is a LISTING filter only (issue #1124): a tool skipped here is
@@ -1902,7 +1948,8 @@ namespace OloEngine::MCP
         // A tool whose availability predicate says no on this host is not callable,
         // and reports the same way an unregistered one does: from the client's side
         // the two are the same fact, and a second error shape would only invite a
-        // client to retry. No builtin declares one (see AutomationCommand::IsAvailable).
+        // client to retry. The #1131 editor actions declare one (see
+        // AutomationCommand::IsAvailable): they are absent in a host with no editor.
         if (!tool->AvailableOn(*this))
             return MakeError(id, kInvalidParams, "Unknown tool: " + name);
 

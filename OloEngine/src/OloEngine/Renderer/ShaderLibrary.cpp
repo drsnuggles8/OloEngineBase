@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
@@ -176,10 +177,24 @@ namespace OloEngine
 
     void ShaderLibrary::ReloadShaders()
     {
+        const auto reloadStart = std::chrono::steady_clock::now();
+        u32 failed = 0;
         for (auto& [name, shader] : m_Shaders)
         {
-            shader->Reload();
+            // Reload() answers whether the NEW program is live: a failed reload
+            // keeps the previous one and (on Vulkan) its previous status, so the
+            // status alone cannot tell a kept shader from a rebuilt one.
+            if (!shader->Reload())
+                ++failed;
         }
+
+        // The automation event bus (#1131): one `compile_finished` per library
+        // reload, whichever path asked for it (the Shaders menu, the Shader
+        // Debugger's Refresh All, the file watcher). Each shader that kept its
+        // previous program counts as one error; there is no warning count.
+        const auto seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count();
+        DiagnosticsEventLog::Get().RecordCompileFinished("shader", std::to_string(m_Shaders.size()) + " shaders",
+                                                         failed == 0, failed, 0, seconds);
     }
 
     bool ShaderLibrary::Exists(const std::string& name) const

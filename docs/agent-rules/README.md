@@ -153,6 +153,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [mcp-setter-based-field-registry.md](mcp-setter-based-field-registry.md): copy-then-swap MCP writes are unsound when `operator=` cannot reproduce a setter's side effects.
 - [mcp-protocol-eras.md](mcp-protocol-eras.md): the stateless core is a second transport; adding `server/discover` alone breaks working clients.
 - [automation-build-invocation.md](automation-build-invocation.md): a build started from inside the editor goes through `build-lock.ps1` or it does not happen, the editor process is the lock's identity, cancellation kills the job object rather than the shim, and `OloEditor` is refused by allow-list.
+- [automation-event-bus.md](automation-event-bus.md): an event carries identities, never a read's content; a subscriber holds a cursor into the one 512-record ring and is told the count it lost; only a mutating command publishes its completion.
 
 ## Concurrency and memory
 
@@ -209,6 +210,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | A steady-state offset check passes with a full one-tick lag present. |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | A position check passes on the scheduler tie-break alone, with the dependency edge missing. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Adding `server/discover` alone keeps tests green and breaks the legacy fallback for real clients. |
+| [automation-event-bus.md](automation-event-bus.md) | The push stream served every event record unredacted while `olo_events_tail` served the same record scrubbed, and a cursor that fell behind the ring received a shorter history with no sign anything was missing. |
 | [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md) | `tools/list` serves an exposure profile, not the registry, so a tool you just registered is callable but invisible — including to the agent you attach to check your work — and a test that registers a fake tool and lists it gets an empty array. |
 | [notes-mcp-tool-authoring.md](notes-mcp-tool-authoring.md) | An automation command that never declares `AutomationUndo` is silently refused from every transaction: the build is green, the tool works on its own, and the only symptom is a batch refusal read months later. |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | Two scenes rendered skybox-only with zero errors because no test interleaved two SSBO uploads with draws. Later, the same snapshot applied to a GPU-output buffer made the mesh-shader raster arm launch `EmitMeshTasksEXT(0)` — a legal call, so nothing warned — while masking an out-of-bounds read that device-faults once you remove it. Later still, vertex streams turned out never to have been given the snapshot at all, under a comment asserting nothing streamed them. |

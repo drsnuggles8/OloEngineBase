@@ -78,9 +78,10 @@ namespace
         {
             return m_Name;
         }
-        void Reload() override
+        bool Reload() override
         {
             ++m_ReloadCount;
+            return true;
         }
         OloEngine::ShaderResourceRegistry* GetResourceRegistry() override
         {

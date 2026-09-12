@@ -293,6 +293,52 @@ namespace OloEngine::MCP
         std::string Message;
     };
 
+    // ---- Editor command registry (issue #1131) -----------------------------
+    // Outcomes of the toolbar/menu actions that had no automation hook before
+    // #1131: pause/resume and single-step of a running Play/Simulate session,
+    // the gizmo mode, and the Build > Build Shader Pack menu item. Same shape
+    // discipline as McpScenePlayResult: `Available` false in a host with no
+    // editor, `Ok` for whether the action applied, `Changed` for whether the
+    // call altered anything, `Message` always filled in.
+    struct McpEditorPauseResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Changed = false;
+        bool Paused = false;
+        std::string Mode = "edit"; // "edit" | "play" | "simulate"
+        std::string SceneName;
+        std::string Message;
+    };
+
+    struct McpEditorStepResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Paused = false;
+        int FramesRequested = 0;
+        std::string Mode = "edit";
+        std::string SceneName;
+        std::string Message;
+    };
+
+    struct McpEditorGizmoResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        bool Changed = false;
+        std::string Mode; // "none" | "translate" | "rotate" | "scale" (see McpEditorActions.h)
+        std::string Message;
+    };
+
+    struct McpEditorShaderPackResult
+    {
+        bool Available = false;
+        bool Ok = false;
+        std::string OutputPath; // as the editor spells it (relative to its working directory)
+        std::string Message;
+    };
+
     // Outcome of a consented editor-selection write (issue #607), returned by
     // EditorMcpContext::SelectEntityInEditor. `Available` is false in a host with
     // no editor (headless attach / dispatch tests). `Ok` is true when the
@@ -644,6 +690,28 @@ namespace OloEngine::MCP
         // editor follows its normal toolbar path (stop Play, then simulate).
         // Main-thread-only and consent-gated by olo_scene_simulate.
         std::function<McpScenePlayResult()> SetSceneSimulateState;
+
+        // ---- Editor command registry (issue #1131) --------------------------
+        // The toolbar and menu actions that were reachable only by a mouse before
+        // #1131. Each is the SAME code path the button or menu item runs, so the
+        // registry command and the click cannot drift. All main-thread-only
+        // (scene state, editor members), so a handler calls them from a
+        // MarshalRead job. Null in a headless host; the command then reports "not
+        // available" through IsAvailable.
+        //
+        // Pause / resume the running Play or Simulate session (the toolbar pause
+        // button). Idempotent; Ok:false with a message in Edit mode, where there
+        // is nothing to pause.
+        std::function<McpEditorPauseResult(bool paused)> SetScenePauseState;
+        // Advance a PAUSED session by `frames` frames (the toolbar step button).
+        // Ok:false when not paused or in Edit mode. `frames` is 1..60.
+        std::function<McpEditorStepResult(int frames)> StepScene;
+        // Set the viewport gizmo mode (the Q/W/E/R shortcuts): "none",
+        // "translate", "rotate" or "scale". Session UI state, not project data.
+        std::function<McpEditorGizmoResult(const std::string& mode)> SetGizmoMode;
+        // Build > Build Shader Pack: write assets/ShaderPack.osp from the live
+        // shader libraries. Synchronous; Ok mirrors the menu item's log outcome.
+        std::function<McpEditorShaderPackResult()> BuildShaderPack;
 
         // Select / clear the Scene Hierarchy panel's selection — the "make the
         // Properties inspector draw entity X" write (issue #607). `clear` true
@@ -1401,6 +1469,10 @@ namespace OloEngine::MCP
         Scope<httplib::Server> m_Http;
         std::thread m_ListenThread;
         std::atomic<bool> m_Running{ false };
+        // Set at the top of Stop() and cleared by Start(): distinct from
+        // !m_Running, which is also the state before Start() and must not read as
+        // "cancelled" to a handler exercised through the dispatch seam in a test.
+        std::atomic<bool> m_Stopping{ false };
         u16 m_Port = DefaultPort;
         std::string m_Token;
 

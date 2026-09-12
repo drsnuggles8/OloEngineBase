@@ -2,6 +2,7 @@
 #include "Automation/AutomationBuildCommands.h"
 
 #include "Automation/AutomationBuildInvocation.h"
+#include "Automation/AutomationEvents.h"
 #include "Automation/AutomationCommand.h"
 #include "Automation/AutomationHost.h"
 #include "Automation/AutomationRegistry.h"
@@ -1340,6 +1341,17 @@ namespace OloEngine::Automation
             // field instead of re-deriving the invariant, which is the same
             // contract olo_tests_run's `complete` carries.
             out["ok"] = allSucceeded;
+
+            // The automation event bus (#1131): one `compile_finished` for the
+            // whole invocation, named by its target list, so a subscriber waiting
+            // on a build does not have to hold the tools/call open for an hour.
+            {
+                std::string targetList;
+                for (const TargetSpec* spec : targets)
+                    targetList += (targetList.empty() ? "" : ",") + std::string(spec->Name);
+                Events::PublishCompileFinished("build", targetList, allSucceeded, static_cast<u32>(errors),
+                                               static_cast<u32>(warnings), wallSeconds);
+            }
 
             if (!allSucceeded)
             {

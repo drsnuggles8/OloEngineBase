@@ -5,6 +5,7 @@
 #include "MCP/McpServer.h"
 #include "Automation/AutomationAssetCommands.h"
 #include "Automation/AutomationBuildCommands.h"
+#include "Automation/AutomationEditorCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
 #include "Automation/AutomationTransactionCommands.h"
 
@@ -111,10 +112,12 @@ namespace OloEngine::MCP
                 // history has no reason to resume from `lastId`, and would silently
                 // miss everything older on a busy session.
                 resource.Description =
-                    "The most recent 'what just happened?' engine events (up to 200: scene load, play/stop, "
-                    "entity spawn/destroy, asset reload, script error) as JSON, newest last, with a 'lastId' "
-                    "cursor to resume from. Subscribable: resources/subscribe on this URI and the server "
-                    "pushes notifications/resources/updated whenever new events are recorded.";
+                    "The most recent 'what just happened?' engine events (up to 200: scene load/save/dirty, "
+                    "play/stop, entity spawn/destroy, asset import/reload, script error, compile finished, "
+                    "automation command completed) as JSON, newest last, with a 'lastId' cursor to resume from. "
+                    "Subscribable: resources/subscribe on this URI and the server pushes "
+                    "notifications/resources/updated whenever new events are recorded. To block for the next "
+                    "event in one call, use olo_events_wait.";
                 resource.MimeType = "application/json";
                 resource.Reader = [](McpServer& /*s*/) -> std::string
                 {
@@ -214,6 +217,10 @@ namespace OloEngine::MCP
         RegisterInputTools(registry);
         RegisterBenchmarkTools(registry);
         RegisterEditorTools(registry);
+        // The editor command registry (issue #1131): the declared action table
+        // and the four toolbar/menu actions that had no command. Same toolset as
+        // RegisterEditorTools, so they list next to the panel commands.
+        Automation::RegisterEditorCommands(registry);
         RegisterTestingTools(registry);
         Automation::RegisterBuildCommands(registry);
         RegisterValidationTools(registry);

@@ -880,6 +880,11 @@ add_executable(OloEngine-Tests
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationBuildCommands.cpp
+		# The editor command registry (issue #1131): the declared action table
+		# joined with the live registry, plus pause/step/gizmo/shader-pack. The
+		# actions reach the editor only through EditorMcpContext hooks, so the
+		# test drives fakes and never opens a window.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEditorCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
 		# Asset query / safe CRUD / import (issue #1128). The index is editor-free
@@ -894,12 +899,20 @@ add_executable(OloEngine-Tests
 		# batches against a scene with no server and no GL context.
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransaction.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransactionCommands.cpp
+		# The publish side of the automation event bus (issue #1131):
+		# AutomationRegistry::RunHandler publishes command completions through
+		# it, so every target that links the registry needs it.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEvents.cpp
 		MCP/McpAutomationTransactionTest.cpp
 		MCP/McpAutomationAssetIndexTest.cpp
 		MCP/McpAutomationAssetCommandsTest.cpp
 		MCP/McpAutomationComponentsTest.cpp
 		MCP/McpAutomationEntitiesTest.cpp
 		MCP/McpAutomationSceneLifecycleTest.cpp
+		# The automation event bus (issue #1131): publishers, the completion rule,
+		# olo_events_wait's cursor model, and CommandHistory's dirty edge.
+		MCP/McpAutomationEventsTest.cpp
+		MCP/McpAutomationEditorCommandsTest.cpp
 		MCP/McpMainThreadMarshalTest.cpp
 		MCP/McpParticleStatsTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-
