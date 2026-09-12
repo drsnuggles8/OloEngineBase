@@ -233,6 +233,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderStageInterfaceTest.cpp
 		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderToolchainFloorTest.cpp
+		Rendering/ShaderCompileBudgetTest.cpp
 		Rendering/ShaderPackTest.cpp
 		Rendering/ShaderPackContentHashTest.cpp
 		Rendering/ShaderPackBakeTest.cpp
