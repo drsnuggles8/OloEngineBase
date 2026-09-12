@@ -1237,7 +1237,10 @@ namespace OloEngine::MCP
                 startCursor = parsed;
         }
 
-        res.set_header("Cache-Control", "no-cache");
+        // no-store, not no-cache: the stream is authenticated and carries records
+        // shaped by the session's redaction setting, and no-cache still lets a
+        // private cache keep a copy it merely has to revalidate.
+        res.set_header("Cache-Control", "no-store");
         // Conventional SSE hint: tell any intermediary not to buffer the stream.
         res.set_header("X-Accel-Buffering", "no");
 
@@ -1400,7 +1403,7 @@ namespace OloEngine::MCP
 
     void McpServer::HandleStreamingPost(const std::string& body, httplib::Response& res)
     {
-        res.set_header("Cache-Control", "no-cache");
+        res.set_header("Cache-Control", "no-store"); // authenticated tool results: never storable, see HandleGetStream
         res.set_header("X-Accel-Buffering", "no");
         res.set_chunked_content_provider(
             "text/event-stream",
