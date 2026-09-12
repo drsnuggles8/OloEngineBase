@@ -770,6 +770,15 @@ namespace OloEngine
         // consumer (the lit pass, DDGI relight, the fog scatter). Safe to call when
         // inactive: it uploads a disabled globals block and binds the 1x1
         // placeholder pool so a shader that samples unconditionally reads "lit".
+        //
+        // Also safe — and REQUIRED — when VSM was never initialised at all. Init()
+        // returns before CreateResources() when the feature is off, so none of the
+        // buffers below exist; this used to return early and leave SSBO 68 / 78 and
+        // UBO 81 with no occupant at all. VirtualShadowResources.glsl declares them
+        // unconditionally (it is a shared header included by PBR_MultiLight,
+        // PBR_GBuffer and DeferredLighting), so the RHI substituted its null block
+        // and logged an error per shader (#1190). Inert stubs make the binding
+        // honest instead (see EnsureInertSamplingBindings).
         void BindForSampling();
 
         [[nodiscard]] RHI::ResourceHandle GetPhysicalPoolHandle() const
@@ -1012,6 +1021,19 @@ namespace OloEngine
 
         // Page state (all std430 SSBOs — SSBO atomics are core GL 4.6, whereas the
         // reference's R64_UINT meta image would need int64 image atomics).
+        // --- inert sampling stubs (VSM off) ----------------------------------
+        // Minimal stand-ins bound at SSBO 68 / 78 and UBO 81 when the feature is
+        // off, so the bindings the shared header declares always have a real
+        // occupant. A few hundred bytes, created once and only when VSM never
+        // initialised. The shader cannot index the two SSBOs in this state —
+        // vsmShadowFactor returns early on VSM_ENABLED == 0 — but "cannot" should
+        // rest on a bound buffer, not on the null block happening to read zeros.
+        void EnsureInertSamplingBindings();
+        Ref<StorageBuffer> m_InertPageTable;
+        Ref<StorageBuffer> m_InertLocalLights;
+        Ref<UniformBuffer> m_InertGlobalsUBO;
+        Ref<UniformBuffer> m_InertPassUBO;
+
         Ref<StorageBuffer> m_PageTable;     // kTotalVirtualPages uints
         Ref<StorageBuffer> m_MetaTable;     // physical page -> owner
         Ref<StorageBuffer> m_HPB;           // kHPBTotalEntries uints

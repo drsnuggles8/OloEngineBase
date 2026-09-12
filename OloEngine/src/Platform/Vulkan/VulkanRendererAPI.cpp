@@ -2693,7 +2693,30 @@ namespace OloEngine
                         // was fed correctly, so the read lands outside it and
                         // loses the device. That asymmetry is the whole of
                         // #1052, so the two cases do not get the same voice.
-                        if (isStorage)
+                        // A VERTEX-PULL stream that the VAO does not carry is a
+                        // DESIGNED absence, not an unfed binding: the arm above
+                        // resolves it to the zero address on purpose, and the
+                        // shader gates the read (a skinned shader on a static
+                        // mesh; an unbaked mesh with no lightmap UV stream, whose
+                        // all-zero LightmapScaleOffset gates sampling). Telling
+                        // someone to "bind it" there would mean a dummy buffer per
+                        // non-skinned, non-lightmapped mesh in every scene.
+                        //
+                        // It still goes through this path rather than skipping the
+                        // accounting, because the null-block substitution and the
+                        // counter below are what make the state observable at all —
+                        // only the voice changes (issue #1190). Every other unfed
+                        // STORAGE binding keeps the error: that is #1052's case,
+                        // where the index comes from a buffer that WAS fed and the
+                        // read lands outside the small null block.
+                        const bool expectedAbsentPullStream = pullStream != ~sizet{ 0 };
+                        if (expectedAbsentPullStream)
+                        {
+                            OLO_CORE_TRACE("[RHI/Vulkan] '{}' pull stream {} (binding {}) is absent for this VAO — "
+                                           "null block, read is gated by the shader",
+                                           shaderName, pullStream, binding.Binding);
+                        }
+                        else if (isStorage)
                         {
                             OLO_CORE_ERROR("[RHI/Vulkan] '{}' STORAGE binding {} has no published occupant — "
                                            "substituting the null block, which a shader that indexes this buffer "
