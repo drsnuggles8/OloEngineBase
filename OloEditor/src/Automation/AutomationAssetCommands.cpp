@@ -2,6 +2,7 @@
 #include "Automation/AutomationAssetCommands.h"
 
 #include "Automation/AutomationAssetIndex.h"
+#include "Automation/AutomationEvents.h"
 #include "Automation/AutomationFileWrite.h"
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpServer.h"
@@ -1220,6 +1221,11 @@ namespace OloEngine::Automation
                 imported.RegistryKey = metadata.FilePath;
                 imported.AbsolutePath = Canonicalize(absolute);
                 imported.ExistsOnDisk = true;
+                // The file watcher's auto-import publishes the same event from
+                // EditorLayer::OnAssetImported; this path never raises the
+                // AssetImportedEvent, so it publishes for itself (#1131).
+                Events::PublishAssetImported(static_cast<u64>(handle), AssetUtils::AssetTypeToString(metadata.Type),
+                                             absolute, project.Root, "automation");
                 return Json::object(); });
             if (IsFailure(result))
                 return AutomationResult::Error(result.at("__error").get<std::string>());

@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 namespace OloEngine
@@ -176,10 +177,31 @@ namespace OloEngine
 
     void ShaderLibrary::ReloadShaders()
     {
+        const auto reloadStart = std::chrono::steady_clock::now();
+        u32 failed = 0;
         for (auto& [name, shader] : m_Shaders)
         {
             shader->Reload();
+            if (shader->GetCompilationStatus() == ShaderCompilationStatus::Failed)
+                ++failed;
         }
+
+        // The automation event bus (#1131): one `compile_finished` per library
+        // reload, whichever path asked for it (the Shaders menu, the Shader
+        // Debugger's Refresh All, the file watcher). A shader whose compile is
+        // still in flight is not counted as failed here; its own status is what
+        // olo_shader_errors reports.
+        DiagnosticEventData data;
+        const auto seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count();
+        data.Set("kind", "shader")
+            .Set("target", std::to_string(m_Shaders.size()) + " shaders")
+            .Set("ok", failed == 0)
+            .Set("errors", failed)
+            .Set("seconds", seconds);
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::CompileFinished,
+                                          "Reloaded " + std::to_string(m_Shaders.size()) + " shaders" +
+                                              (failed == 0 ? "" : " (" + std::to_string(failed) + " failed)"),
+                                          0, "ShaderLibrary", data);
     }
 
     bool ShaderLibrary::Exists(const std::string& name) const

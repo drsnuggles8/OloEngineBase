@@ -56,7 +56,7 @@ namespace OloEngine::MCP
     }
 
     // One diagnostics event as a JSON object — the SAME shape olo_events_tail emits
-    // per array entry (id, category, time, message, entity, context), so a push
+    // per array entry (id, category, time, message, entity, context, data), so a push
     // subscriber and an incremental poller see identical records. Optional fields
     // (time / entity / context) are omitted when absent, exactly like the poll path.
     [[nodiscard]] inline Json EventToJson(const DiagnosticEvent& event)
@@ -71,6 +71,15 @@ namespace OloEngine::MCP
             j["entity"] = std::to_string(event.Entity);
         if (!event.Context.empty())
             j["context"] = event.Context;
+        // The structured payload (#1131), present only for the categories that
+        // carry one. It is compact JSON text built by DiagnosticEventData, so it
+        // parses; if it ever did not, the raw text is emitted as a string so the
+        // defect is visible in the record rather than swallowed.
+        if (!event.Data.empty())
+        {
+            Json data = Json::parse(event.Data, nullptr, /*allow_exceptions=*/false);
+            j["data"] = data.is_discarded() ? Json(event.Data) : std::move(data);
+        }
         return j;
     }
 
@@ -87,10 +96,18 @@ namespace OloEngine::MCP
             case DiagnosticEventCategory::EntitySpawn:
             case DiagnosticEventCategory::EntityDestroy:
                 return "debug";
+            case DiagnosticEventCategory::CommandCompleted:
+                // As chatty as spawn/destroy on a busy session; a client that
+                // colours by severity should not see every command as news.
+                return "debug";
             case DiagnosticEventCategory::SceneLoad:
             case DiagnosticEventCategory::Play:
             case DiagnosticEventCategory::Stop:
             case DiagnosticEventCategory::AssetReload:
+            case DiagnosticEventCategory::SceneSave:
+            case DiagnosticEventCategory::SceneDirty:
+            case DiagnosticEventCategory::AssetImport:
+            case DiagnosticEventCategory::CompileFinished:
                 return "info";
         }
         return "info";

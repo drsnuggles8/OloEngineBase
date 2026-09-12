@@ -196,7 +196,8 @@ and for what to do when adding a tool.
 | `olo_log_tail` | recent engine log lines, filterable by `minLevel` and `tag` |
 | `olo_debug_levers` | the engine's debug/diagnostic levers and their current values (`activeOnly` to see just the non-default ones). **Call this first when a session renders or performs unlike a clean one** — a lever left set is otherwise invisible, and explains a whole class of "it only misbehaves on this machine". Each seeds from an environment variable of the same name; `source` says whether the environment or code set it |
 | `olo_cvar_set` | **(consented write)** set any of those levers BY NAME against the running editor — the generalisation of `olo_render_debug_set`'s two special cases (issue #821). `name` + `value`, both strings; booleans take `on`/`off` (also `1/0`, `true/false`, `yes/no`), a tristate additionally takes `unset` (= "leave the hardware-derived default alone", **not** off), an int/float also takes `unset` to clear it. Out-of-range and non-finite values are refused with the reason rather than clamped; the read-only text levers are refused explicitly (they are consumed once at init). Subsystems that cached the value are re-notified at the **top of the next frame**, so re-capture with `olo_screenshot { forceFrame: true }` rather than trusting the frame you already have. `restoreWith` puts it back. Gated behind **Agent writes** |
-| `olo_events_tail` | unified "what just happened?" timeline — scene load, play/stop, entity spawn/destroy, asset reload, script error — newest last with a monotonic `id`; incremental polling via `sinceId`, plus a `categories` filter |
+| `olo_events_tail` | unified "what just happened?" timeline — scene load/save/dirty, play/stop, entity spawn/destroy, asset import/reload, script error, compile finished, automation command completed — newest last with a monotonic `id`; incremental polling via `sinceId`, a `categories` filter, and `dropped` (how many records above your cursor were evicted before you read them) |
+| `olo_events_wait` | **the subscription** of the automation event bus (issue #1131): block until the next event matching `categories` with `id` above `sinceId`, or until `waitMs`; returns the matches, the `lastId` cursor for the next call, `dropped`, `timedOut` and `cancelled`. Read-only, never stalls the editor, cancellable. See [The automation event bus](#the-automation-event-bus-olo_events_wait) |
 | `olo_scene_summary` | active scene name, play state, entity count |
 | `olo_scene_simulate` | **(consented write)** enter Simulate through the real editor toolbar path, running physics/runtime systems with the editor camera; reports `mode`, `playing`, and `simulating` and settles frames before returning |
 | `olo_reflection_probe_bake` | **(consented write)** synchronously run the real reflection-probe baker for one exact, uniquely named probe entity; non-undoable |
@@ -650,7 +651,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 
 | Toolset | Tools |
 |---|---|
-| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
+| `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
@@ -2196,8 +2197,26 @@ deserialization on load would otherwise flood the ring with hundreds of
 `entity_spawn` records, so those paths are suppressed and represented by the single
 `play` / `scene_load` event instead. Filter with `categories` (e.g.
 `["script_error", "asset_reload"]`) to narrow further. The ring holds the most recent
-512 events; older ones are evicted, but `sinceId` polling means an agent that checks
-in regularly never misses anything between checks.
+512 events; older ones are evicted. An agent that checks in regularly never misses
+anything between checks, and one that does not is told: `dropped` counts the records
+above `sinceId` that were evicted before the call could return them (0 unless the
+cursor fell behind the window). Treat a non-zero `dropped` as a hole in your history,
+not as "nothing happened".
+
+The five categories added by the automation event bus (issue #1131) carry a structured
+`data` object; the seven older ones do not:
+
+| category | `data` | published from |
+|---|---|---|
+| `scene_save` | `scene`, `path` (project-relative), `changed` | every save path: the menu, Ctrl+S, `olo_scene_save`, `olo_scene_save_as` |
+| `scene_dirty` | `scene`, `dirty` | the scene undo history, on both edges: the first unsaved edit, and clean again after a save, undo or rollback |
+| `asset_import` | `asset` (project-relative), `type`, `handle`, `source` (`filewatch` or `automation`) | the content-directory watcher and `olo_asset_import` |
+| `compile_finished` | `kind` (`build`, `script`, `shader`), `target`, `ok`, `errors`, `warnings`, `seconds` | `olo_build_run`, a script assembly reload, a shader library reload |
+| `command_completed` | `command`, `ok`, `durationMs`, `projectWrite`, `toolset` | every mutating automation command, from the registry itself, whichever frontend ran it |
+
+`data` carries the identity of what happened and never the content a read would return:
+no arguments, no results, no serialized scene, no absolute path. That is what lets a
+subscription be a plain read (see the event bus section below).
 
 > **Companion (issue #306, server-push half — done):** `olo_events_tail` is the
 > *poll-based* read of the ring buffer; the same buffer is now also **pushed live** over a
@@ -2236,6 +2255,15 @@ surface byte-identical event records.
   which also detects a vanished client. New events carry a worst-case latency of ~250 ms
   (the stream's internal poll cadence). The MCP panel shows how many push streams are
   connected.
+- **A gap is announced, not hidden.** When the stream's cursor has fallen behind the ring (a
+  stalled client, or a `Last-Event-ID` older than the window) the next cycle first pushes a
+  `notifications/message` at level `warning` whose `data` is `{ "gap": <n>, "resumedAt": <id> }`,
+  then the records that are still there. Before issue #1131 the missing records were simply
+  absent.
+- **Same redaction as every other carrier.** With the session's path redaction on, the pushed
+  records are scrubbed exactly as `olo_events_tail` and `resources/read` scrub theirs. The
+  stream used to skip this step, so the same `asset_reload` record arrived redacted through
+  the poll and unredacted through the push.
 
 ```jsonc
 // Wire format (one frame per event), pushed over GET /mcp:
@@ -2297,6 +2325,56 @@ Code opens the GET stream automatically alongside the POST channel). The threadi
 the same lock-safe path as `olo_events_tail`: the stream runs on an httplib worker
 thread and only touches the mutex-guarded event log, so it never marshals to or blocks
 the editor's main thread.
+
+### The automation event bus (`olo_events_wait`)
+
+Subscribe with a cursor: take `lastId` from `olo_events_tail`, do the thing, then call
+`olo_events_wait` with that id as `sinceId` and it returns the moment a matching event lands,
+or after `waitMs` with `timedOut: true` and the cursor to try again. That replaces a poll loop
+with one blocking call, over the same `tools/call` channel every client and `oloctl` already
+speak. Issue #1131.
+
+```jsonc
+// olo_events_tail { "count": 1 }                                   -> { "lastId": 312, ... }
+// olo_scene_play {}
+// olo_events_wait { "sinceId": 312, "categories": ["play"], "waitMs": 10000 }
+{
+  "count": 1, "lastId": 318, "dropped": 0, "timedOut": false, "cancelled": false,
+  "events": [ { "id": 313, "category": "play", "time": "14:02:11.418", "message": "Entered Play mode", "context": "MyScene" } ]
+}
+// olo_events_wait { "sinceId": 318, "categories": ["command_completed"] }
+{ "count": 1, ..., "events": [ { "id": 319, "category": "command_completed", "message": "Command olo_scene_play completed",
+                                 "context": "olo_scene_play", "data": { "command": "olo_scene_play", "ok": true, "durationMs": 412.7, "projectWrite": true, "toolset": "scene" } } ] }
+```
+
+Four rules, each of which answers one of the issue's design constraints:
+
+1. **Omit `sinceId` to wait for what happens next.** The default cursor is the ring's head at
+   the moment of the call, so a bare `olo_events_wait` returns nothing that already happened.
+   To catch an event that may land between your action and your wait, take the cursor
+   *before* the action, as above.
+2. **A subscription is a read, at read authority.** `olo_events_wait` needs the bearer token
+   and nothing else; it is not consent-gated and `oloctl`, which refuses every write, can run
+   it. That is sound only because of what an event may carry: identities, never content (see
+   the `data` table under the event timeline). Nothing behind a read gate is ever on the bus.
+3. **There is no per-subscriber queue.** Every consumer holds a cursor into the one 512-record
+   ring; a subscriber that stops reading costs the editor nothing, and when it resumes past the
+   window it is told how many records it lost (`dropped`). The push stream's only buffer is the
+   socket's, and a client that stops reading fails its write and is disconnected.
+4. **Only a mutating command publishes `command_completed`.** A command annotated read-only
+   (`olo_events_wait` itself, every `olo_*_get`, the tails) never does: reads would evict the
+   events worth waiting for, and a wait that published its own completion would wake every
+   other waiter forever.
+
+`waitMs` is capped at 60 s per call and the wait runs on the handler thread only, so however
+long it blocks it never stalls a frame; cancel the call (`notifications/cancelled`) to return
+early with `cancelled: true`. From a shell, `oloctl events follow --until play` loops this
+command and prints one JSON object per event ([oloctl guide](oloctl.md#following-events)).
+The `run-oloengine` smoke test exercises the round trip (a `command_completed` for
+`olo_viewport_set_size` arriving through a wait that started before the call).
+
+Design notes and the two bugs this fixed in the carriers that already existed:
+[`docs/agent-rules/automation-event-bus.md`](../agent-rules/automation-event-bus.md).
 
 ### Progress notifications & cancellation
 

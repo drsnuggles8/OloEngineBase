@@ -45,6 +45,9 @@
 		"Automation/AutomationTransaction.cpp"
 		"Automation/AutomationTransactionCommands.h"
 		"Automation/AutomationTransactionCommands.cpp"
+		# The publish side of the automation event bus (issue #1131).
+		"Automation/AutomationEvents.h"
+		"Automation/AutomationEvents.cpp"
 
 		"MCP/McpServer.cpp"
 		"MCP/McpServer.h"

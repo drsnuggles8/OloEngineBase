@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/Environment.h"
 #include "EditorLayer.h"
+#include "Automation/AutomationEvents.h"
 #include "Automation/AutomationSceneDocument.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
@@ -515,6 +516,16 @@ namespace OloEngine
             // their mutation through the same undo stack as the editor's own edits,
             // so an agent's change is a single Ctrl-Z. Main-thread-only, like the
             // readers above (the MCP server calls it from a MarshalRead job).
+            // The automation event bus (#1131): every edit, undo, redo, save and
+            // transaction on the scene history publishes a `scene_dirty` edge, so
+            // an agent can wait for "the document has unsaved changes" (or "is
+            // clean again") instead of polling olo_scene_status. Wired once, here,
+            // for the scene history only; the panels' own histories stay silent.
+            m_CommandHistory.OnDirtyChanged = [this](bool dirty)
+            {
+                Automation::Events::PublishSceneDirty(m_EditorScene ? m_EditorScene->GetName() : std::string{},
+                                                      dirty);
+            };
             mcpContext.GetCommandHistory = [this]() -> CommandHistory*
             {
                 // Only expose the undo stack in Edit mode. In Play / Simulate the
@@ -5753,11 +5764,15 @@ namespace OloEngine
             m_ContentBrowserPanel->OnAssetImported(e.GetPath());
         }
 
-        DiagnosticsEventLog::Get().Record(
-            DiagnosticEventCategory::AssetReload,
-            std::string("Auto-imported ") + AssetUtils::AssetTypeToString(e.GetAssetType()) + " '" +
-                e.GetPath().filename().string() + "'",
-            static_cast<u64>(e.GetHandle()), e.GetPath().string());
+        // `asset_import` on the automation event bus (#1131). This used to be
+        // recorded as `asset_reload` with the ABSOLUTE path in `context`; it is
+        // its own category now, and the path is project-relative — an event
+        // carries identities, never a path a redacted read would hide.
+        Automation::Events::PublishAssetImported(static_cast<u64>(e.GetHandle()),
+                                                 AssetUtils::AssetTypeToString(e.GetAssetType()), e.GetPath(),
+                                                 Project::GetActive() ? Project::GetProjectDirectory()
+                                                                      : std::filesystem::path{},
+                                                 "filewatch");
 
         OLO_TRACE("✨ Asset Imported Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));

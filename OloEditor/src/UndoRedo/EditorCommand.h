@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <deque>
 #include <exception>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -149,11 +150,22 @@ namespace OloEngine
       public:
         static constexpr std::size_t MaxHistorySize = 128;
 
+        // Called whenever IsDirty() flips, with the new value, after the mutation
+        // that flipped it is complete. The automation event bus (#1131) publishes
+        // a `scene_dirty` event from here; the editor wires it once for its scene
+        // history and leaves panel-local histories unwired. Runs on the thread
+        // that mutated the history (the main thread), synchronously, from a
+        // destructor: it must not re-enter this object and it must not throw
+        // (a throw would terminate the process, which is the honest outcome for
+        // a hook that cannot report a scene edit).
+        std::function<void(bool dirty)> OnDirtyChanged;
+
         // Document operations (new/save) establish a checkpoint that belongs to
         // their resulting document. Undo restores the outgoing document's exact
         // checkpoint; ordinary edits retain the existing save-point semantics.
         void Execute(std::unique_ptr<EditorCommand> command, bool markSaved = false)
         {
+            const DirtyEdge edge(*this);
             command->Execute();
             if (m_Transaction)
             {
@@ -174,7 +186,7 @@ namespace OloEngine
             m_RedoStack.clear();
             ++m_Version;
             if (markSaved)
-                MarkSaved();
+                MarkSavedInternal();
 
             // Limit history size
             while (m_UndoStack.size() > MaxHistorySize)
@@ -187,6 +199,7 @@ namespace OloEngine
         // Push a command that has already been applied (e.g. ImGui widget already changed the value)
         void PushAlreadyExecuted(std::unique_ptr<EditorCommand> command)
         {
+            const DirtyEdge edge(*this);
             if (m_Transaction)
             {
                 m_Transaction->Commands->Add(std::move(command));
@@ -214,6 +227,7 @@ namespace OloEngine
             {
                 return;
             }
+            const DirtyEdge edge(*this);
 
             // A guarded disk restore can refuse an external modification. Do
             // not remove its entry or alter dirty state when the command throws.
@@ -237,13 +251,14 @@ namespace OloEngine
             {
                 return;
             }
+            const DirtyEdge edge(*this);
 
             m_RedoStack.back().Command->Execute();
             auto entry = std::move(m_RedoStack.back());
             m_RedoStack.pop_back();
             ++m_Version;
             if (entry.PreviousSavePoint)
-                MarkSaved();
+                MarkSavedInternal();
             m_UndoStack.push_back(std::move(entry));
         }
 
@@ -269,8 +284,8 @@ namespace OloEngine
         // Save-point tracking for unsaved-changes detection
         void MarkSaved()
         {
-            m_SavePointVersion = m_Version;
-            m_SavePointValid = true;
+            const DirtyEdge edge(*this);
+            MarkSavedInternal();
         }
 
         [[nodiscard]] bool IsDirty() const
@@ -341,6 +356,7 @@ namespace OloEngine
         {
             if (!m_Transaction)
                 throw std::logic_error("CommitTransaction: no command-history transaction is open.");
+            const DirtyEdge edge(*this);
             Transaction scope = std::move(*m_Transaction);
             m_Transaction.reset();
 
@@ -348,7 +364,7 @@ namespace OloEngine
             if (scope.Commands->IsEmpty())
             {
                 if (markSaved)
-                    MarkSaved();
+                    MarkSavedInternal();
                 return;
             }
 
@@ -370,7 +386,7 @@ namespace OloEngine
             m_RedoStack.clear();
             ++m_Version;
             if (markSaved)
-                MarkSaved();
+                MarkSavedInternal();
 
             while (m_UndoStack.size() > MaxHistorySize)
             {
@@ -389,6 +405,7 @@ namespace OloEngine
         {
             if (!m_Transaction)
                 throw std::logic_error("RollbackTransaction: no command-history transaction is open.");
+            const DirtyEdge edge(*this);
             Transaction scope = std::move(*m_Transaction);
             m_Transaction.reset();
 
@@ -448,6 +465,53 @@ namespace OloEngine
                 throw std::logic_error(std::string(operation) + " is not allowed while a command-history transaction is open.");
         }
 
+        // Sets the save point without firing OnDirtyChanged. Every public
+        // mutation holds a DirtyEdge across its whole body and fires once at the
+        // end, so an Execute(markSaved) that dirties and immediately cleans in one
+        // call reports no edge at all -- the state a subscriber can observe never
+        // flipped.
+        void MarkSavedInternal()
+        {
+            m_SavePointVersion = m_Version;
+            m_SavePointValid = true;
+        }
+
+        // Samples IsDirty() on construction and fires OnDirtyChanged on
+        // destruction if it moved. Constructed as the first statement of every
+        // public mutation, so nested mutations (a save inside a transaction, a
+        // command whose Execute pushes a sub-command) collapse into the outermost
+        // edge. A mutation that is unwinding on an exception (a guarded undo that
+        // refused, say) fires nothing: the caller sees the throw, and the hook
+        // must not run from an unwinding frame.
+        class DirtyEdge
+        {
+          public:
+            explicit DirtyEdge(CommandHistory& history)
+                : m_History(history), m_WasDirty(history.IsDirty()), m_Depth(history.m_EdgeDepth++),
+                  m_Exceptions(std::uncaught_exceptions())
+            {
+            }
+            ~DirtyEdge()
+            {
+                --m_History.m_EdgeDepth;
+                if (m_Depth != 0 || std::uncaught_exceptions() != m_Exceptions)
+                    return;
+                const bool dirty = m_History.IsDirty();
+                if (dirty != m_WasDirty && m_History.OnDirtyChanged)
+                    m_History.OnDirtyChanged(dirty);
+            }
+            DirtyEdge(const DirtyEdge&) = delete;
+            DirtyEdge& operator=(const DirtyEdge&) = delete;
+            DirtyEdge(DirtyEdge&&) = delete;
+            DirtyEdge& operator=(DirtyEdge&&) = delete;
+
+          private:
+            CommandHistory& m_History;
+            bool m_WasDirty;
+            std::size_t m_Depth;
+            int m_Exceptions;
+        };
+
         void TrimSavePoint()
         {
             // When oldest entry is discarded, check if save point is still reachable
@@ -466,6 +530,7 @@ namespace OloEngine
         std::deque<Entry> m_RedoStack;
         std::optional<Transaction> m_Transaction;
         std::size_t m_Version = 0;
+        std::size_t m_EdgeDepth = 0; // see DirtyEdge
         std::size_t m_SavePointVersion = 0;
         bool m_SavePointValid = true;
     };

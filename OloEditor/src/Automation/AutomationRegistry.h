@@ -183,7 +183,9 @@ namespace OloEngine::Automation
 
         // Run `command`'s handler, converting an escaping exception into an error
         // result. The single place a handler is entered, so the registry path and the
-        // MCP adapter cannot drift on what "running a command" means.
+        // MCP adapter cannot drift on what "running a command" means — including on
+        // the `command_completed` event a mutating command publishes to the
+        // automation event bus when it returns (#1131; see AutomationEvents.h).
         [[nodiscard]] static AutomationResult RunHandler(const AutomationCommand& command, IAutomationHost& host,
                                                          const nlohmann::json& arguments);
 
@@ -211,6 +213,11 @@ namespace OloEngine::Automation
         [[nodiscard]] static std::string ClientPrefix(const std::string& alias);
 
       private:
+        // RunHandler without the completion event: the exception boundary alone.
+        [[nodiscard]] static AutomationResult RunHandlerUnobserved(const AutomationCommand& command,
+                                                                   IAutomationHost& host,
+                                                                   const nlohmann::json& arguments);
+
         void Publish(std::shared_ptr<CommandList> next);
         // Bump the generation, then tell the transport its catalogue moved. Bump
         // FIRST: a listener that polls the generation must never observe a stale

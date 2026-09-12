@@ -260,6 +260,28 @@ if ($snapAtOverride.result -and -not $snapAtOverride.result.isError) {
 }
 Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
 
+# 18b. The automation event bus (#1131): a mutating command publishes
+# `command_completed`, and olo_events_wait BLOCKS for it instead of polling.
+# The cursor is taken BEFORE the action so an event landing between the two
+# calls cannot be missed, and the wait is bounded so a regression fails the
+# smoke test instead of hanging it. olo_viewport_set_size is not a project
+# write, so this runs with the default (writes disabled) consent.
+$cursor = Show-Tool 'olo_events_tail' @{ count = 1 }
+$cursorObj = $cursor.result.content[0].text | ConvertFrom-Json
+$sinceId = [int64]$cursorObj.lastId
+Show-Tool 'olo_viewport_set_size' @{ width = 640; height = 360 } | Out-Null
+$waited = Show-Tool 'olo_events_wait' @{ sinceId = $sinceId; categories = @('command_completed'); waitMs = 5000 }
+$waitedObj = $waited.result.content[0].text | ConvertFrom-Json
+$completed = @($waitedObj.events | Where-Object { $_.data.command -eq 'olo_viewport_set_size' })
+if ($completed.Count -ge 1) {
+    Write-Host "  olo_events_wait returned command_completed for olo_viewport_set_size (id $($completed[0].id), $($completed[0].data.durationMs) ms) without polling" -ForegroundColor Green
+} elseif ($waitedObj.timedOut) {
+    Write-Error "olo_events_wait timed out: no command_completed event for olo_viewport_set_size arrived within 5 s (lastId $($waitedObj.lastId), dropped $($waitedObj.dropped))"
+} else {
+    Write-Error "olo_events_wait returned $($waitedObj.count) event(s) but none named olo_viewport_set_size: $($waited.result.content[0].text)"
+}
+Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
+
 # olo_renderer_settings_set is a consented WRITE tool: with the editor's
 # "Allow writes" gate off (the default) the call must be REFUSED cleanly; with
 # it on, the no-arg form lists every setting (upscale/tonemap/renderpath +

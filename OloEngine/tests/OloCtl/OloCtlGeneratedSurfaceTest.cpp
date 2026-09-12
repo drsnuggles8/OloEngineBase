@@ -34,8 +34,10 @@
 #include "MCP/McpExposure.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpTools.h"
+#include "MCP/McpToolsCommon.h"
 #include "OloCtl/CliRunner.h"
 #include "OloCtl/RegistryCommandSource.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 
 #include <sstream>
 #include <string>
@@ -408,4 +410,46 @@ TEST(OloCtlGeneratedSurface, InvalidArgumentsAreRejectedByTheHostNotByTheCli)
     ASSERT_FALSE(payload.is_discarded()) << run.Out;
     EXPECT_EQ(payload["isError"], true);
     EXPECT_NE(payload.dump().find("thingId"), std::string::npos) << payload.dump(2);
+}
+
+// ---- 4. the event bus, followed from the CLI (#1131) ------------------------
+
+// `oloctl events follow` is a loop over the REAL olo_events_wait: the registry
+// command the diagnostics domain registers, over the engine's real event ring,
+// with no server and no socket. One recorded event comes out as one NDJSON line
+// carrying the id the ring assigned.
+TEST(OloCtlGeneratedSurface, EventsFollowStreamsARecordedEventThroughTheRealRegistry)
+{
+    AutomationRegistry registry;
+    OloEngine::MCP::RegisterDiagnosticsTools(registry);
+    HeadlessHost host;
+
+    OloEngine::DiagnosticsEventLog& log = OloEngine::DiagnosticsEventLog::Get();
+    log.Clear();
+    const u64 recorded = log.Record(OloEngine::DiagnosticEventCategory::Play, "runtime started");
+    ASSERT_NE(recorded, 0u) << "the ring refused the record";
+
+    // --since-id 0: from the oldest record held, so the event recorded BEFORE the
+    // first poll is returned rather than waited past. --until play ends the loop
+    // on it; --count 1 is the belt to that brace.
+    const CliRun run = RunOloCtl(registry, host, { "events", "follow", "--since-id", "0", "--until", "play", "--count", "1" });
+    log.Clear();
+
+    ASSERT_EQ(run.Code, ExitCode::Ok) << run.Err;
+    EXPECT_TRUE(run.Err.empty()) << run.Err;
+
+    std::vector<std::string> lines;
+    std::istringstream in(run.Out);
+    for (std::string line; std::getline(in, line);)
+    {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        lines.push_back(line);
+    }
+    ASSERT_EQ(lines.size(), 1u) << "exactly one event, one line: " << run.Out;
+    const Json event = Json::parse(lines.front(), nullptr, false);
+    ASSERT_FALSE(event.is_discarded()) << lines.front();
+    EXPECT_EQ(event["category"], "play");
+    EXPECT_EQ(event["id"], recorded);
+    EXPECT_EQ(event["message"], "runtime started");
 }

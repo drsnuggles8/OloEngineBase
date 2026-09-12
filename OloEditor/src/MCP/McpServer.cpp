@@ -375,16 +375,44 @@ namespace OloEngine::MCP
         // heartbeat once the stream has been idle. Returns false when a write fails
         // (client gone) so the caller ends the stream. Reads only the lock-safe event
         // log — no main-thread marshal needed (mirrors olo_events_tail).
+        //
+        // `redactPaths` applies the session's path redaction to every pushed
+        // record, exactly as tools/call and resources/read apply it to theirs
+        // (#1131). Before that, the stream was the one carrier that skipped it: a
+        // redacted `olo_events_tail` result and an unredacted push of the same
+        // record differed by precisely the paths redaction exists to hide.
         [[nodiscard]] bool ServiceEventStream(httplib::DataSink& sink, u64& cursor,
-                                              std::chrono::steady_clock::time_point& lastWrite)
+                                              std::chrono::steady_clock::time_point& lastWrite, bool redactPaths)
         {
             DiagnosticEventQuery query;
             query.SinceId = cursor;
             query.MaxCount = 0; // deliver every new event — no newest-N cap on a live stream.
             const DiagnosticEventQueryResult snap = DiagnosticsEventLog::Get().QueryWithCursor(query);
+            if (snap.Dropped != 0)
+            {
+                // The cursor fell behind the ring's window (a stalled client, or a
+                // Last-Event-ID too far back): say how many records are gone rather
+                // than resuming as if the history were continuous. A warning-level
+                // logging notification, so a client that only reads events cannot
+                // mistake it for one.
+                const u64 resumedAt = snap.Events.empty() ? snap.LastId + 1 : snap.Events.front().Id;
+                const std::string frame = FormatSseData(
+                    Json{ { "jsonrpc", "2.0" },
+                          { "method", "notifications/message" },
+                          { "params",
+                            Json{ { "level", "warning" },
+                                  { "logger", "olo.events" },
+                                  { "data", Json{ { "gap", snap.Dropped }, { "resumedAt", resumedAt } } } } } });
+                if (!sink.write(frame.data(), frame.size()))
+                    return false;
+                lastWrite = std::chrono::steady_clock::now();
+            }
             for (const auto& event : snap.Events)
             {
-                const std::string frame = FormatSseEvent(event.Id, MakeEventNotification(event));
+                Json notification = MakeEventNotification(event);
+                if (redactPaths)
+                    RedactStructuredContent(notification["params"]["data"]);
+                const std::string frame = FormatSseEvent(event.Id, notification);
                 if (!sink.write(frame.data(), frame.size()))
                     return false;
                 lastWrite = std::chrono::steady_clock::now();
@@ -1306,7 +1334,7 @@ namespace OloEngine::MCP
                     subscriptionTokens = std::move(stillSubscribed);
                 }
 
-                if (!ServiceEventStream(sink, cursor, lastWrite))
+                if (!ServiceEventStream(sink, cursor, lastWrite, RedactPaths()))
                     return false;
 
                 // Pace the loop (httplib calls the provider back-to-back).

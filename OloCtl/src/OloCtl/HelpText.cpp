@@ -19,6 +19,7 @@ namespace OloCtl
             "  oloctl [options] call <registry-name> [--option value ...]\n"
             "  oloctl [options] catalogue\n"
             "  oloctl [options] <group>\n"
+            "  oloctl [options] events follow [--since-id N] [--category C]... [--until C] [--count N] [--for S]\n"
             "  oloctl help | version\n"
             "\n"
             "The command tree is GENERATED from the editor's registry on every run: oloctl carries no\n"
@@ -52,6 +53,12 @@ namespace OloCtl
             "The payload goes to stdout and nothing else ever does, so `oloctl ... | jq` works from a\n"
             "CI step. Diagnostics, warnings and errors go to stderr.\n"
             "\n"
+            "Events:\n"
+            "  `oloctl events follow` streams the editor's diagnostics events to stdout as NDJSON, one\n"
+            "  compact JSON object per line, by looping the registry command olo_events_wait. --until,\n"
+            "  --count and --for bound the stream; with none of them it runs until interrupted.\n"
+            "  `oloctl events --help` has the details.\n"
+            "\n"
             "Values are typed by the command's declared schema: --count 3 sends a number, --name x a\n"
             "string. An option whose schema declares no type takes JSON if the text parses as JSON and\n"
             "the raw string otherwise. Repeat an option to build an array.\n"
@@ -63,8 +70,47 @@ namespace OloCtl
             "oloctl resolves nothing against the working directory. A path in an argument is resolved\n"
             "by the EDITOR, relative to the editor's own working directory (OloEditor/).\n"
             "\n"
-            "Exit codes: 0 ok - 1 the command reported an error - 2 usage - 3 cannot reach the editor\n"
-            "  - 4 refused (write path closed) - 5 no structured content in the result.\n";
+            "Exit codes: 0 ok (for `events follow`: stopped by --until, --count or --for) - 1 the command\n"
+            "  reported an error - 2 usage - 3 cannot reach the editor, or it stopped answering - 4 refused\n"
+            "  (write path closed) - 5 no structured content in the result.\n";
+
+        constexpr const char* kEventsUsage =
+            "oloctl events follow - stream the editor's diagnostics events to stdout as NDJSON.\n"
+            "\n"
+            "Usage:\n"
+            "  oloctl [connection options] events follow [--since-id N] [--category C]... [--until C]\n"
+            "                                            [--count N] [--for S]\n"
+            "\n"
+            "One compact JSON object per line, one line per event, and nothing else on stdout - ever.\n"
+            "Each object is the editor's event record verbatim: id, category, message, and when present\n"
+            "time, entity, context and data. --json, --structured and --compact do not change this\n"
+            "output. Warnings and errors go to stderr.\n"
+            "\n"
+            "  --since-id <id>   Start after this event id. 0 means from the oldest event the editor still\n"
+            "                    holds. Default: new events only, from the moment of the first poll.\n"
+            "  --category <c>    Print only this category; repeat the option for several. One of:\n"
+            "                    scene_load, play, stop, entity_spawn, entity_destroy, asset_reload,\n"
+            "                    script_error, scene_save, scene_dirty, asset_import, compile_finished,\n"
+            "                    command_completed.\n"
+            "  --until <c>       Exit 0 after printing an event of this category. It does not widen the\n"
+            "                    filter: with --category, only the categories you named are printed, so an\n"
+            "                    --until category outside that filter never arrives.\n"
+            "  --count <n>       Exit 0 after printing n events.\n"
+            "  --for <seconds>   Exit 0 after this much wall-clock time.\n"
+            "\n"
+            "With none of --until, --count and --for, it runs until interrupted (Ctrl+C).\n"
+            "\n"
+            "It is a loop over the registry command olo_events_wait, a long poll over the editor's\n"
+            "512-record event ring, through the same request path every other oloctl call takes. It\n"
+            "needs an editor that has that command: an older one answers \"Unknown tool\" and oloctl exits\n"
+            "1 saying so. Each poll waits at most 10 s, and at most half of --timeout, so --timeout must\n"
+            "be 2000 ms or more. When the editor reports that records were evicted before oloctl read\n"
+            "them (the cursor fell behind the ring), a warning naming the count goes to stderr and the\n"
+            "stream continues from the oldest record still held.\n"
+            "\n"
+            "Exit codes: 0 stopped by --until, --count or --for - 1 olo_events_wait reported an error\n"
+            "  - 2 usage - 3 the editor could not be reached, or stopped answering - 5 the result had\n"
+            "  no usable payload.\n";
 
         std::string FirstSentence(const std::string& description, std::size_t limit)
         {
@@ -161,6 +207,11 @@ namespace OloCtl
                 out << " Default " << fallback->dump() << '.';
         }
     } // namespace
+
+    std::string RenderEventsHelp()
+    {
+        return kEventsUsage;
+    }
 
     std::string RenderOfflineHelp(const std::string& connectionError)
     {
