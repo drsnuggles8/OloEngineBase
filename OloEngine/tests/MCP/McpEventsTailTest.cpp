@@ -367,6 +367,39 @@ TEST_F(DiagnosticsEventLogTest, EveryBusCategoryDeclaresAClosedKeySet)
     }
 }
 
+TEST_F(DiagnosticsEventLogTest, SuppressCategoryScopeMutesOneCategoryOnThisThreadOnly)
+{
+    {
+        const DiagnosticsEventLog::SuppressCategoryScope quiet(DiagnosticEventCategory::CommandCompleted);
+        EXPECT_EQ(0u, Log().Record(DiagnosticEventCategory::CommandCompleted, "muted"));
+        EXPECT_EQ(1u, Log().Record(DiagnosticEventCategory::Play, "other categories still record"));
+        // Another thread is unaffected: the scope is thread-local by design.
+        u64 fromOtherThread = 0;
+        std::thread other([&fromOtherThread]
+                          { fromOtherThread = DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::CommandCompleted, "elsewhere"); });
+        other.join();
+        EXPECT_EQ(2u, fromOtherThread);
+    }
+    EXPECT_EQ(3u, Log().Record(DiagnosticEventCategory::CommandCompleted, "scope ended"));
+}
+
+TEST_F(DiagnosticsEventLogTest, DataBuilderTruncatesOnAUtf8Boundary)
+{
+    // 90 three-byte characters = 270 bytes; the cut at 256 lands mid-character
+    // and must back off so the value stays valid UTF-8.
+    std::string text;
+    for (int i = 0; i < 90; ++i)
+        text += "\xE3\x81\x82"; // U+3042
+    OloEngine::DiagnosticEventData data;
+    data.Set("scene", text);
+    const std::string built = data.Build();
+    const std::size_t cut = built.find("...");
+    ASSERT_NE(cut, std::string::npos);
+    // Every character before the marker is whole: the byte count is a multiple of 3.
+    const std::size_t valueStart = built.find(':') + 2; // past `{"scene":"`
+    EXPECT_EQ((cut - valueStart) % 3, 0u);
+}
+
 // ---- #1131: the reported gap ------------------------------------------------
 
 TEST_F(DiagnosticsEventLogTest, CursorInsideTheWindowReportsNoGap)

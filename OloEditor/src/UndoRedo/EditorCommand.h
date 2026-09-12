@@ -418,6 +418,7 @@ namespace OloEngine
         void Clear()
         {
             RefuseInsideTransaction("Clear");
+            const DirtyEdge edge(*this); // a dirty document cleared is a clean-again edge
             m_UndoStack.clear();
             m_RedoStack.clear();
             m_Version = 0;

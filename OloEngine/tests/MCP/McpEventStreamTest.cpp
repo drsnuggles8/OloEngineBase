@@ -166,14 +166,31 @@ TEST(McpEventStreamJson, NoDataKeyWhenTheEventCarriesNone)
     EXPECT_FALSE(j.contains("data")) << "the six legacy fields must serialize byte-identically to before";
 }
 
-TEST(McpEventStreamJson, UnparseableDataIsSurfacedAsTextNotDropped)
+TEST(McpEventStreamJson, UnparseableDataIsSurfacedAsAnErrorNotDropped)
 {
     DiagnosticEvent e = MakeEvent(DiagnosticEventCategory::SceneSave, "x");
     e.Data = "{not json";
     const Json j = MCP::EventToJson(e);
     ASSERT_TRUE(j.contains("data"));
-    EXPECT_TRUE(j["data"].is_string());
-    EXPECT_EQ(j["data"], "{not json");
+    // An object naming the defect, never the raw text: that text may be invalid
+    // UTF-8, and dump() would then throw inside every carrier.
+    ASSERT_TRUE(j["data"].is_object());
+    EXPECT_TRUE(j["data"].contains("error"));
+    EXPECT_NO_THROW((void)j.dump());
+}
+
+// ---- MakeLogNotification (the envelope the gap warning shares) -------------
+
+TEST(McpEventStreamNotification, LogNotificationCarriesLevelLoggerAndData)
+{
+    const Json n = MCP::MakeLogNotification("warning", Json{ { "gap", 7 }, { "resumedAt", 120 } });
+    EXPECT_EQ(n["jsonrpc"], "2.0");
+    EXPECT_EQ(n["method"], "notifications/message");
+    EXPECT_FALSE(n.contains("id"));
+    EXPECT_EQ(n["params"]["level"], "warning");
+    EXPECT_EQ(n["params"]["logger"], "olo.events");
+    EXPECT_EQ(n["params"]["data"]["gap"], 7);
+    EXPECT_EQ(n["params"]["data"]["resumedAt"], 120);
 }
 
 // ---- MakeEventNotification (JSON-RPC envelope) -----------------------------

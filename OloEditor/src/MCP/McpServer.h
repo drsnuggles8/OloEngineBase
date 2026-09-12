@@ -1469,6 +1469,10 @@ namespace OloEngine::MCP
         Scope<httplib::Server> m_Http;
         std::thread m_ListenThread;
         std::atomic<bool> m_Running{ false };
+        // Set at the top of Stop() and cleared by Start(): distinct from
+        // !m_Running, which is also the state before Start() and must not read as
+        // "cancelled" to a handler exercised through the dispatch seam in a test.
+        std::atomic<bool> m_Stopping{ false };
         u16 m_Port = DefaultPort;
         std::string m_Token;
 

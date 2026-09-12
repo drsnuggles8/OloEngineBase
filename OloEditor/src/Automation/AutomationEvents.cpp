@@ -12,13 +12,16 @@ namespace OloEngine::Automation::Events
             return {};
         if (!root.empty())
         {
-            std::error_code ec;
-            const std::filesystem::path relative = std::filesystem::relative(path, root, ec);
-            // relative() answers ".." for a path outside the root and "" when the two
-            // are on different drives; both mean "not inside", and neither may be
-            // recorded as if it were a project path.
-            if (!ec && !relative.empty() && relative.native().rfind(std::filesystem::path("..").native(), 0) != 0)
+            // Lexical, not std::filesystem::relative: that one canonicalizes both
+            // sides with filesystem calls on every event, and both callers already
+            // hand in absolute paths. lexically_relative answers ".." for a path
+            // outside the root and "" for one on another drive; both mean "not
+            // inside", and neither may be recorded as if it were a project path.
+            if (const std::filesystem::path relative = path.lexically_normal().lexically_relative(root.lexically_normal());
+                !relative.empty() && relative.native().rfind(std::filesystem::path("..").native(), 0) != 0)
+            {
                 return relative.generic_string();
+            }
         }
         return path.filename().generic_string();
     }
@@ -60,19 +63,10 @@ namespace OloEngine::Automation::Events
     u64 PublishCompileFinished(std::string_view kind, std::string_view target, bool ok, u32 errors, u32 warnings,
                                f64 seconds)
     {
-        DiagnosticEventData data;
-        data.Set("kind", kind)
-            .Set("target", target)
-            .Set("ok", ok)
-            .Set("errors", errors)
-            .Set("warnings", warnings)
-            .Set("seconds", seconds);
-        std::string message = std::string(kind) + " compile of '" + std::string(target) + "' " +
-                              (ok ? "succeeded" : "FAILED");
-        if (errors != 0 || warnings != 0)
-            message += " (" + std::to_string(errors) + " errors, " + std::to_string(warnings) + " warnings)";
-        return DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::CompileFinished, std::move(message), 0,
-                                                 std::string(target), data);
+        // The record itself lives in the engine header, because two of the three
+        // compile paths (the script assembly, the shader libraries) are engine
+        // code; forwarding keeps one shape for all three.
+        return DiagnosticsEventLog::Get().RecordCompileFinished(kind, target, ok, errors, warnings, seconds);
     }
 
     bool EmitsCompletionEvent(const AutomationCommand& command)

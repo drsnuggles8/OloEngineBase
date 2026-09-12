@@ -789,31 +789,55 @@ namespace OloEngine
                                  " frame(s): the paused session advances that many frames and stays paused.";
                 return result;
             };
-            // olo_editor_gizmo_set: the Q/W/E/R shortcuts (OnKeyPressed). Refused
-            // mid-drag, as the shortcuts are; the hover/Edit-mode guard the
-            // shortcuts add is about the keyboard focus, which an agent has no use
-            // for.
+            // olo_editor_gizmo_set: the Q/W/E/R shortcuts (OnKeyPressed). Same two
+            // refusals as the shortcuts: not mid-drag, and Edit mode only — the
+            // gizmo draws in any scene state, but only Edit-mode drags push an
+            // undo entry, so a gizmo shown in Play would move a runtime entity
+            // with nothing to take it back. The viewport-hover half of the
+            // shortcuts' guard is keyboard focus, which an agent has no use for.
             mcpContext.SetGizmoMode = [this](const std::string& mode) -> MCP::McpEditorGizmoResult
             {
-                // ImGuizmo operation id -> the token olo_editor_gizmo_set speaks.
+                // Token <-> ImGuizmo operation, both directions from one table.
                 // Anything that is not one of the three operations draws no gizmo.
+                static constexpr std::array<std::pair<std::string_view, int>, 4> kGizmoOps{ {
+                    { "none", -1 },
+                    { "translate", ImGuizmo::OPERATION::TRANSLATE },
+                    { "rotate", ImGuizmo::OPERATION::ROTATE },
+                    { "scale", ImGuizmo::OPERATION::SCALE },
+                } };
                 const auto gizmoToken = [](int gizmoType) -> std::string
                 {
-                    if (gizmoType == ImGuizmo::OPERATION::TRANSLATE)
-                        return "translate";
-                    if (gizmoType == ImGuizmo::OPERATION::ROTATE)
-                        return "rotate";
-                    if (gizmoType == ImGuizmo::OPERATION::SCALE)
-                        return "scale";
+                    for (const auto& [token, op] : kGizmoOps)
+                    {
+                        if (op == gizmoType)
+                            return std::string(token);
+                    }
                     return "none";
                 };
 
                 MCP::McpEditorGizmoResult result;
                 result.Available = true;
                 result.Mode = gizmoToken(m_GizmoType);
-                if (!MCP::EditorActions::IsGizmoMode(mode))
+                int target = -1;
+                bool known = false;
+                for (const auto& [token, op] : kGizmoOps)
+                {
+                    if (token == mode)
+                    {
+                        target = op;
+                        known = true;
+                    }
+                }
+                if (!known)
                 {
                     result.Message = "Unknown gizmo mode '" + mode + "'; expected none, translate, rotate or scale.";
+                    return result;
+                }
+                if (m_SceneState != SceneState::Edit)
+                {
+                    result.Message = "The gizmo mode can only be changed in Edit mode (the editor is in " +
+                                     std::string(m_SceneState == SceneState::Play ? "Play" : "Simulate") +
+                                     "); stop the session first.";
                     return result;
                 }
                 if (ImGuizmo::IsUsing())
@@ -821,14 +845,6 @@ namespace OloEngine
                     result.Message = "The gizmo is being dragged; the mode can change once the drag ends.";
                     return result;
                 }
-
-                int target = -1;
-                if (mode == "translate")
-                    target = ImGuizmo::OPERATION::TRANSLATE;
-                else if (mode == "rotate")
-                    target = ImGuizmo::OPERATION::ROTATE;
-                else if (mode == "scale")
-                    target = ImGuizmo::OPERATION::SCALE;
 
                 result.Changed = m_GizmoType != target;
                 m_GizmoType = target;

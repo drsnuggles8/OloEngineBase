@@ -124,7 +124,11 @@ namespace OloEngine
         [[nodiscard("Store this!")]] virtual const std::string& GetName() const = 0;
         [[nodiscard("Store this!")]] virtual const std::string& GetFilePath() const = 0;
 
-        virtual void Reload() = 0;
+        // Recompile from the source on disk. Returns true when the NEW program (or
+        // modules) is live, false when the compile failed and the previous one was
+        // kept — the only honest signal of a failed hot-reload, since a backend
+        // may restore the previous compilation status on failure (#1131).
+        virtual bool Reload() = 0;
 
         // --- Async compilation status ---
         [[nodiscard]] virtual ShaderCompilationStatus GetCompilationStatus() const

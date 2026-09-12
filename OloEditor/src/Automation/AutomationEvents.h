@@ -72,8 +72,9 @@ namespace OloEngine::Automation::Events
 
     // A compile ended. `kind` is "build" (a CMake target through olo_build_run),
     // "script" (the C# assembly), or "shader" (a shader library reload); `target`
-    // names what was compiled. Counts and seconds may be 0 when the path does not
-    // measure them — say so in the message rather than inventing numbers.
+    // names what was compiled. Counts and seconds are 0 when the path does not
+    // measure them. Forwards to DiagnosticsEventLog::RecordCompileFinished, which
+    // the two engine-side compile paths call directly.
     u64 PublishCompileFinished(std::string_view kind, std::string_view target, bool ok, u32 errors, u32 warnings,
                                f64 seconds);
 

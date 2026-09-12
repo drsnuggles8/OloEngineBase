@@ -78,7 +78,9 @@ namespace OloEngine::MCP
         if (!event.Data.empty())
         {
             Json data = Json::parse(event.Data, nullptr, /*allow_exceptions=*/false);
-            j["data"] = data.is_discarded() ? Json(event.Data) : std::move(data);
+            // Not the raw text on failure: a string that failed to parse may be
+            // invalid UTF-8, and dump() would then throw inside every carrier.
+            j["data"] = data.is_discarded() ? Json{ { "error", "event data did not parse" } } : std::move(data);
         }
         return j;
     }
@@ -119,11 +121,20 @@ namespace OloEngine::MCP
     // notification (no `id`), so the client never replies. Spec-compliant means a
     // generic MCP client surfaces it without bespoke handling; clients that ignore
     // logging simply drop it.
-    [[nodiscard]] inline Json MakeEventNotification(const DiagnosticEvent& event)
+    // The bare `notifications/message` envelope under the "olo.events" logger:
+    // every frame the event stream pushes goes through here, the per-event one
+    // below and the gap warning the stream emits when a cursor fell behind the
+    // ring (#1131), so the logger name and the shape have one spelling.
+    [[nodiscard]] inline Json MakeLogNotification(const char* level, Json data)
     {
         return Json{ { "jsonrpc", "2.0" },
                      { "method", "notifications/message" },
-                     { "params", { { "level", EventLogLevel(event.Category) }, { "logger", "olo.events" }, { "data", EventToJson(event) } } } };
+                     { "params", { { "level", level }, { "logger", "olo.events" }, { "data", std::move(data) } } } };
+    }
+
+    [[nodiscard]] inline Json MakeEventNotification(const DiagnosticEvent& event)
+    {
+        return MakeLogNotification(EventLogLevel(event.Category), EventToJson(event));
     }
 
     // Frame a payload as one SSE event block: an `id:` line carrying the monotonic

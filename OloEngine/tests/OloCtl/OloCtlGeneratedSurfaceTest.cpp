@@ -36,6 +36,7 @@
 #include "MCP/McpTools.h"
 #include "MCP/McpToolsCommon.h"
 #include "OloCtl/CliRunner.h"
+#include "OloCtl/EventsFollow.h"
 #include "OloCtl/RegistryCommandSource.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 
@@ -418,6 +419,17 @@ TEST(OloCtlGeneratedSurface, InvalidArgumentsAreRejectedByTheHostNotByTheCli)
 // command the diagnostics domain registers, over the engine's real event ring,
 // with no server and no socket. One recorded event comes out as one NDJSON line
 // carrying the id the ring assigned.
+// oloctl links no engine code, so its category list is a copy by necessity; this
+// is the one place both trees are linked, so it is where the copy is pinned.
+TEST(OloCtlGeneratedSurface, EventsFollowCategoryListMatchesTheEngineTable)
+{
+    const auto cli = OloCtl::EventCategoryTokens();
+    const auto engine = OloEngine::DiagnosticEvent::AllCategoryTokens();
+    ASSERT_EQ(cli.size(), engine.size());
+    for (std::size_t i = 0; i < cli.size(); ++i)
+        EXPECT_EQ(std::string(cli[i]), std::string(engine[i])) << "index " << i;
+}
+
 TEST(OloCtlGeneratedSurface, EventsFollowStreamsARecordedEventThroughTheRealRegistry)
 {
     AutomationRegistry registry;

@@ -381,6 +381,59 @@ namespace OloEngine::Automation::Tests
         EXPECT_NE(text.find("scene_save"), std::string::npos);
     }
 
+    TEST_F(McpEventsWait, AMalformedCursorIsRefusedNotReinterpreted)
+    {
+        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Play, "history");
+        const AutomationCommand* command = AutomationRegistry::Find(*m_Registry.Snapshot(), "olo_events_wait");
+        ASSERT_NE(command, nullptr);
+        // Each of these used to become cursor 0 ("the whole ring") or ULLONG_MAX
+        // ("nothing can ever match"); both are refusals now, naming the field.
+        for (const Json bad : { Json(-1), Json("-1"), Json("12abc"), Json(""), Json(true), Json(nullptr) })
+        {
+            const AutomationResult result = AutomationRegistry::RunHandler(
+                *command, m_Host, Json{ { "sinceId", bad }, { "waitMs", 0 } });
+            EXPECT_TRUE(result.IsError) << bad.dump();
+            EXPECT_NE(result.Content.dump().find("sinceId"), std::string::npos) << bad.dump();
+        }
+    }
+
+    TEST_F(McpEventsWait, CountKeepsTheOldestMatchesAndMovesTheCursorBack)
+    {
+        for (int i = 0; i < 5; ++i)
+            DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Play, "burst " + std::to_string(i));
+        // A subscription promises "everything after the cursor, in order": with a
+        // cap smaller than the burst, the HEAD of the burst comes back and the
+        // cursor stops at the last record delivered, so nothing is skipped.
+        const Json first = Wait(Json{ { "sinceId", 0 }, { "waitMs", 0 }, { "count", 2 } });
+        ASSERT_EQ(first["count"], 2);
+        EXPECT_EQ(first["events"][0]["id"], 1);
+        EXPECT_EQ(first["events"][1]["id"], 2);
+        EXPECT_EQ(first["lastId"], 2) << "not the ring head (5): the caller has not seen 3..5 yet";
+        const Json rest = Wait(Json{ { "sinceId", first["lastId"] }, { "waitMs", 0 } });
+        EXPECT_EQ(rest["count"], 3);
+        EXPECT_EQ(rest["events"][0]["id"], 3);
+        EXPECT_EQ(rest["lastId"], 5);
+    }
+
+    TEST_F(McpEventsWait, TheSchemasEnumerateExactlyTheCategoryTable)
+    {
+        // The tail's and the wait's category enums are generated from
+        // AllCategoryTokens; pin that they are, so a new category cannot be parsed
+        // by the handler and refused by the schema gate.
+        for (const char* name : { "olo_events_tail", "olo_events_wait" })
+        {
+            const AutomationCommand* command = AutomationRegistry::Find(*m_Registry.Snapshot(), name);
+            ASSERT_NE(command, nullptr) << name;
+            const Json& filter = command->InputSchema["properties"]["categories"]["items"]["enum"];
+            const Json& entry = command->OutputSchema["properties"]["events"]["items"]["properties"]["category"]["enum"];
+            Json expected = Json::array();
+            for (const auto token : DiagnosticEvent::AllCategoryTokens())
+                expected.push_back(std::string(token));
+            EXPECT_EQ(filter, expected) << name;
+            EXPECT_EQ(entry, expected) << name;
+        }
+    }
+
     TEST_F(McpEventsWait, TailReportsTheGapAndTheDataToo)
     {
         Events::PublishSceneDirty("S", true);
@@ -444,6 +497,22 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(history.RollbackTransaction().empty());
         ASSERT_EQ(edges, (std::vector<bool>{ true, false, true, false }))
             << "rollback restored the save point, so the document is clean again";
+    }
+
+    TEST_F(McpAutomationEvents, CommandHistoryClearIsACleanAgainEdge)
+    {
+        CommandHistory history;
+        std::vector<bool> edges;
+        history.OnDirtyChanged = [&edges](bool dirty)
+        { edges.push_back(dirty); };
+        history.Execute(std::make_unique<NoopCommand>());
+        ASSERT_EQ(edges, (std::vector<bool>{ true }));
+        // File > New Scene / Open Scene clear the history; the document is clean
+        // afterwards and a subscriber must see that edge.
+        history.Clear();
+        ASSERT_EQ(edges, (std::vector<bool>{ true, false }));
+        history.Clear();
+        EXPECT_EQ(edges.size(), 2u) << "clearing a clean history is not an edge";
     }
 
     TEST_F(McpAutomationEvents, CommandHistoryWithoutAHookStillWorks)

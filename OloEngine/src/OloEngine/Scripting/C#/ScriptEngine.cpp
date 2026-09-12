@@ -356,13 +356,8 @@ namespace OloEngine
         // three editor paths (menu, Ctrl+R, olo_reload_script) triggered it.
         void RecordAssemblyReload(const std::filesystem::path& assembly, bool ok, f64 seconds)
         {
-            DiagnosticEventData data;
-            data.Set("kind", "script").Set("target", assembly.filename().string()).Set("ok", ok).Set("seconds", seconds);
-            DiagnosticsEventLog::Get().Record(
-                DiagnosticEventCategory::CompileFinished,
-                std::string(ok ? "Reloaded script assembly '" : "FAILED to reload script assembly '") +
-                    assembly.filename().string() + "'",
-                0, assembly.filename().string(), data);
+            // Mono reports no error/warning counts for a reload; 0 is "not measured".
+            DiagnosticsEventLog::Get().RecordCompileFinished("script", assembly.filename().string(), ok, 0, 0, seconds);
         }
     } // namespace
 

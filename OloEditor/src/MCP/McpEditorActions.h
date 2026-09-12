@@ -105,8 +105,8 @@ namespace OloEngine::MCP::EditorActions
                                 "Takes the entity explicitly rather than the current selection." },
         EditorActionDescriptor{ "entity_select", "Scene Hierarchy > click", "", "olo_editor_select_entity", "" },
         EditorActionDescriptor{ "gizmo_mode", "Viewport > gizmo mode", "Q/W/E/R", "olo_editor_gizmo_set", "" },
-        EditorActionDescriptor{ "camera_frame_entity", "Viewport > frame selection", "F", "olo_camera_frame_entity",
-                                "Takes the entity explicitly rather than the current selection." },
+        EditorActionDescriptor{ "camera_frame_entity", "Viewport > frame entity", "", "olo_camera_frame_entity",
+                                "Takes the entity explicitly rather than the current selection; no shortcut exists." },
         // Toolbar
         EditorActionDescriptor{ "play", "Toolbar > Play", "", "olo_scene_play", "" },
         EditorActionDescriptor{ "simulate", "Toolbar > Simulate", "", "olo_scene_simulate", "" },
@@ -115,7 +115,7 @@ namespace OloEngine::MCP::EditorActions
         EditorActionDescriptor{ "step", "Toolbar > Step", "", "olo_editor_step", "Only while paused." },
         // Script / Shaders
         EditorActionDescriptor{ "script_reload", "Script > Reload assembly", "Ctrl+R", "olo_reload_script", "" },
-        EditorActionDescriptor{ "shader_reload", "Shaders > Reload shader", "", "olo_shader_reload",
+        EditorActionDescriptor{ "shader_reload", "Shaders > Reload shader", "Ctrl+Shift+R", "olo_shader_reload",
                                 "Reloads one shader by name; the menu item reloads the whole 2D library." },
         // Build
         EditorActionDescriptor{ "asset_pack_build", "Build > Build Asset Pack", "", "",
@@ -123,6 +123,8 @@ namespace OloEngine::MCP::EditorActions
                                 "not yet a command." },
         EditorActionDescriptor{ "shader_pack_build", "Build > Build Shader Pack", "", "olo_editor_build_shader_pack", "" },
         EditorActionDescriptor{ "lightmap_bake", "Build > Bake Lightmaps", "", "olo_lightmap_bake", "" },
+        EditorActionDescriptor{ "lightmap_bake_cancel", "Build > Cancel Lightmap Bake", "", "",
+                                "olo_lightmap_bake starts or polls a bake; cancelling one is not a command yet." },
         EditorActionDescriptor{ "asset_references_validate", "Build > Validate Asset References", "",
                                 "olo_project_validate", "Composes the same validators the menu item runs." },
         EditorActionDescriptor{ "build_game", "Build > Build Game...", "", "",
@@ -221,8 +223,8 @@ namespace OloEngine::MCP::EditorActions
     {
         return Schema::Object()
             .Prop("mode", Schema::String()
-                              .Enum({ "none", "translate", "rotate", "scale" })
-                              .Desc("The gizmo to show on the selected entity; the Q/W/E/R shortcuts in order."))
+                              .EnumFrom(kGizmoModes)
+                              .Desc("The gizmo to show on the selected entity; the Q/W/E/R shortcuts in order. Edit mode only."))
             .Required({ "mode" })
             .NoAdditional();
     }
@@ -233,7 +235,7 @@ namespace OloEngine::MCP::EditorActions
             .Prop("available", Schema::Bool())
             .Prop("ok", Schema::Bool())
             .Prop("changed", Schema::Bool())
-            .Prop("mode", Schema::String().Enum({ "none", "translate", "rotate", "scale" }))
+            .Prop("mode", Schema::String().EnumFrom(kGizmoModes))
             .Prop("message", Schema::String())
             .Required({ "available", "ok", "changed", "mode", "message" });
     }

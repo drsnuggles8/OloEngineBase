@@ -181,27 +181,20 @@ namespace OloEngine
         u32 failed = 0;
         for (auto& [name, shader] : m_Shaders)
         {
-            shader->Reload();
-            if (shader->GetCompilationStatus() == ShaderCompilationStatus::Failed)
+            // Reload() answers whether the NEW program is live: a failed reload
+            // keeps the previous one and (on Vulkan) its previous status, so the
+            // status alone cannot tell a kept shader from a rebuilt one.
+            if (!shader->Reload())
                 ++failed;
         }
 
         // The automation event bus (#1131): one `compile_finished` per library
         // reload, whichever path asked for it (the Shaders menu, the Shader
-        // Debugger's Refresh All, the file watcher). A shader whose compile is
-        // still in flight is not counted as failed here; its own status is what
-        // olo_shader_errors reports.
-        DiagnosticEventData data;
+        // Debugger's Refresh All, the file watcher). Each shader that kept its
+        // previous program counts as one error; there is no warning count.
         const auto seconds = std::chrono::duration<f64>(std::chrono::steady_clock::now() - reloadStart).count();
-        data.Set("kind", "shader")
-            .Set("target", std::to_string(m_Shaders.size()) + " shaders")
-            .Set("ok", failed == 0)
-            .Set("errors", failed)
-            .Set("seconds", seconds);
-        DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::CompileFinished,
-                                          "Reloaded " + std::to_string(m_Shaders.size()) + " shaders" +
-                                              (failed == 0 ? "" : " (" + std::to_string(failed) + " failed)"),
-                                          0, "ShaderLibrary", data);
+        DiagnosticsEventLog::Get().RecordCompileFinished("shader", std::to_string(m_Shaders.size()) + " shaders",
+                                                         failed == 0, failed, 0, seconds);
     }
 
     bool ShaderLibrary::Exists(const std::string& name) const

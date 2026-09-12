@@ -387,7 +387,15 @@ namespace OloEngine::MCP
             DiagnosticEventQuery query;
             query.SinceId = cursor;
             query.MaxCount = 0; // deliver every new event — no newest-N cap on a live stream.
-            const DiagnosticEventQueryResult snap = DiagnosticsEventLog::Get().QueryWithCursor(query);
+            // Block on the ring for one poll interval instead of scanning it and
+            // sleeping (#1131): a new record is pushed on the wake, and an idle
+            // stream spends the interval in a timed wait rather than a locked scan.
+            // The list-changed and subscription checks above still run every
+            // interval, because the wait returns after it whether or not anything
+            // arrived.
+            const DiagnosticEventQueryResult snap =
+                DiagnosticsEventLog::Get().WaitWithCursor(query, kStreamPollInterval, []
+                                                          { return false; });
             if (snap.Dropped != 0)
             {
                 // The cursor fell behind the ring's window (a stalled client, or a
@@ -397,12 +405,7 @@ namespace OloEngine::MCP
                 // mistake it for one.
                 const u64 resumedAt = snap.Events.empty() ? snap.LastId + 1 : snap.Events.front().Id;
                 const std::string frame = FormatSseData(
-                    Json{ { "jsonrpc", "2.0" },
-                          { "method", "notifications/message" },
-                          { "params",
-                            Json{ { "level", "warning" },
-                                  { "logger", "olo.events" },
-                                  { "data", Json{ { "gap", snap.Dropped }, { "resumedAt", resumedAt } } } } } });
+                    MakeLogNotification("warning", Json{ { "gap", snap.Dropped }, { "resumedAt", resumedAt } }));
                 if (!sink.write(frame.data(), frame.size()))
                     return false;
                 lastWrite = std::chrono::steady_clock::now();
@@ -803,6 +806,10 @@ namespace OloEngine::MCP
         // Signal first so handlers waiting on unclaimed main-thread jobs abort
         // instead of deadlocking against this thread (Stop runs on the game thread).
         m_Running.store(false, std::memory_order_release);
+        // ...and so every in-flight call reads as cancelled (IsCurrentCallCancelled):
+        // a blocked olo_events_wait returns within its next 250 ms slice instead of
+        // holding the pool join below for up to a minute.
+        m_Stopping.store(true, std::memory_order_release);
 
         // Release any worker blocked in RequestConsent as a Deny BEFORE joining the
         // http worker pool below — otherwise the join would wait forever on a thread
@@ -1334,11 +1341,10 @@ namespace OloEngine::MCP
                     subscriptionTokens = std::move(stillSubscribed);
                 }
 
+                // Also paces the loop: it blocks for kStreamPollInterval when the
+                // ring is quiet, so httplib's back-to-back provider calls never spin.
                 if (!ServiceEventStream(sink, cursor, lastWrite, RedactPaths()))
                     return false;
-
-                // Pace the loop (httplib calls the provider back-to-back).
-                std::this_thread::sleep_for(kStreamPollInterval);
                 return true;
             },
             [this](bool /*success*/)
@@ -1379,6 +1385,11 @@ namespace OloEngine::MCP
 
     bool McpServer::IsCurrentCallCancelled() const
     {
+        // A server that is stopping cancels every call: Stop() joins the worker
+        // pool, and a handler parked in a long wait (olo_events_wait polls this
+        // every 250 ms) would otherwise hold the game thread for its whole timeout.
+        if (m_Stopping.load(std::memory_order_acquire))
+            return true;
         const ActiveCallScope* scope = t_ActiveCall;
         return scope != nullptr && scope->CancelFlag && scope->CancelFlag->load(std::memory_order_acquire);
     }

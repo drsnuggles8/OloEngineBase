@@ -8,6 +8,7 @@
 #include "MCP/McpEventStream.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -350,23 +351,42 @@ namespace OloEngine::MCP
 
             if (args.contains("sinceId"))
             {
-                hasSinceId = true;
+                // A cursor that is present but malformed is REFUSED, never
+                // reinterpreted: "-1" read as 0 would turn a wait for what happens
+                // next into a dump of the whole ring, and stoull would read "-1" as
+                // ULLONG_MAX (a wait that can never match) and "12abc" as 12.
                 const Json& since = args["sinceId"];
+                constexpr const char* kBadCursor =
+                    "Invalid 'sinceId': expected a non-negative integer (an event id) or its decimal string form.";
                 if (since.is_number_unsigned())
+                {
                     query.SinceId = since.get<u64>();
-                else if (since.is_number_integer() && since.get<long long>() > 0)
-                    query.SinceId = static_cast<u64>(since.get<long long>());
+                }
+                else if (since.is_number_integer())
+                {
+                    // A signed integer (how a C++ int reaches nlohmann) is fine
+                    // when it is not negative.
+                    const auto signedId = since.get<long long>();
+                    if (signedId < 0)
+                        return kBadCursor;
+                    query.SinceId = static_cast<u64>(signedId);
+                }
                 else if (since.is_string())
                 {
-                    try
-                    {
-                        query.SinceId = std::stoull(since.get<std::string>());
-                    }
-                    catch (...)
-                    {
-                        return "Invalid 'sinceId': expected a non-negative integer (an event id).";
-                    }
+                    const std::string text = since.get<std::string>();
+                    u64 parsed = 0;
+                    const char* const first = text.data();
+                    const char* const last = first + text.size();
+                    const auto [ptr, ec] = std::from_chars(first, last, parsed);
+                    if (text.empty() || ec != std::errc{} || ptr != last)
+                        return kBadCursor;
+                    query.SinceId = parsed;
                 }
+                else
+                {
+                    return kBadCursor;
+                }
+                hasSinceId = true;
             }
 
             if (args.contains("categories") && args["categories"].is_array())
@@ -433,20 +453,32 @@ namespace OloEngine::MCP
         ToolResult Handle_EventsWait(IAutomationHost& host, const Json& args)
         {
             DiagnosticEventQuery query;
-            query.MaxCount = 100;
             bool hasSinceId = false;
             if (const std::string error = ParseEventQueryArgs(args, query, hasSinceId); !error.empty())
                 return ToolResult::Error(error);
             if (!hasSinceId)
                 query.SinceId = DiagnosticsEventLog::Get().LastId();
 
+            // The cap keeps the OLDEST matches, not the newest as a tail does: a
+            // subscription promises "everything after your cursor, in order", so
+            // when a burst outgrows `count` the caller gets its head and a cursor
+            // that stops at the last record delivered — never a cursor past
+            // records it was not shown.
+            const std::size_t count = args.contains("count") ? query.MaxCount : 100;
+            query.MaxCount = 0;
+
             long long waitMs = 10000;
             if (args.contains("waitMs") && args["waitMs"].is_number_integer())
                 waitMs = std::clamp<long long>(args["waitMs"].get<long long>(), 0, 60000);
 
-            const DiagnosticEventQueryResult result = DiagnosticsEventLog::Get().WaitWithCursor(
+            DiagnosticEventQueryResult result = DiagnosticsEventLog::Get().WaitWithCursor(
                 query, std::chrono::milliseconds(waitMs), [&host]
                 { return host.IsCurrentCallCancelled(); });
+            if (result.Events.size() > count)
+            {
+                result.Events.resize(count);
+                result.LastId = result.Events.back().Id;
+            }
 
             Json out = EventQueryResultJson(result);
             const bool cancelled = host.IsCurrentCallCancelled();
@@ -461,7 +493,7 @@ namespace OloEngine::MCP
         {
             return Schema::Object()
                 .Prop("id", Schema::Int().Min(0))
-                .Prop("category", Schema::String().Enum({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error", "scene_save", "scene_dirty", "asset_import", "compile_finished", "command_completed" }))
+                .Prop("category", Schema::String().EnumFrom(DiagnosticEvent::AllCategoryTokens()))
                 .Prop("time", Schema::String().Desc("UTC wall-clock HH:MM:SS.mmm; omitted when the event carries no timestamp."))
                 .Prop("message", Schema::String())
                 .Prop("entity", Schema::String().Desc("Entity UUID as a decimal string (u64 — beyond JSON integer precision); omitted when the event has no entity."))
@@ -471,7 +503,7 @@ namespace OloEngine::MCP
 
         Schema::Node CategoriesFilterSchema()
         {
-            return Schema::Array(Schema::String().Enum({ "scene_load", "play", "stop", "entity_spawn", "entity_destroy", "asset_reload", "script_error", "scene_save", "scene_dirty", "asset_import", "compile_finished", "command_completed" }))
+            return Schema::Array(Schema::String().EnumFrom(DiagnosticEvent::AllCategoryTokens()))
                 .Desc("Only return events whose category is in this list. Omit for all categories.");
         }
 
@@ -689,11 +721,11 @@ namespace OloEngine::MCP
                                    .Prop("sinceId", SinceIdSchema("Wait for events with id greater than this. Omit to wait for events newer than the call. Accepts a number or its decimal string form."))
                                    .Prop("categories", CategoriesFilterSchema())
                                    .Prop("waitMs", Schema::Int().Min(0).Max(60000).Desc("How long to wait for a match before returning empty (default 10000, max 60000). 0 returns immediately, like olo_events_tail."))
-                                   .Prop("count", Schema::Int().Min(1).Max(500).Desc("Cap on how many matching events to return (default 100)."))
+                                   .Prop("count", Schema::Int().Min(1).Max(500).Desc("Cap on how many matching events to return (default 100). Keeps the OLDEST matches and moves 'lastId' back to the last one returned, so nothing is skipped."))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("count", Schema::Int().Min(0))
-                                    .Prop("lastId", Schema::Int().Min(0).Desc("The cursor for the next call — valid whether or not anything matched."))
+                                    .Prop("lastId", Schema::Int().Min(0).Desc("The cursor for the next call — valid whether or not anything matched. When 'count' truncated a burst it is the id of the LAST EVENT RETURNED, so resuming from it delivers the rest."))
                                     .Prop("dropped", Schema::Int().Min(0).Desc("Records above sinceId evicted before this call could return them; 0 unless the cursor fell behind the 512-record window."))
                                     .Prop("timedOut", Schema::Bool().Desc("True when waitMs elapsed with no match."))
                                     .Prop("cancelled", Schema::Bool().Desc("True when the call was cancelled before a match."))

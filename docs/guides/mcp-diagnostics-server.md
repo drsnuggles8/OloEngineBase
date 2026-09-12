@@ -2210,7 +2210,7 @@ The five categories added by the automation event bus (issue #1131) carry a stru
 |---|---|---|
 | `scene_save` | `scene`, `path` (project-relative), `changed` | every save path: the menu, Ctrl+S, `olo_scene_save`, `olo_scene_save_as` |
 | `scene_dirty` | `scene`, `dirty` | the scene undo history, on both edges: the first unsaved edit, and clean again after a save, undo or rollback |
-| `asset_import` | `asset` (project-relative), `type`, `handle`, `source` (`filewatch` or `automation`) | the content-directory watcher and `olo_asset_import` |
+| `asset_import` | `asset` (project-relative), `type`, `handle`, `source` (`filewatch` or `automation`) | the content-directory watcher and `olo_asset_import`. Before #1131 the watcher's auto-import was recorded under `asset_reload` with the absolute path in `context`; a consumer filtering `asset_reload` for imports must filter `asset_import` now |
 | `compile_finished` | `kind` (`build`, `script`, `shader`), `target`, `ok`, `errors`, `warnings`, `seconds` | `olo_build_run`, a script assembly reload, a shader library reload |
 | `command_completed` | `command`, `ok`, `durationMs`, `projectWrite`, `toolset` | every mutating automation command, from the registry itself, whichever frontend ran it |
 
@@ -2368,7 +2368,10 @@ Four rules, each of which answers one of the issue's design constraints:
 
 `waitMs` is capped at 60 s per call and the wait runs on the handler thread only, so however
 long it blocks it never stalls a frame; cancel the call (`notifications/cancelled`) to return
-early with `cancelled: true`. From a shell, `oloctl events follow --until play` loops this
+early with `cancelled: true`, and a server that is stopping cancels every wait within 250 ms.
+Each blocked wait holds one of the server's HTTP worker threads (the same pool the push stream
+and every other call use), so keep concurrent waits to a few per session rather than one per
+category. From a shell, `oloctl events follow --until play` loops this
 command and prints one JSON object per event ([oloctl guide](oloctl.md#following-events)).
 The `run-oloengine` smoke test exercises the round trip (a `command_completed` for
 `olo_viewport_set_size` arriving through a wait that started before the call).

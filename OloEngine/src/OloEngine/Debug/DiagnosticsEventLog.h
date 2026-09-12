@@ -42,8 +42,10 @@
 #include "OloEngine/Core/Base.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdio>
@@ -74,8 +76,28 @@ namespace OloEngine
         CommandCompleted, // a mutating automation command ran (see AutomationEvents.h for the rule).
     };
 
+    // Every category's stable snake_case token, indexed by the enum value. THE ONE
+    // spelling: CategoryToString and CategoryFromString read this table, the tool
+    // schemas' enums are generated from it, and the exhaustiveness tests compare
+    // the enum against it — so a category cannot be parseable, listable and
+    // documented in different sets.
+    inline constexpr std::array<std::string_view, 12> kDiagnosticEventCategoryTokens{
+        "scene_load",
+        "play",
+        "stop",
+        "entity_spawn",
+        "entity_destroy",
+        "asset_reload",
+        "script_error",
+        "scene_save",
+        "scene_dirty",
+        "asset_import",
+        "compile_finished",
+        "command_completed",
+    };
+
     // Keep in sync with DiagnosticEventCategory; used to validate the enum/string maps.
-    inline constexpr std::size_t kDiagnosticEventCategoryCount = 12;
+    inline constexpr std::size_t kDiagnosticEventCategoryCount = kDiagnosticEventCategoryTokens.size();
 
     // THE PAYLOAD RULE (#1131 design constraint: "an event subscription is an
     // authority-bearing capability, not a free read: events can leak state a read
@@ -132,7 +154,8 @@ namespace OloEngine
     // pulling a JSON library into this engine-core header. Values are strings,
     // booleans and numbers only — no nesting, by design (see the payload rule).
     // Duplicate keys keep the last value. String values longer than
-    // kMaxDataValueChars are cut and end in "..." so the truncation is visible.
+    // kMaxDataValueChars are cut (on a UTF-8 character boundary, so the text stays
+    // valid) and end in "..." so the truncation is visible.
     class DiagnosticEventData
     {
       public:
@@ -140,9 +163,20 @@ namespace OloEngine
 
         DiagnosticEventData& Set(std::string_view key, std::string_view value)
         {
-            std::string text = value.size() > kMaxDataValueChars
-                                   ? std::string(value.substr(0, kMaxDataValueChars)) + "..."
-                                   : std::string(value);
+            std::string text;
+            if (value.size() > kMaxDataValueChars)
+            {
+                // Back off from the cut point over UTF-8 continuation bytes so a
+                // multi-byte character is dropped whole rather than split.
+                std::size_t cut = kMaxDataValueChars;
+                while (cut > 0 && (static_cast<unsigned char>(value[cut]) & 0xC0u) == 0x80u)
+                    --cut;
+                text = std::string(value.substr(0, cut)) + "...";
+            }
+            else
+            {
+                text = std::string(value);
+            }
             return Put(key, "\"" + Escape(text) + "\"");
         }
         DiagnosticEventData& Set(std::string_view key, const char* value)
@@ -177,7 +211,7 @@ namespace OloEngine
         {
             // JSON has no NaN/Inf; a non-finite measurement is reported as null
             // rather than as a token no parser accepts.
-            if (!(value == value) || value > 1.7976931348623157e308 || value < -1.7976931348623157e308)
+            if (!std::isfinite(value))
                 return Put(key, "null");
             char buffer[32];
             std::snprintf(buffer, sizeof(buffer), "%.6g", value);
@@ -206,14 +240,16 @@ namespace OloEngine
             if (m_Fields.empty())
                 return {};
             std::string out = "{";
-            for (std::size_t i = 0; i < m_Fields.size(); ++i)
+            bool first = true;
+            for (const auto& [key, encoded] : m_Fields)
             {
-                if (i != 0)
+                if (!first)
                     out += ',';
+                first = false;
                 out += '"';
-                out += m_Fields[i].first;
+                out += key;
                 out += "\":";
-                out += m_Fields[i].second;
+                out += encoded;
             }
             out += '}';
             return out;
@@ -297,92 +333,32 @@ namespace OloEngine
         // Stable snake_case token used in MCP output and accepted by the category filter.
         [[nodiscard]] static const char* CategoryToString(DiagnosticEventCategory category)
         {
-            switch (category)
-            {
-                case DiagnosticEventCategory::SceneLoad:
-                    return "scene_load";
-                case DiagnosticEventCategory::Play:
-                    return "play";
-                case DiagnosticEventCategory::Stop:
-                    return "stop";
-                case DiagnosticEventCategory::EntitySpawn:
-                    return "entity_spawn";
-                case DiagnosticEventCategory::EntityDestroy:
-                    return "entity_destroy";
-                case DiagnosticEventCategory::AssetReload:
-                    return "asset_reload";
-                case DiagnosticEventCategory::ScriptError:
-                    return "script_error";
-                case DiagnosticEventCategory::SceneSave:
-                    return "scene_save";
-                case DiagnosticEventCategory::SceneDirty:
-                    return "scene_dirty";
-                case DiagnosticEventCategory::AssetImport:
-                    return "asset_import";
-                case DiagnosticEventCategory::CompileFinished:
-                    return "compile_finished";
-                case DiagnosticEventCategory::CommandCompleted:
-                    return "command_completed";
-            }
-            return "unknown";
+            const auto index = static_cast<std::size_t>(category);
+            // The tokens are string literals, so data() is NUL-terminated.
+            return index < kDiagnosticEventCategoryTokens.size() ? kDiagnosticEventCategoryTokens[index].data()
+                                                                 : "unknown";
         }
 
         // Parse a category token (as emitted by CategoryToString). Returns false on a
         // value that does not name a category, so callers can reject bad filters.
         [[nodiscard]] static bool CategoryFromString(std::string_view name, DiagnosticEventCategory& out)
         {
-            if (name == "scene_load")
-                out = DiagnosticEventCategory::SceneLoad;
-            else if (name == "play")
-                out = DiagnosticEventCategory::Play;
-            else if (name == "stop")
-                out = DiagnosticEventCategory::Stop;
-            else if (name == "entity_spawn")
-                out = DiagnosticEventCategory::EntitySpawn;
-            else if (name == "entity_destroy")
-                out = DiagnosticEventCategory::EntityDestroy;
-            else if (name == "asset_reload")
-                out = DiagnosticEventCategory::AssetReload;
-            else if (name == "script_error")
-                out = DiagnosticEventCategory::ScriptError;
-            else if (name == "scene_save")
-                out = DiagnosticEventCategory::SceneSave;
-            else if (name == "scene_dirty")
-                out = DiagnosticEventCategory::SceneDirty;
-            else if (name == "asset_import")
-                out = DiagnosticEventCategory::AssetImport;
-            else if (name == "compile_finished")
-                out = DiagnosticEventCategory::CompileFinished;
-            else if (name == "command_completed")
-                out = DiagnosticEventCategory::CommandCompleted;
-            else
-                return false;
-            return true;
+            for (std::size_t index = 0; index < kDiagnosticEventCategoryTokens.size(); ++index)
+            {
+                if (kDiagnosticEventCategoryTokens[index] == name)
+                {
+                    out = static_cast<DiagnosticEventCategory>(index);
+                    return true;
+                }
+            }
+            return false;
         }
 
         // Every category token, in enum order — the single list the filters' error
-        // messages and the tools' schemas are generated from, so a new category
-        // cannot be accepted by the parser and missing from the documentation.
+        // messages and the tools' schemas are generated from.
         [[nodiscard]] static std::span<const std::string_view> AllCategoryTokens()
         {
-            using namespace std::string_view_literals;
-            static constexpr std::string_view kTokens[] = {
-                "scene_load"sv,
-                "play"sv,
-                "stop"sv,
-                "entity_spawn"sv,
-                "entity_destroy"sv,
-                "asset_reload"sv,
-                "script_error"sv,
-                "scene_save"sv,
-                "scene_dirty"sv,
-                "asset_import"sv,
-                "compile_finished"sv,
-                "command_completed"sv,
-            };
-            static_assert(std::size(kTokens) == kDiagnosticEventCategoryCount,
-                          "AllCategoryTokens must list every DiagnosticEventCategory");
-            return kTokens;
+            return kDiagnosticEventCategoryTokens;
         }
     };
 
@@ -422,9 +398,10 @@ namespace OloEngine
         }
 
         // Append an event, assigning it a monotonic Id and a wall-clock timestamp.
-        // Returns the assigned Id, or 0 when suppressed (see SuppressScope) — the
-        // suppression check happens before the lock, so bulk operations pay nothing.
-        // Wakes every WaitWithCursor blocked on the ring.
+        // Returns the assigned Id, or 0 when suppressed (see SuppressScope and
+        // SuppressCategoryScope) — the suppression checks happen before the lock,
+        // so bulk operations pay nothing. Wakes every WaitWithCursor blocked on
+        // the ring.
         u64 Record(DiagnosticEventCategory category, std::string message, u64 entity = 0, std::string context = {})
         {
             return Record(category, std::move(message), entity, std::move(context), DiagnosticEventData{});
@@ -439,6 +416,8 @@ namespace OloEngine
                    const DiagnosticEventData& data)
         {
             if (m_SuppressDepth.load(std::memory_order_relaxed) > 0)
+                return 0;
+            if (t_CategorySuppressDepth[static_cast<std::size_t>(category)] > 0)
                 return 0;
 
             const std::span<const std::string_view> allowed = DiagnosticEventDataKeys(category);
@@ -476,6 +455,30 @@ namespace OloEngine
             return assignedId;
         }
 
+        // A `compile_finished` record with EVERY declared key filled, whichever of
+        // the three compile paths (a build target, the script assembly, a shader
+        // library) reports it. Lives here rather than in the editor's publisher
+        // set because two of the three sites are engine code; the editor's
+        // Events::PublishCompileFinished forwards to it, so the record has one
+        // shape. `kind` is "build", "script" or "shader"; counts and seconds are
+        // 0 when a path does not measure them.
+        u64 RecordCompileFinished(std::string_view kind, std::string_view target, bool ok, u32 errors, u32 warnings,
+                                  f64 seconds)
+        {
+            DiagnosticEventData data;
+            data.Set("kind", kind)
+                .Set("target", target)
+                .Set("ok", ok)
+                .Set("errors", errors)
+                .Set("warnings", warnings)
+                .Set("seconds", seconds);
+            std::string message = std::string(kind) + " compile of '" + std::string(target) + "' " +
+                                  (ok ? "succeeded" : "FAILED");
+            if (errors != 0 || warnings != 0)
+                message += " (" + std::to_string(errors) + " errors, " + std::to_string(warnings) + " warnings)";
+            return Record(DiagnosticEventCategory::CompileFinished, std::move(message), 0, std::string(target), data);
+        }
+
         // Filtered read, returned oldest-first (newest event last). Applies, in order:
         // the SinceId lower bound, the category filter, then keeps the newest MaxCount.
         [[nodiscard]] std::vector<DiagnosticEvent> Query(const DiagnosticEventQuery& query) const
@@ -499,7 +502,9 @@ namespace OloEngine
         // `cancelled()` returns true, and returns the same consistent snapshot
         // QueryWithCursor would — so a caller that times out still gets the cursor to
         // resume from, and one that matches gets every match recorded so far, not
-        // just the one that woke it.
+        // just the one that woke it. The ring is re-scanned only when something was
+        // recorded since the last scan; a wake that only re-checks the deadline or
+        // the cancellation token costs nothing.
         //
         // `cancelled` is polled at most every kWaitSlice while blocked, and is called
         // WITH the ring's mutex held: it must be cheap and must not touch this log
@@ -513,15 +518,21 @@ namespace OloEngine
         {
             const auto deadline = std::chrono::steady_clock::now() + timeout;
             std::unique_lock lock(m_Mutex);
+            DiagnosticEventQueryResult result = QueryWithCursorLocked(query);
+            u64 scannedNextId = m_NextId;
             for (;;)
             {
-                DiagnosticEventQueryResult result = QueryWithCursorLocked(query);
                 if (!result.Events.empty())
                     return result;
                 const auto now = std::chrono::steady_clock::now();
                 if (now >= deadline || cancelled())
                     return result;
                 m_Changed.wait_until(lock, std::min(deadline, now + kWaitSlice));
+                if (m_NextId != scannedNextId)
+                {
+                    result = QueryWithCursorLocked(query);
+                    scannedNextId = m_NextId;
+                }
             }
         }
 
@@ -565,6 +576,34 @@ namespace OloEngine
             SuppressScope& operator=(SuppressScope&&) = delete;
         };
 
+        // RAII suppression of ONE category, on the calling thread only. A
+        // transaction (#1127) runs its steps through the registry on the main
+        // thread inside one marshaled job; each step would otherwise publish its
+        // own `command_completed` — up to 64 records that the batch's own
+        // completion already summarises, and enough to evict what a waiter is
+        // blocked on. Thread-local so a command completing on a handler thread
+        // meanwhile is unaffected. Nests by depth.
+        class SuppressCategoryScope
+        {
+          public:
+            explicit SuppressCategoryScope(DiagnosticEventCategory category)
+                : m_Index(static_cast<std::size_t>(category))
+            {
+                ++t_CategorySuppressDepth[m_Index];
+            }
+            ~SuppressCategoryScope()
+            {
+                --t_CategorySuppressDepth[m_Index];
+            }
+            SuppressCategoryScope(const SuppressCategoryScope&) = delete;
+            SuppressCategoryScope& operator=(const SuppressCategoryScope&) = delete;
+            SuppressCategoryScope(SuppressCategoryScope&&) = delete;
+            SuppressCategoryScope& operator=(SuppressCategoryScope&&) = delete;
+
+          private:
+            std::size_t m_Index;
+        };
+
         // The ring's fixed window. Public so a consumer can state it ("the newest
         // 512") instead of guessing.
         static constexpr std::size_t kCapacity = 512;
@@ -576,19 +615,26 @@ namespace OloEngine
         static constexpr std::chrono::milliseconds kWaitSlice{ 250 };
 
         // Shared filter for Query / QueryWithCursor. Caller must hold m_Mutex (m_Mutex
-        // is not recursive). Oldest-first; SinceId lower bound, then category filter,
-        // then the newest-MaxCount cap.
+        // is not recursive). Oldest-first; SinceId lower bound (a binary search, since
+        // ids are monotonic in the deque), then category filter, then the
+        // newest-MaxCount cap.
         [[nodiscard]] std::vector<DiagnosticEvent> QueryLocked(const DiagnosticEventQuery& query) const
         {
-            std::vector<DiagnosticEvent> matched;
-            for (const auto& event : m_Events)
+            auto begin = m_Events.begin();
+            if (query.SinceId != 0)
             {
-                if (query.SinceId != 0 && event.Id <= query.SinceId)
-                    continue;
+                begin = std::upper_bound(m_Events.begin(), m_Events.end(), query.SinceId,
+                                         [](u64 id, const DiagnosticEvent& event)
+                                         { return id < event.Id; });
+            }
+
+            std::vector<DiagnosticEvent> matched;
+            for (auto it = begin; it != m_Events.end(); ++it)
+            {
                 if (!query.Categories.empty() &&
-                    std::find(query.Categories.begin(), query.Categories.end(), event.Category) == query.Categories.end())
+                    std::find(query.Categories.begin(), query.Categories.end(), it->Category) == query.Categories.end())
                     continue;
-                matched.push_back(event);
+                matched.push_back(*it);
             }
 
             if (query.MaxCount != 0 && matched.size() > query.MaxCount)
@@ -615,5 +661,7 @@ namespace OloEngine
         std::deque<DiagnosticEvent> m_Events;
         u64 m_NextId = 1;
         std::atomic<u32> m_SuppressDepth{ 0 };
+        // Per-thread, per-category suppression depth (SuppressCategoryScope).
+        inline static thread_local std::array<u32, kDiagnosticEventCategoryCount> t_CategorySuppressDepth{};
     };
 } // namespace OloEngine
