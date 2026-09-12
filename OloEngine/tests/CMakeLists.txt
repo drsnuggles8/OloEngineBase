@@ -1551,6 +1551,35 @@ include(GoogleTest)
 set(OLO_MESH_CACHE_TESTS
 	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
 
+# THE HEAVY SET: cases that are either memory-heavy or long, weighted so ctest can
+# run the other ~7,800 cases four-wide without four heavy ones ever landing at once.
+#
+# Measured 2026-09-12 on the self-hosted Linux runners (ASan, ctest --parallel 2,
+# run 34686730577): 8,109 cases, 111 min of summed case time for a 56 min step.
+# 7,785 of them take under one second -- 83 of those 111 minutes is the engine's
+# per-process start-up (0.64 s median here, 0.62 s on the Windows dev box),
+# paid once per case because every case is its own process. The 318 cases over a
+# second hold the other 28 minutes, and the ones over 10 s are all in the suites
+# below. Memory is the same shape: of the 8,205 cases on the Windows dev box, 265
+# peak above 1.2 GB committed or 20 s, all in these suites (the visual-evidence
+# and GPU-contract families, the path tracer, the fluid solver, the sailing
+# model, the benchmarks).
+#
+# `PROCESSORS 2` makes each of these count double against ctest's --parallel
+# budget, so `--parallel 4` runs four light cases or two heavy ones or one heavy
+# and two light -- never four heavy -- which keeps the runner inside its 14 GiB
+# cgroup while the light majority, whose whole cost is process start-up, gets
+# the extra width. `COST 100` makes ctest schedule them first, so the 90 s cases
+# do not start last and dangle alone at the end of the step (there is no
+# CTestCostData history on a fresh CI tree, and without COST the order is
+# discovery order). Over-inclusion here is the safe direction: a light case
+# wrongly listed only loses a little parallelism.
+#
+# The memory ceiling in the test binary (--olo-rss-ceiling-mb, default 6 GiB)
+# is the backstop for a case that grows past what this weighting assumes.
+set(OLO_HEAVY_TESTS
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*")
+
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and
 # `"--olo-gl-backend=egl;--olo-require-gpu"` is two). This is how a CI job that
@@ -1566,17 +1595,28 @@ if(OLO_TESTS_CTEST_ARGS)
 	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
 endif()
 
+# Three discovery calls over one binary, each a disjoint slice by gtest filter
+# (positive patterns, then `-` negatives): the mesh-cache offenders (serialised,
+# and they load a full model so they weigh double too), the heavy set (weighted
+# and scheduled first), and everything else. Every case lands in exactly one.
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
 	TEST_FILTER "${OLO_MESH_CACHE_TESTS}"
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
-	PROPERTIES RESOURCE_LOCK "olo_mesh_cache"
+	PROPERTIES RESOURCE_LOCK "olo_mesh_cache" PROCESSORS 2 COST 100
 )
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
-	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
+	TEST_FILTER "${OLO_HEAVY_TESTS}-${OLO_MESH_CACHE_TESTS}"
+	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
+	PROPERTIES PROCESSORS 2 COST 100
+)
+gtest_discover_tests(OloEngine-Tests
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
+	DISCOVERY_TIMEOUT 120
+	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 )
 

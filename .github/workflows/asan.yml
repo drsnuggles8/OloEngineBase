@@ -1704,7 +1704,7 @@ jobs:
       # compile, and the cumulative work blows past the default 120 s.
       # 600 s gives reasonable headroom without masking actual hangs.
       #
-      # --parallel 2: gtest_discover_tests registers every gtest case as its own
+      # --parallel 4 (weighted; see the run line below): gtest_discover_tests registers every gtest case as its own
       # ctest entry (one OloEngine-Tests process per case), so serial execution pays
       # the engine's full static-init cost ~3,600× back-to-back — a large chunk of
       # this job's wall-clock. Windows.yml already banks this win with
@@ -1723,17 +1723,25 @@ jobs:
       # (OloEngine/tests/CMakeLists.txt). See
       # docs/agent-rules/shared-temp-dir-test-isolation.md.
       #
-      # Why 2 here, not Windows' 4: these are SANITIZER-instrumented test processes
-      # with a much larger *resident* footprint (ASan shadow memory; TSan
-      # happens-before metadata), and the ubuntu runners have only ~16 GB / 4 vCPU.
-      # Two concurrent instrumented processes stay comfortably inside that budget;
-      # 4-wide risks the OOM reaper killing the runner mid-test.
+      # --parallel 4, WEIGHTED. This used to be 2, on the reasoning that four
+      # sanitizer-instrumented processes could exhaust the runner. Measured on the
+      # box (run 34686730577, ASan, 2026-09-12): 8,109 cases, 111 min summed for a
+      # 56 min step, and 7,785 of them under one second -- 83 of those minutes is
+      # the engine's per-process start-up, paid once per case. Width is what that
+      # majority needs, and memory is not what it costs: a light case sits at a
+      # few hundred MB. The cases that ARE memory-heavy or long carry
+      # `PROCESSORS 2` and `COST 100` (OloEngine/tests/CMakeLists.txt,
+      # OLO_HEAVY_TESTS), so ctest runs four light ones, or two heavy ones, or one
+      # heavy and two light, never four heavy -- inside the 14 GiB cgroup either
+      # way -- and starts the long ones first instead of leaving a 90 s case to
+      # dangle alone at the end. The test binary's own 6 GiB resident-set ceiling
+      # is the backstop for a case that outgrows the assumption.
       #
       # NOTE: this is unrelated to the build step's `--parallel 2` above. That pin is
       # a *compile-time* constraint (~9 GB per TU under clang+sanitizer, measured) and
       # does NOT transfer to the test phase — don't "reconcile" the two numbers; they
       # bound different resources (peak compiler RSS vs. peak instrumented-test RSS).
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
+      run: ctest --parallel 4 --output-on-failure --timeout 600 --exclude-regex "${OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -2129,7 +2137,7 @@ jobs:
       # ShaderReflectionBinding compiles ~100 shaders × ~3 stages via
       # shaderc, which is 3-5× slower under UBSan instrumentation.
       #
-      # --parallel 2: see the ASan + LSan run step above for the full rationale —
+      # --parallel 4, weighted: see the ASan + LSan run step above for the full rationale —
       # one ctest entry per gtest case makes serial execution pay engine static-init
       # ~3,600× over; the suite is parallel-safe (PID/case-name temp paths + a mesh-
       # cache RESOURCE_LOCK), and 2 (not Windows' 4) keeps two sanitizer-instrumented
@@ -2151,7 +2159,9 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
+      # --parallel 4, weighted by PROCESSORS on the heavy set: see the ASan job's
+      # test step for the measurement.
+      run: ctest --parallel 4 --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
         #
@@ -2560,7 +2570,7 @@ jobs:
       # Every other test finishes in single-digit seconds, so the headroom
       # only bites the known-slow cases — not a fig leaf over hangs.
       #
-      # --parallel 2: see the ASan + LSan run step above for the full rationale
+      # --parallel 4, weighted: see the ASan + LSan run step above for the full rationale
       # (one ctest entry per case → engine static-init paid ~3,600× serially; the
       # suite is parallel-safe via PID/case-name temp paths + a mesh-cache
       # RESOURCE_LOCK). TSan is the most memory-heavy sanitizer — its happens-before
@@ -2595,7 +2605,9 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      run: ctest --parallel 2 --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
+      # --parallel 4, weighted by PROCESSORS on the heavy set: see the ASan job's
+      # test step for the measurement.
+      run: ctest --parallel 4 --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
         # the rationale comments in tsan.txt (currently: Jolt's assert-build
