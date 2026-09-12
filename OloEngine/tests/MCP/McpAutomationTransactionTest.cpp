@@ -125,6 +125,14 @@ namespace
     class McpAutomationTransaction : public ::testing::Test
     {
       protected:
+        // The diagnostics ring is process-wide; a test that records into it (the
+        // completion-count test below) must not leave its events for the next
+        // test, including when a fatal assertion returns early.
+        void TearDown() override
+        {
+            DiagnosticsEventLog::Get().Clear();
+        }
+
         McpAutomationTransaction()
             : m_Scene(Ref<Scene>::Create()), m_Host(MakeContext())
         {
@@ -283,7 +291,6 @@ TEST_F(McpAutomationTransaction, ABatchPublishesExactlyOneCompletionEvent)
     const auto completions = DiagnosticsEventLog::Get().Query(query);
     ASSERT_EQ(completions.size(), 1u) << "the steps' completions must be folded into the batch's";
     EXPECT_EQ(completions[0].Context, "olo_transaction_apply");
-    DiagnosticsEventLog::Get().Clear();
 }
 
 TEST_F(McpAutomationTransaction, AnIrreversibleStepIsRefusedBeforeAnyEarlierStepRuns)
