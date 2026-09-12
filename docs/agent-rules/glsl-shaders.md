@@ -926,6 +926,17 @@ Rules distilled:
   A shared-include change is only proven by compiling (or running) the largest shader
   that includes it — the full-suite visual tests are what caught this one.
 
+## 8b. A data-dependent loop over indexed arrays is a COMPILE-time bomb on Mesa's AMD path
+
+Write a per-subset step as `subset 0; if (subsets > 1) subset 1` with constant array indices,
+never `for (int s = 0; s < subsets; ++s)` over `g_Fit[s]` / `g_Q[s * 2]` or an `inout` bound to
+such an element. NVIDIA and llvmpipe compile the loop form in a second; Mesa's AMD compiler
+(radeonsi on the CI box, RADV on the null device) took over 200 s and 14 GB on
+`BC6HEncodeCommon.glsl` and was OOM-killed on every nightly for a week while every PR check
+stayed green. Bisection, the dev-box reproduction on a RADV null device, and the two guards
+(`ShaderCompileBudgetTest`, the test process memory ceiling):
+[amd-mesa-shader-compile-blowup.md](amd-mesa-shader-compile-blowup.md).
+
 ## 9. Display-range vs HDR-linear post-process ordering
 
 Some post-process kernels are written against the **[0,1] display range** and break
