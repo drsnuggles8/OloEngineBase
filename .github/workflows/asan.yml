@@ -2137,12 +2137,17 @@ jobs:
       # ShaderReflectionBinding compiles ~100 shaders × ~3 stages via
       # shaderc, which is 3-5× slower under UBSan instrumentation.
       #
-      # --parallel 4, weighted: see the ASan + LSan run step above for the full rationale —
-      # one ctest entry per gtest case makes serial execution pay engine static-init
-      # ~3,600× over; the suite is parallel-safe (PID/case-name temp paths + a mesh-
-      # cache RESOURCE_LOCK), and 2 (not Windows' 4) keeps two sanitizer-instrumented
-      # processes inside the ~16 GB / 4-vCPU runner. Independent of the build step's
-      # compile-time `--parallel 2` — that bounds compiler RSS, this bounds test RSS.
+      # --parallel 4, weighted: see the ASan + LSan run step above for the measurement.
+      # One ctest entry per gtest case makes serial execution pay engine start-up
+      # ~8,000× over, and 75 % of the step is that start-up; the suite is
+      # parallel-safe (per-process temp roots keyed per case + a mesh-cache
+      # RESOURCE_LOCK). The width is a WEIGHTED budget: a light case counts 1, a case
+      # in OLO_HEAVY_TESTS (tests/CMakeLists.txt) counts 2 via `PROCESSORS 2`, so up
+      # to four light cases run at once, or two heavy ones, or one heavy and two
+      # light -- never four heavy -- which keeps four UBSan-instrumented processes
+      # inside the 14 GiB self-hosted cgroup and the ~16 GB hosted runner alike.
+      # Independent of the build step's compile-time `--parallel 2` — that bounds
+      # compiler RSS, this bounds test RSS.
       #
       # ServerAuthoritativeLoopTest joins the three networking suites already
       # excluded here, for the same underlying reason: it drives live
@@ -2159,8 +2164,6 @@ jobs:
       # UBSan now enables only the curated eight checks rather than the whole
       # `undefined` group, so vptr is no longer asked of `-fno-rtti` vendor code.
       # This exclusion covers the remaining, genuinely-GNS-side gap. See #636.
-      # --parallel 4, weighted by PROCESSORS on the heavy set: see the ASan job's
-      # test step for the measurement.
       run: ctest --parallel 4 --output-on-failure --timeout 600 --exclude-regex "${OLO_UBSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # THE SYMBOLIZER IS NAMED IN *_OPTIONS, NOT ONLY IN ASAN_SYMBOLIZER_PATH.
@@ -2570,14 +2573,18 @@ jobs:
       # Every other test finishes in single-digit seconds, so the headroom
       # only bites the known-slow cases — not a fig leaf over hangs.
       #
-      # --parallel 4, weighted: see the ASan + LSan run step above for the full rationale
-      # (one ctest entry per case → engine static-init paid ~3,600× serially; the
-      # suite is parallel-safe via PID/case-name temp paths + a mesh-cache
-      # RESOURCE_LOCK). TSan is the most memory-heavy sanitizer — its happens-before
+      # --parallel 4, weighted: see the ASan + LSan run step above for the measurement
+      # (one ctest entry per case → engine start-up paid ~8,000× serially, and 75 %
+      # of the step is that start-up; the suite is parallel-safe via per-process
+      # temp roots keyed per case + a mesh-cache RESOURCE_LOCK). The width is a
+      # WEIGHTED budget: a light case counts 1 and a case in OLO_HEAVY_TESTS
+      # (tests/CMakeLists.txt) counts 2 via `PROCESSORS 2`, so up to four light
+      # cases run at once, or two heavy ones, or one heavy and two light -- never
+      # four heavy. TSan is the most memory-heavy sanitizer — its happens-before
       # shadow gives each test process the largest resident footprint of the three —
-      # so 2 is deliberately conservative. But two TSan test processes still sit well
-      # within the ~16 GB / 4-vCPU runner (each runs a single short-lived gtest case,
-      # not the whole suite at once), so 2-wide is safe rather than left serial.
+      # which is exactly why the heavy cases are the ones capped at two: a light
+      # case under TSan is still a few hundred MB, and four of those sit well within
+      # the 14 GiB self-hosted cgroup and the ~16 GB / 4-vCPU hosted runner alike.
       # Independent of the build step's compile-time `--parallel 2`: that bounds
       # peak compiler RSS, this bounds peak instrumented-test RSS.
       #
@@ -2605,8 +2612,6 @@ jobs:
       # ThreadState and its first intercepted malloc faults inside TSan's own
       # allocator — a bare SIGSEGV with no report. OloEngine/vendor/CMakeLists.txt
       # now filters that definition off the imported target; see the comment there.
-      # --parallel 4, weighted by PROCESSORS on the heavy set: see the ASan job's
-      # test step for the measurement.
       run: ctest --parallel 4 --output-on-failure --timeout 600 --exclude-regex "${OLO_TSAN_LINUX_CTEST_EXCLUDE}"
       env:
         # suppressions: vendored-code races we accept rather than patch — see
