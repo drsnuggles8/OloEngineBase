@@ -16,6 +16,12 @@ outputs:
   toolchain-args:
     description: 'CMake arguments selecting the vcpkg toolchain, triplet and overlays'
     value: ${{ steps.emit.outputs.toolchain-args }}
+  hash-prefix:
+    description: >-
+      The prefix every actions/cache key for this manifest+image starts with
+      (`vcpkg-<os>-<triplet>-<hash>-<image>-`). The restore step and the save decision
+      both read it from here so the two can never disagree.
+    value: ${{ steps.cachecfg.outputs.hash-prefix }}
   cache-key:
     description: >
       The actions/cache key this run should SAVE the binary cache under, or the empty
@@ -335,7 +341,11 @@ runs:
         OLO_VCPKG_READ_ONLY: ${{ inputs.read-only }}
         OLO_VCPKG_TRIPLET: ${{ inputs.triplet }}
         OLO_RUNNER_ENVIRONMENT: ${{ runner.environment }}
-        OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}
+        # vcpkg-configuration.json carries the registry BASELINE: a Renovate bump of
+        # the vcpkg digest changes every port's version set without touching
+        # vcpkg.json, so it must be in the hash or the key stays "exact" across a
+        # bump that rebuilds everything.
+        OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}
         # "true" exactly when this run cannot write the cache service: a
         # pull_request from a fork, whose GITHUB_TOKEN is read-only. Derived from
         # the event here rather than from the `read-only` input, because no caller
@@ -404,14 +414,33 @@ runs:
         #                   so a save step could only ever log a permission error at
         #                   the end of every fork PR;
         #   * read-only  -- the caller asked for restore-only semantics.
+        # THE RUNNER IMAGE IS PART OF THE KEY. vcpkg's per-port ABI hash covers the
+        # compiler, and a GitHub-hosted image bump (windows-2025-vs2026 20260819.586
+        # -> 20260828.587, between 2026-09-06 and 2026-09-10) changes it for every
+        # port: the archives in the store are then all for the OLD ABI. With the
+        # image outside the key that looked like this, for every Windows run from
+        # the bump until 2026-09-12:
+        #
+        #   restore  -> "Cache restored from key: vcpkg-Windows-...-<hash>-34400333427-1"
+        #   vcpkg    -> "Restored 0 package(s)" ... "Building zlib ...", 115 ports, 55 min
+        #   save     -> "restore matched ... this exact manifest hash ... skipping"
+        #
+        # An exact-hash match that restores nothing and never re-saves is a cache
+        # nothing can refresh: every run paid the full rebuild and the store kept
+        # handing out the same dead archives. `ImageVersion` is set by every
+        # GitHub-hosted runner; with it in the prefix an image bump is a MISS, the
+        # run rebuilds once, saves under the new prefix, and the fleet is warm again
+        # on the next run. Self-hosted runners never use this key (persistent cache).
+        prefix="vcpkg-${RUNNER_OS}-${OLO_VCPKG_TRIPLET}-${OLO_VCPKG_CACHE_HASH}-${ImageVersion:-noimage}-"
         key=""
         if [ "$persistent" = false ] \
            && [ "$OLO_VCPKG_FORK_PR" != "true" ] \
            && [ "$OLO_VCPKG_READ_ONLY" != "true" ]; then
-          key="vcpkg-${RUNNER_OS}-${OLO_VCPKG_TRIPLET}-${OLO_VCPKG_CACHE_HASH}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          key="${prefix}${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         fi
+        echo "hash-prefix=$prefix" >> "$GITHUB_OUTPUT"
         echo "save-key=$key" >> "$GITHUB_OUTPUT"
-        echo "vcpkg binary cache: dir=$dir persistent=$persistent save-key=${key:-<none>}"
+        echo "vcpkg binary cache: dir=$dir persistent=$persistent prefix=$prefix save-key=${key:-<none>}"
 
     # NOT PRUNED BY DEFAULT, and that is the safe direction.
     #
@@ -500,9 +529,10 @@ runs:
     # combined-action one in the same cache list.
     #
     # Key on the inputs that change the ABI of every package: the manifest, the
-    # triplets and the overlay ports. run_id + run_attempt make each attempt save a
-    # fresh superset (actions/cache entries are immutable), and restore-keys falls
-    # back to the newest prior snapshot.
+    # registry baseline, the triplets, the overlay ports AND the runner image (its
+    # compiler is in every port's ABI hash -- see cachecfg). run_id + run_attempt
+    # make each attempt save a fresh superset (actions/cache entries are immutable),
+    # and restore-keys falls back to the newest prior snapshot.
     #
     # Skipped entirely on self-hosted runners: there the cache directory is durable
     # local disk, so a restore would only overwrite the live cache with an older
@@ -539,9 +569,14 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.cachecfg.outputs.dir }}
-        key: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+        # The prefix comes from cachecfg (manifest hash + runner image); see the
+        # comment there. The last fallback is any snapshot for this OS/triplet: an
+        # older manifest or image still shares most ports' ABIs, and whatever it
+        # does not restore, this run builds and then SAVES (the save decision sees
+        # a non-exact match).
+        key: ${{ steps.cachecfg.outputs.hash-prefix }}${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
+          ${{ steps.cachecfg.outputs.hash-prefix }}
           vcpkg-${{ runner.os }}-${{ inputs.triplet }}-
 
     # A RUN THAT ALREADY GOT ITS MANIFEST DOES NOT NEED TO BANK IT AGAIN (#1073).
@@ -583,7 +618,7 @@ runs:
       env:
         CFG_KEY: ${{ steps.cachecfg.outputs.save-key }}
         MATCHED: ${{ steps.restore.outputs.cache-matched-key }}
-        HASH_PREFIX: vcpkg-${{ runner.os }}-${{ inputs.triplet }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}-
+        HASH_PREFIX: ${{ steps.cachecfg.outputs.hash-prefix }}
       run: |
         set -euo pipefail
         key="${CFG_KEY}"
