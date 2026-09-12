@@ -388,6 +388,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         DestroyResources();
+        // The inert sampling buffers are created lazily by EnsureInertSamplingBindings
+        // and gated on m_InertGlobalsUBO alone, so they must go here too: Renderer3D
+        // keeps this object across a shutdown/reinitialise, and buffers from the
+        // previous RHI lifetime would otherwise be bound as if they were current.
+        m_InertPageTable.Reset();
+        m_InertLocalLights.Reset();
+        m_InertGlobalsUBO.Reset();
+        m_InertPassUBO.Reset();
         m_Initialized = false;
         m_FullInvalidate = true;
     }
