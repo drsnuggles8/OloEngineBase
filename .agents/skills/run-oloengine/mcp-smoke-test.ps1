@@ -270,17 +270,22 @@ $cursor = Show-Tool 'olo_events_tail' @{ count = 1 }
 $cursorObj = $cursor.result.content[0].text | ConvertFrom-Json
 $sinceId = [int64]$cursorObj.lastId
 Show-Tool 'olo_viewport_set_size' @{ width = 640; height = 360 } | Out-Null
-$waited = Show-Tool 'olo_events_wait' @{ sinceId = $sinceId; categories = @('command_completed'); waitMs = 5000 }
-$waitedObj = $waited.result.content[0].text | ConvertFrom-Json
-$completed = @($waitedObj.events | Where-Object { $_.data.command -eq 'olo_viewport_set_size' })
-if ($completed.Count -ge 1) {
-    Write-Host "  olo_events_wait returned command_completed for olo_viewport_set_size (id $($completed[0].id), $($completed[0].data.durationMs) ms) without polling" -ForegroundColor Green
-} elseif ($waitedObj.timedOut) {
-    Write-Error "olo_events_wait timed out: no command_completed event for olo_viewport_set_size arrived within 5 s (lastId $($waitedObj.lastId), dropped $($waitedObj.dropped))"
-} else {
-    Write-Error "olo_events_wait returned $($waitedObj.count) event(s) but none named olo_viewport_set_size: $($waited.result.content[0].text)"
+try {
+    $waited = Show-Tool 'olo_events_wait' @{ sinceId = $sinceId; categories = @('command_completed'); waitMs = 5000 }
+    $waitedObj = $waited.result.content[0].text | ConvertFrom-Json
+    $completed = @($waitedObj.events | Where-Object { $_.data.command -eq 'olo_viewport_set_size' })
+    if ($completed.Count -ge 1) {
+        Write-Host "  olo_events_wait returned command_completed for olo_viewport_set_size (id $($completed[0].id), $($completed[0].data.durationMs) ms) without polling" -ForegroundColor Green
+    } elseif ($waitedObj.timedOut) {
+        Write-Error "olo_events_wait timed out: no command_completed event for olo_viewport_set_size arrived within 5 s (lastId $($waitedObj.lastId), dropped $($waitedObj.dropped))"
+    } else {
+        Write-Error "olo_events_wait returned $($waitedObj.count) event(s) but none named olo_viewport_set_size: $($waited.result.content[0].text)"
+    }
+} finally {
+    # $ErrorActionPreference is Stop, so a failed check terminates the script:
+    # the override must still be cleared or the editor is left at 640x360.
+    Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
 }
-Show-Tool 'olo_viewport_set_size' @{ reset = $true } | Out-Null
 
 # olo_renderer_settings_set is a consented WRITE tool: with the editor's
 # "Allow writes" gate off (the default) the call must be REFUSED cleanly; with

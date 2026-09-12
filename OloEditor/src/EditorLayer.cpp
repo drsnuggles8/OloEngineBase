@@ -4955,6 +4955,14 @@ namespace OloEngine
         // Reset hovered entity before changing scenes to prevent accessing stale registry
         m_HoveredEntity = Entity();
 
+        // UI open/new establishes a new history; an automation document command
+        // retains the stack so its scene replacement itself can be undone. Cleared
+        // BEFORE the swap: a dirty outgoing document becomes clean here, and the
+        // `scene_dirty` edge that publishes (#1131) must name the scene that had
+        // the unsaved changes, not the one arriving.
+        if (clearHistory)
+            m_CommandHistory.Clear();
+
         m_EditorScene = scene;
         Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
@@ -4981,11 +4989,6 @@ namespace OloEngine
         m_AudioEventsPanel.SetActiveScene(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
-
-        // UI open/new establishes a new history; an automation document command
-        // retains the stack so its scene replacement itself can be undone.
-        if (clearHistory)
-            m_CommandHistory.Clear();
 
         // (The ephemeral MCP sun-direction override clear that used to live here
         // was retired by issue #633 — the MCP time-of-day tools now edit the

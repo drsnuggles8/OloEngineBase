@@ -11,8 +11,9 @@ failed silently in the code that shipped before.
 path, an entity id, an outcome) and never carries the content a read command would return for
 it: no arguments, no results, no serialized scene, no file bytes, no absolute path. The keys a
 category may carry are a closed table (`DiagnosticEventDataKeys`), `Record()` refuses any other
-key, and string values are cut at 256 characters. Publish through `Automation/AutomationEvents.h`,
-which builds every payload from that table and makes paths project-relative first.
+key, and string values are cut at 256 bytes, on a UTF-8 character boundary. Publish through
+`Automation/AutomationEvents.h`, which builds every payload from that table and makes paths
+project-relative first.
 
 **Why.** The issue's constraint was that a subscription is an authority-bearing capability
 because "events can leak state a read tool would have gated". The census found nothing that

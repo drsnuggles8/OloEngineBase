@@ -153,17 +153,19 @@ namespace OloEngine::Automation
         {
             if (!host.Context().StepScene)
                 return AutomationResult::Error("Stepping is not available in this host (no editor).");
-            int frames = 1;
+            long long requested = 1;
             if (arguments.contains("frames"))
             {
                 if (!arguments["frames"].is_number_integer())
                     return AutomationResult::Error("Expected 'frames' (integer, 1..60).");
-                frames = arguments["frames"].get<int>();
+                requested = arguments["frames"].get<long long>();
             }
             // The schema says 1..60 and the registry enforces it; a caller that
-            // reaches the handler directly gets the same refusal.
-            if (frames < 1 || frames > 60)
+            // reaches the handler directly gets the same refusal — checked on the
+            // wide value, so a huge count cannot wrap into range when narrowed.
+            if (requested < 1 || requested > 60)
                 return AutomationResult::Error("'frames' must be between 1 and 60.");
+            const int frames = static_cast<int>(requested);
 
             const Json result = host.MarshalRead([&host, frames]() -> Json
                                                  { return EditorActions::ToJson(host.Context().StepScene(frames)); });

@@ -37,6 +37,7 @@
 #include "MCP/McpSchemaBuilder.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpTools.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
@@ -263,6 +264,27 @@ TEST(McpAutomationTransactionBoundary, ASymbolReferenceIsAWholeStringOrNothingAt
 }
 
 // ---- acceptance 3: refused at batch-build time -------------------------------
+
+// The automation event bus (#1131): a batch is ONE command_completed, the
+// transaction's own. Its steps run through the registry too, and each would
+// publish its own completion without the suppression around the execution loop.
+TEST_F(McpAutomationTransaction, ABatchPublishesExactlyOneCompletionEvent)
+{
+    DiagnosticsEventLog::Get().Clear();
+    const auto applied = Apply(Json::array({ Step("olo_entity_create", Json{ { "name", "First" } }),
+                                             Step("olo_entity_create", Json{ { "name", "Second" } }) }));
+    ASSERT_TRUE(applied.Ran()) << applied.Message;
+    EXPECT_FALSE(applied.Result.IsError) << applied.Result.Content.dump(2);
+    EXPECT_EQ(EntityCount(), 2u);
+
+    DiagnosticEventQuery query;
+    query.MaxCount = 0;
+    query.Categories = { DiagnosticEventCategory::CommandCompleted };
+    const auto completions = DiagnosticsEventLog::Get().Query(query);
+    ASSERT_EQ(completions.size(), 1u) << "the steps' completions must be folded into the batch's";
+    EXPECT_EQ(completions[0].Context, "olo_transaction_apply");
+    DiagnosticsEventLog::Get().Clear();
+}
 
 TEST_F(McpAutomationTransaction, AnIrreversibleStepIsRefusedBeforeAnyEarlierStepRuns)
 {

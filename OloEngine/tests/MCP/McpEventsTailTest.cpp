@@ -340,30 +340,32 @@ TEST_F(DiagnosticsEventLogTest, LegacyCategoriesCarryNoData)
     EXPECT_TRUE(OloEngine::DiagnosticEventDataKeys(DiagnosticEventCategory::Play).empty());
 }
 
-TEST_F(DiagnosticsEventLogTest, EveryBusCategoryDeclaresAClosedKeySet)
+TEST_F(DiagnosticsEventLogTest, EveryCategoryDeclaresExactlyItsClosedKeySet)
 {
-    for (const DiagnosticEventCategory category :
-         { DiagnosticEventCategory::SceneSave, DiagnosticEventCategory::SceneDirty,
-           DiagnosticEventCategory::AssetImport, DiagnosticEventCategory::CompileFinished,
-           DiagnosticEventCategory::CommandCompleted })
+    // The payload rule, pinned as the exact table: a key added to a category
+    // (or one removed) fails here, in a diff a reviewer sees, rather than
+    // widening what a subscriber can be shown. The seven older categories carry
+    // no payload at all.
+    using Keys = std::vector<std::string_view>;
+    const std::vector<std::pair<DiagnosticEventCategory, Keys>> expected = {
+        { DiagnosticEventCategory::SceneLoad, {} },
+        { DiagnosticEventCategory::Play, {} },
+        { DiagnosticEventCategory::Stop, {} },
+        { DiagnosticEventCategory::EntitySpawn, {} },
+        { DiagnosticEventCategory::EntityDestroy, {} },
+        { DiagnosticEventCategory::AssetReload, {} },
+        { DiagnosticEventCategory::ScriptError, {} },
+        { DiagnosticEventCategory::SceneSave, { "scene", "path", "changed" } },
+        { DiagnosticEventCategory::SceneDirty, { "scene", "dirty" } },
+        { DiagnosticEventCategory::AssetImport, { "asset", "type", "handle", "source" } },
+        { DiagnosticEventCategory::CompileFinished, { "kind", "target", "ok", "errors", "warnings", "seconds" } },
+        { DiagnosticEventCategory::CommandCompleted, { "command", "ok", "durationMs", "projectWrite", "toolset" } },
+    };
+    ASSERT_EQ(expected.size(), OloEngine::kDiagnosticEventCategoryCount) << "add the new category's key set here";
+    for (const auto& [category, keys] : expected)
     {
-        EXPECT_FALSE(OloEngine::DiagnosticEventDataKeys(category).empty())
-            << DiagnosticEvent::CategoryToString(category);
-    }
-    // The payload rule in one assertion: no category may carry a key that
-    // could hold content rather than identity.
-    for (const auto token : DiagnosticEvent::AllCategoryTokens())
-    {
-        DiagnosticEventCategory category{};
-        ASSERT_TRUE(DiagnosticEvent::CategoryFromString(token, category));
-        for (const auto key : OloEngine::DiagnosticEventDataKeys(category))
-        {
-            EXPECT_NE(key, "arguments") << token;
-            EXPECT_NE(key, "result") << token;
-            EXPECT_NE(key, "content") << token;
-            EXPECT_NE(key, "yaml") << token;
-            EXPECT_NE(key, "bytes") << token;
-        }
+        const auto declared = OloEngine::DiagnosticEventDataKeys(category);
+        EXPECT_EQ(Keys(declared.begin(), declared.end()), keys) << DiagnosticEvent::CategoryToString(category);
     }
 }
 

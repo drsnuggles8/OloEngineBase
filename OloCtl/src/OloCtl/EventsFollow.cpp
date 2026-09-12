@@ -343,7 +343,16 @@ namespace OloCtl
 
                 for (const Json& event : *events)
                 {
+                    // Flushed per event and checked: a consumer that closed the pipe
+                    // (`| head`) must end the follow, not leave it polling the editor
+                    // forever with nowhere to write.
                     out << event.dump() << '\n';
+                    out.flush();
+                    if (!out)
+                    {
+                        err << "oloctl: stdout is closed; stopping the follow.\n";
+                        return ExitCode::CommandError;
+                    }
                     ++printed;
                     if (!follow.Until.empty() && CategoryOf(event) == follow.Until)
                     {

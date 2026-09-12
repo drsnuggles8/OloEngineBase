@@ -766,6 +766,10 @@ namespace OloEngine::MCP
         }
 
         m_Port = port;
+        // A server that was stopped and started again must not report every call
+        // as cancelled: clear the flag Stop() set, now that the port is bound and
+        // nothing from the previous run can still be waiting on it.
+        m_Stopping.store(false, std::memory_order_release);
         m_Running.store(true, std::memory_order_release);
         m_ListenThread = std::thread([this]
                                      {

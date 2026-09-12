@@ -570,12 +570,6 @@ namespace OloEngine::Automation
         const auto stepsIt = arguments.is_object() ? arguments.find("steps") : arguments.end();
         if (stepsIt != arguments.end() && stepsIt->is_array())
         {
-            // One transaction is ONE `command_completed` on the automation event bus
-            // (#1131): the steps run through the registry like any command, and
-            // without this each would publish its own — up to 64 records the batch's
-            // completion already summarises, enough to evict what a waiter is
-            // blocked on. Thread-local, so only the steps on this thread are quiet.
-            const DiagnosticsEventLog::SuppressCategoryScope oneCompletion(DiagnosticEventCategory::CommandCompleted);
             for (sizet index = 0; index < stepsIt->size(); ++index)
             {
                 const Json& raw = (*stepsIt)[index];
@@ -718,6 +712,14 @@ namespace OloEngine::Automation
 
         try
         {
+            // One transaction is ONE `command_completed` on the automation event bus
+            // (#1131): the steps run through the registry like any command, and
+            // without this each would publish its own — up to 64 records the batch's
+            // completion already summarises, enough to evict what a waiter is
+            // blocked on. Thread-local, so only the steps on this thread are quiet;
+            // the scope ends with this job, before the transaction command's own
+            // completion is published on the handler thread.
+            const DiagnosticsEventLog::SuppressCategoryScope oneCompletion(DiagnosticEventCategory::CommandCompleted);
             for (sizet index = 0; index < plan.Steps.size() && failedStep < 0; ++index)
             {
                 const TransactionStep& step = plan.Steps[index];

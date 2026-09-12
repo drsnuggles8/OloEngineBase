@@ -225,7 +225,7 @@ dropped ones are gone. A follower that keeps up never sees it; one started with 
 | exit | meaning |
 |---|---|
 | 0 | stopped by `--until`, `--count` or `--for` |
-| 1 | `olo_events_wait` reported an error, including the "editor too old" case |
+| 1 | `olo_events_wait` reported an error (including the "editor too old" case), or stdout was closed under the follow |
 | 2 | usage: bad flag, bad category, `--timeout` below 2 s |
 | 3 | the editor could not be reached, or stopped answering mid-stream |
 | 5 | a poll answered without the `events` / `lastId` payload the contract promises |
