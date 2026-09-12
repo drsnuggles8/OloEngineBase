@@ -44,6 +44,9 @@ namespace OloEngine::Tests
                 "  --olo-require-gpu              fail, rather than skip, a GPU-gated test when no GL 4.6\n"
                 "                                 context could be created (a GPU job's own guard)\n"
                 "  --olo-keep-temp                leave per-test temp directories on disk\n"
+                "  --olo-rss-ceiling-mb=<n>       stop the process with exit code 77 when its resident set\n"
+                "                                 passes <n> MB, naming the running test (default 6144;\n"
+                "                                 0 disables) -- a named failure instead of an OOM kill\n"
                 "  --olo-video=<path>             an FFmpeg-decodable file for the decode tests\n"
                 "  --olo-pathtracer-evidence      write the path-tracer reference images\n"
                 "  --olo-mcp-attach-seconds=<n>   MCP discovery-file wait for the attach test\n"
@@ -210,6 +213,17 @@ namespace OloEngine::Tests
             {
                 s_Options.CaptureOutDir = *v;
             }
+            else if (const auto v = ValueOf(arg, "--olo-rss-ceiling-mb"))
+            {
+                u32 parsed = 0;
+                const char* begin = v->data();
+                const char* end = begin + v->size();
+                if (const auto [ptr, ec] = std::from_chars(begin, end, parsed); ec != std::errc{} || ptr != end)
+                {
+                    Fail("--olo-rss-ceiling-mb needs a non-negative integer (MB; 0 disables)", arg);
+                }
+                s_Options.RssCeilingMb = parsed;
+            }
             else if (const auto v = ValueOf(arg, "--olo-mcp-attach-seconds"))
             {
                 i32 parsed = 0;
@@ -225,6 +239,7 @@ namespace OloEngine::Tests
             else if (arg == "--olo-golden-vendor" || arg == "--olo-perf-machine" ||
                      arg == "--olo-gl-backend" || arg == "--olo-video" ||
                      arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
+                     arg == "--olo-rss-ceiling-mb" ||
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out")
             {
                 // The name is right but the `=value` is missing — say that,
