@@ -201,6 +201,10 @@ and for what to do when adding a tool.
 | `olo_scene_simulate` | **(consented write)** enter Simulate through the real editor toolbar path, running physics/runtime systems with the editor camera; reports `mode`, `playing`, and `simulating` and settles frames before returning |
 | `olo_reflection_probe_bake` | **(consented write)** synchronously run the real reflection-probe baker for one exact, uniquely named probe entity; non-undoable |
 | `olo_editor_panel_list` / `olo_editor_panel_set` | enumerate all 34 controllable ImGui panels and open/close one by stable name. `olo_editor_panel_set` is a **(consented write)** that changes session UI state and is gated behind **Agent writes** |
+| `olo_editor_actions` | the editor command registry (issue #1131): every menu, toolbar and shortcut action the editor declares, each with the registry command that performs it — plus that command's `available`, `projectWrite` and `undo` on this host — or a `note` saying why none does. `automatedOnly:true` lists only the rows that have a command. See [The editor command registry](#the-editor-command-registry-olo_editor_actions) |
+| `olo_editor_pause` / `olo_editor_step` | the toolbar Pause/Resume and Step buttons: pause or resume the running Play/Simulate session (idempotent, `changed:false` when already there; an error in Edit mode) and advance a **paused** session by `frames` (1..60, default 1), after which it stays paused. Ephemeral runtime control of the session, like `olo_viewport_set_size`, so neither needs write consent. Both report `mode` and `sceneName` |
+| `olo_editor_gizmo_set` | select the viewport gizmo — `none` / `translate` / `rotate` / `scale`, the Q/W/E/R shortcuts in order. Session UI state, not project data, so no write consent; refused while a gizmo drag is in progress |
+| `olo_editor_build_shader_pack` | **(consented write)** the Build > Build Shader Pack menu item: write `assets/ShaderPack.osp` from the live 2D and 3D shader libraries and report `ok` + `outputPath`. Synchronous; overwrites the previous pack; not undoable. Gated behind **Agent writes** |
 | `olo_accessibility_get` / `olo_accessibility_set` | read or set all nine process-global subtitle, text-scale, and color-vision settings. `olo_accessibility_set` is a **(consented write)**; writes return `restoreWith`, and color-blind mode changes rebuild the render graph. Setter gated behind **Agent writes** |
 | `olo_lightmap_bake` | **(consented write)** start/poll or block on the editor's actual baked-GI lightmap pipeline, with stable operation id, progress, counts, errors, and optional scene save after attachment |
 | `olo_editor_debug_draw_set` | **(consented write)** toggle eight editor overlay categories or the non-destructive `all` master across Edit/Play/Simulate; `all:false` produces a clean viewport capture |
@@ -656,7 +660,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `camera` | `olo_screenshot`, `olo_camera_get`, `olo_camera_set_pose`, `olo_camera_orbit`, `olo_camera_frame_entity`, `olo_camera_freeze_culling`, `olo_viewport_set_size` |
 | `physics` | `olo_physics_layer_matrix`, `olo_physics_list_colliders`, `olo_physics_contacts`, `olo_physics_raycast`, `olo_physics_overlap`, `olo_physics_why_no_collision`, `olo_set_collision_layer` |
 | `input` | `olo_input_inject` |
-| `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick` |
+| `editor` | `olo_editor_panel_list`, `olo_editor_panel_set`, `olo_accessibility_get`, `olo_accessibility_set`, `olo_lightmap_bake`, `olo_editor_debug_draw_set`, `olo_terrain_pick`, `olo_editor_actions`, `olo_editor_pause`, `olo_editor_step`, `olo_editor_gizmo_set`, `olo_editor_build_shader_pack` |
 | `tests` | `olo_tests_list`, `olo_tests_run` |
 | `build` | `olo_build_list`, `olo_build_run` |
 | `validation` | `olo_project_validate` |
@@ -1163,6 +1167,35 @@ directly, since an agent explicitly asked for that scene.
 where Win32 injection cannot. But the env var stays the right answer for the
 recovery modal specifically: it removes the wedge at launch, before any tool call is
 possible, and needs no write consent.)
+
+### The editor command registry (`olo_editor_actions`)
+
+Call `olo_editor_actions` before reading `EditorLayer.cpp` to learn what the editor can
+do over automation. It is the declared list of the editor's menu, toolbar and shortcut
+actions (`kEditorActions` in `OloEditor/src/MCP/McpEditorActions.h`), and each row names
+the registry command that performs the action or says in `note` why none does. A row
+with a command also reports, read from the live registry at call time, that command's
+`available` (can it run on this host now), `projectWrite` (does it need write consent)
+and `undo` (its declared `AutomationUndo`, the same tokens `olo_transaction_apply`
+uses). A row whose command is not registered on this host is still listed, with
+`available:false` and the note extended, so a renamed or missing command shows up as a
+gap instead of vanishing. `automatedOnly:true` drops the rows that have no command.
+
+Issue #1131 added commands for the four actions that had none; each runs the same code
+path as the button, shortcut or menu item, and needs a live editor (a headless host
+lists them as unavailable):
+
+| action | command | note |
+|---|---|---|
+| Toolbar > Pause / Resume | `olo_editor_pause { paused }` | idempotent; an error in Edit mode |
+| Toolbar > Step | `olo_editor_step { frames? }` | only while paused; 1..60 frames, default 1 |
+| Viewport gizmo (Q/W/E/R) | `olo_editor_gizmo_set { mode }` | `none` / `translate` / `rotate` / `scale` |
+| Build > Build Shader Pack | `olo_editor_build_shader_pack` | a **(consented write)**; overwrites `assets/ShaderPack.osp` |
+
+The rows that stay un-automated (project switching, clipboard copy/paste, Exit, the
+asset-pack build) carry the reason in their `note`. `McpAutomationEditorCommandsTest`
+checks every declared command against the real registry, so the table cannot name a
+command that does not exist.
 
 ### Driving the Properties inspector (`olo_editor_select_entity`)
 

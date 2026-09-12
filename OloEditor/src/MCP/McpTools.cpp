@@ -5,6 +5,7 @@
 #include "MCP/McpServer.h"
 #include "Automation/AutomationAssetCommands.h"
 #include "Automation/AutomationBuildCommands.h"
+#include "Automation/AutomationEditorCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
 #include "Automation/AutomationTransactionCommands.h"
 
@@ -214,6 +215,10 @@ namespace OloEngine::MCP
         RegisterInputTools(registry);
         RegisterBenchmarkTools(registry);
         RegisterEditorTools(registry);
+        // The editor command registry (issue #1131): the declared action table
+        // and the four toolbar/menu actions that had no command. Same toolset as
+        // RegisterEditorTools, so they list next to the panel commands.
+        Automation::RegisterEditorCommands(registry);
         RegisterTestingTools(registry);
         Automation::RegisterBuildCommands(registry);
         RegisterValidationTools(registry);

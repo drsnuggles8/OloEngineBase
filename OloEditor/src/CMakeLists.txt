@@ -26,6 +26,8 @@
 		"Automation/AutomationSceneAuthoring.h"
 		"Automation/AutomationComponentRegistry.h"
 		"Automation/AutomationComponentRegistry.cpp"
+		"Automation/AutomationEditorCommands.cpp"
+		"Automation/AutomationEditorCommands.h"
 		"Automation/AutomationComponentCommands.cpp"
 		"Automation/AutomationEntityCommands.cpp"
 		"Automation/AutomationEntityCommands.h"

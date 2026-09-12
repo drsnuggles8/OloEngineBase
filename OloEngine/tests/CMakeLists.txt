@@ -880,6 +880,11 @@ add_executable(OloEngine-Tests
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationBuildCommands.cpp
+		# The editor command registry (issue #1131): the declared action table
+		# joined with the live registry, plus pause/step/gizmo/shader-pack. The
+		# actions reach the editor only through EditorMcpContext hooks, so the
+		# test drives fakes and never opens a window.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEditorCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
 		# Asset query / safe CRUD / import (issue #1128). The index is editor-free
@@ -900,6 +905,7 @@ add_executable(OloEngine-Tests
 		MCP/McpAutomationComponentsTest.cpp
 		MCP/McpAutomationEntitiesTest.cpp
 		MCP/McpAutomationSceneLifecycleTest.cpp
+		MCP/McpAutomationEditorCommandsTest.cpp
 		MCP/McpMainThreadMarshalTest.cpp
 		MCP/McpParticleStatsTest.cpp
 		# The outbound stdio MCP client (#673 Tier 1): McpServer's connection-

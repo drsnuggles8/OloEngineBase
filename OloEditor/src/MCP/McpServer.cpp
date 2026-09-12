@@ -1687,8 +1687,8 @@ namespace OloEngine::MCP
             // A tool this host cannot serve is not listed AND not callable — see
             // AutomationCommand::IsAvailable. Distinct from exposure below, and
             // checked first: advertising something that cannot run is worse than
-            // hiding something that can. No builtin declares one, so this changes
-            // nothing observable today.
+            // hiding something that can. The #1131 editor actions (pause, step,
+            // gizmo, shader pack) declare one: they need an editor hook.
             if (!tool.AvailableOn(*this))
                 continue;
             // Exposure is a LISTING filter only (issue #1124): a tool skipped here is
@@ -1902,7 +1902,8 @@ namespace OloEngine::MCP
         // A tool whose availability predicate says no on this host is not callable,
         // and reports the same way an unregistered one does: from the client's side
         // the two are the same fact, and a second error shape would only invite a
-        // client to retry. No builtin declares one (see AutomationCommand::IsAvailable).
+        // client to retry. The #1131 editor actions declare one (see
+        // AutomationCommand::IsAvailable): they are absent in a host with no editor.
         if (!tool->AvailableOn(*this))
             return MakeError(id, kInvalidParams, "Unknown tool: " + name);
 
