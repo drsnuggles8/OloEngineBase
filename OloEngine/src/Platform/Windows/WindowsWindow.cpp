@@ -8,6 +8,7 @@
 #include "Platform/Windows/WindowsWindow.h"
 
 #define GLFW_EXPOSE_NATIVE_WIN32
+#include <exception>
 #include <GLFW/glfw3native.h>
 #include <dwmapi.h>
 
@@ -132,11 +133,19 @@ namespace OloEngine
             }
             throw std::runtime_error("Failed to create graphics context!");
         }
+        // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+        // executed lexically inside a catch handler faults in __CxxFrameHandler3
+        // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+        std::exception_ptr createFailure;
         try
         {
             m_Context->Init();
         }
         catch (...)
+        {
+            createFailure = std::current_exception();
+        }
+        if (createFailure)
         {
             m_Context.reset();
             GLFWAPI::glfwDestroyWindow(m_Window);
@@ -146,7 +155,7 @@ namespace OloEngine
             {
                 GLFWAPI::glfwTerminate();
             }
-            throw;
+            std::rethrow_exception(createFailure);
         }
 
         GLFWAPI::glfwSetWindowUserPointer(m_Window, &m_Data);

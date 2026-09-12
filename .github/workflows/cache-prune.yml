@@ -168,6 +168,10 @@ jobs:
           #   sccache-windows-2025-release-33993528874-1  -> sccache-windows-2025-release
           #   vcpkg-Windows-x64-windows-static-md-<64hex>-34021696485-1
           #                                              -> vcpkg-Windows-x64-windows-static-md
+          #   vcpkg-Windows-x64-windows-static-md-<64hex>-20260828.587-34700000000-1
+          #                                              -> vcpkg-Windows-x64-windows-static-md
+          #     (the `-<ImageVersion>` runner-image stamp setup-vcpkg adds after the hash,
+          #     stripped BEFORE the hash strip so an image bump supersedes like a hash bump)
           #   ffmpeg-Windows-n7.1-<64hex>                 -> ffmpeg-Windows-n7.1
           #   sccache-asan-windows-2025-vk1.4.357.0-34166829499-1
           #                                              -> sccache-asan-windows-2025
@@ -268,7 +272,7 @@ jobs:
           kept_bytes=0
           while IFS=$'\t' read -r id ref key size accessed; do
             [ -n "${id:-}" ] || continue
-            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-[0-9a-f]{32,}$//; s/-vk[0-9]+(\.[0-9]+)*$//')
+            prefix=$(printf '%s' "$key" | sed -E 's/-[0-9]{6,}(-[0-9]+)?$//; s/-([0-9]{8}\.[0-9]+|noimage)$//; s/-[0-9a-f]{32,}$//; s/-vk[0-9]+(\.[0-9]+)*$//')
             group="${ref}|${prefix}"
             closed_pr=0
             if [[ "$ref" =~ ^refs/pull/([0-9]+)/merge$ ]] && pr_is_closed "${BASH_REMATCH[1]}"; then

@@ -1551,6 +1551,35 @@ include(GoogleTest)
 set(OLO_MESH_CACHE_TESTS
 	"ModelLoadDeterminism.Backpack_FreshVsCache:DataRoundTripTest.BackpackLegacyObjImportsPbrCompanionMaps:DataRoundTripTest.BackpackLegacyObjFlipsUvsToMatchTextureUploads:AllVariants/DeccerCubesLoaderFixture.*")
 
+# THE HEAVY SET: cases that are either memory-heavy or long, weighted so ctest can
+# run the other ~7,800 cases four-wide without four heavy ones ever landing at once.
+#
+# Measured 2026-09-12 on the self-hosted Linux runners (ASan, ctest --parallel 2,
+# run 34686730577): 8,109 cases, 111 min of summed case time for a 56 min step.
+# 7,785 of them take under one second -- 83 of those 111 minutes is the engine's
+# per-process start-up (0.64 s median here, 0.62 s on the Windows dev box),
+# paid once per case because every case is its own process. The 318 cases over a
+# second hold the other 28 minutes, and the ones over 10 s are all in the suites
+# below. Memory is the same shape: of the 8,205 cases on the Windows dev box, 265
+# peak above 1.2 GB committed or 20 s, all in these suites (the visual-evidence
+# and GPU-contract families, the path tracer, the fluid solver, the sailing
+# model, the benchmarks).
+#
+# `PROCESSORS 2` makes each of these count double against ctest's --parallel
+# budget, so `--parallel 4` runs four light cases or two heavy ones or one heavy
+# and two light -- never four heavy -- which keeps the runner inside its 14 GiB
+# cgroup while the light majority, whose whole cost is process start-up, gets
+# the extra width. `COST 100` makes ctest schedule them first, so the 90 s cases
+# do not start last and dangle alone at the end of the step (there is no
+# CTestCostData history on a fresh CI tree, and without COST the order is
+# discovery order). Over-inclusion here is the safe direction: a light case
+# wrongly listed only loses a little parallelism.
+#
+# The memory ceiling in the test binary (--olo-rss-ceiling-mb, default 6 GiB)
+# is the backstop for a case that grows past what this weighting assumes.
+set(OLO_HEAVY_TESTS
+	"*VisualEvidence*:*Evidence*:*VisualTest*:*GpuContract*:*GPUContract*:*Benchmark*:*PerfProbe*:*Perf.*:PathTracer*:ReSTIRDIOracle.*:ReSTIRGIOracle.*:DDGIReferenceParity*:DriftSailingTest.*:SailTest.*:CPUFluidSolver.*:FluidCouplingTest.*:GaussianSplat*:VulkanPassSuite.*:VulkanParallelRecordingDevice.*:AssetSceneLoad.*:RuntimeAssetPackTest.*:ProceduralSkyBake*:StarNestSkyBake*:ModelLoadDeterminism.*:VirtualGeometry*:OceanFFT*:LightmapBleedRoom.*:LightmapInstancedBleedRoom.*:AutoMeshLODScene.*:DeferredOccludedInstanceFieldScene.*:ModelComponentGPUSceneScene.*:GPUSceneRasterMigrationScene.*:SubmeshMaterialPathParity.*:ShaderDebugDraw*:TerrainGPUPick*:TerrainGPUQuadtree*:TwoSidedShadowCast.*:McpHeadlessAttachTest.*:SceneRenders3D.*:WorldTransformPropagation*:RenderPathDrift.*:BindlessShaderPipeline.*:GPUScene.*:GPUSceneAntiDuplicationRatchet.*:DebugLevers.*:FunctionalTestFixtureCoverage.*:FlockingViaSceneTickTest.*:ShaderUBOSizeConsistency.*:ShaderReflectionBinding.*:ShaderCrossConsistency.*")
+
 # --olo-* flags for every ctest-launched test process (a CMake list, so
 # `-DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none` is one flag and
 # `"--olo-gl-backend=egl;--olo-require-gpu"` is two). This is how a CI job that
@@ -1566,17 +1595,78 @@ if(OLO_TESTS_CTEST_ARGS)
 	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
 endif()
 
+# Three discovery passes over one binary, each a disjoint slice by gtest filter
+# (positive patterns, then `-` negatives): the mesh-cache offenders (serialised,
+# and they load a full model so they weigh double too) and the heavy set
+# (weighted and scheduled first) are registered PER CASE by gtest_discover_tests;
+# everything else -- the light majority whose whole cost is process start-up --
+# is registered PER SUITE by cmake/OloSuiteDiscovery.cmake, one process per
+# suite (sharded past 40 cases). Every case lands in exactly one pass; the
+# script's own filter is the negation of the other two.
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
 	TEST_FILTER "${OLO_MESH_CACHE_TESTS}"
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
-	PROPERTIES RESOURCE_LOCK "olo_mesh_cache"
+	PROPERTIES RESOURCE_LOCK "olo_mesh_cache" PROCESSORS 2 COST 100
 )
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
 	DISCOVERY_TIMEOUT 120
-	TEST_FILTER "-${OLO_MESH_CACHE_TESTS}"
+	TEST_FILTER "${OLO_HEAVY_TESTS}-${OLO_MESH_CACHE_TESTS}"
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
+	PROPERTIES PROCESSORS 2 COST 100
 )
+# The light majority, one ctest entry per SUITE. Wired the way gtest_discover_tests
+# wires POST_BUILD discovery: a -P script runs after every link of the target and
+# rewrites a per-config tests file, which a small include file pulls into ctest
+# through the directory's TEST_INCLUDE_FILES. The include file is generated at
+# configure time; the tests file only exists after a build, and until then ctest
+# sees one NOT_BUILT placeholder instead of silently nothing.
+set(_olo_suite_base "${CMAKE_CURRENT_BINARY_DIR}/OloEngine-Tests_suites")
+get_property(_olo_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_olo_is_multi_config)
+	string(APPEND _olo_suite_base "_$<CONFIG>")
+endif()
+set(_olo_suite_tests_file "${_olo_suite_base}_tests.cmake")
+set(_olo_suite_include_file "${_olo_suite_base}_include.cmake")
+add_custom_command(
+	TARGET OloEngine-Tests POST_BUILD
+	BYPRODUCTS "${_olo_suite_tests_file}"
+	COMMAND "${CMAKE_COMMAND}"
+		"-DTEST_EXECUTABLE=$<TARGET_FILE:OloEngine-Tests>"
+		"-DTEST_WORKING_DIR=${CMAKE_SOURCE_DIR}/OloEditor"
+		"-DTEST_EXTRA_ARGS=${OLO_TESTS_CTEST_ARGS}"
+		"-DTEST_EXCLUDE_FILTER=${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
+		"-DCTEST_FILE=${_olo_suite_tests_file}"
+		-DTEST_DISCOVERY_TIMEOUT=120
+		-DCHUNK_SIZE=40
+		-DDEFAULT_TIMEOUT=600
+		-P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OloSuiteDiscovery.cmake"
+	VERBATIM
+)
+# A POST_BUILD command only re-runs when the target relinks, so an edit to the
+# discovery script alone would leave a stale tests file behind; making the script
+# a link dependency forces the relink, and with it the re-discovery.
+set_property(TARGET OloEngine-Tests APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OloSuiteDiscovery.cmake")
+file(GENERATE OUTPUT "${_olo_suite_include_file}" CONTENT
+"if(EXISTS \"${_olo_suite_tests_file}\")
+  include(\"${_olo_suite_tests_file}\")
+else()
+  add_test(OloEngine-Tests_suites_NOT_BUILT OloEngine-Tests_suites_NOT_BUILT)
+endif()
+")
+if(_olo_is_multi_config)
+	# TEST_INCLUDE_FILES takes no generator expressions: point it at a fixed file
+	# that forwards to the per-config one ctest is running, exactly as the
+	# GoogleTest module does for its own discovery.
+	string(REPLACE [[_$<CONFIG>]] [[_${CTEST_CONFIGURATION_TYPE}]] _olo_suite_include_cfg "${_olo_suite_include_file}")
+	string(REPLACE [[_$<CONFIG>]] "" _olo_suite_include_file "${_olo_suite_include_file}")
+	file(WRITE "${_olo_suite_include_file}"
+"if(EXISTS \"${_olo_suite_include_cfg}\")
+  include(\"${_olo_suite_include_cfg}\")
+endif()
+")
+endif()
+set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES "${_olo_suite_include_file}")
 

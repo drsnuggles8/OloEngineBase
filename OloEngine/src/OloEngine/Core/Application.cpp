@@ -30,6 +30,8 @@
 #include "OloEngine/Task/NamedThreads.h"
 #include "Platform/Steam/SteamManager.h"
 
+#include <string>
+#include <exception>
 #include <chrono>
 #include <stdexcept>
 #include <ranges>
@@ -132,15 +134,29 @@ namespace OloEngine
         // to name the exact build it came from.
         OLO_CORE_INFO("[{}] Build: {}", m_Specification.Name, BuildInfo::GetBuildId());
 
+        // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+        // executed lexically inside a catch handler faults in __CxxFrameHandler3
+        // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+        std::exception_ptr initFailure;
         try
         {
             if (!m_Specification.IsHeadless)
             {
+                // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+                // executed lexically inside a catch handler faults in __CxxFrameHandler3
+                // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+                std::exception_ptr backendFailure;
+                std::string backendFailureWhat;
                 try
                 {
                     m_Window = Window::Create(WindowProps(m_Specification.Name));
                 }
                 catch (const std::exception& e)
+                {
+                    backendFailure = std::current_exception();
+                    backendFailureWhat = e.what();
+                }
+                if (backendFailure)
                 {
                     // #691: a Vulkan selection persisted in
                     // config/renderer.yaml must not brick the install on a
@@ -151,10 +167,10 @@ namespace OloEngine
                     // init); neither does a failure on the OpenGL arm.
                     if (!vulkanSelectedFromConfig)
                     {
-                        throw;
+                        std::rethrow_exception(backendFailure);
                     }
                     OLO_CORE_ERROR("[RHI] Vulkan selected by config file but initialisation failed: {}",
-                                   e.what());
+                                   backendFailureWhat);
                     const auto configPath = DefaultRendererConfigPath();
                     if (WriteRendererConfig(configPath, RendererAPI::API::OpenGL))
                     {
@@ -280,6 +296,10 @@ namespace OloEngine
         }
         catch (...)
         {
+            initFailure = std::current_exception();
+        }
+        if (initFailure)
+        {
             // Detach layers before shutting down subsystems they depend on.
             m_LayerStack.Clear();
             m_ImGuiLayer = nullptr;
@@ -327,7 +347,7 @@ namespace OloEngine
             // Shutdown task scheduler started before the try block.
             LowLevelTasks::FScheduler::Get().StopWorkers();
             Tasks::FNamedThreadManager::Get().DetachFromThread(Tasks::ENamedThread::GameThread);
-            throw;
+            std::rethrow_exception(initFailure);
         }
     }
     Application::~Application()

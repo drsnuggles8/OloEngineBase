@@ -127,30 +127,51 @@ namespace OloEngine
         // a confidently wrong "nothing was acquired", which is worse than no tool.
         m_LastFrameAcquireOrder = BuildAcquireOrder();
 
-        // Return all acquired objects to their pools
+        // A release with nothing acquired is not a frame: BuildFrameGraph makes
+        // one defensively at the START of every frame, right before its Trim.
+        // Resetting the demand there would let that trim evict to the cap what
+        // the end-of-frame trim had just kept, and the churn this exists to
+        // stop would simply move to the other end of the frame (every one of
+        // the four GTAO textures then re-created per frame, not two).
+        const bool acquiredAnything =
+            !m_AcquiredTextures.empty() || !m_AcquiredFramebuffers.empty() || !m_AcquiredBuffers.empty();
+        if (!acquiredAnything)
+            return;
+
+        // Return all acquired objects to their pools, counting the frame's
+        // demand per bucket on the way so Trim() knows what it must keep.
+        m_LastFrameTextureDemand.clear();
         for (const auto& tex : m_AcquiredTextures)
         {
             if (tex)
             {
-                m_TexturePool[BuildTextureKey(tex->GetSpecification())].push_back(tex);
+                const auto key = BuildTextureKey(tex->GetSpecification());
+                m_TexturePool[key].push_back(tex);
+                ++m_LastFrameTextureDemand[key];
             }
         }
         m_AcquiredTextures.clear();
 
+        m_LastFrameFramebufferDemand.clear();
         for (const auto& fb : m_AcquiredFramebuffers)
         {
             if (fb)
             {
-                m_FramebufferPool[BuildFramebufferKey(fb->GetSpecification())].push_back(fb);
+                const auto key = BuildFramebufferKey(fb->GetSpecification());
+                m_FramebufferPool[key].push_back(fb);
+                ++m_LastFrameFramebufferDemand[key];
             }
         }
         m_AcquiredFramebuffers.clear();
 
+        m_LastFrameBufferDemand.clear();
         for (const auto& buf : m_AcquiredBuffers)
         {
             if (buf)
             {
-                m_BufferPool[buf->GetSize()].push_back(buf);
+                const auto key = buf->GetSize();
+                m_BufferPool[key].push_back(buf);
+                ++m_LastFrameBufferDemand[key];
             }
         }
         m_AcquiredBuffers.clear();
@@ -158,38 +179,28 @@ namespace OloEngine
 
     void TransientPool::Trim(u32 maxPerBucket)
     {
-        for (auto it = m_TexturePool.begin(); it != m_TexturePool.end();)
+        // Keep max(cap, last frame's demand); evict from the front, where the
+        // objects nobody acquired this frame sit (see the header).
+        const auto trimBuckets = [maxPerBucket](auto& buckets, const auto& demandByKey)
         {
-            if (it->second.size() > maxPerBucket)
-                it->second.resize(maxPerBucket);
+            for (auto it = buckets.begin(); it != buckets.end();)
+            {
+                auto& bucket = it->second;
+                const auto demandIt = demandByKey.find(it->first);
+                const u32 keep = std::max(maxPerBucket, demandIt != demandByKey.end() ? demandIt->second : 0u);
+                if (bucket.size() > keep)
+                    bucket.erase(bucket.begin(), bucket.begin() + static_cast<std::ptrdiff_t>(bucket.size() - keep));
 
-            if (it->second.empty())
-                it = m_TexturePool.erase(it);
-            else
-                ++it;
-        }
+                if (bucket.empty())
+                    it = buckets.erase(it);
+                else
+                    ++it;
+            }
+        };
 
-        for (auto it = m_FramebufferPool.begin(); it != m_FramebufferPool.end();)
-        {
-            if (it->second.size() > maxPerBucket)
-                it->second.resize(maxPerBucket);
-
-            if (it->second.empty())
-                it = m_FramebufferPool.erase(it);
-            else
-                ++it;
-        }
-
-        for (auto it = m_BufferPool.begin(); it != m_BufferPool.end();)
-        {
-            if (it->second.size() > maxPerBucket)
-                it->second.resize(maxPerBucket);
-
-            if (it->second.empty())
-                it = m_BufferPool.erase(it);
-            else
-                ++it;
-        }
+        trimBuckets(m_TexturePool, m_LastFrameTextureDemand);
+        trimBuckets(m_FramebufferPool, m_LastFrameFramebufferDemand);
+        trimBuckets(m_BufferPool, m_LastFrameBufferDemand);
     }
 
     TransientPool::TextureDescriptorKey TransientPool::BuildTextureKey(const TextureSpecification& spec)
@@ -241,8 +252,11 @@ namespace OloEngine
         m_AcquiredBuffers.clear();
         // The snapshot describes objects that no longer exist after a Clear
         // (context loss, shutdown, a debug-flag flip evicting the pool), so drop
-        // it rather than report stale GL ids.
+        // it rather than report stale GL ids — and the demand it implies.
         m_LastFrameAcquireOrder.clear();
+        m_LastFrameTextureDemand.clear();
+        m_LastFrameFramebufferDemand.clear();
+        m_LastFrameBufferDemand.clear();
     }
 
     TransientPool::PoolStats TransientPool::GetStats() const
