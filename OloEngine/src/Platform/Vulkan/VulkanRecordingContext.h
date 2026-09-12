@@ -394,13 +394,32 @@ namespace OloEngine
         // A worker claims 64 KiB from the slot's shared cursor once and bumps
         // inside it, so the per-draw root-data push touches no shared cache
         // line (VulkanFrameArena::Allocate). Offsets are absolute within the
-        // slot buffer. Dropped at every fork; the tail of a block is waste.
+        // slot buffer, which is rewound only by VulkanFrameArena::BeginFrame —
+        // so a block stays valid for the WHOLE frame, across as many command
+        // buffers as this context records.
+        //
+        // It used to be dropped at every fork, and the tail of each dropped
+        // block was waste. That is not a rounding error: a deferred frame forks
+        // once per parallel-recorded pass, so the waste is 64 KiB x (forks x
+        // workers), and a scene with enough passes exhausted the 16 MiB slot in
+        // a SINGLE frame (measured: 255 block claims, 16.72 MB of a 16.78 MB
+        // slot, 0 counted allocations). Past that point every root-data push is
+        // dropped and the frame renders with unbound material / skybox buffers —
+        // a silently wrong image, not a crash (issue #1185).
+        //
+        // The block therefore survives ResetForCommandBuffer and is instead
+        // keyed on the arena's frame generation: reused within a frame, dropped
+        // when the slot underneath it has been rewound. Keying on the slot index
+        // alone would alias frame N with frame N+2 — the same hazard
+        // VulkanFrameArena::GetFrameGeneration() exists to close.
         struct ArenaBlock
         {
             u64 Cursor = 0;
             u64 End = 0;
         };
         ArenaBlock Arena{};
+        /// Arena frame generation `Arena` was claimed in; 0 = never claimed.
+        u64 ArenaFrameGeneration = 0;
         u64 ArenaAllocations = 0; ///< Folded into the arena's frame tally at the join.
 
         // --- telemetry (workers) -------------------------------------------
@@ -443,7 +462,10 @@ namespace OloEngine
             NextDrawRootDataAddress = 0;
             Query = {};
             ConditionalRenderSkip = false;
-            Arena = {};
+            // `Arena` deliberately survives: it is frame-scoped, not
+            // command-buffer-scoped, and dropping it here is what exhausted the
+            // slot (see ArenaBlock above). VulkanFrameArena::Allocate discards it
+            // when the frame generation moves on.
             ArenaAllocations = 0;
             Recorded = false;
             RecordMs = 0.0;

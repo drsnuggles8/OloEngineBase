@@ -23,6 +23,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -748,7 +749,25 @@ namespace OloEngine::Automation
 
                 // Rewrite the referring files first, exactly as the forward move
                 // did, so a refusal happens before anything has moved.
+                //
+                // THE REFUSAL IS RETHROWN AFTER THE HANDLER, NOT INSIDE IT. This used
+                // to read `catch (...) { RevertRewrites(...); throw; }`, and that
+                // shape is the one build-trees-and-windows-asan.md §4b forbids: under
+                // clang-cl + ASan, a throw executed lexically inside a catch handler
+                // makes __CxxFrameHandler3 read the handler funclet's parent frame as
+                // NULL and fault. It presented as
+                //   SEH exception with code 0xc0000005 thrown in the test body
+                // from UndoRefusesWhenAReferringFileChangedUnderneath on every Windows
+                // ASan shard — no ASan report, no stack, because gtest's SEH catcher
+                // gets there first — while the same test passes in every other
+                // configuration. A 50-line standalone TU of exactly this frame shape
+                // (destructor-bearing locals in the try, a helper with its own
+                // try/catch in the handler, then the rethrow) reproduces the fault on
+                // clang 23.1.0; capturing the exception and rethrowing once the
+                // handler has been left passes. The rollback itself is unchanged and
+                // still runs before the exception reaches the caller.
                 sizet written = 0;
+                std::exception_ptr refusal;
                 try
                 {
                     for (; written < m_Record.Edits.size(); ++written)
@@ -761,8 +780,12 @@ namespace OloEngine::Automation
                 }
                 catch (...)
                 {
+                    refusal = std::current_exception();
+                }
+                if (refusal)
+                {
                     RevertRewrites(forward, written);
-                    throw;
+                    std::rethrow_exception(refusal);
                 }
 
                 std::error_code ec;

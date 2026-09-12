@@ -1070,7 +1070,9 @@ namespace OloEngine
         // Set the maximum number of pool objects retained per descriptor bucket
         // after each frame. Excess objects are evicted by TransientPool::Trim()
         // at the end of Execute(). Default = 2 (keeps one spare for same-descriptor
-        // overlapping transients; use 1 for the most aggressive trim).
+        // overlapping transients; use 1 for the most aggressive trim). A bucket
+        // the frame just drawn needed more of keeps that many regardless — the
+        // cap bounds idle buckets, never a frame's live demand (issue #1186).
         void SetTransientPoolMaxBucketSize(u32 maxPerBucket)
         {
             m_TransientPoolMaxBucketSize = maxPerBucket;

@@ -1105,11 +1105,23 @@ namespace OloEngine
 
                     const std::string fullPathStr = fullPath.string();
 
-                    // Check for circular includes
+                    // INCLUDE-ONCE, not cycle detection. `includedFiles` accumulates
+                    // every header pulled in anywhere under this shader and is never
+                    // popped, so a second visit means the header is already in the
+                    // translation unit — which is what we want for GLSL, where there
+                    // is no #pragma once and a second copy is a redefinition error.
+                    //
+                    // The overwhelmingly common second visit is a DIAMOND, not a
+                    // cycle: two headers both including MathCommon.glsl. Reporting it
+                    // as "circular include detected" cried wolf 81 times in a single
+                    // editor session, on leaf headers that include nothing at all
+                    // (GPUScene.glsl 47x, MathCommon.glsl 21x) and so cannot be part
+                    // of a cycle by construction. Skipping is correct either way; only
+                    // the diagnostic was wrong.
                     if (includedFiles.find(fullPathStr) != includedFiles.end())
                     {
-                        OLO_CORE_WARN("Circular include detected for: {0}", fullPathStr);
-                        result << "// Circular include: " << includePath << "\n";
+                        OLO_CORE_TRACE("Shader include already present, skipping: {0}", fullPathStr);
+                        result << "// Already included: " << includePath << "\n";
                         continue;
                     }
 

@@ -1354,4 +1354,89 @@ TEST_F(VulkanParallelRecordingDevice, FrameArenaClaimsFromSeveralThreadsNeverOve
     EXPECT_EQ(arena.GetCurrentSlotUsedBytes(), all.back().Offset + all.back().Size);
 }
 
+// A frame's root-data budget must not scale with the number of recording ITEMS
+// (issue #1185). The worker arena block is claimed per item, so at the original
+// 64 KiB a deferred frame's ~255 items claimed 16.7 MiB of a 16.78 MiB slot --
+// nearly all of it untouched block tails -- and every root-data push after that
+// was dropped. A dropped push is not a crash: the draw samples an unbound
+// buffer, so materials and the skybox render with no data and the frame is
+// silently wrong. Both halves of the fix are pinned here.
+TEST_F(VulkanParallelRecordingDevice, ItemCountDoesNotExhaustTheFrameArena)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    auto& arena = VulkanFrameArena::Get();
+
+    // What a deferred frame actually records; the measured #1185 repro claimed
+    // 255 blocks in one frame.
+    constexpr u32 kItemsPerFrame = 255;
+    constexpr u64 kPushBytes = 352; // a representative per-draw root-data push
+
+    arena.BeginFrame(0);
+    // The overflow count is cumulative for the PROCESS: BeginFrame re-arms only
+    // the warning, and ReleaseBuffers keeps the tally, so a device-gated test
+    // that ran earlier in this binary (VulkanRenderGraphExecutionTest) may
+    // already have bumped it. Measure this frame's contribution, not the total
+    // (CodeRabbit on #1188).
+    const u64 overflowsBefore = arena.GetOverflowCount();
+
+    // One worker context per item, reset at each fork boundary exactly as
+    // VulkanRecordingContext::ResetForCommandBuffer does between command buffers.
+    VulkanWorkerRecordingContext worker;
+    {
+        ScopedVulkanWorkerContext scoped(&worker);
+        for (u32 item = 0; item < kItemsPerFrame; ++item)
+        {
+            worker.ResetForCommandBuffer(VK_NULL_HANDLE);
+            for (u32 push = 0; push < 4u; ++push)
+            {
+                const auto allocation = arena.Allocate(kPushBytes, 16);
+                ASSERT_TRUE(allocation.IsValid())
+                    << "item " << item << " push " << push << " was DROPPED -- the draw would sample an unbound buffer";
+            }
+        }
+    }
+
+    EXPECT_EQ(arena.GetOverflowCount(), overflowsBefore)
+        << kItemsPerFrame << " items must not overflow a " << arena.GetSlotCapacityBytes() << " B slot";
+
+    // The real assertion is the budget, not merely "no overflow": a future
+    // block size that fits 255 items but not 600 would pass an overflow-only
+    // check while still scaling the frame's cost with the item count.
+    const u64 used = arena.GetCurrentSlotUsedBytes();
+    EXPECT_LT(used, arena.GetSlotCapacityBytes() / 4u)
+        << "a " << kItemsPerFrame << "-item frame consumed " << used << " B of the slot; the per-item block tail is "
+        << "the dominant cost and it must leave headroom, not most of the budget";
+}
+
+// The other half: a block claimed in an earlier frame must never be reused, or
+// it hands out memory that BeginFrame has already rewound and handed to someone
+// else. Reuse is keyed on the arena's frame generation, which is why the block
+// can safely survive ResetForCommandBuffer within a frame.
+TEST_F(VulkanParallelRecordingDevice, WorkerArenaBlockIsDroppedWhenTheFrameRewinds)
+{
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    auto& arena = VulkanFrameArena::Get();
+
+    VulkanWorkerRecordingContext worker;
+    arena.BeginFrame(0);
+    u64 firstFrameOffset = 0;
+    {
+        ScopedVulkanWorkerContext scoped(&worker);
+        const auto allocation = arena.Allocate(128, 16);
+        ASSERT_TRUE(allocation.IsValid());
+        firstFrameOffset = allocation.Offset;
+        EXPECT_NE(worker.Arena.End, u64{ 0 }) << "the worker should be bumping inside a claimed block";
+    }
+
+    // Same slot, rewound. The stale block still names offsets inside it.
+    arena.BeginFrame(0);
+    {
+        ScopedVulkanWorkerContext scoped(&worker);
+        const auto allocation = arena.Allocate(128, 16);
+        ASSERT_TRUE(allocation.IsValid());
+        EXPECT_EQ(allocation.Offset, firstFrameOffset)
+            << "a rewound slot must hand out its first offset again, not continue inside last frame's block";
+    }
+}
+
 #endif // OLO_WITH_VULKAN

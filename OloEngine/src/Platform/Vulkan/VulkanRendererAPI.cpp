@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <unordered_set>
 #include <exception>
 #include <chrono>
 #include <array>
@@ -1403,10 +1404,33 @@ namespace OloEngine
 
     // --- Debug labels / device queries -------------------------------------
 
+    namespace
+    {
+        // vkCmdSetCheckpointNV stores a raw pointer the driver hands back on a
+        // device loss, so the marker must outlive every command buffer that
+        // names it: intern the pass names for the process lifetime.
+        const char* InternCheckpointMarker(const std::string_view label)
+        {
+            static std::mutex s_Mutex;
+            static std::unordered_set<std::string> s_Markers;
+            const std::lock_guard lock(s_Mutex);
+            return s_Markers.emplace(label).first->c_str();
+        }
+    } // namespace
+
     void VulkanRendererAPI::PushDebugGroup(u32 /*id*/, const std::string_view label)
     {
         auto& ctx = Ctx();
         ctx.DebugLabels.emplace_back(label);
+        // A checkpoint per pass, on whichever queue's buffer is recording — the
+        // async-compute segment included. Read back by
+        // VulkanDevice::LogDeviceFaultInfo (issue #1198).
+        if (ctx.Cmd != VK_NULL_HANDLE && vkCmdSetCheckpointNV != nullptr)
+        {
+            const VulkanDevice* device = VulkanDevice::Get();
+            if (device != nullptr && device->AreCheckpointsEnabled())
+                vkCmdSetCheckpointNV(ctx.Cmd, InternCheckpointMarker(label));
+        }
         // vkCmdBeginDebugUtilsLabelEXT is loaded only when the debug-utils
         // extension was enabled (debug builds with the validation layer) —
         // the pointer probe IS the capability check under volk.

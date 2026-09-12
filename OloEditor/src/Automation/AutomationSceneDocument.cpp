@@ -8,6 +8,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "UndoRedo/EditorCommand.h"
 
+#include <exception>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -93,6 +94,10 @@ namespace OloEngine::Automation
         std::string SerializeDocument(const SceneDocumentSnapshot& document)
         {
             const auto original = CaptureSceneDocument(document.SceneRef);
+            // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+            // executed lexically inside a catch handler faults in __CxxFrameHandler3
+            // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+            std::exception_ptr applyFailure;
             try
             {
                 ApplySceneDocument(document);
@@ -102,8 +107,12 @@ namespace OloEngine::Automation
             }
             catch (...)
             {
+                applyFailure = std::current_exception();
+            }
+            if (applyFailure)
+            {
                 ApplySceneDocument(original);
-                throw;
+                std::rethrow_exception(applyFailure);
             }
         }
 
@@ -148,28 +157,44 @@ namespace OloEngine::Automation
             void Execute() override
             {
                 ReplaceFileContents(m_After.Path, m_OldBytes, m_NewBytes);
+                // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+                // executed lexically inside a catch handler faults in __CxxFrameHandler3
+                // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+                std::exception_ptr undoFailure;
                 try
                 {
                     m_Access.Install(m_After);
                 }
                 catch (...)
                 {
+                    undoFailure = std::current_exception();
+                }
+                if (undoFailure)
+                {
                     ReplaceFileContents(m_After.Path, m_NewBytes, m_OldBytes);
-                    throw;
+                    std::rethrow_exception(undoFailure);
                 }
             }
 
             void Undo() override
             {
                 ReplaceFileContents(m_After.Path, m_NewBytes, m_OldBytes);
+                // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+                // executed lexically inside a catch handler faults in __CxxFrameHandler3
+                // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+                std::exception_ptr redoFailure;
                 try
                 {
                     m_Access.Install(m_Before);
                 }
                 catch (...)
                 {
+                    redoFailure = std::current_exception();
+                }
+                if (redoFailure)
+                {
                     ReplaceFileContents(m_After.Path, m_OldBytes, m_NewBytes);
-                    throw;
+                    std::rethrow_exception(redoFailure);
                 }
             }
 

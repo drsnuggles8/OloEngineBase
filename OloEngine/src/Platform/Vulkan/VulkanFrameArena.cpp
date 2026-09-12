@@ -201,6 +201,8 @@ namespace OloEngine
         m_Slots[m_CurrentSlot].Cursor.store(0, std::memory_order_relaxed);
         ++m_FrameGeneration;
         m_AllocationsThisFrame.store(0, std::memory_order_relaxed);
+        // One line per affected frame — see the overflow reporter.
+        m_OverflowWarned.store(false, std::memory_order_relaxed);
     }
 
     VulkanFrameArenaAllocation VulkanFrameArena::Allocate(u64 sizeBytes, u64 alignment)
@@ -262,14 +264,23 @@ namespace OloEngine
                 // thread advanced it to; recompute against that.
             }
         };
-        const auto overflow = [&](const u64 at)
+        const auto overflow = [&]()
         {
-            m_OverflowCount.fetch_add(1, std::memory_order_relaxed);
+            const u64 total = m_OverflowCount.fetch_add(1, std::memory_order_relaxed) + 1u;
+            // Re-armed by BeginFrame, not latched for the process: an overflow
+            // that repeats every frame is a permanently wrong image, and a
+            // one-shot line made that look like a single transient hiccup
+            // (issue #1185). The cursor is READ here rather than passed in —
+            // the claim helper leaves its out-parameter untouched on failure,
+            // so the old call site reported a cursor of 0 next to a 16 MiB
+            // capacity and read as impossible.
             if (!m_OverflowWarned.exchange(true, std::memory_order_relaxed))
             {
-                OLO_CORE_ERROR("VulkanFrameArena: slot {} overflow ({} B requested at cursor {} of {} B) — "
-                               "root-data allocations are being DROPPED this frame",
-                               m_CurrentSlot, sizeBytes, at, kSlotCapacityBytes);
+                OLO_CORE_ERROR("VulkanFrameArena: slot {} overflow ({} B requested, cursor at {} of {} B; {} dropped "
+                               "since start) — root-data allocations are being DROPPED this frame, so draws will "
+                               "sample unbound buffers",
+                               m_CurrentSlot, sizeBytes, slot.Cursor.load(std::memory_order_relaxed),
+                               kSlotCapacityBytes, total);
             }
             return VulkanFrameArenaAllocation{};
         };
@@ -281,13 +292,22 @@ namespace OloEngine
         if (auto* worker = CurrentVulkanWorkerContext(); worker != nullptr && sizeBytes <= kWorkerBlockBytes / 2u)
         {
             auto& block = worker->Arena;
+            // A block claimed in an earlier frame points into a slot that
+            // BeginFrame has since rewound to 0, so reusing it would hand out
+            // memory another allocation already owns. Anything from THIS frame
+            // is still ours, whichever command buffer claimed it.
+            if (worker->ArenaFrameGeneration != m_FrameGeneration)
+            {
+                block = {};
+                worker->ArenaFrameGeneration = m_FrameGeneration;
+            }
             u64 aligned = Align(block.Cursor, alignment);
             if (block.End == 0u || aligned + sizeBytes > block.End)
             {
                 u64 blockOffset = 0;
                 if (!claimShared(kWorkerBlockBytes, std::max<u64>(alignment, 256u), blockOffset))
                 {
-                    return overflow(blockOffset);
+                    return overflow();
                 }
                 block.Cursor = blockOffset;
                 block.End = blockOffset + kWorkerBlockBytes;
@@ -305,7 +325,7 @@ namespace OloEngine
         u64 aligned = 0;
         if (!claimShared(sizeBytes, alignment, aligned))
         {
-            return overflow(slot.Cursor.load(std::memory_order_relaxed));
+            return overflow();
         }
         m_AllocationsThisFrame.fetch_add(1, std::memory_order_relaxed);
         return {
