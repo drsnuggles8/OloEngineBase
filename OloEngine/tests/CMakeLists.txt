@@ -122,6 +122,7 @@ add_executable(OloEngine-Tests
 		Audio/AudioEventsManagerTest.cpp
 		Audio/AudioEventsSceneIntegrationTest.cpp
 		Audio/VoiceManagerTest.cpp
+		Audio/AudioSourceLifetimeTest.cpp
 		SphericalHarmonicsTest.cpp
 
 		Async/ParkingLotTest.cpp

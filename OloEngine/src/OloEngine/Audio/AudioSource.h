@@ -169,6 +169,10 @@ namespace OloEngine
       private:
         std::string m_Path;
         Scope<ma_sound> m_Sound;
+        // True only after ma_sound_init_from_file succeeded. A sound that never
+        // initialised (no audio engine up, file missing) is a zeroed ma_sound whose
+        // engine pointer is null; ma_sound_uninit on it is a null dereference (#1203).
+        bool m_SoundInitialized = false;
         bool m_Spatialization = false;
 
         // Voice-budget state (issue #730). Mutable because the playback and 3D setters are
