@@ -181,7 +181,12 @@ namespace OloEngine
         if (!RenderCommand::IsDeviceAvailable())
             return BuildDefault(kind);
 
-        auto& shared = SharedDefaultSources()[static_cast<sizet>(kind)];
+        auto& sources = SharedDefaultSources();
+        const auto index = static_cast<sizet>(kind);
+        OLO_CORE_ASSERT(index < sources.size(), "CreateSharedDefault: unknown primitive kind");
+        if (index >= sources.size())
+            return nullptr;
+        auto& shared = sources[index];
         if (!shared)
         {
             auto built = BuildDefault(kind);
