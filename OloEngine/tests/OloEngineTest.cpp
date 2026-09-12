@@ -7,6 +7,7 @@
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "MemoryCeiling.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
 
@@ -39,6 +40,13 @@ int main(int argc, char** argv)
     // above deferred, now that the logger exists.
     OloEngine::Levers::LogActive();
 
+    // Per-process resident-set ceiling (MemoryCeiling.h, --olo-rss-ceiling-mb).
+    // A case that outgrows the runner's cgroup is otherwise killed by the
+    // kernel with no test name and, on the self-hosted box, sometimes with the
+    // runner. Past the ceiling the process stops itself with exit code 77 and
+    // says which test was running.
+    OloEngine::Tests::StartMemoryCeilingWatchdog(OloEngine::Tests::Options().RssCeilingMb);
+
     // No one is here to click OK. Without this, ANY blocking modal in a test run
     // parks the process forever at ~0% CPU — it presents as a hung/slow test,
     // not a failing one. Cost hours on #714 when a compute shader failed to
@@ -66,6 +74,7 @@ int main(int argc, char** argv)
 
     ::testing::InitGoogleTest(&argc, argv);
     OloEngine::Tests::TestFailureCapture::RegisterFailureListener();
+    OloEngine::Tests::RegisterMemoryCeilingListener();
     // Assert a clean glGetError() state after every test so a test that
     // pollutes the shared, process-wide GL context is pinned to its source
     // rather than misattributed to a later unrelated GPU test (issue #485).
@@ -95,6 +104,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr,
                      "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
                      "matched no tests (expected the BenchmarkCapture suite).\n");
+        OloEngine::Tests::StopMemoryCeilingWatchdog();
         OloEngine::Renderer::Shutdown();
         return 2;
     }
@@ -107,6 +117,8 @@ int main(int argc, char** argv)
     // GPUResourceInspector / FrameResourceManager — Meyer's singletons already
     // destroyed by then — which segfaults on the way out. Mirror the production
     // app shutdown and release these now, while those singletons are still alive.
+    // Joined before the statics it reads are destroyed (CodeRabbit on #1204).
+    OloEngine::Tests::StopMemoryCeilingWatchdog();
     OloEngine::Renderer::Shutdown();
 
     return result;

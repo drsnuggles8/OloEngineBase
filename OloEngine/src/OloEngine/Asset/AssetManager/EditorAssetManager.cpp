@@ -647,6 +647,19 @@ namespace OloEngine
         OLO_CORE_TRACE("Removed asset: {}", (u64)handle);
     }
 
+    void EditorAssetManager::UnloadLoadedAssets()
+    {
+        std::unordered_map<AssetHandle, Ref<Asset>> released;
+        {
+            TUniqueLock<FSharedMutex> lock(m_AssetsMutex);
+            released.swap(m_LoadedAssets);
+        }
+        // Destroyed outside the lock: an asset destructor may reach back into the
+        // manager (dependency deregistration, GPU resource release).
+        OLO_CORE_TRACE("Unloaded {} loaded assets (registry kept)", released.size());
+        released.clear();
+    }
+
     void EditorAssetManager::RegisterDependency(AssetHandle handle, AssetHandle dependency)
     {
         TUniqueLock<FSharedMutex> lock(m_DependenciesMutex);

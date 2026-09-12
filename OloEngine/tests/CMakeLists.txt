@@ -39,6 +39,8 @@ add_executable(OloEngine-Tests
 		# The suite's own `--olo-*` flags. Parsed in main() before gtest sees
 		# argv; replaced twelve environment variables read from 26 sites.
 		TestOptions.cpp
+		MemoryCeiling.cpp
+		MemoryCeilingTest.cpp
 		# Per-process, per-case scratch paths. Every test that writes a file goes
 		# through this instead of std::filesystem::temp_directory_path() — see
 		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
@@ -120,6 +122,7 @@ add_executable(OloEngine-Tests
 		Audio/AudioEventsManagerTest.cpp
 		Audio/AudioEventsSceneIntegrationTest.cpp
 		Audio/VoiceManagerTest.cpp
+		Audio/AudioSourceLifetimeTest.cpp
 		SphericalHarmonicsTest.cpp
 
 		Async/ParkingLotTest.cpp
@@ -231,6 +234,7 @@ add_executable(OloEngine-Tests
 		Rendering/ShaderStageInterfaceTest.cpp
 		Rendering/ShaderStageContractTest.cpp
 		Rendering/ShaderToolchainFloorTest.cpp
+		Rendering/ShaderCompileBudgetTest.cpp
 		Rendering/ShaderPackTest.cpp
 		Rendering/ShaderPackContentHashTest.cpp
 		Rendering/ShaderPackBakeTest.cpp

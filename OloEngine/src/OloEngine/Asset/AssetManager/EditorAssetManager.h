@@ -78,6 +78,13 @@ namespace OloEngine
         [[nodiscard]] bool IsPhysicalAsset(AssetHandle handle) const noexcept override;
         void RemoveAsset(AssetHandle handle) override;
 
+        // Drops every loaded (file-backed) asset while keeping the registry, the memory-only
+        // assets and the dependency graph, so the next GetAsset loads from disk again. For a
+        // caller that walks many scenes through one manager and wants each scene's footprint
+        // released before the next: the loaded set otherwise grows with every scene until
+        // Shutdown (AssetSceneLoadTest measured 5.7 GB committed across the sandbox scenes).
+        void UnloadLoadedAssets();
+
         // Dependency management
         void RegisterDependency(AssetHandle handle, AssetHandle dependency) override;
         void DeregisterDependency(AssetHandle handle, AssetHandle dependency) override;

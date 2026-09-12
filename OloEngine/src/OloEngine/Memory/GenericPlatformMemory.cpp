@@ -169,28 +169,31 @@ namespace OloEngine
 
     const FPlatformMemoryConstants& FGenericPlatformMemory::GetConstants()
     {
-        static FPlatformMemoryConstants Constants;
-        static bool bInitialized = false;
-
-        if (!bInitialized)
+        // A function-local static initialised by its initialiser is thread-safe by
+        // the language; the previous `static bool bInitialized` check-then-set was
+        // a data race whenever two threads asked for the constants at once, which
+        // GetStats() does through FGenericPlatformMemoryStats' constructor. TSan
+        // reported it the first time a test polled memory from a second thread
+        // (the OloEngine-Tests memory ceiling, #1204).
+        static const FPlatformMemoryConstants Constants = []
         {
-            PlatformMemoryBackend::BackendConstants BackendConstants;
-            PlatformMemoryBackend::QueryConstants(BackendConstants);
-            Constants.PageSize = BackendConstants.PageSize;
-            Constants.OsAllocationGranularity = BackendConstants.OsAllocationGranularity;
-            Constants.TotalPhysical = BackendConstants.TotalPhysical;
-            Constants.TotalVirtual = BackendConstants.TotalVirtual;
-            Constants.TotalPhysicalGB = Constants.TotalPhysical != 0
-                                            ? static_cast<u32>((Constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024))
+            FPlatformMemoryConstants constants;
+            PlatformMemoryBackend::BackendConstants backend;
+            PlatformMemoryBackend::QueryConstants(backend);
+            constants.PageSize = backend.PageSize;
+            constants.OsAllocationGranularity = backend.OsAllocationGranularity;
+            constants.TotalPhysical = backend.TotalPhysical;
+            constants.TotalVirtual = backend.TotalVirtual;
+            constants.TotalPhysicalGB = constants.TotalPhysical != 0
+                                            ? static_cast<u32>((constants.TotalPhysical + 1024 * 1024 * 1024 - 1) / (1024 * 1024 * 1024))
                                             : 1u;
 
-            Constants.BinnedPageSize = 65536;
-            Constants.BinnedAllocationGranularity = 0;
-            Constants.AddressStart = 0;
-            Constants.AddressLimit = static_cast<u64>(0xffffffff) + 1;
-
-            bInitialized = true;
-        }
+            constants.BinnedPageSize = 65536;
+            constants.BinnedAllocationGranularity = 0;
+            constants.AddressStart = 0;
+            constants.AddressLimit = static_cast<u64>(0xffffffff) + 1;
+            return constants;
+        }();
 
         return Constants;
     }

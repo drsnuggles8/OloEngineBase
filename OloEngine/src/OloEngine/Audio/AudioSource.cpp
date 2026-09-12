@@ -23,7 +23,9 @@ namespace OloEngine
         if (result != MA_SUCCESS)
         {
             OLO_CORE_ERROR("Failed to initialize sound: {}", filepath);
+            return;
         }
+        m_SoundInitialized = true;
     }
 
     AudioSource::~AudioSource()
@@ -32,7 +34,12 @@ namespace OloEngine
         // pointer to this host and would otherwise drive a destroyed source.
         ReleaseVoice();
         UninitializeDSP();
-        ::ma_sound_uninit(m_Sound.get());
+        // Only a sound that was initialised has anything to uninitialise: a scene
+        // deserialised with no audio engine up (every headless test) holds sources
+        // whose init failed, and ma_sound_uninit on those dereferenced the null
+        // engine pointer -- UBSan failed the scene-load test on that (#1203).
+        if (m_SoundInitialized)
+            ::ma_sound_uninit(m_Sound.get());
         m_Sound = nullptr;
     }
 
