@@ -736,13 +736,13 @@ jobs:
     # the `asan-windows-tests` matrix below: this job builds and hands the
     # instrumented tree over, and N separate runners each execute a stride of it.
     #
-    # WHY SHARDING RATHER THAN BATCHING. gtest_discover_tests registers every gtest
-    # case as its own ctest entry, so the suite is ~7,600 PROCESS LAUNCHES, each
-    # paying full engine static-init. Batching many cases into one process is the
-    # bigger win and it REMOVES the isolation that currently hides cross-test state
-    # corruption -- that is #1074's territory and must not be done from here.
-    # Sharding splits the same one-process-per-case run across more runners and
-    # changes the semantics not at all.
+    # SHARDING AND BATCHING, BOTH. The light majority of cases is now registered
+    # one ctest entry per SUITE (OloEngine/tests/cmake/OloSuiteDiscovery.cmake) --
+    # 75 % of a test step was per-process start-up, paid ~8,000x -- while the
+    # memory-heavy and long cases (OLO_HEAVY_TESTS) stay one process each, which is
+    # where the cross-test state corruption #1074 fixed used to hide. Sharding
+    # splits that same entry list across more runners and changes the semantics
+    # not at all.
     #
     # WHAT IT COSTS. Each shard is a whole runner: it pays job startup, a checkout
     # and an artifact download before it runs a single case. This TRADES
@@ -1044,10 +1044,11 @@ jobs:
       #     instrumentation; excluded on every sanitizer job.
       #
       # --parallel 4, RAISED FROM 2 ON A MEASUREMENT (#1083), not on the theory that
-      # made 2 look conservative. Every gtest case is its own ctest entry
-      # (gtest_discover_tests), so the suite is ~7,600 process launches each paying
-      # full engine static init, and the standing hypothesis was that a workload that
-      # startup-bound would scale well past the runner's 4 vCPUs. IT DOES NOT.
+      # made 2 look conservative. At the time every gtest case was its own ctest
+      # entry (~7,600 process launches each paying full engine static init; the
+      # light majority is one entry per suite now), and the standing hypothesis was
+      # that a workload that startup-bound would scale well past the runner's 4
+      # vCPUs. IT DOES NOT.
       #
       # Six timed passes over the same 380-case sample in ONE job on run 34061407329,
       # in palindrome order (2,3,4,4,3,2) so the cold-start warm-up is shared equally
@@ -1704,11 +1705,11 @@ jobs:
       # compile, and the cumulative work blows past the default 120 s.
       # 600 s gives reasonable headroom without masking actual hangs.
       #
-      # --parallel 4 (weighted; see the run line below): gtest_discover_tests registers every gtest case as its own
-      # ctest entry (one OloEngine-Tests process per case), so serial execution pays
-      # the engine's full static-init cost ~3,600× back-to-back — a large chunk of
-      # this job's wall-clock. Windows.yml already banks this win with
-      # `ctest --parallel 4`.
+      # --parallel 4 (weighted; see the run line below). The heavy cases are one
+      # ctest entry each and the light majority one entry per SUITE
+      # (OloEngine/tests/cmake/OloSuiteDiscovery.cmake), so the engine's start-up is
+      # paid once per suite rather than once per case -- it was 75 % of this step.
+      # Windows.yml already banks the parallel win with `ctest --parallel 4`.
       #
       # The suite is parallel-safe, and the property is ENFORCED rather than asserted
       # (issue #789 — this comment previously claimed "tests key their temp paths by
@@ -2138,10 +2139,10 @@ jobs:
       # shaderc, which is 3-5× slower under UBSan instrumentation.
       #
       # --parallel 4, weighted: see the ASan + LSan run step above for the measurement.
-      # One ctest entry per gtest case makes serial execution pay engine start-up
-      # ~8,000× over, and 75 % of the step is that start-up; the suite is
-      # parallel-safe (per-process temp roots keyed per case + a mesh-cache
-      # RESOURCE_LOCK). The width is a WEIGHTED budget: a light case counts 1, a case
+      # Engine start-up was 75 % of the step when every case was its own entry; the
+      # light majority is one entry per suite now and the heavy cases one each; the
+      # suite is parallel-safe (per-process temp roots keyed per case + a mesh-cache
+      # RESOURCE_LOCK). The width is a WEIGHTED budget: a light entry counts 1, a case
       # in OLO_HEAVY_TESTS (tests/CMakeLists.txt) counts 2 via `PROCESSORS 2`, so up
       # to four light cases run at once, or two heavy ones, or one heavy and two
       # light -- never four heavy -- which keeps four UBSan-instrumented processes
@@ -2574,9 +2575,10 @@ jobs:
       # only bites the known-slow cases — not a fig leaf over hangs.
       #
       # --parallel 4, weighted: see the ASan + LSan run step above for the measurement
-      # (one ctest entry per case → engine start-up paid ~8,000× serially, and 75 %
-      # of the step is that start-up; the suite is parallel-safe via per-process
-      # temp roots keyed per case + a mesh-cache RESOURCE_LOCK). The width is a
+      # (engine start-up was 75 % of the step when every case was its own entry;
+      # the light majority is one entry per suite now, the heavy cases one each;
+      # the suite is parallel-safe via per-process temp roots keyed per case + a
+      # mesh-cache RESOURCE_LOCK). The width is a
       # WEIGHTED budget: a light case counts 1 and a case in OLO_HEAVY_TESTS
       # (tests/CMakeLists.txt) counts 2 via `PROCESSORS 2`, so up to four light
       # cases run at once, or two heavy ones, or one heavy and two light -- never
