@@ -118,6 +118,15 @@ namespace OloEngine
         // deleted with the context still current; on Vulkan the destructors
         // enqueue into VulkanDeferredReclaim, which VulkanContext::Shutdown
         // drains a final time just before VulkanDevice::Shutdown.
+        //
+        // The shared default primitives (issue #1191) are the same class of object:
+        // SceneSerializer fills that cache whenever a scene names a built-in mesh, so
+        // a 2D-only or headless session can hold GPU-backed sources without ever
+        // bringing Renderer3D up, and Renderer3D::Shutdown() (which also releases
+        // them, ahead of its teardown census) is skipped for such a session. Release
+        // them here unconditionally, before the buffers' device goes away; the call
+        // is idempotent.
+        MeshPrimitives::ReleaseSharedSources();
         MeshPrimitives::Shutdown();
 
         // The process-wide default font's two Slug atlas textures. Same class as the

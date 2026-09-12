@@ -11,6 +11,8 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Mesh.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -1260,4 +1262,97 @@ TEST(MeshOptimization, MeasureModelExtentMatchesTheBoundingBox)
     TArray<u32> noIndices;
     auto empty = Ref<MeshSource>::Create(MoveTemp(noVertices), MoveTemp(noIndices));
     EXPECT_FLOAT_EQ(MeshOptimization::MeasureModelExtent(*empty), 0.0f);
+}
+
+// =============================================================================
+// CreateSphere's pole rows (issue #1191)
+// =============================================================================
+//
+// Ring 0 evaluates sin(pi * 0 * R) == 0 for every sector, so all of its vertices
+// are the same point; the last ring collapses the same way. Emitting a full quad
+// per sector there gave one real triangle plus one with no area, at both poles.
+
+TEST(MeshPrimitivesSphere, PoleRowsEmitNoDegenerateTriangles)
+{
+    auto sphere = MeshPrimitives::CreateSphere(1.0f, 16);
+    ASSERT_TRUE(sphere);
+    const auto& source = *sphere->GetMeshSource();
+
+    const auto stats = MeshOptimization::AnalyzeDegenerateTriangles(source);
+    EXPECT_EQ(stats.ZeroAreaCount, 0u) << "a sphere should not ship triangles with no area";
+
+    // The census's zero-area test alone would not have caught the far pole:
+    // (rings - 1) * (1.0f / (rings - 1)) is not exactly 1.0f, so those triangles
+    // are slivers of ~1e-7 rather than exact zeros. Measure the smallest area
+    // directly so BOTH poles are pinned by this test.
+    const auto& vertices = source.GetVertices();
+    const auto& indices = source.GetIndices();
+    ASSERT_GT(indices.Num(), 0);
+    ASSERT_EQ(indices.Num() % 3, 0);
+
+    f32 smallestArea = std::numeric_limits<f32>::max();
+    for (i32 i = 0; i + 2 < indices.Num(); i += 3)
+    {
+        const glm::vec3& a = vertices[static_cast<i32>(indices[i])].Position;
+        const glm::vec3& b = vertices[static_cast<i32>(indices[i + 1])].Position;
+        const glm::vec3& c = vertices[static_cast<i32>(indices[i + 2])].Position;
+        smallestArea = std::min(smallestArea, 0.5f * glm::length(glm::cross(b - a, c - a)));
+    }
+    // A real band triangle on a unit sphere at segments = 16 is ~1e-2; the pole
+    // slivers were ~1e-7. Anything in between means a pole row came back.
+    EXPECT_GT(smallestArea, 1e-4f) << "smallest triangle area " << smallestArea << " — a pole row is degenerate";
+}
+
+TEST(MeshPrimitivesSphere, PoleRowsCostOneTriangleEachNotTwo)
+{
+    constexpr u32 kSegments = 16;
+    const u32 rings = kSegments;
+    const u32 sectors = kSegments * 2;
+
+    auto sphere = MeshPrimitives::CreateSphere(1.0f, kSegments);
+    ASSERT_TRUE(sphere);
+
+    // Every band contributes two triangles per sector except the two pole bands,
+    // which contribute one — that is the whole of the fix, stated as a count so a
+    // regression cannot quietly restore the degenerate half.
+    const u32 bands = rings - 1;
+    const u32 sectorSpans = sectors - 1;
+    const u32 expectedTriangles = (bands * 2u - 2u) * sectorSpans;
+    EXPECT_EQ(static_cast<u32>(sphere->GetMeshSource()->GetIndices().Num()), expectedTriangles * 3u);
+
+    // And it is strictly fewer than the old quad-everywhere count, so this cannot
+    // pass by the formula above happening to match what it replaced.
+    EXPECT_LT(expectedTriangles, bands * 2u * sectorSpans);
+}
+
+// =============================================================================
+// Shared default primitives (issue #1191)
+// =============================================================================
+
+TEST(MeshPrimitivesShared, DefaultPrimitivesShareOneSourcePerKind)
+{
+    using Kind = MeshPrimitives::SharedDefault;
+    auto a = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+    auto b = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+    auto c = MeshPrimitives::CreateSharedDefault(Kind::Cube);
+    ASSERT_TRUE(a && b && c);
+    EXPECT_NE(a.Raw(), b.Raw()) << "every caller gets its own Mesh wrapper";
+
+    if (RenderCommand::IsDeviceAvailable())
+    {
+        EXPECT_EQ(a->GetMeshSource().Raw(), b->GetMeshSource().Raw()) << "same kind: one shared MeshSource";
+        EXPECT_NE(a->GetMeshSource().Raw(), c->GetMeshSource().Raw()) << "different kind: different source";
+
+        MeshPrimitives::ReleaseSharedSources();
+        auto d = MeshPrimitives::CreateSharedDefault(Kind::Sphere);
+        ASSERT_TRUE(d);
+        EXPECT_NE(d->GetMeshSource().Raw(), a->GetMeshSource().Raw())
+            << "release must drop the shared source so a restarted renderer never sees dead buffers";
+    }
+    else
+    {
+        // Headless: nothing is cached, because a source built without a device
+        // has no GPU buffers and must not be handed to a later device-backed caller.
+        EXPECT_NE(a->GetMeshSource().Raw(), b->GetMeshSource().Raw()) << "headless: no sharing";
+    }
 }
