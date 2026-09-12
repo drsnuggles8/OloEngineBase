@@ -125,6 +125,10 @@ namespace OloEngine
         {
             return m_AsyncComputeQueueFamily;
         }
+        [[nodiscard]] bool AreCheckpointsEnabled() const
+        {
+            return m_CheckpointsEnabled;
+        }
         [[nodiscard]] VkQueue GetAsyncComputeQueue() const
         {
             return m_AsyncComputeQueue;
@@ -380,6 +384,11 @@ namespace OloEngine
         f32 m_MaxSamplerAnisotropy = 1.0f;
         bool m_ShaderDrawParametersEnabled = false;
         bool m_DeviceFaultEnabled = false;
+        /// VK_NV_device_diagnostic_checkpoints: every pass drops a checkpoint into
+        /// its command buffer, and a device loss reports the last one each queue
+        /// reached — the one thing VK_EXT_device_fault's address records do not
+        /// say (issue #1198).
+        bool m_CheckpointsEnabled = false;
         bool m_MeshShaderEnabled = false;
         bool m_HostImageCopyEnabled = false;
         // Host-image-copy layout lists, read once after device creation.

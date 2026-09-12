@@ -566,6 +566,7 @@ namespace OloEngine
         bool hasDeferredHostOpsExtension = false;
         bool hasRayQueryExtension = false;
         bool hasRayPipelineExtension = false;
+        bool hasCheckpointsExtension = false;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -578,6 +579,7 @@ namespace OloEngine
             };
             hasEds3Extension = listed(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
             hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+            hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
             hasAccelStructExtension = listed(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             hasDeferredHostOpsExtension = listed(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
@@ -781,6 +783,14 @@ namespace OloEngine
             // deviceFaultVendorBinary deliberately left off: it gates a
             // vendor blob dump we have no decoder for.
         }
+        // Checkpoints (NVIDIA only, no feature struct): a fault report names an
+        // address; the checkpoints name the PASS each queue was executing. Free
+        // when unused, and the difference between "READ of invalid address"
+        // and knowing which dispatch issued it (issue #1198).
+        if (hasCheckpointsExtension)
+        {
+            deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+        }
 
         // Mesh shaders (issue #813): OPTIONAL — enabled when the extension is
         // listed AND the driver supports both stages; never an ADR 0010 gate
@@ -911,6 +921,7 @@ namespace OloEngine
         // device — commit the flag the pipeline builder branches on.
         m_DynamicBlendStateEnabled = wantDynamicBlend;
         m_DeviceFaultEnabled = wantDeviceFault;
+        m_CheckpointsEnabled = hasCheckpointsExtension;
         // Same commit-after-create rule: the flag describes the LOGICAL
         // device's enabled features, which exist only once the create returns.
         m_MeshShaderEnabled = wantMeshShader;
@@ -1397,6 +1408,37 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("[Vulkan]   vendor fault: '{}' code={:#x} data={:#x}", v.description,
                            static_cast<u64>(v.vendorFaultCode), static_cast<u64>(v.vendorFaultData));
+        }
+
+        // The checkpoints: the last pass marker each queue reached before the
+        // loss. `pCheckpointMarker` is the interned pass name the renderer API
+        // passed to vkCmdSetCheckpointNV (VulkanRendererAPI::PushDebugGroup).
+        if (m_CheckpointsEnabled && vkGetQueueCheckpointDataNV != nullptr)
+        {
+            const auto dump = [](const VkQueue queue, const char* queueName)
+            {
+                if (queue == VK_NULL_HANDLE)
+                    return;
+                u32 count = 0;
+                vkGetQueueCheckpointDataNV(queue, &count, nullptr);
+                std::vector<VkCheckpointDataNV> data(count);
+                for (auto& d : data)
+                    d.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+                vkGetQueueCheckpointDataNV(queue, &count, data.data());
+                if (count == 0)
+                {
+                    OLO_CORE_ERROR("[Vulkan]   checkpoints ({}): none reached", queueName);
+                    return;
+                }
+                for (u32 i = 0; i < count; ++i)
+                {
+                    const char* marker = static_cast<const char*>(data[i].pCheckpointMarker);
+                    OLO_CORE_ERROR("[Vulkan]   checkpoint ({}): stage={:#x} pass='{}'", queueName,
+                                   static_cast<u64>(data[i].stage), marker != nullptr ? marker : "(null)");
+                }
+            };
+            dump(m_Queue, "graphics");
+            dump(m_AsyncComputeQueue, "async compute");
         }
     }
 
