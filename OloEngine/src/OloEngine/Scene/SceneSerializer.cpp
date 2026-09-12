@@ -27,6 +27,7 @@
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Abilities/Effects/GameplayEffect.h"
 
+#include <exception>
 #include <algorithm>
 #include <bit>
 #include <fstream>
@@ -6922,15 +6923,23 @@ namespace OloEngine
         DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
 
         Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+        // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+        // executed lexically inside a catch handler faults in __CxxFrameHandler3
+        // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+        std::exception_ptr entityFailure;
         try
         {
             DeserializeEntityComponents(deserializedEntity, entityNode, m_AnimatedModelCache);
         }
         catch (...)
         {
+            entityFailure = std::current_exception();
+        }
+        if (entityFailure)
+        {
             // Remove the half-initialized entity so the scene stays consistent
             m_Scene->DestroyEntity(deserializedEntity);
-            throw;
+            std::rethrow_exception(entityFailure);
         }
         return deserializedEntity;
     }

@@ -3,6 +3,7 @@
 
 #include "OloEngine/Core/UUID.h"
 
+#include <exception>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -55,6 +56,10 @@ namespace OloEngine::Automation
         if (std::filesystem::exists(temporary))
             throw std::runtime_error("Temporary file already exists: " + temporary.string());
         bool temporaryOwned = false;
+        // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
+        // executed lexically inside a catch handler faults in __CxxFrameHandler3
+        // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
+        std::exception_ptr writeFailure;
         try
         {
             std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
@@ -81,12 +86,16 @@ namespace OloEngine::Automation
         }
         catch (...)
         {
+            writeFailure = std::current_exception();
+        }
+        if (writeFailure)
+        {
             if (temporaryOwned)
             {
                 std::error_code ignored;
                 std::filesystem::remove(temporary, ignored);
             }
-            throw;
+            std::rethrow_exception(writeFailure);
         }
     }
 } // namespace OloEngine::Automation
