@@ -342,6 +342,9 @@ namespace OloEngine
         // pending. (#691 — added to diagnose the foliage device
         // loss, kept as a permanent post-mortem instrument.)
         void LogDeviceFaultInfo() const;
+        // The two halves of LogDeviceFaultInfo, each behind its own extension.
+        void LogDeviceFaultRecords() const;
+        void LogQueueCheckpoints() const;
 
         // Validation-error counter: the debug messenger increments this on
         // every ERROR-severity validation message. Tests assert it stays 0.

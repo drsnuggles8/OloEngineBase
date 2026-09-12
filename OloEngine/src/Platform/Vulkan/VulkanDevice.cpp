@@ -1335,6 +1335,15 @@ namespace OloEngine
 
     void VulkanDevice::LogDeviceFaultInfo() const
     {
+        // Two independent sources, each behind its own extension: a missing
+        // or failed fault query must not silence the checkpoints, and vice
+        // versa. Either alone is worth having on a device loss.
+        LogDeviceFaultRecords();
+        LogQueueCheckpoints();
+    }
+
+    void VulkanDevice::LogDeviceFaultRecords() const
+    {
         if (!m_DeviceFaultEnabled || m_Device == VK_NULL_HANDLE || vkGetDeviceFaultInfoEXT == nullptr)
         {
             return;
@@ -1409,11 +1418,17 @@ namespace OloEngine
             OLO_CORE_ERROR("[Vulkan]   vendor fault: '{}' code={:#x} data={:#x}", v.description,
                            static_cast<u64>(v.vendorFaultCode), static_cast<u64>(v.vendorFaultData));
         }
+    }
 
+    void VulkanDevice::LogQueueCheckpoints() const
+    {
         // The checkpoints: the last pass marker each queue reached before the
         // loss. `pCheckpointMarker` is the interned pass name the renderer API
         // passed to vkCmdSetCheckpointNV (VulkanRendererAPI::PushDebugGroup).
-        if (m_CheckpointsEnabled && vkGetQueueCheckpointDataNV != nullptr)
+        if (!m_CheckpointsEnabled || m_Device == VK_NULL_HANDLE || vkGetQueueCheckpointDataNV == nullptr)
+        {
+            return;
+        }
         {
             const auto dump = [](const VkQueue queue, const char* queueName)
             {
