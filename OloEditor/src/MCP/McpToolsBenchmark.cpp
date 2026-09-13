@@ -168,6 +168,22 @@ namespace OloEngine::MCP
                     // A benchmark capture is a picture of the SCENE: turn off the
                     // editor-only viewport helpers the editor render path draws
                     // (infinite grid, world-axis helper, light gizmos, frustums).
+                    //
+                    // These must be cleared in RENDERER SETTINGS, not on the
+                    // Scene. EditorLayer re-pushes ShowGrid / ShowLightGizmos /
+                    // ShowWorldAxisHelper from RendererSettings onto the active
+                    // scene EVERY FRAME, so a scene-level disable is overwritten
+                    // before the warm-up renders a single frame and the capture
+                    // comes back with the grid and the world axis drawn into it
+                    // — which is what a Vulkan capture of the issue-#1239
+                    // reference-head fixture actually showed. Clearing the
+                    // settings is also self-restoring: PriorRendererSettings is
+                    // snapshotted just above and the epilogue puts it back.
+                    auto& rendererSettings = Renderer3D::GetRendererSettings();
+                    rendererSettings.ShowGrid = false;
+                    rendererSettings.ShowWorldAxisHelper = false;
+                    rendererSettings.ShowLightGizmos = false;
+                    rendererSettings.ShowCameraFrustums = false;
                     if (host.Context().GetActiveScene)
                     {
                         if (Ref<Scene> activeScene = host.Context().GetActiveScene())
@@ -321,12 +337,17 @@ namespace OloEngine::MCP
                     }
                     if (host.Context().GetActiveScene)
                     {
+                        // Restore from the SNAPSHOT, not to `true`. Hardcoding
+                        // true switched the grid and the gizmos back on for a
+                        // user who had deliberately turned them off before
+                        // asking for a capture.
+                        const auto& prior = applied->PriorRendererSettings;
                         if (Ref<Scene> activeScene = host.Context().GetActiveScene())
                         {
-                            activeScene->SetGridVisible(true);
-                            activeScene->SetWorldAxisHelperVisible(true);
-                            activeScene->SetLightGizmosVisible(true);
-                            activeScene->SetCameraFrustumsVisible(true);
+                            activeScene->SetGridVisible(prior.ShowGrid);
+                            activeScene->SetWorldAxisHelperVisible(prior.ShowWorldAxisHelper);
+                            activeScene->SetLightGizmosVisible(prior.ShowLightGizmos);
+                            activeScene->SetCameraFrustumsVisible(prior.ShowCameraFrustums);
                         }
                     }
                     return Json{ { "ok", true } };

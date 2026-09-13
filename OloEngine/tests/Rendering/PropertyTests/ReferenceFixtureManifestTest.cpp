@@ -175,7 +175,8 @@ TEST(ReferenceFixtureManifest, EveryCommittedManifestParses)
 {
     const auto files = ManifestFiles();
     ASSERT_FALSE(files.empty()) << "no manifests found — looked for OloEditor/assets/benchmark/manifests "
-                                   "relative to cwd " << fs::current_path().string();
+                                   "relative to cwd "
+                                << fs::current_path().string();
 
     u32 v1Count = 0;
     u32 v2Count = 0;
@@ -183,7 +184,8 @@ TEST(ReferenceFixtureManifest, EveryCommittedManifestParses)
     {
         std::string error;
         const auto parsed = LoadBenchmarkManifest(file, error);
-        ASSERT_TRUE(parsed.has_value()) << file.filename().string() << ":\n" << error;
+        ASSERT_TRUE(parsed.has_value()) << file.filename().string() << ":\n"
+                                        << error;
         EXPECT_TRUE(parsed->ManifestVersion == 1u || parsed->ManifestVersion == 2u);
         (parsed->ManifestVersion == 1u ? v1Count : v2Count) += 1u;
     }
@@ -362,7 +364,8 @@ TEST(ReferenceFixtureManifest, RejectsNonFiniteMotion)
         SCOPED_TRACE(bad);
         EXPECT_NE(error.find("VelocityPerSecond"), std::string::npos) << error;
         EXPECT_EQ(error.find("all motion rates are zero"), std::string::npos)
-            << "a malformed velocity was silently read as zero:\n" << error;
+            << "a malformed velocity was silently read as zero:\n"
+            << error;
     }
 }
 
