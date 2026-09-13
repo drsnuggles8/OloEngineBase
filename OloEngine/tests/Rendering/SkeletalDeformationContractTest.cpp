@@ -119,11 +119,12 @@ namespace OloEngine::Tests
 
             const bool callsProducer = std::ranges::any_of(
                 kProducerEntryPoints,
-                [&source](std::string_view entry) { return source.find(entry) != std::string::npos; });
+                [&source](std::string_view entry)
+                { return source.find(entry) != std::string::npos; });
 
             EXPECT_TRUE(callsProducer)
                 << consumer << " includes the producer but never calls it — including the header "
-                   "without using it is exactly as divergent as not including it";
+                               "without using it is exactly as divergent as not including it";
         }
     }
 
@@ -143,11 +144,11 @@ namespace OloEngine::Tests
 
             EXPECT_FALSE(std::regex_search(source, inlineAccumulation))
                 << consumer << " still blends the bone palette inline. That is the "
-                   "seven-copies state #1226 removed: the three shadow-path copies had "
-                   "already drifted from the colour copy, losing both the bone-ID bounds "
-                   "test and the zero-weight guard, so an unweighted vertex collapsed onto "
-                   "the model origin in shadows while rendering at its rest position in "
-                   "colour";
+                               "seven-copies state #1226 removed: the three shadow-path copies had "
+                               "already drifted from the colour copy, losing both the bone-ID bounds "
+                               "test and the zero-weight guard, so an unweighted vertex collapsed onto "
+                               "the model origin in shadows while rendering at its rest position in "
+                               "colour";
         }
     }
 
@@ -165,7 +166,7 @@ namespace OloEngine::Tests
 
             EXPECT_FALSE(std::regex_search(source, paletteDeclaration))
                 << consumer << " declares a bone-palette uniform block of its own; the "
-                   "producer include owns bindings 4 and 31";
+                               "producer include owns bindings 4 and 31";
         }
 
         const std::string producer = ReadFile(ShaderRoot() / "include" / "SkeletalDeformation.glsl");

@@ -352,7 +352,7 @@ namespace OloEngine::Tests
             }
             EXPECT_GT(changed, 500.0)
                 << pose.Tag << ": bending the upper bone changed almost nothing on screen — "
-                            << "the skinned pose is not reaching the render path";
+                << "the skinned pose is not reaching the render path";
         }
     }
 
