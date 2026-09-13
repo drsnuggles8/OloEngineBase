@@ -469,6 +469,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 
     std::vector<std::string> measured;
     std::vector<std::string> notVulkanCompilable;
+    std::vector<std::string> rayTracingExcluded;
     std::vector<std::string> notBuilt;
     std::vector<std::string> overBudget;
     for (const auto& path : shaders)
@@ -481,8 +482,10 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
         std::string error;
         if (!CompileComputeToSpirv(source, fileName, spirv, error))
         {
-            // Compiled for the GL path only; this guard cannot see it. Counted
-            // and printed so a shader cannot slip out of the measured set unnoticed.
+            // Every compute shader is expected to compile for Vulkan (all 83 did
+            // when this guard was written), so a failure here is a defect in the
+            // shader, not a reason to leave it unmeasured: it is collected and the
+            // test fails on it below, naming the shader and the first error line.
             const auto firstLine = error.substr(0, error.find('\n'));
             std::printf("[ ShaderCompileBudget ] %-44s not Vulkan-compilable: %s\n", fileName.c_str(), firstLine.c_str());
             notVulkanCompilable.push_back(fileName);
@@ -494,7 +497,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
             std::printf("[ ShaderCompileBudget ] %-44s not measured: declares an acceleration structure (needs the "
                         "ray-tracing extensions, which the null device is not created with)\n",
                         fileName.c_str());
-            notVulkanCompilable.push_back(fileName);
+            rayTracingExcluded.push_back(fileName);
             continue;
         }
 
@@ -524,8 +527,8 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
         }
     }
 
-    std::printf("[ ShaderCompileBudget ] measured %zu, not Vulkan-compilable %zu, pipeline creation failed %zu\n",
-                measured.size(), notVulkanCompilable.size(), notBuilt.size());
+    std::printf("[ ShaderCompileBudget ] measured %zu, not Vulkan-compilable %zu, ray-tracing (excluded) %zu, pipeline creation failed %zu\n",
+                measured.size(), notVulkanCompilable.size(), rayTracingExcluded.size(), notBuilt.size());
 
     EXPECT_TRUE(overBudget.empty()) << overBudget.size()
                                     << " compute shader(s) over the AMD compile budget (" << kWallBudgetSeconds
@@ -545,6 +548,11 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 
     // A pipeline the null device refuses is not a budget breach, but it is a
     // shader this guard does not cover; that must be visible, not silent.
+    EXPECT_TRUE(notVulkanCompilable.empty())
+        << notVulkanCompilable.size()
+        << " compute shader(s) failed to compile for Vulkan (first error line printed above). Every compute "
+           "shader is expected to compile on both backends; a shader that does not is unmeasured by this guard "
+           "and broken on the Vulkan RHI. Deliberate exclusions are only the ray-tracing shaders, counted separately.";
     EXPECT_TRUE(notBuilt.empty()) << notBuilt.size()
                                   << " compute shader(s) compiled to SPIR-V but did not build on the null "
                                      "device (VkResult printed above); they are unmeasured by this guard.";
