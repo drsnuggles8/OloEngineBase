@@ -1766,6 +1766,20 @@ namespace OloEngine
     // PrefabSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
+    // AssetMetadata::FilePath is PROJECT-relative, as every other serializer here
+    // reads it. This one used to hand it to std::ifstream / std::ofstream raw, so
+    // it resolved against the process working directory instead -- which for the
+    // editor is OloEditor/, one level above the project -- and a prefab asset
+    // could therefore never be loaded back from disk at all.
+    static std::filesystem::path ResolvePrefabPath(const AssetMetadata& metadata)
+    {
+        if (Project::GetActive())
+        {
+            return Project::GetProjectDirectory() / metadata.FilePath;
+        }
+        return metadata.FilePath;
+    }
+
     void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<Prefab> prefab = asset.As<Prefab>();
@@ -1777,10 +1791,11 @@ namespace OloEngine
 
         std::string yamlString = SerializeToYAML(prefab);
 
-        std::ofstream fout(metadata.FilePath);
+        const std::filesystem::path path = ResolvePrefabPath(metadata);
+        std::ofstream fout(path);
         if (!fout.is_open())
         {
-            OLO_CORE_ERROR("PrefabSerializer::Serialize - Failed to open file for writing: {}", metadata.FilePath.string());
+            OLO_CORE_ERROR("PrefabSerializer::Serialize - Failed to open file for writing: {}", path.string());
             return;
         }
 
@@ -1790,10 +1805,11 @@ namespace OloEngine
 
     bool PrefabSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
     {
-        std::ifstream stream(metadata.FilePath);
+        const std::filesystem::path path = ResolvePrefabPath(metadata);
+        std::ifstream stream(path);
         if (!stream.is_open())
         {
-            OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to open file: {}", metadata.FilePath.string());
+            OLO_CORE_ERROR("PrefabSerializer::TryLoadData - Failed to open file: {}", path.string());
             return false;
         }
 
