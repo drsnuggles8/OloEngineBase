@@ -304,13 +304,30 @@ namespace OloEngine::Tests
             ASSERT_FALSE(text.empty()) << "olo_shader_errors returned no text: " << resp.dump(2);
             const Json report = Json::parse(text, nullptr, /*allow_exceptions=*/false);
             ASSERT_TRUE(report.is_object()) << "olo_shader_errors text was not JSON: " << text;
-            ASSERT_TRUE(report.contains("count") && report["count"].is_number_integer()) << text;
+            ASSERT_TRUE(report.contains("available") && report["available"].is_boolean()) << text;
             ASSERT_TRUE(report.contains("errors") && report["errors"].is_array()) << text;
-            EXPECT_EQ(static_cast<std::size_t>(report["count"].get<int>()), report["errors"].size());
-            // The production shader set compiled during Renderer::Init; any error
-            // here is a real shader regression, not an MCP-plumbing failure.
-            EXPECT_EQ(report["count"].get<int>(), 0)
-                << "olo_shader_errors reported broken shaders: " << text;
+
+            // `available` is the whole point of the envelope: shader tracking is
+            // compiled out below OLO_DEBUG and needs ShaderDebugger::Initialize()
+            // even above it, so an empty error list is only evidence of a clean
+            // build when the tool says it actually looked. This harness does not
+            // initialise the debugger, so the honest answer here is "unavailable"
+            // -- and asserting zero errors against it would be asserting nothing.
+            if (!report["available"].get<bool>())
+            {
+                EXPECT_TRUE(report.contains("status") && report["status"].is_string()) << text;
+                EXPECT_TRUE(report["count"].is_null()) << "an unavailable report must not carry a count: " << text;
+                EXPECT_TRUE(report["errors"].empty()) << text;
+            }
+            else
+            {
+                ASSERT_TRUE(report["count"].is_number_integer()) << text;
+                EXPECT_EQ(static_cast<std::size_t>(report["count"].get<int>()), report["errors"].size());
+                // The production shader set compiled during Renderer::Init; any
+                // error here is a real shader regression, not MCP plumbing.
+                EXPECT_EQ(report["count"].get<int>(), 0)
+                    << "olo_shader_errors reported broken shaders: " << text;
+            }
         }
 
         // ---- olo_render_capture_target: best-effort intermediate-buffer read ---
