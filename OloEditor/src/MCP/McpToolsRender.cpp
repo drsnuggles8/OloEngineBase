@@ -16,7 +16,9 @@
 #include "MCP/McpParticleStats.h"
 #include "MCP/McpRenderOverrides.h"
 #include "MCP/McpRenderProbePixel.h"
+#include "OloEngine/Animation/SkeletalDeformation.h"
 #include "MCP/McpRenderLODStats.h"
+#include "MCP/McpSkeletalDeformationStats.h"
 #include "MCP/McpRayTracingStats.h"
 
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
@@ -6433,6 +6435,38 @@ namespace OloEngine::MCP
             return ToolResult::Structured(result);
         }
 
+        Json BuildSkeletalDeformationStatsReport()
+        {
+            SkeletalDeformationStats::Snapshot snapshot;
+            // The counters live in the engine's animation layer, not the
+            // renderer, and are written by Scene's frame boundary — so they are
+            // available whenever a scene has ticked, independent of whether a
+            // renderer exists.
+            snapshot.State.Available = true;
+            snapshot.State.Enabled = true;
+            snapshot.State.HasData = true;
+            snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
+
+            const auto& stats = Animation::SkeletalDeformationSystem::GetStats();
+            snapshot.SkeletonsAdvanced = stats.SkeletonsAdvanced;
+            snapshot.SkeletonsWithHistory = stats.SkeletonsWithHistory;
+            snapshot.BoneMatricesAdvanced = stats.BoneMatricesAdvanced;
+            snapshot.HistoryResets = stats.HistoryResets;
+            snapshot.HistoryResetsFirstUse = stats.HistoryResetsFirstUse;
+            snapshot.HistoryResetsBoneCountChanged = stats.HistoryResetsBoneCountChanged;
+            snapshot.HistoryResetsExplicit = stats.HistoryResetsExplicit;
+            snapshot.LastResetCause = std::string(Animation::ToString(stats.LastResetCause));
+            return SkeletalDeformationStats::BuildReport(snapshot);
+        }
+
+        ToolResult Handle_SkeletalDeformationStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 { return BuildSkeletalDeformationStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
         Json BuildRayTracingStatsReport()
         {
             RayTracingStats::Snapshot snapshot;
@@ -8625,6 +8659,50 @@ namespace OloEngine::MCP
                                     .Required({ "availability", "freshness" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RenderLODStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_skeletal_deformation_stats";
+            tool.Toolset = "render";
+            tool.Title = "Shared skeletal deformation statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the shared skeletal deformation output's per-frame counters (issue #1226): how many skinned "
+                "entities had their previous-pose palette advanced last frame, how many of those carry a genuine "
+                "previous pose, how many bone matrices that covered, and how many histories were dropped, by cause. "
+                "These are LAST-FRAME counters, cleared at the start of every advance, not session totals. A frame "
+                "with skinned entities and zero resets is the healthy steady state. skeletonsWithoutHistory is the "
+                "number emitting zero bone motion because their previous pose was thrown away rather than because "
+                "nothing moved -- a persistently non-zero value there means something is dropping history every "
+                "frame, which reads on screen as animation that never contributes to motion vectors.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("availability", Schema::Object()
+                                                              .Prop("available", Schema::Bool())
+                                                              .Prop("enabled", Schema::Bool())
+                                                              .Prop("hasData", Schema::Bool())
+                                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                                              .Required({ "available", "enabled", "hasData", "status" }))
+                                    .Prop("freshness", Schema::Object()
+                                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                                           .Prop("stale", Schema::Bool())
+                                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                                    .Prop("skeletonsAdvanced", Schema::Int().Min(0))
+                                    .Prop("skeletonsWithHistory", Schema::Int().Min(0))
+                                    .Prop("skeletonsWithoutHistory", Schema::Int().Min(0))
+                                    .Prop("boneMatricesAdvanced", Schema::Int().Min(0))
+                                    .Prop("historyResets", Schema::Object()
+                                                               .Prop("total", Schema::Int().Min(0))
+                                                               .Prop("firstUse", Schema::Int().Min(0))
+                                                               .Prop("boneCountChanged", Schema::Int().Min(0))
+                                                               .Prop("explicit", Schema::Int().Min(0))
+                                                               .Prop("lastCause", Schema::String()))
+                                    .Required({ "availability", "freshness" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SkeletalDeformationStats;
             registry.Register(std::move(tool));
         }
 

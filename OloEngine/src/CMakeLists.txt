@@ -7,6 +7,8 @@
 		"OloEngine/Animation/AnimatedMeshComponents.h"
 		"OloEngine/Animation/AnimationSystem.h"
 		"OloEngine/Animation/AnimationSystem.cpp"
+		"OloEngine/Animation/SkeletalDeformation.h"
+		"OloEngine/Animation/SkeletalDeformation.cpp"
 		"OloEngine/Animation/AnimationClip.h"
 		"OloEngine/Animation/AnimationClip.cpp"
 		"OloEngine/Animation/AnimationAsset.h"

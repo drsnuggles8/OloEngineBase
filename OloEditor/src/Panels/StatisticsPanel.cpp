@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "StatisticsPanel.h"
+#include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Audio/AudioEngine.h"
 #include "OloEngine/Audio/VoiceManager.h"
@@ -162,6 +163,30 @@ namespace OloEngine
             if (stats3D.TotalAnimatedMeshes > 0)
             {
                 ImGui::Text("Animated Meshes: %u / %u", stats3D.RenderedAnimatedMeshes, stats3D.TotalAnimatedMeshes);
+            }
+
+            // Shared skeletal deformation (issue #1226). Last frame's counters,
+            // not session totals. The interesting number is the second one:
+            // skeletons advanced WITHOUT a genuine previous pose emit zero bone
+            // motion, and a count that stays non-zero frame after frame means
+            // something is dropping deformation history continuously — which on
+            // screen is animation that never reaches the motion vectors.
+            {
+                const auto& deform = Animation::SkeletalDeformationSystem::GetStats();
+                if (deform.SkeletonsAdvanced > 0)
+                {
+                    ImGui::Text("Skinned Skeletons: %u (%u bone matrices)",
+                                deform.SkeletonsAdvanced, deform.BoneMatricesAdvanced);
+                    const u32 withoutHistory = deform.SkeletonsAdvanced >= deform.SkeletonsWithHistory
+                                                   ? deform.SkeletonsAdvanced - deform.SkeletonsWithHistory
+                                                   : 0u;
+                    if (withoutHistory > 0 || deform.HistoryResets > 0)
+                    {
+                        ImGui::Text("  No deform history: %u (resets %u, last: %s)",
+                                    withoutHistory, deform.HistoryResets,
+                                    std::string(Animation::ToString(deform.LastResetCause)).c_str());
+                    }
+                }
             }
             if (stats3D.TotalEmitters > 0)
             {

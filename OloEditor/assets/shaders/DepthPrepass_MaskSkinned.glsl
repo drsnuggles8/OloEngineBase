@@ -54,10 +54,9 @@ layout(std140, binding = 0) uniform CameraMatrices {
 #define OLO_INSTANCE_NO_FORWARD 1
 #include "include/InstanceBlock_Vertex.glsl"
 
-// Bone Matrices UBO (binding 4)
-layout(std140, binding = 4) uniform BoneMatrices {
-    mat4 u_BoneTransforms[100];
-};
+// Skeletal deformation producer (#1226): declares the bone palette at binding 4
+// and owns the skinning math shared with every other skinned consumer.
+#include "include/SkeletalDeformation.glsl"
 
 layout(location = 2) out vec2 v_TexCoord;
 
@@ -78,27 +77,7 @@ void main()
     OLO_INSTANCE_FORWARD();
     v_TexCoord = a_TexCoord;
 
-    // Bone accumulation mirrors PBR_MultiLight_Skinned / PBR_GBuffer_Skinned.
-    mat4 boneTransform = mat4(0.0);
-    float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
-    if (totalWeight > 0.001)
-    {
-        for (int i = 0; i < 4; ++i)
-        {
-            int boneID = a_BoneIDs[i];
-            if (boneID >= 0 && boneID < 100)
-            {
-                boneTransform += u_BoneTransforms[boneID] * a_BoneWeights[i];
-            }
-        }
-    }
-    else
-    {
-        // Vertex has no bone influence — pass through without skinning
-        boneTransform = mat4(1.0);
-    }
-
-    vec4 localPosition = boneTransform * vec4(a_Position, 1.0);
+    vec4 localPosition = OloDeformSkinnedPosition(a_Position, a_BoneIDs, a_BoneWeights);
     vec3 worldPos = vec3(u_Model * localPosition);
     gl_Position = u_ViewProjection * vec4(worldPos, 1.0);
 }

@@ -26,10 +26,23 @@ namespace OloEngine
         // Final matrices for skinning (to be sent to GPU)
         std::vector<glm::mat4> m_FinalBoneMatrices;
 
-        // Previous-frame final bone matrices — used by the Deferred G-Buffer path
-        // to compute per-bone velocity for motion blur / TAA. Updated by rotating
-        // m_FinalBoneMatrices into here at the top of each animation update.
+        // Previous-frame final bone matrices — the previous-pose half of the
+        // shared deformation output (#1226). Every velocity-emitting consumer
+        // reads these through the PrevBoneMatrices palette at binding 31.
+        //
+        // Advanced exactly once per frame by SkeletalDeformationSystem, for
+        // every skinned entity, whether or not it animated that frame. Do not
+        // advance it from inside an animation update: a skeleton that stops
+        // updating then freezes with a stale delta between prev and current and
+        // emits a non-zero motion vector forever, which is what a paused
+        // animation used to do here.
         std::vector<glm::mat4> m_PrevFinalBoneMatrices;
+
+        // False until the deformation history has been advanced at least once
+        // since the last discontinuity. While false, prev is held equal to
+        // current, so consumers see zero bone motion rather than a jump from
+        // whatever pose the previous skeleton happened to be in.
+        bool m_BoneHistoryValid = false;
 
         // Bind pose data for proper skinning
         std::vector<glm::mat4> m_BindPoseMatrices;        // Original bind pose global transforms
@@ -84,20 +97,79 @@ namespace OloEngine
         }
 
         /**
-         * @brief Rotate the current final bone matrices into the previous-frame
-         *        slot. Call this at the top of each animation update, before
-         *        overwriting m_FinalBoneMatrices. Ensures per-bone motion
-         *        vectors reflect the actual delta this frame instead of zero.
+         * @brief Copy the current pose into the previous-pose slot.
+         *
+         * The one primitive underneath both history operations: advancing a
+         * frame and resetting on a discontinuity are the same copy, and they
+         * differ only in what the caller means by it. Sizes the destination
+         * when the bone count has changed, which is itself a discontinuity —
+         * a resized palette has no comparable previous pose.
+         *
+         * @return true when the copy also had to resize, i.e. the previous
+         *         contents were not a comparable pose.
          */
-        void RotateBoneHistory()
+        bool CopyPoseToHistory()
         {
-            if (const sizet boneCount = m_FinalBoneMatrices.size(); m_PrevFinalBoneMatrices.size() != boneCount)
+            const sizet boneCount = m_FinalBoneMatrices.size();
+            if (m_PrevFinalBoneMatrices.size() != boneCount)
             {
                 m_PrevFinalBoneMatrices.assign(m_FinalBoneMatrices.begin(), m_FinalBoneMatrices.end());
-                return;
+                return true;
             }
-            // std::copy lets the compiler pick the best vectorised path for POD mat4 data.
+            // std::ranges::copy lets the compiler pick the best vectorised path for POD mat4 data.
             std::ranges::copy(m_FinalBoneMatrices, m_PrevFinalBoneMatrices.begin());
+            return false;
+        }
+
+        /**
+         * @brief Advance the deformation history by one tick.
+         *
+         * Call once per frame per skinned entity, before the pose for this
+         * frame is written, and call it for every skinned entity rather than
+         * only the ones that are playing. A skeleton that is paused then
+         * advances into prev == current and emits zero motion, which is what a
+         * paused character should do; a skeleton skipped while paused keeps
+         * emitting last frame's delta and smears under TAA and motion blur for
+         * as long as the pause lasts.
+         *
+         * SkeletalDeformationSystem::AdvanceHistory is the single caller in the
+         * engine. It runs on the main thread at the frame boundary, before any
+         * render submission, so the palette this reads is never the one a
+         * recording worker is reading.
+         */
+        void AdvanceBoneHistory()
+        {
+            const bool resized = CopyPoseToHistory();
+            m_BoneHistoryValid = !resized;
+        }
+
+        /**
+         * @brief Drop the deformation history explicitly, on a discontinuity.
+         *
+         * A discontinuity is any event after which the previous pose is not a
+         * pose this skeleton was ever actually in: the skeleton being replaced
+         * or re-bound, the entity being spawned or teleported, a scene or
+         * play-mode transition, a camera cut. Holding prev equal to current
+         * makes the next frame's bone motion exactly zero, which is the honest
+         * answer — the alternative is a velocity derived from two unrelated
+         * poses, which TAA and motion blur will faithfully smear.
+         */
+        void ResetBoneHistory()
+        {
+            CopyPoseToHistory();
+            m_BoneHistoryValid = false;
+        }
+
+        /**
+         * @brief Whether m_PrevFinalBoneMatrices holds a genuine previous pose.
+         *
+         * False on the tick a skeleton is created, resized or reset, so a
+         * consumer can tell "no motion because nothing moved" from "no motion
+         * because there is no history yet".
+         */
+        [[nodiscard]] bool HasBoneHistory() const
+        {
+            return m_BoneHistoryValid;
         }
     };
 } // namespace OloEngine

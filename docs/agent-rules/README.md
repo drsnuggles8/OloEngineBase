@@ -117,6 +117,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
 - [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
 - [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md): the shared thing between a shader and gameplay sampling must be an analytic record, in one agreed space.
+- [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md): deform a skinned vertex in one shared include that every pass calls, and advance its previous-pose history once per frame for every skinned entity — inside the gameplay tick it stops while paused, and a paused character then smears for as long as the pause lasts.
 - [persistent-world-space-fields.md](persistent-world-space-fields.md): a multiplicative decay is unrepresentable in a normalized-integer texture below a rate threshold.
 - [compute-in-place-vs-ping-pong.md](compute-in-place-vs-ping-pong.md): a compute pass may update a field in place only while every invocation reads its own texel.
 - [pbf-solver-stability.md](pbf-solver-stability.md): PBF/SPH reference constants assume unit-mass particles.
@@ -243,6 +244,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [persistent-world-space-fields.md](persistent-world-space-fields.md) | A wake in an R8 texture renders and follows correctly and never fades, because the decay step rounds to zero. |
 | [compute-in-place-vs-ping-pong.md](compute-in-place-vs-ping-pong.md) | Adding a neighbour read to an in-place compute pass races between work groups; it renders, in bands that follow the dispatch order, and looks like a bug in the maths you just wrote. |
 | [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) | Shader and CPU agreed on the function and disagreed on which space its argument was in; four of five evidence cameras pointed away from the boat. |
+| [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md) | Seven shaders each wrote out linear-blend skinning; the three shadow-path copies had lost both the bone-ID bounds test and the zero-weight guard, so an unweighted vertex collapsed onto the model origin in shadows while rendering at its rest position in colour. Absent from every procedural test mesh, routine in a real import. Pinned by a text-level contract test, not a numeric one. |
 
 **The counter-move:** name the observation that would have failed. Usually it is a moving target
 instead of a static one, an edge instead of a steady state, a second camera angle, or a physical

@@ -268,6 +268,7 @@ add_executable(OloEngine-Tests
 		Rendering/GPUHashMapTest.cpp
 		Rendering/GPUPagedCacheTest.cpp
 		Rendering/GPUCacheShaderResolveTest.cpp
+		Rendering/SkeletalDeformationContractTest.cpp
 		Rendering/GPUParticleCompactionTest.cpp
 		Rendering/ShaderDebugDrawContractTest.cpp
 		Rendering/ShaderDebugDrawExpansionTest.cpp
@@ -1323,6 +1324,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/PrimaryCameraResolutionTest.cpp
 		Functional/Scene/EntityCreateWithUUIDTest.cpp
 		Functional/AnimationPhysics/AnimationContinuesAfterPauseResumeTest.cpp
+		Functional/AnimationPhysics/SkeletalDeformationHistoryTest.cpp
 		Functional/AnimationPhysics/CharacterPushesDynamicBodyTest.cpp
 		Functional/SaveGame/Save2DBodyVelocityRoundTripTest.cpp
 		Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp
@@ -1422,6 +1424,7 @@ add_executable(OloEngine-Tests
 		# Animated MeshPrimitives (issue #592): CreateAnimatedCube / CreateMultiBoneAnimatedCube
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
+		Rendering/PropertyTests/SkeletalDeformationVisualEvidenceTest.cpp
 		# Script-driven runtime spawning (issue #643): the deferred entity-command
 		# queue driven from Lua through real Scene::OnUpdateRuntime ticks, under
 		# both the parallel and the sequential gameplay executor.
