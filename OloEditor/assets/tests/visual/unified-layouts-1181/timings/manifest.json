@@ -1,0 +1,2903 @@
+{
+  "acceptedScenePairs": {
+    "Drift-deferred": [
+      [
+        "bench-control-2",
+        "bench-unified-7"
+      ],
+      [
+        "bench-control-9",
+        "bench-unified-11"
+      ],
+      [
+        "bench-control-12",
+        "bench-unified-13"
+      ]
+    ],
+    "Drift-forward": [
+      [
+        "bench-control-2",
+        "bench-unified-6"
+      ],
+      [
+        "bench-control-9",
+        "bench-unified-11"
+      ],
+      [
+        "bench-control-12",
+        "bench-unified-13"
+      ]
+    ],
+    "VirtualGeometry-deferred": [
+      [
+        "bench-control-2",
+        "bench-unified-7"
+      ],
+      [
+        "bench-control-9",
+        "bench-unified-11"
+      ],
+      [
+        "bench-control-12",
+        "bench-unified-13"
+      ]
+    ]
+  },
+  "complete": true,
+  "method": "Three clean pairs per scene; reject any overlap from scene loading through final diagnostics, with a 2-second margin. Poll activity every 2 seconds.",
+  "optimal": "per-scene",
+  "optimalByScene": {
+    "Drift-deferred": "bench-optimal-14",
+    "Drift-forward": "bench-optimal-14",
+    "VirtualGeometry-deferred": "bench-optimal-14"
+  },
+  "pendingControls": {
+    "Drift-deferred": [],
+    "Drift-forward": [],
+    "VirtualGeometry-deferred": []
+  },
+  "rejected": [
+    {
+      "labels": [
+        "bench-control-1",
+        "bench-unified-1"
+      ],
+      "reason": "Pilot pair overlapped sibling build/test activity"
+    },
+    {
+      "labels": [
+        "bench-control-2",
+        "bench-unified-2"
+      ],
+      "reason": "Other build/editor/test activity overlapped an arm"
+    },
+    {
+      "labels": [
+        "bench-control-3",
+        "bench-unified-3"
+      ],
+      "reason": "Other build/editor/test activity overlapped an arm"
+    },
+    {
+      "label": "bench-unified-4",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              25948
+            ]
+          ],
+          "time": 1789301224.6206467
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              25948
+            ]
+          ],
+          "time": 1789301227.4938588
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              25948
+            ]
+          ],
+          "time": 1789301230.4036014
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              25948
+            ]
+          ],
+          "time": 1789301233.305275
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              25948
+            ]
+          ],
+          "time": 1789301236.2242315
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "Drift-forward"
+    },
+    {
+      "label": "bench-unified-4",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301306.830429
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301309.7187657
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301312.646319
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301315.5038884
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301318.3755486
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301321.2336833
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301324.1114435
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301326.9730828
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301329.8763654
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301332.7655442
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301335.640502
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301338.5596092
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              77068
+            ]
+          ],
+          "time": 1789301341.4532301
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "Drift-deferred"
+    },
+    {
+      "label": "bench-unified-4",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301400.554425
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301403.392352
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301406.2296991
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301409.1603696
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301412.0187793
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301414.8566055
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301417.7214236
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301420.5749784
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301423.423375
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "time": 1789301426.3068385
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              30056
+            ]
+          ],
+          "gpu": "utilization.gpu [%], memory.used [MiB], temperature.gpu, clocks.current.graphics [MHz], clocks.current.memory [MHz]\n15 %, 3859 MiB, 46, 900 MHz, 5001 MHz\n",
+          "time": 1789301428.070039
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "VirtualGeometry-deferred"
+    },
+    {
+      "label": "bench-unified-5",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301567.5959997
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301570.4414499
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301573.2687886
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301576.1204967
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301579.0193746
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301581.856256
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301584.7280538
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "Drift-forward"
+    },
+    {
+      "label": "bench-unified-5",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301581.856256
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301584.7280538
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301587.5668986
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301590.4401357
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301593.2737827
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301596.102674
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              46856
+            ]
+          ],
+          "time": 1789301598.9560173
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "Drift-deferred"
+    },
+    {
+      "label": "bench-unified-5",
+      "observations": [
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301708.324221
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301711.183381
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301714.0450506
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301716.87211
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301719.7156878
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301722.6203082
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301725.5981421
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301728.4500074
+        },
+        {
+          "activity": [
+            [
+              "OloEngine-Tests.exe",
+              66584
+            ]
+          ],
+          "time": 1789301731.4925961
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "VirtualGeometry-deferred"
+    },
+    {
+      "label": "bench-unified-6",
+      "observations": [
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ]
+          ],
+          "time": 1789302045.5924757
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ]
+          ],
+          "time": 1789302048.4906623
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              81956
+            ],
+            [
+              "clang-cl.exe",
+              79276
+            ],
+            [
+              "clang-cl.exe",
+              83936
+            ],
+            [
+              "clang-cl.exe",
+              73396
+            ],
+            [
+              "clang-cl.exe",
+              67700
+            ],
+            [
+              "clang-cl.exe",
+              43288
+            ],
+            [
+              "clang-cl.exe",
+              78840
+            ],
+            [
+              "clang-cl.exe",
+              79184
+            ],
+            [
+              "clang-cl.exe",
+              83576
+            ],
+            [
+              "clang-cl.exe",
+              82696
+            ],
+            [
+              "clang-cl.exe",
+              50652
+            ]
+          ],
+          "time": 1789302052.0381284
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              81956
+            ],
+            [
+              "clang-cl.exe",
+              79276
+            ],
+            [
+              "clang-cl.exe",
+              83936
+            ],
+            [
+              "clang-cl.exe",
+              73396
+            ],
+            [
+              "clang-cl.exe",
+              67700
+            ],
+            [
+              "clang-cl.exe",
+              43288
+            ],
+            [
+              "clang-cl.exe",
+              78840
+            ],
+            [
+              "clang-cl.exe",
+              79184
+            ],
+            [
+              "clang-cl.exe",
+              83576
+            ],
+            [
+              "clang-cl.exe",
+              82696
+            ],
+            [
+              "clang-cl.exe",
+              50652
+            ]
+          ],
+          "time": 1789302055.5086727
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              79184
+            ],
+            [
+              "clang-cl.exe",
+              50652
+            ],
+            [
+              "clang-cl.exe",
+              82508
+            ],
+            [
+              "clang-cl.exe",
+              81848
+            ],
+            [
+              "clang-cl.exe",
+              41116
+            ],
+            [
+              "clang-cl.exe",
+              41424
+            ],
+            [
+              "clang-cl.exe",
+              83716
+            ],
+            [
+              "clang-cl.exe",
+              34440
+            ],
+            [
+              "clang-cl.exe",
+              56068
+            ]
+          ],
+          "time": 1789302059.0710819
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              50652
+            ],
+            [
+              "clang-cl.exe",
+              81848
+            ],
+            [
+              "clang-cl.exe",
+              41116
+            ],
+            [
+              "clang-cl.exe",
+              34440
+            ],
+            [
+              "clang-cl.exe",
+              56068
+            ],
+            [
+              "clang-cl.exe",
+              31476
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              25828
+            ],
+            [
+              "clang-cl.exe",
+              80124
+            ],
+            [
+              "clang-cl.exe",
+              83048
+            ],
+            [
+              "clang-cl.exe",
+              42320
+            ]
+          ],
+          "time": 1789302062.67682
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              41116
+            ],
+            [
+              "clang-cl.exe",
+              34440
+            ],
+            [
+              "clang-cl.exe",
+              56068
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              25828
+            ],
+            [
+              "clang-cl.exe",
+              42320
+            ],
+            [
+              "clang-cl.exe",
+              52432
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              82868
+            ],
+            [
+              "clang-cl.exe",
+              41412
+            ]
+          ],
+          "time": 1789302066.4755926
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              42320
+            ],
+            [
+              "clang-cl.exe",
+              52432
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              82868
+            ],
+            [
+              "clang-cl.exe",
+              54724
+            ],
+            [
+              "clang-cl.exe",
+              32784
+            ],
+            [
+              "clang-cl.exe",
+              58208
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              80772
+            ],
+            [
+              "clang-cl.exe",
+              34596
+            ]
+          ],
+          "time": 1789302069.9462814
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              82868
+            ],
+            [
+              "clang-cl.exe",
+              54724
+            ],
+            [
+              "clang-cl.exe",
+              32784
+            ],
+            [
+              "clang-cl.exe",
+              58208
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              80772
+            ],
+            [
+              "clang-cl.exe",
+              34596
+            ],
+            [
+              "clang-cl.exe",
+              66052
+            ],
+            [
+              "clang-cl.exe",
+              33988
+            ]
+          ],
+          "time": 1789302073.4780748
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              32784
+            ],
+            [
+              "clang-cl.exe",
+              58208
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              80772
+            ],
+            [
+              "clang-cl.exe",
+              34596
+            ],
+            [
+              "clang-cl.exe",
+              66052
+            ],
+            [
+              "clang-cl.exe",
+              33988
+            ],
+            [
+              "clang-cl.exe",
+              60164
+            ],
+            [
+              "clang-cl.exe",
+              77300
+            ]
+          ],
+          "time": 1789302077.0379548
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              66052
+            ],
+            [
+              "clang-cl.exe",
+              33988
+            ],
+            [
+              "clang-cl.exe",
+              60164
+            ],
+            [
+              "clang-cl.exe",
+              77900
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              57220
+            ],
+            [
+              "clang-cl.exe",
+              51408
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ]
+          ],
+          "time": 1789302080.6663191
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72588
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              60164
+            ],
+            [
+              "clang-cl.exe",
+              77900
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              57220
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              11840
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ]
+          ],
+          "time": 1789302084.0273156
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              77900
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              57220
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              11840
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              38708
+            ],
+            [
+              "clang-cl.exe",
+              83908
+            ],
+            [
+              "clang-cl.exe",
+              78536
+            ]
+          ],
+          "time": 1789302087.547504
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              11840
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              38708
+            ],
+            [
+              "clang-cl.exe",
+              78240
+            ],
+            [
+              "clang-cl.exe",
+              26416
+            ],
+            [
+              "clang-cl.exe",
+              42600
+            ]
+          ],
+          "time": 1789302090.9372892
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              38708
+            ],
+            [
+              "clang-cl.exe",
+              78240
+            ],
+            [
+              "clang-cl.exe",
+              26416
+            ],
+            [
+              "clang-cl.exe",
+              42600
+            ],
+            [
+              "clang-cl.exe",
+              82264
+            ],
+            [
+              "clang-cl.exe",
+              68100
+            ]
+          ],
+          "time": 1789302094.3493607
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              79908
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              42600
+            ],
+            [
+              "clang-cl.exe",
+              47152
+            ],
+            [
+              "clang-cl.exe",
+              46972
+            ]
+          ],
+          "time": 1789302097.8194096
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              47152
+            ],
+            [
+              "clang-cl.exe",
+              46972
+            ],
+            [
+              "clang-cl.exe",
+              80192
+            ],
+            [
+              "clang-cl.exe",
+              82156
+            ],
+            [
+              "clang-cl.exe",
+              24540
+            ],
+            [
+              "clang-cl.exe",
+              68792
+            ],
+            [
+              "clang-cl.exe",
+              83424
+            ]
+          ],
+          "time": 1789302101.1998715
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              78004
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              47152
+            ],
+            [
+              "clang-cl.exe",
+              46972
+            ],
+            [
+              "clang-cl.exe",
+              83424
+            ],
+            [
+              "clang-cl.exe",
+              82104
+            ],
+            [
+              "clang-cl.exe",
+              81652
+            ]
+          ],
+          "time": 1789302104.9560337
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              62588
+            ],
+            [
+              "clang-cl.exe",
+              81624
+            ],
+            [
+              "clang-cl.exe",
+              48048
+            ],
+            [
+              "clang-cl.exe",
+              32104
+            ],
+            [
+              "clang-cl.exe",
+              79092
+            ],
+            [
+              "clang-cl.exe",
+              20316
+            ]
+          ],
+          "time": 1789302108.3723943
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "Drift-deferred"
+    },
+    {
+      "label": "bench-unified-6",
+      "observations": [
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              67984
+            ],
+            [
+              "clang-cl.exe",
+              62588
+            ],
+            [
+              "clang-cl.exe",
+              81624
+            ],
+            [
+              "clang-cl.exe",
+              48048
+            ],
+            [
+              "clang-cl.exe",
+              32104
+            ],
+            [
+              "clang-cl.exe",
+              79092
+            ],
+            [
+              "clang-cl.exe",
+              20316
+            ]
+          ],
+          "time": 1789302108.3723943
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              21132
+            ],
+            [
+              "clang-cl.exe",
+              81624
+            ],
+            [
+              "clang-cl.exe",
+              48048
+            ],
+            [
+              "clang-cl.exe",
+              32104
+            ],
+            [
+              "clang-cl.exe",
+              20316
+            ],
+            [
+              "clang-cl.exe",
+              43868
+            ],
+            [
+              "clang-cl.exe",
+              83536
+            ],
+            [
+              "clang-cl.exe",
+              81436
+            ],
+            [
+              "clang-cl.exe",
+              32192
+            ],
+            [
+              "clang-cl.exe",
+              60124
+            ],
+            [
+              "clang-cl.exe",
+              82576
+            ]
+          ],
+          "time": 1789302111.9285078
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              20316
+            ],
+            [
+              "clang-cl.exe",
+              43868
+            ],
+            [
+              "clang-cl.exe",
+              83536
+            ],
+            [
+              "clang-cl.exe",
+              81436
+            ],
+            [
+              "clang-cl.exe",
+              32192
+            ],
+            [
+              "clang-cl.exe",
+              60124
+            ],
+            [
+              "clang-cl.exe",
+              456
+            ],
+            [
+              "clang-cl.exe",
+              2420
+            ],
+            [
+              "clang-cl.exe",
+              44452
+            ],
+            [
+              "clang-cl.exe",
+              83824
+            ]
+          ],
+          "time": 1789302115.5214233
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              60124
+            ],
+            [
+              "clang-cl.exe",
+              456
+            ],
+            [
+              "clang-cl.exe",
+              2420
+            ],
+            [
+              "clang-cl.exe",
+              44452
+            ],
+            [
+              "clang-cl.exe",
+              31140
+            ],
+            [
+              "clang-cl.exe",
+              72656
+            ],
+            [
+              "clang-cl.exe",
+              39352
+            ],
+            [
+              "clang-cl.exe",
+              83392
+            ],
+            [
+              "clang-cl.exe",
+              48040
+            ],
+            [
+              "clang-cl.exe",
+              51836
+            ]
+          ],
+          "time": 1789302119.0314415
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              456
+            ],
+            [
+              "clang-cl.exe",
+              2420
+            ],
+            [
+              "clang-cl.exe",
+              44452
+            ],
+            [
+              "clang-cl.exe",
+              31140
+            ],
+            [
+              "clang-cl.exe",
+              72656
+            ],
+            [
+              "clang-cl.exe",
+              48040
+            ],
+            [
+              "clang-cl.exe",
+              58980
+            ],
+            [
+              "clang-cl.exe",
+              42116
+            ],
+            [
+              "clang-cl.exe",
+              80292
+            ],
+            [
+              "clang-cl.exe",
+              37028
+            ],
+            [
+              "clang-cl.exe",
+              75452
+            ]
+          ],
+          "time": 1789302122.3819602
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              44452
+            ],
+            [
+              "clang-cl.exe",
+              48040
+            ],
+            [
+              "clang-cl.exe",
+              58980
+            ],
+            [
+              "clang-cl.exe",
+              42116
+            ],
+            [
+              "clang-cl.exe",
+              52576
+            ],
+            [
+              "clang-cl.exe",
+              78020
+            ],
+            [
+              "clang-cl.exe",
+              83960
+            ],
+            [
+              "clang-cl.exe",
+              25356
+            ],
+            [
+              "clang-cl.exe",
+              37980
+            ]
+          ],
+          "time": 1789302126.089449
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              44208
+            ],
+            [
+              "clang-cl.exe",
+              69492
+            ],
+            [
+              "clang-cl.exe",
+              78708
+            ],
+            [
+              "clang-cl.exe",
+              79948
+            ],
+            [
+              "clang-cl.exe",
+              79956
+            ],
+            [
+              "clang-cl.exe",
+              55112
+            ],
+            [
+              "clang-cl.exe",
+              64708
+            ],
+            [
+              "clang-cl.exe",
+              12488
+            ],
+            [
+              "clang-cl.exe",
+              27632
+            ],
+            [
+              "clang-cl.exe",
+              78532
+            ]
+          ],
+          "time": 1789302129.9387352
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              55112
+            ],
+            [
+              "clang-cl.exe",
+              64708
+            ],
+            [
+              "clang-cl.exe",
+              12488
+            ],
+            [
+              "clang-cl.exe",
+              27632
+            ],
+            [
+              "clang-cl.exe",
+              37644
+            ],
+            [
+              "clang-cl.exe",
+              31164
+            ],
+            [
+              "clang-cl.exe",
+              82176
+            ],
+            [
+              "clang-cl.exe",
+              20528
+            ],
+            [
+              "clang-cl.exe",
+              59828
+            ],
+            [
+              "clang-cl.exe",
+              57556
+            ],
+            [
+              "clang-cl.exe",
+              36044
+            ]
+          ],
+          "time": 1789302133.6354082
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              36044
+            ],
+            [
+              "clang-cl.exe",
+              80440
+            ],
+            [
+              "clang-cl.exe",
+              66724
+            ],
+            [
+              "clang-cl.exe",
+              56472
+            ],
+            [
+              "clang-cl.exe",
+              78232
+            ],
+            [
+              "clang-cl.exe",
+              32832
+            ],
+            [
+              "clang-cl.exe",
+              23104
+            ],
+            [
+              "clang-cl.exe",
+              32900
+            ],
+            [
+              "clang-cl.exe",
+              63292
+            ]
+          ],
+          "time": 1789302137.1776674
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              32832
+            ],
+            [
+              "clang-cl.exe",
+              32900
+            ],
+            [
+              "clang-cl.exe",
+              39400
+            ],
+            [
+              "clang-cl.exe",
+              72724
+            ],
+            [
+              "clang-cl.exe",
+              69112
+            ],
+            [
+              "clang-cl.exe",
+              53128
+            ],
+            [
+              "clang-cl.exe",
+              20496
+            ],
+            [
+              "clang-cl.exe",
+              46244
+            ],
+            [
+              "clang-cl.exe",
+              77528
+            ],
+            [
+              "clang-cl.exe",
+              77012
+            ],
+            [
+              "clang-cl.exe",
+              9948
+            ]
+          ],
+          "time": 1789302140.7483363
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              72308
+            ],
+            [
+              "clang-cl.exe",
+              4644
+            ],
+            [
+              "clang-cl.exe",
+              80636
+            ],
+            [
+              "clang-cl.exe",
+              31336
+            ],
+            [
+              "clang-cl.exe",
+              70344
+            ],
+            [
+              "clang-cl.exe",
+              81560
+            ],
+            [
+              "clang-cl.exe",
+              11100
+            ],
+            [
+              "clang-cl.exe",
+              69408
+            ],
+            [
+              "clang-cl.exe",
+              49764
+            ]
+          ],
+          "time": 1789302144.1289098
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              31336
+            ],
+            [
+              "clang-cl.exe",
+              70344
+            ],
+            [
+              "clang-cl.exe",
+              81560
+            ],
+            [
+              "clang-cl.exe",
+              63208
+            ],
+            [
+              "clang-cl.exe",
+              80016
+            ],
+            [
+              "clang-cl.exe",
+              23648
+            ],
+            [
+              "clang-cl.exe",
+              78240
+            ],
+            [
+              "clang-cl.exe",
+              62460
+            ],
+            [
+              "clang-cl.exe",
+              36092
+            ],
+            [
+              "clang-cl.exe",
+              49900
+            ],
+            [
+              "clang-cl.exe",
+              83592
+            ]
+          ],
+          "time": 1789302147.3901956
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              62460
+            ],
+            [
+              "clang-cl.exe",
+              60056
+            ],
+            [
+              "clang-cl.exe",
+              83292
+            ],
+            [
+              "clang-cl.exe",
+              76956
+            ],
+            [
+              "clang-cl.exe",
+              56248
+            ],
+            [
+              "clang-cl.exe",
+              35256
+            ],
+            [
+              "clang-cl.exe",
+              73912
+            ],
+            [
+              "clang-cl.exe",
+              12536
+            ],
+            [
+              "clang-cl.exe",
+              76724
+            ],
+            [
+              "clang-cl.exe",
+              22096
+            ]
+          ],
+          "time": 1789302150.781286
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              76956
+            ],
+            [
+              "clang-cl.exe",
+              73912
+            ],
+            [
+              "clang-cl.exe",
+              76724
+            ],
+            [
+              "clang-cl.exe",
+              70268
+            ],
+            [
+              "clang-cl.exe",
+              36808
+            ],
+            [
+              "clang-cl.exe",
+              83180
+            ],
+            [
+              "clang-cl.exe",
+              74548
+            ],
+            [
+              "clang-cl.exe",
+              45248
+            ],
+            [
+              "clang-cl.exe",
+              81500
+            ],
+            [
+              "clang-cl.exe",
+              54604
+            ]
+          ],
+          "time": 1789302154.069391
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              73912
+            ],
+            [
+              "clang-cl.exe",
+              45248
+            ],
+            [
+              "clang-cl.exe",
+              83424
+            ],
+            [
+              "clang-cl.exe",
+              26292
+            ],
+            [
+              "clang-cl.exe",
+              79028
+            ],
+            [
+              "clang-cl.exe",
+              26228
+            ],
+            [
+              "clang-cl.exe",
+              81204
+            ],
+            [
+              "clang-cl.exe",
+              48940
+            ]
+          ],
+          "time": 1789302157.5137043
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              81340
+            ],
+            [
+              "clang-cl.exe",
+              80676
+            ],
+            [
+              "clang-cl.exe",
+              77328
+            ],
+            [
+              "clang-cl.exe",
+              23532
+            ],
+            [
+              "clang-cl.exe",
+              28796
+            ],
+            [
+              "clang-cl.exe",
+              81020
+            ],
+            [
+              "clang-cl.exe",
+              24676
+            ],
+            [
+              "clang-cl.exe",
+              39004
+            ],
+            [
+              "clang-cl.exe",
+              37496
+            ],
+            [
+              "clang-cl.exe",
+              66416
+            ]
+          ],
+          "time": 1789302160.6648984
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              75916
+            ],
+            [
+              "clang-cl.exe",
+              68488
+            ],
+            [
+              "clang-cl.exe",
+              1036
+            ],
+            [
+              "clang-cl.exe",
+              80460
+            ],
+            [
+              "clang-cl.exe",
+              67736
+            ],
+            [
+              "clang-cl.exe",
+              47192
+            ],
+            [
+              "clang-cl.exe",
+              75596
+            ],
+            [
+              "clang-cl.exe",
+              20460
+            ]
+          ],
+          "time": 1789302164.0163867
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              75596
+            ],
+            [
+              "clang-cl.exe",
+              82972
+            ],
+            [
+              "clang-cl.exe",
+              58312
+            ],
+            [
+              "clang-cl.exe",
+              67756
+            ],
+            [
+              "clang-cl.exe",
+              55160
+            ],
+            [
+              "clang-cl.exe",
+              82488
+            ],
+            [
+              "clang-cl.exe",
+              3276
+            ],
+            [
+              "clang-cl.exe",
+              54708
+            ],
+            [
+              "clang-cl.exe",
+              80108
+            ]
+          ],
+          "time": 1789302167.4030018
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              75596
+            ],
+            [
+              "clang-cl.exe",
+              47272
+            ],
+            [
+              "clang-cl.exe",
+              45452
+            ],
+            [
+              "clang-cl.exe",
+              72484
+            ],
+            [
+              "clang-cl.exe",
+              82628
+            ],
+            [
+              "clang-cl.exe",
+              69108
+            ],
+            [
+              "clang-cl.exe",
+              46480
+            ],
+            [
+              "clang-cl.exe",
+              12180
+            ],
+            [
+              "clang-cl.exe",
+              456
+            ],
+            [
+              "clang-cl.exe",
+              77176
+            ]
+          ],
+          "time": 1789302170.8833795
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              7324
+            ],
+            [
+              "clang-cl.exe",
+              79388
+            ],
+            [
+              "clang-cl.exe",
+              59240
+            ],
+            [
+              "clang-cl.exe",
+              8136
+            ],
+            [
+              "clang-cl.exe",
+              13472
+            ],
+            [
+              "clang-cl.exe",
+              45652
+            ],
+            [
+              "clang-cl.exe",
+              77808
+            ],
+            [
+              "clang-cl.exe",
+              34280
+            ],
+            [
+              "clang-cl.exe",
+              81932
+            ],
+            [
+              "clang-cl.exe",
+              80696
+            ]
+          ],
+          "time": 1789302174.5904522
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              79548
+            ],
+            [
+              "clang-cl.exe",
+              78668
+            ],
+            [
+              "clang-cl.exe",
+              34264
+            ],
+            [
+              "clang-cl.exe",
+              48700
+            ],
+            [
+              "clang-cl.exe",
+              70736
+            ],
+            [
+              "clang-cl.exe",
+              82640
+            ],
+            [
+              "clang-cl.exe",
+              56936
+            ],
+            [
+              "clang-cl.exe",
+              83048
+            ]
+          ],
+          "time": 1789302178.0577786
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              34264
+            ],
+            [
+              "clang-cl.exe",
+              24564
+            ],
+            [
+              "clang-cl.exe",
+              548
+            ],
+            [
+              "clang-cl.exe",
+              78304
+            ],
+            [
+              "clang-cl.exe",
+              82404
+            ],
+            [
+              "clang-cl.exe",
+              72700
+            ],
+            [
+              "clang-cl.exe",
+              32384
+            ],
+            [
+              "clang-cl.exe",
+              50124
+            ],
+            [
+              "clang-cl.exe",
+              22716
+            ],
+            [
+              "clang-cl.exe",
+              55920
+            ],
+            [
+              "clang-cl.exe",
+              80476
+            ]
+          ],
+          "time": 1789302181.4564886
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              76728
+            ],
+            [
+              "clang-cl.exe",
+              79508
+            ],
+            [
+              "clang-cl.exe",
+              80004
+            ],
+            [
+              "clang-cl.exe",
+              31752
+            ],
+            [
+              "clang-cl.exe",
+              79236
+            ],
+            [
+              "clang-cl.exe",
+              66580
+            ],
+            [
+              "clang-cl.exe",
+              29628
+            ],
+            [
+              "clang-cl.exe",
+              62220
+            ]
+          ],
+          "time": 1789302184.9342017
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              55128
+            ],
+            [
+              "clang-cl.exe",
+              5380
+            ],
+            [
+              "clang-cl.exe",
+              71896
+            ],
+            [
+              "clang-cl.exe",
+              50852
+            ],
+            [
+              "clang-cl.exe",
+              40016
+            ],
+            [
+              "clang-cl.exe",
+              54880
+            ],
+            [
+              "clang-cl.exe",
+              73496
+            ],
+            [
+              "clang-cl.exe",
+              79948
+            ],
+            [
+              "clang-cl.exe",
+              22264
+            ]
+          ],
+          "time": 1789302188.4502711
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              54880
+            ],
+            [
+              "clang-cl.exe",
+              13524
+            ],
+            [
+              "clang-cl.exe",
+              19364
+            ],
+            [
+              "clang-cl.exe",
+              20988
+            ],
+            [
+              "clang-cl.exe",
+              67676
+            ],
+            [
+              "clang-cl.exe",
+              81640
+            ],
+            [
+              "clang-cl.exe",
+              55428
+            ],
+            [
+              "clang-cl.exe",
+              37316
+            ],
+            [
+              "clang-cl.exe",
+              57320
+            ]
+          ],
+          "time": 1789302191.9789646
+        },
+        {
+          "activity": [
+            [
+              "ninja.exe",
+              76096
+            ],
+            [
+              "clang-cl.exe",
+              81640
+            ],
+            [
+              "clang-cl.exe",
+              55428
+            ],
+            [
+              "clang-cl.exe",
+              37316
+            ],
+            [
+              "clang-cl.exe",
+              82096
+            ],
+            [
+              "clang-cl.exe",
+              83136
+            ],
+            [
+              "clang-cl.exe",
+              74008
+            ],
+            [
+              "clang-cl.exe",
+              30056
+            ],
+            [
+              "clang-cl.exe",
+              2232
+            ],
+            [
+              "clang-cl.exe",
+              77584
+            ],
+            [
+              "clang-cl.exe",
+              83784
+            ]
+          ],
+          "gpu": "utilization.gpu [%], memory.used [MiB], temperature.gpu, clocks.current.graphics [MHz], clocks.current.memory [MHz]\n19 %, 3293 MiB, 45, 690 MHz, 810 MHz\n",
+          "time": 1789302192.0598485
+        }
+      ],
+      "reason": "Overlapping workload",
+      "scene": "VirtualGeometry-deferred"
+    },
+    {
+      "label": "bench-control-8",
+      "reason": "Editor minimized during warmup; zero samples accepted; runner exited 1"
+    },
+    {
+      "label": "bench-unified-10",
+      "reason": "Window minimized; skill screenshot helper filtered out minimized rectangle and failed restoration; zero samples accepted"
+    }
+  ],
+  "reusedControl": "bench-control-2 was entirely uninterrupted; its clean scenes are paired with the next accepted unified scenes.",
+  "runs": [
+    {
+      "acceptedScenes": [],
+      "intervals": {
+        "Drift-deferred": [
+          1789301265.7875617,
+          1789301348.248615
+        ],
+        "Drift-forward": [
+          1789301184.7268672,
+          1789301265.7829459
+        ],
+        "VirtualGeometry-deferred": [
+          1789301348.2578065,
+          1789301427.6178088
+        ]
+      },
+      "label": "bench-unified-4"
+    },
+    {
+      "acceptedScenes": [],
+      "intervals": {
+        "Drift-deferred": [
+          1789301583.2687988,
+          1789301666.367993
+        ],
+        "Drift-forward": [
+          1789301502.49252,
+          1789301583.2661357
+        ],
+        "VirtualGeometry-deferred": [
+          1789301666.376911,
+          1789301745.6692271
+        ]
+      },
+      "label": "bench-unified-5"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789302025.1387308,
+          1789302109.7395704
+        ],
+        "Drift-forward": [
+          1789301943.9120681,
+          1789302025.1359859
+        ],
+        "VirtualGeometry-deferred": [
+          1789302109.7462323,
+          1789302190.3653243
+        ]
+      },
+      "label": "bench-unified-6"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789303936.915172,
+          1789304018.5571513
+        ],
+        "VirtualGeometry-deferred": [
+          1789304018.5597396,
+          1789304098.611375
+        ]
+      },
+      "label": "bench-unified-7"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward",
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789304510.4097302,
+          1789304594.9020898
+        ],
+        "Drift-forward": [
+          1789304429.2346537,
+          1789304510.4053156
+        ],
+        "VirtualGeometry-deferred": [
+          1789304594.9070048,
+          1789304675.144661
+        ]
+      },
+      "label": "bench-control-9"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward",
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789305095.5959742,
+          1789305179.1664484
+        ],
+        "Drift-forward": [
+          1789305013.1795979,
+          1789305095.5933652
+        ],
+        "VirtualGeometry-deferred": [
+          1789305179.1755857,
+          1789305259.078037
+        ]
+      },
+      "label": "bench-unified-11"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward",
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789305408.4637184,
+          1789305491.7666519
+        ],
+        "Drift-forward": [
+          1789305326.2024317,
+          1789305408.458035
+        ],
+        "VirtualGeometry-deferred": [
+          1789305491.77517,
+          1789305571.7968044
+        ]
+      },
+      "label": "bench-control-12"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward",
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789305720.8632257,
+          1789305805.0100985
+        ],
+        "Drift-forward": [
+          1789305638.9532523,
+          1789305720.8585289
+        ],
+        "VirtualGeometry-deferred": [
+          1789305805.0185938,
+          1789305884.916992
+        ]
+      },
+      "label": "bench-unified-13"
+    },
+    {
+      "acceptedScenes": [
+        "Drift-forward",
+        "Drift-deferred",
+        "VirtualGeometry-deferred"
+      ],
+      "intervals": {
+        "Drift-deferred": [
+          1789306038.4223425,
+          1789306121.057026
+        ],
+        "Drift-forward": [
+          1789305952.2767882,
+          1789306032.4885693
+        ],
+        "VirtualGeometry-deferred": [
+          1789306127.534376,
+          1789306206.8665867
+        ]
+      },
+      "label": "bench-optimal-14"
+    }
+  ]
+}

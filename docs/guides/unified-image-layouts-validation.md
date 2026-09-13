@@ -33,6 +33,7 @@ clusters at the timing pose, with no unresolved virtual-mesh registrations.
 
 ## Correctness
 
+The full-suite and 173-test counts below precede integration of master PR #1210.
 Release OloEditor and Debug OloEditor, OloEngine-Tests, OloRuntime and OloServer
 builds exited 0; expected executables existed and dependency checks passed.
 
@@ -61,6 +62,21 @@ All eight invocations passed, with no skips, exit 0. Renderer initialization
 occurred once, so the second iteration exercised preservation of the live GL
 renderer. The full-suite result above precedes these test-only cleanup edits;
 the isolated and mixed sequences validate both affected ownership cases.
+
+Integrating PR #1210 exposed a separate heap lifecycle bug: shutdown clears slot
+storage, but its new multi-frame reset still walked those slots. A two-test
+heap-shutdown/graph-execution sequence reproduced the bounds assertion with
+unified layouts disabled, and a new CPU regression failed before the fix. Reset
+now returns for an uninitialized heap, while a second regression ensures an
+initialized but disabled heap still retires transient views. Both new tests, the
+original sub-ring test and the graph reproducer passed together (4/4, exit 0).
+
+The [integrated-revision checks](../../OloEditor/assets/tests/visual/unified-layouts-1181/integration/README.md)
+at `1bd20ac1d` rebuilt all owning targets successfully, passed 215 Vulkan/heap
+tests per mode (0 skipped, 0 failed, exit 0), and repeated all four live Vulkan
+scene/path checks in both modes. Khronos validation was loaded; both logs had
+zero VUID, synchronization or device-loss errors. Five fresh inspected captures,
+diagnostics and test XML are retained separately from the earlier evidence.
 
 The new `VulkanDrawPath.ComputeDispatchWritesStorageImageThroughRootData` coverage
 dispatches a storage write, binds its output through the production sampled
@@ -91,7 +107,11 @@ its SPIR-V check is a headless approximation. No shader or OpenGL source changed
 
 ## GPU timing
 
-Consult the PR discussion for timing results and the current acceptance status.
+The [timing report and raw samples](../../OloEditor/assets/tests/visual/unified-layouts-1181/timings/README.md)
+record the completed experiment. Results are inconclusive: both improvements and
+slowdowns were observed, including a higher Deferred aggregate median. No
+reproducible performance benefit or absence of regression is established.
+Measurements precede integration of master PR #1210's descriptor sub-rings.
 The collection protocol uses three interleaved clean git-control/unified pairs per
 scene, plus the runtime-disabled comparison, with 60 seconds of warm-up and 30
 samples per scene. Other editor, test and compiler processes are monitored. An

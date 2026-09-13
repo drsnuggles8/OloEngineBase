@@ -1,0 +1,322 @@
+[
+  {
+    "controlValidFrameSamples": [
+      30,
+      30,
+      30
+    ],
+    "frame_gpu_ms": {
+      "controlMedian": 101.76050000000001,
+      "controlRuns": [
+        101.76050000000001,
+        132.486,
+        94.6585
+      ],
+      "pairedPercentChanges": [
+        -8.147562168031808,
+        -1.8435910209380624,
+        40.84789004685263
+      ],
+      "unifiedMedian": 130.0435,
+      "unifiedRuns": [
+        93.4695,
+        130.0435,
+        133.3245
+      ]
+    },
+    "frame_wall_ms": {
+      "controlMedian": 104.33500000000001,
+      "controlRuns": [
+        104.33500000000001,
+        137.615,
+        98.95500000000001
+      ],
+      "pairedPercentChanges": [
+        -5.889682273446118,
+        -2.9793263815717896,
+        38.396240715476694
+      ],
+      "unifiedMedian": 133.515,
+      "unifiedRuns": [
+        98.19,
+        133.515,
+        136.95
+      ]
+    },
+    "optimal": {
+      "frame_gpu_ms": 91.7165,
+      "frame_wall_ms": 94.94,
+      "interference_observations": 0,
+      "pass_gpu_sum_ms": 15.496,
+      "pass_medians_ms": {
+        "BloomPass": 0.1925,
+        "CloudscapePass": 0.501,
+        "DDGIProbeUpdatePass": 0.001,
+        "DeferredGPUOcclusionPass": 0.001,
+        "DeferredLightingPass": 0.266,
+        "DeferredOpaqueDecalPass": 0.001,
+        "FXAAPass": 0.039,
+        "FinalPass": 0.027,
+        "FluidIntermediatesPass": 0.001,
+        "FoliagePass": 0.285,
+        "ParticlePass": 0.007,
+        "PlanarReflectionPass": 0.001,
+        "RayTracingScenePass": 0.049,
+        "ScenePass": 1.611,
+        "ShadowPass": 4.304,
+        "ToneMapPass": 0.037,
+        "UICompositePass": 0.081,
+        "VirtualGeometryPass": 0.001,
+        "VirtualShadowMapMarkPass": 0.003,
+        "VolumetricFogPass": 0.003,
+        "WaterPass": 8.5015
+      },
+      "render_hazards": 0,
+      "run": "bench-optimal-14",
+      "samples": 30,
+      "scene": "Drift-deferred",
+      "shader_errors": 0,
+      "valid_frame_gpu": 30
+    },
+    "pass_gpu_sum_ms": {
+      "controlMedian": 15.225,
+      "controlRuns": [
+        15.055,
+        21.038,
+        15.225
+      ],
+      "pairedPercentChanges": [
+        -2.4642975755562846,
+        -1.487784009886861,
+        56.53201970443351
+      ],
+      "unifiedMedian": 20.725,
+      "unifiedRuns": [
+        14.684000000000001,
+        20.725,
+        23.832
+      ]
+    },
+    "scene": "Drift-deferred",
+    "unifiedValidFrameSamples": [
+      30,
+      30,
+      30
+    ]
+  },
+  {
+    "controlValidFrameSamples": [
+      30,
+      30,
+      30
+    ],
+    "frame_gpu_ms": {
+      "controlMedian": 93.57249999999999,
+      "controlRuns": [
+        93.0615,
+        93.57249999999999,
+        130.2745
+      ],
+      "pairedPercentChanges": [
+        4.468550367230284,
+        39.11405594592432,
+        -30.036576613228217
+      ],
+      "unifiedMedian": 97.22,
+      "unifiedRuns": [
+        97.22,
+        130.1725,
+        91.1445
+      ]
+    },
+    "frame_wall_ms": {
+      "controlMedian": 98.98,
+      "controlRuns": [
+        98.98,
+        96.13,
+        133.35000000000002
+      ],
+      "pairedPercentChanges": [
+        2.111537684380682,
+        38.629980235098294,
+        -29.362579677540324
+      ],
+      "unifiedMedian": 101.07,
+      "unifiedRuns": [
+        101.07,
+        133.265,
+        94.195
+      ]
+    },
+    "optimal": {
+      "frame_gpu_ms": 54.1465,
+      "frame_wall_ms": 56.035,
+      "interference_observations": 0,
+      "pass_gpu_sum_ms": 5.509,
+      "pass_medians_ms": {
+        "BloomPass": 0.07400000000000001,
+        "CloudscapePass": 0.1205,
+        "DDGIProbeUpdatePass": 0.001,
+        "FXAAPass": 0.017,
+        "FinalPass": 0.0085,
+        "FluidIntermediatesPass": 0.001,
+        "FoliagePass": 0.0495,
+        "GPUDrivenOcclusionPass": 0.001,
+        "ParticlePass": 0.0025,
+        "PlanarReflectionPass": 0.001,
+        "RayTracingScenePass": 0.020999999999999998,
+        "ScenePass": 0.7965,
+        "ShadowPass": 1.303,
+        "ToneMapPass": 0.014,
+        "UICompositePass": 0.023,
+        "VirtualShadowMapMarkPass": 0.002,
+        "VolumetricFogPass": 0.002,
+        "WaterPass": 3.0605
+      },
+      "render_hazards": 0,
+      "run": "bench-optimal-14",
+      "samples": 30,
+      "scene": "Drift-forward",
+      "shader_errors": 0,
+      "valid_frame_gpu": 30
+    },
+    "pass_gpu_sum_ms": {
+      "controlMedian": 15.262,
+      "controlRuns": [
+        14.593,
+        15.262,
+        19.4625
+      ],
+      "pairedPercentChanges": [
+        -6.273555814431575,
+        27.689686803826486,
+        -19.301220295439947
+      ],
+      "unifiedMedian": 15.706,
+      "unifiedRuns": [
+        13.6775,
+        19.488,
+        15.706
+      ]
+    },
+    "scene": "Drift-forward",
+    "unifiedValidFrameSamples": [
+      30,
+      30,
+      30
+    ]
+  },
+  {
+    "controlValidFrameSamples": [
+      0,
+      0,
+      0
+    ],
+    "frame_gpu_ms": {
+      "controlMedian": null,
+      "controlRuns": [
+        null,
+        null,
+        null
+      ],
+      "pairedPercentChanges": [
+        null,
+        null,
+        null
+      ],
+      "unifiedMedian": 5.137,
+      "unifiedRuns": [
+        null,
+        null,
+        5.137
+      ]
+    },
+    "frame_wall_ms": {
+      "controlMedian": 16.75,
+      "controlRuns": [
+        16.665,
+        16.78,
+        16.75
+      ],
+      "pairedPercentChanges": [
+        0.570057005700586,
+        -0.715137067938032,
+        -1.5223880597015071
+      ],
+      "unifiedMedian": 16.66,
+      "unifiedRuns": [
+        16.76,
+        16.66,
+        16.494999999999997
+      ]
+    },
+    "optimal": {
+      "frame_gpu_ms": null,
+      "frame_wall_ms": 16.85,
+      "interference_observations": 0,
+      "pass_gpu_sum_ms": 1.7345000000000002,
+      "pass_medians_ms": {
+        "AOApplyPass": 0.047,
+        "BloomPass": 0.155,
+        "DDGIProbeUpdatePass": 0.001,
+        "DeferredGPUOcclusionPass": 0.001,
+        "DeferredLightingPass": 0.2575,
+        "DeferredOpaqueDecalPass": 0.002,
+        "FXAAPass": 0.035,
+        "FinalPass": 0.026,
+        "FluidIntermediatesPass": 0.001,
+        "GTAOPass": 0.425,
+        "ParticlePass": 0.004,
+        "PlanarReflectionPass": 0.001,
+        "RayTracingScenePass": 0.0575,
+        "ScenePass": 0.158,
+        "ShadowPass": 0.0,
+        "ToneMapPass": 0.0335,
+        "UICompositePass": 0.027,
+        "VirtualGeometryPass": 0.483,
+        "VirtualShadowMapMarkPass": 0.003,
+        "VolumetricFogPass": 0.003
+      },
+      "render_hazards": 0,
+      "run": "bench-optimal-14",
+      "samples": 30,
+      "scene": "VirtualGeometry-deferred",
+      "shader_errors": 0,
+      "valid_frame_gpu": 0,
+      "virtual_geometry": {
+        "cutSelected": 594,
+        "drawnClusters": 593,
+        "hardwareDraws": 0,
+        "instances": 24,
+        "phase2Recovered": 0,
+        "softwareRasterized": 593,
+        "testedClusters": 2834448
+      }
+    },
+    "pass_gpu_sum_ms": {
+      "controlMedian": 1.823,
+      "controlRuns": [
+        1.823,
+        1.87,
+        1.2774999999999999
+      ],
+      "pairedPercentChanges": [
+        -19.775095995611636,
+        -2.941176470588247,
+        12.485322896281792
+      ],
+      "unifiedMedian": 1.4625,
+      "unifiedRuns": [
+        1.4625,
+        1.815,
+        1.4369999999999998
+      ]
+    },
+    "scene": "VirtualGeometry-deferred",
+    "unifiedValidFrameSamples": [
+      0,
+      0,
+      1
+    ]
+  }
+]
