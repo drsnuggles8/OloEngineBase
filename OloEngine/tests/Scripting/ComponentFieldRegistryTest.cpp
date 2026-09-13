@@ -210,13 +210,39 @@ namespace
         // IDComponent is the important one: the UUID is how a graph addresses the
         // entity in the first place, so a graph rewriting it would break the
         // handle it is holding.
-        for (const char* component : { "IDComponent", "WorldTransformComponent", "AnimationStateComponent",
+        for (const char* component : { "IDComponent", "WorldTransformComponent",
                                        "UIResolvedRectComponent", "DialogueStateComponent" })
         {
             EXPECT_TRUE(ComponentFieldRegistry::FieldsOf(component).empty()) << component << " should not be exposed";
         }
     }
 
+
+    // AnimationStateComponent mixes authored settings with per-tick playback
+    // state, so it is excluded FIELD by field (kFieldsNotLiveEditable) rather
+    // than wholesale. Excluding it wholesale also hid IsPlaying, which no system
+    // writes -- it is the gate the animation update is skipped on -- leaving a
+    // graph no way to start or stop a clip.
+    TEST_F(ComponentFieldRegistryTest, ExclusionAnimationStateKeepsSettingsAndDropsPlaybackState)
+    {
+        const auto& fields = ComponentFieldRegistry::FieldsOf("AnimationStateComponent");
+        ASSERT_FALSE(fields.empty()) << "the authored settings should still be exposed";
+
+        const auto has = [&fields](std::string_view name)
+        {
+            return std::any_of(fields.begin(), fields.end(),
+                               [name](const auto* f) { return f->m_Field == name; });
+        };
+
+        EXPECT_TRUE(has("IsPlaying"));
+        EXPECT_TRUE(has("BlendDuration"));
+        for (const char* field : { "CurrentTime", "NextTime", "BlendFactor", "BlendTime", "Blending",
+                                   "State", "CurrentClipIndex", "SourceFilePath",
+                                   "RootMotionTranslation", "HasRootMotion" })
+        {
+            EXPECT_FALSE(has(field)) << field << " is per-tick derived state - must not be exposed";
+        }
+    }
     TEST_F(ComponentFieldRegistryTest, ExclusionTheSceneGraphIsNotAWritableField)
     {
         // RelationshipComponent::m_ParentHandle and the parent's m_Children are

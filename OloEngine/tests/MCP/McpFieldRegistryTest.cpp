@@ -188,12 +188,36 @@ TEST(McpFieldRegistry, TransformRotationAccessorRoundTripsAndUndoes)
 TEST(McpFieldRegistry, RefusesRuntimeOnlyComponents)
 {
     for (const char* component : { "IDComponent", "UIResolvedRectComponent", "WorldTransformComponent",
-                                   "AnimationStateComponent", "DialogueStateComponent",
+                                   "DialogueStateComponent",
                                    "SpringBoneStateComponent", "NoiseAnimationStateComponent",
                                    "RetargetingStateComponent", "FootIKStateComponent",
                                    "LocomotionStateComponent" })
     {
         EXPECT_FALSE(RegistryHasComponent(component)) << component << " is per-tick/identity state — must not be MCP-writable";
+    }
+}
+
+// AnimationStateComponent is the mixed case. It used to be excluded wholesale on
+// the grounds that every field is per-tick playback state -- true of the clock and
+// the blend, but not of IsPlaying, which the animation system only ever READS: it
+// is the gate Scene tests before updating at all. Excluding it removed the only
+// way to start or stop a clip from outside the editor. It is now excluded field by
+// field.
+TEST(McpFieldRegistry, AnimationStateExposesItsSettingsButNotItsPlaybackState)
+{
+    EXPECT_TRUE(RegistryHasComponent("AnimationStateComponent"));
+
+    // Authored settings, read by the animation system and never written by it.
+    EXPECT_TRUE(RegistryHas("AnimationStateComponent", "IsPlaying"));
+    EXPECT_TRUE(RegistryHas("AnimationStateComponent", "BlendDuration"));
+
+    // Everything a system rewrites every tick: a write would be overwritten before
+    // anything could observe it, or would leave the component inconsistent.
+    for (const char* field : { "CurrentTime", "NextTime", "BlendFactor", "BlendTime", "Blending", "State",
+                               "CurrentClipIndex", "SourceFilePath", "RootMotionTranslation", "HasRootMotion" })
+    {
+        EXPECT_FALSE(RegistryHas("AnimationStateComponent", field))
+            << "AnimationStateComponent." << field << " is per-tick derived state - must not be writable";
     }
 }
 

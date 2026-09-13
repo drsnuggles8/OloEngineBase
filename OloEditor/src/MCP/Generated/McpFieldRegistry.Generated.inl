@@ -57,6 +57,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(AircraftComponent, "YawInput", m_YawInput
 // AnimationGraphComponent
 registry.push_back(OLO_GFW_FIELD(AnimationGraphComponent, "AnimationGraphAssetHandle", AnimationGraphAssetHandle));
 
+// AnimationStateComponent
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "BlendDuration", m_BlendDuration));
+registry.push_back(OLO_GFW_FIELD(AnimationStateComponent, "IsPlaying", m_IsPlaying));
+
 // AudioListenerComponent
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Active", Active));
 registry.push_back(OLO_GFW_FIELD(AudioListenerComponent, "Config.ConeInnerAngle", Config.ConeInnerAngle));
