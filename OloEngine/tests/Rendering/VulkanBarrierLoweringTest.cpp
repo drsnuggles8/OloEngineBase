@@ -156,6 +156,74 @@ TEST(VulkanBarrierLowering, ReadWhileAttachedDepthKeepsReadOnlyAttachmentLayout)
 }
 
 // ---------------------------------------------------------------------------
+// The optional extension changes layouts, never the access/queue contract.
+// Both policies are exercised headlessly, regardless of the CI GPU.
+// ---------------------------------------------------------------------------
+
+TEST(VulkanBarrierLowering, UnifiedSampledAndStorageLayoutsAgreeForEveryAspect)
+{
+    for (const auto aspect : { kColor, kDepth, RHI::TextureAspect::Stencil, kDepthStencil })
+    {
+        for (const auto access : { RHI::Access::ShaderSampleRead, RHI::Access::InputAttachmentRead,
+                                   RHI::Access::StorageRead, RHI::Access::StorageWrite, RHI::Access::StorageReadWrite })
+        {
+            EXPECT_EQ(VBL::LayoutFor(access, aspect, false, true), VK_IMAGE_LAYOUT_GENERAL);
+        }
+        // Attachment layout semantics are retained. PCSS's production raw
+        // depth view is sampled AFTER shadow rendering, not attached here.
+        EXPECT_EQ(VBL::LayoutFor(RHI::Access::ShaderSampleRead, aspect, true, true),
+                  VBL::LayoutFor(RHI::Access::ShaderSampleRead, aspect, true, false));
+    }
+}
+
+TEST(VulkanBarrierLowering, UnifiedLayoutsKeepAttachmentTransferAndPresentationTransitions)
+{
+    for (const auto aspect : { kColor, kDepthStencil })
+    {
+        for (const auto access : { RHI::Access::Undefined, RHI::Access::ColorAttachmentWrite,
+                                   RHI::Access::DepthStencilAttachmentWrite, RHI::Access::DepthStencilAttachmentRead, RHI::Access::ClearAsLoadOp,
+                                   RHI::Access::TransferRead, RHI::Access::TransferWrite,
+                                   RHI::Access::ClearAsTransfer, RHI::Access::Present })
+        {
+            EXPECT_EQ(VBL::LayoutFor(access, aspect, false, true), VBL::LayoutFor(access, aspect, false, false));
+        }
+    }
+}
+
+TEST(VulkanBarrierLowering, UnifiedStorageToSamplePreservesMemoryDependencyWithoutLayoutTransition)
+{
+    RHI::Barrier barrier;
+    barrier.Before = RHI::Access::StorageWrite;
+    barrier.After = RHI::Access::ShaderSampleRead;
+    barrier.SourceQueue = RHI::QueueType::Compute;
+    barrier.DestQueue = RHI::QueueType::Graphics;
+    const auto image = FakeImage(0x1181);
+    const auto optimal = VBL::BuildImageBarrier(barrier, image, kColor, VK_IMAGE_LAYOUT_GENERAL, 4, 2, false);
+    const auto unified = VBL::BuildImageBarrier(barrier, image, kColor, VK_IMAGE_LAYOUT_GENERAL, 4, 2, true);
+    EXPECT_EQ(optimal.newLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    EXPECT_EQ(unified.oldLayout, VK_IMAGE_LAYOUT_GENERAL);
+    EXPECT_EQ(unified.newLayout, VK_IMAGE_LAYOUT_GENERAL);
+    EXPECT_EQ(unified.srcStageMask, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    EXPECT_NE(unified.srcAccessMask & VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT, 0u);
+    EXPECT_NE(unified.dstAccessMask & VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, 0u);
+    EXPECT_EQ(unified.srcStageMask, optimal.srcStageMask);
+    EXPECT_EQ(unified.srcAccessMask, optimal.srcAccessMask);
+    EXPECT_EQ(unified.dstStageMask, optimal.dstStageMask);
+    EXPECT_EQ(unified.dstAccessMask, optimal.dstAccessMask);
+
+    const auto ownership = VBL::SplitImageOwnershipTransfer(unified, 1u, 2u);
+    EXPECT_EQ(ownership.Release.oldLayout, ownership.Acquire.oldLayout);
+    EXPECT_EQ(ownership.Release.newLayout, ownership.Acquire.newLayout);
+    EXPECT_EQ(ownership.Release.dstAccessMask, VK_ACCESS_2_NONE);
+    EXPECT_EQ(ownership.Acquire.srcAccessMask, VK_ACCESS_2_NONE);
+
+    const auto firstUse = VBL::BuildImageBarrier(barrier, image, kColor, VK_IMAGE_LAYOUT_UNDEFINED, 4, 2, true);
+    EXPECT_EQ(firstUse.oldLayout, VK_IMAGE_LAYOUT_UNDEFINED);
+    EXPECT_EQ(firstUse.newLayout, VK_IMAGE_LAYOUT_GENERAL);
+    EXPECT_EQ(firstUse.srcAccessMask, VK_ACCESS_2_NONE);
+}
+
+// ---------------------------------------------------------------------------
 // BuildImageBarrier: full assembly
 // ---------------------------------------------------------------------------
 

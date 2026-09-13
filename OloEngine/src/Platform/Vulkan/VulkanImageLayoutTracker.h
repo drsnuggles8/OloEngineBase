@@ -22,6 +22,9 @@
 //
 // Pure CPU container — no device calls — so it is pinned headlessly by
 // VulkanBarrierLoweringTest with fabricated non-dispatchable handles.
+// Optional unified layouts do not retire this state: first use, writable
+// attachments, transfers and submitted-vs-recorded work still differ. Only
+// sampled/storage layout changes disappear on that device policy (#1181).
 //
 // OVERLAYS (issue #806, ADR 0011 amendment (92) rule 5). A RecordParallel
 // item records on its own context with its own tracker, which is an

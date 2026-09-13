@@ -56,6 +56,7 @@ namespace OloEngine
         report.HasDescriptorHeap = hasExtension(VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME);
         report.HasShaderUntypedPointers = hasExtension(VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME);
         report.HasDeviceAddressCommands = hasExtension(VK_KHR_DEVICE_ADDRESS_COMMANDS_EXTENSION_NAME);
+        report.HasUnifiedImageLayouts = hasExtension(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
 
         if (!report.HasSwapchain)
         {
@@ -85,6 +86,8 @@ namespace OloEngine
         untypedFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR;
         VkPhysicalDeviceDeviceAddressCommandsFeaturesKHR addressCommandFeatures{};
         addressCommandFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEVICE_ADDRESS_COMMANDS_FEATURES_KHR;
+        VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unifiedLayoutFeatures{};
+        unifiedLayoutFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
 
         void** chainTail = &features2.pNext;
         if (report.HasDescriptorHeap)
@@ -102,6 +105,10 @@ namespace OloEngine
             *chainTail = &addressCommandFeatures;
             chainTail = &addressCommandFeatures.pNext;
         }
+        if (report.HasUnifiedImageLayouts)
+        {
+            *chainTail = &unifiedLayoutFeatures;
+        }
         vkGetPhysicalDeviceFeatures2(device, &features2);
 
         report.DescriptorHeapFeature = report.HasDescriptorHeap && heapFeatures.descriptorHeap == VK_TRUE;
@@ -109,6 +116,8 @@ namespace OloEngine
             report.HasShaderUntypedPointers && untypedFeatures.shaderUntypedPointers == VK_TRUE;
         report.DeviceAddressCommandsFeature =
             report.HasDeviceAddressCommands && addressCommandFeatures.deviceAddressCommands == VK_TRUE;
+        report.UnifiedImageLayoutsFeature =
+            report.HasUnifiedImageLayouts && unifiedLayoutFeatures.unifiedImageLayouts == VK_TRUE;
 
         if (report.HasDescriptorHeap && !report.DescriptorHeapFeature)
         {

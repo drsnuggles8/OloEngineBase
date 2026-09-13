@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
+#include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
@@ -115,13 +116,13 @@ namespace OloEngine
         }
 
         // Only a texture AT REST: content uploaded by a load-time one-shot
-        // rests in SHADER_READ_ONLY_OPTIMAL (VulkanTexture.cpp) and registers
+        // rests in the device's sampled layout (VulkanTexture.cpp) and registers
         // that as its initial layout; an attachment or storage image registers
         // UNDEFINED, sits in whatever layout the last pass left, and only a
         // recording can move it — the draw path does that at bind time
         // (EnsureImageLayoutForDescriptor), this resolver cannot, so it
         // refuses rather than bake a descriptor that lies about the layout.
-        if (info->InitialLayout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        if (info->InitialLayout != VulkanDevice::Get()->GetSampledImageLayout())
         {
             return RHI::HeapOffset::Invalid;
         }
@@ -141,7 +142,7 @@ namespace OloEngine
         view.subresourceRange.layerCount = std::max(info->ArrayLayers, 1u);
 
         const u32 slot = VulkanDescriptorSlotCache::Get().AcquireSlot(image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                                                      VulkanDevice::Get()->GetSampledImageLayout());
         if (slot == VulkanResourceHeap::InvalidSlot)
         {
             return RHI::HeapOffset::Invalid;
@@ -243,10 +244,9 @@ namespace OloEngine
         Staged staged;
         staged.Image = image;
         staged.Type = storage ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        // A storage descriptor's baked layout must match the barrier plan's
-        // GENERAL for storage accesses; a sampled one the SHADER_READ_ONLY
-        // the plan transitions inputs to (VulkanBarrierLowering::LayoutFor).
-        staged.Layout = storage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        // Match the device's barrier policy. Both kinds use GENERAL with
+        // unified layouts; the optimal arm keeps sampled images read-only.
+        staged.Layout = storage ? VK_IMAGE_LAYOUT_GENERAL : VulkanDevice::Get()->GetSampledImageLayout();
 
         auto& viewInfo = staged.ViewInfo;
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -489,7 +489,7 @@ namespace OloEngine
 
         // Zero-fill and settle into the descriptor's baked layout, once.
         const VkImageLayout finalLayout =
-            storage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            storage ? VK_IMAGE_LAYOUT_GENERAL : VulkanDevice::Get()->GetSampledImageLayout();
         const bool cleared = VulkanOneShot::Submit(
             "VulkanDescriptorHeapBackend::EnsureNullImage",
             [&](VkCommandBuffer cmd)

@@ -213,7 +213,7 @@ namespace OloEngine
                     { m_Specification.Width, m_Specification.Height, m_Specification.Depth });
 
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, 1u);
             });
@@ -226,7 +226,7 @@ namespace OloEngine
             // this the graph's first barrier would transition from UNDEFINED
             // and could legally discard the texels just uploaded (same
             // reasoning as VulkanTexture2D::UploadPixels).
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
     }
 } // namespace OloEngine

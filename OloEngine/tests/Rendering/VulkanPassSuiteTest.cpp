@@ -611,6 +611,11 @@ class VulkanPassSuite : public ::testing::Test
         {
             ParticleBatchRenderer::Shutdown(); // safe on empty statics
         }
+        // Pass setup can lazily allocate inert VSM sampling buffers without
+        // Renderer3D::Init. In a standalone Vulkan run those belong to this
+        // device; preserve them when an initialized GL renderer owns them.
+        if (!Renderer3D::HasInitialized())
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
         // The fullscreen-triangle cache is a process STATIC now holding
         // Vulkan VMA buffers (this fixture is the first to route the real
         // MeshPrimitives triangle through the backend) — released here or
@@ -9631,12 +9636,12 @@ namespace
             "VulkanPassSuite::ReadDepthArrayLayer",
             [&](VkCommandBuffer cmd)
             {
-                recordBarrier(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                recordBarrier(cmd, device->GetSampledImageLayout(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0u, layer, 1u };
                 region.imageExtent = { width, height, 1u };
                 vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
-                recordBarrier(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                recordBarrier(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, device->GetSampledImageLayout());
             });
 
         if (ok)

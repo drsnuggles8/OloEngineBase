@@ -252,7 +252,7 @@ namespace OloEngine
             return 0;
         }
         // Mip 0 / layer 0 only: it is what the editor shows, and a
-        // single-subresource view keeps the SHADER_READ_ONLY layout contract
+        // single-subresource view keeps the sampled layout contract
         // exact for RecordOverlay's pre-sample barrier (one run, one layout).
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -266,7 +266,7 @@ namespace OloEngine
             OLO_CORE_WARN("[ImGui/Vulkan] vkCreateImageView failed for an ImGui texture binding");
             return 0;
         }
-        const VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        const VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(view, VulkanDevice::Get()->GetSampledImageLayout());
         if (set == VK_NULL_HANDLE)
         {
             vkDestroyImageView(device->GetDevice(), view, nullptr);
@@ -308,9 +308,9 @@ namespace OloEngine
 
         // --- Barrier batch -------------------------------------------------
         // (a) Engine textures ImGui samples this frame (viewport image) must
-        //     sit in SHADER_READ_ONLY — the layout their descriptors were
+        //     sit in the device's sampled layout — the layout their descriptors were
         //     registered with. The tracker supplies the exact oldLayout, so a
-        //     texture the frame already left in SHADER_READ_ONLY is skipped.
+        //     texture the frame already left in that layout is skipped.
         // (b) The backbuffer: ColorAttachmentWrite -> ColorAttachmentWrite.
         //     This one barrier does three jobs — it closes any still-open
         //     facade rendering scope (vkCmdPipelineBarrier2 is illegal inside
@@ -329,7 +329,7 @@ namespace OloEngine
                 continue;
             }
             entry.UsedThisFrame = false;
-            if (api.LayoutTracker().CurrentLayout(image, baseRange) == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+            if (api.LayoutTracker().CurrentLayout(image, baseRange) == VulkanDevice::Get()->GetSampledImageLayout())
             {
                 continue;
             }

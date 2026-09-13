@@ -1077,13 +1077,20 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     struct Restore
     {
         bool OwnsFrameData;
+        bool OwnsShadowSampling;
         ~Restore()
         {
             CommandDispatch::Shutdown();
+            // PBR dispatch lazily creates inert VSM sampling buffers even
+            // without Renderer3D::Init. A filtered Vulkan run owns those
+            // allocations and must release them before its device goes away;
+            // a full-suite run must preserve the live GL renderer's buffers.
+            if (OwnsShadowSampling)
+                Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
             if (OwnsFrameData)
                 FrameDataBufferManager::Shutdown();
         }
-    } restore{ ownsFrameData };
+    } restore{ ownsFrameData, !Renderer3D::HasInitialized() };
     auto& frameData = FrameDataBufferManager::Get();
     frameData.Reset();
 

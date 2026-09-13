@@ -1,0 +1,24 @@
+{
+  "isError": false,
+  "structuredContent": {
+    "camera": "editor camera",
+    "frameIndex": 8714,
+    "liveness": {
+      "captureUnready": false,
+      "focused": false,
+      "frameIndex": 8714,
+      "iconified": false,
+      "msSinceLastFrame": 114.98,
+      "ticking": true,
+      "visible": true
+    },
+    "sceneState": "edit-or-simulate",
+    "stale": false
+  },
+  "content": [
+    {
+      "text": "{\n  \"camera\": \"editor camera\",\n  \"frameIndex\": 8714,\n  \"liveness\": {\n    \"captureUnready\": false,\n    \"focused\": false,\n    \"frameIndex\": 8714,\n    \"iconified\": false,\n    \"msSinceLastFrame\": 114.98,\n    \"ticking\": true,\n    \"visible\": true\n  },\n  \"sceneState\": \"edit-or-simulate\",\n  \"stale\": false\n}",
+      "type": "text"
+    }
+  ]
+}

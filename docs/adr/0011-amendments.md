@@ -2828,3 +2828,58 @@ null block, and every single-ring test — `frames` defaults to 1.
 two-ring contract: alternation, immediate staleness, the untouched sub-ring in
 between, the one-lap poison.
 
+## Amendments from issue #1181 (2026-09-13) — optional unified image layouts
+
+### (100) Sampled and storage images share GENERAL when the device enables unified layouts
+
+Enable `VK_KHR_unified_image_layouts` only when both its extension and
+`unifiedImageLayouts` feature are present. This is an optional optimisation;
+it does not add a requirement to ADR 0010. Log the selected path and the reason
+for disabling it, and expose the enabled policy on `VulkanDevice`.
+`OLO_VULKAN_NO_UNIFIED_IMAGE_LAYOUTS=1` selects the original policy at device
+creation for A/B verification; changing it afterwards requires a restart.
+
+The [Khronos feature contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR.html)
+guarantees efficient `GENERAL` use where valid. Ordinary attachments are not an
+exception to that guarantee. Retaining their explicit layouts here is an engine
+scope decision, not an extension limitation. Initialisation from `UNDEFINED`,
+presentation, and feedback-loop requirements still have independent semantics;
+the extension does not make layout parameters ignorable or remove memory hazards.
+
+The two-currency model in §1.5 stays intact: the graph supplies the neutral access
+pair, ranges and queues; OpenGL lowers its memory-barrier flags unchanged. Vulkan
+lowers normal sampled/input reads and storage accesses to `GENERAL` on the enabled
+arm. Attachments, load-op clears, transfers and presentation retain their explicit
+layouts. Keep the depth read-while-attached special case on both arms: changing
+that requires matching native attachment declarations, not just a new table value.
+The handover's PCSS premise was incorrect: DeferredLightingPass reads the shadow
+arrays after shadow rendering and writes a separate SceneColor framebuffer. Its
+raw-depth aliases therefore use the ordinary unified sampled path. This change
+does not add same-pass attachment feedback support.
+
+`VulkanDevice::GetSampledImageLayout()` is the common policy for texture uploads,
+mip generation, copies, resting-layout publication, sampled descriptors and
+ImGui. Updating graph barriers alone would be ineffective: the descriptor bind
+paths would transition images back to their hardcoded sampled layout. Every
+`GENERAL` → `GENERAL` dependency retains its stage/access masks and ownership
+transfer halves. Attachment setup's existing shader-stage union also orders
+prior sampled reads in `GENERAL`; the source storage access mask still covers
+possible shader writes.
+
+Host uploads can omit a redundant `GENERAL` → `GENERAL` host transition:
+[`vkCopyMemoryToImage`](https://docs.vulkan.org/refpages/latest/refpages/source/vkCopyMemoryToImage.html)
+uses coherent host access, and queue submission makes that copy visible to the
+device. Keeping the layout therefore does not remove a required memory barrier.
+
+Keep `VulkanImageLayoutTracker`. No part of its per-subresource state becomes
+dead while attachments and transfers still transition, and its recorded/executed
+separation is required for one-shots submitted ahead of a recording frame.
+Parallel recording overlays and first-use initialisation remain equally necessary.
+This removes sampled/storage layout churn, not the tracker or every layout mismatch.
+
+Verification covers both lowering policies headlessly, device capability selection,
+and a storage-write → sampled-read → storage-copy GPU round trip through production
+binding. The acceptance measurements are interleaved Release GPU timings on Drift
+and a populated VirtualGeometry scene, plus multi-angle captures and a Debug editor
+run with core/synchronisation validation, including the IBL bake. Record measured
+results in the PR; no speedup is presumed.

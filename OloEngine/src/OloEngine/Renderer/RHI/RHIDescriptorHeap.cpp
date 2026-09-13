@@ -637,6 +637,12 @@ namespace OloEngine::RHI
     void DescriptorHeap::ResetFrameTransients()
     {
         const std::lock_guard lock(m_Mutex);
+        // Render graphs can advance frames after a renderer session shuts down
+        // its heap. Shutdown retains the configured capacities but clears slots.
+        if (!m_Initialized)
+        {
+            return;
+        }
 
         // 1. Every view this frame minted goes stale NOW — generation advance,
         //    bookkeeping release — so a transient offset held into the next
