@@ -7335,16 +7335,26 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Fluids,
             static_cast<u32>(m_Registry.view<FluidComponent>().size()));
-        u32 proceduralTerrainCount = 0;
+        u32 proceduralCount = 0;
         for (auto terrainEntity : m_Registry.view<TerrainComponent>())
         {
             if (m_Registry.get<TerrainComponent>(terrainEntity).m_ProceduralEnabled)
             {
-                ++proceduralTerrainCount;
+                ++proceduralCount;
+            }
+        }
+        // Water is rendered by a separate procedural stream and has no
+        // canonical RT geometry. Count enabled surfaces even outside the
+        // raster frustum: secondary rays can still reach them.
+        for (auto waterEntity : m_Registry.view<WaterComponent>())
+        {
+            if (m_Registry.get<WaterComponent>(waterEntity).m_Enabled)
+            {
+                ++proceduralCount;
             }
         }
         Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Procedural,
-                                              proceduralTerrainCount);
+                                              proceduralCount);
 
         // The CULLING camera (issue #726). Identical to the matrices above
         // unless the observer camera has frozen it, at which point everything
