@@ -153,6 +153,15 @@ namespace OloEngine::WaterSurfaceLod
     {
         glm::vec2 m_Min{ -1.0f, -1.0f };
         glm::vec2 m_Max{ 1.0f, 1.0f };
+        /// The y edge of the rectangle nearer the camera, and the one farther
+        /// from it. One is m_Min.y and the other m_Max.y — WHICH is not a
+        /// constant: the bottom of the screen is NDC y = -1 on GL and +1 under
+        /// the Vulkan projection seam's row flip. The grid maps v = 1 onto the
+        /// near edge to keep the mesh's authored winding front-facing (see the
+        /// vertex stage), so the shader must be told which edge that is rather
+        /// than assume a sign; this is decided from where the nearest hit was.
+        f32 m_NearEdgeY = -1.0f;
+        f32 m_FarEdgeY = 1.0f;
         /// False when no sampled ray reaches the slab at all (the camera is
         /// looking away from the water). Callers keep the full [-1, 1]^2 in that
         /// case — every vertex then clamps onto the surface rim and the patches

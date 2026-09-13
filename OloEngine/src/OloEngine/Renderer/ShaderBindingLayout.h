@@ -1049,11 +1049,14 @@ namespace OloEngine
             //
             // x = enable. x <= 0 IS the disabled state and the whole feature
             //     then costs one compare in the vertex stage;
-            // y, z = the NDC MINIMUM corner of the rectangle the grid is laid
-            //     out over (WaterSurfaceLod::ComputeNdcBounds). It is NOT
-            //     (-1, -1): it stops short of the sky at the top, and extends
-            //     PAST the screen at the near edge by however far a wave crest
-            //     can move a vertex there;
+            // y = the NDC x MINIMUM of the rectangle the grid is laid out over
+            //     (WaterSurfaceLod::ComputeNdcBounds), z = its NEAR y edge. Not
+            //     a min/max pair: which y edge is near depends on the backend's
+            //     NDC convention and is decided by geometry, and the vertex
+            //     stage maps v = 1 onto it to keep the mesh winding
+            //     front-facing. The rectangle is not the screen: it stops
+            //     short of the sky and extends PAST the near edge by however
+            //     far a crest can move a vertex there;
             // w = band-limit spacing per metre of ray distance
             //     (WaterSurfaceLod::SpacingPerMetre): one grid step of view
             //     angle, so a vertex t metres out is sampled ~w*t metres apart.
@@ -1063,7 +1066,7 @@ namespace OloEngine
             // xy = the surface's LOCAL half-extents, the rect a projected
             //      vertex is clamped into so a screen-space grid cannot extend a
             //      finite water tile to the horizon.
-            // zw = the NDC MAXIMUM corner, the partner of ProjectedGridParams.yz.
+            // z = the NDC x MAXIMUM, w = the FAR y edge (partner of .z above).
             glm::vec4 ProjectedGridParams2;
 
             static constexpr u32 GetSize()

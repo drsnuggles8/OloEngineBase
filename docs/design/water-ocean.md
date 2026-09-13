@@ -396,7 +396,7 @@ with 80% of them sub-pixel and 1,572,864 vertex invocations a frame.
 Five things are load-bearing rather than incidental, and four of them were
 found by capturing frames after every CPU test was already green:
 
-- **the v axis is mapped with the near edge at v = 1.** The mesh's index order
+- **the v axis is mapped with the near edge at v = 1, and which NDC y IS near is decided by geometry** (`NdcBounds::m_NearEdgeY`): it is −1 on GL and +1 under the Vulkan seam's row flip, and a flip hard-coded for GL left Vulkan with no water at all. The mesh's index order
   is counter-clockwise from above for its authored (u -> +x, v -> +z) frame,
   and +z is TOWARD a camera looking down -z. Screen-up is AWAY from the camera,
   so mapping v straight onto NDC y hands the same index order a frame of the

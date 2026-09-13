@@ -10098,10 +10098,16 @@ namespace OloEngine
                                 std::clamp(water.m_GridResolutionX, 1u, 1024u),
                                 std::clamp(water.m_GridResolutionZ, 1u, 1024u));
 
+                            // .z / .w carry the NEAR and FAR y edges, not min
+                            // and max: which is which depends on the backend's
+                            // NDC convention and is decided by geometry in
+                            // ComputeNdcBounds. The shader maps v = 1 onto the
+                            // near edge, which keeps the mesh's winding
+                            // front-facing on both backends.
                             waterParams.projectedGridParams =
-                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_Min.y, spacingPerMetre);
+                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_NearEdgeY, spacingPerMetre);
                             waterParams.projectedGridParams2 =
-                                glm::vec4(halfX, halfZ, ndcBounds.m_Max.x, ndcBounds.m_Max.y);
+                                glm::vec4(halfX, halfZ, ndcBounds.m_Max.x, ndcBounds.m_FarEdgeY);
 
                             // Turn the tess-control frustum cull OFF, for the
                             // same reason the FFT branch above does and a

@@ -205,6 +205,12 @@ namespace OloEngine::WaterSurfaceLod
         glm::vec2 lo(std::numeric_limits<f32>::max());
         glm::vec2 hi(std::numeric_limits<f32>::lowest());
         bool any = false;
+        // The NDC y of the closest base-plane hit, which tells us which end of
+        // the rectangle is the near one without assuming a sign convention.
+        f32 nearestHitDistance = std::numeric_limits<f32>::max();
+        f32 nearestHitY = 0.0f;
+        f32 farthestHitDistance = -1.0f;
+        f32 farthestHitY = 0.0f;
 
         // Accumulate the NDC of one candidate base-plane position.
         const auto accumulate = [&](const glm::vec3& basePoint)
@@ -253,6 +259,19 @@ namespace OloEngine::WaterSurfaceLod
                     // can reach this pixel.
                     const glm::vec3 hit = rayOrigin + rayDir * t;
                     const glm::vec3 flat = hit - n * glm::dot(hit - planePoint, n);
+                    if (offset == 0.0f)
+                    {
+                        if (t < nearestHitDistance)
+                        {
+                            nearestHitDistance = t;
+                            nearestHitY = y;
+                        }
+                        if (t > farthestHitDistance)
+                        {
+                            farthestHitDistance = t;
+                            farthestHitY = y;
+                        }
+                    }
 
                     accumulate(flat);
                     if (margin > 0.0f)
@@ -280,6 +299,16 @@ namespace OloEngine::WaterSurfaceLod
         // finite bound, which would spend the whole grid on a skirt.
         bounds.m_Min = glm::max(lo - glm::vec2(kStep), glm::vec2(-kNdcBoundsCap));
         bounds.m_Max = glm::min(hi + glm::vec2(kStep), glm::vec2(kNdcBoundsCap));
+        // Near is the end the closest hit lies toward, judged against the
+        // FARTHEST hit — not against the rectangle's midpoint. The skirt widens
+        // the rectangle past the probed [-1, 1] on the near side only, so its
+        // midpoint can sit below every probe row and the comparison inverts;
+        // that is exactly how the GL arm lost its water for one build. A
+        // rectangle with no base-plane hit at all keeps the GL default.
+        const bool nearIsMax = nearestHitDistance < std::numeric_limits<f32>::max()
+                               && farthestHitDistance >= 0.0f && nearestHitY > farthestHitY;
+        bounds.m_NearEdgeY = nearIsMax ? bounds.m_Max.y : bounds.m_Min.y;
+        bounds.m_FarEdgeY = nearIsMax ? bounds.m_Min.y : bounds.m_Max.y;
         bounds.m_Visible = true;
         return bounds;
     }

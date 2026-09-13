@@ -167,9 +167,11 @@ layout(std140, binding = 23) uniform WaterParams
     //
     // x = enable; x <= 0 IS the disabled state, so a build with no projected
     //     water pays one compare per vertex,
-    // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
-    //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
-    //     at the near edge by however far a crest can move a vertex there,
+    // y = the NDC x minimum of the rectangle the grid is laid out over,
+    // z = its NEAR y edge — near by geometry, not by sign: the bottom of the
+    //     screen is y = -1 on GL and +1 under the Vulkan seam's row flip. The
+    //     rectangle stops short of the sky and extends PAST the near edge by
+    //     however far a crest can move a vertex there,
     // w = band-limit spacing per metre of ray distance: one grid step of view
     //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
     //     rim radius a missed ray is pushed to is derived in-shader from the
@@ -178,7 +180,7 @@ layout(std140, binding = 23) uniform WaterParams
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
     //      where the water ends.
-    // zw = the NDC MAXIMUM corner, the partner of u_ProjectedGridParams.yz.
+    // z = the NDC x maximum, w = the FAR y edge (partner of .z above).
     vec4 u_ProjectedGridParams2;
 };
 
@@ -395,16 +397,23 @@ void main()
         // water with it: from a 3 m eye a 1.5 m crest moves it up by a quarter
         // of the vertical field of view.
         //
-        // v is mapped with the NEAR edge at v = 1, not v = 0 — the flip is
-        // load-bearing. CreateWaterGrid winds its triangles counter-clockwise
-        // from above for a (u -> +x, v -> +z) frame, and +z is TOWARD a camera
-        // looking down -z. Screen-up is AWAY from the camera, so mapping v
-        // straight onto NDC y hands the same index order a frame of the opposite
-        // handedness: every triangle comes out back-facing from above, and the
-        // fragment stage's waterline rule (keep the face the camera is on) then
-        // discards the entire surface. That is not a subtle artefact — it is
-        // "the water is not there", with only a few folded rows at the rim
-        // surviving, and every intersection formulation produces it identically.
+        // v = 1 lands on the NEAR edge and v = 0 on the far one, and that
+        // orientation is load-bearing. CreateWaterGrid winds its triangles
+        // counter-clockwise from above for a (u -> +x, v -> +z) frame, and +z
+        // is TOWARD a camera looking down -z. Screen-up is AWAY from the
+        // camera, so mapping v straight onto NDC y hands the same index order a
+        // frame of the opposite handedness: every triangle comes out
+        // back-facing from above, and the fragment stage's waterline rule
+        // (keep the face the camera is on) then discards the entire surface.
+        // That is not a subtle artefact — it is "the water is not there", with
+        // only a few folded rows at the rim surviving, and every intersection
+        // formulation produces it identically.
+        //
+        // WHICH NDC y is near is not assumed here. It is y = -1 on GL and +1
+        // under the Vulkan seam's row flip, and a flip hard-coded for one of
+        // them reproduces the same missing surface on the other — which is
+        // exactly how this was first written. The CPU decides by geometry and
+        // uploads near in .z and far in .w.
         vec2 ndc = mix(vec2(u_ProjectedGridParams.y, u_ProjectedGridParams2.w),
                        vec2(u_ProjectedGridParams2.z, u_ProjectedGridParams.z), gridUV);
 

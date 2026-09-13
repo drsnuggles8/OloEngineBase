@@ -505,7 +505,9 @@ namespace
             for (u32 i = 0; i <= gridX; ++i)
             {
                 const f32 u = static_cast<f32>(i) / static_cast<f32>(gridX);
-                const glm::vec2 ndc = glm::mix(bounds.m_Min, bounds.m_Max, glm::vec2(u, v));
+                // v = 1 on the near edge, exactly as the vertex stage maps it.
+                const glm::vec2 ndc(glm::mix(bounds.m_Min.x, bounds.m_Max.x, u),
+                                    glm::mix(bounds.m_FarEdgeY, bounds.m_NearEdgeY, v));
                 const glm::vec3 hit =
                     WaterSurfaceLod::ProjectGridVertex(invViewProj, pose.m_Eye, ndc, planePoint, planeNormal, rimRadius);
                 const glm::vec2 clamped = WaterSurfaceLod::ClampToRect({ hit.x, hit.z }, half, half);
@@ -932,6 +934,39 @@ TEST(WaterGeometryLodProfile, NdcBoundsCoverEveryDisplacedVertexAtAGrazingAngle)
         << ") falls outside the grid (" << bounds.m_Min.y << ")";
     EXPECT_GE(ndc.x, bounds.m_Min.x);
     EXPECT_LE(ndc.x, bounds.m_Max.x);
+}
+
+TEST(WaterGeometryLodProfile, NdcBoundsNearEdgeIsDecidedByGeometry)
+{
+    // The bottom of the screen is NDC y = -1 on GL and +1 under the Vulkan
+    // seam's row flip. The grid puts v = 1 on the NEAR edge to keep the mesh
+    // winding front-facing, so ComputeNdcBounds must report which edge that is
+    // from where the hits are — a flip hard-coded for GL leaves Vulkan with no
+    // water at all, which is how this was first shipped.
+    const EditorCamera camera = MakeCamera(kLowGrazing);
+    const glm::mat4 glViewProj = camera.GetViewProjection();
+
+    // WITH the displacement margin: it widens the rectangle on the near side
+    // only, past the probed [-1, 1], which is the case that fooled the first
+    // version of this decision (it compared against the rectangle's midpoint).
+    const WaterSurfaceLod::NdcBounds gl = WaterSurfaceLod::ComputeNdcBounds(
+        glViewProj, kLowGrazing.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(gl.m_Visible);
+    EXPECT_FLOAT_EQ(gl.m_NearEdgeY, gl.m_Min.y) << "GL: the near water is at the bottom, y = -1";
+    EXPECT_FLOAT_EQ(gl.m_FarEdgeY, gl.m_Max.y);
+
+    // The Vulkan seam, applied by hand: negate clip y (RHIProjectionSeam.h's
+    // row flip; the z remap does not move a hit).
+    glm::mat4 flip(1.0f);
+    flip[1][1] = -1.0f;
+    const WaterSurfaceLod::NdcBounds vk = WaterSurfaceLod::ComputeNdcBounds(
+        flip * glViewProj, kLowGrazing.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(vk.m_Visible);
+    EXPECT_FLOAT_EQ(vk.m_NearEdgeY, vk.m_Max.y) << "flipped: the near water is at the TOP, y = +1";
+    EXPECT_FLOAT_EQ(vk.m_FarEdgeY, vk.m_Min.y);
+    // Same rectangle, mirrored.
+    EXPECT_NEAR(vk.m_Min.y, -gl.m_Max.y, 1e-4f);
+    EXPECT_NEAR(vk.m_Max.y, -gl.m_Min.y, 1e-4f);
 }
 
 TEST(WaterGeometryLodProfile, NdcBoundsCoverTheWholeFrameFromOverhead)
