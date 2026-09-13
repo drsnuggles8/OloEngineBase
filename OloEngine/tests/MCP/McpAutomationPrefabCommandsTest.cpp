@@ -35,6 +35,7 @@
 #include "UndoRedo/EditorCommand.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -740,9 +741,14 @@ namespace OloEngine::Automation::Tests
         EXPECT_NE(Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/Prefabs/x.txt" } })
                       .find(".oloprefab"),
                   std::string::npos);
-        EXPECT_NE(Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Outside/x.oloprefab" } })
-                      .find("asset directory"),
-                  std::string::npos);
+        const std::string outside =
+            Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Outside/x.oloprefab" } });
+        EXPECT_NE(outside.find("asset directory"), std::string::npos);
+        // The refusal names BOTH sides. It fired once on a CI runner for a path
+        // that was plainly inside the asset directory, and the message said
+        // nothing about what it had compared.
+        EXPECT_NE(outside.find("Outside/x.oloprefab"), std::string::npos) << outside;
+        EXPECT_NE(outside.find("/Assets"), std::string::npos) << outside;
         EXPECT_NE(Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/../Assets2/x.oloprefab" } })
                       .find("asset directory"),
                   std::string::npos);
@@ -761,6 +767,70 @@ namespace OloEngine::Automation::Tests
         EXPECT_NE(Failure("olo_prefab_create", { { "entity", Id(other) }, { "path", "Assets/Prefabs/Loose.oloprefab" } })
                       .find("already exists"),
                   std::string::npos);
+    }
+
+    // ProjectSerializer stores AssetDirectory as a weakly_canonical ABSOLUTE path,
+    // while Project::GetProjectDirectory() keeps whatever spelling the caller
+    // loaded with. Reach the same project by a second spelling and the two
+    // disagree -- which is what happens on a Windows CI runner, where %TEMP% is
+    // the 8.3 short form (C:\Users\RUNNER~1\...) and canonicalization expands it.
+    // A purely lexical containment test then reads a path that is plainly inside
+    // the asset directory as an escape, and every create fails.
+    TEST_F(AutomationPrefabCommandsTest, CreateAcceptsAPathWhenTheProjectIsReachedByASecondSpelling)
+    {
+        // Two ways to reach one directory by different spellings. A symlink is the
+        // portable one; where creating one needs a privilege the runner lacks
+        // (Windows without developer mode), a drive letter in the other case does
+        // the same job, because std::filesystem::path compares case-sensitively
+        // while weakly_canonical normalizes the letter.
+        std::error_code ec;
+        const std::filesystem::path link = m_Project.parent_path() / (m_Project.filename().string() + "-link");
+        std::filesystem::remove(link, ec);
+        std::filesystem::create_directory_symlink(m_Project, link, ec);
+        std::filesystem::path secondSpelling = ec ? std::filesystem::path{} : link;
+        if (secondSpelling.empty())
+        {
+            const std::string text = m_Project.string();
+            if (text.size() > 1 && text[1] == ':' && std::isalpha(static_cast<unsigned char>(text[0])))
+            {
+                std::string flipped = text;
+                flipped[0] = static_cast<char>(std::islower(static_cast<unsigned char>(text[0]))
+                                                   ? std::toupper(static_cast<unsigned char>(text[0]))
+                                                   : std::tolower(static_cast<unsigned char>(text[0])));
+                secondSpelling = flipped;
+            }
+        }
+        if (secondSpelling.empty())
+        {
+            GTEST_SKIP() << "no second spelling of the project directory is available here ("
+                         << ec.message() << "); this case needs two.";
+        }
+
+        // Re-load the project through it: GetProjectDirectory() keeps this
+        // spelling while AssetDirectory canonicalizes back to the real one.
+        Project::Unload();
+        ASSERT_TRUE(Project::Load(secondSpelling / "Test.oloproj"));
+        auto manager = Ref<EditorAssetManager>::Create();
+        manager->Initialize(false);
+        Project::SetAssetManager(manager);
+        m_Host.ActiveScene = Ref<OloEngine::Scene>::Create();
+        ASSERT_NE(Project::GetProjectDirectory().string(), Project::GetAssetDirectory().parent_path().string())
+            << "the two spellings did not actually diverge, so this case proves nothing";
+
+        Entity root = m_Host.ActiveScene->CreateEntity("Linked");
+        root.AddComponent<SpriteRendererComponent>();
+        const Json created =
+            Ok("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/Prefabs/Linked.oloprefab" } });
+        EXPECT_FALSE(created.value("prefab", std::string{}).empty()) << created.dump(2);
+        EXPECT_TRUE(std::filesystem::exists(PrefabPath("Linked.oloprefab")));
+
+        // A genuine escape is still refused through the same spelling.
+        Entity other = m_Host.ActiveScene->CreateEntity("Escapee");
+        EXPECT_NE(Failure("olo_prefab_create", { { "entity", Id(other) }, { "path", "Outside/x.oloprefab" } })
+                      .find("asset directory"),
+                  std::string::npos);
+
+        std::filesystem::remove(link, ec);
     }
 
     TEST_F(AutomationPrefabCommandsTest, ArgumentsAreValidatedBeforeAnythingIsTouched)

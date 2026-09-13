@@ -922,6 +922,50 @@ namespace OloEngine::Automation
         // Throws rather than returning the empty string the serializer answers for
         // an invalid prefab: writing that out would leave a valid-looking
         // .oloprefab with nothing in it, and the caller would report success.
+        // A directory as a prefix comparison wants it: normalized, with no
+        // trailing separator. `dir/` normalizes to components [..., dir, ""], and
+        // that empty final component makes lexically_relative emit a leading ".."
+        // for a path that IS inside it -- which reads exactly like an escape.
+        std::filesystem::path DirectoryForComparison(const std::filesystem::path& path)
+        {
+            std::filesystem::path normalized = path.lexically_normal();
+            if (!normalized.has_filename() && normalized.has_parent_path())
+            {
+                normalized = normalized.parent_path();
+            }
+            return normalized;
+        }
+
+        // Whether `candidate` lies inside `directory`. Lexical first; on a refusal
+        // both sides are resolved through weakly_canonical and asked again, because
+        // the two can legitimately reach the same directory by different spellings
+        // -- an 8.3 short name against its long form, a substituted drive, a
+        // junction -- and a lexical comparison calls that an escape.
+        bool IsInsideDirectory(const std::filesystem::path& candidate, const std::filesystem::path& directory)
+        {
+            const auto inside = [](const std::filesystem::path& inner, const std::filesystem::path& outer)
+            {
+                const std::filesystem::path relative = inner.lexically_relative(outer);
+                return !relative.empty() && *relative.begin() != "..";
+            };
+            if (inside(candidate.lexically_normal(), DirectoryForComparison(directory)))
+            {
+                return true;
+            }
+            std::error_code ec;
+            const std::filesystem::path realCandidate = std::filesystem::weakly_canonical(candidate, ec);
+            if (ec)
+            {
+                return false;
+            }
+            const std::filesystem::path realDirectory = std::filesystem::weakly_canonical(directory, ec);
+            if (ec)
+            {
+                return false;
+            }
+            return inside(realCandidate.lexically_normal(), DirectoryForComparison(realDirectory));
+        }
+
         std::string SerializePrefab(const Ref<Prefab>& prefab)
         {
             const PrefabSerializer serializer;
@@ -1676,14 +1720,15 @@ namespace OloEngine::Automation
                 return Error("path must end in " + std::string(OloExtensions::Prefab) + ".");
             }
             const std::filesystem::path absolute = (Project::GetProjectDirectory() / requested).lexically_normal();
-            const std::filesystem::path assetDirectory = Project::GetAssetDirectory().lexically_normal();
-            // lexically_relative rather than a string prefix: a prefix test lets
-            // "Assets2/x.oloprefab" pass as being inside "Assets".
-            const std::filesystem::path insideAssets = absolute.lexically_relative(assetDirectory);
-            if (insideAssets.empty() || *insideAssets.begin() == "..")
+            const std::filesystem::path assetDirectory = Project::GetAssetDirectory();
+            if (!IsInsideDirectory(absolute, assetDirectory))
             {
-                return Error("path must be inside the project asset directory (" +
-                             assetDirectory.filename().generic_string() + "/).");
+                // Both paths are named: a containment refusal a caller cannot see
+                // the two sides of is impossible to act on, and this one fired on
+                // CI for a path that was plainly inside the asset directory.
+                return Error("path must be inside the project asset directory. Resolved '" +
+                             absolute.generic_string() + "', asset directory '" +
+                             DirectoryForComparison(assetDirectory).generic_string() + "'.");
             }
             std::error_code ec;
             const bool exists = std::filesystem::exists(absolute, ec) && !ec;
