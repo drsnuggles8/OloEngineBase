@@ -278,9 +278,18 @@ jobs:
         # written here ONCE and those jobs still carry their own copy, because
         # `runs-on` cannot read a `needs` output on the job that produces it without
         # making every sanitizer job wait on this one -- which they already do.
+        #
+        # `github.event_name != 'push'` was added to those three in #1084 and NOT
+        # here, so this copy was a term short and the comment above it was false. It
+        # changed no outcome -- on a `push` all three jobs are skipped at their own
+        # `if`, so the plan this step computes is never read -- which is exactly why
+        # nothing caught it (4c2ddafb1, 2026-09-11). A copy that is only accidentally
+        # harmless is still a copy that drifted, and the next term added to one side
+        # would not get the same luck.
         SELF_HOSTED: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                          && github.event.inputs.force_hosted != 'true'
                          && github.event_name != 'schedule'
+                         && github.event_name != 'push'
                          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
       run: |
         set -euo pipefail
