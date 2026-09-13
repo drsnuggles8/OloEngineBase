@@ -129,6 +129,10 @@ namespace OloEngine
          * @brief Set asset metadata (thread-safe)
          * @param handle Asset handle
          * @param metadata New metadata to set
+         *
+         * Registers the asset when @p handle is not in the registry yet, and
+         * updates it when it is -- so a caller that minted its own handle can use
+         * this to register it. `metadata.Handle` is overwritten with @p handle.
          */
         void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
