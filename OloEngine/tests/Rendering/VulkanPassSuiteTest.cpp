@@ -611,6 +611,11 @@ class VulkanPassSuite : public ::testing::Test
         {
             ParticleBatchRenderer::Shutdown(); // safe on empty statics
         }
+        // Pass setup can lazily allocate inert VSM sampling buffers without
+        // Renderer3D::Init. In a standalone Vulkan run those belong to this
+        // device; preserve them when an initialized GL renderer owns them.
+        if (!Renderer3D::HasInitialized())
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().Shutdown();
         // The fullscreen-triangle cache is a process STATIC now holding
         // Vulkan VMA buffers (this fixture is the first to route the real
         // MeshPrimitives triangle through the backend) — released here or
