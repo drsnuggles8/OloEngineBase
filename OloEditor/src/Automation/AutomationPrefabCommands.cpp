@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -445,17 +446,26 @@ namespace OloEngine::Automation
         // Every registered field of one component, map-keyed entries included, so
         // a caller can COUNT what it could not compare instead of reporting a
         // partial comparison as a clean bill of health.
-        std::vector<const Fields::FieldEntry*> RegisteredFields(const std::string& component)
+        //
+        // Indexed once rather than scanned per call: the registry holds ~1,500
+        // entries, DiffEntity asks about up to 65 components, and the override
+        // query walks every entity of an instance subtree -- an apply asks three
+        // times over. The registry is built once and its entries are stable for
+        // the process lifetime, so pointers into it stay valid.
+        const std::vector<const Fields::FieldEntry*>& RegisteredFields(const std::string& component)
         {
-            std::vector<const Fields::FieldEntry*> entries;
-            for (const Fields::FieldEntry& entry : Fields::Registry())
+            static const std::unordered_map<std::string, std::vector<const Fields::FieldEntry*>> s_ByComponent = []
             {
-                if (entry.Component == component)
+                std::unordered_map<std::string, std::vector<const Fields::FieldEntry*>> index;
+                for (const Fields::FieldEntry& entry : Fields::Registry())
                 {
-                    entries.push_back(&entry);
+                    index[entry.Component].push_back(&entry);
                 }
-            }
-            return entries;
+                return index;
+            }();
+            static const std::vector<const Fields::FieldEntry*> s_NoFields;
+            const auto found = s_ByComponent.find(component);
+            return found == s_ByComponent.end() ? s_NoFields : found->second;
         }
 
         // ---- override detection ---------------------------------------------
@@ -502,7 +512,7 @@ namespace OloEngine::Automation
                     diffs.push_back(std::move(diff));
                     continue;
                 }
-                const auto fields = RegisteredFields(type->Name);
+                const auto& fields = RegisteredFields(type->Name);
                 for (const Fields::FieldEntry* entry : fields)
                 {
                     // A map-keyed field has no compile-time key set, and the two
