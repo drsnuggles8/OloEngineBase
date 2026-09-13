@@ -64,6 +64,15 @@ namespace
         }
         return maxDelta;
     }
+    /// The bone motion a CONSUMER actually sees. Renderer3D withholds the
+    /// previous palette entirely when the history is invalid, which makes the
+    /// emitted motion exactly zero however far apart the two raw palettes are —
+    /// so a raw comparison is the wrong question on any frame covering a
+    /// discontinuity, including a skeleton's very first one.
+    [[nodiscard]] f32 EffectiveBoneMotion(const SkeletonData& skeleton)
+    {
+        return skeleton.HasBoneHistory() ? MaxBoneMotion(skeleton) : 0.0f;
+    }
 } // namespace
 
 class SkeletalDeformationHistoryTest : public FunctionalTest
@@ -259,6 +268,37 @@ TEST_F(SkeletalDeformationHistoryTest, AnEmptyPaletteIsNotTreatedAsHistory)
     RunFrames(2);
     EXPECT_FALSE(emptySkeleton->HasBoneHistory())
         << "an empty bone palette was reported as a genuine previous pose";
+}
+
+TEST_F(SkeletalDeformationHistoryTest, AFreshlyBuiltSkeletonHasNoHistoryOnItsFirstFrame)
+{
+    // SkeletonData's sized constructor fills BOTH palettes with identity, so the
+    // first advance finds the sizes already matching. Without the pending flag
+    // starting true it would report "history is valid" and hand the first
+    // animated frame a motion vector measured from the construction-time identity
+    // pose — a one-frame jump arriving through the one path that never calls
+    // ResetBoneHistory.
+    Entity spawned = GetScene().CreateEntity("SpawnedMidSession");
+    auto skeleton = Fixtures::MakeSingleBoneSkeleton();
+    spawned.AddComponent<SkeletonComponent>(skeleton);
+    auto& anim = spawned.AddComponent<AnimationStateComponent>();
+    anim.m_CurrentClip = Fixtures::MakeTranslationClip(kClipDuration);
+    anim.m_IsPlaying = true;
+
+    RunFrames(1);
+    EXPECT_FALSE(skeleton->HasBoneHistory())
+        << "a skeleton built this frame reported a usable previous pose; its first "
+           "animated frame would emit motion measured from the identity pose";
+    // The raw palettes ARE far apart on this frame — the pose moved away from the
+    // construction-time identity. What matters is that the invalid history stops
+    // that difference from reaching a consumer.
+    EXPECT_GT(MaxBoneMotion(*skeleton), 1e-5f) << "expected the raw palettes to differ on the first frame";
+    EXPECT_NEAR(EffectiveBoneMotion(*skeleton), 0.0f, 1e-6f)
+        << "the first frame of a freshly built skeleton must emit zero motion";
+
+    // And it starts producing real motion once it genuinely has a previous pose.
+    RunFrames(4);
+    EXPECT_TRUE(skeleton->HasBoneHistory());
 }
 
 TEST_F(SkeletalDeformationHistoryTest, EverySkinnedEntityIsAdvancedNotJustPlayingOnes)

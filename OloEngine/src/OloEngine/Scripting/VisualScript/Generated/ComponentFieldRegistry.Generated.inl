@@ -64,7 +64,7 @@ registry.push_back(OLO_VSF_FIELD_RANGE(AircraftComponent, "YawInput", m_YawInput
 registry.push_back(OLO_VSF_FIELD(AnimationGraphComponent, "AnimationGraphAssetHandle", AnimationGraphAssetHandle, Asset));
 
 // AnimationStateComponent
-registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "BlendDuration", m_BlendDuration, Float));
+registry.push_back(OLO_VSF_FIELD_RANGE(AnimationStateComponent, "BlendDuration", m_BlendDuration, Float, OLO_VSF_BOUND(0.001f), OLO_VSF_NO_BOUND));
 registry.push_back(OLO_VSF_FIELD(AnimationStateComponent, "IsPlaying", m_IsPlaying, Bool));
 
 // AudioListenerComponent

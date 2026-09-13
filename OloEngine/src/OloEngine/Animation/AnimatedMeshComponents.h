@@ -187,6 +187,12 @@ namespace OloEngine
         float m_NextTime = 0.0f;
         float m_BlendFactor = 0.0f; // 0 = current, 1 = next
         bool m_Blending = false;
+        // Divides the blend clock: AnimationSystem::Update computes
+        // clamp(m_BlendTime / m_BlendDuration, 0, 1), so zero is a division by
+        // zero and a negative value pins the alpha at 0 and the blend never
+        // completes. The bound is enforced on scene load AND on every live write,
+        // because the field became writable from MCP and visual script in #1226.
+        OLO_SERIALIZE(Clamp, Min = 0.001f)
         float m_BlendDuration = 0.3f; // seconds
         float m_BlendTime = 0.0f;
         bool m_IsPlaying = false;     // Whether animation is currently playing

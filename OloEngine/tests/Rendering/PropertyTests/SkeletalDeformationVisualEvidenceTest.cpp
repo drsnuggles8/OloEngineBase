@@ -59,6 +59,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -184,8 +185,14 @@ namespace OloEngine::Tests
         {
             // The global shadow toggle is off by default in this fixture, and a
             // frame with no shadow map at all would make the cross-consumer
-            // assertion below vacuous rather than failing.
+            // assertion below vacuous rather than failing. Remember the previous
+            // value so TearDown can put it back: ShadowSettings is process-global
+            // and is NOT one of the blocks RendererStateCheck snapshots and
+            // restores, so leaving it on would silently change what every later
+            // test in the process renders.
             ShadowSettings shadowSettings = Renderer3D::GetShadowMap().GetSettings();
+            if (!m_SavedShadowSettings)
+                m_SavedShadowSettings = shadowSettings;
             shadowSettings.Enabled = true;
             Renderer3D::GetShadowMap().SetSettings(shadowSettings);
 
@@ -295,6 +302,18 @@ namespace OloEngine::Tests
             return true;
         }
 
+        void TearDown() override
+        {
+            // Restore before the base fixture tears the renderer down.
+            if (m_SavedShadowSettings)
+            {
+                Renderer3D::GetShadowMap().SetSettings(*m_SavedShadowSettings);
+                m_SavedShadowSettings.reset();
+            }
+            RendererAttachedTest::TearDown();
+        }
+
+        std::optional<ShadowSettings> m_SavedShadowSettings;
         f32 m_CameraDistance = 9.0f;
         f32 m_CameraYaw = 0.0f;
         f32 m_CameraPitch = 0.22f;

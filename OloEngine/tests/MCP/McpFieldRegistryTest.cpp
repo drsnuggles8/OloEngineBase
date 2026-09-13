@@ -221,6 +221,29 @@ TEST(McpFieldRegistry, AnimationStateExposesItsSettingsButNotItsPlaybackState)
     }
 }
 
+// BlendDuration divides the blend clock -- AnimationSystem computes
+// clamp(m_BlendTime / m_BlendDuration, 0, 1) -- so zero divides by zero and a
+// negative pins the alpha at 0 and the blend never completes. Making the field
+// live-writable in #1226 is what put that within reach of a caller, so the bound
+// travels with it.
+TEST(McpFieldRegistry, BlendDurationCannotBeWrittenToZeroOrNegative)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::AnimationStateComponent>();
+
+    const auto negative = GFW::Apply(f.Scene_, f.History, f.Uuid, "AnimationStateComponent",
+                                     "BlendDuration", Json(-1.0));
+    EXPECT_TRUE(negative.Ok) << negative.Error;
+    EXPECT_TRUE(negative.Data.value("clamped", false)) << "a negative blend duration was accepted unclamped";
+    EXPECT_GT(f.TheEntity.GetComponent<OloEngine::AnimationStateComponent>().m_BlendDuration, 0.0f);
+
+    const auto zero = GFW::Apply(f.Scene_, f.History, f.Uuid, "AnimationStateComponent",
+                                 "BlendDuration", Json(0.0));
+    EXPECT_TRUE(zero.Ok) << zero.Error;
+    EXPECT_GT(f.TheEntity.GetComponent<OloEngine::AnimationStateComponent>().m_BlendDuration, 0.0f)
+        << "a zero blend duration would divide by zero in the blend clock";
+}
+
 // A write to a runtime-only component is REFUSED, and the error names the valid
 // alternatives (an agent can self-correct without a round-trip).
 TEST(McpFieldRegistry, RuntimeOnlyComponentWriteIsRefusedWithGuidance)

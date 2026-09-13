@@ -457,8 +457,9 @@ namespace OloEngine::MCP
                 "compute); it is false only for source-string shaders (boot / fallback / shader-graph). CHECK "
                 "`available` FIRST: the tracking this reads is compiled out below OLO_DEBUG, so a Release or Dist "
                 "editor returns available:false and an empty list even though the shaders exist and render. An "
-                "empty list there means unlistable, not absent — and shader hot reload by name is unavailable for "
-                "the same reason.";
+                "empty list there means unlistable, not absent. olo_shader_reload still works there: it resolves a "
+                "name through ShaderLibrary and the pass-owned shaders, not through this tracking, so a name you "
+                "already know can be reloaded — you just cannot discover names here.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("available", Schema::Bool().Desc("False when this build does not track shaders; count is then null."))

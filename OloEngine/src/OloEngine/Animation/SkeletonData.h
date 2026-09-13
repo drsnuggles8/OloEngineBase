@@ -56,6 +56,13 @@ namespace OloEngine
         // animation used to do here.
         std::vector<glm::mat4> m_PrevFinalBoneMatrices;
 
+        // Whether a genuine previous pose has EVER been established. Only used to
+        // attribute the first advance: a skeleton covering its very first frame is
+        // reporting FirstUse, not a repeat discontinuity, and collapsing the two
+        // would leave the FirstUse counter permanently at zero for every normally
+        // constructed skeleton.
+        bool m_BoneHistoryEverValid = false;
+
         // False until the deformation history has been advanced at least once
         // since the last discontinuity. Consumers MUST read this: while it is
         // false the previous palette is not a pose this skeleton was ever in,
@@ -67,6 +74,14 @@ namespace OloEngine
         // A discontinuity has been declared and the frame that must emit zero
         // motion because of it has not been rendered yet.
         //
+        // TRUE on construction, because construction is itself that event: the
+        // sized constructor fills BOTH palettes with identity, so without this the
+        // first advance would find the sizes already matching, report Advanced,
+        // and hand the first animated frame a motion vector measured from the
+        // construction-time identity pose. That is the same one-frame jump this
+        // whole flag exists to prevent, arriving through the one path that never
+        // calls ResetBoneHistory.
+        //
         // This exists because a reset and the next frame's advance are the SAME
         // copy, so a reset alone cannot survive: ResetBoneHistory sets prev to
         // current, then the next frame's AdvanceBoneHistory copies the still
@@ -75,7 +90,7 @@ namespace OloEngine
         // frame whose velocity spanned the whole edit-pose to play-pose jump,
         // with the reset that was supposed to prevent it having done nothing.
         // Carrying the reset across exactly one advance is what closes that gap.
-        bool m_BoneHistoryResetPending = false;
+        bool m_BoneHistoryResetPending = true;
 
         // Bind pose data for proper skinning
         std::vector<glm::mat4> m_BindPoseMatrices;        // Original bind pose global transforms
@@ -197,15 +212,19 @@ namespace OloEngine
 
             if (m_BoneHistoryResetPending)
             {
-                // The frame the pending discontinuity has to cover. Whoever
-                // declared it already counted it; saying so lets the caller
-                // avoid attributing it a second time under a generic cause.
+                // The frame the pending discontinuity has to cover. A reset that
+                // was declared explicitly has already been counted with its real
+                // cause, so say PendingReset and let the caller skip it; the very
+                // first frame of a skeleton's life has not been counted by anyone
+                // and is FirstUse.
                 m_BoneHistoryResetPending = false;
                 m_BoneHistoryValid = false;
-                return BoneHistoryAdvance::PendingReset;
+                return m_BoneHistoryEverValid ? BoneHistoryAdvance::PendingReset
+                                              : BoneHistoryAdvance::FirstUse;
             }
 
             m_BoneHistoryValid = true;
+            m_BoneHistoryEverValid = true;
             return BoneHistoryAdvance::Advanced;
         }
 

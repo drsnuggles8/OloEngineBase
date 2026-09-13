@@ -316,16 +316,22 @@ namespace OloEngine::Tests
             if (!report["available"].get<bool>())
             {
                 EXPECT_TRUE(report.contains("status") && report["status"].is_string()) << text;
-                EXPECT_TRUE(report["count"].is_null()) << "an unavailable report must not carry a count: " << text;
-                EXPECT_TRUE(report["errors"].empty()) << text;
+                // contains() before at(): the response CONTRACT is that an
+                // unavailable report still carries an explicit null count, and a
+                // tool that dropped the key entirely should fail this, not slip
+                // through on a lookup that never had to find anything.
+                ASSERT_TRUE(report.contains("count")) << "unavailable report omitted count entirely: " << text;
+                EXPECT_TRUE(report.at("count").is_null()) << "an unavailable report must not carry a count: " << text;
+                EXPECT_TRUE(report.at("errors").empty()) << text;
             }
             else
             {
-                ASSERT_TRUE(report["count"].is_number_integer()) << text;
-                EXPECT_EQ(static_cast<std::size_t>(report["count"].get<int>()), report["errors"].size());
+                ASSERT_TRUE(report.contains("count")) << "available report omitted count: " << text;
+                ASSERT_TRUE(report.at("count").is_number_integer()) << text;
+                EXPECT_EQ(static_cast<std::size_t>(report.at("count").get<int>()), report.at("errors").size());
                 // The production shader set compiled during Renderer::Init; any
                 // error here is a real shader regression, not MCP plumbing.
-                EXPECT_EQ(report["count"].get<int>(), 0)
+                EXPECT_EQ(report.at("count").get<int>(), 0)
                     << "olo_shader_errors reported broken shaders: " << text;
             }
         }
