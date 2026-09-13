@@ -116,6 +116,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
 - [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
+- [geometry-lod-measure-the-unreachable-cost.md](geometry-lod-measure-the-unreachable-cost.md): count the invocations paid upstream of a shader-stage cull, and measure pixel area rather than distance, before redistributing geometry.
 - [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md): the shared thing between a shader and gameplay sampling must be an analytic record, in one agreed space.
 - [persistent-world-space-fields.md](persistent-world-space-fields.md): a multiplicative decay is unrepresentable in a normalized-integer texture below a rate threshold.
 - [compute-in-place-vs-ping-pong.md](compute-in-place-vs-ping-pong.md): a compute pass may update a field in place only while every invocation reads its own texel.
@@ -240,6 +241,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | Projecting through the real view-projection instead of a facing plane passes every value test; only an invariance test under camera direction separates them. |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | A vertical wall at the tile edge, and six flat-coloured islands, with every pipeline stage verified correct; "assert the weights vary" passes on the bug. |
 | [water-shading-nyquist.md](water-shading-nyquist.md) | Normals derived without the amplitude the displacement carried, for months; a second FFT grid lost 38% of slope RMS while height RMS held. |
+| [geometry-lod-measure-the-unreachable-cost.md](geometry-lod-measure-the-unreachable-cost.md) | A tess-control cull rejecting 95% of patches still pays every vertex invocation, so "we cull almost everything" reads as a saving that is not there; and an earlier band-limit had already flattened the roughness signal a proposed adaptive rule was going to redistribute. |
 | [persistent-world-space-fields.md](persistent-world-space-fields.md) | A wake in an R8 texture renders and follows correctly and never fades, because the decay step rounds to zero. |
 | [compute-in-place-vs-ping-pong.md](compute-in-place-vs-ping-pong.md) | Adding a neighbour read to an in-place compute pass races between work groups; it renders, in bands that follow the dispatch order, and looks like a bug in the maths you just wrote. |
 | [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) | Shader and CPU agreed on the function and disagreed on which space its argument was in; four of five evidence cameras pointed away from the boat. |

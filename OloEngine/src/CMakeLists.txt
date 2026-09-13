@@ -788,6 +788,8 @@
 		"OloEngine/Renderer/Water/WaterSpraySystem.h"
 		"OloEngine/Renderer/Water/WaterSpraySystem.cpp"
 		"OloEngine/Renderer/Water/WaterShoreDepth.h"
+		"OloEngine/Renderer/Water/WaterSurfaceLod.h"
+		"OloEngine/Renderer/Water/WaterSurfaceLod.cpp"
 		"OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
 		"OloEngine/Renderer/Water/WaterShoreDepthSystem.cpp"
 		"OloEngine/Renderer/Water/WaterWake.h"
