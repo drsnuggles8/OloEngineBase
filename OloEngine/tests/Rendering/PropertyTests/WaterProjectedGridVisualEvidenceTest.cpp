@@ -103,6 +103,25 @@ namespace OloEngine::Tests
             return count ? glm::vec3(sum / static_cast<f64>(count)) : glm::vec3(0.0f);
         }
 
+        /// Pixels in rows [y0, y1) that carry the fixture's seafloor signature:
+        /// pure magenta, so red AND blue both dominate green by a wide margin.
+        /// Water (blue over red), sky (grey) and foam (white) all fail it.
+        [[nodiscard]] sizet CountSeafloorPixels(const std::vector<u8>& pixels, u32 y0, u32 y1)
+        {
+            sizet count = 0;
+            for (u32 y = y0; y < y1 && y < kHeight; ++y)
+            {
+                for (u32 x = 0; x < kWidth; ++x)
+                {
+                    const sizet i = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                    const u32 r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+                    if (r > g + 60u && b > g + 60u)
+                        ++count;
+                }
+            }
+            return count;
+        }
+
         /// Mean absolute luminance difference between horizontally adjacent
         /// pixels, over rows [y0, y1). This is the noise measure the grazing-angle
         /// claim rests on: geometry sampled below the raster rate shows up as
@@ -372,16 +391,23 @@ namespace OloEngine::Tests
 
         // ---- and the surface is still opaque --------------------------------
         //
-        // The seafloor is magenta and 40 m down. Any red-dominant near band means
-        // the water has holes in it — which is precisely what a tess level below
-        // 1 produces, and the regression the projected grid's constant level 1
-        // has to avoid reintroducing.
-        for (const auto* frame : { &projectedGrazing, &projectedOverhead })
+        // The seafloor is magenta and 40 m down. Any magenta in the near band
+        // means the water has holes in it — which is precisely what a tess level
+        // below 1 produces, and the regression the projected grid's constant
+        // level 1 has to avoid reintroducing. Counted per pixel, not averaged:
+        // a band mean of 57,600 pixels hides a sparse leak. The world-grid arm
+        // of the same pose is the baseline — the projected arm may show no more
+        // seafloor than the surface it replaces, plus a 0.1% allowance for
+        // edge pixels the two grids rasterise differently.
+        const sizet bandPixels = static_cast<sizet>(kHeight - nearBandTop) * kWidth;
+        for (const auto& pair : { std::pair{ &worldGrazing, &projectedGrazing },
+                                  std::pair{ &worldOverhead, &projectedOverhead } })
         {
-            const glm::vec3 mean = BandMean(*frame, nearBandTop, kHeight);
-            EXPECT_LT(mean.r, mean.b)
-                << "magenta seafloor is showing through the projected surface (r " << mean.r
-                << " vs b " << mean.b << ")";
+            const sizet worldSeafloor = CountSeafloorPixels(*pair.first, nearBandTop, kHeight);
+            const sizet projectedSeafloor = CountSeafloorPixels(*pair.second, nearBandTop, kHeight);
+            EXPECT_LE(projectedSeafloor, worldSeafloor + bandPixels / 1000u)
+                << "magenta seafloor is showing through the projected surface: " << projectedSeafloor
+                << " pixels vs " << worldSeafloor << " under the world grid";
         }
 
         // ---- and the horizon is calmer, not noisier -------------------------

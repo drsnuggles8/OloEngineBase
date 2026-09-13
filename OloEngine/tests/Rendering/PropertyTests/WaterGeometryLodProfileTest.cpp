@@ -534,17 +534,23 @@ namespace
                 const glm::vec3 p0 = at(i, j);
                 const glm::vec3 p1 = at(i + 1, j);
                 const glm::vec3 p2 = at(i, j + 1);
-                // A triangle counts as on screen when any corner is; a corner
-                // test alone would drop the ones straddling an edge, which are
-                // exactly the ones the layout margin exists for.
-                if (!onScreen(p0) && !onScreen(p1) && !onScreen(p2))
-                    continue;
-                const f32 area = ScreenAreaPixels(viewProj, p0, p1, p2);
-                // Zero area is a row collapsed onto the surface rim — real
-                // output, but it covers nothing and would drag the median down
-                // without describing anything the viewer sees.
-                if (std::isfinite(area) && area > 1e-6f)
-                    areas.push_back(area);
+                const glm::vec3 p3 = at(i + 1, j + 1);
+                // Both triangles of the quad, in CreateWaterGrid's index order.
+                const glm::vec3 tris[2][3] = { { p0, p2, p1 }, { p1, p2, p3 } };
+                for (const auto& t : tris)
+                {
+                    // A triangle counts as on screen when any corner is; a
+                    // corner test alone would drop the ones straddling an edge,
+                    // which are exactly the ones the layout margin exists for.
+                    if (!onScreen(t[0]) && !onScreen(t[1]) && !onScreen(t[2]))
+                        continue;
+                    const f32 area = ScreenAreaPixels(viewProj, t[0], t[1], t[2]);
+                    // Zero area is a row collapsed onto the surface rim — real
+                    // output, but it covers nothing and would drag the median
+                    // down without describing anything the viewer sees.
+                    if (std::isfinite(area) && area > 1e-6f)
+                        areas.push_back(area);
+                }
             }
         }
 
@@ -671,8 +677,13 @@ TEST(WaterGeometryLodProfile, ProjectedGridCostsFarLessThanTheWorldGridItReplace
     // OUTSIDE the frame so a crest can lift water into the bottom edge.
     constexpr u32 kProjectedX = 256;
     constexpr u32 kProjectedY = 144;
+    // The same two costs the census reports for the world grid, on the same
+    // definitions: patch-vertex inputs are 3 per triangle patch (what the
+    // vertex stage is invoked for under GL_PATCHES, where no post-transform
+    // cache applies), and unique vertices are the indexed vertex buffer.
     const u64 projectedPatches = static_cast<u64>(kProjectedX) * kProjectedY * 2;
-    const u64 projectedVertices = static_cast<u64>(kProjectedX + 1) * (kProjectedY + 1);
+    const u64 projectedPatchVertexInputs = projectedPatches * 3;
+    const u64 projectedUniqueVertices = static_cast<u64>(kProjectedX + 1) * (kProjectedY + 1);
 
     for (const auto& pose : { kLowGrazing, kHighOverhead })
     {
@@ -680,8 +691,9 @@ TEST(WaterGeometryLodProfile, ProjectedGridCostsFarLessThanTheWorldGridItReplace
             MeasureProjectedGrid(kWaterShowcase, pose, kProjectedX, kProjectedY);
 
         std::cout << "[  PROFILE ] projected grid " << kProjectedX << "x" << kProjectedY << " @ "
-                  << pose.m_Label << ": " << projectedPatches << " patches, " << projectedVertices
-                  << " vertices, " << m.m_OnScreenTriangles << " triangles on screen at "
+                  << pose.m_Label << ": " << projectedPatches << " patches, "
+                  << projectedPatchVertexInputs << " patch-vertex inputs, " << projectedUniqueVertices
+                  << " unique vertices, " << m.m_OnScreenTriangles << " triangles on screen at "
                   << m.m_MedianOnScreenAreaPx << " px each (median), " << (100.0f * m.m_SubPixelShare)
                   << "% sub-pixel" << std::endl;
 
@@ -699,10 +711,16 @@ TEST(WaterGeometryLodProfile, ProjectedGridCostsFarLessThanTheWorldGridItReplace
     for (const auto& cfg : { kWaterShowcase, kDrift })
     {
         const Census& c = CachedCensus(cfg, kLowGrazing);
+        const u64 worldUniqueVertices =
+            static_cast<u64>(cfg.m_GridResolution + 1) * (cfg.m_GridResolution + 1);
+        std::cout << "[  PROFILE ] " << cfg.m_Name << " world grid: " << c.m_VertexInvocations
+                  << " patch-vertex inputs, " << worldUniqueVertices << " unique vertices" << std::endl;
         EXPECT_LT(projectedPatches, c.m_GeneratedTriangles)
             << cfg.m_Name << ": generated " << c.m_GeneratedTriangles << " triangles";
-        EXPECT_LT(projectedVertices, c.m_VertexInvocations)
-            << cfg.m_Name << ": paid " << c.m_VertexInvocations << " vertex invocations";
+        EXPECT_LT(projectedPatchVertexInputs, c.m_VertexInvocations)
+            << cfg.m_Name << ": paid " << c.m_VertexInvocations << " patch-vertex inputs";
+        EXPECT_LT(projectedUniqueVertices, worldUniqueVertices)
+            << cfg.m_Name << ": holds " << worldUniqueVertices << " unique vertices";
     }
 }
 
@@ -872,15 +890,40 @@ TEST(WaterGeometryLodProfile, NdcBoundsExcludeTheSkyAtAGrazingAngle)
     ASSERT_TRUE(bounds.m_Visible);
     EXPECT_LT(bounds.m_Max.y, 0.5f) << "the rectangle should stop well below the top of the frame";
 
-    constexpr i32 kRows = 32;
+    // A miss also lands on the plane (the rim fall-back), so the real test is
+    // that a hit sits where it was asked for: a rectangle that admits a sky row
+    // puts that row's vertex on the rim, not at its NDC y. The rectangle is
+    // widened by one probe pitch past the last hit ON PURPOSE (kNdcProbeSteps:
+    // a partially sampled edge must never be cropped out), so the rows inside
+    // that top pitch are allowed to miss; every row below it must land exactly,
+    // and the highest exact row must lie within that one pitch of the top.
+    constexpr f32 kProbePitch = 2.0f / static_cast<f32>(WaterSurfaceLod::kNdcProbeSteps - 1);
+    constexpr i32 kRows = 64;
+    f32 highestExactRow = -std::numeric_limits<f32>::infinity();
     for (i32 i = 1; i + 1 < kRows; ++i)
     {
         const f32 v = static_cast<f32>(i) / static_cast<f32>(kRows - 1);
-        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(
-            invViewProj, kLowGrazing.m_Eye, { 0.0f, glm::mix(bounds.m_Min.y, bounds.m_Max.y, v) },
-            kPlanePoint, kPlaneNormal, kRimRadius);
+        const glm::vec2 ndc(0.0f, glm::mix(bounds.m_Min.y, bounds.m_Max.y, v));
+        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, ndc, kPlanePoint,
+                                                                 kPlaneNormal, kRimRadius);
         EXPECT_NEAR(hit.y, kPlanePoint.y, 1e-2f) << "row " << i << " missed the plane";
+        const glm::vec4 clip = viewProj * glm::vec4(hit, 1.0f);
+        ASSERT_GT(clip.w, 0.0f) << "row " << i << " is behind the eye";
+        const glm::vec2 reprojected = glm::vec2(clip) / clip.w;
+        const bool exact = std::abs(reprojected.x - ndc.x) < 1e-3f && std::abs(reprojected.y - ndc.y) < 1e-3f;
+        if (exact)
+            highestExactRow = std::max(highestExactRow, ndc.y);
+        if (ndc.y <= bounds.m_Max.y - kProbePitch)
+        {
+            EXPECT_TRUE(exact) << "row " << i << " at NDC y " << ndc.y << " reprojected to " << reprojected.y
+                               << " — a sky row inside the rectangle";
+        }
     }
+    // Plus this test's own row step: the highest row it SAMPLES can sit one
+    // step below the highest row that would have hit.
+    const f32 rowStep = (bounds.m_Max.y - bounds.m_Min.y) / static_cast<f32>(kRows - 1);
+    EXPECT_GT(highestExactRow, bounds.m_Max.y - kProbePitch - rowStep)
+        << "the rectangle reaches more than one probe pitch past the last row that meets the plane";
 }
 
 TEST(WaterGeometryLodProfile, NdcBoundsExtendPastTheNearEdgeToCoverDisplacement)

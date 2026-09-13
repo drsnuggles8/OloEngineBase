@@ -111,6 +111,10 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     // five GLSL declarations were kept honest about it.
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams), 304u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams2), 320u);
+    // #1035's two vec4s sit AFTER the 80-vec4 hull array; a same-size reorder
+    // on the C++ side would pass the size test and desync the upload.
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, ProjectedGridParams), 1712u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, ProjectedGridParams2), 1728u);
 
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);

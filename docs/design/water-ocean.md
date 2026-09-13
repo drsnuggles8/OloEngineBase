@@ -389,9 +389,13 @@ Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Ren
 Visual evidence, both grids at both acceptance-criterion angles:
 `OloEditor/assets/tests/visual/WaterProjGrid_*.png`
 (`WaterProjectedGridVisualEvidenceTest`). Measured at 256x144 over 1 km:
-73,728 patches / 37,265 vertices, **0% sub-pixel** triangles at 61.6 px
-(grazing) and 36.8 px (overhead), against the world grid's 511,474 triangles
-with 80% of them sub-pixel and 1,572,864 vertex invocations a frame.
+73,728 patches = 221,184 patch-vertex inputs (three per triangle patch, what
+the vertex stage is invoked for under `GL_PATCHES`) over 37,265 unique
+vertices, **0.2% / 0% sub-pixel** triangles at 61.6 px (grazing) and 36.8 px
+(overhead); the world grid at the same pose is 262,144 patches = 1,572,864
+patch-vertex inputs over 263,169 unique vertices, and 511,474 generated
+triangles with 80% of them sub-pixel. On the same metric that is 7.1x fewer
+patch-vertex inputs and 7.1x fewer unique vertices, at every camera pose.
 
 Five things are load-bearing rather than incidental, and four of them were
 found by capturing frames after every CPU test was already green:

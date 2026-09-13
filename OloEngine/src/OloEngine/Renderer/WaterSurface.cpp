@@ -23,7 +23,6 @@ namespace OloEngine::WaterSurface
     {
         constexpr f32 kPi = 3.14159265f;
         constexpr f32 kTwoPi = 2.0f * kPi;
-        constexpr f32 kGoldenAngle = 2.39996f; // pi * (3 - sqrt(5))
 
         [[nodiscard]] f32 Fract(f32 x)
         {
@@ -159,7 +158,7 @@ namespace OloEngine::WaterSurface
 
             for (const auto& o : kOctaves)
             {
-                const f32 angle = baseAngle + kGoldenAngle * o.angleMul;
+                const f32 angle = baseAngle + kDetailOctaveGoldenAngle * o.angleMul;
                 const glm::vec2 d = DirFromAngle(angle);
                 const f32 wl = avgWL * o.wlMul;
                 const f32 st = avgSteepness * o.stMul;
