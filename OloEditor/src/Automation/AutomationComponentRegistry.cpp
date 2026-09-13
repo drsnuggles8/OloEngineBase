@@ -290,6 +290,41 @@ namespace OloEngine::Automation
             return {};
         }
 
+        // The three components whose state cannot have two owners. Chained after
+        // the entry's own ValidateSnapshot in MakeEntry -- never called instead of
+        // it. See ComponentTypeEntry::ValidateCopy.
+        template<typename T>
+        std::string ValidateComponentCopyHazard(Entity entity)
+        {
+            if (!entity.HasComponent<T>())
+            {
+                return {};
+            }
+            [[maybe_unused]] const auto& data = entity.GetComponent<T>();
+            if constexpr (std::is_same_v<T, TerrainComponent>)
+            {
+                if (HasMutableTerrainResources(data))
+                {
+                    return "TerrainComponent contains mutable sculpt/paint resources that cannot be shared by a duplicate. Remove and destroy remain undoable.";
+                }
+            }
+            else if constexpr (std::is_same_v<T, LODGroupComponent>)
+            {
+                if (!data.m_GeneratedLODHandles.empty())
+                {
+                    return "LODGroupComponent owns generated assets that cannot have two owners. Remove and destroy remain undoable.";
+                }
+            }
+            else if constexpr (std::is_same_v<T, AnimationGraphComponent>)
+            {
+                if (data.RuntimeGraph)
+                {
+                    return "AnimationGraphComponent contains a mutable editor graph that cannot be shared by a duplicate. Remove and destroy remain undoable.";
+                }
+            }
+            return {};
+        }
+
         template<typename T>
         class ComponentPresenceCommand final : public EditorCommand
         {
@@ -376,6 +411,13 @@ namespace OloEngine::Automation
                               "Authored component must support default construction for structural automation");
                 entry.Capture = [](Entity entity) -> std::shared_ptr<const ComponentSnapshot>
                 { return std::make_shared<TypedComponentSnapshot<T>>(entity.GetComponent<T>()); };
+                entry.Remove = [](Entity entity)
+                {
+                    if (entity.HasComponent<T>())
+                    {
+                        entity.RemoveComponent<T>();
+                    }
+                };
                 if constexpr (std::is_same_v<T, TransformComponent> || std::is_same_v<T, RelationshipComponent>)
                 {
                     entry.RejectionReason = "Core scene structure is managed by entity and hierarchy commands.";
@@ -408,6 +450,16 @@ namespace OloEngine::Automation
                     };
                 }
             }
+            // LAST: the non-authored branch above REPLACES ValidateSnapshot, and a
+            // copy must inherit whichever refusal the entry ended up with.
+            entry.ValidateCopy = [snapshot = entry.ValidateSnapshot](Entity entity) -> std::string
+            {
+                if (auto refusal = snapshot(entity); !refusal.empty())
+                {
+                    return refusal;
+                }
+                return ValidateComponentCopyHazard<T>(entity);
+            };
             return entry;
         }
 
@@ -447,21 +499,12 @@ namespace OloEngine::Automation
 
     std::string ValidateEntityDuplication(Entity entity)
     {
-        if (const auto error = ValidateEntitySnapshot(entity); !error.empty())
+        for (const auto& entry : ComponentTypes())
         {
-            return error;
-        }
-        if (entity.HasComponent<TerrainComponent>() && HasMutableTerrainResources(entity.GetComponent<TerrainComponent>()))
-        {
-            return "TerrainComponent contains mutable sculpt/paint resources that cannot be shared by a duplicate. Remove and destroy remain undoable.";
-        }
-        if (entity.HasComponent<LODGroupComponent>() && !entity.GetComponent<LODGroupComponent>().m_GeneratedLODHandles.empty())
-        {
-            return "LODGroupComponent owns generated assets that cannot have two owners. Remove and destroy remain undoable.";
-        }
-        if (entity.HasComponent<AnimationGraphComponent>() && entity.GetComponent<AnimationGraphComponent>().RuntimeGraph)
-        {
-            return "AnimationGraphComponent contains a mutable editor graph that cannot be shared by a duplicate. Remove and destroy remain undoable.";
+            if (const auto error = entry.ValidateCopy(entity); !error.empty())
+            {
+                return error;
+            }
         }
         return {};
     }

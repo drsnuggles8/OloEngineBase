@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace OloEngine
 {
@@ -101,10 +102,29 @@ namespace OloEngine
         // @param instanceEntity The in-scene instance to update.
         void UpdateInstanceFromPrefab(Entity instanceEntity) const;
 
+        // @brief Resolve the prefab-scene entity an instance was stamped from.
+        // @return The source entity, or a null Entity when the instance carries no
+        // resolvable PrefabComponent link. Unlike the private ResolvePrefabEntity
+        // this NEVER falls back to the prefab root: a caller that is about to write
+        // one entity's component into another must be able to tell "this child maps
+        // to that child" from "the mapping is broken", and answering the root for a
+        // dangling child link would apply a child's override onto the root.
+        [[nodiscard]] Entity FindSourceEntity(Entity instanceEntity) const;
+
+        // @brief The component type names a prefab actually carries.
+        // Instantiate / apply / revert all copy exactly this set, so a component
+        // outside it is silently absent from every prefab. Callers that report
+        // divergence need the set to say which components they cannot speak for.
+        [[nodiscard]] static const std::vector<std::string>& CopyableComponentNames();
+
         // --- Nested prefab utilities ---
 
         // @brief Check if this prefab contains nested prefab instances.
         [[nodiscard]] bool HasNestedPrefabs() const;
+
+        // @brief The prefab handles this prefab's scene nests, excluding its own.
+        // Sorted ascending so a refusal message naming them is deterministic.
+        [[nodiscard]] std::vector<AssetHandle> NestedPrefabHandles() const;
 
         // @brief Check for cycles: would adding prefabHandle as a nested instance create a cycle?
         // @param prefabHandle The prefab asset handle to test.

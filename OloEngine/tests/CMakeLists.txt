@@ -880,6 +880,12 @@ add_executable(OloEngine-Tests
 		${_olo_automation_component_registry_src}
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentCommands.cpp
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEntityCommands.cpp
+		# Prefab instantiate / unpack / override query / apply / revert / create
+		# (issue #1129). The cross-scene undo entry is the reason this has its own
+		# test: an apply writes into the prefab asset's own Scene, so a fixture
+		# with a real Project + EditorAssetManager is what proves one Ctrl-Z takes
+		# the prefab, the file and every re-synced instance back together.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationPrefabCommands.cpp
 		# Structured build invocation (issue #1163). RegisterBuiltinCommands
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.
@@ -912,6 +918,7 @@ add_executable(OloEngine-Tests
 		MCP/McpAutomationAssetCommandsTest.cpp
 		MCP/McpAutomationComponentsTest.cpp
 		MCP/McpAutomationEntitiesTest.cpp
+		MCP/McpAutomationPrefabCommandsTest.cpp
 		MCP/McpAutomationSceneLifecycleTest.cpp
 		# The automation event bus (issue #1131): publishers, the completion rule,
 		# olo_events_wait's cursor model, and CommandHistory's dirty edge.

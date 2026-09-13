@@ -31,6 +31,8 @@
 		"Automation/AutomationComponentCommands.cpp"
 		"Automation/AutomationEntityCommands.cpp"
 		"Automation/AutomationEntityCommands.h"
+		"Automation/AutomationPrefabCommands.cpp"
+		"Automation/AutomationPrefabCommands.h"
 		"Automation/AutomationSceneCommands.h"
 		"Automation/AutomationSceneCommands.cpp"
 		"Automation/AutomationSceneDocument.h"

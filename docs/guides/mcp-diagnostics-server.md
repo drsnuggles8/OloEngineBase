@@ -220,6 +220,10 @@ and for what to do when adding a tool.
 | `olo_component_list_types` / `olo_component_get` | discover the generated structural component set and query one entity's component by canonical `component` name. Discovery reports protected types and unsupported states explicitly; it does not construct components or load their default assets |
 | `olo_component_add` / `olo_component_remove` | **(consented write)** add or remove a component by `entity` and canonical `component` name in Edit mode, with one undo entry. Identity, transform, and relationship invariants are protected. Use the entity/hierarchy commands to change structure |
 | `olo_scene_status` | read the active scene's name, path, dirty state, and available undo/redo state without opening a dialog |
+| `olo_prefab_instantiate` / `olo_prefab_unpack` | **(consented write)** instantiate a prefab asset into the active scene (optionally under `parent`, with a `name` override), or break an instance's link. Instantiate returns the root plus every child UUID; one undo removes the whole hierarchy and redo restores it under the same UUIDs. Unpack breaks one level by default — a nested instance keeps its own link and is reported — and `recursive:true` unpacks those too. See [Prefab automation](#prefab-automation-olo_prefab_) |
+| `olo_prefab_overrides` | **what has this instance diverged on**, field by field, against its source prefab — without opening the editor. Per component: `added` / `removed` / `modified` plus the differing fields' instance and prefab values, with `comparedFields`/`uncomparedFields` so a partial comparison is never read as a clean one (a component with no reflected fields reports `unknown`, never `identical`). `untrackedComponents` names authored components a prefab does not carry at all; `nestedInstances` the children belonging to another prefab; `markedOverridden`/`markedAdded`/`markedRemoved` the editor's own marks |
+| `olo_prefab_apply` / `olo_prefab_revert` | **(consented write)** move divergence between an instance and its source prefab — one `field`, one `component`, or everything when neither is given. Apply rewrites the prefab's entity, re-writes the `.oloprefab` (atomically, refused if the file changed in the meantime) and re-syncs every OTHER instance of that prefab entity except one that overrides the component itself (`skippedInstances`) — **all as ONE undo entry**. Revert moves the other way and touches only the instance. Apply is refused when the source entity is itself a nested prefab instance; revert is not, because it only reads the source |
+| `olo_prefab_create` | **(consented write)** write an entity and its descendants to a new `.oloprefab` inside the asset directory, register it, and link the source subtree so it becomes a live instance. Never overwrites. Refused when the subtree already contains a prefab instance — that would nest a prefab, and a nested apply cannot be resolved; unpack first. One undo entry removes the links, the registry entry and the file |
 | `olo_scene_new` | **(consented write)** install an empty scene in Edit mode as one undoable operation; undo restores the previous scene and document state |
 | `olo_scene_save` / `olo_scene_save_as` | **(consented write)** persist the active scene with checked file writes; save-as requires an explicit `path`. Changed saves are undoable, including prior file contents and document metadata. Undo/redo refuses to overwrite an externally modified destination |
 | `olo_editor_undo` / `olo_editor_redo` | **(consented write)** move the real editor command history by one operation in Edit mode; the same history is used by Ctrl-Z/Ctrl-Y. Not usable as a step of `olo_transaction_apply` — they walk the stack a transaction is grouping |
@@ -483,6 +487,60 @@ actions use the same history, so keyboard and automation saves can be interleave
 Reopening a file uses the existing
 scene-open path and starts a fresh history. A saved scene remains a normal `.olo` asset.
 
+### Prefab automation (`olo_prefab_*`)
+
+**The engine already had the prefab operations; what it had no notion of was undo.** An
+apply is the one editor operation here that mutates state in three places at once — the
+source prefab's own `Scene` (which is not the active scene), the `.oloprefab` on disk, and
+every other open instance that re-syncs from the source. One Ctrl-Z has to take all three
+back together, so the memento behind these commands is keyed by *(scene, entity)* and the
+file write rides in the same undo entry.
+
+That is deliberately **not** what [`olo_transaction_apply`](#transactions-olo_transaction_apply)
+does. A transaction makes N automation *calls* one undo entry. This is one call whose single
+entry spans several objects — and no registry command writes into a prefab's private scene,
+so a transaction over per-entity commands could not express it at all.
+
+A working sequence:
+
+1. `olo_prefab_create { entity, path: "Assets/Prefabs/Turret.oloprefab" }` — the source
+   subtree becomes a live instance, each entity linked to *its own* copy inside the prefab.
+2. `olo_prefab_instantiate { prefab }` twice. Retain both `entity` values.
+3. Change a field on the first instance with `olo_entity_set_field`.
+4. `olo_prefab_overrides { entity }` — the change is reported as a `modified`
+   `TransformComponent` with `fields: [{ field: "Translation", instance, prefab }]`, even
+   though nothing in the editor marked it.
+5. `olo_prefab_apply { entity, component, field }` — the prefab, the file and the second
+   instance all move. One `olo_editor_undo` puts all of them back.
+
+#### What the override query can and cannot see
+
+The comparison walks the same registry `olo_entity_set_field` writes through, so a
+divergence it reports is one that tool could have caused. Two limits, both reported rather
+than implied:
+
+- **`uncomparedFields`** counts fields the walk could not compare — today, map-keyed ones
+  such as `MorphTargetComponent.Weights`, whose keysets can differ as well as their values.
+- **`state: "unknown"`** is what a component present on *both* sides reports when none of
+  its fields are reflected at all. It is not `identical`; nothing here can make that claim.
+
+A prefab also only carries the component set `Prefab::CopyableComponentNames()` lists — 65
+of the ~150 generated types. Anything else an instance carries is listed under
+`untrackedComponents` instead of being silently ignored, and naming one as `component` to
+apply or revert is refused by name.
+
+#### Nested prefabs
+
+*A silently wrong nested apply is the worst outcome here*, so the refusals are explicit:
+
+| Situation | Behaviour |
+|---|---|
+| The instance's source entity inside the prefab is itself an instance of another prefab | `olo_prefab_apply` is **refused**, naming the nested handle: the write would land in that prefab instead. `olo_prefab_revert` still works — it only reads the source |
+| The subtree handed to `olo_prefab_create` already contains a prefab instance | **refused**; unpack it first |
+| An instantiated hierarchy nests other prefabs | allowed, and `nestedPrefabs` lists their handles — those children are instances of *their* prefab |
+| `olo_prefab_unpack` reaches a nested instance | left linked and reported under `nestedInstancesKept`, unless `recursive:true`. A second instance of the *same* prefab parented under the first counts as nested too |
+| An instance whose `m_PrefabEntityID` no longer resolves | reported as `linkBroken`, never resolved to the prefab root — a fallback there would apply a child's override onto the root |
+
 ### Transactions (`olo_transaction_apply`)
 
 **Batch a multi-step edit and it applies atomically or not at all.** Without one, building
@@ -652,7 +710,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | Toolset | Tools |
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
-| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph` |
+| `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_rt_scene_stats`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |

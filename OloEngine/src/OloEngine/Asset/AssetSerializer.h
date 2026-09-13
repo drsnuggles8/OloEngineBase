@@ -325,8 +325,14 @@ namespace OloEngine
         // NOTE: not off-thread-safe — prefab deserialization resolves referenced assets
         // (AssetManager::GetAsset<...>) which may create GPU resources.
 
+        // Public, unlike every sibling serializer's: the prefab automation commands
+        // (issue #1129) need the BYTES rather than the write, because an apply that
+        // reaches the .oloprefab has to be undoable. They hand them to
+        // AutomationFileWrite, which replaces the file atomically and refuses when
+        // somebody edited it in between — neither property Serialize() has.
+        [[nodiscard]] std::string SerializeToYAML(const Ref<Prefab>& prefab) const;
+
       private:
-        std::string SerializeToYAML(const Ref<Prefab>& prefab) const;
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<Prefab>& prefab) const;
     };
 

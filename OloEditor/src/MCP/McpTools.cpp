@@ -206,6 +206,11 @@ namespace OloEngine::MCP
         Automation::RegisterEntityAuthoringCommands(registry);
         Automation::RegisterComponentAuthoringCommands(registry);
         Automation::RegisterSceneLifecycleCommands(registry);
+        // Prefab instantiate / unpack / override query / apply / revert / create
+        // (issue #1129). After the entity and component families: a prefab
+        // operation is an entity-subtree operation, and tools/list reads
+        // bottom-up from the primitives to the thing composed of them.
+        Automation::RegisterPrefabCommands(registry);
         RegisterPerfTools(registry);
         RegisterRenderTools(registry);
         RegisterShaderTools(registry);
