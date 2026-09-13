@@ -47,7 +47,7 @@ namespace OloEngine::RHI
         {
             if (m_Slots[index].Live)
             {
-                ReleaseSlotLocked(index);
+                ReleaseSlotLocked(index, /*publishPoison=*/true);
             }
         }
 
@@ -216,7 +216,7 @@ namespace OloEngine::RHI
         {
             if (m_Slots[index].Live)
             {
-                ReleaseSlotLocked(index);
+                ReleaseSlotLocked(index, /*publishPoison=*/true);
             }
         }
 
@@ -556,7 +556,7 @@ namespace OloEngine::RHI
             return;
         }
 
-        ReleaseSlotLocked(view.Index);
+        ReleaseSlotLocked(view.Index, /*publishPoison=*/true);
         m_PersistentFreeList.push_back(view.Index);
         --m_Stats.PersistentLive;
     }
@@ -722,7 +722,15 @@ namespace OloEngine::RHI
 
             // Drops residency (refcounted), poisons the published slot and
             // advances the generation so held handles report stale.
-            ReleaseSlotLocked(index);
+            //
+            // A TRANSIENT slot reaches this loop too (see the free-list note
+            // below), and retiring a resource mid-frame is exactly when its
+            // sub-ring may still be in flight. Publishing poison here would put
+            // the previous frame's GPU work back onto a rewritten descriptor —
+            // the hazard the sub-rings exist to remove — so defer it to
+            // ResetFrameTransients, which publishes one lap later. With a single
+            // ring there is nothing to defer to, so poison immediately as before.
+            ReleaseSlotLocked(index, /*publishPoison=*/persistent || m_TransientFrames == 1u);
 
             // A transient slot belongs to the ring cursor and is reclaimed
             // wholesale at the frame boundary; handing it to the free list would

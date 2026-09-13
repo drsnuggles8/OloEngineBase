@@ -682,7 +682,12 @@ namespace OloEngine::RHI
         // the one thing the header says it is for: spotting the moment a cached
         // offset outlived its view.
         [[nodiscard]] auto IsSlotLiveLocked(ViewHandle view) const -> bool;
-        void ReleaseSlotLocked(u32 index, bool publishPoison = true);
+        // NO DEFAULT for publishPoison, deliberately. Publishing poison into a
+        // frame-transient slot is only safe once that slot's sub-ring has come
+        // around; a defaulting parameter let RetireResource poison a slot an
+        // in-flight frame could still index, which is the very hazard the
+        // sub-rings exist to remove. Every caller states its choice.
+        void ReleaseSlotLocked(u32 index, bool publishPoison);
         [[nodiscard]] auto AcquireSamplerSlotLocked(const SamplerDesc& sampler) -> u32;
         void ReleaseSamplerSlotLocked(u32 samplerSlot);
         void MarkDirtyLocked(u32 index);
