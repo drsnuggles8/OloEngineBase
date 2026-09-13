@@ -113,6 +113,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract mirrored in three places, and a miss sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md): three ways impostor cards go missing, separable only by reading PNGs from several azimuths.
+- [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included, and a capture that skips the y flip draws with culling off.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
 - [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
@@ -189,6 +190,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | Unit tests pass whether the cape detaches, jitters or freezes rigid. |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
+| [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md) | An off-screen bake uploaded a raw GL-convention ortho; on Vulkan every triangle sat at negative clip z and was clipped, so the atlas baked "successfully" as its clear colour and the whole impostor canopy rendered nothing — with no counter or validation error to show for it. |
 | [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) | A bright material rendered near-black and the test asserted nothing about it. |
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
 | [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard, because it encoded the previous test's residue. |
