@@ -18,6 +18,7 @@
 #include "OloEngine/Asset/AssetExtensions.h"
 #include "OloEngine/Asset/AssetFileWatchPolicy.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Project/Project.h"
 #include "UndoRedo/EditorCommand.h"
 #include "TestTempDir.h"
@@ -435,6 +436,23 @@ namespace OloEngine::Automation::Tests
         const Json second = Success("olo_asset_import", Json{ { "path", "Assets/Textures/Checkerboard.png" } });
         EXPECT_EQ(first.at("handle").get<std::string>(), second.at("handle").get<std::string>());
         EXPECT_TRUE(second.at("alreadyRegistered").get<bool>());
+
+        // The automation event bus (#1131): `asset_import` means "an asset was
+        // registered". The fixture's setup scan already registered Checkerboard,
+        // so neither call above registered anything; a file the scan never saw
+        // publishes once on its first import and nothing on the idempotent repeat.
+        DiagnosticsEventLog::Get().Clear();
+        DiagnosticEventQuery imports;
+        imports.MaxCount = 0;
+        imports.Categories = { DiagnosticEventCategory::AssetImport };
+        Write(m_Project / "Assets" / "Textures" / "Fresh.png", Read(TexturePath()));
+        const Json fresh = Success("olo_asset_import", Json{ { "path", "Assets/Textures/Fresh.png" } });
+        EXPECT_FALSE(fresh.at("alreadyRegistered").get<bool>());
+        ASSERT_EQ(DiagnosticsEventLog::Get().Query(imports).size(), 1u);
+        Success("olo_asset_import", Json{ { "path", "Assets/Textures/Fresh.png" } });
+        EXPECT_EQ(DiagnosticsEventLog::Get().Query(imports).size(), 1u)
+            << "re-importing a registered asset registers nothing and must publish nothing";
+        DiagnosticsEventLog::Get().Clear();
         // The issue is explicit that an import is not undoable. Saying so in the
         // payload as well as in the declared metadata means an agent that reads
         // only the result still learns it.

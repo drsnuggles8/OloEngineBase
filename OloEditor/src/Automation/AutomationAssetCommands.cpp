@@ -1246,9 +1246,14 @@ namespace OloEngine::Automation
                 imported.ExistsOnDisk = true;
                 // The file watcher's auto-import publishes the same event from
                 // EditorLayer::OnAssetImported; this path never raises the
-                // AssetImportedEvent, so it publishes for itself (#1131).
-                Events::PublishAssetImported(static_cast<u64>(handle), AssetUtils::AssetTypeToString(metadata.Type),
-                                             absolute, project.Root, "automation");
+                // AssetImportedEvent, so it publishes for itself (#1131). Only when
+                // something WAS registered: the event means "an asset was registered",
+                // and re-importing a known asset registers nothing.
+                if (!wasAlreadyRegistered)
+                {
+                    Events::PublishAssetImported(static_cast<u64>(handle), AssetUtils::AssetTypeToString(metadata.Type),
+                                                 absolute, project.Root, "automation");
+                }
                 return Json::object(); });
             if (IsFailure(result))
                 return AutomationResult::Error(result.at("__error").get<std::string>());
