@@ -4511,10 +4511,14 @@ namespace OloEngine
 
             auto const& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
             out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
+            // TilingFactor is authored data whether or not a texture is bound yet:
+            // it used to be written only INSIDE the texture branch, so a sprite
+            // whose tiling was set before its texture silently lost the value on
+            // save while the loader read it back unconditionally.
+            out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
             if (auto& texture = spriteRendererComponent.Texture)
             {
                 out << YAML::Key << "TexturePath" << YAML::Value << texture->GetPath();
-                out << YAML::Key << "TilingFactor" << YAML::Value << spriteRendererComponent.TilingFactor;
             }
 
             out << YAML::EndMap; // SpriteRendererComponent

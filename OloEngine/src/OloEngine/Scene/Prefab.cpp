@@ -396,6 +396,28 @@ namespace OloEngine
     // Uses PrefabComponent::m_PrefabEntityID to map children correctly.
     // ─────────────────────────────────────────────────────────────────────────
 
+    const std::vector<std::string>& Prefab::CopyableComponentNames()
+    {
+#define OLO_PREFAB_COMPONENT_NAME(CompType, Name) Name,
+        static const std::vector<std::string> s_Names{ FOR_EACH_COPYABLE_COMPONENT(OLO_PREFAB_COMPONENT_NAME) };
+#undef OLO_PREFAB_COMPONENT_NAME
+        return s_Names;
+    }
+
+    Entity Prefab::FindSourceEntity(Entity instanceEntity) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!m_Scene || !instanceEntity || !instanceEntity.HasComponent<PrefabComponent>())
+            return {};
+
+        const UUID sourceID = instanceEntity.GetComponent<PrefabComponent>().m_PrefabEntityID;
+        if (static_cast<u64>(sourceID) == 0)
+            return {};
+        auto resolved = m_Scene->TryGetEntityWithUUID(sourceID);
+        return resolved ? *resolved : Entity{};
+    }
+
     Entity Prefab::ResolvePrefabEntity(Entity instanceEntity) const
     {
         OLO_PROFILE_FUNCTION();
@@ -521,6 +543,29 @@ namespace OloEngine
                 return true;
         }
         return false;
+    }
+
+    std::vector<AssetHandle> Prefab::NestedPrefabHandles() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<AssetHandle> handles;
+        if (!m_Scene)
+            return handles;
+
+        auto view = m_Scene->GetAllEntitiesWith<PrefabComponent>();
+        for (auto e : view)
+        {
+            Entity entity{ e, *m_Scene };
+            const auto& pc = entity.GetComponent<PrefabComponent>();
+            if (static_cast<u64>(pc.m_PrefabID) == 0 || pc.m_PrefabID == GetHandle())
+                continue;
+            if (std::ranges::find(handles, pc.m_PrefabID) == handles.end())
+                handles.push_back(pc.m_PrefabID);
+        }
+        std::ranges::sort(handles, [](AssetHandle a, AssetHandle b)
+                          { return static_cast<u64>(a) < static_cast<u64>(b); });
+        return handles;
     }
 
     bool Prefab::WouldCreateCycle(AssetHandle rootHandle, AssetHandle prefabHandle,

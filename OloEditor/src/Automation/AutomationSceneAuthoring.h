@@ -8,4 +8,5 @@ namespace OloEngine::Automation
     void RegisterEntityAuthoringCommands(AutomationRegistry& registry);
     void RegisterComponentAuthoringCommands(AutomationRegistry& registry);
     void RegisterSceneLifecycleCommands(AutomationRegistry& registry);
+    void RegisterPrefabCommands(AutomationRegistry& registry);
 } // namespace OloEngine::Automation

@@ -271,6 +271,9 @@ namespace OloEngine::Tests
             Entity entity = scene->CreateEntity(kTestTag);
             auto& sr = entity.AddComponent<SpriteRendererComponent>();
             sr.Color = expectedColor;
+            // Deliberately NO texture: TilingFactor used to be written only inside
+            // the texture branch, so this value was silently dropped on save.
+            sr.TilingFactor = 4.5f;
             yaml = SceneSerializer(scene).SerializeToYAML();
         }
 
@@ -287,6 +290,8 @@ namespace OloEngine::Tests
         EXPECT_NEAR(sr.Color.g, expectedColor.g, kFloatEpsilon);
         EXPECT_NEAR(sr.Color.b, expectedColor.b, kFloatEpsilon);
         EXPECT_NEAR(sr.Color.a, expectedColor.a, kFloatEpsilon);
+        EXPECT_NEAR(sr.TilingFactor, 4.5f, kFloatEpsilon)
+            << "SpriteRendererComponent.TilingFactor was dropped for a textureless sprite.";
     }
 
     // -------------------------------------------------------------------------

@@ -1578,7 +1578,24 @@ namespace OloEngine
     void EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
         TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-        m_AssetRegistry.UpdateMetadata(handle, metadata);
+        // UpdateMetadata only UPDATES: an unknown handle logs a warning and writes
+        // nothing. Every caller that mints a handle itself and then calls this to
+        // register it -- CreateOrReplaceAsset, the Scene Hierarchy panel's
+        // "Save as Prefab", AssetPackBuilder's temporary manager, the prefab
+        // automation commands -- therefore left the asset unregistered while
+        // appearing to succeed, which shows up much later as an asset that resolves
+        // in this session and is gone after a restart. Insert when the handle is
+        // new; AddAsset keeps the path mapping in step.
+        AssetMetadata stored = metadata;
+        stored.Handle = handle;
+        if (m_AssetRegistry.Exists(handle))
+        {
+            m_AssetRegistry.UpdateMetadata(handle, stored);
+        }
+        else
+        {
+            m_AssetRegistry.AddAsset(stored);
+        }
     }
 
     void EditorAssetManager::SetAssetStatus(AssetHandle handle, AssetStatus status)
