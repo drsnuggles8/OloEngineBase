@@ -27,6 +27,11 @@ Other editor, test and compiler processes were monitored approximately every
 2 seconds plus process-query overhead. An observed overlap from scene loading
 through final diagnostics, with a 2-second margin, rejects that scene. Accepted
 scenes have no observed overlap; polling cannot rule out every short-lived process.
+The summaries distinguish `run_interference_observations` from
+`scene_interval_interference_observations` (the accepted interval plus its margin).
+The former preserves 43 later observations for `bench-unified-6`; they belong to
+rejected Deferred/VirtualGeometry work after its accepted Forward scene. Every
+accepted scene's interval count is zero.
 Minimized-window attempts were rejected, and only the owned editor window was
 restored before repeating warm-up. All accepted samples have fresh pass timestamps,
 zero reported shader errors and zero reported render hazards.
