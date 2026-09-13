@@ -157,7 +157,7 @@ namespace OloEngine
                matches(s_Data.SkyboxGBufferShader) || matches(s_Data.LightCubeGBufferShader) ||
                matches(s_Data.InfiniteGridGBufferShader) || matches(s_Data.TerrainGBufferShader) ||
                matches(s_Data.VoxelGBufferShader) || matches(s_Data.VoxelGreedyGBufferShader) ||
-               matches(s_Data.FoliageGBufferShader) || matches(s_Data.FoliageImpostorGBufferShader) ||
+               matches(s_Data.FoliageGBufferShader) ||
                matches(s_Data.DecalGBufferShader) || matches(s_Data.DecalGBufferNormalShader) ||
                matches(s_Data.DecalGBufferRMAShader) || matches(s_Data.DecalGBufferEmissiveShader);
     }

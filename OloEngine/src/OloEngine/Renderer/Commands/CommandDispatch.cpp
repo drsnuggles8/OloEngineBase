@@ -3179,7 +3179,16 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached)
+        // Bind shader (cached). NO depth-only swap here, unlike DrawMesh
+        // (ResolveDepthPrepassShader) and DrawWater (WaterDepthShaderID): in
+        // Deferred the Geometry bucket is replayed with DepthPrepassActive, so
+        // a G-Buffer foliage program runs its FULL fragment stage in the
+        // prepass (colour writes masked) and again in the colour pass. Measured
+        // on courtyard.diagnostic when the impostor card joined that bucket
+        // (#1225): ScenePass/DepthPrepass +0.085 ms median, N=5, Debug, RTX
+        // 4090, ~720 cards. A Foliage_*_Depth swap would have to reproduce the
+        // identical coverage / parallax / discard math or the LEqual colour
+        // pass loses edge fragments — only the post-coverage work is skippable.
         if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);

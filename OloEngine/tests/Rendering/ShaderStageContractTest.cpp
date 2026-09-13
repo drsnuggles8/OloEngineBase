@@ -212,7 +212,13 @@ namespace OloEngine::Tests
                     continue;
                 ++vertexStagesChecked;
 
-                if (stageSource.find("gl_Position") == std::string::npos)
+                // A shared-stage include (WaterVertexStage, the impostor card's
+                // FoliageImpostorVertexStage) puts the gl_Position write inside
+                // include/; the contract is on the text the compiler sees.
+                std::string expandedStage = stageSource;
+                for (const std::string& includePath : SH::IncludedPaths(stageSource))
+                    expandedStage += SH::ReadWholeFile(SH::ResolveInclude(SH::ResolveShaderRoot(), includePath));
+                if (expandedStage.find("gl_Position") == std::string::npos)
                 {
                     failures.push_back({ path.generic_string(),
                                          "vertex stage never references gl_Position — "

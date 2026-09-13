@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
+
+#include <atomic>
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -18,21 +20,10 @@ namespace OloEngine
     namespace
     {
         // Select the stream whose framebuffer matches the active foliage
-        // shader's fragment interface. A G-Buffer variant must execute in
-        // Geometry/SceneRenderPass; the forward variants execute in
-        // FoliageRenderPass against the Scene MRT.
-        //
+        // shader's fragment interface: a G-Buffer variant executes in
+        // Geometry/SceneRenderPass, a forward variant in FoliageRenderPass.
         // Both the billboard and the impostor card have a G-Buffer sibling
-        // (issue #1225), so in Deferred the stream no longer depends on which
-        // of the two is drawing — only on whether that sibling loaded. The
-        // impostor used to be forced forward because it relit itself from one
-        // directional light and composited into SceneColor after deferred
-        // lighting; the consequence was a canopy absent from GBufferAlbedo and
-        // GBufferNormal, so SSAO / SSGI / SSR treated it as empty sky.
-        //
-        // Nothing here is alpha-blended: both foliage variants are opaque
-        // alpha-TESTED with depth write on and blending disabled by their
-        // render state, which is what an MRT G-Buffer write requires.
+        // (#1225), so in Deferred the only question is whether it loaded.
         [[nodiscard]] constexpr Renderer3D::RenderStreamType SelectFoliageRenderStream(
             RenderingPath path, bool gBufferRouteReady) noexcept
         {
@@ -225,22 +216,51 @@ namespace OloEngine
             return;
         }
 
-        // Octahedral impostor card (issue #433) vs the flat billboard.
-        const bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID.IsValid() && s_Data.FoliageImpostorShader;
+        // Octahedral impostor card (issue #433) vs the flat billboard. A DATA
+        // decision — the layer asked for an impostor and the atlas baked — not
+        // a shader-availability one; a missing program is handled below, loudly.
+        bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID.IsValid();
 
-        // Deferred: route through ScenePass (the G-Buffer FB) with the matching
-        // G-Buffer variant so foliage participates in the deferred lighting
-        // composite. Falls back to the forward FoliagePass route when the
-        // variant this draw needs is missing — the card still renders, it just
-        // contributes nothing to the G-Buffer.
-        const Ref<Shader>& requiredGBufferShader =
-            useImpostor ? s_Data.FoliageImpostorGBufferShader : s_Data.FoliageGBufferShader;
-        const bool gBufferRouteReady = requiredGBufferShader && s_Data.Pipeline->FrameCorePasses.Scene;
+        // Each card has a forward and a deferred program; pick the pair once.
+        const Ref<Shader>& forwardShader = useImpostor ? s_Data.FoliageImpostorShader : s_Data.FoliageShader;
+        const Ref<Shader>& deferredShader = useImpostor ? s_Data.FoliageImpostorGBufferShader : s_Data.FoliageGBufferShader;
+
+        // Deferred routes through ScenePass (the G-Buffer FB) so foliage takes
+        // part in the deferred lighting composite. The forward FoliagePass is
+        // the fallback when the deferred program is missing — and that fallback
+        // IS the #1225 symptom (a canopy absent from the G-Buffer, so SSAO /
+        // SSGI / SSR see sky), so it is never silent.
+        const bool gBufferRouteReady = deferredShader && s_Data.Pipeline->FrameCorePasses.Scene;
         const RenderStreamType targetStream = SelectFoliageRenderStream(s_Data.Settings.Path, gBufferRouteReady);
         const bool useGBufferVariant = targetStream == RenderStreamType::Geometry;
-        Ref<Shader> activeShader = useGBufferVariant ? requiredGBufferShader
-                                   : useImpostor     ? s_Data.FoliageImpostorShader
-                                                     : s_Data.FoliageShader;
+        if (s_Data.Settings.Path == RenderingPath::Deferred && !gBufferRouteReady)
+        {
+            static std::atomic<bool> s_WarnedNoDeferredFoliage{ false };
+            if (!s_WarnedNoDeferredFoliage.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_WARN("Renderer3D::DrawFoliageLayer: no deferred program for the {} ({}) — drawing it in the "
+                              "forward FoliagePass, where it writes NO G-Buffer and SSAO/SSGI/SSR treat it as sky. "
+                              "Further layers not logged.",
+                              useImpostor ? "impostor card" : "billboard",
+                              useImpostor ? "Foliage_Impostor_GBuffer" : "Foliage_Instance_GBuffer");
+            }
+        }
+
+        Ref<Shader> activeShader = useGBufferVariant ? deferredShader : forwardShader;
+        if (!activeShader)
+        {
+            // Only reachable for the impostor (the billboard's forward program
+            // was checked at the top). Draw the flat card rather than drop the
+            // layer, and say so once.
+            static std::atomic<bool> s_WarnedNoImpostorProgram{ false };
+            if (!s_WarnedNoImpostorProgram.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_WARN("Renderer3D::DrawFoliageLayer: impostor program missing — drawing the flat billboard "
+                              "instead. Further layers not logged.");
+            }
+            useImpostor = false;
+            activeShader = useGBufferVariant ? s_Data.FoliageGBufferShader : s_Data.FoliageShader;
+        }
 
         // Frustum cull the entire layer using the precomputed bounding box.
         if (s_Data.FrustumCullingEnabled)

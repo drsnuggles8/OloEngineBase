@@ -4,6 +4,7 @@
 
 #include "OloEngine/Memory/AlignmentTemplates.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/CaptureStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -201,20 +202,17 @@ namespace OloEngine
         const bool wasStencil = RenderCommand::IsStencilTestEnabled();
         if (wasStencil)
             RenderCommand::DisableStencilTest();
-        // Depth test + write on so per-tile silhouettes resolve correctly. The
-        // scene's command dispatch re-applies its own PODRenderState per draw
-        // next frame, so no explicit restore is needed here.
+        // Restores FBO, cull state, the pre-bake VIEWPORT and the dispatch
+        // state cache on every exit. The viewport is the one that bit: this
+        // bake left it at the last 1/N tile rect, and on Vulkan nothing
+        // between here and ScenePass sets it again (see the guard's header).
+        // The bake uses its own UBO binding, so the camera UBO is left alone.
+        CaptureStateGuard stateGuard{ framebuffer, /*restoreCameraUBO=*/false };
+        // Depth test + write on so per-tile silhouettes resolve correctly.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
-        // Culling OFF, like every other face bake in the engine (IBL, sky,
-        // DDGI). Two reasons, both in RHIProjectionSeam.h: a capture that
-        // rasterizes WITHOUT the seam's screen-space y flip has its facing
-        // determinant inverted relative to the screen path on Vulkan, so a
-        // culling bake would drop exactly the faces GL keeps; and the bake
-        // shader already treats leaves as two-sided (it flips the normal
-        // toward the capture camera), which only holds if the back-facing
-        // leaf quads are rasterized at all. Left to inherit, this picked up
-        // whatever the previous scene draw had set.
+        // Culling OFF like every face bake — winding caveat in
+        // RHIProjectionSeam.h, two-sided leaves in Impostor_Bake.glsl.
         RenderCommand::DisableCulling();
 
         framebuffer->Bind();
@@ -248,17 +246,10 @@ namespace OloEngine
                 const glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, radius * 0.5f, radius * 5.0f);
 
                 ImpostorBakeUBO ubo{};
-                // A8 seam, CAPTURE flavour (#691): the z remap without the y
-                // flip, as DDGI / IBL do. The atlas is DIRECTION-addressed —
-                // Foliage_Impostor.glsl picks a tile from the view direction
-                // and derives tile-local uv geometrically — so the screen-space
-                // y flip would only store every tile row-mirrored. Identity on
-                // GL. Without this the raw GL-convention ortho placed the whole
-                // mesh at NEGATIVE clip z, which Vulkan's fixed function clips
-                // before rasterization: the clear landed, the 64 tile draws
-                // were issued with a valid pipeline and pull stream, and not
-                // one fragment was written — the impostor canopy simply did
-                // not exist on Vulkan (issue #1264).
+                // Capture flavour of the A8 seam (#691): z remap, no y flip —
+                // the atlas is direction-addressed; see RHIProjectionSeam.h.
+                // Without it Vulkan clipped the whole mesh at negative clip z
+                // and the canopy did not exist there (#1264).
                 ubo.ViewProjection = RHI::AdjustCaptureProjectionForBackend(proj * view);
                 ubo.CenterRadius = glm::vec4(center, radius);
                 ubo.DirCutoff = glm::vec4(dir, alphaCutoff);

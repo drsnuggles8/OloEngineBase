@@ -622,6 +622,7 @@
 		"OloEngine/Renderer/SlugFontProcessor.cpp"
 		"OloEngine/Renderer/SlugFontProcessor.h"
 		"OloEngine/Renderer/RenderCommand.cpp"
+		"OloEngine/Renderer/CaptureStateGuard.h"
 		"OloEngine/Renderer/RenderCommand.h"
 		"OloEngine/Renderer/Renderer.cpp"
 		"OloEngine/Renderer/Renderer.h"
