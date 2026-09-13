@@ -701,7 +701,13 @@ namespace OloEngine::Automation::Tests
         ASSERT_TRUE(outerPrefab);
         Entity outerSource = outerPrefab->FindSourceEntity(outerRoot);
         ASSERT_TRUE(outerSource);
-        outerSource.AddOrReplaceComponent<PrefabComponent>(AssetHandle(std::stoull(inner)), outerSource.GetUUID());
+        Ref<Prefab> innerPrefab = Load(inner);
+        ASSERT_TRUE(innerPrefab);
+        // A real nested instance points at an entity in the OTHER prefab's scene;
+        // an entity a prefab owns points at ITSELF. That self-reference, not the
+        // handle, is what decides nesting.
+        outerSource.AddOrReplaceComponent<PrefabComponent>(AssetHandle(std::stoull(inner)),
+                                                           innerPrefab->GetRootEntity().GetUUID());
 
         outerRoot.GetComponent<SpriteRendererComponent>().TilingFactor = 5.0f;
         const std::string refusal = Failure("olo_prefab_apply", { { "entity", Id(outerRoot) } });
@@ -782,6 +788,184 @@ namespace OloEngine::Automation::Tests
         EXPECT_NE(Failure("olo_prefab_instantiate", { { "prefab", handle }, { "parent", "777" } }).find("does not exist"),
                   std::string::npos);
         EXPECT_EQ(TopUndo(), top) << "a refused call must not leave an undo entry";
+    }
+
+    // A plain entity parented under an instance is NOT part of the instance. It
+    // used to be walked as "owned", which asked the override query to diff an
+    // entity with no prefab side (a GetComponent on a component it does not have)
+    // and let its runtime state refuse an unpack of the whole instance.
+    TEST_F(AutomationPrefabCommandsTest, AForeignChildUnderAnInstanceIsNotPartOfIt)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        Entity a = Instantiate(handle);
+        Entity stranger = m_Host.ActiveScene->CreateEntity("Stranger");
+        stranger.SetParent(a);
+        ASSERT_FALSE(stranger.HasComponent<PrefabComponent>());
+
+        const Json overrides = Ok("olo_prefab_overrides", { { "entity", Id(a) } });
+        EXPECT_EQ(overrides.at("brokenLinks").get<u32>(), 0u);
+        ASSERT_EQ(overrides.at("entities").size(), 2u) << "the instance root and its prefab child, not the stranger";
+        for (const auto& entity : overrides.at("entities"))
+        {
+            EXPECT_NE(entity.at("entity"), Id(stranger));
+        }
+        EXPECT_TRUE(overrides.at("nestedInstances").empty());
+
+        const Json unpacked = Ok("olo_prefab_unpack", { { "entity", Id(a) } });
+        EXPECT_EQ(unpacked.at("unpacked").get<u32>(), 2u);
+        EXPECT_TRUE(stranger) << "the stranger survives the unpack untouched";
+    }
+
+    // A single-FIELD apply must re-sync peers field by field. Copying the whole
+    // component would wipe a peer's own divergence in the component's other
+    // fields -- divergence nothing marked, and which the caller never named.
+    TEST_F(AutomationPrefabCommandsTest, ASingleFieldApplyLeavesAPeersOtherFieldsAlone)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        Entity a = Instantiate(handle);
+        Entity b = Instantiate(handle);
+
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 7.5f;
+        b.GetComponent<SpriteRendererComponent>().Color = { 0.5f, 0.25f, 0.125f, 1.0f };
+
+        const Json applied = Ok("olo_prefab_apply", { { "entity", Id(a) },
+                                                      { "component", "SpriteRendererComponent" },
+                                                      { "field", "TilingFactor" } });
+        ASSERT_EQ(applied.at("resyncedInstances").size(), 1u);
+        EXPECT_TRUE(Contains(applied.at("resyncedInstances").at(0).at("components"),
+                             "SpriteRendererComponent.TilingFactor"));
+        EXPECT_FLOAT_EQ(b.GetComponent<SpriteRendererComponent>().TilingFactor, 7.5f);
+        EXPECT_FLOAT_EQ(b.GetComponent<SpriteRendererComponent>().Color.r, 0.5f)
+            << "B's own Color divergence was stomped by a TilingFactor apply";
+
+        m_Host.History.Undo();
+        EXPECT_FLOAT_EQ(b.GetComponent<SpriteRendererComponent>().TilingFactor, 1.0f);
+        EXPECT_FLOAT_EQ(b.GetComponent<SpriteRendererComponent>().Color.r, 0.5f);
+    }
+
+    // The mark is per component, so a field-scoped move must keep it while the
+    // component's other fields still differ -- otherwise the next apply from
+    // another instance stomps exactly what the mark was protecting.
+    TEST_F(AutomationPrefabCommandsTest, AFieldScopedMoveKeepsTheMarkWhileTheComponentStillDiverges)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        Entity a = Instantiate(handle);
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 7.5f;
+        a.GetComponent<SpriteRendererComponent>().Color = { 0.5f, 0.25f, 0.125f, 1.0f };
+        a.GetComponent<PrefabComponent>().MarkComponentOverridden("SpriteRendererComponent");
+
+        Ok("olo_prefab_apply",
+           { { "entity", Id(a) }, { "component", "SpriteRendererComponent" }, { "field", "TilingFactor" } });
+        EXPECT_TRUE(a.GetComponent<PrefabComponent>().IsComponentOverridden("SpriteRendererComponent"))
+            << "Color still diverges, so the mark must stay";
+
+        Ok("olo_prefab_apply",
+           { { "entity", Id(a) }, { "component", "SpriteRendererComponent" }, { "field", "Color" } });
+        EXPECT_FALSE(a.GetComponent<PrefabComponent>().IsComponentOverridden("SpriteRendererComponent"))
+            << "nothing diverges any more, so the mark is cleared";
+    }
+
+    // An instance root's transform is its placement in the scene. A bare apply
+    // that swept it up would teleport every other instance to where this one
+    // stands, so it is left out -- and SAID so, never silently.
+    TEST_F(AutomationPrefabCommandsTest, ABareApplyLeavesAnInstanceRootsPlacementAloneAndSaysSo)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        Entity a = Instantiate(handle);
+        Entity b = Instantiate(handle);
+        a.GetComponent<TransformComponent>().Translation = { 50.0f, 0.0f, 0.0f };
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 7.5f;
+
+        const Json applied = Ok("olo_prefab_apply", { { "entity", Id(a) } });
+        ASSERT_EQ(applied.at("skippedComponents").size(), 1u) << applied.dump(2);
+        EXPECT_EQ(applied.at("skippedComponents").at(0).at("component"), "TransformComponent");
+        EXPECT_FALSE(applied.at("skippedComponents").at(0).at("reason").get<std::string>().empty());
+        EXPECT_FLOAT_EQ(b.GetComponent<TransformComponent>().Translation.x, 1.0f) << "B was teleported";
+        EXPECT_FLOAT_EQ(b.GetComponent<SpriteRendererComponent>().TilingFactor, 7.5f);
+
+        // Naming it explicitly still applies it.
+        const Json forced =
+            Ok("olo_prefab_apply", { { "entity", Id(a) }, { "component", "TransformComponent" } });
+        EXPECT_TRUE(forced.at("skippedComponents").empty());
+        EXPECT_FLOAT_EQ(b.GetComponent<TransformComponent>().Translation.x, 50.0f);
+
+        // A prefab CHILD's transform is the prefab's own layout, never skipped.
+        Entity child = *m_Host.ActiveScene->TryGetEntityWithUUID(a.Children().front());
+        child.GetComponent<TransformComponent>().Translation = { 0.0f, 9.0f, 0.0f };
+        const Json childApply = Ok("olo_prefab_apply", { { "entity", Id(child) } });
+        EXPECT_TRUE(childApply.at("skippedComponents").empty());
+        Entity peerChild = *m_Host.ActiveScene->TryGetEntityWithUUID(b.Children().front());
+        EXPECT_FLOAT_EQ(peerChild.GetComponent<TransformComponent>().Translation.y, 9.0f);
+
+        // ... and revert never skips the root transform: move A again and put it
+        // back. A bare apply would have left this alone; a bare revert does not.
+        a.GetComponent<TransformComponent>().Translation = { 7.0f, 0.0f, 0.0f };
+        const Json reverted = Ok("olo_prefab_revert", { { "entity", Id(a) } });
+        EXPECT_TRUE(reverted.at("changed").get<bool>()) << reverted.dump(2);
+        EXPECT_FLOAT_EQ(a.GetComponent<TransformComponent>().Translation.x, 50.0f)
+            << "the prefab holds 50 because the forced apply put it there";
+    }
+
+    // Writing the .oloprefab trips the content watcher, and a prefab reload
+    // OBJECT-REPLACES the asset. A memento holding the Ref<Scene> it captured
+    // would then restore into an orphan: the file comes back and the live prefab
+    // does not. The memento re-resolves through the handle instead.
+    TEST_F(AutomationPrefabCommandsTest, UndoReachesThePrefabEvenAfterTheAssetObjectIsReplaced)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        const AssetHandle assetHandle{ std::stoull(handle) };
+        Entity a = Instantiate(handle);
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 7.5f;
+        Ok("olo_prefab_apply", { { "entity", Id(a) }, { "component", "SpriteRendererComponent" } });
+
+        Ref<Prefab> applied = Load(handle);
+        ASSERT_TRUE(applied);
+        EXPECT_FLOAT_EQ(applied->FindSourceEntity(a).GetComponent<SpriteRendererComponent>().TilingFactor, 7.5f);
+
+        // Stand in for the watcher's object-replacing reload: a brand-new Prefab
+        // object under the same handle, deserialized from the bytes on disk.
+        auto manager = Project::GetAssetManager().As<EditorAssetManager>();
+        const AssetMetadata metadata = manager->GetMetadata(assetHandle);
+        ASSERT_TRUE(metadata.IsValid());
+        manager->RemoveAsset(assetHandle);
+        manager->SetMetadata(assetHandle, metadata);
+        Ref<Prefab> reloaded = Load(handle);
+        ASSERT_TRUE(reloaded);
+        ASSERT_NE(reloaded.Raw(), applied.Raw()) << "this case needs a genuinely different object";
+        EXPECT_FLOAT_EQ(reloaded->FindSourceEntity(a).GetComponent<SpriteRendererComponent>().TilingFactor, 7.5f);
+
+        m_Host.History.Undo();
+        EXPECT_FLOAT_EQ(Load(handle)->FindSourceEntity(a).GetComponent<SpriteRendererComponent>().TilingFactor, 1.0f)
+            << "undo restored an orphaned prefab scene, not the live one";
+    }
+
+    // Nesting is decided by SELF-REFERENCE, not by the persisted handle: a
+    // re-import mints a new handle without re-stamping the scene the YAML
+    // restored, and a handle comparison would then refuse every apply naming a
+    // prefab that does not exist.
+    TEST_F(AutomationPrefabCommandsTest, ARestampedPrefabHandleDoesNotFakeANestedSource)
+    {
+        const std::string handle = MakeDetachedPrefab();
+        Entity a = Instantiate(handle);
+        Ref<Prefab> prefab = Load(handle);
+        ASSERT_TRUE(prefab);
+        Entity source = prefab->FindSourceEntity(a);
+        ASSERT_TRUE(source);
+
+        // The shape a re-import leaves behind: the scene's PrefabComponent still
+        // carries the OLD handle while remaining self-referential.
+        source.GetComponent<PrefabComponent>().m_PrefabID = AssetHandle(4242);
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 7.5f;
+
+        const Json applied = Ok("olo_prefab_apply", { { "entity", Id(a) } });
+        EXPECT_TRUE(applied.at("changed").get<bool>()) << applied.dump(2);
+        EXPECT_FLOAT_EQ(source.GetComponent<SpriteRendererComponent>().TilingFactor, 7.5f);
+
+        // A genuinely nested source -- one whose link points at ANOTHER entity --
+        // is still refused.
+        source.GetComponent<PrefabComponent>().m_PrefabEntityID = UUID(99887766);
+        a.GetComponent<SpriteRendererComponent>().TilingFactor = 2.0f;
+        EXPECT_NE(Failure("olo_prefab_apply", { { "entity", Id(a) } }).find("nested prefab"), std::string::npos);
     }
 
     // A broken link is reported, never resolved to the prefab ROOT. Falling back

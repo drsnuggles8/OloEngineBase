@@ -222,7 +222,7 @@ and for what to do when adding a tool.
 | `olo_scene_status` | read the active scene's name, path, dirty state, and available undo/redo state without opening a dialog |
 | `olo_prefab_instantiate` / `olo_prefab_unpack` | **(consented write)** instantiate a prefab asset into the active scene (optionally under `parent`, with a `name` override), or break an instance's link. Instantiate returns the root plus every child UUID; one undo removes the whole hierarchy and redo restores it under the same UUIDs. Unpack breaks one level by default — a nested instance keeps its own link and is reported — and `recursive:true` unpacks those too. See [Prefab automation](#prefab-automation-olo_prefab_) |
 | `olo_prefab_overrides` | **what has this instance diverged on**, field by field, against its source prefab — without opening the editor. Per component: `added` / `removed` / `modified` plus the differing fields' instance and prefab values, with `comparedFields`/`uncomparedFields` so a partial comparison is never read as a clean one (a component with no reflected fields reports `unknown`, never `identical`). `untrackedComponents` names authored components a prefab does not carry at all; `nestedInstances` the children belonging to another prefab; `markedOverridden`/`markedAdded`/`markedRemoved` the editor's own marks |
-| `olo_prefab_apply` / `olo_prefab_revert` | **(consented write)** move divergence between an instance and its source prefab — one `field`, one `component`, or everything when neither is given. Apply rewrites the prefab's entity, re-writes the `.oloprefab` (atomically, refused if the file changed in the meantime) and re-syncs every OTHER instance of that prefab entity except one that overrides the component itself (`skippedInstances`) — **all as ONE undo entry**. Revert moves the other way and touches only the instance. Apply is refused when the source entity is itself a nested prefab instance; revert is not, because it only reads the source |
+| `olo_prefab_apply` / `olo_prefab_revert` | **(consented write)** move divergence between an instance and its source prefab — one `field`, one `component`, or everything when neither is given. Apply rewrites the prefab's entity, re-writes the `.oloprefab` (atomically, refused if the file changed in the meantime) and re-syncs every OTHER instance of that prefab entity **at the same granularity** — a single-field apply moves that one field, so a peer's divergence in the component's other fields survives — except a peer that overrides the component itself (`skippedInstances`). **All as ONE undo entry.** A bare apply on an instance root leaves `TransformComponent` out and reports it under `skippedComponents`. Revert moves the other way and touches only the instance. Apply is refused when the source entity is itself a nested prefab instance; revert is not, because it only reads the source |
 | `olo_prefab_create` | **(consented write)** write an entity and its descendants to a new `.oloprefab` inside the asset directory, register it, and link the source subtree so it becomes a live instance. Never overwrites. Refused when the subtree already contains a prefab instance — that would nest a prefab, and a nested apply cannot be resolved; unpack first. One undo entry removes the links, the registry entry and the file |
 | `olo_scene_new` | **(consented write)** install an empty scene in Edit mode as one undoable operation; undo restores the previous scene and document state |
 | `olo_scene_save` / `olo_scene_save_as` | **(consented write)** persist the active scene with checked file writes; save-as requires an explicit `path`. Changed saves are undoable, including prior file contents and document metadata. Undo/redo refuses to overwrite an externally modified destination |
@@ -528,6 +528,22 @@ A prefab also only carries the component set `Prefab::CopyableComponentNames()` 
 of the ~150 generated types. Anything else an instance carries is listed under
 `untrackedComponents` instead of being silently ignored, and naming one as `component` to
 apply or revert is refused by name.
+
+#### Two carve-outs in `olo_prefab_apply`
+
+Both are reported, never silent:
+
+- **A bare apply on an instance ROOT skips `TransformComponent`** and names it under
+  `skippedComponents` with the reason. A root's transform is where somebody placed *this*
+  copy; sweeping it into a whole-instance apply would teleport every other instance to
+  wherever this one happens to stand. Pass `component: "TransformComponent"` to apply it
+  anyway, and note that a *child* entity's transform is prefab data (it is the prefab's
+  internal layout) and is never skipped. `olo_prefab_revert` has no such carve-out — putting
+  one instance back where the prefab says is exactly what revert means.
+- **An override mark is per component**, because `PrefabComponent` has no finer unit. So a
+  field-scoped apply or revert clears the mark only once the whole component has stopped
+  diverging; while other fields still differ the mark stays, or the next apply from another
+  instance would stomp the values it was protecting.
 
 #### Nested prefabs
 

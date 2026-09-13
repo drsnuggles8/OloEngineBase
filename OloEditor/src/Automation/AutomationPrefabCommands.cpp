@@ -74,16 +74,24 @@ namespace OloEngine::Automation
         struct EntityComponents
         {
             Ref<Scene> OwningScene;
+            // Nonzero for an entity inside a PREFAB ASSET's scene. Writing the
+            // .oloprefab trips the content watcher, and a prefab reload
+            // OBJECT-REPLACES the asset (only Texture2D refreshes in place), so a
+            // memento holding the Ref<Scene> it captured would, after the reload,
+            // restore into an orphaned scene: the file would come back and the live
+            // prefab would not. Re-resolve through the handle instead.
+            AssetHandle SourcePrefab{ 0 };
             UUID Id{ 0 };
             std::vector<std::pair<const ComponentTypeEntry*, std::shared_ptr<const ComponentSnapshot>>> Present;
         };
 
         // Callers run ValidateEntitySnapshot first; capture walks the authored
         // types so the memento also records what is ABSENT.
-        EntityComponents CaptureEntity(const Ref<Scene>& scene, Entity entity)
+        EntityComponents CaptureEntity(const Ref<Scene>& scene, Entity entity, AssetHandle sourcePrefab = AssetHandle(0))
         {
             EntityComponents state;
             state.OwningScene = scene;
+            state.SourcePrefab = sourcePrefab;
             state.Id = entity.GetUUID();
             for (const auto& type : ComponentTypes())
             {
@@ -97,11 +105,23 @@ namespace OloEngine::Automation
 
         void RestoreEntity(const EntityComponents& state)
         {
-            if (!state.OwningScene)
+            Ref<Scene> scene = state.OwningScene;
+            if (static_cast<u64>(state.SourcePrefab) != 0)
+            {
+                Ref<Prefab> prefab = AssetManager::GetAsset<Prefab>(state.SourcePrefab);
+                if (!prefab || !prefab->GetScene())
+                {
+                    throw std::runtime_error("Prefab " + std::to_string(static_cast<u64>(state.SourcePrefab)) +
+                                             " is no longer available, so its side of this operation cannot be "
+                                             "taken back.");
+                }
+                scene = prefab->GetScene();
+            }
+            if (!scene)
             {
                 return;
             }
-            auto entity = state.OwningScene->TryGetEntityWithUUID(state.Id);
+            auto entity = scene->TryGetEntityWithUUID(state.Id);
             if (!entity)
             {
                 return;
@@ -643,14 +663,19 @@ namespace OloEngine::Automation
                 {
                     continue;
                 }
-                if (child->HasComponent<PrefabComponent>() && child->GetComponent<PrefabComponent>().IsValid())
+                if (!child->HasComponent<PrefabComponent>() || !child->GetComponent<PrefabComponent>().IsValid())
                 {
-                    const auto& pc = child->GetComponent<PrefabComponent>();
-                    if (pc.m_PrefabID != handle || pc.m_PrefabEntityID == prefabRootId)
-                    {
-                        outNested.push_back(*child);
-                        continue;
-                    }
+                    // An ordinary scene entity somebody parented under the instance.
+                    // It is not part of the instance at all: including it would let
+                    // its runtime state refuse an unpack, and would ask the override
+                    // query to diff an entity with no prefab side.
+                    continue;
+                }
+                const auto& pc = child->GetComponent<PrefabComponent>();
+                if (pc.m_PrefabID != handle || pc.m_PrefabEntityID == prefabRootId)
+                {
+                    outNested.push_back(*child);
+                    continue;
                 }
                 CollectInstanceSubtree(scene, *child, handle, prefabRootId, outOwned, outNested);
             }
@@ -726,7 +751,8 @@ namespace OloEngine::Automation
         // and an explicit one that does not actually differ selects NOTHING -- a
         // no-op request must not rewrite the prefab file or leave an undo entry to
         // press Ctrl-Z past.
-        Json SelectMoves(const Json& args, Entity instance, Entity source, std::vector<MoveItem>& out)
+        Json SelectMoves(const Json& args, Entity instance, Entity source, bool isInstanceRoot,
+                         std::vector<MoveItem>& out, Json& outSkipped)
         {
             const bool hasComponent = args.contains("component");
             const bool hasField = args.contains("field");
@@ -740,6 +766,19 @@ namespace OloEngine::Automation
                 {
                     if (diff.State != "added" && diff.State != "removed" && diff.State != "modified")
                     {
+                        continue;
+                    }
+                    // An instance ROOT's transform is where somebody PUT this copy,
+                    // not what the prefab says. A bare apply that swept it up would
+                    // teleport every other instance to wherever this one happens to
+                    // stand -- so it is left out and SAID so; naming the component
+                    // explicitly still applies it.
+                    if (isInstanceRoot && diff.Component == "TransformComponent")
+                    {
+                        outSkipped.push_back(
+                            Json{ { "component", diff.Component },
+                                  { "reason", "An instance root's transform is its placement in the scene, not prefab "
+                                              "data. Pass component:\"TransformComponent\" to apply it anyway." } });
                         continue;
                     }
                     if (const ComponentTypeEntry* type = FindPrefabComponentType(diff.Component))
@@ -808,6 +847,26 @@ namespace OloEngine::Automation
             }
             out.push_back(MoveItem{ type, field, "field" });
             return Json::object();
+        }
+
+        // An override mark is per COMPONENT -- PrefabComponent has no finer unit --
+        // so a FIELD-scoped apply or revert must not drop it while the component's
+        // other fields still diverge: the next apply from another instance would
+        // then stomp exactly the values that mark was protecting. Clear it only
+        // once the component has actually stopped diverging.
+        void ClearSettledOverrideMarks(Entity instance, Entity source, const std::vector<MoveItem>& moves)
+        {
+            auto& marks = instance.GetComponent<PrefabComponent>();
+            const auto diffs = DiffEntity(instance, source);
+            for (const MoveItem& move : moves)
+            {
+                const auto settled = std::ranges::find_if(diffs, [&move](const ComponentDiff& diff)
+                                                          { return diff.Component == move.Type->Name; });
+                if (settled == diffs.end() || settled->State == "identical")
+                {
+                    marks.ClearComponentOverride(move.Type->Name);
+                }
+            }
         }
 
         Json DescribeMove(const MoveItem& item)
@@ -1197,20 +1256,27 @@ namespace OloEngine::Automation
         // prefab, so writing into it would edit that prefab under a caller who
         // named this one -- the "silently wrong nested apply" the issue calls the
         // worst outcome. Refused by name, never guessed at.
+        //
+        // The test is SELF-REFERENCE, not the handle: Prefab::Create stamps every
+        // entity it owns with its own id as m_PrefabEntityID, while a nested
+        // instance's points into the nested prefab's scene. Comparing m_PrefabID to
+        // the live handle instead would refuse everything after a re-import, which
+        // mints a new handle without re-stamping the scene the YAML restored.
         std::string RefuseNestedSource(const InstanceScope& scope)
         {
             if (!scope.Source.HasComponent<PrefabComponent>())
             {
                 return {};
             }
-            const AssetHandle sourceHandle = scope.Source.GetComponent<PrefabComponent>().m_PrefabID;
-            if (static_cast<u64>(sourceHandle) == 0 || sourceHandle == scope.Handle)
+            const auto& pc = scope.Source.GetComponent<PrefabComponent>();
+            if (static_cast<u64>(pc.m_PrefabEntityID) == 0 || pc.m_PrefabEntityID == scope.Source.GetUUID())
             {
                 return {};
             }
             return "Prefab entity " + Identity(scope.Source.GetUUID()) + " inside prefab " + Identity(scope.Handle) +
-                   " is itself an instance of nested prefab " + Identity(sourceHandle) +
-                   ". Applying here would rewrite that prefab instead. Apply to the nested prefab's own instance, or "
+                   " is itself an instance of nested prefab " + Identity(pc.m_PrefabID) + " (source entity " +
+                   Identity(pc.m_PrefabEntityID) +
+                   "). Applying here would rewrite that prefab instead. Apply to the nested prefab's own instance, or "
                    "unpack the nesting first.";
         }
 
@@ -1227,7 +1293,10 @@ namespace OloEngine::Automation
                 return Error(std::move(refusal));
             }
             std::vector<MoveItem> moves;
-            if (Json failure = SelectMoves(args, scope.Instance, scope.Source, moves); failure.contains("__error"))
+            Json skippedComponents = Json::array();
+            const bool isRoot = scope.Source.GetUUID() == scope.PrefabRootId;
+            if (Json failure = SelectMoves(args, scope.Instance, scope.Source, isRoot, moves, skippedComponents);
+                failure.contains("__error"))
             {
                 return failure;
             }
@@ -1244,6 +1313,7 @@ namespace OloEngine::Automation
                                 { "applied", Json::array() },
                                 { "resyncedInstances", Json::array() },
                                 { "skippedInstances", Json::array() },
+                                { "skippedComponents", std::move(skippedComponents) },
                                 { "prefabFileWritten", false },
                                 { "changed", false },
                                 { "undoable", false } };
@@ -1312,7 +1382,7 @@ namespace OloEngine::Automation
             // Everything that will change, captured BEFORE anything does.
             const Ref<Scene> prefabScene = scope.Prefab->GetScene();
             std::vector<EntityComponents> before;
-            before.push_back(CaptureEntity(prefabScene, scope.Source));
+            before.push_back(CaptureEntity(prefabScene, scope.Source, scope.Handle));
             before.push_back(CaptureEntity(scene, scope.Instance));
             for (Entity peer : peers)
             {
@@ -1336,12 +1406,7 @@ namespace OloEngine::Automation
                 applied.push_back(DescribeMove(move));
             }
 
-            // The applied components are no longer instance-local divergence.
-            auto& instancePrefab = scope.Instance.GetComponent<PrefabComponent>();
-            for (const MoveItem& move : moves)
-            {
-                instancePrefab.ClearComponentOverride(move.Type->Name);
-            }
+            ClearSettledOverrideMarks(scope.Instance, scope.Source, moves);
 
             Json resynced = Json::array();
             Json skipped = Json::array();
@@ -1362,12 +1427,24 @@ namespace OloEngine::Automation
                         skippedHere.push_back(move.Type->Name);
                         continue;
                     }
-                    if (const std::string failure = CopyComponent(*move.Type, scope.Source, peer); !failure.empty())
+                    // At the SAME granularity the caller asked for. Copying the
+                    // whole component for a single-field apply would wipe a peer's
+                    // own divergence in that component's OTHER fields -- divergence
+                    // nothing marked, and which the caller never asked to touch.
+                    if (move.Field && !move.Type->Has(peer))
+                    {
+                        skippedHere.push_back(move.Type->Name);
+                        continue;
+                    }
+                    const std::string failure = move.Field
+                                                    ? CopyField(*move.Field, scope.Source, peer, peer.GetUUID())
+                                                    : CopyComponent(*move.Type, scope.Source, peer);
+                    if (!failure.empty())
                     {
                         RestoreAll(before);
                         return Error("Re-syncing instance " + Identity(peer.GetUUID()) + " failed: " + failure);
                     }
-                    movedHere.push_back(move.Type->Name);
+                    movedHere.push_back(move.Field ? (move.Type->Name + "." + move.Field->Field) : move.Type->Name);
                 }
                 if (!movedHere.empty())
                 {
@@ -1380,7 +1457,7 @@ namespace OloEngine::Automation
             }
 
             std::vector<EntityComponents> after;
-            after.push_back(CaptureEntity(prefabScene, scope.Source));
+            after.push_back(CaptureEntity(prefabScene, scope.Source, scope.Handle));
             after.push_back(CaptureEntity(scene, scope.Instance));
             for (Entity peer : peers)
             {
@@ -1420,6 +1497,7 @@ namespace OloEngine::Automation
                          { "applied", std::move(applied) },
                          { "resyncedInstances", std::move(resynced) },
                          { "skippedInstances", std::move(skipped) },
+                         { "skippedComponents", std::move(skippedComponents) },
                          { "prefabFileWritten", file.Registered },
                          { "changed", true },
                          { "undoable", true } };
@@ -1441,7 +1519,13 @@ namespace OloEngine::Automation
                 return failure;
             }
             std::vector<MoveItem> moves;
-            if (Json failure = SelectMoves(args, scope.Instance, scope.Source, moves); failure.contains("__error"))
+            Json ignoredSkips = Json::array();
+            // isInstanceRoot=false on purpose: the root-transform carve-out exists
+            // because an APPLY would push one instance's placement onto every other
+            // one. A revert only moves THIS instance back to where the prefab says,
+            // which is precisely what it is being asked to do.
+            if (Json failure = SelectMoves(args, scope.Instance, scope.Source, false, moves, ignoredSkips);
+                failure.contains("__error"))
             {
                 return failure;
             }
@@ -1474,11 +1558,7 @@ namespace OloEngine::Automation
                 }
                 reverted.push_back(DescribeMove(move));
             }
-            auto& instancePrefab = scope.Instance.GetComponent<PrefabComponent>();
-            for (const MoveItem& move : moves)
-            {
-                instancePrefab.ClearComponentOverride(move.Type->Name);
-            }
+            ClearSettledOverrideMarks(scope.Instance, scope.Source, moves);
             std::vector<EntityComponents> after{ CaptureEntity(scene, scope.Instance) };
 
             const bool changed = !reverted.empty();
@@ -1919,11 +1999,14 @@ namespace OloEngine::Automation
             "Push an instance's divergence back into its source prefab: one `field`, one `component`, or every "
             "divergence when neither is given. The source prefab's entity is rewritten, the .oloprefab is "
             "re-written (atomically, and refused if somebody edited it in the meantime), and every OTHER instance of "
-            "the same prefab entity in the active scene re-syncs -- except one that marks the component overridden "
-            "itself, which keeps its own value and is listed under `skippedInstances`. All of that is ONE undo entry: "
-            "a single Ctrl-Z puts the prefab, the file and every re-synced instance back. Refused when the source "
-            "entity is itself a nested prefab instance, because the write would land in that prefab instead. Edit "
-            "mode only.",
+            "the same prefab entity in the active scene re-syncs AT THE SAME GRANULARITY -- a single-field apply "
+            "moves that one field, never the whole component, so a peer's own divergence in the component's other "
+            "fields survives. A peer that marks the component overridden itself keeps its value entirely and is "
+            "listed under `skippedInstances`. All of that is ONE undo entry: a single Ctrl-Z puts the prefab, the "
+            "file and every re-synced instance back. A bare apply on an instance ROOT leaves TransformComponent out "
+            "and says so under `skippedComponents` -- a root's transform is where somebody put this copy, not prefab "
+            "data -- but naming the component explicitly applies it. Refused when the source entity is itself a "
+            "nested prefab instance, because the write would land in that prefab instead. Edit mode only.",
             Schema::Object()
                 .Prop("entity", EntityIdSchema())
                 .Prop("component", ComponentSelectorSchema())
@@ -1939,6 +2022,9 @@ namespace OloEngine::Automation
                 .Prop("applied", MoveListSchema())
                 .Prop("resyncedInstances", InstanceComponentListSchema())
                 .Prop("skippedInstances", InstanceComponentListSchema())
+                .Prop("skippedComponents", Schema::Array(Schema::Object()
+                                                             .Prop("component", Schema::String())
+                                                             .Prop("reason", Schema::String())))
                 .Prop("prefabFileWritten", Schema::Bool())
                 .Prop("prefabFileNote", Schema::String())
                 .Prop("changed", Schema::Bool())
