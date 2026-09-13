@@ -665,6 +665,10 @@ namespace OloEngine::RHI
             /// it — which typed null to poison the slot with on release, so a
             /// samplerCube reader cannot be handed a 2D descriptor (issue #691).
             NullSamplerKind NullKind = NullSamplerKind::Texture2D;
+            /// A frame-transient slot released while its frame may still be in
+            /// flight: the poison chosen at release sits in `Descriptor` and is
+            /// published when the sub-ring comes around (see ResetFrameTransients).
+            bool PoisonPending = false;
         };
 
         // Caller must hold m_Mutex.
@@ -678,7 +682,12 @@ namespace OloEngine::RHI
         // the one thing the header says it is for: spotting the moment a cached
         // offset outlived its view.
         [[nodiscard]] auto IsSlotLiveLocked(ViewHandle view) const -> bool;
-        void ReleaseSlotLocked(u32 index);
+        // NO DEFAULT for publishPoison, deliberately. Publishing poison into a
+        // frame-transient slot is only safe once that slot's sub-ring has come
+        // around; a defaulting parameter let RetireResource poison a slot an
+        // in-flight frame could still index, which is the very hazard the
+        // sub-rings exist to remove. Every caller states its choice.
+        void ReleaseSlotLocked(u32 index, bool publishPoison);
         [[nodiscard]] auto AcquireSamplerSlotLocked(const SamplerDesc& sampler) -> u32;
         void ReleaseSamplerSlotLocked(u32 samplerSlot);
         void MarkDirtyLocked(u32 index);
@@ -690,7 +699,9 @@ namespace OloEngine::RHI
         HeapDesc m_Desc;
         IDescriptorHeapBackend* m_Backend = nullptr;
 
-        // Slot layout: [0, m_PersistentCapacity) persistent, then the ring.
+        // Slot layout: [0, m_PersistentCapacity) persistent, then the ring —
+        // m_TransientFrames sub-rings of m_TransientCapacity slots each; frame N
+        // hands out from sub-ring m_TransientFrame (HeapDesc::FrameTransientRingFrames).
         // Fixed at Initialize and never resized, so a `ViewSlot`'s address is
         // stable and the vector never reallocates under a reader.
         std::vector<ViewSlot> m_Slots;
@@ -699,6 +710,8 @@ namespace OloEngine::RHI
         u32 m_TransientCapacity = 0u;
         std::vector<u32> m_PersistentFreeList;
         u32 m_TransientCursor = 0u;
+        u32 m_TransientFrames = 1u; ///< sub-rings (frames in flight)
+        u32 m_TransientFrame = 0u;  ///< the sub-ring this frame allocates from
 
         // Sampler heap: value-deduplicated, refcounted. `SamplerDesc` has a
         // defaulted `operator==` and is a small trivially-comparable value, so

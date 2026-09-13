@@ -130,7 +130,11 @@ they are already separated in code:
 - **Frame-transient** (everything from `TransientPool`) — slots come from a
   per-frame ring that resets in `TransientPool::ReleaseAll()`, which already
   exists and already runs at exactly the right moment (end of frame, after
-  execution).
+  execution). The ring is one sub-ring per frame in flight
+  (`HeapDesc::FrameTransientRingFrames`, amendment (99)): the reset makes the
+  frame's views stale at once but rewrites a sub-ring only when it comes
+  around again, because the table is published in place and the previous
+  frame's GPU work may still be indexing it.
 
 Do **not** invent a third lifetime class for descriptors. The reason is
 `docs/agent-rules/render-graph-transient-aliasing.md`: `TransientPool` hands the
