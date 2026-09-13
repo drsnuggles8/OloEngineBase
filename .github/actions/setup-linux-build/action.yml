@@ -322,21 +322,68 @@ runs:
           echo "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
           echo "OLO_COMPILER_CACHE_TOOL=$ccache_bin"
           echo "CPM_SOURCE_CACHE=$HOME/.cache/olo/cpm"
-          # NOT setting CCACHE_NOHASHDIR, deliberately. The compile CWD is part
-          # of ccache's hash by default (hash_dir) for a `-g` build, and it
-          # differs between the two runner slots' _work trees, so olo-ci-1
-          # never reuses olo-ci-2's objects and the cache is colder than it
-          # looks. Turning hash_dir off would share them -- and would serve an
-          # object whose DWARF still names the OTHER slot's directory, which is
-          # exactly the debug info a sanitizer report symbolises. These jobs
-          # exist to produce readable ASan/UBSan/TSan stacks, so a warmer cache
-          # is not worth a stack that points at a path this job never used.
-          # The way to have both is `-ffile-prefix-map` on every compile so the
-          # recorded path is slot-independent; do that first, then this is safe.
+          # SHARE OBJECTS ACROSS RUNNER SLOTS. The compile CWD is part of ccache's
+          # hash by default (hash_dir) for a `-g` build, and it differs between
+          # the slots' _work trees, so olo-ci-1 never reused olo-ci-2's objects:
+          # the same object was cached once PER SLOT and the object set was
+          # double what the configurations justify. Jobs do not pin to a slot,
+          # so which copy a job found was a coin flip.
+          #
+          # This used to be left alone on the grounds that sharing would serve an
+          # object whose DWARF names the OTHER slot's directory -- and these jobs
+          # exist to produce readable ASan/UBSan/TSan stacks. That hazard is real
+          # and is now neutralised at the source: cmake/CompilerCache.cmake puts
+          # `-ffile-prefix-map=<source root>=/olo` on every compile, so the
+          # recorded path is slot-independent before the object is ever stored.
+          # Measured on the box (clang 23.1.0 / ccache 4.11.3, two trees under
+          # different `actions-runner-ci-N/_work` roots, Debug + ASan, with a PCH):
+          #
+          #   today (neither var)                 slot 2: MISS, 0 of 4 hits
+          #   BASEDIR+NOHASHDIR, no prefix-map    slot 2: HIT, comp_dir names SLOT 1
+          #   BASEDIR+NOHASHDIR + prefix-map      slot 2: HIT, comp_dir = /olo/build
+          #
+          # The last row is byte-identical objects, PCH included -- so the PCH does
+          # not poison the compiles that consume it.
+          #
+          # BOTH variables are required, and BASEDIR for a reason that is not
+          # obvious: `-ffile-prefix-map=<abs source root>=/olo` itself contains the
+          # slot-specific path, so the command lines still differ. base_dir is what
+          # rewrites that argument to a relative form before hashing -- dropping it
+          # while keeping the flag measured 0 of 2 hits, i.e. no sharing at all.
+          #
+          # Unlike the local-dev base_dir in cmake/CompilerCache.cmake, which must
+          # be one path covering every worktree, this one is per-job on purpose:
+          # each slot maps ITS OWN root away, and the results meet in the middle.
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+          echo "CCACHE_NOHASHDIR=1"
         } >> "$GITHUB_ENV"
         echo "persistent ccache for '${OLO_CACHE_NAME}': $dir ($ccache_bin)"
-        CCACHE_DIR="$dir" ccache --max-size=30G >/dev/null
-        CCACHE_DIR="$dir" ccache --show-stats | head -20
+        # 120G, RAISED FROM 30G ON A MEASUREMENT, and note this line is the ONLY
+        # place the cap is set: it re-asserts max_size into ccache.conf on every
+        # job, so a hand-run `ccache -M` or a bump in the box's provisioning
+        # script is silently reverted by the next run. Change it here.
+        #
+        # 30G was under the object set, which is the expensive way to be wrong
+        # (docs/agent-rules/self-hosted-ccache-slot-multiplier.md). Measured
+        # 2026-09-13: 30.0/30.0 GB with 63,593 files and 5,823 cleanups -- pinned
+        # at the cap and evicting continuously, while `Uncacheable calls` was 15 of
+        # 1,254,961, i.e. eligibility was already fine and capacity was the whole
+        # constraint. One Linux sanitizer build is 1,653 TUs at ~944 KB/entry, and
+        # 7-9 distinct flag sets can land on this box; ~20-26 GB holds ONE
+        # generation of all of them, so 30G held barely one and any two
+        # consecutive commits evicted each other. 120G is ~5 generations, and
+        # ~10 now that slots share (above).
+        #
+        # Bounded by /home, not by taste: the cache is on /home (NVMe), measured
+        # 218G used of 389G with 171G free, of which this cache was 28 GiB. 120G
+        # is 111.8 GiB, so worst-case growth is ~84 GiB and ~87 GiB stays free.
+        # The other three runner accounts (88G) and their _work trees live on the
+        # same filesystem -- re-measure before raising this again, and do not
+        # move the cache to /mnt/2TB-{A,B}: both are SMR spinning disks.
+        CCACHE_DIR="$dir" ccache --max-size=120G >/dev/null
+        # -v, because the rule above needs `Files` and `Cleanups` to tell eviction
+        # from invalidation, and plain --show-stats prints neither.
+        CCACHE_DIR="$dir" ccache --show-stats -v | head -40
 
     # ------------------------------------------------------------- both ways
     - name: Resolve toolchain for this runner
