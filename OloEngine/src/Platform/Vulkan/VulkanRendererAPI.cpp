@@ -9,6 +9,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanBindingState.h"
+#include "Platform/Vulkan/VulkanBufferBindingDiagnostics.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanContext.h"
@@ -2624,6 +2625,7 @@ namespace OloEngine
                     pullStream = 1;
 
                 u64 address = 0;
+                bool occupantAbsent = false;
                 if (pullStream != ~sizet{ 0 })
                 {
                     // A VAO with fewer streams than the shader pulls (a
@@ -2638,6 +2640,7 @@ namespace OloEngine
                     // An upload-once stream returns the persistent address
                     // from inside GetPullAddress, unchanged.
                     const auto* pullBuffer = vao != nullptr ? vao->GetPullVertexBuffer(pullStream) : nullptr;
+                    occupantAbsent = vao != nullptr && pullBuffer == nullptr;
                     address = pullBuffer != nullptr ? pullBuffer->GetPullAddress() : 0;
                 }
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
@@ -2673,6 +2676,7 @@ namespace OloEngine
                     // and what its GPU-writing tenants (indirect args, the
                     // virtual-geometry index arena) require anyway.
                     address = bindingState.GetStorageBufferAddress(binding.Binding);
+                    occupantAbsent = address == 0;
                 }
                 if (address == 0)
                 {
@@ -2685,7 +2689,8 @@ namespace OloEngine
                     // block makes an unfed binding read deterministic zeros,
                     // matching what this comment always promised.
                     static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
-                    if (s_WarnedBindings.Insert(std::string(shaderName) + ":" + std::to_string(binding.Binding)))
+                    const auto severity = ClassifyMissingVulkanBuffer(shaderName, binding, occupantAbsent);
+                    if (s_WarnedBindings.Insert(MissingVulkanBufferDiagnosticKey(shaderName, binding, severity)))
                     {
                         // An unfed UBO reads defined zeros — wrong, survivable.
                         // An unfed SSBO is a small block a shader INDEXES, and
@@ -2693,30 +2698,16 @@ namespace OloEngine
                         // was fed correctly, so the read lands outside it and
                         // loses the device. That asymmetry is the whole of
                         // #1052, so the two cases do not get the same voice.
-                        // A VERTEX-PULL stream that the VAO does not carry is a
-                        // DESIGNED absence, not an unfed binding: the arm above
-                        // resolves it to the zero address on purpose, and the
-                        // shader gates the read (a skinned shader on a static
-                        // mesh; an unbaked mesh with no lightmap UV stream, whose
-                        // all-zero LightmapScaleOffset gates sampling). Telling
-                        // someone to "bind it" there would mean a dummy buffer per
-                        // non-skinned, non-lightmapped mesh in every scene.
-                        //
-                        // It still goes through this path rather than skipping the
-                        // accounting, because the null-block substitution and the
-                        // counter below are what make the state observable at all —
-                        // only the voice changes (issue #1190). Every other unfed
-                        // STORAGE binding keeps the error: that is #1052's case,
-                        // where the index comes from a buffer that WAS fed and the
-                        // read lands outside the small null block.
-                        const bool expectedAbsentPullStream = pullStream != ~sizet{ 0 };
-                        if (expectedAbsentPullStream)
+                        // Only explicitly reviewed, gated declarations are optional.
+                        // Missing primary vertices, bones or failed arena addresses
+                        // remain errors. Substitution and accounting stay identical.
+                        if (severity == VulkanMissingBufferSeverity::Trace)
                         {
-                            OLO_CORE_TRACE("[RHI/Vulkan] '{}' pull stream {} (binding {}) is absent for this VAO — "
+                            OLO_CORE_TRACE("[RHI/Vulkan] '{}' optional STORAGE binding {} ('{}') is absent — "
                                            "null block, read is gated by the shader",
-                                           shaderName, pullStream, binding.Binding);
+                                           shaderName, binding.Binding, binding.Name);
                         }
-                        else if (isStorage)
+                        else if (severity == VulkanMissingBufferSeverity::Error)
                         {
                             OLO_CORE_ERROR("[RHI/Vulkan] '{}' STORAGE binding {} has no published occupant — "
                                            "substituting the null block, which a shader that indexes this buffer "

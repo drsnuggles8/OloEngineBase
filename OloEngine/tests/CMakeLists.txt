@@ -380,6 +380,7 @@ add_executable(OloEngine-Tests
 		# rendering scope. Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanDrawPathTest.cpp
 		Rendering/VulkanRawBufferStorageBindingTest.cpp
+		Rendering/VulkanBufferBindingDiagnosticsTest.cpp
 		Rendering/VulkanRawBufferUploadTest.cpp
 		# #1078: a texture hot-reload must refresh the image in place AND the
 		# descriptor a consumer samples through. Draws sampling the texture and
