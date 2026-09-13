@@ -4955,6 +4955,29 @@ namespace OloEngine
         f32 m_TessMinDistance = 10.0f;
         f32 m_TessMaxDistance = 200.0f;
 
+        // Projected grid (issue #1035, water-ocean.md §4.1). Reads the surface
+        // mesh's (u, v) as a SCREEN coordinate and ray-casts it onto the water
+        // plane, so m_GridResolutionX/Z stops meaning "quads across the world"
+        // and starts meaning "quads across the viewport" — vertex count is then
+        // set by screen resolution instead of by m_WorldSizeX/Z.
+        //
+        // IN PROGRESS — off by default, and NO SCENE OPTS IN. The measurement
+        // that chose this over gradient-adaptive tessellation
+        // (WaterGeometryLodProfileTest) is complete, and so is the CPU layout it
+        // pins — the contract is Renderer/Water/WaterSurfaceLod.h. What is not
+        // done is the frame: the surface still renders incorrectly. Turning this
+        // on will draw broken water. water-ocean.md §4.1 records what is known
+        // good, what is still wrong, and the two traps already fixed.
+        //
+        // When it does work, a scene wants a much LOWER m_GridResolutionX/Z than
+        // the world-space grid needed, but not as low as the viewport suggests:
+        // part of the grid is laid out deliberately OUTSIDE the frame so a wave
+        // crest can lift water into the bottom edge, and at a 3 m eye that skirt
+        // is ~60% of the rows. 256x144 measures ~60 px under every on-screen
+        // triangle at a grazing angle, where the same surface as a 512x512 world
+        // grid was drawing 80% of its triangles sub-pixel.
+        bool m_ProjectedGridEnabled = false;
+
         // Underwater rendering (water-ocean.md §7.2)
         // Applied as a screen-space exponential color shift when the camera
         // sits below the water plane. Density is a per-metre absorption
@@ -5289,6 +5312,7 @@ namespace OloEngine
                 && blkEq(m_TessellationFactor, m_TessellationFactor) // f32
                 && m_TessellationEnabled == o.m_TessellationEnabled
                 && blkEq(m_TessMinDistance, m_TessMaxDistance) // f32*2
+                && m_ProjectedGridEnabled == o.m_ProjectedGridEnabled
                 && blkEq(m_UnderwaterFogColor, m_GodRayColor) // vec3 + f32 + f32*8 + vec3 + f32*4 + vec3
                 && m_GodRaySamples == o.m_GodRaySamples
                 && blkEq(m_GodRayDappleFloor, m_GodRaySunFalloff) // f32*2
@@ -5413,6 +5437,7 @@ namespace OloEngine
             m_TessellationEnabled = src.m_TessellationEnabled;
             m_TessMinDistance = src.m_TessMinDistance;
             m_TessMaxDistance = src.m_TessMaxDistance;
+            m_ProjectedGridEnabled = src.m_ProjectedGridEnabled;
             m_UnderwaterFogColor = src.m_UnderwaterFogColor;
             m_UnderwaterFogDensity = src.m_UnderwaterFogDensity;
             m_UnderwaterRefractionStrength = src.m_UnderwaterRefractionStrength;

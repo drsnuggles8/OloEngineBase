@@ -7100,6 +7100,15 @@ namespace OloEngine
                         component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                 }
 
+                ImGui::SeparatorText("Surface Grid");
+                ImGui::Checkbox("Projected Grid", &component.m_ProjectedGridEnabled);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Read the surface mesh's UV as a screen coordinate and ray-cast it onto the water "
+                                      "plane (issue #1035). Grid Resolution then counts quads across the VIEWPORT, not "
+                                      "across the world, so lower it accordingly -- but not all the way: part of the grid "
+                                      "is laid out outside the frame so a crest can lift water into the bottom edge. "
+                                      "WaterShowcase uses 256x144 for ~60 px per on-screen triangle at 1080p.");
+
                 ImGui::SeparatorText("Underwater");
                 ImGui::Checkbox("Render From Below", &component.m_RenderFromBelow);
                 if (ImGui::IsItemHovered())

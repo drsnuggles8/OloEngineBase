@@ -1666,6 +1666,13 @@ namespace OloEngine
             // Per-cascade tile scales + the mid band's domain rotation; built by
             // Ocean::PackCascadeShaderParams from the field's own preset.
             glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+            // Projected grid (issue #1035, water-ocean.md §4.1).
+            // x = enable (<= 0 disables), y/z = the NDC-y band this frame's
+            // camera reaches the water plane over, w = rim radius in metres.
+            glm::vec4 projectedGridParams = glm::vec4(0.0f);
+            // xy = the surface's local half-extents, the rect a projected
+            // vertex is clamped into. z/w reserved.
+            glm::vec4 projectedGridParams2 = glm::vec4(0.0f);
             RHI::ResourceHandle normalMap0ID{};
             RHI::ResourceHandle normalMap1ID{};
             RHI::ResourceHandle noiseTextureID{};

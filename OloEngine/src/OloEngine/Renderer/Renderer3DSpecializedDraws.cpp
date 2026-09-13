@@ -383,6 +383,8 @@ namespace OloEngine
         cmd->tessParams = params.tessParams;
         cmd->fftParams = params.fftParams;
         cmd->fftCascadeParams = params.fftCascadeParams;
+        cmd->projectedGridParams = params.projectedGridParams;
+        cmd->projectedGridParams2 = params.projectedGridParams2;
         cmd->normalMap0ID = params.normalMap0ID;
         cmd->normalMap1ID = params.normalMap1ID;
         cmd->noiseTextureID = params.noiseTextureID;

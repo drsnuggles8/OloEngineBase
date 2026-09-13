@@ -153,6 +153,31 @@ layout(std140, binding = 23) uniform WaterParams
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
     vec4 u_WakeHulls[80];
+    // Projected grid (issue #1035, water-ocean.md §4.1). C++ twin:
+    // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2; the
+    // contract and the census that chose this scheme are
+    // Renderer/Water/WaterSurfaceLod.h, the evaluator is
+    // waterProjectGridVertex() in include/WaterVertexStage.glsl. Declared in
+    // EVERY stage of the water programs, identically, for the same reason every
+    // block above is: GL requires a uniform block shared across a program's
+    // stages to be declared the same way in each, so appending to only the
+    // stages that read it is a LINK error rather than a silent mismatch. Read
+    // by the vertex stage (which places the grid) and the tess-control stage
+    // (whose subdivision rule changes with it).
+    //
+    // x = enable; x <= 0 IS the disabled state, so a build with no projected
+    //     water pays one compare per vertex,
+    // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
+    //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
+    //     at the near edge by however far a crest can move a vertex there,
+    // w = rim radius (m): how far a ray that misses the plane is pushed before
+    //     the rect clamp catches it.
+    vec4 u_ProjectedGridParams;
+    // xy = the surface's LOCAL half-extents. The clamp into this rect is what
+    //      keeps a finite water tile finite: a screen-space grid has no idea
+    //      where the water ends.
+    // zw = the NDC MAXIMUM corner, the partner of u_ProjectedGridParams.yz.
+    vec4 u_ProjectedGridParams2;
 };
 
 #include "WaterCommon.glsl"
@@ -243,6 +268,103 @@ layout(location = 7) out vec3 v_PrevWorldPos;
 layout(location = 8) out float v_ShoreFoam;
 #endif
 
+// =============================================================================
+// Projected grid (issue #1035, water-ocean.md §4.1; Johanson 2004)
+// =============================================================================
+//
+// The surface mesh's (u, v) is read as a SCREEN coordinate instead of a world
+// one: unproject it into the segment the depth range spans, intersect that with
+// the water plane, and the vertex lands wherever this pixel column meets the
+// water. Vertex density is then a property of the viewport, not of
+// m_WorldSizeX/Z — which is the point, because the census in
+// WaterGeometryLodProfileTest measured 80-94% of a world-space grid's triangles
+// landing sub-pixel at a grazing angle while every base patch still paid its
+// vertex invocation.
+//
+// The inverse view-projection is computed HERE rather than uploaded. That is
+// deliberate and it is not a micro-optimisation trade: u_ViewProjection is the
+// render-RELATIVE, backend-ADJUSTED matrix this stage feeds gl_Position, and
+// inverting that exact matrix is the only formulation in which the unprojected
+// position cannot be in the wrong space or the wrong handedness. Uploading an
+// inverse means picking which of those two flavours to invert on the CPU and
+// being silently wrong on one backend, or at 40 km from the origin, if the
+// choice drifts. A mat4 inverse per vertex is affordable precisely because this
+// feature exists to make the vertex count small.
+//
+// The CPU mirror is WaterSurfaceLod::ProjectGridVertex; the two are pinned
+// against each other by WaterGeometryLodProfileTest.
+vec3 waterProjectGridVertex(mat4 invViewProj, vec2 ndc, vec3 planePoint, vec3 planeNormal, float rimRadius)
+{
+    // Intersect the view LINE with the plane, then decide visibility from the
+    // clip w. Deliberately orientation-free, and that is the whole point.
+    //
+    // The obvious formulations both assume a depth convention and both were
+    // wrong here, silently. Unprojecting NDC z = -1 and z = +1 and treating `t`
+    // as a fraction of that segment assumes which end is the near plane;
+    // starting at the camera with `normalize(far - eye)` and testing `t > 0`
+    // assumes that NDC z = +1 unprojects IN FRONT of the camera. In this engine
+    // it does not, so the direction came out reversed, `t` came out negative,
+    // and every vertex failed the test and fell through to the rim — the whole
+    // surface collapsed onto the horizon line, while the sky reflected in what
+    // little remained kept the frame looking almost plausible. No CPU test
+    // caught it; the PNG did, immediately.
+    //
+    // A LINE has no orientation to get wrong: `a + d * s` is the same point
+    // whichever way `d` points, so the intersection needs no assumption at all.
+    // The one thing that does need deciding — is this point in front of the
+    // camera — is then asked of the projection directly, where the answer is
+    // `w > 0` under every convention the projection seam produces.
+    const float EPS = 1e-6;
+    vec4 aH = invViewProj * vec4(ndc, -1.0, 1.0);
+    vec4 bH = invViewProj * vec4(ndc, 1.0, 1.0);
+    bool valid = abs(aH.w) >= EPS && abs(bH.w) >= EPS;
+
+    vec3 a = valid ? (aH.xyz / aH.w) : planePoint;
+    vec3 d = valid ? ((bH.xyz / bH.w) - a) : vec3(0.0);
+
+    float denom = dot(d, planeNormal);
+    float s = (abs(denom) >= EPS) ? (dot(planePoint - a, planeNormal) / denom) : 0.0;
+    vec3 candidate = a + d * s;
+
+    // In front of the camera? Ask the matrix rather than the geometry, and ask
+    // it with a plain multiply — hand-extracting the w row is one index
+    // convention away from silently testing the wrong thing.
+    // Forward axis from the view matrix (GLSL is column-major, so row 2 of the
+    // rotation is (u_View[0].z, u_View[1].z, u_View[2].z); the camera looks down
+    // its NEGATIVE z). A dot against this is metres in front of the eye — a
+    // plain geometric question with no depth convention in it.
+    vec3 viewForward = -vec3(u_View[0].z, u_View[1].z, u_View[2].z);
+    bool hit = valid && abs(denom) >= EPS && dot(candidate - u_CameraPosition, viewForward) > EPS;
+
+    // `rayOrigin` / `rayDir` below are the miss path's fall-back ray. `d` may
+    // point either way along the view line, which does not matter there either:
+    // the fall-back slides along its HORIZONTAL component and the surface rect
+    // is symmetric, so both orientations land outside it.
+    vec3 rayOrigin = a;
+    vec3 rayDir = d;
+    if (hit)
+        return candidate;
+
+    // Above the horizon, parallel to the surface, or out of depth range. Slide
+    // out along whatever horizontal component the ray has, far enough that the
+    // caller's rect clamp lands this vertex on the surface rim — the row then
+    // collapses to zero-area triangles at the water's edge instead of the
+    // ocean being extended into the sky.
+    // Every miss collapses to ONE point: the plane position directly under the
+    // camera. A whole missed row therefore becomes zero-area triangles at a
+    // single spot and rasterises as nothing.
+    //
+    // The obvious alternative — slide out along the ray's horizontal component
+    // to `rimRadius` — is what this did first and it is actively dangerous: the
+    // view line has no reliable orientation, so half those vertices land BEHIND
+    // the camera, where the projection mirrors them back across the frame as a
+    // sheet of garbage covering the near water. A degenerate point cannot do
+    // that. rimRadius is kept in the signature because the CPU mirror's own
+    // tests still describe the rim, and because a future non-degenerate
+    // fall-back will want it.
+    return u_CameraPosition - planeNormal * dot(u_CameraPosition - planePoint, planeNormal);
+}
+
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
@@ -251,8 +373,52 @@ void main()
     vec3 a_Normal = vec3(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4], b_Vertices.v[vertBase + 5]);
     vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
 #endif
-    vec4 worldPos = u_Model * vec4(a_Position, 1.0);
-    vec4 worldPosPrev = u_PrevModel * vec4(a_Position, 1.0);
+    // Projected grid (issue #1035): the SAME lattice, placed by screen
+    // coordinate instead of by world coordinate. a_Position is ignored and
+    // a_TexCoord — which CreateWaterGrid already writes as (fx, fz) over the
+    // whole surface — becomes the screen parameter.
+    vec3 gridLocalPos = a_Position;
+    vec2 gridUV = a_TexCoord;
+    if (u_ProjectedGridParams.x > 0.5)
+    {
+        // The plane this surface's transform describes, in the same
+        // render-relative space u_ViewProjection works in. Column 1 is the
+        // transformed up axis and column 3 the surface centre, which is how the
+        // planar-reflection plane is derived on the C++ side too.
+        vec3 planeNormal = u_Model[1].xyz;
+        float normalLenSq = dot(planeNormal, planeNormal);
+        planeNormal = (normalLenSq > 1e-12) ? (planeNormal * inversesqrt(normalLenSq)) : vec3(0.0, 1.0, 0.0);
+        vec3 planePoint = u_Model[3].xyz;
+
+        // The grid spans the rectangle WaterSurfaceLod::ComputeNdcBounds
+        // measured, NOT the screen. It is SMALLER than the screen at the
+        // horizon end — rows up there reach no plane and would collapse onto
+        // the horizon line — and LARGER at the near edge, because this stage
+        // places the grid on the RESTING plane and the tess-eval stage then
+        // displaces it. A vertex placed exactly at the bottom of the frame and
+        // then lifted by a crest leaves the frame, taking a band of the nearest
+        // water with it: from a 3 m eye a 1.5 m crest moves it up by a quarter
+        // of the vertical field of view.
+        vec2 ndc = mix(u_ProjectedGridParams.yz, u_ProjectedGridParams2.zw, gridUV);
+
+        vec3 hit = waterProjectGridVertex(inverse(u_ViewProjection), ndc,
+                                          planePoint, planeNormal, u_ProjectedGridParams.w);
+
+        // Back into surface-local space and clamp into the authored rect. This
+        // is what keeps a finite tile finite; rows that would land past the rect
+        // pile onto its edge as zero-area triangles.
+        vec3 local = (inverse(u_Model) * vec4(hit, 1.0)).xyz;
+        local.xz = clamp(local.xz, -u_ProjectedGridParams2.xy, u_ProjectedGridParams2.xy);
+        local.y = 0.0;
+        gridLocalPos = local;
+        // Keep the UV a surface-local parameterisation rather than the screen
+        // one, so anything downstream that reads it still means "where on the
+        // water", the same as the world-space grid.
+        gridUV = local.xz / max(u_ProjectedGridParams2.xy, vec2(1e-3)) * 0.5 + 0.5;
+    }
+
+    vec4 worldPos = u_Model * vec4(gridLocalPos, 1.0);
+    vec4 worldPosPrev = u_PrevModel * vec4(gridLocalPos, 1.0);
     // Camera-relative (issue #429): u_Model is render-relative, so add the render
     // origin back for the world-anchored wave phase / FFT field sampling. The
     // displaced position stays relative (Gerstner sums are shifted back by the
@@ -266,13 +432,20 @@ void main()
     float frequency = u_WaveParams.w;
 
     // When tessellation is active, vertex shader passes through
-    // (displacement happens in TES instead)
-    if (u_TessParams.x > 0.0)
+    // (displacement happens in TES instead).
+    //
+    // The projected grid takes this branch unconditionally (issue #1035). Its
+    // patches vary in world size by three orders of magnitude across one frame,
+    // and the tess-eval stage is where that size is recovered — from the patch's
+    // own edge length — to band-limit the octave ladder. Letting a projected
+    // vertex displace HERE instead would band-limit it with the base grid's
+    // nominal spacing, which under a projected grid describes nothing.
+    if (u_TessParams.x > 0.0 || u_ProjectedGridParams.x > 0.5)
     {
         v_WorldPos = worldPos.xyz;
         v_PrevWorldPos = worldPosPrev.xyz; // TES will re-displace
         v_Normal = vec3(0.0, 1.0, 0.0);
-        v_TexCoord = a_TexCoord;
+        v_TexCoord = gridUV;
         v_ViewDir = normalize(u_CameraPosition - worldPos.xyz);
         v_Tangent = vec3(1.0, 0.0, 0.0);
         v_Bitangent = vec3(0.0, 0.0, 1.0);
@@ -432,7 +605,7 @@ void main()
 
     v_WorldPos = displacedPos;
     v_Normal = displacedNormal;
-    v_TexCoord = a_TexCoord;
+    v_TexCoord = gridUV;
     v_ViewDir = normalize(u_CameraPosition - displacedPos);
 
     // Compute tangent frame from displaced normal for normal mapping

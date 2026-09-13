@@ -1690,6 +1690,13 @@ namespace OloEngine
         water.m_TessellationFactor = waterComponent["TessellationFactor"].as<f32>(water.m_TessellationFactor);
         water.m_TessMinDistance = waterComponent["TessMinDistance"].as<f32>(water.m_TessMinDistance);
         water.m_TessMaxDistance = waterComponent["TessMaxDistance"].as<f32>(water.m_TessMaxDistance);
+        // Issue #1035. Guarded like TessellationEnabled above rather than read
+        // through a defaulted `as<bool>` so a scene written before this existed
+        // keeps the world-space grid it was authored against.
+        if (auto const projectedGrid = waterComponent["ProjectedGridEnabled"])
+        {
+            water.m_ProjectedGridEnabled = projectedGrid.as<bool>(water.m_ProjectedGridEnabled);
+        }
         water.m_UnderwaterFogColor = waterComponent["UnderwaterFogColor"].as<glm::vec3>(water.m_UnderwaterFogColor);
         water.m_UnderwaterFogDensity = waterComponent["UnderwaterFogDensity"].as<f32>(water.m_UnderwaterFogDensity);
         water.m_UnderwaterRefractionStrength = waterComponent["UnderwaterRefractionStrength"].as<f32>(water.m_UnderwaterRefractionStrength);
@@ -5753,6 +5760,7 @@ namespace OloEngine
             out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
             out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;
             out << YAML::Key << "TessMaxDistance" << YAML::Value << water.m_TessMaxDistance;
+            out << YAML::Key << "ProjectedGridEnabled" << YAML::Value << water.m_ProjectedGridEnabled;
             out << YAML::Key << "UnderwaterFogColor" << YAML::Value << water.m_UnderwaterFogColor;
             out << YAML::Key << "UnderwaterFogDensity" << YAML::Value << water.m_UnderwaterFogDensity;
             out << YAML::Key << "UnderwaterRefractionStrength" << YAML::Value << water.m_UnderwaterRefractionStrength;

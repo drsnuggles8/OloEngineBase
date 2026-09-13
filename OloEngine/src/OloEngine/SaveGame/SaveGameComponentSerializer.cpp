@@ -2516,6 +2516,14 @@ namespace OloEngine
         ar << c.m_SSRMaxSteps << c.m_SSRStepSize << c.m_SSRMaxDistance << c.m_SSRThickness;
         ar << c.m_SSREnabled;
         ar << c.m_TessellationEnabled << c.m_TessellationFactor << c.m_TessMinDistance << c.m_TessMaxDistance;
+        // Projected grid (issue #1035, v30). Version-gated rather than probed
+        // with AtEnd() like the trailing blocks below, because it is NOT
+        // trailing: the fog block follows it, so a v29 archive has to skip this
+        // field and keep reading, which AtEnd() cannot express.
+        if (HasFieldsSince(ar, 30))
+        {
+            ar << c.m_ProjectedGridEnabled;
+        }
         // m_UnderwaterFogColor / m_UnderwaterFogDensity / m_RenderFromBelow were
         // added with the §7.2 underwater work. Per-component payloads aren't
         // size-prefixed at this trailing point, so older archives end here —

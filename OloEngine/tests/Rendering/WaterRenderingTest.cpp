@@ -45,7 +45,11 @@ TEST(WaterRendering, WaterUBOSizeStable)
     //   +2  ShoreParams / ShoreParams2 for the #1033 shore wave transform,
     //   +3  RainRippleParams / RainRippleParams2 / FoamFieldParams for #1034's
     //       rain-impact ripples and advected open-ocean foam, and
-    //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
+    //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE,
+    //   +2  ProjectedGridParams / ProjectedGridParams2 for #1035's projected
+    //       grid. Appended AFTER the hull array on purpose: it is the one
+    //       insertion point that cannot silently re-align that 80-vec4 array in
+    //       whichever of the five shader files gets edited last.
     //
     // The array is what makes #968 cost ZERO new binding slots — the engine has
     // exactly one UBO slot left below UBO_BINDING_LIMIT, and a wake block was
@@ -60,8 +64,8 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
     // program to declare a shared uniform block the same way.
     EXPECT_EQ(sizeof(UBOStructures::WaterUBO),
-              (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1712u);
+              (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count + 2u) * sizeof(glm::vec4));
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1744u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)

@@ -125,6 +125,31 @@ layout(std140, binding = 23) uniform WaterParams
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
     vec4 u_WakeHulls[80];
+    // Projected grid (issue #1035, water-ocean.md §4.1). C++ twin:
+    // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2; the
+    // contract and the census that chose this scheme are
+    // Renderer/Water/WaterSurfaceLod.h, the evaluator is
+    // waterProjectGridVertex() in include/WaterVertexStage.glsl. Declared in
+    // EVERY stage of the water programs, identically, for the same reason every
+    // block above is: GL requires a uniform block shared across a program's
+    // stages to be declared the same way in each, so appending to only the
+    // stages that read it is a LINK error rather than a silent mismatch. Read
+    // by the vertex stage (which places the grid) and the tess-control stage
+    // (whose subdivision rule changes with it).
+    //
+    // x = enable; x <= 0 IS the disabled state, so a build with no projected
+    //     water pays one compare per vertex,
+    // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
+    //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
+    //     at the near edge by however far a crest can move a vertex there,
+    // w = rim radius (m): how far a ray that misses the plane is pushed before
+    //     the rect clamp catches it.
+    vec4 u_ProjectedGridParams;
+    // xy = the surface's LOCAL half-extents. The clamp into this rect is what
+    //      keeps a finite water tile finite: a screen-space grid has no idea
+    //      where the water ends.
+    // zw = the NDC MAXIMUM corner, the partner of u_ProjectedGridParams.yz.
+    vec4 u_ProjectedGridParams2;
 };
 
 layout(location = 0) in vec3 v_WorldPos[];
@@ -145,6 +170,19 @@ layout(location = 3) out vec3 tc_PrevWorldPos[];
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
+    // Projected grid (issue #1035): the patches are already laid out at a
+    // uniform screen density, so the distance ramp has nothing left to do —
+    // and applying it would UNDO the uniformity, subdividing the near rows that
+    // are already the right size on screen. The grid resolution is the single
+    // knob in this mode; the tessellation factor is deliberately ignored rather
+    // than multiplied in, so a scene that flips the toggle without also
+    // lowering its old factor of 8 does not silently pay 64x per patch.
+    //
+    // 1.0, not 0.0. A level below 1 discards the patch (GL 4.6 §11.2.2) — see
+    // the note below, which is the same bug wearing a different hat.
+    if (u_ProjectedGridParams.x > 0.5)
+        return 1.0;
+
     // u_TessParams.x is the near-camera subdivision factor. When tessellation is
     // disabled the C++ side passes 0 here — but a DRAWN patch needs a tess level
     // of at least 1; a level below 1 (and especially 0) discards the patch

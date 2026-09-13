@@ -127,6 +127,31 @@ layout(std140, binding = 23) uniform WaterParams
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
     vec4 u_WakeHulls[80];
+    // Projected grid (issue #1035, water-ocean.md §4.1). C++ twin:
+    // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2; the
+    // contract and the census that chose this scheme are
+    // Renderer/Water/WaterSurfaceLod.h, the evaluator is
+    // waterProjectGridVertex() in include/WaterVertexStage.glsl. Declared in
+    // EVERY stage of the water programs, identically, for the same reason every
+    // block above is: GL requires a uniform block shared across a program's
+    // stages to be declared the same way in each, so appending to only the
+    // stages that read it is a LINK error rather than a silent mismatch. Read
+    // by the vertex stage (which places the grid) and the tess-control stage
+    // (whose subdivision rule changes with it).
+    //
+    // x = enable; x <= 0 IS the disabled state, so a build with no projected
+    //     water pays one compare per vertex,
+    // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
+    //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
+    //     at the near edge by however far a crest can move a vertex there,
+    // w = rim radius (m): how far a ray that misses the plane is pushed before
+    //     the rect clamp catches it.
+    vec4 u_ProjectedGridParams;
+    // xy = the surface's LOCAL half-extents. The clamp into this rect is what
+    //      keeps a finite water tile finite: a screen-space grid has no idea
+    //      where the water ends.
+    // zw = the NDC MAXIMUM corner, the partner of u_ProjectedGridParams.yz.
+    vec4 u_ProjectedGridParams2;
 };
 
 #include "WaterCommon.glsl"
@@ -246,6 +271,35 @@ void main()
     vec3 posAbs = pos + u_RenderOrigin;
     vec3 posPrevAbs = posPrev + u_RenderOrigin;
 
+    // The mesh spacing the octave band-limit (#943) is measured against.
+    //
+    // u_FoamParams2.w is the BASE world grid's nominal spacing, which is a
+    // single number for the whole surface — correct while the grid IS uniform
+    // in the world. Under a projected grid (issue #1035) it describes nothing:
+    // one frame's patches span three orders of magnitude in world size, from
+    // centimetres at the camera's feet to tens of metres at the horizon. So
+    // measure it from the patch instead. The longest edge of this patch,
+    // divided by its subdivision level, IS the distance between neighbouring
+    // samples of the surface here — which is exactly the quantity
+    // octaveMeshWeight needs.
+    //
+    // The LONGEST edge, not the mean: band-limiting is a statement about what
+    // the mesh cannot represent, and the coarsest direction is what it cannot
+    // represent. Taking the mean would keep octaves that alias along the long
+    // axis of a stretched patch, which is every patch near the horizon.
+    //
+    // Deliberately NOT applied to the world-space grid: it would change what
+    // every existing water scene draws, and the base spacing is already the
+    // right number there.
+    float vertexSpacing = u_FoamParams2.w;
+    if (u_ProjectedGridParams.x > 0.5)
+    {
+        float e0 = distance(tc_WorldPos[0], tc_WorldPos[1]);
+        float e1 = distance(tc_WorldPos[1], tc_WorldPos[2]);
+        float e2 = distance(tc_WorldPos[2], tc_WorldPos[0]);
+        vertexSpacing = max(max(e0, e1), e2) / max(gl_TessLevelInner[0], 1.0);
+    }
+
     // Apply wave displacement (FFT ocean or analytic Gerstner)
     float time = u_WaveParams.x * u_WaveParams.y;
     float prevTime = u_NormalMapSpeed.z * u_WaveParams.y;
@@ -303,7 +357,7 @@ void main()
             posAbs, time,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
-            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
+            vertexSpacing, // mesh vertex spacing — band-limits the octave ladder (#943)
             shore, u_ShoreParams2.x, // seabed depth + the breaker index (#1033)
             displacedNormal, shoreJacobian, shoreBreak
         ) - u_RenderOrigin; // world-anchored phase, relative result (issue #429)
@@ -316,7 +370,7 @@ void main()
             posPrevAbs, prevTime,
             u_WaveDir0, u_WaveDir1,
             frequency, amplitude,
-            u_FoamParams2.w, // mesh vertex spacing — band-limits the octave ladder (#943)
+            vertexSpacing, // mesh vertex spacing — band-limits the octave ladder (#943)
             shore, u_ShoreParams2.x, // the SAME seabed sample — it does not move (#1033)
             _prevNormalUnused, _prevJacobianUnused, _prevBreakUnused
         ) - u_RenderOrigin;
@@ -358,7 +412,12 @@ void main()
         // boat is actually tessellated. The wake would simply not have arms,
         // with no error and nothing failing.
         float wakeTessLevel = max(gl_TessLevelInner[0], 1.0);
-        float wakeSpacing = u_FoamParams2.w / wakeTessLevel;
+        // vertexSpacing is already this patch's own spacing under a projected
+        // grid, and the base grid's nominal one otherwise — divide by the tess
+        // level in the second case only, or a projected patch would be
+        // double-counted.
+        float wakeSpacing = (u_ProjectedGridParams.x > 0.5) ? vertexSpacing
+                                                            : (u_FoamParams2.w / wakeTessLevel);
         // Evaluated at the DISPLACED vertex's absolute world XZ, not the
         // undisplaced one. Gerstner (and the FFT's choppiness) shift a vertex
         // horizontally by up to the wave amplitude, and the CPU side reads the

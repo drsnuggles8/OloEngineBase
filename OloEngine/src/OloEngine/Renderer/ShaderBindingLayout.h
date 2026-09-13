@@ -1037,6 +1037,32 @@ namespace OloEngine
             // the block is uploaded once per water draw regardless of size.
             glm::vec4 WakeHulls[WaterWake::kHullVec4Count];
 
+            // Projected grid (issue #1035, water-ocean.md §4.1). The contract,
+            // and the census that chose this scheme over gradient-adaptive
+            // tessellation, are Renderer/Water/WaterSurfaceLod.h; the evaluator
+            // is waterProjectGridVertex() in include/WaterVertexStage.glsl.
+            //
+            // Appended AFTER the hull array rather than slotted in beside
+            // TessParams: every one of the five water shader files declares this
+            // block verbatim, and appending is the only edit that cannot
+            // silently re-align the 80-vec4 array in one of them.
+            //
+            // x = enable. x <= 0 IS the disabled state and the whole feature
+            //     then costs one compare in the vertex stage;
+            // y, z = the NDC MINIMUM corner of the rectangle the grid is laid
+            //     out over (WaterSurfaceLod::ComputeNdcBounds). It is NOT
+            //     (-1, -1): it stops short of the sky at the top, and extends
+            //     PAST the screen at the near edge by however far a wave crest
+            //     can move a vertex there;
+            // w = rim radius in metres — how far a ray that misses the plane
+            //     entirely is pushed before the rect clamp catches it.
+            glm::vec4 ProjectedGridParams;
+            // xy = the surface's LOCAL half-extents, the rect a projected
+            //      vertex is clamped into so a screen-space grid cannot extend a
+            //      finite water tile to the horizon.
+            // zw = the NDC MAXIMUM corner, the partner of ProjectedGridParams.yz.
+            glm::vec4 ProjectedGridParams2;
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(WaterUBO));
@@ -2261,11 +2287,13 @@ namespace OloEngine
     // and FoamFieldParams. Every one of them is declared in ALL FIVE water
     // shader stages, so a member added here without updating them is a link
     // error rather than a silent mismatch — see the block's own comments.
+    // The trailing `+ 2u` is issue #1035's: ProjectedGridParams and
+    // ProjectedGridParams2, appended after the hull array.
     static_assert(sizeof(UBOStructures::WaterUBO) ==
-                      (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count) * sizeof(glm::vec4),
+                      (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count + 2u) * sizeof(glm::vec4),
                   "WaterUBO no longer matches its own field list -- a member was added without "
                   "updating this expression");
-    static_assert(sizeof(UBOStructures::WaterUBO) == 1712, "WaterUBO unexpected size -- update GLSL layout");
+    static_assert(sizeof(UBOStructures::WaterUBO) == 1744, "WaterUBO unexpected size -- update GLSL layout");
     static_assert(sizeof(UBOStructures::WaterDisturbanceUBO) % 16 == 0,
                   "WaterDisturbanceUBO size must be 16-byte aligned for std140");
     // 96 B header + kMaxSplatsPerFrame (96) * 32 B per capsule splat. The header
@@ -4177,6 +4205,14 @@ layout(std140, binding = 21) uniform DecalData {
 };)";
         }
 
+        // STALE, and nothing calls it. The snapshot below stops at
+        // WakeFieldParams2 and is missing every block appended since (#968's
+        // WakeShapeParams, #1033's ShoreParams, #1034's rain/foam params,
+        // #968's WakeHulls array, #1035's ProjectedGridParams). The source of
+        // truth for this block is UBOStructures::WaterUBO above and the five
+        // water shader files that declare it; do not read this as a reference
+        // and do not extend it — the fix is to delete it, which is a wider
+        // change than the issue that noticed it.
         static const char* GetWaterUBOLayout()
         {
             return R"(

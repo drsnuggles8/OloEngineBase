@@ -200,6 +200,31 @@ layout(std140, binding = 23) uniform WaterParams
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
     vec4 u_WakeHulls[80];
+    // Projected grid (issue #1035, water-ocean.md §4.1). C++ twin:
+    // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2; the
+    // contract and the census that chose this scheme are
+    // Renderer/Water/WaterSurfaceLod.h, the evaluator is
+    // waterProjectGridVertex() in include/WaterVertexStage.glsl. Declared in
+    // EVERY stage of the water programs, identically, for the same reason every
+    // block above is: GL requires a uniform block shared across a program's
+    // stages to be declared the same way in each, so appending to only the
+    // stages that read it is a LINK error rather than a silent mismatch. Read
+    // by the vertex stage (which places the grid) and the tess-control stage
+    // (whose subdivision rule changes with it).
+    //
+    // x = enable; x <= 0 IS the disabled state, so a build with no projected
+    //     water pays one compare per vertex,
+    // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
+    //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
+    //     at the near edge by however far a crest can move a vertex there,
+    // w = rim radius (m): how far a ray that misses the plane is pushed before
+    //     the rect clamp catches it.
+    vec4 u_ProjectedGridParams;
+    // xy = the surface's LOCAL half-extents. The clamp into this rect is what
+    //      keeps a finite water tile finite: a screen-space grid has no idea
+    //      where the water ends.
+    // zw = the NDC MAXIMUM corner, the partner of u_ProjectedGridParams.yz.
+    vec4 u_ProjectedGridParams2;
 };
 
 // Environment map for reflection (same slot as PBR shaders)

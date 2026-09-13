@@ -112,7 +112,7 @@ namespace OloEngine
     //      still parses; the old number is read and dropped for the default,
     //      because the two units are not convertible without the cascade the
     //      value was authored against.
-    static constexpr u32 kSaveGameFormatVersion = 29; // 29: physical transmission/IOR/volume material fields (#970)
+    static constexpr u32 kSaveGameFormatVersion = 30; // 30: WaterComponent::m_ProjectedGridEnabled (#1035)
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

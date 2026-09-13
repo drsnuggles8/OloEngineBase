@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
+#include "OloEngine/Renderer/Water/WaterSurfaceLod.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -9998,6 +9999,133 @@ namespace OloEngine
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
+
+                    // Projected grid (issue #1035). The mesh is untouched — the
+                    // vertex stage reads its (u, v) as a screen coordinate — so
+                    // all that is uploaded is the NDC band the camera can reach
+                    // the plane over, the rim radius a missed ray is pushed to,
+                    // and the rect a vertex is clamped into.
+                    //
+                    // Packed here rather than up with the rest of waterParams
+                    // because it needs halfX / halfZ, which are the sanitized
+                    // extents computed for the bounds just above. The bounds
+                    // themselves stay the authored rect and stay correct: a
+                    // projected vertex is clamped into exactly that rect, so the
+                    // draw's CPU frustum test still describes what it draws.
+                    // Disabled by default, with the NDC rectangle left as the
+                    // whole screen so the packed value is coherent even though
+                    // the shader never reads it while .x is 0.
+                    waterParams.projectedGridParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
+                    waterParams.projectedGridParams2 = glm::vec4(halfX, halfZ, 1.0f, 1.0f);
+                    if (water.m_ProjectedGridEnabled)
+                    {
+                        // The surface plane in WORLD space: the grid is built in
+                        // XZ with +Y up, so the plane normal is the transformed
+                        // up axis (column 1) and its centre the translation
+                        // (column 3) — the same derivation the planar-reflection
+                        // plane above uses.
+                        const glm::vec3 planeNormal(modelMat[1]);
+                        const glm::vec3 planePoint(modelMat[3]);
+                        const f32 planeNormalLenSq = glm::dot(planeNormal, planeNormal);
+                        // The IN-PLANE axes matter as much as the normal here,
+                        // and this is the one place that is true. The vertex
+                        // stage inverts u_Model to clamp a projected vertex into
+                        // the authored rect, so a transform that is singular in
+                        // x or z — a zero scale on either — makes every water
+                        // vertex NaN. The world-space grid does not invert
+                        // anything and just draws a zero-area surface, so this
+                        // guard has no counterpart above.
+                        const f32 axisXLenSq = glm::dot(glm::vec3(modelMat[0]), glm::vec3(modelMat[0]));
+                        const f32 axisZLenSq = glm::dot(glm::vec3(modelMat[2]), glm::vec3(modelMat[2]));
+                        const bool planeUsable =
+                            std::isfinite(planeNormalLenSq) && planeNormalLenSq > 1e-6f && std::isfinite(axisXLenSq) && axisXLenSq > 1e-6f && std::isfinite(axisZLenSq) && axisZLenSq > 1e-6f && std::isfinite(planePoint.x) && std::isfinite(planePoint.y) && std::isfinite(planePoint.z);
+
+                        if (planeUsable)
+                        {
+                            // How far a ray that reaches no plane at all is
+                            // pushed before the shader's rect clamp catches it.
+                            // The rect is in LOCAL space and the push is in
+                            // world space, so scale the extents by the
+                            // transform's own axis lengths and double it — the
+                            // only requirement is "past the rim", and
+                            // overshooting costs nothing because the clamp
+                            // follows immediately.
+                            const f32 worldHalfX = halfX * glm::length(glm::vec3(modelMat[0]));
+                            const f32 worldHalfZ = halfZ * glm::length(glm::vec3(modelMat[2]));
+                            const f32 rimRadius = std::max(
+                                2.0f * std::sqrt(worldHalfX * worldHalfX + worldHalfZ * worldHalfZ), 1.0f);
+
+                            // The rectangle is a pure NDC quantity, so it may be
+                            // computed from the ABSOLUTE view-projection even
+                            // though the shader unprojects the render-relative
+                            // one: the two differ by a translation that cancels
+                            // in the projective divide. What it may NOT skip is
+                            // the backend adjustment — Vulkan's row flip mirrors
+                            // NDC y, and the rectangle would otherwise describe
+                            // the wrong half of the screen.
+                            //
+                            // The displacement margin is the SAME bound the
+                            // tess-control cull inflates its patches by. It has
+                            // to be: the grid must reach wherever a displaced
+                            // vertex can go, and two different answers to "how
+                            // far can this surface move" is how a thin band of
+                            // missing water appears months later.
+                            // MaxSurfaceDisplacement, NOT the tess-control
+                            // cull's MaxWaveDisplacement. The two answer
+                            // different questions and the header spells out
+                            // why: over-estimating is free for the cull and
+                            // expensive here, because the layout rectangle has
+                            // to reach below the screen by this much, and once
+                            // it approaches the camera's height above the water
+                            // the rectangle runs away. On WaterShowcase's waves
+                            // the cull's bound is 2.8x this one, which is the
+                            // difference between 61% and 92% of the grid
+                            // landing off screen at a grazing angle.
+                            //
+                            // `waveH` is the vertical extent the draw's bounds
+                            // were just built from, and it is the ONLY one of
+                            // the two that describes an FFT ocean — the Gerstner
+                            // bound is derived from wave parameters the FFT path
+                            // does not use, which is exactly why the FFT branch
+                            // above turns the tess-control cull off. Taking the
+                            // larger keeps one number correct for both models.
+                            const f32 displacementMargin = std::max(
+                                WaterSurfaceLod::MaxSurfaceDisplacement(waterParams.waveParams,
+                                                                        waterParams.waveDir0,
+                                                                        waterParams.waveDir1),
+                                waveH);
+                            const WaterSurfaceLod::NdcBounds ndcBounds =
+                                WaterSurfaceLod::ComputeNdcBounds(
+                                    RHI::AdjustProjectionForBackend(viewProjection), cameraPosition,
+                                    planePoint, planeNormal, displacementMargin);
+
+                            waterParams.projectedGridParams =
+                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_Min.y, rimRadius);
+                            waterParams.projectedGridParams2 =
+                                glm::vec4(halfX, halfZ, ndcBounds.m_Max.x, ndcBounds.m_Max.y);
+
+                            // Turn the tess-control frustum cull OFF, for the
+                            // same reason the FFT branch above does and a
+                            // sharper one. The cull tests the UNDISPLACED patch
+                            // against the frustum, and a projected grid's
+                            // layout rectangle deliberately extends OUTSIDE it:
+                            // the skirt rows exist precisely so a crest can lift
+                            // them into frame. Culling on the resting position
+                            // therefore rejects exactly the patches the margin
+                            // was added to create, and the near water renders as
+                            // a band of missing surface with the seabed showing
+                            // through it.
+                            //
+                            // Nothing is lost. A projected grid has no
+                            // off-screen bulk to reject — its patch count is its
+                            // resolution, every row is either on screen or one
+                            // of the few that the margin put just outside it.
+                            waterParams.tessParams.w = 0.0f;
+                        }
+                        // A degenerate transform leaves the enable at 0 and the
+                        // surface draws as the world-space grid it always was,
+                        // rather than as a plane-full of NaNs.
+                    }
 
                     auto* packet = Renderer3D::DrawWaterSurface(
                         va->GetRHIHandle(), submesh.m_IndexCount,

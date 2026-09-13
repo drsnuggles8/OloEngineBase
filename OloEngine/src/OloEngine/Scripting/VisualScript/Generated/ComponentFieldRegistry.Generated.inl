@@ -1294,6 +1294,7 @@ registry.push_back(OLO_VSF_FIELD(WaterComponent, "TessellationFactor", m_Tessell
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "TessellationEnabled", m_TessellationEnabled, Bool));
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "TessMinDistance", m_TessMinDistance, Float));
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "TessMaxDistance", m_TessMaxDistance, Float));
+registry.push_back(OLO_VSF_FIELD(WaterComponent, "ProjectedGridEnabled", m_ProjectedGridEnabled, Bool));
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "UnderwaterFogColor", m_UnderwaterFogColor, Vec3));
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "UnderwaterFogDensity", m_UnderwaterFogDensity, Float));
 registry.push_back(OLO_VSF_FIELD(WaterComponent, "UnderwaterRefractionStrength", m_UnderwaterRefractionStrength, Float));
