@@ -1,5 +1,10 @@
 # Renderer benchmark scenes, capture manifests, and hero frames (issue #974)
 
+> **Manifest schema v2 and the character/flora reference fixtures live in
+> [benchmark-reference-fixtures.md](benchmark-reference-fixtures.md)** (issue #1239): asset
+> provenance, per-frame camera motion for moving sequences, and the five head / animal /
+> vegetation fixtures. Everything below is the v1 contract and is unchanged by it.
+
 Deterministic benchmark scenes + a manifest-driven capture entry point that answers the
 questions the regression suite cannot: *is this frame good, which term is responsible, and
 what does it cost?* This is a different product from the golden-image suite (which measures
