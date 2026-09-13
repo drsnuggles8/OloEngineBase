@@ -77,6 +77,14 @@ namespace OloEngine::Tests
         bool BenchAssert = false;
         // --olo-soundgraph-perf : run the SoundGraph throughput measurement.
         bool SoundGraphPerf = false;
+
+        // Per-process resident-set ceiling in MB (--olo-rss-ceiling-mb; 0 disables).
+        // See MemoryCeiling.h. The default is the CI arithmetic: the self-hosted
+        // Linux runners run `ctest --parallel 2` inside a 14 GiB cgroup, so two
+        // processes at 6 GiB leave 2 GiB for the runner and the page cache. The
+        // largest resident set any of the 8,205 cases reached on the Windows dev box
+        // was 1.7 GB (RuntimeAssetPackTest), with a median of 0.44 GB.
+        u32 RssCeilingMb = 6144;
         // --olo-gl-backend=<egl|glfw|none|auto> : force the context-creation
         // path. `auto` is the default and is also accepted explicitly.
         // `egl` is the headless surfaceless route the GPU runners need. `none`

@@ -424,12 +424,21 @@ void QuantizeEndpoints(uint mode)
 {
     int baseBits = ModeBaseBits(mode);
     int subsets = ModeSubsets(mode);
-    for (int s = 0; s < subsets; ++s)
+    // Subset 0 always, subset 1 behind a branch, with CONSTANT array indices —
+    // never `for (s < subsets)` indexing g_Fit0[s] / g_Q[s * 2]. See the note
+    // above EvaluateCandidate: that loop shape is what made Mesa's AMD compiler
+    // take 14 GB and minutes on this shader.
+    for (int c = 0; c < 3; ++c)
+    {
+        g_Q[0][c] = Quantize(g_Fit0[0][c], baseBits);
+        g_Q[1][c] = Quantize(g_Fit1[0][c], baseBits);
+    }
+    if (subsets > 1)
     {
         for (int c = 0; c < 3; ++c)
         {
-            g_Q[s * 2 + 0][c] = Quantize(g_Fit0[s][c], baseBits);
-            g_Q[s * 2 + 1][c] = Quantize(g_Fit1[s][c], baseBits);
+            g_Q[2][c] = Quantize(g_Fit0[1][c], baseBits);
+            g_Q[3][c] = Quantize(g_Fit1[1][c], baseBits);
         }
     }
     if (ModeHasDelta(mode) == 0)
@@ -450,21 +459,35 @@ float ScoreCandidate(uint mode, int masks[2], int anchors[2], int weightBase, in
     int baseBits = ModeBaseBits(mode);
     int subsets = ModeSubsets(mode);
     float total = 0.0;
-    for (int s = 0; s < subsets; ++s)
+    // Constant subset indices on purpose (see EvaluateCandidate).
     {
-        ivec3 u0 = ivec3(Unquantize(g_Q[s * 2 + 0].x, baseBits),
-                         Unquantize(g_Q[s * 2 + 0].y, baseBits),
-                         Unquantize(g_Q[s * 2 + 0].z, baseBits));
-        ivec3 u1 = ivec3(Unquantize(g_Q[s * 2 + 1].x, baseBits),
-                         Unquantize(g_Q[s * 2 + 1].y, baseBits),
-                         Unquantize(g_Q[s * 2 + 1].z, baseBits));
-        total += SelectIndices(masks[s], anchors[s], u0, u1, weightBase, weightCount);
+        ivec3 u0 = ivec3(Unquantize(g_Q[0].x, baseBits), Unquantize(g_Q[0].y, baseBits), Unquantize(g_Q[0].z, baseBits));
+        ivec3 u1 = ivec3(Unquantize(g_Q[1].x, baseBits), Unquantize(g_Q[1].y, baseBits), Unquantize(g_Q[1].z, baseBits));
+        total += SelectIndices(masks[0], anchors[0], u0, u1, weightBase, weightCount);
+    }
+    if (subsets > 1)
+    {
+        ivec3 u0 = ivec3(Unquantize(g_Q[2].x, baseBits), Unquantize(g_Q[2].y, baseBits), Unquantize(g_Q[2].z, baseBits));
+        ivec3 u1 = ivec3(Unquantize(g_Q[3].x, baseBits), Unquantize(g_Q[3].y, baseBits), Unquantize(g_Q[3].z, baseBits));
+        total += SelectIndices(masks[1], anchors[1], u0, u1, weightBase, weightCount);
     }
     return total;
 }
 
 // Score one (mode, partition, fit) triple, refining while it helps. g_Q and
 // g_Indices are left holding the winning encoding.
+//
+// COMPILE-TIME RULE FOR THIS FILE: a per-subset step is written as "subset 0,
+// then subset 1 behind `if (subsets > 1)`", with constant array indices. It is
+// NOT written as `for (int s = 0; s < subsets; ++s)` over g_Fit0[s], g_Q[s * 2]
+// or an `inout` bound to g_Fit0[s]. The two are the same program, but Mesa's
+// AMD compiler (radeonsi and RADV alike, both the ACO and the LLVM backend)
+// took over 200 s and 14 GB to compile the loop form and was OOM-killed on the
+// CI box, while NVIDIA and llvmpipe compiled it in about a second. Measured on
+// a RADV navi10 null device: loop form 207 s / 14.3 GB, this form 1.0 s /
+// 0.28 GB. Every BC6HGpuEncoder case on the AMD nightly timed out or was killed
+// until this was rewritten. docs/agent-rules/amd-mesa-shader-compile-blowup.md
+// has the bisection; ShaderCompileBudgetTest.cpp guards it.
 float EvaluateCandidate(uint mode, int masks[2], int anchors[2])
 {
     bool oneSubset = ModeSubsets(mode) == 1;
@@ -485,8 +508,9 @@ float EvaluateCandidate(uint mode, int masks[2], int anchors[2])
     {
         ivec3 savedFit0[2] = ivec3[2](g_Fit0[0], g_Fit0[1]);
         ivec3 savedFit1[2] = ivec3[2](g_Fit1[0], g_Fit1[1]);
-        for (int s = 0; s < subsets; ++s)
-            RefitEndpoints(masks[s], weightBase, g_Fit0[s], g_Fit1[s]);
+        RefitEndpoints(masks[0], weightBase, g_Fit0[0], g_Fit1[0]);
+        if (subsets > 1)
+            RefitEndpoints(masks[1], weightBase, g_Fit0[1], g_Fit1[1]);
 
         float error = ScoreCandidate(mode, masks, anchors, weightBase, weightCount);
         if (error >= bestError)
@@ -721,8 +745,8 @@ void main()
         int anchors[2] = int[2](0, int(kPartitionFixup[shapeIndex]));
 
         ivec3 fit0[2], fit1[2];
-        for (int s = 0; s < 2; ++s)
-            FitEndpoints(masks[s], anchors[s], fit0[s], fit1[s]);
+        FitEndpoints(masks[0], anchors[0], fit0[0], fit1[0]);
+        FitEndpoints(masks[1], anchors[1], fit0[1], fit1[1]);
 
         for (uint mode = 0u; mode < 14u; ++mode)
         {

@@ -388,6 +388,10 @@ TEST(GameBuildPipelineTest, BuildAcceptsTheHostPlatformPastTheGate)
     GameBuildSettings settings;
     settings.GameName = "SupportedTargetTestGame";
     settings.TargetPlatform = GetHostBuildPlatform();
+    // The gate is passed, so the pipeline creates <OutputDirectory>/<GameName> before the
+    // no-project check fails it. Without an explicit OutputDirectory that lands in the
+    // working directory (OloEditor/ under ctest) and stays there as untracked junk.
+    settings.OutputDirectory = OloEngine::Tests::TempDir("supported-target-build");
 
     std::atomic<f32> progress{ 0.0f };
     GameBuildResult result = GameBuildPipeline::Build(settings, progress);

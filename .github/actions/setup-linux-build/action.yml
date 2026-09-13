@@ -203,6 +203,7 @@ runs:
         sudo apt-get install -y \
           lld-23 \
           libvulkan-dev vulkan-validationlayers \
+          mesa-vulkan-drivers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
           libwayland-dev wayland-protocols libxkbcommon-dev \
