@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 
 namespace OloEngine::RHI
 {
@@ -58,7 +59,28 @@ namespace OloEngine::RHI
         m_TransientFrames = std::max(desc.FrameTransientRingFrames, 1u);
         m_TransientFrame = 0u;
 
-        const u32 total = m_PersistentCapacity + m_TransientCapacity * m_TransientFrames;
+        // WIDENED, because the reserved-null block below is gated on
+        // m_PersistentCapacity rather than on `total`. If this arithmetic wrapped,
+        // a heap with a large persistent capacity would size m_Mirror to the
+        // wrapped value, pass that gate, and write offsets 0..9 out of bounds.
+        // The multiplication makes wrapping cheaper to reach than the plain sum it
+        // replaced, so reject it rather than rely on callers passing sane sizes.
+        const u64 requestedTotal =
+            static_cast<u64>(m_PersistentCapacity) + static_cast<u64>(m_TransientCapacity) * m_TransientFrames;
+        if (requestedTotal > static_cast<u64>(std::numeric_limits<u32>::max()))
+        {
+            // Capacity 0 lands in the existing "too small to hold its own
+            // invariants" path below, which refuses to enable the heap — the
+            // honest answer here too, and louder than a wrapped allocation.
+            OLO_CORE_ERROR("[DescriptorHeap] refusing to initialise: {} persistent + {} transient x {} frames "
+                           "overflows a u32 slot index ({} slots requested)",
+                           m_PersistentCapacity, m_TransientCapacity, m_TransientFrames, requestedTotal);
+            m_PersistentCapacity = 0u;
+            m_TransientCapacity = 0u;
+            m_TransientFrames = 1u;
+        }
+
+        const u32 total = static_cast<u32>(m_PersistentCapacity) + m_TransientCapacity * m_TransientFrames;
 
         // PRESERVE THE GENERATION COUNTERS. The retire loop above advanced each
         // one precisely so a handle minted against the previous device cannot
