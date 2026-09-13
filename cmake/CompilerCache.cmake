@@ -132,6 +132,49 @@ if(OLO_ENABLE_COMPILER_CACHE)
         set(CMAKE_C_COMPILER_LAUNCHER   "${OLO_COMPILER_CACHE_TOOL}")
         set(CMAKE_CXX_COMPILER_LAUNCHER "${OLO_COMPILER_CACHE_TOOL}")
 
+        # MAKE THE OBJECT INDEPENDENT OF THE DIRECTORY THAT BUILT IT. Without this,
+        # sharing a cache across trees is a choice between a cold cache and wrong
+        # debug info, and the note above about base_dir/SCCACHE_BASEDIRS is only
+        # half a mechanism: those make two trees HASH alike, they do not stop the
+        # stored object from recording the absolute path of whichever tree compiled
+        # it first. DW_AT_comp_dir is the one that survives -- base_dir already
+        # relativises DW_AT_name as a side effect of rewriting the command line.
+        #
+        # That matters most where a cache is shared by construction: the two
+        # self-hosted olo-ci runner slots share one CCACHE_DIR (see
+        # .github/actions/setup-linux-build), and a sanitizer stack symbolised
+        # against another slot's path is the failure this prevents. Locally it is
+        # what makes the `cache` preset's cross-worktree sharing honest.
+        #
+        # /olo IS A HARDCODED LITERAL AND MUST STAY ONE. ccache does not
+        # distinguish two different prefix-map TARGETS once base_dir has rewritten
+        # the argument: measured on ccache 4.11.3, two trees passing /olo1 and
+        # /olo2 still HIT each other, and the object served carried /olo1. So a
+        # placeholder derived from anything tree-specific would silently stamp
+        # every object with some other tree's value and never miss to reveal it.
+        # One constant, shared by every consumer of the cache.
+        #
+        # MSVC has no equivalent flag and clang-cl would need it spelled
+        # `/clang:-ffile-prefix-map=`; neither is wired up because no Windows job
+        # shares a cache directory with another tree today (OLO_WINDOWS_SELF_HOSTED
+        # is unset, and each hosted run gets a fresh workspace). Revisit together
+        # with SCCACHE_BASEDIRS if a self-hosted Windows runner ever lands.
+        if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$"
+           AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            add_compile_options("-ffile-prefix-map=${CMAKE_SOURCE_DIR}=/olo")
+            # A build tree INSIDE the source tree (CI's `cmake -B build`) is
+            # already covered by the map above. One outside it needs its own, and
+            # a separate non-overlapping prefix so the two cannot race for which
+            # -ffile-prefix-map wins: generated sources and vcpkg_installed
+            # headers live there, and an unmapped build root puts it straight back
+            # into DW_AT_comp_dir.
+            string(FIND "${CMAKE_BINARY_DIR}/" "${CMAKE_SOURCE_DIR}/" _olo_bin_under_src)
+            if(NOT _olo_bin_under_src EQUAL 0)
+                add_compile_options("-ffile-prefix-map=${CMAKE_BINARY_DIR}=/olo-build")
+            endif()
+            unset(_olo_bin_under_src)
+        endif()
+
         # MSVC with /Zi or /ZI (ProgramDatabase) writes debug info to a *shared*
         # .pdb. That output is not a pure function of a single TU's inputs, so
         # sccache/ccache refuse to cache it (near-zero hit rate). /Z7 (Embedded)
