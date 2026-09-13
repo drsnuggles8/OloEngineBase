@@ -936,34 +936,44 @@ namespace OloEngine::Automation
             return normalized;
         }
 
-        // Whether `candidate` lies inside `directory`. Lexical first; on a refusal
-        // both sides are resolved through weakly_canonical and asked again, because
-        // the two can legitimately reach the same directory by different spellings
-        // -- an 8.3 short name against its long form, a substituted drive, a
-        // junction -- and a lexical comparison calls that an escape.
+        // Whether `candidate` lies inside `directory`, judged by where each one
+        // REALLY lands. weakly_canonical resolves symlinks, 8.3 short names and
+        // drive-letter case, and it tolerates trailing components that do not
+        // exist yet -- which this needs, because the destination directory is
+        // created after the check.
+        //
+        // Canonical FIRST, never a lexical shortcut. A lexical test would accept
+        // `Assets/<symlink>/x.oloprefab` on the spelling alone, and the
+        // create_directories and file write that follow it resolve the link and
+        // land outside the asset directory. A failure to canonicalize REFUSES
+        // rather than falling back to the weaker test, which is the same answer
+        // AutomationAssetCommands::IsInside gives (it goes through
+        // std::filesystem::relative, which canonicalizes both operands and
+        // reports an error the same way).
+        //
+        // What this does NOT close is a component swapped for a symlink between
+        // this check and the write. AutomationFileWrite.h already states that its
+        // guard is a narrow window rather than an atomic compare-and-swap, and
+        // closing it needs platform-specific conditional replacement; a second,
+        // divergent answer inside one command would be worse than one documented
+        // limit.
         bool IsInsideDirectory(const std::filesystem::path& candidate, const std::filesystem::path& directory)
         {
-            const auto inside = [](const std::filesystem::path& inner, const std::filesystem::path& outer)
-            {
-                const std::filesystem::path relative = inner.lexically_relative(outer);
-                return !relative.empty() && *relative.begin() != "..";
-            };
-            if (inside(candidate.lexically_normal(), DirectoryForComparison(directory)))
-            {
-                return true;
-            }
-            std::error_code ec;
-            const std::filesystem::path realCandidate = std::filesystem::weakly_canonical(candidate, ec);
-            if (ec)
+            if (directory.empty())
             {
                 return false;
             }
-            const std::filesystem::path realDirectory = std::filesystem::weakly_canonical(directory, ec);
-            if (ec)
+            std::error_code candidateError;
+            const std::filesystem::path realCandidate = std::filesystem::weakly_canonical(candidate, candidateError);
+            std::error_code directoryError;
+            const std::filesystem::path realDirectory = std::filesystem::weakly_canonical(directory, directoryError);
+            if (candidateError || directoryError)
             {
                 return false;
             }
-            return inside(realCandidate.lexically_normal(), DirectoryForComparison(realDirectory));
+            const std::filesystem::path relative =
+                realCandidate.lexically_normal().lexically_relative(DirectoryForComparison(realDirectory));
+            return !relative.empty() && *relative.begin() != "..";
         }
 
         std::string SerializePrefab(const Ref<Prefab>& prefab)
@@ -1723,12 +1733,22 @@ namespace OloEngine::Automation
             const std::filesystem::path assetDirectory = Project::GetAssetDirectory();
             if (!IsInsideDirectory(absolute, assetDirectory))
             {
-                // Both paths are named: a containment refusal a caller cannot see
+                // Every side is named: a containment refusal a caller cannot see
                 // the two sides of is impossible to act on, and this one fired on
-                // CI for a path that was plainly inside the asset directory.
-                return Error("path must be inside the project asset directory. Resolved '" +
-                             absolute.generic_string() + "', asset directory '" +
-                             DirectoryForComparison(assetDirectory).generic_string() + "'.");
+                // CI for a path that was plainly inside the asset directory. The
+                // resolved form is named too when it differs, because a path
+                // behind a symlink is refused precisely for where it does NOT
+                // appear to go.
+                std::error_code ec;
+                const std::filesystem::path resolved = std::filesystem::weakly_canonical(absolute, ec);
+                std::string message = "path must be inside the project asset directory. Resolved '" +
+                                      absolute.generic_string() + "'";
+                if (!ec && resolved.lexically_normal() != absolute.lexically_normal())
+                {
+                    message += ", which follows links to '" + resolved.generic_string() + "'";
+                }
+                message += ", asset directory '" + DirectoryForComparison(assetDirectory).generic_string() + "'.";
+                return Error(std::move(message));
             }
             std::error_code ec;
             const bool exists = std::filesystem::exists(absolute, ec) && !ec;

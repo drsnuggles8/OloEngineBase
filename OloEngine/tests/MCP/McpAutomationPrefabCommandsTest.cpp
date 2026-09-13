@@ -833,6 +833,48 @@ namespace OloEngine::Automation::Tests
         std::filesystem::remove(link, ec);
     }
 
+    // A symlink INSIDE the asset directory pointing out of it. The destination is
+    // spelled entirely within Assets/, so a lexical containment test accepts it --
+    // and then create_directories and the file write resolve the link and land
+    // wherever it points. The check has to judge where the path really goes.
+    TEST_F(AutomationPrefabCommandsTest, CreateRefusesADestinationBehindASymlinkOutOfTheAssetDirectory)
+    {
+        const std::filesystem::path outside = m_Project / "Outside";
+        std::error_code ec;
+        std::filesystem::create_directories(outside, ec);
+        ASSERT_FALSE(ec) << ec.message();
+
+        const std::filesystem::path escape = m_Project / "Assets" / "Escape";
+        std::filesystem::create_directory_symlink(outside, escape, ec);
+        if (ec)
+        {
+            GTEST_SKIP() << "cannot create a directory symlink here (" << ec.message()
+                         << "); this case needs one inside the asset directory.";
+        }
+
+        Entity root = m_Host.ActiveScene->CreateEntity("Escapee");
+        root.AddComponent<SpriteRendererComponent>();
+        const std::string refusal =
+            Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/Escape/Leaked.oloprefab" } });
+        EXPECT_NE(refusal.find("asset directory"), std::string::npos) << refusal;
+        EXPECT_FALSE(std::filesystem::exists(outside / "Leaked.oloprefab"))
+            << "the write followed the symlink out of the asset directory";
+        EXPECT_FALSE(m_Host.History.CanUndo()) << "a refused create must leave no undo entry";
+
+        // A symlink that stays INSIDE the asset directory is still fine: the
+        // check is about where the path lands, not about symlinks as such.
+        const std::filesystem::path inner = m_Project / "Assets" / "Real";
+        std::filesystem::create_directories(inner, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        const std::filesystem::path alias = m_Project / "Assets" / "Alias";
+        std::filesystem::create_directory_symlink(inner, alias, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        EXPECT_FALSE(Ok("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/Alias/Kept.oloprefab" } })
+                         .value("prefab", std::string{})
+                         .empty());
+        EXPECT_TRUE(std::filesystem::exists(inner / "Kept.oloprefab"));
+    }
+
     TEST_F(AutomationPrefabCommandsTest, ArgumentsAreValidatedBeforeAnythingIsTouched)
     {
         const std::string handle = MakeDetachedPrefab();
