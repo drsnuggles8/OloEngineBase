@@ -214,22 +214,53 @@ namespace OloEngine::MCP
 
             for (const auto& cameraSpec : manifest->Cameras)
             {
-                const glm::vec3 position = cameraSpec.Position;
-                const f32 yawRadians = glm::radians(cameraSpec.YawDegrees);
-                const f32 pitchRadians = glm::radians(cameraSpec.PitchDegrees);
                 const f32 fovDegrees = cameraSpec.FovDegrees;
-                host.MarshalRead(
-                    [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
-                    {
-                        host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
-                        return Json{ { "ok", true } };
-                    });
-
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
                 totalWarmFrames += warmFrames;
-                if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
+
+                const auto poseAt = [&host, &cameraSpec, fovDegrees, dt = manifest->FixedDtSeconds](u32 frame)
                 {
-                    warmupTimedOut = true; // recorded, not fatal — capture what we have
+                    const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, frame, dt);
+                    const glm::vec3 position = pose.Position;
+                    const f32 yawRadians = glm::radians(pose.YawDegrees);
+                    const f32 pitchRadians = glm::radians(pose.PitchDegrees);
+                    host.MarshalRead(
+                        [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
+                        {
+                            host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
+                            return Json{ { "ok", true } };
+                        });
+                };
+
+                if (!cameraSpec.Motion)
+                {
+                    // Still camera: pose once, then wait out the whole warm-up
+                    // in one await — the issue-#974 path, unchanged.
+                    poseAt(0u);
+                    if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
+                    {
+                        warmupTimedOut = true; // recorded, not fatal — capture what we have
+                    }
+                }
+                else
+                {
+                    // Moving camera (issue #1239): the pose has to advance
+                    // BETWEEN live frames, so re-pose and wait one frame at a
+                    // time. This is the same schedule the test-binary host
+                    // walks — both go through CameraPoseAtFrame — just paid for
+                    // with one marshal per frame instead of one per camera.
+                    // Capturing a moving manifest as a still frame would be a
+                    // silently wrong picture, which is the one outcome this
+                    // schema exists to prevent.
+                    for (u32 frame = 0; frame < warmFrames; ++frame)
+                    {
+                        poseAt(frame);
+                        if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
+                        {
+                            warmupTimedOut = true;
+                            break;
+                        }
+                    }
                 }
 
                 const std::string cameraId = cameraSpec.Id;

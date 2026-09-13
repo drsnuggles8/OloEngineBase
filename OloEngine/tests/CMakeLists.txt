@@ -519,6 +519,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
+		Rendering/PropertyTests/ReferenceFixtureManifestTest.cpp
 		Rendering/PropertyTests/MaterialLabSceneEvidenceTest.cpp
 		Rendering/PropertyTests/ParallelRecordingSceneEvidenceTest.cpp
 		Rendering/PropertyTests/PlayerCameraRigVisualEvidenceTest.cpp

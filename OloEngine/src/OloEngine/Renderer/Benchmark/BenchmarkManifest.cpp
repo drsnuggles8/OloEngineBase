@@ -11,6 +11,7 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 namespace OloEngine::Benchmark
 {
@@ -72,12 +73,214 @@ namespace OloEngine::Benchmark
                                                          });
         }
 
-        std::optional<ManifestCamera> ParseCamera(const YAML::Node& node, ErrorList& errors, sizet index)
+        // ---- ManifestVersion 2 asset provenance (issue #1239) ---------------
+        // Each provenance field is a CLOSED vocabulary, parsed through one
+        // helper so a typo ("comitted") is a named parse error rather than a
+        // silent fall-through to the first enumerator. That matters more here
+        // than anywhere else in the schema: the redistribution class is what
+        // decides whether bytes are allowed in a public repository.
+        template<typename T>
+        std::optional<T> ParseEnumField(const YAML::Node& node, std::string_view key,
+                                        std::initializer_list<std::pair<std::string_view, T>> vocabulary,
+                                        const std::string& context, bool required, ErrorList& errors)
+        {
+            const auto allowedList = [&vocabulary]
+            {
+                std::string allowed;
+                for (const auto& option : vocabulary)
+                {
+                    allowed += (allowed.empty() ? "" : " | ");
+                    allowed += option.first;
+                }
+                return allowed;
+            };
+
+            const auto field = node[std::string(key)];
+            if (!field)
+            {
+                if (required)
+                {
+                    errors.Add(context + ": " + std::string(key) + " is required in ManifestVersion 2 (" +
+                               allowedList() + ")");
+                }
+                return std::nullopt;
+            }
+            const auto text = field.as<std::string>("");
+            for (const auto& option : vocabulary)
+            {
+                if (text == option.first)
+                {
+                    return option.second;
+                }
+            }
+            errors.Add(context + ": " + std::string(key) + " must be one of " + allowedList() + " (got '" + text +
+                       "')");
+            return std::nullopt;
+        }
+
+        // 64 lowercase hex characters. Deliberately strict about case so the
+        // value a user pastes from `sha256sum` compares byte-for-byte against
+        // the manifest without a normalisation step nobody would remember.
+        bool IsSha256Hex(std::string_view value)
+        {
+            return value.size() == 64 && std::ranges::all_of(value,
+                                                             [](char c)
+                                                             {
+                                                                 return (c >= '0' && c <= '9') ||
+                                                                        (c >= 'a' && c <= 'f');
+                                                             });
+        }
+
+        void ParseAssetProvenance(const YAML::Node& entry, const std::string& context, bool required,
+                                  ManifestAssetRecord& record, ErrorList& errors)
+        {
+            record.Redistribution = ParseEnumField<AssetRedistribution>(
+                entry, "Redistribution",
+                { { "committed", AssetRedistribution::Committed },
+                  { "fetch-required", AssetRedistribution::FetchRequired },
+                  { "local-only", AssetRedistribution::LocalOnly } },
+                context, required, errors);
+            record.LicenseVerified = ParseEnumField<LicenseVerification>(
+                entry, "LicenseVerified",
+                { { "in-repo-file", LicenseVerification::InRepoFile },
+                  { "upstream-declared", LicenseVerification::UpstreamDeclared },
+                  { "unverified", LicenseVerification::Unverified } },
+                context, required, errors);
+            record.Units = ParseEnumField<AssetUnits>(entry, "Units",
+                                                      { { "metres", AssetUnits::Metres },
+                                                        { "centimetres", AssetUnits::Centimetres },
+                                                        { "unitless", AssetUnits::Unitless } },
+                                                      context, required, errors);
+            record.UpAxis = ParseEnumField<AssetUpAxis>(entry, "UpAxis",
+                                                        { { "+Y", AssetUpAxis::YUp },
+                                                          { "+Z", AssetUpAxis::ZUp },
+                                                          { "n/a", AssetUpAxis::NotApplicable } },
+                                                        context, required, errors);
+            record.ColorSpace = ParseEnumField<AssetColorSpace>(entry, "ColorSpace",
+                                                                { { "srgb", AssetColorSpace::Srgb },
+                                                                  { "linear", AssetColorSpace::Linear },
+                                                                  { "n/a", AssetColorSpace::NotApplicable } },
+                                                                context, required, errors);
+
+            record.Version = entry["Version"].as<std::string>("");
+            record.Sha256 = entry["Sha256"].as<std::string>("");
+            record.Acquisition = entry["Acquisition"].as<std::string>("");
+
+            if (!required)
+            {
+                // v1 manifests may carry the fields but are not held to them —
+                // still validate the Sha256 FORMAT when one is present, since a
+                // malformed hash is useless in either version.
+                if (!record.Sha256.empty() && !IsSha256Hex(record.Sha256))
+                {
+                    errors.Add(context + ": Sha256 must be 64 lowercase hex characters");
+                }
+                return;
+            }
+
+            if (record.Origin.empty())
+            {
+                errors.Add(context + ": Origin is required in ManifestVersion 2");
+            }
+            if (record.Version.empty())
+            {
+                errors.Add(context + ": Version is required in ManifestVersion 2 "
+                                     "(upstream tag/commit, or 'generated' for in-repo output)");
+            }
+            if (!IsSha256Hex(record.Sha256))
+            {
+                errors.Add(context + ": Sha256 must be 64 lowercase hex characters "
+                                     "(tools/benchmark/reference_assets.py --write-hashes fills these in)");
+            }
+            if (record.Acquisition.empty())
+            {
+                errors.Add(context + ": Acquisition is required in ManifestVersion 2 "
+                                     "(the reproducible local acquisition path — a URL, or the procedure for a "
+                                     "local-only asset)");
+            }
+            // The one cross-field rule worth enforcing: claiming a licence was
+            // verified against an in-repo file only means something if the
+            // bytes are actually in the repo.
+            if (record.Redistribution && record.LicenseVerified &&
+                *record.LicenseVerified == LicenseVerification::InRepoFile &&
+                *record.Redistribution != AssetRedistribution::Committed)
+            {
+                errors.Add(context + ": LicenseVerified 'in-repo-file' requires Redistribution 'committed' "
+                                     "(there is no in-repo licence file for an asset this repo does not ship)");
+            }
+        }
+
+        // ManifestVersion 2: per-frame camera movement (issue #1239).
+        std::optional<ManifestCameraMotion> ParseCameraMotion(const YAML::Node& node, const std::string& parentContext,
+                                                              u32 manifestVersion, ErrorList& errors)
+        {
+            const std::string context = parentContext + ".Motion";
+            if (manifestVersion < 2u)
+            {
+                errors.Add(context + ": camera Motion requires ManifestVersion 2");
+                return std::nullopt;
+            }
+            RequireKnownKeys(node, { "VelocityPerSecond", "YawRateDegreesPerSecond", "PitchRateDegreesPerSecond" },
+                             context, errors);
+
+            ManifestCameraMotion motion;
+            bool decoded = true;
+            // `.as<T>(fallback)` SWALLOWS a decode failure and hands back the
+            // fallback, so `VelocityPerSecond: [.nan, 0, 0]` — or any typo —
+            // would read as a legal zero and the shot would silently not move.
+            // Decode without a fallback and report the failure by name instead.
+            const auto decodeInto = [&node, &context, &errors, &decoded]<typename T>(std::string_view key, T& out)
+            {
+                const auto field = node[std::string(key)];
+                if (!field)
+                {
+                    return; // absent: the member keeps its declared default
+                }
+                try
+                {
+                    out = field.as<T>();
+                }
+                catch (const YAML::Exception&)
+                {
+                    errors.Add(context + ": " + std::string(key) +
+                               " is not a valid value (a malformed number must not read as zero here — "
+                               "that would turn a moving shot into a still one)");
+                    decoded = false;
+                }
+            };
+            decodeInto("VelocityPerSecond", motion.VelocityPerSecond);
+            decodeInto("YawRateDegreesPerSecond", motion.YawRateDegreesPerSecond);
+            decodeInto("PitchRateDegreesPerSecond", motion.PitchRateDegreesPerSecond);
+            if (!decoded)
+            {
+                return std::nullopt;
+            }
+
+            if (!std::isfinite(motion.VelocityPerSecond.x) || !std::isfinite(motion.VelocityPerSecond.y) ||
+                !std::isfinite(motion.VelocityPerSecond.z) || !std::isfinite(motion.YawRateDegreesPerSecond) ||
+                !std::isfinite(motion.PitchRateDegreesPerSecond))
+            {
+                errors.Add(context + ": non-finite float value");
+                return std::nullopt;
+            }
+            // An all-zero Motion block is a still shot wearing a moving shot's
+            // clothes: the manifest would advertise a velocity-buffer stress
+            // that the capture does not produce. Say so instead of shrugging.
+            if (motion.VelocityPerSecond == glm::vec3(0.0f) && motion.YawRateDegreesPerSecond == 0.0f &&
+                motion.PitchRateDegreesPerSecond == 0.0f)
+            {
+                errors.Add(context + ": all motion rates are zero — omit the Motion block for a still camera");
+            }
+            return motion;
+        }
+
+        std::optional<ManifestCamera> ParseCamera(const YAML::Node& node, ErrorList& errors, sizet index,
+                                                  u32 manifestVersion)
         {
             const std::string context = "Cameras[" + std::to_string(index) + "]";
             RequireKnownKeys(node,
                              { "Id", "Position", "YawDegrees", "PitchDegrees", "FovDegrees", "Near", "Far",
-                               "WarmupFrames" },
+                               "WarmupFrames", "Motion" },
                              context, errors);
 
             ManifestCamera camera;
@@ -128,9 +331,33 @@ namespace OloEngine::Benchmark
             {
                 errors.Add(context + ": need 0 < Near < Far");
             }
+            if (const auto motion = node["Motion"]; motion)
+            {
+                camera.Motion = ParseCameraMotion(motion, context, manifestVersion, errors);
+            }
             return camera;
         }
     } // namespace
+
+    ManifestCameraPose CameraPoseAtFrame(const ManifestCamera& camera, u32 frameInCamera, f32 fixedDtSeconds)
+    {
+        ManifestCameraPose pose;
+        pose.Position = camera.Position;
+        pose.YawDegrees = camera.YawDegrees;
+        pose.PitchDegrees = camera.PitchDegrees;
+        if (!camera.Motion)
+        {
+            return pose;
+        }
+        // Integrate from the DECLARED pose rather than accumulating frame to
+        // frame: a closed form gives every host the same answer regardless of
+        // where it starts or how it batches frames, and cannot drift.
+        const f32 elapsed = static_cast<f32>(frameInCamera) * fixedDtSeconds;
+        pose.Position += camera.Motion->VelocityPerSecond * elapsed;
+        pose.YawDegrees += camera.Motion->YawRateDegreesPerSecond * elapsed;
+        pose.PitchDegrees += camera.Motion->PitchRateDegreesPerSecond * elapsed;
+        return pose;
+    }
 
     bool BenchmarkManifest::SupportsBackend(std::string_view backend) const
     {
@@ -186,9 +413,14 @@ namespace OloEngine::Benchmark
         manifest.SourceHash = Hash::FNV1a64(bytes.data(), bytes.size());
 
         manifest.ManifestVersion = root["ManifestVersion"].as<u32>(0u);
-        if (manifest.ManifestVersion != 1u)
+        if (manifest.ManifestVersion != 1u && manifest.ManifestVersion != 2u)
         {
-            errors.Add("ManifestVersion must be 1 (got " + std::to_string(manifest.ManifestVersion) + ")");
+            // v1: issue #974's capture schema. v2: adds asset provenance and
+            // camera motion (issue #1239). Both stay readable — a v1 manifest
+            // is not silently upgraded, because the v2 provenance fields are
+            // REQUIRED and a silent upgrade would turn every existing manifest
+            // into a parse error at an unrelated moment.
+            errors.Add("ManifestVersion must be 1 or 2 (got " + std::to_string(manifest.ManifestVersion) + ")");
         }
 
         manifest.Id = root["Id"].as<std::string>("");
@@ -258,7 +490,7 @@ namespace OloEngine::Benchmark
         }
         if (const auto camera = root["Camera"]; camera)
         {
-            if (auto parsed = ParseCamera(camera, errors, 0))
+            if (auto parsed = ParseCamera(camera, errors, 0, manifest.ManifestVersion))
             {
                 manifest.Cameras.push_back(std::move(*parsed));
             }
@@ -268,7 +500,7 @@ namespace OloEngine::Benchmark
             sizet index = 0;
             for (const auto& entry : cameras)
             {
-                if (auto parsed = ParseCamera(entry, errors, index++))
+                if (auto parsed = ParseCamera(entry, errors, index++, manifest.ManifestVersion))
                 {
                     manifest.Cameras.push_back(std::move(*parsed));
                 }
@@ -590,11 +822,15 @@ namespace OloEngine::Benchmark
 
         if (const auto assets = root["Assets"]; assets && assets.IsSequence())
         {
+            const bool requireProvenance = manifest.ManifestVersion >= 2u;
             sizet index = 0;
             for (const auto& entry : assets)
             {
                 const std::string context = "Assets[" + std::to_string(index++) + "]";
-                RequireKnownKeys(entry, { "Path", "Origin", "License" }, context, errors);
+                RequireKnownKeys(entry,
+                                 { "Path", "Origin", "License", "Redistribution", "LicenseVerified", "Units",
+                                   "UpAxis", "ColorSpace", "Version", "Sha256", "Acquisition" },
+                                 context, errors);
                 ManifestAssetRecord record;
                 record.Path = entry["Path"].as<std::string>("");
                 record.Origin = entry["Origin"].as<std::string>("");
@@ -604,8 +840,17 @@ namespace OloEngine::Benchmark
                     errors.Add(context + ": Path and License are required "
                                          "(recording asset origin/license is an issue-#974 acceptance criterion)");
                 }
+                ParseAssetProvenance(entry, context, requireProvenance, record, errors);
                 manifest.Assets.push_back(std::move(record));
             }
+        }
+        else if (manifest.ManifestVersion >= 2u)
+        {
+            // A v2 manifest with no Assets block would satisfy "every asset is
+            // documented" vacuously. Every fixture renders SOMETHING, so an
+            // empty provenance list means the block was forgotten.
+            errors.Add("Assets is required and must be a non-empty sequence in ManifestVersion 2 "
+                       "(every asset a fixture renders carries provenance — issue #1239)");
         }
 
         if (errors.Any)

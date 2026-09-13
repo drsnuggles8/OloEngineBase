@@ -236,12 +236,18 @@ TEST(BenchmarkCapture, RunWhenRequested)
     {
         EditorCamera camera(cameraSpec.FovDegrees, aspect, cameraSpec.NearClip, cameraSpec.FarClip);
         camera.SetViewportSize(static_cast<f32>(width), static_cast<f32>(height));
-        camera.SetPose(cameraSpec.Position, glm::radians(cameraSpec.YawDegrees),
-                       glm::radians(cameraSpec.PitchDegrees));
 
         const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
         for (u32 i = 0; i < warmFrames; ++i)
         {
+            // Re-pose EVERY frame, not once before the loop. For a still
+            // camera CameraPoseAtFrame returns the declared pose and this is
+            // the old behaviour exactly; for a `Motion:` camera it is what
+            // makes the shot move, so the velocity buffer and the temporal
+            // history rejection paths see real movement (issue #1239).
+            const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, i, dt);
+            camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
+
             Time::SetMockTime(manifest->StartTimeSeconds + static_cast<f32>(frameIndex) * dt);
             {
                 GLStateGuard guard("BenchmarkCapture", GLStateGuard::Policy::Restore);

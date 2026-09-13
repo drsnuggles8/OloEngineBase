@@ -601,6 +601,35 @@ namespace OloEngine::Benchmark
             nlohmann::json cameraJson;
             cameraJson["id"] = set.CameraId;
             cameraJson["captureFrameIndex"] = set.CaptureFrameIndex;
+            // The pose the CAPTURED frame was actually rendered from. For a
+            // still camera that is the declared pose; for a moving one it is
+            // the integrated pose at the last warm-up frame, which is the only
+            // value that lets anyone reconstruct the shot (issue #1239).
+            if (const auto spec = std::ranges::find_if(manifest.Cameras, [&set](const ManifestCamera& c)
+                                                       { return c.Id == set.CameraId; });
+                spec != manifest.Cameras.end())
+            {
+                const u32 warmFrames = spec->WarmupFrames.value_or(manifest.WarmupFrames);
+                const auto pose = CameraPoseAtFrame(*spec, warmFrames > 0u ? warmFrames - 1u : 0u,
+                                                    manifest.FixedDtSeconds);
+                cameraJson["warmupFrames"] = warmFrames;
+                cameraJson["capturedPose"] = { { "position", { pose.Position.x, pose.Position.y, pose.Position.z } },
+                                               { "yawDegrees", pose.YawDegrees },
+                                               { "pitchDegrees", pose.PitchDegrees },
+                                               { "fovDegrees", spec->FovDegrees },
+                                               { "near", spec->NearClip },
+                                               { "far", spec->FarClip } };
+                if (spec->Motion)
+                {
+                    cameraJson["motion"] = {
+                        { "velocityPerSecond",
+                          { spec->Motion->VelocityPerSecond.x, spec->Motion->VelocityPerSecond.y,
+                            spec->Motion->VelocityPerSecond.z } },
+                        { "yawRateDegreesPerSecond", spec->Motion->YawRateDegreesPerSecond },
+                        { "pitchRateDegreesPerSecond", spec->Motion->PitchRateDegreesPerSecond }
+                    };
+                }
+            }
             cameraJson["attachments"] = nlohmann::json::array();
             for (const auto& attachment : set.Attachments)
             {
@@ -631,6 +660,63 @@ namespace OloEngine::Benchmark
                 cameraJson["attachments"].push_back(std::move(a));
             }
             json["cameras"].push_back(std::move(cameraJson));
+        }
+
+        // Asset provenance, echoed verbatim into the result (issue #1239). A
+        // result directory that cannot say where its content came from is not
+        // self-describing, and the manifest echo alone is easy to lose track
+        // of once captures are copied around.
+        json["assets"] = nlohmann::json::array();
+        for (const auto& asset : manifest.Assets)
+        {
+            nlohmann::json a;
+            a["path"] = asset.Path;
+            a["origin"] = asset.Origin;
+            a["license"] = asset.License;
+            if (asset.Redistribution)
+            {
+                a["redistribution"] = *asset.Redistribution == AssetRedistribution::Committed ? "committed"
+                                      : *asset.Redistribution == AssetRedistribution::FetchRequired
+                                          ? "fetch-required"
+                                          : "local-only";
+            }
+            if (asset.LicenseVerified)
+            {
+                a["licenseVerified"] = *asset.LicenseVerified == LicenseVerification::InRepoFile ? "in-repo-file"
+                                       : *asset.LicenseVerified == LicenseVerification::UpstreamDeclared
+                                           ? "upstream-declared"
+                                           : "unverified";
+            }
+            if (asset.Units)
+            {
+                a["units"] = *asset.Units == AssetUnits::Metres        ? "metres"
+                             : *asset.Units == AssetUnits::Centimetres ? "centimetres"
+                                                                       : "unitless";
+            }
+            if (asset.UpAxis)
+            {
+                a["upAxis"] = *asset.UpAxis == AssetUpAxis::YUp ? "+Y" : *asset.UpAxis == AssetUpAxis::ZUp ? "+Z"
+                                                                                                           : "n/a";
+            }
+            if (asset.ColorSpace)
+            {
+                a["colorSpace"] = *asset.ColorSpace == AssetColorSpace::Srgb     ? "srgb"
+                                  : *asset.ColorSpace == AssetColorSpace::Linear ? "linear"
+                                                                                 : "n/a";
+            }
+            if (!asset.Version.empty())
+            {
+                a["version"] = asset.Version;
+            }
+            if (!asset.Sha256.empty())
+            {
+                a["sha256"] = asset.Sha256;
+            }
+            if (!asset.Acquisition.empty())
+            {
+                a["acquisition"] = asset.Acquisition;
+            }
+            json["assets"].push_back(std::move(a));
         }
 
         json["passTimingsMs"] = nlohmann::json::array();
