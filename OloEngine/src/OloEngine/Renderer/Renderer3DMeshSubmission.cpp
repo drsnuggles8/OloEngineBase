@@ -1748,9 +1748,15 @@ namespace OloEngine
         // Get current + previous bone matrices from the skeleton. The prev
         // pose feeds motion-vector computation in animated PBR shaders so
         // TAA / MotionBlur get correct per-bone velocity rather than a
-        // stale-identity fallback.
+        // stale-identity fallback -- but only when the skeleton HAS a previous
+        // pose (#1226). After a discontinuity the previous palette describes a
+        // pose this skeleton was never in, and offering none makes
+        // CommandDispatch alias the current palette, i.e. zero bone motion.
+        static const std::vector<glm::mat4> s_NoBoneHistory;
         const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->HasBoneHistory()
+                                           ? skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices
+                                           : s_NoBoneHistory;
 
         // Convert entt entity id to the i32 picking ID used by the editor.
         const i32 entityID = static_cast<i32>(static_cast<u32>(entity));

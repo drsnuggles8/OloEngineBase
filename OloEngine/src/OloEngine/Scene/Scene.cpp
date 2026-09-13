@@ -11355,9 +11355,25 @@ namespace OloEngine
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
 
-                // Get bone matrices from skeleton
+                // Get bone matrices from skeleton. Offer the previous pose ONLY
+                // when the skeleton actually has one (#1226): after a
+                // discontinuity — entering Play, a teleport, a skeleton swap, the
+                // first frame of a freshly built skeleton — the previous palette
+                // describes a pose this skeleton was never in, and handing it to
+                // the shaders emits a velocity across the seam that TAA and motion
+                // blur faithfully smear. Passing an empty span makes
+                // CommandDispatch alias the current palette into the prev slot,
+                // i.e. exactly zero bone motion.
+                //
+                // This is THE live path: Renderer3D::RenderAnimatedMeshes carries
+                // the same guard but has no callers, so gating only there would
+                // have left the guard decorative on everything that actually
+                // renders.
+                static const std::vector<glm::mat4> s_NoBoneHistory;
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
-                const auto& prevBoneMatrices = skeleton.m_Skeleton->m_PrevFinalBoneMatrices;
+                const auto& prevBoneMatrices = skeleton.m_Skeleton->HasBoneHistory()
+                                                   ? skeleton.m_Skeleton->m_PrevFinalBoneMatrices
+                                                   : s_NoBoneHistory;
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));

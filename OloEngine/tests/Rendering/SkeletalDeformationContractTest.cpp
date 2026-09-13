@@ -38,6 +38,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
 #error "OLO_TEST_EDITOR_ROOT must be defined by the test target's CMake — see OloEngine/tests/CMakeLists.txt"
@@ -250,4 +251,59 @@ namespace OloEngine::Tests
             }
         }
     }
+    // Every read of the previous-pose palette must be gated on HasBoneHistory().
+    //
+    // This exists because the gate was first added to Renderer3D's animated-mesh
+    // submission, which has NO CALLERS, while the path that actually renders --
+    // Scene's own animated-mesh loop -- kept reading the palette raw. The flag was
+    // therefore still decorative on everything that draws, which is precisely the
+    // defect the flag had been introduced to fix. A guard applied to one of N call
+    // sites is the failure mode here, so the test is over call sites, not behaviour.
+    TEST(SkeletalDeformationContract, EveryPreviousPaletteReadIsGatedOnHasBoneHistory)
+    {
+        const std::array kSubmissionSources = {
+            std::string_view{ "OloEngine/src/OloEngine/Scene/Scene.cpp" },
+            std::string_view{ "OloEngine/src/OloEngine/Renderer/Renderer3DMeshSubmission.cpp" },
+        };
+        const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+
+        for (const std::string_view relative : kSubmissionSources)
+        {
+            const fs::path path = repoRoot / relative;
+            const std::string source = ReadFile(path);
+            ASSERT_FALSE(source.empty()) << "could not read " << path.string();
+
+            constexpr char TheNewline = 0x0A;
+            std::vector<std::string> lines;
+            for (std::size_t start = 0; start <= source.size();)
+            {
+                const std::size_t end = source.find(TheNewline, start);
+                lines.push_back(source.substr(start, end == std::string::npos ? std::string::npos : end - start));
+                if (end == std::string::npos)
+                    break;
+                start = end + 1;
+            }
+
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                if (lines[i].find("m_PrevFinalBoneMatrices") == std::string::npos)
+                    continue;
+
+                // The guard reads within a few lines of the access in every
+                // current spelling (a ternary above it, or an if just before).
+                const std::size_t lo = i >= 8 ? i - 8 : 0;
+                const std::size_t hi = std::min(lines.size(), i + 9);
+                bool guarded = false;
+                for (std::size_t j = lo; j < hi && !guarded; ++j)
+                    guarded = lines[j].find("HasBoneHistory") != std::string::npos;
+
+                EXPECT_TRUE(guarded)
+                    << relative << ":" << (i + 1)
+                    << " reads m_PrevFinalBoneMatrices without a nearby HasBoneHistory() gate. "
+                       "An ungated read hands the shaders a previous pose after a discontinuity, "
+                       "which emits a velocity across the seam that TAA and motion blur smear.";
+            }
+        }
+    }
+
 } // namespace OloEngine::Tests

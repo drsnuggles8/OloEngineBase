@@ -301,6 +301,34 @@ TEST_F(SkeletalDeformationHistoryTest, AFreshlyBuiltSkeletonHasNoHistoryOnItsFir
     EXPECT_TRUE(skeleton->HasBoneHistory());
 }
 
+TEST_F(SkeletalDeformationHistoryTest, ADeferredLoadedPaletteCountsFirstUseExactlyOnce)
+{
+    // A skeleton whose bones arrive after its first tick takes the resize branch.
+    // Arming the pending flag there as well as clearing the valid flag suppressed
+    // TWO frames of motion instead of one and reported the same FirstUse twice --
+    // the resize itself has already set prev to current, so clearing valid is the
+    // whole suppression that frame needs.
+    Entity deferred = GetScene().CreateEntity("DeferredSkeleton");
+    auto skeleton = Ref<OloEngine::Skeleton>::Create();
+    deferred.AddComponent<SkeletonComponent>(skeleton);
+
+    RunFrames(2); // advances with an empty palette: nothing lost, nothing counted
+    const u32 before = Animation::SkeletalDeformationSystem::GetStats().HistoryResetsFirstUse;
+
+    // The bones arrive.
+    skeleton->m_FinalBoneMatrices.assign(3, glm::mat4(1.0f));
+
+    RunFrames(1);
+    const u32 afterFirst = Animation::SkeletalDeformationSystem::GetStats().HistoryResetsFirstUse;
+    EXPECT_EQ(afterFirst, before + 1u) << "the palette arriving should count FirstUse once";
+
+    RunFrames(1);
+    EXPECT_EQ(Animation::SkeletalDeformationSystem::GetStats().HistoryResetsFirstUse, afterFirst)
+        << "FirstUse was counted a second time for the same skeleton";
+    EXPECT_TRUE(skeleton->HasBoneHistory())
+        << "history should be usable the frame after the palette arrived, not two frames later";
+}
+
 TEST_F(SkeletalDeformationHistoryTest, EverySkinnedEntityIsAdvancedNotJustPlayingOnes)
 {
     // A second skinned entity that never plays anything. The old

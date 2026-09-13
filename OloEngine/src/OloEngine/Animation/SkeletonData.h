@@ -187,7 +187,11 @@ namespace OloEngine
          */
         BoneHistoryAdvance AdvanceBoneHistory()
         {
-            const bool hadHistory = m_BoneHistoryValid;
+            // EVER valid, not valid right now: a bone-count change on a frame whose
+            // history is already suppressed (the frame after a reset, say) is still
+            // a real skeleton swap and still deserves the loud warning. Reading the
+            // per-frame flag here reported it as FirstUse and stayed silent.
+            const bool hadHistory = m_BoneHistoryEverValid;
             const bool resized = CopyPoseToHistory();
 
             // An empty palette is not history. Treating 0 == 0 as "nothing was
@@ -205,8 +209,12 @@ namespace OloEngine
 
             if (resized)
             {
+                // No pending flag here: the resize ITSELF just set prev to current,
+                // and clearing the valid flag already suppresses this frame. Arming
+                // pending as well would suppress the following frame too and report
+                // the same FirstUse twice, which is what a deferred-loaded skeleton
+                // (palette sized after its first tick) used to do.
                 m_BoneHistoryValid = false;
-                m_BoneHistoryResetPending = true;
                 return hadHistory ? BoneHistoryAdvance::BoneCountChanged : BoneHistoryAdvance::FirstUse;
             }
 
