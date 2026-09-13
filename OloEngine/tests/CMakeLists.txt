@@ -226,6 +226,7 @@ add_executable(OloEngine-Tests
 		Asset/LightmapAssetSerializationTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
+		Rendering/FoliageGBufferRoutingTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp
