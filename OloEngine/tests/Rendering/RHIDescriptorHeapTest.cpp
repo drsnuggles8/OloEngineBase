@@ -423,6 +423,41 @@ namespace OloEngine::Tests
         EXPECT_NE(frame3.Generation, frame1.Generation);
     }
 
+    TEST_F(HeapFixture, FrameResetAfterShutdownDoesNotAccessRetiredSubRings)
+    {
+        SetUpHeap(8u, 4u, true, 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        heap.Shutdown();
+
+        // A graph can run without an initialized heap after another renderer
+        // session shuts it down. Frame advancement must not touch freed slots.
+        heap.ResetFrameTransients();
+        heap.ResetFrameTransients();
+        EXPECT_FALSE(heap.IsEnabled());
+        EXPECT_EQ(heap.GetBackend(), nullptr);
+
+        // The singleton must also remain reusable by the next renderer session.
+        SetUpHeap(8u, 4u, true, 2u);
+        heap.ResetFrameTransients();
+        EXPECT_TRUE(heap.IsEnabled());
+    }
+
+    TEST_F(HeapFixture, DisabledInitializedHeapStillRetiresTransientViews)
+    {
+        SetUpHeap(8u, 4u, true, 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const auto resource = MakeResource(46u);
+        const auto view = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                          RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(view.IsValid());
+
+        heap.SetEnabled(false);
+        heap.ResetFrameTransients();
+        heap.SetEnabled(true);
+        EXPECT_FALSE(heap.OffsetOf(view).IsValid())
+            << "Disabling bindless access does not suspend frame-lifetime bookkeeping";
+    }
+
     // -------------------------------------------------------------------------
     // 3. Aliasing produces two offsets onto one object — by design.
     // -------------------------------------------------------------------------
