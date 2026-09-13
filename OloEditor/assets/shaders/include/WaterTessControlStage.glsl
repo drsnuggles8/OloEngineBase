@@ -142,8 +142,10 @@ layout(std140, binding = 23) uniform WaterParams
     // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
     //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
     //     at the near edge by however far a crest can move a vertex there,
-    // w = rim radius (m): how far a ray that misses the plane is pushed before
-    //     the rect clamp catches it.
+    // w = band-limit spacing per metre of ray distance: one grid step of view
+    //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
+    //     rim radius a missed ray is pushed to is derived in-shader from the
+    //     half-extents below and u_Model, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
@@ -162,11 +164,13 @@ layout(location = 5) in vec3 v_Bitangent[];
 layout(location = 6) in float v_WaveHeight[]; // non-tess fallback interface only
 #endif
 layout(location = 7) in vec3 v_PrevWorldPos[];
+layout(location = 9) in float v_ProjSpacing[]; // issue #1035, see the vertex stage
 
 layout(location = 0) out vec3 tc_WorldPos[];
 layout(location = 1) out vec3 tc_Normal[];
 layout(location = 2) out vec2 tc_TexCoord[];
 layout(location = 3) out vec3 tc_PrevWorldPos[];
+layout(location = 4) out float tc_ProjSpacing[];
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
@@ -279,6 +283,7 @@ void main()
     tc_Normal[gl_InvocationID] = v_Normal[gl_InvocationID];
     tc_TexCoord[gl_InvocationID] = v_TexCoord[gl_InvocationID];
     tc_PrevWorldPos[gl_InvocationID] = v_PrevWorldPos[gl_InvocationID];
+    tc_ProjSpacing[gl_InvocationID] = v_ProjSpacing[gl_InvocationID];
 
     if (gl_InvocationID == 0)
     {

@@ -144,8 +144,10 @@ layout(std140, binding = 23) uniform WaterParams
     // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
     //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
     //     at the near edge by however far a crest can move a vertex there,
-    // w = rim radius (m): how far a ray that misses the plane is pushed before
-    //     the rect clamp catches it.
+    // w = band-limit spacing per metre of ray distance: one grid step of view
+    //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
+    //     rim radius a missed ray is pushed to is derived in-shader from the
+    //     half-extents below and u_Model, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
@@ -214,6 +216,7 @@ layout(location = 0) in vec3 tc_WorldPos[];
 layout(location = 1) in vec3 tc_Normal[];
 layout(location = 2) in vec2 tc_TexCoord[];
 layout(location = 3) in vec3 tc_PrevWorldPos[];
+layout(location = 4) in float tc_ProjSpacing[]; // issue #1035, see the vertex stage
 
 layout(location = 0) out vec3 v_WorldPos;
 #ifdef OLO_WATER_DEPTH_ONLY
@@ -273,20 +276,18 @@ void main()
 
     // The mesh spacing the octave band-limit (#943) is measured against.
     //
-    // u_FoamParams2.w is the BASE world grid's nominal spacing, which is a
-    // single number for the whole surface — correct while the grid IS uniform
-    // in the world. Under a projected grid (issue #1035) it describes nothing:
-    // one frame's patches span three orders of magnitude in world size, from
-    // centimetres at the camera's feet to tens of metres at the horizon. So
-    // measure it from the patch instead. The longest edge of this patch,
-    // divided by its subdivision level, IS the distance between neighbouring
-    // samples of the surface here — which is exactly the quantity
-    // octaveMeshWeight needs.
+    // u_FoamParams2.w is the BASE world grid's nominal spacing, one number for
+    // the whole surface — correct while the grid IS uniform in the world. Under
+    // a projected grid (issue #1035) it describes nothing: one frame's patches
+    // span three orders of magnitude in world size. So the vertex stage derives
+    // it per vertex and it is interpolated here, like every other varying.
     //
-    // The LONGEST edge, not the mean: band-limiting is a statement about what
-    // the mesh cannot represent, and the coarsest direction is what it cannot
-    // represent. Taking the mean would keep octaves that alias along the long
-    // axis of a stretched patch, which is every patch near the horizon.
+    // INTERPOLATED, not derived from this patch's edges. That was tried: the
+    // patch's longest edge is the right magnitude, but a vertex shared by two
+    // patches then gets two different octave weights, the two displacements
+    // disagree, and the surface tears along every patch edge — sixteen pinholes
+    // of seabed per frame from overhead, none from the world grid. A per-vertex
+    // value is the same number on both sides of the edge by construction.
     //
     // Deliberately NOT applied to the world-space grid: it would change what
     // every existing water scene draws, and the base spacing is already the
@@ -294,10 +295,9 @@ void main()
     float vertexSpacing = u_FoamParams2.w;
     if (u_ProjectedGridParams.x > 0.5)
     {
-        float e0 = distance(tc_WorldPos[0], tc_WorldPos[1]);
-        float e1 = distance(tc_WorldPos[1], tc_WorldPos[2]);
-        float e2 = distance(tc_WorldPos[2], tc_WorldPos[0]);
-        vertexSpacing = max(max(e0, e1), e2) / max(gl_TessLevelInner[0], 1.0);
+        vertexSpacing = max(gl_TessCoord.x * tc_ProjSpacing[0]
+                          + gl_TessCoord.y * tc_ProjSpacing[1]
+                          + gl_TessCoord.z * tc_ProjSpacing[2], 0.0);
     }
 
     // Apply wave displacement (FFT ocean or analytic Gerstner)

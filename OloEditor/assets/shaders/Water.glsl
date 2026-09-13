@@ -217,8 +217,10 @@ layout(std140, binding = 23) uniform WaterParams
     // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
     //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
     //     at the near edge by however far a crest can move a vertex there,
-    // w = rim radius (m): how far a ray that misses the plane is pushed before
-    //     the rect clamp catches it.
+    // w = band-limit spacing per metre of ray distance: one grid step of view
+    //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
+    //     rim radius a missed ray is pushed to is derived in-shader from the
+    //     half-extents below and u_Model, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea

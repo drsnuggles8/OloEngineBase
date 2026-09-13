@@ -16,7 +16,7 @@ issue tracker and the picker. The remaining open work now lives in GitHub:
 |---|---|
 | §5.3 shore wave deformation | [#1033](https://github.com/drsnuggles8/OloEngineBase/issues/1033) |
 | §2.2 foam advection, §2.3 spray particles, §7.3 rain impact | [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034) |
-| §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) — §4.2 measured and declined, §6.3/§6.4 answered, §4.1 chosen and **still in progress**. All four are recorded in place below. |
+| §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) — **drained**: §4.1 shipped opt-in, §4.2 measured and declined, §6.3/§6.4 answered. All four are recorded in place below. |
 
 §7.4 (foam trail persistence) is **shipped** — the wake disturbance field from
 issue #967 is exactly that, so it is not in the table.
@@ -370,49 +370,58 @@ Improvements:
 
 ## 4. Tessellation & LOD (Medium Impact / Medium Effort)
 
-### 4.1 Projected Grid — **chosen by the profile; IN PROGRESS, not correct yet**
+### 4.1 Projected Grid — **shipped, opt-in (issue #1035)**
 
-The profile in §4.2 picked this over gradient-adaptive tessellation, and the
-scaffolding is in the tree behind `WaterComponent::m_ProjectedGridEnabled`
-(default **off**, and **no scene opts in**). It is not finished: read this
-section as a design record and a list of traps, not as a shipped feature.
+`WaterComponent::m_ProjectedGridEnabled` reads the surface mesh's (u, v) as a
+SCREEN coordinate and ray-casts it onto the water plane (Johanson 2004), so
+vertex density is set by screen resolution rather than by `m_WorldSizeX/Z`. The
+same mesh is used — only its interpretation changes — so the depth capture, the
+wake, the shore transform and buoyancy are untouched. When it is on,
+`m_GridResolutionX/Z` counts quads across the VIEWPORT and the tessellation
+factor is ignored: the grid is already at the target screen density, so the
+tess level is a constant 1 and the grid resolution is the only knob.
+WaterShowcase.olo opts in at 256x144.
 
-The intent: read the surface mesh's (u, v) as a SCREEN coordinate and ray-cast
-it onto the water plane (Johanson 2004), so vertex density is set by screen
-resolution rather than by `m_WorldSizeX/Z`. The same mesh is used — only its
-interpretation changes — so the depth capture, the wake, the shore transform and
-buoyancy are untouched. When it is on, `m_GridResolutionX/Z` counts quads across
-the VIEWPORT and the tessellation factor is ignored: the grid is already at the
-target screen density, so the tess level is a constant 1 and the grid resolution
-is the only knob.
+Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h)
+(23 tests in `WaterGeometryLodProfileTest`, built against the real
+`EditorCamera` matrix). Evaluator: `waterProjectGridVertex()` in
+[`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
+Visual evidence, both grids at both acceptance-criterion angles:
+`OloEditor/assets/tests/visual/WaterProjGrid_*.png`
+(`WaterProjectedGridVisualEvidenceTest`). Measured at 256x144 over 1 km:
+73,728 patches / 37,265 vertices, **0% sub-pixel** triangles at 61.6 px
+(grazing) and 36.8 px (overhead), against the world grid's 511,474 triangles
+with 80% of them sub-pixel and 1,572,864 vertex invocations a frame.
 
-**What is known good.** The CPU side is complete and pinned by
-`WaterGeometryLodProfileTest` (22 tests): the NDC rectangle, the ray-plane
-intersection, the rect clamp, the displacement margins and their ordering. With
-the real `EditorCamera` matrix it lays out 73,728 patches / 37,265 vertices at
-256x144 and measures **0% sub-pixel** triangles at 61.6 px (grazing) and 36.8 px
-(overhead) — against the world grid's 511,474 triangles, 80% of them sub-pixel,
-and 1,572,864 vertex invocations.
+Five things are load-bearing rather than incidental, and four of them were
+found by capturing frames after every CPU test was already green:
 
-**What is wrong.** On screen the surface still renders incorrectly. Three
-distinct defects were found and two fixed; the remaining one is that the surface
-comes out flat and unshaded with an artefact line at the horizon. The fixed two
-are recorded because both are traps rather than typos:
-
-- the frustum cull in the tess-control stage rejects the skirt rows the layout
-  margin exists to create — it tests the UNDISPLACED patch, and those rows are
-  outside the frustum until a crest lifts them in. It is now disabled for a
-  projected grid, exactly as the FFT path disables it;
-- the miss fall-back slid a vertex out along its view line to the rim radius.
-  The view line has no reliable orientation, so half of those landed BEHIND the
-  camera, where the projection mirrors them back across the frame as a sheet of
-  geometry covering the near water. Misses now collapse to a single point under
-  the camera, which rasterises as nothing.
-
-**The trap that cost the most** is worth stating on its own: every CPU contract
-test passed against a hand-built `glm::perspective * glm::lookAt` while the
-shader was wrong against the camera the engine actually renders with. The tests
-now build a real `EditorCamera`.
+- **the v axis is mapped with the near edge at v = 1.** The mesh's index order
+  is counter-clockwise from above for its authored (u -> +x, v -> +z) frame,
+  and +z is TOWARD a camera looking down -z. Screen-up is AWAY from the camera,
+  so mapping v straight onto NDC y hands the same index order a frame of the
+  opposite handedness: every triangle is back-facing from above, and the
+  fragment stage's waterline rule (keep the face the camera is on) discards the
+  whole surface. The symptom is not an artefact, it is "the water is not
+  there" — with the skybox's painted sea and the editor grid showing through
+  where it should be, which looked almost like water;
+- **the band-limit spacing is derived per VERTEX** in the vertex stage (ray
+  distance x one grid step of view angle / incidence) and interpolated to the
+  tess-eval stage. Derived per patch from the patch's own edges it is the
+  right magnitude but gives a shared vertex two different octave weights,
+  and the surface tears along every patch edge — 16 pinholes of seabed per
+  overhead frame, 0 with the per-vertex form;
+- **the tess-control frustum cull is off** for a projected grid, as it is for
+  the FFT path: it tests the UNDISPLACED patch, and the skirt rows exist
+  precisely to be outside the frustum until a crest lifts them in;
+- **the miss fall-back is oriented** — it slides from the point under the
+  camera along the ray's forward horizontal to the rim. Along an unoriented
+  view LINE, half of those vertices land behind the eye and the projection
+  mirrors them back across the frame as a sheet over the near water;
+- **the ray is built from the camera basis**, `(x/P00, y/P11, -1)` rotated by
+  the view rotation's transpose, not from `inverse(u_ViewProjection)`. Same
+  ray, no inverse, and convention-safe: the Vulkan seam negates P11 and flips
+  the NDC y it is fed by the same sign.
 
 Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h).
 Evaluator: `waterProjectGridVertex()` in
@@ -458,9 +467,8 @@ the cull's bound still dominates the grid's is pinned by a test.
 A non-uniform (u, v) mapping that spent fewer rows on the skirt would recover
 most of that, and is filed as follow-up work rather than left unmeasured.
 
-**Off by default and unused**, until the remaining defect is fixed and the
-four-way visual evidence (both grids x both acceptance-criterion camera angles)
-renders correctly.
+**Off by default**, deliberately: it moves every water vertex, so a scene opts
+in and its goldens move in the same commit. Only WaterShowcase does.
 
 ### 4.2 Gradient-Adaptive Tessellation — **measured, not built (issue #1035)**
 

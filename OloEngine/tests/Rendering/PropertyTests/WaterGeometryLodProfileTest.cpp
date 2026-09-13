@@ -179,15 +179,13 @@ namespace
     // thing being measured: the census is a statement about the world-space
     // grid, and it stops meaning anything if it drifts along with the scene.
     constexpr SurfaceConfig kWaterShowcase{
-        "WaterShowcase", 1000.0f, 512, true, 8.0f, 10.0f, 200.0f,
-        0.5f, 1.0f, { 1.0f, 0.3f }, 0.3f, 30.0f, { -0.4f, 0.9f }, 0.25f, 50.0f
+        "WaterShowcase", 1000.0f, 512, true, 8.0f, 10.0f, 200.0f, 0.5f, 1.0f, { 1.0f, 0.3f }, 0.3f, 30.0f, { -0.4f, 0.9f }, 0.25f, 50.0f
     };
 
     // Drift.olo — the game. 1.6 km of sea at 2.5 m quads, tessellation off, so
     // every triangle it draws is base grid.
     constexpr SurfaceConfig kDrift{
-        "Drift", 1600.0f, 640, false, 8.0f, 10.0f, 200.0f,
-        0.12f, 0.55f, { 1.0f, 0.15f }, 0.25f, 10.0f, { 0.6f, 0.8f }, 0.15f, 15.0f
+        "Drift", 1600.0f, 640, false, 8.0f, 10.0f, 200.0f, 0.12f, 0.55f, { 1.0f, 0.15f }, 0.25f, 10.0f, { 0.6f, 0.8f }, 0.15f, 15.0f
     };
 
     // ---- the band-limited Gerstner ladder, as a SLOPE field ----------------
@@ -238,8 +236,12 @@ namespace
         // WaterCommon.glsl's six detail octaves: wavelength ratio, steepness
         // ratio, global amplitude weight.
         constexpr f32 kDetail[6][3] = {
-            { 0.85f, 0.5f, 0.5f }, { 0.6f, 0.45f, 0.4f }, { 0.4f, 0.38f, 0.3f },
-            { 0.25f, 0.3f, 0.22f }, { 0.15f, 0.22f, 0.15f }, { 0.09f, 0.15f, 0.1f },
+            { 0.85f, 0.5f, 0.5f },
+            { 0.6f, 0.45f, 0.4f },
+            { 0.4f, 0.38f, 0.3f },
+            { 0.25f, 0.3f, 0.22f },
+            { 0.15f, 0.22f, 0.15f },
+            { 0.09f, 0.15f, 0.1f },
         };
         for (i32 i = 0; i < 6; ++i)
         {
@@ -282,10 +284,10 @@ namespace
         u64 m_BasePatches = 0;
         u64 m_CulledPatches = 0;
         u64 m_DrawnPatches = 0;
-        u64 m_VertexInvocations = 0;   ///< paid before the cull can reject anything
-        u64 m_GeneratedTriangles = 0;  ///< tessellator output over the drawn patches
+        u64 m_VertexInvocations = 0;  ///< paid before the cull can reject anything
+        u64 m_GeneratedTriangles = 0; ///< tessellator output over the drawn patches
         u64 m_GeneratedVertices = 0;
-        u64 m_SubPixelTriangles = 0;   ///< generated triangles covering < 1 px
+        u64 m_SubPixelTriangles = 0; ///< generated triangles covering < 1 px
         f32 m_SlopeP5 = 0.0f;
         f32 m_SlopeMedian = 0.0f;
         f32 m_SlopeP95 = 0.0f;
@@ -511,7 +513,8 @@ namespace
             }
         }
 
-        const auto at = [&](u32 i, u32 j) { return positions[static_cast<sizet>(j) * (gridX + 1) + i]; };
+        const auto at = [&](u32 i, u32 j)
+        { return positions[static_cast<sizet>(j) * (gridX + 1) + i]; };
         const auto onScreen = [&](const glm::vec3& p)
         {
             const glm::vec4 clip = viewProj * glm::vec4(p, 1.0f);
@@ -1013,6 +1016,59 @@ TEST(WaterGeometryLodProfile, GridBoundMatchesTheLadderItClaimsToSum)
 
     EXPECT_NEAR(WaterSurfaceLod::MaxSurfaceDisplacement(cfg.WaveParams(), cfg.WaveDir0(), cfg.WaveDir1()),
                 expected, 1e-4f);
+}
+
+TEST(WaterGeometryLodProfile, ProjectedGridSpacingIsContinuousAndGrowsWithDistance)
+{
+    // The band-limit spacing a projected vertex is sampled at. It has to be a
+    // function of the VERTEX (its ray distance and incidence) rather than of the
+    // patch, because two patches share every edge vertex: derived per patch,
+    // the two sides disagreed about the octave weights and the surface tore
+    // along every edge — sixteen pinholes of seabed per frame from overhead.
+    const EditorCamera camera = MakeCamera(kLowGrazing);
+    const glm::mat4 viewProj = camera.GetViewProjection();
+    const glm::mat4 invViewProj = glm::inverse(viewProj);
+    const WaterSurfaceLod::NdcBounds bounds =
+        WaterSurfaceLod::ComputeNdcBounds(viewProj, kLowGrazing.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(bounds.m_Visible);
+
+    // GL is identity for the backend adjustment, so the camera's own projection
+    // is what the vertex stage sees.
+    const f32 perMetre = WaterSurfaceLod::SpacingPerMetre(bounds, camera.GetProjection(), 256u, 144u);
+    ASSERT_GT(perMetre, 0.0f);
+
+    // Walk one column from the near skirt toward the horizon. Spacing must grow
+    // monotonically with distance and stay finite, and the near rows must be
+    // sampled far finer than the world grid's 1.95 m ever was.
+    f32 previousSpacing = -1.0f;
+    f32 previousT = -1.0f;
+    i32 rowsChecked = 0;
+    for (i32 i = 0; i < 64; ++i)
+    {
+        const f32 v = 0.9f * static_cast<f32>(i) / 63.0f;
+        const glm::vec2 ndc(0.0f, glm::mix(bounds.m_Min.y, bounds.m_Max.y, v));
+        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, ndc,
+                                                                 kPlanePoint, kPlaneNormal, kRimRadius);
+        const glm::vec3 toHit = hit - kLowGrazing.m_Eye;
+        const f32 t = glm::length(toHit);
+        if (!(t > 0.0f) || std::abs(hit.y - kPlanePoint.y) > 1e-2f)
+            continue; // a missed row, which the rim handles
+        const f32 dirDotNormal = glm::dot(toHit / t, kPlaneNormal);
+        const f32 spacing = WaterSurfaceLod::ProjectedGridSpacing(perMetre, t, dirDotNormal);
+        ASSERT_TRUE(std::isfinite(spacing)) << "row " << i;
+        if (previousSpacing >= 0.0f && t > previousT)
+        {
+            EXPECT_GE(spacing, previousSpacing) << "row " << i << ": spacing shrank with distance";
+        }
+        previousSpacing = spacing;
+        previousT = t;
+        ++rowsChecked;
+        if (i == 0)
+        {
+            EXPECT_LT(spacing, 0.5f) << "the nearest row is sampled at " << spacing << " m";
+        }
+    }
+    EXPECT_GT(rowsChecked, 40);
 }
 
 TEST(WaterGeometryLodProfile, ProjectedGridMissedRayLandsBeyondTheRim)

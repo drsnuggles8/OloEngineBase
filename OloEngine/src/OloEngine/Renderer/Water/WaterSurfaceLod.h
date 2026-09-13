@@ -23,10 +23,9 @@ namespace OloEngine::WaterSurfaceLod
     //   * the PROJECTED GRID (water-ocean.md §4.1, Johanson 2004) — the SAME
     //     lattice, but its (u, v) is read as a screen-space coordinate and
     //     ray-cast onto the water plane, so vertex density is set by screen
-    //     resolution instead of world size. IN PROGRESS: everything in THIS
-    //     file is complete and pinned, but the shader that consumes it still
-    //     renders the surface incorrectly, and no scene enables it. §4.1 of
-    //     water-ocean.md records what is left.
+    //     resolution instead of world size. Shipped opt-in; water-ocean.md
+    //     §4.1 records the five load-bearing details, four of which every
+    //     test here missed and a captured frame found.
     //
     // Mirrored by:
     //   * include/WaterTessControlStage.glsl  — the tess level and the cull;
@@ -218,6 +217,24 @@ namespace OloEngine::WaterSurfaceLod
                                               const glm::vec3& planePoint,
                                               const glm::vec3& planeNormal,
                                               f32 rimRadius);
+
+    /// The band-limit spacing per metre of ray distance a projected grid is
+    /// sampled at: one grid step of view angle. `gpuProjection` is the
+    /// backend-adjusted projection the vertex stage sees (its [0][0] / [1][1]
+    /// focal terms are read, by magnitude — the Vulkan seam negates the second).
+    /// The vertex stage multiplies this by each vertex's own ray distance and
+    /// divides by the incidence, see ProjectedGridSpacing.
+    [[nodiscard]] f32 SpacingPerMetre(const NdcBounds& bounds, const glm::mat4& gpuProjection,
+                                      u32 gridResolutionX, u32 gridResolutionZ);
+
+    /// World metres between a projected vertex and its grid neighbour, given its
+    /// ray distance `t` and `dirDotNormal` = dot(unit ray, plane normal). Mirrors
+    /// the vertex stage exactly; continuity in `t` is the property that keeps
+    /// two patches sharing a vertex from tearing apart along their edge.
+    [[nodiscard]] inline f32 ProjectedGridSpacing(f32 spacingPerMetre, f32 t, f32 dirDotNormal)
+    {
+        return spacingPerMetre * t / std::max(std::abs(dirDotNormal), 0.05f);
+    }
 
     /// Clamp a surface-local XZ into the authored rect. The projected grid is a
     /// screen-space lattice and has no idea where the water ends, so this is

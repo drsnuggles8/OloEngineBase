@@ -99,8 +99,7 @@ namespace OloEngine::WaterSurfaceLod
             return (steepness / k) * globalAmplitude * weight;
         };
 
-        f32 total = octaveAmplitude(waveDir0.z, wl0, 0.55f, amp)
-                    + octaveAmplitude(waveDir1.z, wl1, 0.55f, amp);
+        f32 total = octaveAmplitude(waveDir0.z, wl0, 0.55f, amp) + octaveAmplitude(waveDir1.z, wl1, 0.55f, amp);
 
         // WaterCommon.glsl's six detail octaves: wavelength ratio, steepness
         // ratio, global amplitude weight — the real constants, not the
@@ -108,8 +107,12 @@ namespace OloEngine::WaterSurfaceLod
         const f32 avgWL = (wl0 + wl1) * 0.5f;
         const f32 avgSteepness = (waveDir0.z + waveDir1.z) * 0.5f;
         constexpr f32 kDetail[6][3] = {
-            { 0.85f, 0.5f, 0.5f }, { 0.6f, 0.45f, 0.4f }, { 0.4f, 0.38f, 0.3f },
-            { 0.25f, 0.3f, 0.22f }, { 0.15f, 0.22f, 0.15f }, { 0.09f, 0.15f, 0.1f },
+            { 0.85f, 0.5f, 0.5f },
+            { 0.6f, 0.45f, 0.4f },
+            { 0.4f, 0.38f, 0.3f },
+            { 0.25f, 0.3f, 0.22f },
+            { 0.15f, 0.22f, 0.15f },
+            { 0.09f, 0.15f, 0.1f },
         };
         for (const auto& detail : kDetail)
         {
@@ -141,8 +144,7 @@ namespace OloEngine::WaterSurfaceLod
         {
             const glm::vec3 n(plane);
             const f32 threshold = -margin * glm::length(n);
-            if ((glm::dot(n, p0) + plane.w) < threshold && (glm::dot(n, p1) + plane.w) < threshold
-                && (glm::dot(n, p2) + plane.w) < threshold)
+            if ((glm::dot(n, p0) + plane.w) < threshold && (glm::dot(n, p1) + plane.w) < threshold && (glm::dot(n, p2) + plane.w) < threshold)
             {
                 return true;
             }
@@ -313,5 +315,22 @@ namespace OloEngine::WaterSurfaceLod
         const glm::vec3 originOnPlane =
             rayOrigin - planeNormal * glm::dot(rayOrigin - planePoint, planeNormal);
         return originOnPlane + (horizontal / std::sqrt(lenSq)) * rimRadius;
+    }
+
+    f32 SpacingPerMetre(const NdcBounds& bounds, const glm::mat4& gpuProjection, u32 gridResolutionX,
+                        u32 gridResolutionZ)
+    {
+        const f32 p00 = std::abs(gpuProjection[0][0]);
+        const f32 p11 = std::abs(gpuProjection[1][1]);
+        if (!std::isfinite(p00) || !std::isfinite(p11) || p00 < kParallelEpsilon || p11 < kParallelEpsilon)
+            return 0.0f;
+        // One grid cell in NDC, divided by the focal term, is the view-space
+        // angle between neighbouring vertices; that angle times the distance is
+        // the world spacing. The coarser axis is the one the band-limit is
+        // about.
+        const f32 stepX = (bounds.m_Max.x - bounds.m_Min.x) / static_cast<f32>(std::max(gridResolutionX, 1u));
+        const f32 stepY = (bounds.m_Max.y - bounds.m_Min.y) / static_cast<f32>(std::max(gridResolutionZ, 1u));
+        const f32 perMetre = std::max(stepX / p00, stepY / p11);
+        return std::isfinite(perMetre) ? std::max(perMetre, 0.0f) : 0.0f;
     }
 } // namespace OloEngine::WaterSurfaceLod

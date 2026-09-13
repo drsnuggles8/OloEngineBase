@@ -170,8 +170,10 @@ layout(std140, binding = 23) uniform WaterParams
     // y, z = the NDC MINIMUM corner of the rectangle the grid is laid out over.
     //     Not (-1, -1): it stops short of the sky, and extends PAST the screen
     //     at the near edge by however far a crest can move a vertex there,
-    // w = rim radius (m): how far a ray that misses the plane is pushed before
-    //     the rect clamp catches it.
+    // w = band-limit spacing per metre of ray distance: one grid step of view
+    //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
+    //     rim radius a missed ray is pushed to is derived in-shader from the
+    //     half-extents below and u_Model, not uploaded.
     vec4 u_ProjectedGridParams;
     // xy = the surface's LOCAL half-extents. The clamp into this rect is what
     //      keeps a finite water tile finite: a screen-space grid has no idea
@@ -251,6 +253,14 @@ layout(location = 6) out float v_WaveHeight;
 #endif
 // Previous-frame world position (wave + model reprojection) for RT3 velocity.
 layout(location = 7) out vec3 v_PrevWorldPos;
+// The band-limit spacing this vertex is sampled at (issue #1035). The world
+// grid's spacing is one number for the whole surface (u_FoamParams2.w); a
+// projected grid's varies by three orders of magnitude across one frame, so it
+// is derived per vertex here and carried to the tess-eval stage, which
+// interpolates it. PER VERTEX is the load-bearing part: deriving it per PATCH
+// in the tess-eval stage hands a shared vertex two different octave weights
+// from its two patches, and the surface tears along every patch edge.
+layout(location = 9) out float v_ProjSpacing;
 #ifndef OLO_VULKAN
 // Breaking-wave foam from the shore transform (issue #1033). One float rather
 // than the pair the displacing stage computes, because the fragment stage needs
@@ -293,76 +303,60 @@ layout(location = 8) out float v_ShoreFoam;
 //
 // The CPU mirror is WaterSurfaceLod::ProjectGridVertex; the two are pinned
 // against each other by WaterGeometryLodProfileTest.
-vec3 waterProjectGridVertex(mat4 invViewProj, vec2 ndc, vec3 planePoint, vec3 planeNormal, float rimRadius)
+vec3 waterProjectGridVertex(vec2 ndc, vec3 planePoint, vec3 planeNormal, float rimRadius,
+                            float spacingPerMetre, out float outSpacing)
 {
-    // Intersect the view LINE with the plane, then decide visibility from the
-    // clip w. Deliberately orientation-free, and that is the whole point.
+    // The view ray for this NDC, built from the camera BASIS rather than by
+    // inverting the view-projection.
     //
-    // The obvious formulations both assume a depth convention and both were
-    // wrong here, silently. Unprojecting NDC z = -1 and z = +1 and treating `t`
-    // as a fraction of that segment assumes which end is the near plane;
-    // starting at the camera with `normalize(far - eye)` and testing `t > 0`
-    // assumes that NDC z = +1 unprojects IN FRONT of the camera. In this engine
-    // it does not, so the direction came out reversed, `t` came out negative,
-    // and every vertex failed the test and fell through to the rim — the whole
-    // surface collapsed onto the horizon line, while the sky reflected in what
-    // little remained kept the frame looking almost plausible. No CPU test
-    // caught it; the PNG did, immediately.
+    // In view space a pixel's ray is (x / P00, y / P11, -1): the projection's
+    // two focal terms undo the perspective scale and the camera looks down its
+    // own -z. Rotating that into the world is the TRANSPOSE of the view
+    // rotation — exact, three dot products, no inverse() anywhere. The
+    // `inverse(u_ViewProjection)` route was tried first and placed every hit
+    // far outside the surface while every CPU mirror of the same arithmetic
+    // was fine; whatever the GPU made of inverting a 0.1..1000 perspective,
+    // this formulation does not ask it to.
     //
-    // A LINE has no orientation to get wrong: `a + d * s` is the same point
-    // whichever way `d` points, so the intersection needs no assumption at all.
-    // The one thing that does need deciding — is this point in front of the
-    // camera — is then asked of the projection directly, where the answer is
-    // `w > 0` under every convention the projection seam produces.
+    // Convention-safe by construction: on Vulkan the projection seam negates
+    // P11 (RHI/RHIProjectionSeam.h) and the NDC y handed in is flipped the same
+    // way, so y / P11 is the same view-space direction on both backends. The
+    // seam's z remap touches P22/P32 only, which this never reads.
     const float EPS = 1e-6;
-    vec4 aH = invViewProj * vec4(ndc, -1.0, 1.0);
-    vec4 bH = invViewProj * vec4(ndc, 1.0, 1.0);
-    bool valid = abs(aH.w) >= EPS && abs(bH.w) >= EPS;
+    vec3 dirView = vec3(ndc.x / u_Projection[0][0], ndc.y / u_Projection[1][1], -1.0);
+    // Column-major: u_View[c] is column c, so (R^T v)_i = dot(u_View[i].xyz, v).
+    vec3 rayDir = normalize(vec3(dot(u_View[0].xyz, dirView),
+                                 dot(u_View[1].xyz, dirView),
+                                 dot(u_View[2].xyz, dirView)));
+    vec3 rayOrigin = u_CameraPosition;
 
-    vec3 a = valid ? (aH.xyz / aH.w) : planePoint;
-    vec3 d = valid ? ((bH.xyz / bH.w) - a) : vec3(0.0);
+    float denom = dot(rayDir, planeNormal);
+    float t = (abs(denom) >= EPS) ? (dot(planePoint - rayOrigin, planeNormal) / denom) : -1.0;
+    // t is metres along a unit ray that already points away from the eye, so
+    // "in front" is simply t > 0. No upper bound: a hit near the horizon is
+    // legitimately far away and the caller's rect clamp is what bounds it.
+    if (abs(denom) >= EPS && t > 0.0)
+    {
+        // World metres between this vertex and its grid neighbour: one grid
+        // step of view angle (spacingPerMetre, from the CPU), scaled by the
+        // distance, stretched by the incidence angle along the ray's slope.
+        // Continuous in t, which is what a shared vertex needs.
+        outSpacing = spacingPerMetre * t / max(abs(denom), 0.05);
+        return rayOrigin + rayDir * t;
+    }
+    // A missed row lands on the rim, which is as far as the surface goes.
+    outSpacing = spacingPerMetre * rimRadius;
 
-    float denom = dot(d, planeNormal);
-    float s = (abs(denom) >= EPS) ? (dot(planePoint - a, planeNormal) / denom) : 0.0;
-    vec3 candidate = a + d * s;
-
-    // In front of the camera? Ask the matrix rather than the geometry, and ask
-    // it with a plain multiply — hand-extracting the w row is one index
-    // convention away from silently testing the wrong thing.
-    // Forward axis from the view matrix (GLSL is column-major, so row 2 of the
-    // rotation is (u_View[0].z, u_View[1].z, u_View[2].z); the camera looks down
-    // its NEGATIVE z). A dot against this is metres in front of the eye — a
-    // plain geometric question with no depth convention in it.
-    vec3 viewForward = -vec3(u_View[0].z, u_View[1].z, u_View[2].z);
-    bool hit = valid && abs(denom) >= EPS && dot(candidate - u_CameraPosition, viewForward) > EPS;
-
-    // `rayOrigin` / `rayDir` below are the miss path's fall-back ray. `d` may
-    // point either way along the view line, which does not matter there either:
-    // the fall-back slides along its HORIZONTAL component and the surface rect
-    // is symmetric, so both orientations land outside it.
-    vec3 rayOrigin = a;
-    vec3 rayDir = d;
-    if (hit)
-        return candidate;
-
-    // Above the horizon, parallel to the surface, or out of depth range. Slide
-    // out along whatever horizontal component the ray has, far enough that the
-    // caller's rect clamp lands this vertex on the surface rim — the row then
-    // collapses to zero-area triangles at the water's edge instead of the
-    // ocean being extended into the sky.
-    // Every miss collapses to ONE point: the plane position directly under the
-    // camera. A whole missed row therefore becomes zero-area triangles at a
-    // single spot and rasterises as nothing.
-    //
-    // The obvious alternative — slide out along the ray's horizontal component
-    // to `rimRadius` — is what this did first and it is actively dangerous: the
-    // view line has no reliable orientation, so half those vertices land BEHIND
-    // the camera, where the projection mirrors them back across the frame as a
-    // sheet of garbage covering the near water. A degenerate point cannot do
-    // that. rimRadius is kept in the signature because the CPU mirror's own
-    // tests still describe the rim, and because a future non-degenerate
-    // fall-back will want it.
-    return u_CameraPosition - planeNormal * dot(u_CameraPosition - planePoint, planeNormal);
+    // Missed: above the horizon, or parallel to the surface. Slide out along
+    // the ray's horizontal component to the rim. The ray already points forward
+    // so this lands in front of the camera, and the caller's rect clamp then
+    // puts it on the surface edge as a zero-area row.
+    vec3 camOnPlane = rayOrigin - planeNormal * dot(rayOrigin - planePoint, planeNormal);
+    vec3 horizontal = rayDir - planeNormal * dot(rayDir, planeNormal);
+    float lenSq = dot(horizontal, horizontal);
+    if (lenSq < EPS)
+        return camOnPlane;
+    return camOnPlane + horizontal * inversesqrt(lenSq) * rimRadius;
 }
 
 void main()
@@ -379,6 +373,7 @@ void main()
     // whole surface — becomes the screen parameter.
     vec3 gridLocalPos = a_Position;
     vec2 gridUV = a_TexCoord;
+    v_ProjSpacing = u_FoamParams2.w; // the world grid's one-number spacing
     if (u_ProjectedGridParams.x > 0.5)
     {
         // The plane this surface's transform describes, in the same
@@ -399,10 +394,29 @@ void main()
         // then lifted by a crest leaves the frame, taking a band of the nearest
         // water with it: from a 3 m eye a 1.5 m crest moves it up by a quarter
         // of the vertical field of view.
-        vec2 ndc = mix(u_ProjectedGridParams.yz, u_ProjectedGridParams2.zw, gridUV);
+        //
+        // v is mapped with the NEAR edge at v = 1, not v = 0 — the flip is
+        // load-bearing. CreateWaterGrid winds its triangles counter-clockwise
+        // from above for a (u -> +x, v -> +z) frame, and +z is TOWARD a camera
+        // looking down -z. Screen-up is AWAY from the camera, so mapping v
+        // straight onto NDC y hands the same index order a frame of the opposite
+        // handedness: every triangle comes out back-facing from above, and the
+        // fragment stage's waterline rule (keep the face the camera is on) then
+        // discards the entire surface. That is not a subtle artefact — it is
+        // "the water is not there", with only a few folded rows at the rim
+        // surviving, and every intersection formulation produces it identically.
+        vec2 ndc = mix(vec2(u_ProjectedGridParams.y, u_ProjectedGridParams2.w),
+                       vec2(u_ProjectedGridParams2.z, u_ProjectedGridParams.z), gridUV);
 
-        vec3 hit = waterProjectGridVertex(inverse(u_ViewProjection), ndc,
-                                          planePoint, planeNormal, u_ProjectedGridParams.w);
+        // How far a missed ray is pushed before the rect clamp catches it: past
+        // the surface's world-space half-diagonal, doubled. Derived here rather
+        // than uploaded so the .w slot can carry the spacing step instead.
+        float rimRadius = 2.0 * length(vec2(u_ProjectedGridParams2.x * length(u_Model[0].xyz),
+                                            u_ProjectedGridParams2.y * length(u_Model[2].xyz)));
+        float projSpacing = 0.0;
+        vec3 hit = waterProjectGridVertex(ndc, planePoint, planeNormal, rimRadius,
+                                          u_ProjectedGridParams.w, projSpacing);
+        v_ProjSpacing = projSpacing;
 
         // Back into surface-local space and clamp into the authored rect. This
         // is what keeps a finite tile finite; rows that would land past the rect

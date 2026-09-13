@@ -10042,19 +10042,6 @@ namespace OloEngine
 
                         if (planeUsable)
                         {
-                            // How far a ray that reaches no plane at all is
-                            // pushed before the shader's rect clamp catches it.
-                            // The rect is in LOCAL space and the push is in
-                            // world space, so scale the extents by the
-                            // transform's own axis lengths and double it — the
-                            // only requirement is "past the rim", and
-                            // overshooting costs nothing because the clamp
-                            // follows immediately.
-                            const f32 worldHalfX = halfX * glm::length(glm::vec3(modelMat[0]));
-                            const f32 worldHalfZ = halfZ * glm::length(glm::vec3(modelMat[2]));
-                            const f32 rimRadius = std::max(
-                                2.0f * std::sqrt(worldHalfX * worldHalfX + worldHalfZ * worldHalfZ), 1.0f);
-
                             // The rectangle is a pure NDC quantity, so it may be
                             // computed from the ABSOLUTE view-projection even
                             // though the shader unprojects the render-relative
@@ -10099,8 +10086,20 @@ namespace OloEngine
                                     RHI::AdjustProjectionForBackend(viewProjection), cameraPosition,
                                     planePoint, planeNormal, displacementMargin);
 
+                            // The band-limit spacing, per metre of ray
+                            // distance (WaterSurfaceLod::SpacingPerMetre). The
+                            // vertex stage multiplies it by each vertex's own
+                            // distance, which is what makes the spacing a
+                            // continuous per-vertex quantity rather than a
+                            // per-patch one — see the tess-eval stage for what
+                            // the per-patch version did to the surface.
+                            const f32 spacingPerMetre = WaterSurfaceLod::SpacingPerMetre(
+                                ndcBounds, RHI::AdjustProjectionForBackend(projectionMatrix),
+                                std::clamp(water.m_GridResolutionX, 1u, 1024u),
+                                std::clamp(water.m_GridResolutionZ, 1u, 1024u));
+
                             waterParams.projectedGridParams =
-                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_Min.y, rimRadius);
+                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_Min.y, spacingPerMetre);
                             waterParams.projectedGridParams2 =
                                 glm::vec4(halfX, halfZ, ndcBounds.m_Max.x, ndcBounds.m_Max.y);
 

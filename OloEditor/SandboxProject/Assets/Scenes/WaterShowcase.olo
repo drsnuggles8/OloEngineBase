@@ -87,8 +87,20 @@ Entities:
       Enabled: true
       WorldSizeX: 1000
       WorldSizeZ: 1000
-      GridResolutionX: 512
-      GridResolutionZ: 512
+      # Projected grid (issue #1035): these count quads across the VIEWPORT, not
+      # across the world. As a world-space grid this surface was 512x512 over
+      # 1 km, which the census in WaterGeometryLodProfileTest measured drawing
+      # 79.9% of its triangles sub-pixel from a low grazing angle while paying
+      # 1.57 M vertex invocations a frame regardless of where the camera pointed.
+      #
+      # 256x144 rather than the 192x108 that would tile 1080p exactly, because
+      # part of the grid is deliberately laid out OUTSIDE the frame: the layout
+      # rectangle reaches below the screen so a crest can lift water into the
+      # bottom of it. At a 3 m eye that skirt is ~60% of the rows, so 256x144
+      # leaves ~60 px under every on-screen triangle at a grazing angle and
+      # ~37 px looking down. Measured; do not tune it by eye.
+      GridResolutionX: 256
+      GridResolutionZ: 144
       WaveAmplitude: 0.5
       WaveFrequency: 1.0
       WaveSpeed: 0.8
@@ -134,6 +146,11 @@ Entities:
       TessellationFactor: 8
       TessMinDistance: 10
       TessMaxDistance: 200
+      # The tessellation block above is inert while this is on: a projected
+      # grid is already at the target screen density, so the tess level is a
+      # constant 1. It is left authored so flipping this back off restores the
+      # surface this scene shipped with.
+      ProjectedGridEnabled: true
   - Entity: 300000000000004
     TagComponent:
       Tag: Submerged Cube

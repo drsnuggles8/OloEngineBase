@@ -4961,15 +4961,15 @@ namespace OloEngine
         // and starts meaning "quads across the viewport" — vertex count is then
         // set by screen resolution instead of by m_WorldSizeX/Z.
         //
-        // IN PROGRESS — off by default, and NO SCENE OPTS IN. The measurement
-        // that chose this over gradient-adaptive tessellation
-        // (WaterGeometryLodProfileTest) is complete, and so is the CPU layout it
-        // pins — the contract is Renderer/Water/WaterSurfaceLod.h. What is not
-        // done is the frame: the surface still renders incorrectly. Turning this
-        // on will draw broken water. water-ocean.md §4.1 records what is known
-        // good, what is still wrong, and the two traps already fixed.
+        // Off by default, deliberately: it changes where every water vertex
+        // lands, so a scene opts in and its goldens move with it in the same
+        // commit. The measurement that chose it over gradient-adaptive
+        // tessellation is WaterGeometryLodProfileTest; the contract is
+        // Renderer/Water/WaterSurfaceLod.h; water-ocean.md §4.1 records the
+        // five things that are load-bearing, four of which only a captured
+        // frame could find.
         //
-        // When it does work, a scene wants a much LOWER m_GridResolutionX/Z than
+        // A scene that turns this on wants a much LOWER m_GridResolutionX/Z than
         // the world-space grid needed, but not as low as the viewport suggests:
         // part of the grid is laid out deliberately OUTSIDE the frame so a wave
         // crest can lift water into the bottom edge, and at a 3 m eye that skirt

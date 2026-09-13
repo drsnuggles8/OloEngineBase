@@ -1054,8 +1054,11 @@ namespace OloEngine
             //     (-1, -1): it stops short of the sky at the top, and extends
             //     PAST the screen at the near edge by however far a wave crest
             //     can move a vertex there;
-            // w = rim radius in metres — how far a ray that misses the plane
-            //     entirely is pushed before the rect clamp catches it.
+            // w = band-limit spacing per metre of ray distance
+            //     (WaterSurfaceLod::SpacingPerMetre): one grid step of view
+            //     angle, so a vertex t metres out is sampled ~w*t metres apart.
+            //     The rim radius a missed ray is pushed to is derived in-shader
+            //     from ProjectedGridParams2.xy and the model matrix.
             glm::vec4 ProjectedGridParams;
             // xy = the surface's LOCAL half-extents, the rect a projected
             //      vertex is clamped into so a screen-space grid cannot extend a
