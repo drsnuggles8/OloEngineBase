@@ -473,9 +473,15 @@ def terrain(world_size, height_scale, seed, layers, layer_rules):
 def foliage(layers):
     s = "    FoliageComponent:\n      Enabled: true\n      Layers:\n"
     for lay in layers:
+        # Computed outside the f-string: a backslash inside an f-string
+        # expression is PEP 701 syntax, which is a SyntaxError on Python 3.11
+        # and older — and CI pins 3.10, so the generator would not even import
+        # there and "edit the generator, regenerate" would be broken for
+        # everyone but a 3.12+ workstation.
+        mesh_path = lay.get("mesh") or '""'
         s += (
             f"        - Name: {lay['name']}\n"
-            f"          MeshPath: {lay.get('mesh', '\"\"')}\n"
+            f"          MeshPath: {mesh_path}\n"
             f"          AlbedoPath: {lay['albedo']}\n"
             f"          Density: {f(lay['density'])}\n"
             f"          SplatmapChannel: {lay['channel']}\n"

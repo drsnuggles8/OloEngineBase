@@ -81,8 +81,9 @@ Cameras:
     Far: 2000.0
     WarmupFrames: 32
   # 4) MOVING. Flying forward at 8 m/s with a slow yaw, so trees cross the
-  #    impostor threshold DURING the shot — over the 32 warm-up frames
-  #    (0.533 s) the camera advances 4.27 m and yaws 1.6 degrees. That is the
+  #    impostor threshold DURING the shot — the capture is the last of frames
+  #    0..31, so it integrates 31 frames (0.517 s): 4.13 m and 1.55 degrees.
+  #    That is the
   #    condition under which an impostor pop is visible at all, and it cannot
   #    be captured from a still camera.
   - Id: moving

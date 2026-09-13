@@ -62,8 +62,9 @@ Cameras:
     Near: 0.05
     Far: 2000.0
     WarmupFrames: 32
-  # 4) MOVING. Flying forward through the field at 6 m/s — over the 32 warm-up
-  #    frames (0.533 s) the camera advances 3.2 m. Enough for the velocity
+  # 4) MOVING. Flying forward through the field at 6 m/s — the capture is the
+  #    last of frames 0..31, so it integrates 31 frames (0.517 s) and the
+  #    camera advances 3.10 m. Enough for the velocity
   #    buffer to carry the full foliage field and for alpha-test edges to
   #    crawl, which is the thing a still capture cannot show.
   - Id: moving

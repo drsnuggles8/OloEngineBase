@@ -147,6 +147,53 @@ namespace OloEngine::MCP
             };
             auto applied = std::make_shared<AppliedState>();
             const auto manifestCopy = std::make_shared<Benchmark::BenchmarkManifest>(*manifest);
+
+            // Renderer settings are restored on EVERY exit path, not just the
+            // happy one. A marshal timeout THROWS out of this handler (see the
+            // comment above), and the capture now clears ShowGrid /
+            // ShowLightGizmos / ShowWorldAxisHelper / ShowCameraFrustums in
+            // RendererSettings — which EditorLayer::SyncPrefsFromMembers copies
+            // into m_Prefs and serialises. So an abandoned capture would leave
+            // the user's editor permanently without a grid AND write that into
+            // their preferences file. The scene-only disable this replaced was
+            // self-healing by accident; this is self-healing on purpose.
+            struct RendererStateRestoreGuard
+            {
+                IAutomationHost* Host = nullptr;
+                std::shared_ptr<AppliedState> State;
+                bool Armed = false;
+
+                void Disarm() noexcept
+                {
+                    Armed = false;
+                }
+
+                ~RendererStateRestoreGuard()
+                {
+                    if (!Armed || Host == nullptr)
+                    {
+                        return;
+                    }
+                    // Best effort, and never throw out of a destructor: this
+                    // runs while an exception is already in flight.
+                    try
+                    {
+                        auto state = State;
+                        Host->MarshalRead(
+                            [state]() -> Json
+                            {
+                                Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
+                                Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
+                                Renderer3D::ApplyRendererSettings();
+                                Renderer3D::SetRenderScale(state->PriorRenderScale);
+                                return Json{ { "ok", true } };
+                            });
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            } restoreGuard{ &host, applied, /*Armed=*/false };
             host.MarshalRead(
                 [&host, applied, manifestCopy, isVulkan]() -> Json
                 {
@@ -213,6 +260,9 @@ namespace OloEngine::MCP
                     return Json{ { "ok", true } };
                 },
                 kBenchmarkMarshalTimeout);
+
+            // The settings are now overwritten, so the guard becomes live.
+            restoreGuard.Armed = true;
 
             // ---- Per camera: pose, warm, capture --------------------------
             // The editor camera seam controls pose + FOV only — the manifest's
@@ -352,6 +402,9 @@ namespace OloEngine::MCP
                     }
                     return Json{ { "ok", true } };
                 });
+
+            // The epilogue above did the restore; the guard must not repeat it.
+            restoreGuard.Disarm();
 
             // ---- Result directory -----------------------------------------
             Benchmark::RunInfo runInfo;

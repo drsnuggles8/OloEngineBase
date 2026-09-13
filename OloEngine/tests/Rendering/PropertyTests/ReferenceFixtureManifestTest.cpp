@@ -317,11 +317,21 @@ TEST(ReferenceFixtureManifest, RejectsUnknownProvenanceKey)
 
 TEST(ReferenceFixtureManifest, RejectsEmptyAssetsInV2)
 {
-    const auto text = Replaced(ValidV2Manifest(), "Assets:", "NotAssets:");
-    std::string error;
-    const auto parsed = LoadBenchmarkManifest(WriteManifest("no-assets", text), error);
-    EXPECT_FALSE(parsed.has_value());
-    EXPECT_NE(error.find("Assets"), std::string::npos) << error;
+    // Both spellings of "no assets documented". The second is the one that
+    // slipped through: `Assets: []` IS a sequence, so a guard that only checked
+    // IsSequence let a v2 manifest satisfy the provenance requirement
+    // vacuously — the exact failure the requirement exists to prevent.
+    const auto renamed = Replaced(ValidV2Manifest(), "Assets:", "NotAssets:");
+    const auto emptySequence = ValidV2Manifest().substr(0, ValidV2Manifest().find("Assets:")) + "Assets: []\n";
+    for (const auto& [label, text] : { std::pair{ "no-assets-key", renamed },
+                                       std::pair{ "empty-assets-list", emptySequence } })
+    {
+        SCOPED_TRACE(label);
+        std::string error;
+        const auto parsed = LoadBenchmarkManifest(WriteManifest(label, text), error);
+        EXPECT_FALSE(parsed.has_value()) << "accepted a v2 manifest documenting no assets";
+        EXPECT_NE(error.find("Assets"), std::string::npos) << error;
+    }
 }
 
 TEST(ReferenceFixtureManifest, RejectsCameraMotionInV1)
@@ -469,11 +479,20 @@ TEST(ReferenceFixtureManifest, FixtureMotionStaysBounded)
             const auto start = CameraPoseAtFrame(camera, 0u, parsed->FixedDtSeconds);
             const auto end = CameraPoseAtFrame(camera, warmFrames - 1u, parsed->FixedDtSeconds);
             const f32 travelled = glm::length(end.Position - start.Position);
+            const f32 turned = std::abs(end.YawDegrees - start.YawDegrees) +
+                               std::abs(end.PitchDegrees - start.PitchDegrees);
             SCOPED_TRACE(parsed->Id + " / " + camera.Id);
-            // A shot that moves less than a centimetre is a still frame with
-            // extra ceremony; one that moves more than the scenes are wide has
+            // A shot that neither moves nor turns is a still frame with extra
+            // ceremony; one that travels further than the scenes are wide has
             // left the fixture behind. Both are authoring mistakes.
-            EXPECT_GT(travelled, 0.01f) << "moving camera barely moves over its warm-up";
+            //
+            // ROTATION COUNTS. A pure pan — zero velocity, non-zero yaw rate —
+            // is schema-legal and is a perfectly good moving sequence (it fills
+            // the velocity buffer just as well), so requiring translation would
+            // fail a fixture that is entirely correct.
+            EXPECT_TRUE(travelled > 0.01f || turned > 0.1f)
+                << "moving camera neither moves nor turns over its warm-up (travelled " << travelled
+                << " m, turned " << turned << " deg)";
             EXPECT_LT(travelled, 96.0f) << "moving camera leaves the fixture's terrain tile";
         }
     }

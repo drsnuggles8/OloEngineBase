@@ -449,7 +449,8 @@ shows the cards turning edge-on.
 ### [Benchmark/Woodland.olo](Benchmark/Woodland.olo)
 
 **Purpose**: canopy vegetation and impostor-transition reference.
-**Contents**: same terrain generator at a 9 m height scale, pine/palm mesh layers with
+**Contents**: same terrain generator at a 6 m height scale and its own forest-floor palette
+(the meadow's would flood the tile with its snow layer), pine/palm mesh layers with
 octahedral impostors beyond 45 m, plus a grass understory.
 **Pass**: every camera frames the impostor cross-fade band — mesh near, cards far, blend
 between.

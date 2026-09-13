@@ -97,7 +97,13 @@ def check_asset(record):
             actual = sha256_of(target)
             if actual == declared:
                 return OK, "local copy present and matching"
-            return OK, f"local copy present, hash differs from the recorded one ({actual[:12]}…)"
+            # A local copy whose bytes differ from the recorded hash is exactly
+            # what recording the hash is for: the fixture would render from
+            # something other than what the manifest documents. Reporting it as
+            # ok made the one class of asset nobody else can check the one
+            # class that could never fail.
+            return MISMATCH, (f"local copy present but does NOT match the recorded hash "
+                              f"(declared {declared[:12]}…, actual {actual[:12]}…)")
         return LOCAL_GAP, "not present — rights forbid shipping it; see Acquisition"
 
     if not target.exists():
@@ -157,18 +163,23 @@ def cmd_verify(args):
     # A path declared with two different hashes means two manifests disagree
     # about what they rendered — worth its own line, since each record on its
     # own can still verify.
+    conflicts = 0
     for rel, entries in sorted(by_path.items()):
         if len(entries) > 1:
-            failures += 1
+            conflicts += 1
             print(f"\nCONFLICT: {rel} is declared with {len(entries)} different hashes:")
             for record, users in entries:
                 print(f"   {record.get('Sha256', '')[:16]}…  by {', '.join(sorted(set(users)))}")
 
-    print(f"\n{len(records) - failures - gaps} ok, {failures} failure(s), {gaps} declared gap(s)")
+    # Conflicts are counted apart from failures: a conflict is a property of a
+    # PATH declared twice, not of a record, so folding it into `failures` made
+    # the ok-count wrong — and, with enough conflicts, negative.
+    print(f"\n{len(records) - failures - gaps} ok, {failures} failure(s), "
+          f"{conflicts} conflict(s), {gaps} declared gap(s)")
     if gaps:
         print("declared gaps are not failures — they are assets this repository "
               "deliberately does not ship. See the Acquisition field.")
-    return 1 if failures else 0
+    return 1 if (failures or conflicts) else 0
 
 
 def cmd_write_hashes(args):

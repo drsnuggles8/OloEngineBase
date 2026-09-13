@@ -66,8 +66,8 @@ Cameras:
   # 4) MOVING. A tracking shot drifting past the subject while the Walk clip
   #    plays, so the velocity buffer carries BOTH camera parallax and skinned
   #    deformation — the combination that makes temporal reprojection hard and
-  #    that a still capture cannot show at all. Over 32 frames (0.533 s) the
-  #    camera travels -0.85 m in X.
+  #    that a still capture cannot show at all. The capture is the last of
+  #    frames 0..31, so it integrates 31 frames (0.517 s): -0.83 m in X.
   - Id: moving
     Position: [2.20, 0.65, 2.20]
     YawDegrees: -45.0

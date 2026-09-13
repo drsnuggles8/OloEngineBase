@@ -266,10 +266,22 @@ namespace OloEngine::Benchmark
             // An all-zero Motion block is a still shot wearing a moving shot's
             // clothes: the manifest would advertise a velocity-buffer stress
             // that the capture does not produce. Say so instead of shrugging.
-            if (motion.VelocityPerSecond == glm::vec3(0.0f) && motion.YawRateDegreesPerSecond == 0.0f &&
-                motion.PitchRateDegreesPerSecond == 0.0f)
+            //
+            // Compared against an epsilon rather than with ==, both because
+            // CLAUDE.md forbids float/glm equality and because a denormal-scale
+            // rate like 1e-30 is a still shot in every way that matters — it
+            // would move the camera by less than a nanometre over the warm-up
+            // and still claim to be a moving sequence. The bound is far below
+            // any rate a real shot uses (the committed fixtures run 1.2-8 m/s
+            // and 3-6 deg/s) and far above float noise.
+            constexpr f32 kMinMotionRate = 1.0e-4f;
+            const bool hasTranslation = glm::length(motion.VelocityPerSecond) > kMinMotionRate;
+            const bool hasRotation = std::abs(motion.YawRateDegreesPerSecond) > kMinMotionRate ||
+                                     std::abs(motion.PitchRateDegreesPerSecond) > kMinMotionRate;
+            if (!hasTranslation && !hasRotation)
             {
-                errors.Add(context + ": all motion rates are zero — omit the Motion block for a still camera");
+                errors.Add(context + ": all motion rates are zero (or below " + std::to_string(kMinMotionRate) +
+                           ") — omit the Motion block for a still camera");
             }
             return motion;
         }
@@ -820,7 +832,10 @@ namespace OloEngine::Benchmark
             errors.Add("Tolerance is required (RepeatRmse — the documented run-twice bound)");
         }
 
-        if (const auto assets = root["Assets"]; assets && assets.IsSequence())
+        // `assets && assets.IsSequence() && assets.size() > 0` on purpose: an
+        // EMPTY `Assets: []` is a sequence, so guarding only on IsSequence let
+        // a v2 manifest satisfy "every asset is documented" vacuously.
+        if (const auto assets = root["Assets"]; assets && assets.IsSequence() && assets.size() > 0)
         {
             const bool requireProvenance = manifest.ManifestVersion >= 2u;
             sizet index = 0;

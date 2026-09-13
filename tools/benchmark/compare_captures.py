@@ -73,6 +73,11 @@ def load_hdr(path):
                 while x < width:
                     count = body[pos]
                     pos += 1
+                    if count == 0:
+                        # Neither branch below advances x, so a zero run length
+                        # spins forever instead of failing loudly the way this
+                        # reader promises. It is not legal RLE either.
+                        raise ValueError(f"{path.name}: zero run length at scanline {y}, channel {c}")
                     if count > 128:  # a run
                         out[y, x:x + count - 128, c] = body[pos]
                         x += count - 128
