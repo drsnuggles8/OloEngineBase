@@ -592,6 +592,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
+		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp

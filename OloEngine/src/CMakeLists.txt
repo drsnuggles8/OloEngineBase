@@ -1272,6 +1272,10 @@
 		"OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.h"
 		"OloEngine/Terrain/Voxel/VoxelGreedyMeshBuilder.cpp"
 		"OloEngine/Terrain/Foliage/FoliageLayer.h"
+		"OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
+		"OloEngine/Terrain/Foliage/FoliageInstanceRegistry.cpp"
+		"OloEngine/Terrain/Foliage/FoliagePlacement.h"
+		"OloEngine/Terrain/Foliage/FoliagePlacement.cpp"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 

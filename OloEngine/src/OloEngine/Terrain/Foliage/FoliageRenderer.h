@@ -5,6 +5,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
+#include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include <glm/glm.hpp>
@@ -26,6 +27,12 @@ namespace OloEngine
     // Uses u32 for GL resource IDs to avoid pulling in RenderCommand.h.
     struct FoliageLayerDrawInfo
     {
+        // Physical layer slot this draw came from. Carried so identity
+        // survives command submission (issue #1230): a consumer holding a
+        // draw can reach the layer's canonical records and spatial groups via
+        // FoliageRenderer::GetInstanceRegistry(). Not the index of this entry
+        // in the returned vector — inactive layers are skipped.
+        u32 LayerIndex = 0;
         RHI::ResourceHandle VertexArrayID{};
         u32 IndexCount = 0;
         u32 InstanceCount = 0;
@@ -84,6 +91,12 @@ namespace OloEngine
             const TerrainMaterial* material,
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
+        // The whole system stopped drawing — the component was disabled, or its
+        // last layer was removed. Retires every canonical instance rather than
+        // leaving records that claim plants exist (issue #1230); ids are not
+        // reused afterwards. Idempotent, so Scene can call it unconditionally.
+        void ClearInstances();
+
         // Render all visible foliage layers (frustum culled per-chunk groups)
         void Render(
             const Frustum& frustum,
@@ -113,6 +126,19 @@ namespace OloEngine
         void SetTerrainTransform(const glm::mat4& transform)
         {
             m_TerrainTransform = transform;
+            // The canonical records are terrain-local, so a terrain that moves
+            // invalidates no identity (issue #1230) -- only the groups' cached
+            // world bounds change, and the registry no-ops when the matrix is
+            // unchanged, which is the common case since this runs every frame.
+            m_Registry.SetTerrainTransform(transform);
+        }
+
+        // Canonical per-instance identity, spatial groups and the
+        // represented-vs-unsupported census (issue #1230). The instance VBO is
+        // a PROJECTION of these records; nothing may key state on a buffer row.
+        [[nodiscard]] const FoliageInstanceRegistry& GetInstanceRegistry() const
+        {
+            return m_Registry;
         }
 
         [[nodiscard]] u32 GetTotalInstanceCount() const;
@@ -175,6 +201,7 @@ namespace OloEngine
         void UpdateImpostorAtlas(LayerRenderData& data, const FoliageLayer& layer);
 
         std::vector<LayerRenderData> m_Layers;
+        FoliageInstanceRegistry m_Registry;
         glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
         f32 m_Time = 0.0f;

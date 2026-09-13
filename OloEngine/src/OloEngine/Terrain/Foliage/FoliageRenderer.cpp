@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -22,24 +23,10 @@
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Model.h"
 
-#include <cstring>
 #include <glm/gtc/constants.hpp>
 
 namespace OloEngine
 {
-    // Simple hash for deterministic placement — returns float in [0, 1)
-    static f32 HashPosition(f32 x, f32 z, u32 seed)
-    {
-        u32 hx, hz;
-        f32 fx = x * 73856093.0f;
-        f32 fz = z * 19349663.0f;
-        std::memcpy(&hx, &fx, sizeof(u32));
-        std::memcpy(&hz, &fz, sizeof(u32));
-        u32 h = hx ^ hz ^ seed;
-        h = (h * 2654435761u) >> 16;
-        return static_cast<f32>(h & 0xFFFF) / 65536.0f;
-    }
-
     FoliageRenderer::~FoliageRenderer()
     {
         for (auto& layer : m_Layers)
@@ -156,6 +143,21 @@ namespace OloEngine
             ImpostorBaker::Free(m_Layers[i].Impostor);
         m_Layers.resize(layers.size());
 
+        // Canonical identity (issue #1230). Everything live becomes a candidate
+        // for survival; a placement this pass does not re-emit — because its
+        // layer vanished, was disabled, or its cell stopped qualifying — retires
+        // at EndGeneration and its id is never handed to another plant.
+        m_Registry.BeginGeneration();
+
+        // One CPU/GPU height sync for the whole generation rather than two per
+        // grid cell, which is what going through TerrainData::GetHeightAt and
+        // GetNormalAt cost (each calls SyncFromGPU).
+        const std::vector<f32>& heights = terrainData.GetHeightData();
+        const u32 heightResolution = terrainData.GetResolution();
+
+        std::vector<FoliagePlacement::Placement> placements;
+        std::vector<FoliageInstanceData> instances;
+
         for (sizet layerIdx = 0; layerIdx < layers.size(); ++layerIdx)
         {
             const auto& layer = layers[layerIdx];
@@ -163,6 +165,11 @@ namespace OloEngine
 
             if (!layer.Enabled || layer.Density <= 0.0f)
             {
+                // Draws nothing, so it owns no canonical instances. No
+                // BeginLayer means EndGeneration retires whatever it had;
+                // re-enabling the layer issues FRESH ids rather than reviving
+                // the old ones, which is the deterministic answer and never a
+                // silent reuse.
                 renderData.InstanceCount = 0;
                 continue;
             }
@@ -195,95 +202,45 @@ namespace OloEngine
             renderData.ImpostorTransitionBand = layer.ImpostorTransitionBand;
             UpdateImpostorAtlas(renderData, layer);
 
-            // Calculate grid spacing from density
-            f32 spacing = 1.0f / std::sqrt(layer.Density);
-            u32 countX = static_cast<u32>(std::ceil(worldSizeX / spacing));
-            u32 countZ = static_cast<u32>(std::ceil(worldSizeZ / spacing));
+            FoliagePlacement::GenerateLayer(layer, static_cast<u32>(layerIdx), heights, heightResolution,
+                                            material, worldSizeX, worldSizeZ, heightScale, placements);
 
-            // Get splatmap data for density masking
-            const u8* splatData = nullptr;
-            u32 splatRes = 0;
-            if (material && layer.SplatmapChannel >= 0 && layer.SplatmapChannel < 8)
+            // Explicit representation metadata, not a flag a consumer has to
+            // re-derive. A layer that asked for an impostor and did not get one
+            // still draws as a flat card, so its instances are MeshCard — but
+            // the VARIANT it authored is unavailable, and that is counted
+            // rather than left to the one-off warning in UpdateImpostorAtlas.
+            const bool impostorRequested = layer.UseImpostor;
+            const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
+            FoliageRepresentation representation = FoliageRepresentation::Unsupported;
+            if (impostorAvailable)
             {
-                i32 splatIdx = layer.SplatmapChannel / 4;
-                if (material->HasCPUSplatmaps())
-                {
-                    const auto& splatmapVec = material->GetSplatmapData(static_cast<u32>(splatIdx));
-                    if (!splatmapVec.empty())
-                    {
-                        splatData = splatmapVec.data();
-                        splatRes = material->GetSplatmapResolution();
-                    }
-                }
+                representation = FoliageRepresentation::Impostor;
+            }
+            else if (renderData.VAO)
+            {
+                representation = FoliageRepresentation::MeshCard;
             }
 
-            f32 cosMinSlope = std::cos(glm::radians(layer.MaxSlopeAngle));
-            f32 cosMaxSlope = std::cos(glm::radians(layer.MinSlopeAngle));
+            m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
+                                  FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
+                                  FoliagePlacement::SpacingForDensity(layer.Density),
+                                  worldSizeX, worldSizeZ,
+                                  representation, impostorRequested && !impostorAvailable);
 
-            std::vector<FoliageInstanceData> instances;
-            instances.reserve(static_cast<sizet>(countX) * countZ / 4); // Estimate ~25% coverage
-
-            u32 seed = static_cast<u32>(layerIdx * 17 + 31);
-
-            for (u32 iz = 0; iz < countZ; ++iz)
+            // The buffer row is assigned here and recorded as a PROJECTION of
+            // the record. Identity comes from the placement cell, so a
+            // regeneration that emits the same plants in a different order
+            // leaves every id untouched.
+            instances.clear();
+            instances.reserve(placements.size());
+            for (const auto& placement : placements)
             {
-                for (u32 ix = 0; ix < countX; ++ix)
-                {
-                    // Jittered position
-                    f32 jx = HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed);
-                    f32 jz = HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed + 7);
-
-                    f32 worldX = (static_cast<f32>(ix) + jx) * spacing;
-                    f32 worldZ = (static_cast<f32>(iz) + jz) * spacing;
-
-                    if (worldX >= worldSizeX || worldZ >= worldSizeZ)
-                        continue;
-
-                    f32 nx = worldX / worldSizeX;
-                    f32 nz = worldZ / worldSizeZ;
-
-                    // Slope check
-                    glm::vec3 normal = terrainData.GetNormalAt(nx, nz, worldSizeX, worldSizeZ, heightScale);
-                    // dot(normal, up)
-                    if (f32 upDot = normal.y; upDot < cosMinSlope || upDot > cosMaxSlope)
-                        continue;
-
-                    // Splatmap density check
-                    if (splatData && splatRes > 0)
-                    {
-                        u32 sx = std::min(static_cast<u32>(nx * static_cast<f32>(splatRes)), splatRes - 1);
-                        u32 sz = std::min(static_cast<u32>(nz * static_cast<f32>(splatRes)), splatRes - 1);
-                        i32 channelInSplat = layer.SplatmapChannel % 4;
-                        // Splatmap is RGBA packed, so index = (sz * splatRes + sx) * 4 + channel
-                        f32 splatWeight = static_cast<f32>(splatData[(sz * splatRes + sx) * 4 + channelInSplat]) / 255.0f;
-                        f32 threshold = HashPosition(static_cast<f32>(ix) + 0.5f, static_cast<f32>(iz) + 0.5f, seed + 13);
-                        if (threshold > splatWeight)
-                            continue;
-                    }
-
-                    // Height
-                    f32 height = terrainData.GetHeightAt(nx, nz) * heightScale;
-
-                    // Randomize scale and height
-                    f32 scaleRand = HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed + 3);
-                    f32 heightRand = HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed + 5);
-                    f32 scale = glm::mix(layer.MinScale, layer.MaxScale, scaleRand);
-                    f32 instanceHeight = glm::mix(layer.MinHeight, layer.MaxHeight, heightRand);
-
-                    // Random rotation
-                    f32 rotation = 0.0f;
-                    if (layer.RandomRotation)
-                    {
-                        rotation = HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed + 11) * glm::two_pi<f32>();
-                    }
-
-                    FoliageInstanceData instance;
-                    instance.PositionScale = glm::vec4(worldX, height, worldZ, scale);
-                    instance.RotationHeight = glm::vec4(rotation, instanceHeight, 1.0f, 0.0f); // fade=1 (full)
-                    instance.ColorAlpha = glm::vec4(layer.BaseColor, layer.AlphaCutoff);
-                    instances.push_back(instance);
-                }
+                m_Registry.AddInstance(placement.m_CellX, placement.m_CellZ, placement.m_Row,
+                                       static_cast<u32>(instances.size()));
+                instances.push_back(placement.m_Row);
             }
+            m_Registry.EndLayer();
 
             // Compute bounding box from all instance positions (with height expansion)
             if (!instances.empty())
@@ -310,6 +267,17 @@ namespace OloEngine
             }
 
             UploadInstances(renderData, instances);
+        }
+
+        m_Registry.EndGeneration();
+    }
+
+    void FoliageRenderer::ClearInstances()
+    {
+        m_Registry.Clear();
+        for (auto& layer : m_Layers)
+        {
+            layer.InstanceCount = 0;
         }
     }
 
@@ -523,14 +491,16 @@ namespace OloEngine
         std::vector<FoliageLayerDrawInfo> result;
         result.reserve(m_Layers.size());
 
-        for (const auto& layer : m_Layers)
+        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.size()); ++layerIndex)
         {
+            const auto& layer = m_Layers[layerIndex];
             if (layer.InstanceCount == 0 || !layer.VAO)
             {
                 continue;
             }
 
             FoliageLayerDrawInfo info;
+            info.LayerIndex = layerIndex;
             info.VertexArrayID = layer.VAO->GetRHIHandle();
             info.IndexCount = layer.IndexCount;
             info.InstanceCount = layer.InstanceCount;

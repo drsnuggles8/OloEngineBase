@@ -525,6 +525,14 @@ namespace OloEngine
         }
     }
 
+    void Renderer3D::ReportFoliageCensusGPUScene(const GPUSceneFoliageStats& census)
+    {
+        if (s_Data.GPUSceneExtractionActive)
+        {
+            s_Data.SceneGPU.ReportFoliageCensus(census);
+        }
+    }
+
     void Renderer3D::ResetGPUScene()
     {
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);

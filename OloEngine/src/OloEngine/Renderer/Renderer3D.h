@@ -384,6 +384,10 @@ namespace OloEngine
         // extracts it once per frame, just before the registry commits.
         static void ExtractGPUSceneEnvironment();
         static void ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count = 1);
+        // Foliage's per-instance representation census (issue #1230): how much
+        // foliage has canonical identity, how it is represented, and what the
+        // raster path cannot draw. Reported once per FoliageComponent.
+        static void ReportFoliageCensusGPUScene(const GPUSceneFoliageStats& census);
         // Explicit discontinuity seam for editor/runtime camera teleports and scene
         // transitions. Resize and render-scale changes are detected by RenderGraph.
         static u32 InvalidateTemporalHistories(

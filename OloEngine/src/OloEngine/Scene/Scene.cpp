@@ -7326,6 +7326,13 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Terrain,
             static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
+        // One tick per foliage SYSTEM, meaning "this system does not consume
+        // GPU Scene instance records" — still true, foliage rides its own
+        // vertex stream (see GPUSceneLegacyAdapters). What each system CONTAINS
+        // is reported per instance further down, once the foliage pass has run:
+        // GPUSceneFrameStats::m_Foliage distinguishes plants with canonical
+        // identity, and how they are represented, from the ones the raster path
+        // cannot draw (issue #1230).
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Foliage,
             static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
@@ -8732,7 +8739,17 @@ namespace OloEngine
                     auto& foliage = foliageView.get<FoliageComponent>(entity);
 
                     if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                    {
+                        // Nothing draws, so nothing should still be claiming to
+                        // exist. Without this the registry kept the records of a
+                        // switched-off system and its census reported plants the
+                        // frame does not contain (issue #1230).
+                        if (foliage.m_Renderer)
+                        {
+                            foliage.m_Renderer->ClearInstances();
+                        }
                         continue;
+                    }
 
                     if (!foliage.m_Renderer)
                     {
@@ -8761,6 +8778,21 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         foliage.m_NeedsRebuild = false;
                     }
+
+                    // Publish this system's representation census (issue #1230).
+                    // Reported every frame, not just on a rebuild: the registry
+                    // holds its records between regenerations, and a diagnostic
+                    // that only appeared on the frame something was rebuilt
+                    // would read as "no foliage" for every other frame.
+                    const auto& census = foliage.m_Renderer->GetInstanceRegistry().GetCensus();
+                    Renderer3D::ReportFoliageCensusGPUScene(GPUSceneFoliageStats{
+                        .m_CanonicalInstances = census.m_CanonicalInstances,
+                        .m_MeshCardInstances = census.m_MeshCardInstances,
+                        .m_ImpostorInstances = census.m_ImpostorInstances,
+                        .m_UnsupportedInstances = census.m_UnsupportedInstances,
+                        .m_UnsupportedVariants = census.m_UnsupportedVariants,
+                        .m_SpatialGroups = census.m_SpatialGroups,
+                    });
                 }
             }
 

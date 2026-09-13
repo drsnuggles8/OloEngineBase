@@ -552,6 +552,37 @@ namespace OloEngine
         u64 m_UploadBytes = 0;
     };
 
+    // Foliage representation census (issue #1230).
+    //
+    // Foliage still rides its own vertex stream rather than consuming instance
+    // records (see GPUSceneLegacyAdapters), so before this it appeared in the
+    // diagnostics as a single "Foliage" unsupported tick per FoliageComponent
+    // — a placeholder that said nothing about how much foliage there was or
+    // what the renderer could actually do with it.
+    //
+    // These counts come from FoliageInstanceRegistry, which now gives every
+    // plant a stable id, bounds, a material association and explicit
+    // representation metadata. They are deliberately plain u32s rather than a
+    // reference to the foliage types: diagnostics must not drag a Terrain
+    // header into the renderer's core type header.
+    struct GPUSceneFoliageStats
+    {
+        // Plants with canonical identity this frame.
+        u32 m_CanonicalInstances = 0;
+        // Of those, how each is represented.
+        u32 m_MeshCardInstances = 0;
+        u32 m_ImpostorInstances = 0;
+        // Canonical, but the raster path draws nothing for them.
+        u32 m_UnsupportedInstances = 0;
+        // Layers whose AUTHORED representation is unavailable — today an
+        // impostor atlas that failed to bake, which silently fell back to a
+        // flat card. The plants still draw; the variant does not.
+        u32 m_UnsupportedVariants = 0;
+        u32 m_SpatialGroups = 0;
+
+        [[nodiscard]] auto operator==(const GPUSceneFoliageStats&) const -> bool = default;
+    };
+
     struct GPUSceneFrameStats
     {
         GPUSceneKindStats m_Instances;
@@ -565,6 +596,7 @@ namespace OloEngine
         u64 m_UploadBytes = 0;
         f64 m_ExtractionTimeMs = 0.0;
         std::array<u32, GPUSceneUnsupportedCategoryCount> m_UnsupportedCounts{};
+        GPUSceneFoliageStats m_Foliage;
     };
 
     struct GPUSceneFrameUpdate
