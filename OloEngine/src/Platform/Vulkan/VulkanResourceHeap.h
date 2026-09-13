@@ -48,6 +48,9 @@ namespace OloEngine
         // its own reserved range below.
         [[nodiscard]] u32 AllocateSlot();
         static constexpr u32 InvalidSlot = 0xFFFFFFFFu;
+        // Total slots in the heap; the engine heap reserves a prefix and the slot
+        // cache bump-allocates the rest (kept public so that split can be asserted).
+        static constexpr u32 kSlotCapacity = 8192;
 
         // Reserve slots [0, count) for an EXTERNAL slot manager (the engine
         // RHI::DescriptorHeap, #691): bump allocation then starts at
@@ -101,10 +104,10 @@ namespace OloEngine
         [[nodiscard]] bool WriteImageDescriptor(u32 slot, const VkImageViewCreateInfo& viewInfo, VkImageLayout layout,
                                                 VkDescriptorType type);
 
-        // 5120 engine-heap slots (kDescriptorHeapSlots — persistent 4096 +
-        // transient ring 1024, the GL-parity capacities) + headroom for the
-        // draw-path slot cache. 8192 x 32 B stride ≈ 256 KiB — trivial.
-        static constexpr u32 kSlotCapacity = 8192;
+        // 6144 engine-heap slots (persistent 4096 + a 1024-slot transient
+        // sub-ring per frame in flight, two here — see
+        // VulkanDescriptorHeapBackend::Initialize) + headroom for the draw-path
+        // slot cache. 8192 x 32 B stride ≈ 256 KiB — trivial.
         u32 m_ReservedSlots = 0; ///< [0, m_ReservedSlots) belongs to the engine heap.
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 
 namespace OloEngine::RHI
 {
@@ -47,7 +48,7 @@ namespace OloEngine::RHI
         {
             if (m_Slots[index].Live)
             {
-                ReleaseSlotLocked(index);
+                ReleaseSlotLocked(index, /*publishPoison=*/true);
             }
         }
 
@@ -55,8 +56,31 @@ namespace OloEngine::RHI
         m_Backend = backend;
         m_PersistentCapacity = desc.ResourceSlotCapacity;
         m_TransientCapacity = desc.FrameTransientRingSlots;
+        m_TransientFrames = std::max(desc.FrameTransientRingFrames, 1u);
+        m_TransientFrame = 0u;
 
-        const u32 total = m_PersistentCapacity + m_TransientCapacity;
+        // WIDENED, because the reserved-null block below is gated on
+        // m_PersistentCapacity rather than on `total`. If this arithmetic wrapped,
+        // a heap with a large persistent capacity would size m_Mirror to the
+        // wrapped value, pass that gate, and write offsets 0..9 out of bounds.
+        // The multiplication makes wrapping cheaper to reach than the plain sum it
+        // replaced, so reject it rather than rely on callers passing sane sizes.
+        const u64 requestedTotal =
+            static_cast<u64>(m_PersistentCapacity) + static_cast<u64>(m_TransientCapacity) * m_TransientFrames;
+        if (requestedTotal > static_cast<u64>(std::numeric_limits<u32>::max()))
+        {
+            // Capacity 0 lands in the existing "too small to hold its own
+            // invariants" path below, which refuses to enable the heap — the
+            // honest answer here too, and louder than a wrapped allocation.
+            OLO_CORE_ERROR("[DescriptorHeap] refusing to initialise: {} persistent + {} transient x {} frames "
+                           "overflows a u32 slot index ({} slots requested)",
+                           m_PersistentCapacity, m_TransientCapacity, m_TransientFrames, requestedTotal);
+            m_PersistentCapacity = 0u;
+            m_TransientCapacity = 0u;
+            m_TransientFrames = 1u;
+        }
+
+        const u32 total = static_cast<u32>(m_PersistentCapacity) + m_TransientCapacity * m_TransientFrames;
 
         // PRESERVE THE GENERATION COUNTERS. The retire loop above advanced each
         // one precisely so a handle minted against the previous device cannot
@@ -160,6 +184,7 @@ namespace OloEngine::RHI
         }
 
         m_TransientCursor = 0u;
+        m_TransientFrame = 0u;
         m_SamplerSlots.clear();
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
@@ -213,7 +238,7 @@ namespace OloEngine::RHI
         {
             if (m_Slots[index].Live)
             {
-                ReleaseSlotLocked(index);
+                ReleaseSlotLocked(index, /*publishPoison=*/true);
             }
         }
 
@@ -228,6 +253,7 @@ namespace OloEngine::RHI
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
         m_TransientCursor = 0u;
+        m_TransientFrame = 0u;
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
         m_Stats.PersistentLive = 0u;
@@ -368,7 +394,7 @@ namespace OloEngine::RHI
                 ++m_Stats.TransientOverflows;
                 return {};
             }
-            index = m_PersistentCapacity + m_TransientCursor;
+            index = m_PersistentCapacity + m_TransientFrame * m_TransientCapacity + m_TransientCursor;
             ++m_TransientCursor;
             m_Stats.TransientThisFrame = m_TransientCursor;
             m_Stats.TransientHighWater = std::max(m_Stats.TransientHighWater, m_TransientCursor);
@@ -552,7 +578,7 @@ namespace OloEngine::RHI
             return;
         }
 
-        ReleaseSlotLocked(view.Index);
+        ReleaseSlotLocked(view.Index, /*publishPoison=*/true);
         m_PersistentFreeList.push_back(view.Index);
         --m_Stats.PersistentLive;
     }
@@ -612,17 +638,52 @@ namespace OloEngine::RHI
     {
         const std::lock_guard lock(m_Mutex);
 
+        // 1. Every view this frame minted goes stale NOW — generation advance,
+        //    bookkeeping release — so a transient offset held into the next
+        //    frame is detectably dead (ADR 0011 §1.2). The PUBLISHED table is a
+        //    different matter: the frame that indexed these slots may still be
+        //    executing (the backend allows FrameTransientRingFrames in flight),
+        //    and a descriptor rewritten under a running dispatch — the poison
+        //    included — is a device fault on a queue that runs behind the CPU
+        //    (issue #1198). With one sub-ring the write goes out as before.
+        const bool singleRing = m_TransientFrames == 1u;
+        const u32 usedBase = m_PersistentCapacity + m_TransientFrame * m_TransientCapacity;
         for (u32 offset = 0u; offset < m_TransientCursor; ++offset)
         {
-            const u32 index = m_PersistentCapacity + offset;
+            const u32 index = usedBase + offset;
             if (m_Slots[index].Live)
             {
-                ReleaseSlotLocked(index);
+                ReleaseSlotLocked(index, /*publishPoison=*/singleRing);
             }
         }
 
+        // 2. Next frame allocates from the sub-ring last used
+        //    FrameTransientRingFrames resets ago. RenderGraph::Execute runs after
+        //    the backend's frame wait, which is what proves that frame retired.
+        m_TransientFrame = (m_TransientFrame + 1u) % m_TransientFrames;
         m_TransientCursor = 0u;
         m_Stats.TransientThisFrame = 0u;
+
+        // 3. Publish the poison deferred at step 1 a lap ago, now that nothing
+        //    can still index these slots and before anything new lands in them.
+        if (singleRing)
+        {
+            return;
+        }
+        const u32 nextBase = m_PersistentCapacity + m_TransientFrame * m_TransientCapacity;
+        for (u32 offset = 0u; offset < m_TransientCapacity; ++offset)
+        {
+            const u32 index = nextBase + offset;
+            ViewSlot& slot = m_Slots[index];
+            if (!slot.PoisonPending)
+            {
+                continue;
+            }
+            slot.PoisonPending = false;
+            m_Mirror[index] = slot.Descriptor; // the typed poison chosen at release
+            MarkDirtyLocked(index);
+            ++m_Stats.SlotsPoisoned;
+        }
     }
 
     void DescriptorHeap::Flush()
@@ -683,7 +744,15 @@ namespace OloEngine::RHI
 
             // Drops residency (refcounted), poisons the published slot and
             // advances the generation so held handles report stale.
-            ReleaseSlotLocked(index);
+            //
+            // A TRANSIENT slot reaches this loop too (see the free-list note
+            // below), and retiring a resource mid-frame is exactly when its
+            // sub-ring may still be in flight. Publishing poison here would put
+            // the previous frame's GPU work back onto a rewritten descriptor —
+            // the hazard the sub-rings exist to remove — so defer it to
+            // ResetFrameTransients, which publishes one lap later. With a single
+            // ring there is nothing to defer to, so poison immediately as before.
+            ReleaseSlotLocked(index, /*publishPoison=*/persistent || m_TransientFrames == 1u);
 
             // A transient slot belongs to the ring cursor and is reclaimed
             // wholesale at the frame boundary; handing it to the free list would
@@ -805,7 +874,7 @@ namespace OloEngine::RHI
         return &slot;
     }
 
-    void DescriptorHeap::ReleaseSlotLocked(u32 index)
+    void DescriptorHeap::ReleaseSlotLocked(u32 index, const bool publishPoison)
     {
         ViewSlot& slot = m_Slots[index];
         if (!slot.Live)
@@ -866,6 +935,16 @@ namespace OloEngine::RHI
 
         if (m_Desc.PoisonOnFree)
         {
+            if (!publishPoison)
+            {
+                // A frame-transient slot whose frame may still be executing: the
+                // bookkeeping above already made every handle stale, but the
+                // published table must not change under a running dispatch.
+                // ResetFrameTransients publishes `slot.Descriptor` when this
+                // sub-ring comes around again (issue #1198).
+                slot.PoisonPending = true;
+                return;
+            }
             // Overwrite the published table too, not just the bookkeeping. The
             // whole value of poison is that a use-after-free renders
             // deterministically wrong instead of showing the previous tenant —

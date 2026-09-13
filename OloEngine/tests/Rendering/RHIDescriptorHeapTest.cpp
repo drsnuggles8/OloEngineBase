@@ -37,6 +37,7 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -236,12 +237,13 @@ namespace OloEngine::Tests
             // a real regression signal pointing at the wrong thing entirely. Adding
             // the reserved count here keeps each test's stated intent — "give me
             // eight slots I can allocate" — true across any future reservation.
-            void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false)
+            void SetUpHeap(u32 persistent = 8u, u32 transient = 4u, bool poison = false, u32 frames = 1u)
             {
                 RHI::HeapDesc desc;
                 desc.ResourceSlotCapacity = RHI::kFirstAllocatableHeapSlot + persistent;
                 desc.SamplerSlotCapacity = 8u;
                 desc.FrameTransientRingSlots = transient;
+                desc.FrameTransientRingFrames = frames;
                 desc.PoisonOnFree = poison;
 
                 RHI::DescriptorHeap::Get().Initialize(desc, &Backend);
@@ -365,6 +367,60 @@ namespace OloEngine::Tests
         // makes a heap capture comparable between frames.
         EXPECT_EQ(frame1.Index, frame2.Index);
         EXPECT_NE(frame1.Generation, frame2.Generation);
+    }
+
+    TEST_F(HeapFixture, TransientRingAlternatesBetweenFramesInFlight)
+    {
+        // Issue #1198. The heap publishes descriptors in place into one live
+        // table, and a frame's transient slots may still be indexed by that
+        // frame's GPU work when the CPU starts the next one — on Vulkan two
+        // frames are in flight, and the async-compute batch runs behind the
+        // graphics queue. Rewriting a slot under a running dispatch (a storage
+        // image last frame, a sampled view this frame — or the poison) is a
+        // device fault. So with FrameTransientRingFrames == 2 consecutive
+        // frames take different sub-rings, a frame's views still go stale
+        // immediately, and its poison is published one lap later.
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true, /*frames*/ 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(45u);
+        const auto publishedAt = [this](const u32 slot) -> std::optional<u64>
+        {
+            if (slot < Backend.LastUploadFirstSlot || slot - Backend.LastUploadFirstSlot >= Backend.LastUpload.size())
+                return std::nullopt;
+            return Backend.LastUpload[slot - Backend.LastUploadFirstSlot];
+        };
+
+        const RHI::ViewHandle frame1 = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                       RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(frame1.IsValid());
+        const u32 slot1 = heap.OffsetOf(frame1).Value;
+        heap.Flush();
+        ASSERT_TRUE(publishedAt(slot1).has_value());
+        ASSERT_NE(*publishedAt(slot1), FakeHeapBackend::kNull) << "frame 1's descriptor was published";
+
+        heap.ResetFrameTransients(); // frame 1 ends on the CPU; its GPU work may still run
+        EXPECT_FALSE(heap.OffsetOf(frame1).IsValid()) << "stale immediately, exactly as with one ring";
+        const u32 uploadsAfterFrame1 = Backend.Uploads;
+        heap.Flush();
+        EXPECT_EQ(Backend.Uploads, uploadsAfterFrame1)
+            << "nothing may be rewritten in frame 1's sub-ring while frame 1 can still be executing — not even poison";
+
+        const RHI::ViewHandle frame2 = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                       RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(frame2.IsValid());
+        EXPECT_NE(frame2.Index, frame1.Index) << "the next frame allocates from the other sub-ring";
+
+        heap.ResetFrameTransients(); // frame 2 ends; frame 1 has retired by the fence contract
+        heap.Flush();
+        ASSERT_TRUE(publishedAt(slot1).has_value()) << "the deferred poison must be in the published range";
+        EXPECT_EQ(*publishedAt(slot1), FakeHeapBackend::kNull) << "frame 1's poison lands one lap later";
+        EXPECT_GE(heap.GetStats().SlotsPoisoned, 1u);
+
+        const RHI::ViewHandle frame3 = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                       RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(frame3.IsValid());
+        EXPECT_EQ(frame3.Index, frame1.Index) << "a lap later the same slots come around, in the same order";
+        EXPECT_NE(frame3.Generation, frame1.Generation);
     }
 
     // -------------------------------------------------------------------------

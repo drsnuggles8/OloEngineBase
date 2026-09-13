@@ -296,6 +296,17 @@ namespace OloEngine::RHI
         u32 ResourceSlotCapacity = 0;
         u32 SamplerSlotCapacity = 0;
         u32 FrameTransientRingSlots = 0; ///< per frame-in-flight
+        // How many frames may be in flight while a transient slot is still being
+        // read. The ring is one sub-ring of FrameTransientRingSlots per frame:
+        // frame N fills sub-ring N % Frames, and its slots are not rewritten —
+        // not even with poison — until the same sub-ring comes around again,
+        // by which time the backend's frame fence has retired frame N. The
+        // heap publishes descriptors in place into one live table, so with a
+        // single ring every CPU frame rewrote the slots the previous GPU frame
+        // was still indexing; an async-compute dispatch storing through a slot
+        // that had meanwhile become a sampled view device-faulted (issue #1198).
+        // 1 keeps the single-ring behaviour (GL, where the driver serialises).
+        u32 FrameTransientRingFrames = 1;
         bool PoisonOnFree = false;
     };
 
