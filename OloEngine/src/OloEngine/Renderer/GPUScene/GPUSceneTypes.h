@@ -572,7 +572,10 @@ namespace OloEngine
         // Of those, how each is represented.
         u32 m_MeshCardInstances = 0;
         u32 m_ImpostorInstances = 0;
-        // Canonical, but the raster path draws nothing for them.
+        // Canonical, but the raster path draws nothing for them. With only the
+        // billboard card path this is legitimately 0 in a healthy scene — every
+        // placed plant is drawable — so read m_UnsupportedVariants below for
+        // the signal that actually moves today.
         u32 m_UnsupportedInstances = 0;
         // Layers whose AUTHORED representation is unavailable — today an
         // impostor atlas that failed to bake, which silently fell back to a

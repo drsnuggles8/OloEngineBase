@@ -106,7 +106,7 @@ namespace
                     bool impostorUnavailable = false,
                     bool reverseBufferOrder = false)
     {
-        registry.BeginGeneration();
+        registry.BeginGeneration(layers);
 
         std::vector<FoliagePlacement::Placement> placements;
         for (u32 layerIdx = 0; layerIdx < static_cast<u32>(layers.size()); ++layerIdx)
@@ -335,6 +335,58 @@ namespace OloEngine::Tests
         }
     }
 
+    TEST(FoliageInstanceIdentity, DisablingALayerDoesNotDisturbASameNamedSibling)
+    {
+        // A layer's stable key is (name, ordinal-among-same-name). Counting the
+        // ordinal over only the layers that EMIT made the second "Grass" slide
+        // onto the first one's key the moment the first was disabled, silently
+        // retiring and reissuing every id it owned.
+        FoliageInstanceRegistry registry;
+        const auto heights = FlatField(0.5f);
+        std::vector<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Grass", 0.16f) };
+
+        Regenerate(registry, layers, heights);
+        std::set<FoliageInstanceId> secondBefore;
+        for (const auto& record : registry.GetRecords())
+        {
+            if (record.m_LayerIndex == 1)
+            {
+                secondBefore.insert(record.m_Id);
+            }
+        }
+        ASSERT_FALSE(secondBefore.empty());
+
+        layers[0].Enabled = false;
+        Regenerate(registry, layers, heights);
+
+        EXPECT_EQ(LiveIds(registry), secondBefore)
+            << "disabling one layer must not renumber its same-named sibling";
+        EXPECT_EQ(registry.GetLastDelta().m_Survived, secondBefore.size());
+    }
+
+    TEST(FoliageInstanceIdentity, ReEnablingALayerPlacesItAgain)
+    {
+        FoliageInstanceRegistry registry;
+        const auto heights = FlatField(0.5f);
+        std::vector<FoliageLayer> layers{ MakeLayer("Grass") };
+
+        Regenerate(registry, layers, heights);
+        const auto before = LiveIds(registry);
+
+        layers[0].Enabled = false;
+        Regenerate(registry, layers, heights);
+        ASSERT_TRUE(registry.GetRecords().empty());
+
+        layers[0].Enabled = true;
+        Regenerate(registry, layers, heights);
+
+        EXPECT_EQ(registry.GetRecords().size(), before.size()) << "the plants must come back";
+        for (const auto id : LiveIds(registry))
+        {
+            EXPECT_FALSE(before.contains(id)) << "a re-enabled layer must not revive retired ids";
+        }
+    }
+
     // ── Removal ──────────────────────────────────────────────────────────
 
     TEST(FoliageInstanceIdentity, RemovingALayerRetiresOnlyItsInstances)
@@ -374,6 +426,8 @@ namespace OloEngine::Tests
         registry.Clear();
         EXPECT_TRUE(registry.GetRecords().empty());
         EXPECT_TRUE(registry.GetGroups().empty());
+        EXPECT_EQ(registry.GetCensus(), FoliageCensus{})
+            << "a cleared system must stop reporting a census it no longer has";
         for (const auto id : before)
         {
             EXPECT_TRUE(registry.IsRetired(id));

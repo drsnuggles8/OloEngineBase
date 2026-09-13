@@ -69,8 +69,14 @@ namespace OloEngine
         // card cross-fades into a view-dependent impostor.
         Impostor,
         // Canonical, but the current raster path draws nothing for it — the
-        // layer produced placements and has no card geometry. Counted and
-        // named rather than skipped, per the repo's no-silent-fallback rule.
+        // layer produced placements and has no card geometry.
+        //
+        // Today this only occurs if the billboard VAO could not be created,
+        // because every enabled layer gets one: with the card path alone,
+        // every placed plant IS drawable, so this count is legitimately 0 in a
+        // healthy scene and m_UnsupportedVariants is the counter that actually
+        // moves. It is here as the honest name for "canonical but undrawn",
+        // which the representations #1240 / #1233 add can genuinely be.
         Unsupported,
         Count,
     };
@@ -216,6 +222,7 @@ namespace OloEngine
         u32 m_CanonicalInstances = 0;
         u32 m_MeshCardInstances = 0;
         u32 m_ImpostorInstances = 0;
+        // See FoliageRepresentation::Unsupported: 0 in a healthy scene today.
         u32 m_UnsupportedInstances = 0;
         // Layers whose AUTHORED representation could not be provided — today
         // that is UseImpostor with an atlas that failed to bake, which silently
@@ -244,11 +251,17 @@ namespace OloEngine
         // A layer that is skipped (disabled, zero density, removed) simply gets
         // no BeginLayer, and EndGeneration retires its instances.
 
-        void BeginGeneration();
+        // Takes the FULL layer list, including layers that will not emit:
+        // a layer's stable key is (name, ordinal-among-same-name), and
+        // counting the ordinal over only the emitting layers made disabling
+        // one of two same-named layers shift the other onto a different key,
+        // silently retiring and reissuing every id it owned.
+        void BeginGeneration(const std::vector<FoliageLayer>& layers);
 
         // spacing, worldSizeX and worldSizeZ are the cell -> XZ mapping;
         // placementSeed is the generator seed (today derived from the layer's
         // physical index). Together they are the placement signature.
+        // layerIndex indexes the list handed to BeginGeneration.
         void BeginLayer(u32 layerIndex, const FoliageLayer& layer,
                         u32 placementSeed, f32 spacing, f32 worldSizeX, f32 worldSizeZ,
                         FoliageRepresentation representation, bool impostorUnavailable);
@@ -343,6 +356,30 @@ namespace OloEngine
         }
 
       private:
+        // A spatial group's identity. A STRUCT rather than bits packed into a
+        // u64: the packed form overlapped its own fields (a 32-bit cell index
+        // shifted by 21 runs into the layer's bits), so two different cells
+        // could collapse into one group. Full-key equality cannot.
+        struct GroupKey
+        {
+            u32 m_LayerIndex = 0;
+            i32 m_CellX = 0;
+            i32 m_CellZ = 0;
+
+            [[nodiscard]] auto operator==(const GroupKey&) const -> bool = default;
+        };
+
+        struct GroupKeyHash
+        {
+            [[nodiscard]] sizet operator()(const GroupKey& k) const noexcept
+            {
+                u64 h = k.m_LayerIndex;
+                h ^= static_cast<u64>(static_cast<u32>(k.m_CellX)) + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+                h ^= static_cast<u64>(static_cast<u32>(k.m_CellZ)) + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2);
+                return static_cast<sizet>(h);
+            }
+        };
+
         [[nodiscard]] u32 AcquireLayerKey(const std::string& name, u32 nameOrdinal);
         [[nodiscard]] FoliageMaterialKey InternMaterial(const FoliageLayer& layer);
         void RebuildGroups();
@@ -378,9 +415,10 @@ namespace OloEngine
         std::unordered_map<FoliagePlacementKey, FoliageInstanceId, FoliagePlacementKeyHash> m_Previous;
         bool m_Generating = false;
         bool m_InLayer = false;
-        // Name -> how many layers with that name this generation has seen, so
-        // duplicate layer names still get distinct stable keys.
-        std::unordered_map<std::string, u32> m_NameOrdinals;
+        // Per layer index, its ordinal among layers sharing its name.
+        // Computed in BeginGeneration over the WHOLE list so an enabled layer's
+        // key never depends on whether a sibling was skipped.
+        std::vector<u32> m_OrdinalByLayerIndex;
         u32 m_CurrentLayerIndex = 0;
         FoliagePlacementKey m_CurrentKeyPrototype;
         FoliageMaterialKey m_CurrentMaterialKey = kInvalidFoliageMaterialKey;

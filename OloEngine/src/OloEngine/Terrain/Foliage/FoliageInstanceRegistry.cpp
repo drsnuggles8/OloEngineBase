@@ -37,15 +37,31 @@ namespace OloEngine
         }
     } // namespace
 
-    void FoliageInstanceRegistry::BeginGeneration()
+    void FoliageInstanceRegistry::BeginGeneration(const std::vector<FoliageLayer>& layers)
     {
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(!m_Generating, "FoliageInstanceRegistry: BeginGeneration without EndGeneration");
 
         m_Generating = true;
         m_InLayer = false;
-        m_NameOrdinals.clear();
         m_PendingUnsupportedVariants = 0;
+
+        // Ordinals over the WHOLE list, so a skipped layer cannot shift a
+        // sibling with the same name onto a different stable key.
+        m_OrdinalByLayerIndex.assign(layers.size(), 0);
+        {
+            std::unordered_map<std::string, u32> seen;
+            for (sizet i = 0; i < layers.size(); ++i)
+            {
+                m_OrdinalByLayerIndex[i] = seen[layers[i].Name]++;
+            }
+        }
+
+        // The intern table is rebuilt per generation. Left to accumulate it
+        // grew one dead descriptor per keystroke while a mesh or albedo path
+        // was being typed in the inspector, and every generation scanned the
+        // whole thing linearly.
+        m_Materials.clear();
 
         // Everything live becomes a candidate for survival. Whatever is still
         // here at EndGeneration was not re-emitted, and retires.
@@ -108,7 +124,7 @@ namespace OloEngine
         m_CurrentRepresentation = representation;
         m_CurrentMaterialKey = InternMaterial(layer);
 
-        const u32 ordinal = m_NameOrdinals[layer.Name]++;
+        const u32 ordinal = layerIndex < m_OrdinalByLayerIndex.size() ? m_OrdinalByLayerIndex[layerIndex] : 0;
 
         // The placement signature covers exactly the inputs that map a grid
         // cell to a position: the generator seed, the grid spacing and the
@@ -259,8 +275,7 @@ namespace OloEngine
 
         m_Groups.clear();
 
-        // (layer, cellX, cellZ) -> group index.
-        std::unordered_map<u64, u32> groupLookup;
+        std::unordered_map<GroupKey, u32, GroupKeyHash> groupLookup;
         groupLookup.reserve(m_Records.size() / 8 + 1);
 
         for (auto& record : m_Records)
@@ -268,13 +283,9 @@ namespace OloEngine
             const auto cellX = static_cast<i32>(std::floor(record.m_Position.x / kGroupSize));
             const auto cellZ = static_cast<i32>(std::floor(record.m_Position.z / kGroupSize));
 
-            // Pack (layer, cellX, cellZ) into one key. The casts through u32
-            // keep negative cells (a terrain-local position below 0, which the
-            // generator does not produce today but a future placement source
-            // might) distinct rather than folding them onto positives.
-            const u64 packed = (static_cast<u64>(record.m_LayerIndex) << 42) ^ (static_cast<u64>(static_cast<u32>(cellX)) << 21) ^ static_cast<u64>(static_cast<u32>(cellZ));
+            const GroupKey key{ .m_LayerIndex = record.m_LayerIndex, .m_CellX = cellX, .m_CellZ = cellZ };
 
-            auto it = groupLookup.find(packed);
+            auto it = groupLookup.find(key);
             if (it == groupLookup.end())
             {
                 FoliageSpatialGroup group;
@@ -282,7 +293,7 @@ namespace OloEngine
                 group.m_Cell = glm::ivec2(cellX, cellZ);
                 group.m_LocalBounds = record.m_LocalBounds;
                 m_Groups.push_back(std::move(group));
-                it = groupLookup.emplace(packed, static_cast<u32>(m_Groups.size() - 1)).first;
+                it = groupLookup.emplace(key, static_cast<u32>(m_Groups.size() - 1)).first;
             }
             else
             {
@@ -316,8 +327,11 @@ namespace OloEngine
     void FoliageInstanceRegistry::Clear()
     {
         // Idempotent: Scene calls this every frame that a foliage system is
-        // switched off, and a no-op clear must not look like a reconcile.
-        if (m_Records.empty() && m_Groups.empty() && !m_Generating)
+        // switched off, and a no-op clear must not look like a reconcile. The
+        // census is part of what must already be empty — returning before
+        // resetting it left a switched-off system still reporting unsupported
+        // variants it no longer has.
+        if (m_Records.empty() && m_Groups.empty() && !m_Generating && m_Census == FoliageCensus{})
         {
             return;
         }
@@ -335,6 +349,8 @@ namespace OloEngine
         m_LastDelta.m_Retired.clear();
         m_LastDelta.m_Survived = 0;
         m_Census = FoliageCensus{};
+        m_Materials.clear();
+        m_OrdinalByLayerIndex.clear();
 
         // m_NextId and m_NextLayerKey deliberately NOT reset: an id this
         // registry once issued must never name a different plant, even after a

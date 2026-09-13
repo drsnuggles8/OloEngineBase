@@ -8744,9 +8744,15 @@ namespace OloEngine
                         // exist. Without this the registry kept the records of a
                         // switched-off system and its census reported plants the
                         // frame does not contain (issue #1230).
+                        //
+                        // Clearing also zeroes every layer's InstanceCount, and
+                        // the Enabled checkbox does NOT dirty m_NeedsRebuild —
+                        // so without marking it here, re-enabling the component
+                        // would leave it permanently blank.
                         if (foliage.m_Renderer)
                         {
                             foliage.m_Renderer->ClearInstances();
+                            foliage.m_NeedsRebuild = true;
                         }
                         continue;
                     }

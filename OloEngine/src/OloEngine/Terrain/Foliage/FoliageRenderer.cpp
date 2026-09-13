@@ -147,7 +147,7 @@ namespace OloEngine
         // for survival; a placement this pass does not re-emit — because its
         // layer vanished, was disabled, or its cell stopped qualifying — retires
         // at EndGeneration and its id is never handed to another plant.
-        m_Registry.BeginGeneration();
+        m_Registry.BeginGeneration(layers);
 
         // One CPU/GPU height sync for the whole generation rather than two per
         // grid cell, which is what going through TerrainData::GetHeightAt and
