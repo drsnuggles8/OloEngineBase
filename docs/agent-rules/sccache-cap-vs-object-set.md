@@ -77,6 +77,10 @@ them: at or above the cap it is eviction, comfortably below it is invalidation.
 
 ## See also
 
+- [self-hosted-ccache-slot-multiplier.md](self-hosted-ccache-slot-multiplier.md) — the
+  same cap question on the self-hosted box, where there is no store budget to overrule
+  the measurement, the filesystem does it instead, and the object set is multiplied by
+  the runner slots that do not share.
 - [actions-cache-budget.md](actions-cache-budget.md) — the store, its ~9537 MiB wall and
   what every key in it costs. Rules 4, 5 and 6 there are the ones this file applies.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) — four ways a cache
