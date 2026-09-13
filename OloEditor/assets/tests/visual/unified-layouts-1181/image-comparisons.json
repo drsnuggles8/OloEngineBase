@@ -1,0 +1,52 @@
+[
+  {
+    "control": "opengl-control-Drift-deferred-angle.png",
+    "candidate": "opengl-candidate-Drift-deferred-angle.png",
+    "rmse_0_255": 1.0698998511781026
+  },
+  {
+    "control": "opengl-control-VirtualGeometry-deferred-close.png",
+    "candidate": "opengl-candidate-VirtualGeometry-deferred-close.png",
+    "rmse_0_255": 0.0
+  },
+  {
+    "control": "vulkan-control-Drift-deferred-angle.png",
+    "candidate": "vulkan-unified-Drift-deferred-angle.png",
+    "rmse_0_255": 1.2109651654545825
+  },
+  {
+    "control": "vulkan-control-Drift-deferred-front.png",
+    "candidate": "vulkan-unified-Drift-deferred-front.png",
+    "rmse_0_255": 3.096696186488438
+  },
+  {
+    "control": "vulkan-control-Drift-forward-angle.png",
+    "candidate": "vulkan-unified-Drift-forward-angle.png",
+    "rmse_0_255": 6.217900759759486
+  },
+  {
+    "control": "vulkan-control-Drift-forward-front.png",
+    "candidate": "vulkan-unified-Drift-forward-front.png",
+    "rmse_0_255": 16.171887122020866
+  },
+  {
+    "control": "vulkan-control-Drift-forwardplus-angle.png",
+    "candidate": "vulkan-unified-Drift-forwardplus-angle.png",
+    "rmse_0_255": 6.747138989869048
+  },
+  {
+    "control": "vulkan-control-Drift-forwardplus-front.png",
+    "candidate": "vulkan-unified-Drift-forwardplus-front.png",
+    "rmse_0_255": 17.702377838422137
+  },
+  {
+    "control": "vulkan-control-VirtualGeometry-deferred-close.png",
+    "candidate": "vulkan-unified-VirtualGeometry-deferred-close.png",
+    "rmse_0_255": 0.0
+  },
+  {
+    "control": "vulkan-control-VirtualGeometry-deferred-front.png",
+    "candidate": "vulkan-unified-VirtualGeometry-deferred-front.png",
+    "rmse_0_255": 0.0
+  }
+]

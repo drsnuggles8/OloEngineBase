@@ -1,0 +1,442 @@
+[
+  {
+    "file": "vulkan-control-Drift-forward-front.png",
+    "sourceCapture": "bench-control-1-Drift-forward-front",
+    "sha256": "b19062dd456293bd778714a591b9947e3ee3ed572b7011ccae7122830df98d54",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1849,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1849,
+        "iconified": false,
+        "msSinceLastFrame": 104.28,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-Drift-forward-angle.png",
+    "sourceCapture": "bench-control-1-Drift-forward-angle",
+    "sha256": "c80467f9966916e3f25e9e69bc651e297c6b3d72257b4a56a6314262e89da5cb",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1917,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1917,
+        "iconified": false,
+        "msSinceLastFrame": 105.59,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-Drift-deferred-front.png",
+    "sourceCapture": "bench-control-1-Drift-deferred-front",
+    "sha256": "8fc15ad4cf8dac0d5f980780d7f4237fda0434e2d57c00a56433d1ffaeada1e4",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 4130,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 4130,
+        "iconified": false,
+        "msSinceLastFrame": 99.94,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-Drift-deferred-angle.png",
+    "sourceCapture": "bench-control-1-Drift-deferred-angle",
+    "sha256": "c5bab13310f763b779aff3413d0549f40c34da4ffd9d95f3bba7392c7f3e86fc",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 4198,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 4198,
+        "iconified": false,
+        "msSinceLastFrame": 104.99,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-VirtualGeometry-deferred-front.png",
+    "sourceCapture": "bench-control-1-VirtualGeometry-deferred-front",
+    "sha256": "45b34be237db16880fcc00d06ad8c658e21782fc96a3c856446a317140fcc987",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 8861,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 8861,
+        "iconified": false,
+        "msSinceLastFrame": 107.15,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-VirtualGeometry-deferred-close.png",
+    "sourceCapture": "bench-control-1-VirtualGeometry-deferred-close",
+    "sha256": "3d4a69c0c4a6e127b29b9153454028088abd6ce98d2a7b08def14cc8641d1895",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 9003,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 9003,
+        "iconified": false,
+        "msSinceLastFrame": 115.82,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-forward-front.png",
+    "sourceCapture": "bench-unified-1-Drift-forward-front",
+    "sha256": "5c986dd799e9e1f2d67fe6f44c866022814ba872886c56f1498ea9a1b31fe629",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1973,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 1973,
+        "iconified": false,
+        "msSinceLastFrame": 124.31,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-forward-angle.png",
+    "sourceCapture": "bench-unified-1-Drift-forward-angle",
+    "sha256": "8900a222166010c938e5249d53c1fb73be41efb89ec90211dc7fc313b2918092",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 2041,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 2041,
+        "iconified": false,
+        "msSinceLastFrame": 94.96,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-deferred-front.png",
+    "sourceCapture": "bench-unified-1-Drift-deferred-front",
+    "sha256": "92c177fc32ee468336512ddf5ce15747022b02fdc36047401c527f39f3ad73fa",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 4056,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 4056,
+        "iconified": false,
+        "msSinceLastFrame": 85.47,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-deferred-angle.png",
+    "sourceCapture": "bench-unified-1-Drift-deferred-angle",
+    "sha256": "3f3e496193686f9b69eaaad0084bb5a35decd27d528991a5f07cf38893c7159f",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 4124,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 4124,
+        "iconified": false,
+        "msSinceLastFrame": 81.19,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-VirtualGeometry-deferred-front.png",
+    "sourceCapture": "bench-unified-1-VirtualGeometry-deferred-front",
+    "sha256": "45b34be237db16880fcc00d06ad8c658e21782fc96a3c856446a317140fcc987",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 8718,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 8718,
+        "iconified": false,
+        "msSinceLastFrame": 116.97,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-VirtualGeometry-deferred-close.png",
+    "sourceCapture": "bench-unified-1-VirtualGeometry-deferred-close",
+    "sha256": "3d4a69c0c4a6e127b29b9153454028088abd6ce98d2a7b08def14cc8641d1895",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 8853,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 8853,
+        "iconified": false,
+        "msSinceLastFrame": 130.02,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-Drift-forwardplus-front.png",
+    "sourceCapture": "control-forwardplus-Drift-forwardplus-front",
+    "sha256": "3fabcacf644e447d41b29b507f8702c5785ae056a711373fce486d82b2dfad4e",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 803,
+      "liveness": {
+        "captureUnready": true,
+        "focused": true,
+        "frameIndex": 803,
+        "iconified": false,
+        "msSinceLastFrame": 127.38,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-control-Drift-forwardplus-angle.png",
+    "sourceCapture": "control-forwardplus-Drift-forwardplus-angle",
+    "sha256": "7a61517288f2cf4f3dbc795755ea381b8faa1c016930cadf5e31f1855ffc380d",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 871,
+      "liveness": {
+        "captureUnready": true,
+        "focused": true,
+        "frameIndex": 871,
+        "iconified": false,
+        "msSinceLastFrame": 98.42,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-forwardplus-front.png",
+    "sourceCapture": "unified-smoke-Drift-forwardplus-front",
+    "sha256": "691fd621256739e5c0a75897cc0a99a8a24c1f36875b321f6e3d02e66410d816",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1581,
+      "liveness": {
+        "captureUnready": true,
+        "focused": true,
+        "frameIndex": 1581,
+        "iconified": false,
+        "msSinceLastFrame": 122.75,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "vulkan-unified-Drift-forwardplus-angle.png",
+    "sourceCapture": "unified-smoke-Drift-forwardplus-angle",
+    "sha256": "f1c6f05bf5d2052d37d37f7e31a84128c73a6632b0ac3dead1c191be2e553f07",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 1649,
+      "liveness": {
+        "captureUnready": true,
+        "focused": true,
+        "frameIndex": 1649,
+        "iconified": false,
+        "msSinceLastFrame": 118.08,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "opengl-control-Drift-deferred-angle.png",
+    "sourceCapture": "control-gl-Drift-deferred-angle",
+    "sha256": "f71cc136cc3edf6b0fbee35b85b38bef2c67c30edfeb4c1bb17a44ada806452f",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 10407,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 10407,
+        "iconified": false,
+        "msSinceLastFrame": 135.11,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "opengl-control-VirtualGeometry-deferred-close.png",
+    "sourceCapture": "control-gl-VirtualGeometry-deferred-close",
+    "sha256": "ab2727b224de254f5b795076cab7fc67e77b340cb5ec7d6d00a2b2085a23f8c4",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 16065,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 16065,
+        "iconified": false,
+        "msSinceLastFrame": 110.64,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "opengl-candidate-Drift-deferred-angle.png",
+    "sourceCapture": "candidate-gl-Drift-deferred-angle",
+    "sha256": "f85a1bc36d19066904b9ec0e002bff0641d4f569e380e75342d76125dbe3df2e",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 9037,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 9037,
+        "iconified": false,
+        "msSinceLastFrame": 105.22,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "opengl-candidate-VirtualGeometry-deferred-close.png",
+    "sourceCapture": "candidate-gl-VirtualGeometry-deferred-close",
+    "sha256": "ab2727b224de254f5b795076cab7fc67e77b340cb5ec7d6d00a2b2085a23f8c4",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 15529,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 15529,
+        "iconified": false,
+        "msSinceLastFrame": 95.79,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "debug-unified-Drift-deferred-front.png",
+    "sourceCapture": "debug-unified-Drift-deferred-front",
+    "sha256": "4c7464dc8fcf8f9ea1dd77856d80de7633c8b9de145e4280848c7acd65bb84cc",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 2507,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 2507,
+        "iconified": false,
+        "msSinceLastFrame": 271.98,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  {
+    "file": "debug-unified-VirtualGeometry-deferred-close.png",
+    "sourceCapture": "debug-unified-VirtualGeometry-deferred-close",
+    "sha256": "3d4a69c0c4a6e127b29b9153454028088abd6ce98d2a7b08def14cc8641d1895",
+    "capture": {
+      "camera": "editor camera",
+      "frameIndex": 4302,
+      "liveness": {
+        "captureUnready": true,
+        "focused": false,
+        "frameIndex": 4302,
+        "iconified": false,
+        "msSinceLastFrame": 314.98,
+        "ticking": true,
+        "visible": true
+      },
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  }
+]
