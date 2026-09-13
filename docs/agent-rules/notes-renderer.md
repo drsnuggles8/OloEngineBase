@@ -1116,3 +1116,51 @@ resource conditionally, hash the condition.
 Found on #1057 (hybrid reflection hierarchy). The contract itself is
 [ADR 0020](../adr/0020-reflection-tier-selection-contract.md); `ReflectionTierContractTest` is the
 ratchet that keeps the weights summing to one.
+
+## A regenerate-wholesale system must key identity on the generator's INPUT slot, not its output row
+
+Foliage had no per-plant identity because it did not need one: `GenerateInstances` rebuilt every
+layer's instance VBO from scratch, so a plant simply WAS its row index. The moment anything
+downstream has to say "this plant" across two frames — visibility, residency, LOD state — that
+breaks, and it breaks silently, because a renumbered plant renders identically.
+
+**Key identity on what the generator consumes, not what it emits.** Foliage placement is
+deterministic in `(layer, grid cell)` plus the handful of parameters that map a cell to an XZ
+position, so `FoliageInstanceRegistry` keys an id on exactly that and treats the buffer row as a
+projection. Two consequences worth copying:
+
+- **Separate the parameters that MOVE a placement from the ones that merely GATE it.** Density,
+  world size and the generator seed change where cell `(ix, iz)` lands, so they go into the key's
+  placement signature and changing one retires every id in that layer. The slope gate and the
+  splatmap mask only decide *whether* a cell emits — a cell that stops qualifying just fails to
+  reappear, so the reconcile retires it with no gate-specific rule. Enumerating the gates in the
+  key instead is how you end up with a key that must be updated every time a gate is added.
+- **Issue ids from a monotonic counter.** It makes reuse impossible by construction, and it makes
+  "is this id retired?" a comparison against the counter rather than a retired-set that grows for
+  the life of the process.
+
+## `TerrainData`'s height queries each sync from the GPU — do not call them per cell
+
+`GetHeightAt` and `GetNormalAt` both call `SyncFromGPU()` before sampling (issue #716 made the GPU
+heightmap authoritative during authoring). A placement loop that calls both per grid cell therefore
+pays two staleness checks per cell **and** cannot run without a GL context, which quietly makes the
+whole loop untestable headless.
+
+Read the mirror once with `GetHeightData()` and pass the raw `std::vector<f32>` plus the resolution
+down to `TerrainData::SampleHeight` / `SampleNormal` — the same static samplers the members
+delegate to, so the sampling convention stays shared. That is what let foliage placement move into
+`FoliagePlacement.cpp` and be pinned by a headless L1 test running the real generator.
+
+## Anything derived from the terrain height field needs its own rebuild flag, and they live together
+
+A terrain rebuild set `m_AutoSplatNeedsRebuild` and re-synced Jolt collision, but never marked the
+`FoliageComponent` on the same entity — so a procedural reseed or a sculpt left every plant at its
+old height, on slopes the new terrain no longer had. The splatmap is a second-order version of the
+same thing: it is a density mask for foliage placement, so regenerating it moves plants too.
+
+`Scene.cpp`'s single-tile terrain rebuild now sets all three flags in one place. **If you add
+another system that samples the height field or the splatmap, add its flag next to them** — a
+derived system with no dirty flag looks correct until the source changes, which is exactly the case
+nobody tests.
+
+Found on #1230 (canonical foliage instance identity).

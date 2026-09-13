@@ -349,7 +349,7 @@ namespace OloEngine
         void RecomputeWorldBounds();
 
         std::vector<FoliageInstanceRecord> m_Records;
-        std::unordered_map<FoliageInstanceId, u32> m_ById;                                  // id -> index into m_Records
+        std::unordered_map<FoliageInstanceId, u32> m_ById;                                   // id -> index into m_Records
         std::unordered_map<FoliagePlacementKey, u32, FoliagePlacementKeyHash> m_ByPlacement; // -> index into m_Records
         std::vector<FoliageSpatialGroup> m_Groups;
         std::vector<FoliageMaterialDesc> m_Materials;
