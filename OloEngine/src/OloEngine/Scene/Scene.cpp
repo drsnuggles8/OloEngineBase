@@ -8454,6 +8454,19 @@ namespace OloEngine
                         // (derived from height/slope) must be regenerated too.
                         terrain.m_AutoSplatNeedsRebuild = true;
 
+                        // Foliage is PLACED on the height field — its x/z jitter,
+                        // its slope gate and its ground height all sample the data
+                        // that just changed. Nothing told the FoliageComponent, so a
+                        // terrain regenerate (a procedural reseed, a sculpt, a script
+                        // Regenerate()) left every plant standing at its old height,
+                        // on slopes the new terrain no longer has. Mark it for
+                        // rebuild here, next to the flag the splatmap uses for the
+                        // same reason; the foliage pass below runs later this tick.
+                        if (auto* staleFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            staleFoliage->m_NeedsRebuild = true;
+                        }
+
                         // Keep collision in sync with the freshly (re)built height field
                         // when running (e.g. a script Regenerate() during play). In edit
                         // mode m_JoltScene is null, so this is a no-op there; the initial
@@ -8494,6 +8507,13 @@ namespace OloEngine
                             terrain.m_SplatmapGenResolution,
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         terrain.m_AutoSplatNeedsRebuild = false;
+                        // The splatmap is a density MASK for foliage placement
+                        // (FoliageLayer::SplatmapChannel), so a regenerated splatmap
+                        // moves plants just as a regenerated height field does.
+                        if (auto* maskedFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            maskedFoliage->m_NeedsRebuild = true;
+                        }
                         // Same reason as the material rebuild above: the splatmap is
                         // an INPUT to every baked tile.
                         if (terrain.m_VirtualTexture)
