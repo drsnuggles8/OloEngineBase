@@ -53,20 +53,41 @@ namespace OloEngine::Animation
      */
     struct SkeletalDeformationStats
     {
-        /// Skinned entities whose history was advanced this tick.
+        // --- Per frame. Cleared at the top of every AdvanceHistory. ---
+
+        /// Skinned entities whose history was advanced this frame.
         u32 SkeletonsAdvanced = 0;
         /// Of those, how many carried a genuine previous pose afterwards.
         u32 SkeletonsWithHistory = 0;
-        /// Bone matrices advanced this tick, across all skeletons.
+        /// Bone matrices advanced this frame, across all skeletons.
         u32 BoneMatricesAdvanced = 0;
-        /// Histories dropped this tick, by cause.
+
+        // --- Cumulative for the session. NOT cleared per frame. ---
+        //
+        // Resets are rare, deliberate events, and clearing them every frame made
+        // them unobservable: an explicit reset at a scene or play-mode
+        // transition was wiped by the very next frame's advance, so the editor
+        // panel and olo_skeletal_deformation_stats could never show a
+        // SceneTransition or Teleport however hard anyone looked. A counter
+        // nobody can ever read is worse than no counter, because it reads as
+        // "this never happens".
+
         u32 HistoryResets = 0;
         u32 HistoryResetsFirstUse = 0;
         u32 HistoryResetsBoneCountChanged = 0;
         u32 HistoryResetsExplicit = 0;
-        /// Cause of the most recent explicit reset, for the statistics panel.
+        /// Cause of the most recent reset, for the statistics panel.
         DeformationHistoryResetCause LastResetCause = DeformationHistoryResetCause::None;
 
+        /// Clear the per-frame counters only. Called once per frame.
+        void BeginFrame()
+        {
+            SkeletonsAdvanced = 0;
+            SkeletonsWithHistory = 0;
+            BoneMatricesAdvanced = 0;
+        }
+
+        /// Clear everything, including the session totals.
         void Reset()
         {
             *this = SkeletalDeformationStats{};

@@ -13,6 +13,24 @@ namespace OloEngine
      * This structure contains the common data used by both Skeleton and SkeletonComponent,
      * eliminating duplication and centralizing skeleton layout management.
      */
+    /// Why one AdvanceBoneHistory call ended the way it did. The caller needs
+    /// this to attribute history drops: a frame that is deliberately covering an
+    /// already-declared discontinuity is NOT a new drop, and counting it as one
+    /// both double-counts and overwrites the real cause with a generic one.
+    enum class BoneHistoryAdvance : u8
+    {
+        /// The previous pose is genuine; motion this frame is real motion.
+        Advanced,
+        /// The skeleton has no bones yet. Never had history, nothing was lost.
+        NoBonesYet,
+        /// The palette grew into existence for the first time.
+        FirstUse,
+        /// The palette changed size away from a real previous pose.
+        BoneCountChanged,
+        /// Covering a discontinuity that ResetBoneHistory already declared.
+        PendingReset,
+    };
+
     struct SkeletonData
     {
         // Bone hierarchy (indices, parent indices, names)
@@ -39,10 +57,25 @@ namespace OloEngine
         std::vector<glm::mat4> m_PrevFinalBoneMatrices;
 
         // False until the deformation history has been advanced at least once
-        // since the last discontinuity. While false, prev is held equal to
-        // current, so consumers see zero bone motion rather than a jump from
-        // whatever pose the previous skeleton happened to be in.
+        // since the last discontinuity. Consumers MUST read this: while it is
+        // false the previous palette is not a pose this skeleton was ever in,
+        // and a velocity computed from it is a jump rather than motion.
+        // Renderer3D honours it by uploading the current palette as the previous
+        // one, which is what makes the emitted bone motion exactly zero.
         bool m_BoneHistoryValid = false;
+
+        // A discontinuity has been declared and the frame that must emit zero
+        // motion because of it has not been rendered yet.
+        //
+        // This exists because a reset and the next frame's advance are the SAME
+        // copy, so a reset alone cannot survive: ResetBoneHistory sets prev to
+        // current, then the next frame's AdvanceBoneHistory copies the still
+        // unchanged pose again and would mark the history valid -- and only
+        // THEN does the tick write the new pose. The result was a first play
+        // frame whose velocity spanned the whole edit-pose to play-pose jump,
+        // with the reset that was supposed to prevent it having done nothing.
+        // Carrying the reset across exactly one advance is what closes that gap.
+        bool m_BoneHistoryResetPending = false;
 
         // Bind pose data for proper skinning
         std::vector<glm::mat4> m_BindPoseMatrices;        // Original bind pose global transforms
@@ -137,10 +170,43 @@ namespace OloEngine
          * render submission, so the palette this reads is never the one a
          * recording worker is reading.
          */
-        void AdvanceBoneHistory()
+        BoneHistoryAdvance AdvanceBoneHistory()
         {
+            const bool hadHistory = m_BoneHistoryValid;
             const bool resized = CopyPoseToHistory();
-            m_BoneHistoryValid = !resized;
+
+            // An empty palette is not history. Treating 0 == 0 as "nothing was
+            // resized" would mark a skeleton whose bones have not loaded yet as
+            // carrying a genuine previous pose, and the frame its palette
+            // finally arrives would then be reported as a bone-count CHANGE --
+            // a warning meant for a real skeleton swap, fired on a routine
+            // deferred load.
+            if (m_FinalBoneMatrices.empty())
+            {
+                m_BoneHistoryValid = false;
+                m_BoneHistoryResetPending = false;
+                return BoneHistoryAdvance::NoBonesYet;
+            }
+
+            if (resized)
+            {
+                m_BoneHistoryValid = false;
+                m_BoneHistoryResetPending = true;
+                return hadHistory ? BoneHistoryAdvance::BoneCountChanged : BoneHistoryAdvance::FirstUse;
+            }
+
+            if (m_BoneHistoryResetPending)
+            {
+                // The frame the pending discontinuity has to cover. Whoever
+                // declared it already counted it; saying so lets the caller
+                // avoid attributing it a second time under a generic cause.
+                m_BoneHistoryResetPending = false;
+                m_BoneHistoryValid = false;
+                return BoneHistoryAdvance::PendingReset;
+            }
+
+            m_BoneHistoryValid = true;
+            return BoneHistoryAdvance::Advanced;
         }
 
         /**
@@ -158,6 +224,7 @@ namespace OloEngine
         {
             CopyPoseToHistory();
             m_BoneHistoryValid = false;
+            m_BoneHistoryResetPending = true;
         }
 
         /**

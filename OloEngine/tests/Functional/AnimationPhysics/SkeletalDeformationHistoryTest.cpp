@@ -197,6 +197,70 @@ TEST_F(SkeletalDeformationHistoryTest, BoneCountChangeDropsHistoryLoudly)
         << "previous palette never resynchronised with the current pose";
 }
 
+TEST_F(SkeletalDeformationHistoryTest, AResetSurvivesTheNextFrameSAdvance)
+{
+    // The reset and the advance are the same copy, so a reset that did not
+    // survive one advance would do nothing at all: ResetHistory sets prev to
+    // current, the next frame's advance copies the still-unchanged pose again
+    // and marks the history valid, and only THEN does the tick write the new
+    // pose -- handing the first frame after the discontinuity a velocity that
+    // spans the whole jump. That is what Scene::OnRuntimeStart's reset used to
+    // do, which is to say nothing.
+    RunFrames(15);
+    ASSERT_TRUE(Skeleton().HasBoneHistory());
+
+    Animation::SkeletalDeformationSystem::ResetHistory(
+        &GetScene(), Animation::DeformationHistoryResetCause::SceneTransition);
+    EXPECT_FALSE(Skeleton().HasBoneHistory());
+
+    // The frame the discontinuity has to cover: still no usable history, so the
+    // renderer withholds the previous palette and the frame emits zero motion.
+    RunFrames(1);
+    EXPECT_FALSE(Skeleton().HasBoneHistory())
+        << "the reset was erased by the very next advance, so the frame that was "
+           "supposed to emit zero motion emitted a velocity across the discontinuity";
+
+    // And the frame after that is ordinary again.
+    RunFrames(1);
+    EXPECT_TRUE(Skeleton().HasBoneHistory())
+        << "history never recovered after the discontinuity -- this skeleton would "
+           "emit zero motion forever";
+}
+
+TEST_F(SkeletalDeformationHistoryTest, ResetCountersAreSessionTotalsNotPerFrame)
+{
+    RunFrames(5);
+    Animation::SkeletalDeformationSystem::ResetHistory(
+        &GetScene(), Animation::DeformationHistoryResetCause::Teleport);
+    const u32 afterReset = Animation::SkeletalDeformationSystem::GetStats().HistoryResets;
+    ASSERT_GT(afterReset, 0u);
+
+    // Frames keep passing. A per-frame counter would be back to zero here, and
+    // the editor panel and the MCP tool could then never show that a reset had
+    // happened at all -- which reads as "this never happens".
+    RunFrames(5);
+    EXPECT_GE(Animation::SkeletalDeformationSystem::GetStats().HistoryResets, afterReset)
+        << "the reset count was cleared by a later frame's advance";
+    EXPECT_EQ(Animation::SkeletalDeformationSystem::GetStats().LastResetCause,
+              Animation::DeformationHistoryResetCause::Teleport)
+        << "the attributed cause did not survive the frames after the reset";
+}
+
+TEST_F(SkeletalDeformationHistoryTest, AnEmptyPaletteIsNotTreatedAsHistory)
+{
+    // A skeleton whose bones have not arrived yet has an empty palette. Calling
+    // that "history" (0 == 0, nothing resized) means the frame the palette
+    // finally loads is reported as a bone-count CHANGE -- the warning reserved
+    // for a real skeleton swap, fired on a routine deferred load.
+    Entity pending = GetScene().CreateEntity("PendingSkeleton");
+    auto emptySkeleton = Ref<OloEngine::Skeleton>::Create();
+    pending.AddComponent<SkeletonComponent>(emptySkeleton);
+
+    RunFrames(2);
+    EXPECT_FALSE(emptySkeleton->HasBoneHistory())
+        << "an empty bone palette was reported as a genuine previous pose";
+}
+
 TEST_F(SkeletalDeformationHistoryTest, EverySkinnedEntityIsAdvancedNotJustPlayingOnes)
 {
     // A second skinned entity that never plays anything. The old

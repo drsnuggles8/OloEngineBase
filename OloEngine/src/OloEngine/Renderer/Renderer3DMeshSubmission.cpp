@@ -1612,7 +1612,17 @@ namespace OloEngine
 
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+            // Only offer a previous pose when the skeleton actually has one
+            // (#1226). After a discontinuity -- a skeleton swap, a bone-count
+            // change, entering Play -- the previous palette describes a pose
+            // this skeleton was never in, and handing it to the shaders emits a
+            // velocity across the seam that TAA and motion blur faithfully
+            // smear. Passing none makes CommandDispatch alias the current
+            // palette into the prev slot, i.e. exactly zero bone motion.
+            static const std::vector<glm::mat4> s_NoBoneHistory;
+            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->HasBoneHistory()
+                                               ? skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices
+                                               : s_NoBoneHistory;
             const i32 pickEntityID = static_cast<i32>(std::to_underlying(entityID));
 
             // Get material from entity or use default.

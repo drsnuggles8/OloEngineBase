@@ -8,9 +8,11 @@
 // from outside a single debugging session — otherwise each of them re-measures
 // the same thing and none of them can see a history reset that happened.
 //
-// The counters describe the LAST FRAME, not the session: SkeletalDeformation
-// clears them at the start of every advance. A frame with skinned entities and
-// zero resets is the healthy steady state and reads as exactly that.
+// The counters come in two lifetimes, and the difference matters. The advance
+// counts describe the LAST FRAME. The reset counts are SESSION TOTALS, because
+// a reset is a rare deliberate event and clearing it every frame made it
+// unobservable -- an explicit reset at a play-mode transition was wiped by the
+// very next frame's advance, so it could never be seen from outside.
 
 #include "MCP/McpStatsSnapshot.h"
 
@@ -51,6 +53,7 @@ namespace OloEngine::MCP::SkeletalDeformationStats
                 ? snapshot.SkeletonsAdvanced - snapshot.SkeletonsWithHistory
                 : 0u;
 
+        // Session totals, not this frame -- see the note at the top.
         out["historyResets"] = Json{
             { "total", snapshot.HistoryResets },
             { "firstUse", snapshot.HistoryResetsFirstUse },

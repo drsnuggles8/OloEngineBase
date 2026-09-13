@@ -8669,14 +8669,14 @@ namespace OloEngine::MCP
             tool.Title = "Shared skeletal deformation statistics";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "Return the shared skeletal deformation output's per-frame counters (issue #1226): how many skinned "
-                "entities had their previous-pose palette advanced last frame, how many of those carry a genuine "
-                "previous pose, how many bone matrices that covered, and how many histories were dropped, by cause. "
-                "These are LAST-FRAME counters, cleared at the start of every advance, not session totals. A frame "
-                "with skinned entities and zero resets is the healthy steady state. skeletonsWithoutHistory is the "
-                "number emitting zero bone motion because their previous pose was thrown away rather than because "
-                "nothing moved -- a persistently non-zero value there means something is dropping history every "
-                "frame, which reads on screen as animation that never contributes to motion vectors.";
+                "Return the shared skeletal deformation output's counters (issue #1226). skeletonsAdvanced, "
+                "skeletonsWithHistory, skeletonsWithoutHistory and boneMatricesAdvanced describe the LAST FRAME. The "
+                "historyResets block is a SESSION TOTAL instead, because a reset is a rare deliberate event and "
+                "clearing it per frame would make it unobservable -- a reset at a play-mode transition would be wiped "
+                "by the next frame's advance before anything could read it. skeletonsWithoutHistory is the number "
+                "emitting zero bone motion because their previous pose was dropped rather than because nothing moved; "
+                "a persistently non-zero value means something is dropping history every frame, which reads on screen "
+                "as animation that never contributes to motion vectors.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("availability", Schema::Object()

@@ -66,9 +66,9 @@ namespace OloEngine::Animation
         if (!scene)
             return 0;
 
-        // Counters describe one tick, so they are cleared here rather than
-        // accumulated: a panel reading them mid-frame should see this frame.
-        s_Stats.Reset();
+        // Only the per-frame counters are cleared here. The reset counters are
+        // session totals on purpose -- see SkeletalDeformationStats.
+        s_Stats.BeginFrame();
 
         auto view = scene->GetAllEntitiesWith<SkeletonComponent>();
         for (auto entityID : view)
@@ -78,32 +78,38 @@ namespace OloEngine::Animation
                 continue;
 
             Skeleton& skeleton = *skeletonComponent.m_Skeleton;
-            const bool hadHistory = skeleton.HasBoneHistory();
-
-            skeleton.AdvanceBoneHistory();
+            const BoneHistoryAdvance outcome = skeleton.AdvanceBoneHistory();
 
             ++s_Stats.SkeletonsAdvanced;
             s_Stats.BoneMatricesAdvanced += static_cast<u32>(skeleton.m_FinalBoneMatrices.size());
-            if (skeleton.HasBoneHistory())
+
+            switch (outcome)
             {
-                ++s_Stats.SkeletonsWithHistory;
-            }
-            else
-            {
-                // AdvanceBoneHistory only fails to establish history when it
-                // had to resize the previous palette. On the first tick of a
-                // skeleton's life that is simply first use; afterwards it means
-                // the bone count moved under us, which is a skeleton swap in
-                // all but name and is worth saying out loud.
-                CountReset(hadHistory ? DeformationHistoryResetCause::BoneCountChanged
-                                      : DeformationHistoryResetCause::FirstUse);
-                if (hadHistory)
-                {
+                case BoneHistoryAdvance::Advanced:
+                    ++s_Stats.SkeletonsWithHistory;
+                    break;
+
+                case BoneHistoryAdvance::FirstUse:
+                    CountReset(DeformationHistoryResetCause::FirstUse);
+                    break;
+
+                case BoneHistoryAdvance::BoneCountChanged:
+                    CountReset(DeformationHistoryResetCause::BoneCountChanged);
                     OLO_CORE_WARN(
                         "SkeletalDeformation: bone count changed under entity {} — deformation history "
                         "dropped, this frame emits zero bone motion",
                         std::to_underlying(entityID));
-                }
+                    break;
+
+                case BoneHistoryAdvance::PendingReset:
+                    // Already counted, with its real cause, by whoever declared
+                    // the discontinuity. Counting it again here would both
+                    // double it and overwrite that cause with a generic one.
+                    break;
+
+                case BoneHistoryAdvance::NoBonesYet:
+                    // Nothing was lost: this skeleton never had a previous pose.
+                    break;
             }
         }
 

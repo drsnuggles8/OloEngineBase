@@ -180,9 +180,10 @@ namespace OloEngine
                     const u32 withoutHistory = deform.SkeletonsAdvanced >= deform.SkeletonsWithHistory
                                                    ? deform.SkeletonsAdvanced - deform.SkeletonsWithHistory
                                                    : 0u;
+                    // Resets are a session total; the rest is this frame.
                     if (withoutHistory > 0 || deform.HistoryResets > 0)
                     {
-                        ImGui::Text("  No deform history: %u (resets %u, last: %s)",
+                        ImGui::Text("  No deform history: %u (resets total %u, last: %s)",
                                     withoutHistory, deform.HistoryResets,
                                     std::string(Animation::ToString(deform.LastResetCause)).c_str());
                     }
