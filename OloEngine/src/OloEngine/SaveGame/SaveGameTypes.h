@@ -112,7 +112,13 @@ namespace OloEngine
     //      still parses; the old number is read and dropped for the default,
     //      because the two units are not convertible without the cascade the
     //      value was authored against.
-    static constexpr u32 kSaveGameFormatVersion = 30; // 30: WaterComponent::m_ProjectedGridEnabled (#1035)
+    // v29: MaterialComponent gained the glTF physical-material block
+    //      (transmission, IOR, thickness, attenuation — #970,
+    //      docs/guides/gltf-material-extensions.md). v28 and older saves stop
+    //      before it and keep the neutral defaults.
+    // v30: WaterComponent gained m_ProjectedGridEnabled (#1035). v29 and older
+    //      saves omit it and keep the default false, the world-space grid.
+    static constexpr u32 kSaveGameFormatVersion = 30;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

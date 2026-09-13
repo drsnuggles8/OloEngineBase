@@ -29,10 +29,13 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+
+// OLO_TEST_LAYER: L8
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "VisualEvidenceGuards.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -81,24 +84,6 @@ namespace OloEngine::Tests
         constexpr u32 kWorldGridResolution = 512;
         constexpr u32 kProjectedGridX = 256;
         constexpr u32 kProjectedGridY = 144;
-
-        [[nodiscard]] f64 Rgba8Rmse(const std::vector<u8>& a, const std::vector<u8>& b)
-        {
-            if (a.size() != b.size() || a.empty())
-                return std::numeric_limits<f64>::max();
-            f64 sumSq = 0.0;
-            sizet count = 0;
-            for (sizet i = 0; i + 3 < a.size(); i += 4)
-            {
-                for (i32 c = 0; c < 3; ++c)
-                {
-                    const f64 d = static_cast<f64>(a[i + c]) - static_cast<f64>(b[i + c]);
-                    sumSq += d * d;
-                    ++count;
-                }
-            }
-            return count ? std::sqrt(sumSq / static_cast<f64>(count)) : 0.0;
-        }
 
         /// Mean RGB over a horizontal band of the frame, rows [y0, y1) with row 0
         /// at the TOP (the pixels handed in are already flipped upright).
@@ -267,18 +252,7 @@ namespace OloEngine::Tests
 
             // GL readback is bottom-up; flip so row 0 is the top of the frame for
             // both the PNG and the band sampling below.
-            {
-                const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
-                std::vector<u8> tmp(rowBytes);
-                for (u32 y = 0; y < kHeight / 2u; ++y)
-                {
-                    u8* top = outPixels.data() + static_cast<sizet>(y) * rowBytes;
-                    u8* bot = outPixels.data() + static_cast<sizet>(kHeight - 1u - y) * rowBytes;
-                    std::memcpy(tmp.data(), top, rowBytes);
-                    std::memcpy(top, bot, rowBytes);
-                    std::memcpy(bot, tmp.data(), rowBytes);
-                }
-            }
+            VisualEvidence::FlipRgbaRowsInPlace(outPixels, kWidth, kHeight);
 
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             const std::string path = (dir / ("WaterProjGrid_" + name + ".png")).string();
@@ -309,7 +283,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << gw << "x" << gh << ", expected "
                                      << kWidth << "x" << kHeight << " — rerun with --olo-golden-rebase.";
 
-            const f64 rmse = Rgba8Rmse(outPixels, goldenPixels);
+            const f64 rmse = VisualEvidence::Rgba8Rmse(outPixels, goldenPixels);
             EXPECT_LE(rmse, kGoldenRmseThreshold)
                 << "'" << name << "' diverged from golden (RMSE " << rmse << " > " << kGoldenRmseThreshold
                 << "). If this is an intended visual change, rerun with --olo-golden-rebase to update " << path;
@@ -367,6 +341,19 @@ namespace OloEngine::Tests
         ASSERT_FALSE(worldOverhead.empty());
         ASSERT_FALSE(projectedOverhead.empty());
 
+        // The guards issue #931 wrote for exactly this shape of test. The two
+        // poses must be different frames (a camera whose pitch sign is wrong
+        // captures sky twice and would otherwise compare green against itself
+        // — that is how this file was first run), and every frame must contain
+        // water: a pixel is water when blue dominates red, which the magenta
+        // seabed and the grey sky both fail.
+        const auto isWater = [](u32 r, u32 /*g*/, u32 b)
+        { return b > r + 20u; };
+        VisualEvidence::ExpectCapturesAreDistinct({ projectedGrazing, projectedOverhead },
+                                                  { "Projected_Grazing", "Projected_Overhead" }, 2.0);
+        VisualEvidence::ExpectFrameHasSubject(projectedGrazing, "Projected_Grazing", isWater, 0.25);
+        VisualEvidence::ExpectFrameHasSubject(projectedOverhead, "Projected_Overhead", isWater, 0.6);
+
         // ---- it is still the same sea ---------------------------------------
         //
         // The near foreground is where both grids are dense and where the two
@@ -381,8 +368,6 @@ namespace OloEngine::Tests
             EXPECT_NEAR(projectedMean.r, worldMean.r, 24.0f) << "near-field red drifted";
             EXPECT_NEAR(projectedMean.g, worldMean.g, 24.0f) << "near-field green drifted";
             EXPECT_NEAR(projectedMean.b, worldMean.b, 24.0f) << "near-field blue drifted";
-            EXPECT_GT(projectedMean.b, projectedMean.r)
-                << "the near foreground must still read as water (blue/teal dominant)";
         }
 
         // ---- and the surface is still opaque --------------------------------

@@ -9357,11 +9357,20 @@ namespace OloEngine
                                            ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
                                            : 100.0f;
 
-                    // Lazy mesh initialization / rebuild
-                    if (water.m_NeedsRebuild || !water.m_WaterMesh)
+                    // The mesh's real resolution — the one number the build,
+                    // the band-limit spacing and the projected grid all agree
+                    // on. Clamped once, here.
+                    const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+                    const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
+
+                    // Lazy mesh initialization / rebuild. The vertex-count test
+                    // catches a resolution written without m_NeedsRebuild (an
+                    // MCP field write, a script): the projected grid derives its
+                    // band-limit spacing from resX/resZ, and a mesh built at a
+                    // different resolution would be drawn with the wrong one.
+                    const sizet expectedVertexCount = static_cast<sizet>(resX + 1u) * static_cast<sizet>(resZ + 1u);
+                    if (water.m_NeedsRebuild || !water.m_WaterMesh || !water.m_WaterMesh->IsValid() || static_cast<sizet>(water.m_WaterMesh->GetVertices().Num()) != expectedVertexCount)
                     {
-                        const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
-                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
                             sizeX, sizeZ,
                             resX, resZ);
@@ -9638,10 +9647,8 @@ namespace OloEngine
                     // with once the resolution exceeds 1024, and the band-limit
                     // weight would then keep octaves the surface cannot carry —
                     // the exact faceting this value exists to prevent.
-                    const f32 spacingCountX =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionX, 1u, 1024u));
-                    const f32 spacingCountZ =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionZ, 1u, 1024u));
+                    const f32 spacingCountX = static_cast<f32>(resX);
+                    const f32 spacingCountZ = static_cast<f32>(resZ);
                     // The coarser of the two axes is the one that limits what the
                     // surface can carry.
                     const f32 vertexSpacing =
@@ -10002,134 +10009,55 @@ namespace OloEngine
 
                     // Projected grid (issue #1035). The mesh is untouched — the
                     // vertex stage reads its (u, v) as a screen coordinate — so
-                    // all that is uploaded is the NDC band the camera can reach
-                    // the plane over, the rim radius a missed ray is pushed to,
-                    // and the rect a vertex is clamped into.
-                    //
-                    // Packed here rather than up with the rest of waterParams
-                    // because it needs halfX / halfZ, which are the sanitized
-                    // extents computed for the bounds just above. The bounds
-                    // themselves stay the authored rect and stay correct: a
-                    // projected vertex is clamped into exactly that rect, so the
-                    // draw's CPU frustum test still describes what it draws.
-                    // Disabled by default, with the NDC rectangle left as the
-                    // whole screen so the packed value is coherent even though
-                    // the shader never reads it while .x is 0.
-                    waterParams.projectedGridParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
-                    waterParams.projectedGridParams2 = glm::vec4(halfX, halfZ, 1.0f, 1.0f);
-                    if (water.m_ProjectedGridEnabled)
+                    // all that is uploaded is the NDC rectangle, the band-limit
+                    // spacing step and the rect a vertex is clamped into. The
+                    // draw's bounds stay the authored rect and stay correct: a
+                    // projected vertex is clamped into exactly that rect.
                     {
-                        // The surface plane in WORLD space: the grid is built in
-                        // XZ with +Y up, so the plane normal is the transformed
-                        // up axis (column 1) and its centre the translation
-                        // (column 3) — the same derivation the planar-reflection
-                        // plane above uses.
-                        const glm::vec3 planeNormal(modelMat[1]);
-                        const glm::vec3 planePoint(modelMat[3]);
-                        const f32 planeNormalLenSq = glm::dot(planeNormal, planeNormal);
-                        // The IN-PLANE axes matter as much as the normal here,
-                        // and this is the one place that is true. The vertex
-                        // stage inverts u_Model to clamp a projected vertex into
-                        // the authored rect, so a transform that is singular in
-                        // x or z — a zero scale on either — makes every water
-                        // vertex NaN. The world-space grid does not invert
-                        // anything and just draws a zero-area surface, so this
-                        // guard has no counterpart above.
-                        const f32 axisXLenSq = glm::dot(glm::vec3(modelMat[0]), glm::vec3(modelMat[0]));
-                        const f32 axisZLenSq = glm::dot(glm::vec3(modelMat[2]), glm::vec3(modelMat[2]));
-                        const bool planeUsable =
-                            std::isfinite(planeNormalLenSq) && planeNormalLenSq > 1e-6f && std::isfinite(axisXLenSq) && axisXLenSq > 1e-6f && std::isfinite(axisZLenSq) && axisZLenSq > 1e-6f && std::isfinite(planePoint.x) && std::isfinite(planePoint.y) && std::isfinite(planePoint.z);
-
-                        if (planeUsable)
+                        WaterSurfaceLod::ProjectedGridInputs gridInputs;
+                        gridInputs.m_Model = modelMat;
+                        // Absolute matrices: NDC is the same in every space, and
+                        // the backend adjustment is the part that MUST be applied
+                        // — Vulkan's row flip mirrors NDC y.
+                        gridInputs.m_ViewProjection = RHI::AdjustProjectionForBackend(viewProjection);
+                        gridInputs.m_Projection = RHI::AdjustProjectionForBackend(projectionMatrix);
+                        gridInputs.m_CameraPosition = cameraPosition;
+                        gridInputs.m_WaveParams = waterParams.waveParams;
+                        gridInputs.m_WaveDir0 = waterParams.waveDir0;
+                        gridInputs.m_WaveDir1 = waterParams.waveDir1;
+                        // The un-floored bound: waveH carries a 3 m floor for
+                        // the draw's cull box, which would be a layout margin
+                        // above a deck-height eye here.
+                        gridInputs.m_VerticalExtent =
+                            water.m_UseFFT
+                                ? clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f) * WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale) * 2.0f
+                                : 0.0f;
+                        gridInputs.m_HalfExtentX = halfX;
+                        gridInputs.m_HalfExtentZ = halfZ;
+                        gridInputs.m_GridResolutionX = resX;
+                        gridInputs.m_GridResolutionZ = resZ;
+                        const bool projected =
+                            water.m_ProjectedGridEnabled && WaterSurfaceLod::PackProjectedGrid(gridInputs, waterParams.projectedGridParams,
+                                                                                               waterParams.projectedGridParams2);
+                        if (!projected)
                         {
-                            // The rectangle is a pure NDC quantity, so it may be
-                            // computed from the ABSOLUTE view-projection even
-                            // though the shader unprojects the render-relative
-                            // one: the two differ by a translation that cancels
-                            // in the projective divide. What it may NOT skip is
-                            // the backend adjustment — Vulkan's row flip mirrors
-                            // NDC y, and the rectangle would otherwise describe
-                            // the wrong half of the screen.
-                            //
-                            // The displacement margin is the SAME bound the
-                            // tess-control cull inflates its patches by. It has
-                            // to be: the grid must reach wherever a displaced
-                            // vertex can go, and two different answers to "how
-                            // far can this surface move" is how a thin band of
-                            // missing water appears months later.
-                            // MaxSurfaceDisplacement, NOT the tess-control
-                            // cull's MaxWaveDisplacement. The two answer
-                            // different questions and the header spells out
-                            // why: over-estimating is free for the cull and
-                            // expensive here, because the layout rectangle has
-                            // to reach below the screen by this much, and once
-                            // it approaches the camera's height above the water
-                            // the rectangle runs away. On WaterShowcase's waves
-                            // the cull's bound is 2.8x this one, which is the
-                            // difference between 61% and 92% of the grid
-                            // landing off screen at a grazing angle.
-                            //
-                            // `waveH` is the vertical extent the draw's bounds
-                            // were just built from, and it is the ONLY one of
-                            // the two that describes an FFT ocean — the Gerstner
-                            // bound is derived from wave parameters the FFT path
-                            // does not use, which is exactly why the FFT branch
-                            // above turns the tess-control cull off. Taking the
-                            // larger keeps one number correct for both models.
-                            const f32 displacementMargin = std::max(
-                                WaterSurfaceLod::MaxSurfaceDisplacement(waterParams.waveParams,
-                                                                        waterParams.waveDir0,
-                                                                        waterParams.waveDir1),
-                                waveH);
-                            const WaterSurfaceLod::NdcBounds ndcBounds =
-                                WaterSurfaceLod::ComputeNdcBounds(
-                                    RHI::AdjustProjectionForBackend(viewProjection), cameraPosition,
-                                    planePoint, planeNormal, displacementMargin);
-
-                            // The band-limit spacing, per metre of ray
-                            // distance (WaterSurfaceLod::SpacingPerMetre). The
-                            // vertex stage multiplies it by each vertex's own
-                            // distance, which is what makes the spacing a
-                            // continuous per-vertex quantity rather than a
-                            // per-patch one — see the tess-eval stage for what
-                            // the per-patch version did to the surface.
-                            const f32 spacingPerMetre = WaterSurfaceLod::SpacingPerMetre(
-                                ndcBounds, RHI::AdjustProjectionForBackend(projectionMatrix),
-                                std::clamp(water.m_GridResolutionX, 1u, 1024u),
-                                std::clamp(water.m_GridResolutionZ, 1u, 1024u));
-
-                            // .z / .w carry the NEAR and FAR y edges, not min
-                            // and max: which is which depends on the backend's
-                            // NDC convention and is decided by geometry in
-                            // ComputeNdcBounds. The shader maps v = 1 onto the
-                            // near edge, which keeps the mesh's winding
-                            // front-facing on both backends.
-                            waterParams.projectedGridParams =
-                                glm::vec4(1.0f, ndcBounds.m_Min.x, ndcBounds.m_NearEdgeY, spacingPerMetre);
-                            waterParams.projectedGridParams2 =
-                                glm::vec4(halfX, halfZ, ndcBounds.m_Max.x, ndcBounds.m_FarEdgeY);
-
+                            // Disabled, or a degenerate transform: coherent
+                            // disabled fields, and the world-space grid draws.
+                            waterParams.projectedGridParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
+                            waterParams.projectedGridParams2 = glm::vec4(halfX, halfZ, 1.0f, 1.0f);
+                        }
+                        else
+                        {
                             // Turn the tess-control frustum cull OFF, for the
                             // same reason the FFT branch above does and a
-                            // sharper one. The cull tests the UNDISPLACED patch
-                            // against the frustum, and a projected grid's
-                            // layout rectangle deliberately extends OUTSIDE it:
-                            // the skirt rows exist precisely so a crest can lift
-                            // them into frame. Culling on the resting position
-                            // therefore rejects exactly the patches the margin
-                            // was added to create, and the near water renders as
-                            // a band of missing surface with the seabed showing
-                            // through it.
-                            //
-                            // Nothing is lost. A projected grid has no
-                            // off-screen bulk to reject — its patch count is its
-                            // resolution, every row is either on screen or one
-                            // of the few that the margin put just outside it.
+                            // sharper one: it tests the UNDISPLACED patch, and
+                            // a projected grid's layout rectangle deliberately
+                            // extends outside the frustum — the skirt rows exist
+                            // precisely so a crest can lift them into frame.
+                            // Culling on the resting position rejects exactly
+                            // the patches the margin was added to create.
                             waterParams.tessParams.w = 0.0f;
                         }
-                        // A degenerate transform leaves the enable at 0 and the
-                        // surface draws as the world-space grid it always was,
-                        // rather than as a plane-full of NaNs.
                     }
 
                     auto* packet = Renderer3D::DrawWaterSurface(

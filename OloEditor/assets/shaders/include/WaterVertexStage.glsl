@@ -285,23 +285,23 @@ layout(location = 8) out float v_ShoreFoam;
 // =============================================================================
 //
 // The surface mesh's (u, v) is read as a SCREEN coordinate instead of a world
-// one: unproject it into the segment the depth range spans, intersect that with
-// the water plane, and the vertex lands wherever this pixel column meets the
-// water. Vertex density is then a property of the viewport, not of
+// one: cast this pixel's ray from the eye, intersect it with the water plane,
+// and the vertex lands wherever this pixel column meets the water. Vertex
+// density is then a property of the viewport, not of
 // m_WorldSizeX/Z — which is the point, because the census in
 // WaterGeometryLodProfileTest measured 80-94% of a world-space grid's triangles
 // landing sub-pixel at a grazing angle while every base patch still paid its
 // vertex invocation.
 //
-// The inverse view-projection is computed HERE rather than uploaded. That is
-// deliberate and it is not a micro-optimisation trade: u_ViewProjection is the
-// render-RELATIVE, backend-ADJUSTED matrix this stage feeds gl_Position, and
-// inverting that exact matrix is the only formulation in which the unprojected
-// position cannot be in the wrong space or the wrong handedness. Uploading an
-// inverse means picking which of those two flavours to invert on the CPU and
+// The ray is built HERE from u_Projection and u_View rather than uploaded as
+// an inverse matrix. That is deliberate: these are the render-RELATIVE,
+// backend-ADJUSTED matrices this stage feeds gl_Position, so a ray derived from
+// them cannot be in the wrong space or the wrong handedness. Uploading a
+// precomputed inverse means picking which flavour to invert on the CPU and
 // being silently wrong on one backend, or at 40 km from the origin, if the
-// choice drifts. A mat4 inverse per vertex is affordable precisely because this
-// feature exists to make the vertex count small.
+// choice drifts. The CPU side (WaterSurfaceLod::ComputeNdcBounds) works in
+// absolute space through an inverse view-projection — NDC is identical in
+// both, which is what lets the two agree on the rectangle.
 //
 // The CPU mirror is WaterSurfaceLod::ProjectGridVertex; the two are pinned
 // against each other by WaterGeometryLodProfileTest.
@@ -313,12 +313,12 @@ vec3 waterProjectGridVertex(vec2 ndc, vec3 planePoint, vec3 planeNormal, float r
     //
     // In view space a pixel's ray is (x / P00, y / P11, -1): the projection's
     // two focal terms undo the perspective scale and the camera looks down its
-    // own -z. Rotating that into the world is the TRANSPOSE of the view
-    // rotation — exact, three dot products, no inverse() anywhere. The
-    // `inverse(u_ViewProjection)` route was tried first and placed every hit
-    // far outside the surface while every CPU mirror of the same arithmetic
-    // was fine; whatever the GPU made of inverting a 0.1..1000 perspective,
-    // this formulation does not ask it to.
+    // own -z. Taking that into the world is the INVERSE of the view's 3x3 —
+    // not its transpose. The editor camera is rigid and the two agree, but a
+    // runtime camera is an entity transform, scale included, and then the
+    // view's 3x3 is S^-1 R^T whose inverse R S is not its transpose R S^-1.
+    // A 3x3 inverse is ~30 multiplies per vertex; an `inverse(u_ViewProjection)`
+    // route was written first, gives the same ray, and costs a mat4 inverse.
     //
     // Convention-safe by construction: on Vulkan the projection seam negates
     // P11 (RHI/RHIProjectionSeam.h) and the NDC y handed in is flipped the same
@@ -326,10 +326,7 @@ vec3 waterProjectGridVertex(vec2 ndc, vec3 planePoint, vec3 planeNormal, float r
     // seam's z remap touches P22/P32 only, which this never reads.
     const float EPS = 1e-6;
     vec3 dirView = vec3(ndc.x / u_Projection[0][0], ndc.y / u_Projection[1][1], -1.0);
-    // Column-major: u_View[c] is column c, so (R^T v)_i = dot(u_View[i].xyz, v).
-    vec3 rayDir = normalize(vec3(dot(u_View[0].xyz, dirView),
-                                 dot(u_View[1].xyz, dirView),
-                                 dot(u_View[2].xyz, dirView)));
+    vec3 rayDir = normalize(inverse(mat3(u_View)) * dirView);
     vec3 rayOrigin = u_CameraPosition;
 
     float denom = dot(rayDir, planeNormal);
@@ -337,7 +334,7 @@ vec3 waterProjectGridVertex(vec2 ndc, vec3 planePoint, vec3 planeNormal, float r
     // t is metres along a unit ray that already points away from the eye, so
     // "in front" is simply t > 0. No upper bound: a hit near the horizon is
     // legitimately far away and the caller's rect clamp is what bounds it.
-    if (abs(denom) >= EPS && t > 0.0)
+    if (t > 0.0) // t is -1 whenever denom was too small, so this is the whole test
     {
         // World metres between this vertex and its grid neighbour: one grid
         // step of view angle (spacingPerMetre, from the CPU), scaled by the
@@ -430,7 +427,11 @@ void main()
         // Back into surface-local space and clamp into the authored rect. This
         // is what keeps a finite tile finite; rows that would land past the rect
         // pile onto its edge as zero-area triangles.
-        vec3 local = (inverse(u_Model) * vec4(hit, 1.0)).xyz;
+        // Back into surface-local space WITHOUT a per-vertex mat4 inverse:
+        // u_NormalMatrix is transpose(inverse(u_Model)), already uploaded per
+        // draw, so its 3x3 transpose is the inverse of the model's linear part
+        // and the translation is undone by subtracting column 3 first.
+        vec3 local = transpose(mat3(u_NormalMatrix)) * (hit - u_Model[3].xyz);
         local.xz = clamp(local.xz, -u_ProjectedGridParams2.xy, u_ProjectedGridParams2.xy);
         local.y = 0.0;
         gridLocalPos = local;
@@ -458,11 +459,12 @@ void main()
     // (displacement happens in TES instead).
     //
     // The projected grid takes this branch unconditionally (issue #1035). Its
-    // patches vary in world size by three orders of magnitude across one frame,
-    // and the tess-eval stage is where that size is recovered — from the patch's
-    // own edge length — to band-limit the octave ladder. Letting a projected
-    // vertex displace HERE instead would band-limit it with the base grid's
-    // nominal spacing, which under a projected grid describes nothing.
+    // vertices vary in world spacing by three orders of magnitude across one
+    // frame, and the tess-eval stage is where that spacing is applied — the
+    // per-vertex v_ProjSpacing computed above, interpolated across the patch —
+    // to band-limit the octave ladder. Letting a projected vertex displace HERE
+    // instead would band-limit it with the base grid's nominal spacing, which
+    // under a projected grid describes nothing.
     if (u_TessParams.x > 0.0 || u_ProjectedGridParams.x > 0.5)
     {
         v_WorldPos = worldPos.xyz;

@@ -48,7 +48,10 @@
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Water/WaterSurfaceLod.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 #include "OloEngine/Scene/Components.h"
+
+#include "Rendering/ShaderHarness.h"
 
 #include <gtest/gtest.h>
 
@@ -59,8 +62,8 @@
 #include <cmath>
 #include <deque>
 #include <filesystem>
-#include <fstream>
-#include <sstream>
+#include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -233,23 +236,15 @@ namespace
             { d0, wl0, cfg.m_Steepness0, 0.55f },
             { d1, wl1, cfg.m_Steepness1, 0.55f },
         };
-        // WaterCommon.glsl's six detail octaves: wavelength ratio, steepness
-        // ratio, global amplitude weight.
-        constexpr f32 kDetail[6][3] = {
-            { 0.85f, 0.5f, 0.5f },
-            { 0.6f, 0.45f, 0.4f },
-            { 0.4f, 0.38f, 0.3f },
-            { 0.25f, 0.3f, 0.22f },
-            { 0.15f, 0.22f, 0.15f },
-            { 0.09f, 0.15f, 0.1f },
-        };
-        for (i32 i = 0; i < 6; ++i)
+        // The six detail octaves, from the one table WaterSurfaceSamplerTest
+        // pins against the shader.
+        for (const WaterSurface::DetailOctave& o : WaterSurface::kDetailOctaves)
         {
-            const f32 angle = baseAngle + kGoldenAngle * static_cast<f32>(i + 1);
+            const f32 angle = baseAngle + kGoldenAngle * o.m_AngleMul;
             ladder.push_back({ { std::cos(angle), std::sin(angle) },
-                               avgWL * kDetail[i][0],
-                               avgSteepness * kDetail[i][1],
-                               kDetail[i][2] });
+                               avgWL * o.m_WavelengthMul,
+                               avgSteepness * o.m_SteepnessMul,
+                               o.m_AmplitudeWeight });
         }
         return ladder;
     }
@@ -278,6 +273,11 @@ namespace
     }
 
     // ---- the census ---------------------------------------------------------
+
+    // How far a missed projected-grid ray is pushed before the rect clamp: past
+    // the 1 km surfaces' half-diagonal (707 m), doubled, as the vertex stage
+    // derives it. ONE value for every projected-grid test in this file.
+    constexpr f32 kRimRadius = 1414.2f;
 
     struct Census
     {
@@ -490,7 +490,7 @@ namespace
         const glm::vec3 planePoint(0.0f);
         const glm::vec3 planeNormal(0.0f, 1.0f, 0.0f);
         const f32 half = cfg.m_WorldSize * 0.5f;
-        const f32 rimRadius = 2.0f * std::sqrt(half * half + half * half);
+        const f32 rimRadius = kRimRadius;
         const f32 margin =
             WaterSurfaceLod::MaxSurfaceDisplacement(cfg.WaveParams(), cfg.WaveDir0(), cfg.WaveDir1());
         const WaterSurfaceLod::NdcBounds bounds =
@@ -712,33 +712,45 @@ TEST(WaterGeometryLodProfile, ProjectedGridCostsFarLessThanTheWorldGridItReplace
 
 namespace
 {
-    // A plain y-up water plane at the origin, and the surface half-extent used
-    // as the rim radius.
+    // A plain y-up water plane at the origin.
     constexpr glm::vec3 kPlanePoint{ 0.0f, 0.0f, 0.0f };
     constexpr glm::vec3 kPlaneNormal{ 0.0f, 1.0f, 0.0f };
-    constexpr f32 kRimRadius = 800.0f;
 } // namespace
 
 TEST(WaterGeometryLodProfile, UnprojectionDepthConventionIsNotAssumed)
 {
     // The assumption that broke the first implementation, written down as a
-    // test: which NDC depth unprojects in FRONT of the camera is a property of
-    // the projection, not a constant, and the projected grid must not depend on
-    // it. Print both so the convention is visible rather than inferred.
+    // test: the first ProjectGridVertex unprojected the NDC segment z in
+    // [-1, 1] and accepted a hit only inside it, so every row whose water lay
+    // past the far plane fell to the rim. From a 3 m eye at a grazing pitch
+    // that is most of the rows above the near band. The ray is now cast from
+    // the eye and accepts any positive distance: rows that hit BEYOND the far
+    // clip must still land on the plane, at the screen position asked for.
     const EditorCamera camera = MakeCamera(kLowGrazing);
     const glm::mat4 viewProj = camera.GetViewProjection();
     const glm::mat4 invViewProj = glm::inverse(viewProj);
 
-    for (const f32 ndcZ : { -1.0f, 1.0f })
+    // From 3 m up, a hit past the 1000 m far clip is within 0.003 rad of the
+    // horizon — a 0.0005 NDC row step at this field of view, so sample finely.
+    constexpr i32 kRows = 4000;
+    i32 beyondFarClip = 0;
+    for (i32 row = 0; row <= kRows; ++row)
     {
-        const glm::vec4 h = invViewProj * glm::vec4(0.0f, 0.0f, ndcZ, 1.0f);
-        ASSERT_GT(std::abs(h.w), 1e-9f);
-        const glm::vec3 world(glm::vec3(h) / h.w);
-        const glm::vec4 clip = viewProj * glm::vec4(world, 1.0f);
-        std::cout << "[  PROFILE ] NDC z " << ndcZ << " -> world (" << world.x << ", " << world.y
-                  << ", " << world.z << "), distance from eye "
-                  << glm::distance(world, kLowGrazing.m_Eye) << " m, clip w " << clip.w << std::endl;
+        const f32 ndcY = -1.0f + 2.0f * static_cast<f32>(row) / static_cast<f32>(kRows);
+        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, { 0.0f, ndcY },
+                                                                 kPlanePoint, kPlaneNormal, kRimRadius);
+        const glm::vec4 clip = viewProj * glm::vec4(hit, 1.0f);
+        if (clip.w <= 0.0f)
+            continue; // the rim, behind or beside the eye: a genuine miss
+        const glm::vec2 reprojected = glm::vec2(clip) / clip.w;
+        if (std::abs(reprojected.y - ndcY) > 1e-3f || std::abs(reprojected.x) > 1e-3f)
+            continue; // the rim again (a horizon row)
+        EXPECT_NEAR(hit.y, kPlanePoint.y, 1e-3f) << "row " << ndcY;
+        if (glm::distance(hit, kLowGrazing.m_Eye) > kFarClip)
+            ++beyondFarClip;
     }
+    // The pin: rows past the far clip exist at this pitch and were placed.
+    EXPECT_GT(beyondFarClip, 5) << "no row landed past the far plane; the depth range is a cutoff again";
 }
 
 TEST(WaterGeometryLodProfile, ProjectedGridVertexLandsOnThePlane)
@@ -969,6 +981,58 @@ TEST(WaterGeometryLodProfile, NdcBoundsNearEdgeIsDecidedByGeometry)
     EXPECT_NEAR(vk.m_Max.y, -gl.m_Min.y, 1e-4f);
 }
 
+TEST(WaterGeometryLodProfile, NdcBoundsNearEdgeKeepsTheWindingFrontFacingAtEveryPitch)
+{
+    // The actual invariant the near/far choice serves, evaluated the way the
+    // GPU will: lay a v-then-u corner triple out through the same mapping the
+    // vertex stage uses (v = 0 far, v = 1 near) and require its winding normal
+    // to point along the plane normal. Includes the straight-down pose, where a
+    // distance-based rule has nothing to choose by, and the Vulkan seam's flip.
+    struct Pose
+    {
+        const char* m_Label;
+        glm::vec3 m_Eye;
+        glm::vec3 m_Target;
+    };
+    const Pose poses[] = {
+        { "grazing", kLowGrazing.m_Eye, kLowGrazing.m_Target },
+        { "overhead", kHighOverhead.m_Eye, kHighOverhead.m_Target },
+        { "straight down", { 0.0f, 120.0f, 0.0f }, { 0.0f, 0.0f, -0.001f } },
+        { "straight down, yawed", { 30.0f, 90.0f, -20.0f }, { 30.001f, 0.0f, -20.0f } },
+    };
+    glm::mat4 flip(1.0f);
+    flip[1][1] = -1.0f;
+
+    for (const Pose& pose : poses)
+    {
+        const EditorCamera camera = MakeCamera({ pose.m_Label, pose.m_Eye, pose.m_Target });
+        for (const bool flipped : { false, true })
+        {
+            const glm::mat4 viewProj = flipped ? (flip * camera.GetViewProjection()) : camera.GetViewProjection();
+            const glm::mat4 invViewProj = glm::inverse(viewProj);
+            const WaterSurfaceLod::NdcBounds b = WaterSurfaceLod::ComputeNdcBounds(
+                viewProj, pose.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+            ASSERT_TRUE(b.m_Visible) << pose.m_Label;
+
+            // Three grid corners in the middle of the rectangle: (u, v),
+            // (u, v + dv), (u + du, v), placed exactly as the shader places them.
+            const auto place = [&](f32 u, f32 v)
+            {
+                const glm::vec2 ndc(glm::mix(b.m_Min.x, b.m_Max.x, u), glm::mix(b.m_FarEdgeY, b.m_NearEdgeY, v));
+                return WaterSurfaceLod::ProjectGridVertex(invViewProj, pose.m_Eye, ndc, kPlanePoint, kPlaneNormal, kRimRadius);
+            };
+            const glm::vec3 p = place(0.5f, 0.5f);
+            const glm::vec3 pv = place(0.5f, 0.52f);
+            const glm::vec3 pu = place(0.52f, 0.5f);
+            // CreateWaterGrid's first triangle is (topLeft, bottomLeft, topRight)
+            // = (P, P+dv, P+du); its normal is (P+dv - P) x (P+du - P).
+            const f32 facing = glm::dot(glm::cross(pv - p, pu - p), kPlaneNormal);
+            EXPECT_GT(facing, 0.0f) << pose.m_Label << (flipped ? " (flipped)" : "")
+                                    << ": the projected triangle is back-facing from above";
+        }
+    }
+}
+
 TEST(WaterGeometryLodProfile, NdcBoundsCoverTheWholeFrameFromOverhead)
 {
     // Looking steeply down, the plane fills the frame and the rectangle must not
@@ -993,8 +1057,10 @@ TEST(WaterGeometryLodProfile, NdcBoundsReportNotVisibleWhenLookingAwayFromTheWat
         MakeViewProj(lookingUp), lookingUp.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
 
     EXPECT_FALSE(bounds.m_Visible);
-    EXPECT_EQ(bounds.m_Min, glm::vec2(-1.0f, -1.0f));
-    EXPECT_EQ(bounds.m_Max, glm::vec2(1.0f, 1.0f));
+    EXPECT_FLOAT_EQ(bounds.m_Min.x, -1.0f);
+    EXPECT_FLOAT_EQ(bounds.m_Min.y, -1.0f);
+    EXPECT_FLOAT_EQ(bounds.m_Max.x, 1.0f);
+    EXPECT_FLOAT_EQ(bounds.m_Max.y, 1.0f);
 }
 
 TEST(WaterGeometryLodProfile, CullBoundDominatesTheGridBound)
@@ -1106,6 +1172,106 @@ TEST(WaterGeometryLodProfile, ProjectedGridSpacingIsContinuousAndGrowsWithDistan
     EXPECT_GT(rowsChecked, 40);
 }
 
+TEST(WaterGeometryLodProfile, PackProjectedGridRefusesADegenerateTransform)
+{
+    // The one path that returns the surface to the world-space grid rather than
+    // a plane-full of NaNs: the vertex stage undoes the model matrix's linear
+    // part to clamp into the rect, so a zero scale on x or z has no inverse.
+    const EditorCamera camera = MakeCamera(kLowGrazing);
+    WaterSurfaceLod::ProjectedGridInputs in;
+    in.m_ViewProjection = camera.GetViewProjection();
+    in.m_Projection = camera.GetProjection();
+    in.m_CameraPosition = kLowGrazing.m_Eye;
+    in.m_WaveParams = kWaterShowcase.WaveParams();
+    in.m_WaveDir0 = kWaterShowcase.WaveDir0();
+    in.m_WaveDir1 = kWaterShowcase.WaveDir1();
+    in.m_VerticalExtent = 1.0f;
+    in.m_HalfExtentX = 500.0f;
+    in.m_HalfExtentZ = 500.0f;
+    in.m_GridResolutionX = 256;
+    in.m_GridResolutionZ = 144;
+
+    glm::vec4 params(0.0f);
+    glm::vec4 params2(0.0f);
+    EXPECT_TRUE(WaterSurfaceLod::PackProjectedGrid(in, params, params2)) << "identity must pack";
+    EXPECT_GT(params.x, 0.5f);
+    EXPECT_GT(params.w, 0.0f) << "spacing per metre";
+    EXPECT_FLOAT_EQ(params2.x, 500.0f);
+
+    for (const i32 axis : { 0, 2 })
+    {
+        WaterSurfaceLod::ProjectedGridInputs bad = in;
+        bad.m_Model[axis] = glm::vec4(0.0f);
+        glm::vec4 p(9.0f);
+        glm::vec4 p2(9.0f);
+        EXPECT_FALSE(WaterSurfaceLod::PackProjectedGrid(bad, p, p2)) << "zero scale on axis " << axis;
+        EXPECT_LT(p.x, 0.5f) << "left disabled";
+    }
+    WaterSurfaceLod::ProjectedGridInputs nan = in;
+    nan.m_Model[3].x = std::numeric_limits<f32>::quiet_NaN();
+    glm::vec4 p(0.0f);
+    glm::vec4 p2(0.0f);
+    EXPECT_FALSE(WaterSurfaceLod::PackProjectedGrid(nan, p, p2));
+}
+
+TEST(WaterGeometryLodProfile, PackProjectedGridCapsTheMarginBelowTheEye)
+{
+    // An FFT ocean's crest bound is 4 m at the component defaults, above a
+    // 3 m deck-height eye. Uncapped, that margin swallows the viewpoint and the
+    // layout rectangle runs to kNdcBoundsCap with ~90% of the grid off screen.
+    // The pack must cap it and keep a usable rectangle.
+    const EditorCamera camera = MakeCamera(kLowGrazing);
+    WaterSurfaceLod::ProjectedGridInputs in;
+    in.m_ViewProjection = camera.GetViewProjection();
+    in.m_Projection = camera.GetProjection();
+    in.m_CameraPosition = kLowGrazing.m_Eye; // 3 m up
+    in.m_WaveParams = kWaterShowcase.WaveParams();
+    in.m_WaveDir0 = kWaterShowcase.WaveDir0();
+    in.m_WaveDir1 = kWaterShowcase.WaveDir1();
+    in.m_VerticalExtent = 4.0f; // the FFT default bound
+    in.m_HalfExtentX = 500.0f;
+    in.m_HalfExtentZ = 500.0f;
+    in.m_GridResolutionX = 256;
+    in.m_GridResolutionZ = 144;
+
+    glm::vec4 params(0.0f);
+    glm::vec4 params2(0.0f);
+    ASSERT_TRUE(WaterSurfaceLod::PackProjectedGrid(in, params, params2));
+    // .z is the near edge on GL (the minimum y): it must not have hit the cap.
+    // (At the 0.5 x eye-height cap this pose lands near -3.1; uncapped, the
+    // 4 m bound is past -4 and clamped.)
+    EXPECT_GT(params.z, -WaterSurfaceLod::kNdcBoundsCap + 0.25f)
+        << "the rectangle ran away: near edge at " << params.z;
+    // And the rectangle still reaches below the screen, so crests can still
+    // lift near water into frame.
+    EXPECT_LT(params.z, -1.0f);
+}
+
+TEST(WaterGeometryLodProfile, PackProjectedGridRefusesAnOrthographicCamera)
+{
+    // The ray both sides cast is a pinhole ray; an orthographic frame has no
+    // eye to cast it from, so the pack must hand the surface back to the
+    // world-space grid rather than lay it out along rays that do not exist.
+    WaterSurfaceLod::ProjectedGridInputs in;
+    const glm::mat4 view = glm::lookAt(glm::vec3(0.0f, 120.0f, 0.0f), glm::vec3(0.0f, 0.0f, -0.001f),
+                                       glm::vec3(0.0f, 1.0f, 0.0f));
+    in.m_Projection = glm::ortho(-100.0f, 100.0f, -56.0f, 56.0f, 0.1f, 1000.0f);
+    in.m_ViewProjection = in.m_Projection * view;
+    in.m_CameraPosition = glm::vec3(0.0f, 120.0f, 0.0f);
+    in.m_WaveParams = kWaterShowcase.WaveParams();
+    in.m_WaveDir0 = kWaterShowcase.WaveDir0();
+    in.m_WaveDir1 = kWaterShowcase.WaveDir1();
+    in.m_HalfExtentX = 500.0f;
+    in.m_HalfExtentZ = 500.0f;
+    in.m_GridResolutionX = 256;
+    in.m_GridResolutionZ = 144;
+
+    glm::vec4 params(1.0f);
+    glm::vec4 params2(1.0f);
+    EXPECT_FALSE(WaterSurfaceLod::PackProjectedGrid(in, params, params2));
+    EXPECT_LT(params.x, 0.5f) << "the disabled state must be packed";
+}
+
 TEST(WaterGeometryLodProfile, ProjectedGridMissedRayLandsBeyondTheRim)
 {
     // A row above the horizon has to go SOMEWHERE finite. It is pushed out
@@ -1129,9 +1295,15 @@ TEST(WaterGeometryLodProfile, ClampToRectKeepsAFiniteSurfaceFinite)
 {
     constexpr f32 kHalfX = 500.0f;
     constexpr f32 kHalfZ = 300.0f;
-    EXPECT_EQ(WaterSurfaceLod::ClampToRect({ 0.0f, 0.0f }, kHalfX, kHalfZ), glm::vec2(0.0f, 0.0f));
-    EXPECT_EQ(WaterSurfaceLod::ClampToRect({ 9000.0f, -9000.0f }, kHalfX, kHalfZ), glm::vec2(kHalfX, -kHalfZ));
-    EXPECT_EQ(WaterSurfaceLod::ClampToRect({ -1.0f, 400.0f }, kHalfX, kHalfZ), glm::vec2(-1.0f, kHalfZ));
+    const auto expectClamp = [&](glm::vec2 in, glm::vec2 want)
+    {
+        const glm::vec2 got = WaterSurfaceLod::ClampToRect(in, kHalfX, kHalfZ);
+        EXPECT_FLOAT_EQ(got.x, want.x);
+        EXPECT_FLOAT_EQ(got.y, want.y);
+    };
+    expectClamp({ 0.0f, 0.0f }, { 0.0f, 0.0f });
+    expectClamp({ 9000.0f, -9000.0f }, { kHalfX, -kHalfZ });
+    expectClamp({ -1.0f, 400.0f }, { -1.0f, kHalfZ });
 }
 
 TEST(WaterGeometryLodProfile, TessLevelFloorSurvivesADisabledToggle)
@@ -1156,45 +1328,15 @@ namespace
 {
     namespace fs = std::filesystem;
 
-    // The repo's "source-tree path, independent of the binary's cwd" idiom
-    // (ADR 0003); the cwd walk is the fallback for a standalone harness that
-    // does not define the macro.
-    [[nodiscard]] fs::path FindShader(const std::string& relative)
-    {
-#ifdef OLO_TEST_EDITOR_ROOT
-        if (const fs::path fromRoot = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / relative;
-            fs::exists(fromRoot))
-        {
-            return fromRoot;
-        }
-#endif
-        fs::path candidate = fs::current_path();
-        for (i32 depth = 0; depth < 6; ++depth)
-        {
-            for (const std::string prefix : { std::string("assets/shaders/"),
-                                              std::string("OloEditor/assets/shaders/") })
-            {
-                if (fs::exists(candidate / (prefix + relative)))
-                    return candidate / (prefix + relative);
-            }
-            if (!candidate.has_parent_path() || candidate == candidate.parent_path())
-                break;
-            candidate = candidate.parent_path();
-        }
-        return {};
-    }
-
+    /// Read a shader source through the suite's shared root resolution
+    /// (ShaderHarness), so this file cannot disagree with the twelve other
+    /// shader-inspecting tests about where the shaders are.
     [[nodiscard]] std::string ReadShader(const std::string& relative)
     {
-        const fs::path path = FindShader(relative);
-        if (path.empty())
+        const fs::path root = OloEngine::Tests::ShaderHarness::ResolveShaderRoot();
+        if (root.empty())
             return {};
-        std::ifstream file(path);
-        if (!file.is_open())
-            return {};
-        std::ostringstream ss;
-        ss << file.rdbuf();
-        return ss.str();
+        return OloEngine::Tests::ShaderHarness::ReadWholeFile(root / relative);
     }
 
     /// The WaterParams block as one file declares it, stripped of comments and

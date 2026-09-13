@@ -159,7 +159,8 @@ namespace OloEngine::WaterSurfaceLod
         /// the Vulkan projection seam's row flip. The grid maps v = 1 onto the
         /// near edge to keep the mesh's authored winding front-facing (see the
         /// vertex stage), so the shader must be told which edge that is rather
-        /// than assume a sign; this is decided from where the nearest hit was.
+        /// than assume a sign. It is decided by evaluating that winding on real
+        /// hits, which is well-defined at every pitch including straight down.
         f32 m_NearEdgeY = -1.0f;
         f32 m_FarEdgeY = 1.0f;
         /// False when no sampled ray reaches the slab at all (the camera is
@@ -176,6 +177,17 @@ namespace OloEngine::WaterSurfaceLod
     /// Over-covering costs a few collapsed rows; under-covering would clip the
     /// water short of where it is drawn.
     inline constexpr i32 kNdcProbeSteps = 17;
+
+    /// The layout margin is never allowed to exceed this fraction of the eye's
+    /// height above the plane — see PackProjectedGrid for why the rectangle
+    /// runs away past it. The near edge sits where the trough under the point
+    /// the bottom-of-screen ray meets the RAISED slab is seen from, and that
+    /// point is (h - m) / tan(bottom ray) in front of the eye: at m = 0.5 h and
+    /// a 0.43 rad bottom ray (WaterShowcase's grazing pose) the near edge is
+    /// NDC y = -3.1, at m = 0.75 h it is -6.9, past the cap. 0.5 is the last
+    /// fraction that keeps a usable rectangle at the pose the feature exists
+    /// for, and leaves WaterShowcase's own 1.28 m bound at a 3 m eye untouched.
+    inline constexpr f32 kLayoutMarginEyeFraction = 0.5f;
 
     /// How far outside the screen the rectangle may grow, per side. The
     /// excursion is unbounded as the camera approaches the water plane (the
@@ -212,20 +224,62 @@ namespace OloEngine::WaterSurfaceLod
                                              const glm::vec3& planeNormal,
                                              f32 displacementMargin);
 
-    /// The world position one projected-grid vertex lands on: unproject `ndc`
-    /// through `invViewProj` into a segment spanning the depth range, intersect
-    /// it with the plane, and fall back to the rim when the ray misses (above
-    /// the horizon, or parallel to the surface).
+    /// The world position one projected-grid vertex lands on: cast a ray from
+    /// `cameraPos` through the point `ndc` unprojects to, intersect it with the
+    /// plane at ANY positive distance (the depth range is not a cutoff — a
+    /// grazing row hits kilometres past the far plane and must still land),
+    /// and fall back to the rim when the ray misses (above the horizon, or
+    /// parallel to the surface).
     ///
     /// `rimRadius` is how far out a missing ray is pushed; pass the surface's
     /// half-diagonal so a missed row lands outside the rect and is then clamped
-    /// onto its edge by the caller. Mirrors `waterProjectGridVertex()` in
-    /// include/WaterVertexStage.glsl.
+    /// onto its edge by the caller. The vertex stage's `waterProjectGridVertex()`
+    /// builds the same ray from the camera basis instead of an inverse; the CPU
+    /// side is pinned by WaterGeometryLodProfileTest and the GPU side by
+    /// WaterProjectedGridVisualEvidenceTest — there is no direct CPU/GPU
+    /// position comparison.
     [[nodiscard]] glm::vec3 ProjectGridVertex(const glm::mat4& invViewProj,
                                               const glm::vec3& cameraPos, const glm::vec2& ndc,
                                               const glm::vec3& planePoint,
                                               const glm::vec3& planeNormal,
                                               f32 rimRadius);
+
+    /// Everything Scene.cpp knows about one water surface that the projected
+    /// grid's per-frame packing needs. Matrices and the camera position must be
+    /// in ONE space (absolute is fine — NDC is the same in every space) and the
+    /// two matrices must be the backend-ADJUSTED ones the vertex stage sees.
+    struct ProjectedGridInputs
+    {
+        glm::mat4 m_Model{ 1.0f };          ///< the surface's world transform
+        glm::mat4 m_ViewProjection{ 1.0f }; ///< RHI::AdjustProjectionForBackend(view-projection)
+        glm::mat4 m_Projection{ 1.0f };     ///< RHI::AdjustProjectionForBackend(projection)
+        glm::vec3 m_CameraPosition{ 0.0f };
+        glm::vec4 m_WaveParams{ 0.0f }; ///< the UBO's (time, speed, amplitude, frequency)
+        glm::vec4 m_WaveDir0{ 0.0f };
+        glm::vec4 m_WaveDir1{ 0.0f };
+        /// The draw's own bound on |displacement.y| — the FFT crest bound for an
+        /// FFT surface, 0 for Gerstner (MaxSurfaceDisplacement covers it). Pass
+        /// the real bound, NOT the 3 m floor the draw's cull box carries: that
+        /// floor is a culling safety margin, and here it is a layout cost.
+        f32 m_VerticalExtent = 0.0f;
+        f32 m_HalfExtentX = 0.0f; ///< local half-extents of the authored rect
+        f32 m_HalfExtentZ = 0.0f;
+        u32 m_GridResolutionX = 1; ///< the mesh's real resolution (post clamp)
+        u32 m_GridResolutionZ = 1;
+    };
+
+    /// Pack one frame's projected-grid UBO fields. Returns false — with the
+    /// fields left in their disabled state — when the surface transform is
+    /// degenerate (a zero scale on any axis, or a non-finite translation), in
+    /// which case the surface draws as the world-space grid rather than as a
+    /// plane-full of NaNs; and when the camera is not perspective, because the
+    /// ray both sides cast is a pinhole ray (`(x / P00, y / P11, -1)` from the
+    /// eye) and an orthographic frame has no eye to cast from — the world-space
+    /// grid is correct under either projection, so it takes over. Those guards
+    /// are the reason this is a function and not a block in Scene.cpp: it is
+    /// the one path that can be unit-tested.
+    [[nodiscard]] bool PackProjectedGrid(const ProjectedGridInputs& in, glm::vec4& outParams,
+                                         glm::vec4& outParams2);
 
     /// The band-limit spacing per metre of ray distance a projected grid is
     /// sampled at: one grid step of view angle. `gpuProjection` is the

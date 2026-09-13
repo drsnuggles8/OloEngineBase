@@ -131,7 +131,7 @@ data still loads with the neutral defaults:
 | Scene YAML (`MaterialComponent`) | Keys omitted at their defaults, so pre-#970 scenes re-serialize byte-identical. A missing `AttenuationDistance` means `+∞`. |
 | `.omaterial` (`MaterialAssetSerializer`) | A `PhysicalMaterial` block, written only when the material is non-neutral. Deliberately *not* in the generic `Properties` bag, which round-trips into uniforms rather than the typed setters. |
 | `.omesh` / asset pack (`ImportedMaterialCodec`) | Wire version `2`; a v1 blob stops before the block and keeps the defaults. `OMeshFormat::CurrentVersion` also moves 6 → 7, so an existing warm `.omesh` is re-imported rather than serving a v1 material blob — without that, an already-imported transmissive glTF would keep rendering opaque with no error. |
-| Save-game | `kSaveGameFormatVersion` 29; a pre-v29 save stops before the block. |
+| Save-game | Introduced at `kSaveGameFormatVersion` 29 (`HasFieldsSince(ar, 29)`); a pre-v29 save stops before the block. |
 
 ## Authoring
 

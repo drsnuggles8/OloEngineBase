@@ -36,7 +36,7 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 107 x glm::vec4 = 107 x 16 = 1712 bytes:
+    // 109 x glm::vec4 = 109 x 16 = 1744 bytes:
     //   21  the scalar params (18 until #967 appended WakeFieldParams /
     //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
     //       before that, water-ocean.md §1; FFTCascadeParams the
@@ -56,7 +56,7 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // not what to spend it on. #1034 spent none either: its foam field is a
     // CHANNEL of #967's texture, so it needed no sampler slot, and its compute
     // params are extra members of #967's block, so it needed no UBO slot.
-    // 1712 B is comfortably under the 16 KB std140 block ceiling, and water is
+    // 1744 B is comfortably under the 16 KB std140 block ceiling, and water is
     // single-instance so it uploads once per draw.
     //
     // A change here is a five-file edit, not a one-line one: the block is

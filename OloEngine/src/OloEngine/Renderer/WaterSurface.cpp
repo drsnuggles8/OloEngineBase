@@ -95,18 +95,19 @@ namespace OloEngine::WaterSurface
         }
 
         // Per-octave constants — must equal the inline literals in
-        // WaterCommon.glsl :: sumGerstnerWaves (octaves 0..5).
+        // WaterCommon.glsl :: sumGerstnerWaves (octaves 0..5). The table lives
+        // in WaterSurface.h so its other consumers read the same rows.
         struct Octave
         {
             f32 angleMul, wlMul, stMul, phase, timeMul, ampMul, seed;
         };
         constexpr std::array<Octave, 6> kOctaves = { {
-            { 1.0f, 0.85f, 0.50f, kPi * 1.7231f, 1.03f, 0.50f, 1.0f },
-            { 2.0f, 0.60f, 0.45f, kPi * 3.4519f, 0.97f, 0.40f, 2.7f },
-            { 3.0f, 0.40f, 0.38f, kPi * 0.8637f, 1.11f, 0.30f, 4.1f },
-            { 4.0f, 0.25f, 0.30f, kPi * 5.1043f, 0.89f, 0.22f, 5.9f },
-            { 5.0f, 0.15f, 0.22f, kPi * 2.6891f, 1.23f, 0.15f, 7.3f },
-            { 6.0f, 0.09f, 0.15f, kPi * 4.3127f, 1.07f, 0.10f, 9.1f },
+            { kDetailOctaves[0].m_AngleMul, kDetailOctaves[0].m_WavelengthMul, kDetailOctaves[0].m_SteepnessMul, kDetailOctaves[0].m_Phase, kDetailOctaves[0].m_TimeMul, kDetailOctaves[0].m_AmplitudeWeight, kDetailOctaves[0].m_WarpSeed },
+            { kDetailOctaves[1].m_AngleMul, kDetailOctaves[1].m_WavelengthMul, kDetailOctaves[1].m_SteepnessMul, kDetailOctaves[1].m_Phase, kDetailOctaves[1].m_TimeMul, kDetailOctaves[1].m_AmplitudeWeight, kDetailOctaves[1].m_WarpSeed },
+            { kDetailOctaves[2].m_AngleMul, kDetailOctaves[2].m_WavelengthMul, kDetailOctaves[2].m_SteepnessMul, kDetailOctaves[2].m_Phase, kDetailOctaves[2].m_TimeMul, kDetailOctaves[2].m_AmplitudeWeight, kDetailOctaves[2].m_WarpSeed },
+            { kDetailOctaves[3].m_AngleMul, kDetailOctaves[3].m_WavelengthMul, kDetailOctaves[3].m_SteepnessMul, kDetailOctaves[3].m_Phase, kDetailOctaves[3].m_TimeMul, kDetailOctaves[3].m_AmplitudeWeight, kDetailOctaves[3].m_WarpSeed },
+            { kDetailOctaves[4].m_AngleMul, kDetailOctaves[4].m_WavelengthMul, kDetailOctaves[4].m_SteepnessMul, kDetailOctaves[4].m_Phase, kDetailOctaves[4].m_TimeMul, kDetailOctaves[4].m_AmplitudeWeight, kDetailOctaves[4].m_WarpSeed },
+            { kDetailOctaves[5].m_AngleMul, kDetailOctaves[5].m_WavelengthMul, kDetailOctaves[5].m_SteepnessMul, kDetailOctaves[5].m_Phase, kDetailOctaves[5].m_TimeMul, kDetailOctaves[5].m_AmplitudeWeight, kDetailOctaves[5].m_WarpSeed },
         } };
 
         // WaterCommon.glsl :: sumGerstnerWaves — returns only the displacement

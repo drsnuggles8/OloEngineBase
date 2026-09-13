@@ -383,7 +383,7 @@ tess level is a constant 1 and the grid resolution is the only knob.
 WaterShowcase.olo opts in at 256x144.
 
 Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h)
-(23 tests in `WaterGeometryLodProfileTest`, built against the real
+(28 tests in `WaterGeometryLodProfileTest`, built against the real
 `EditorCamera` matrix). Evaluator: `waterProjectGridVertex()` in
 [`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
 Visual evidence, both grids at both acceptance-criterion angles:
@@ -418,21 +418,16 @@ found by capturing frames after every CPU test was already green:
   camera along the ray's forward horizontal to the rim. Along an unoriented
   view LINE, half of those vertices land behind the eye and the projection
   mirrors them back across the frame as a sheet over the near water;
-- **the ray is built from the camera basis**, `(x/P00, y/P11, -1)` rotated by
-  the view rotation's transpose, not from `inverse(u_ViewProjection)`. Same
-  ray, no inverse, and convention-safe: the Vulkan seam negates P11 and flips
-  the NDC y it is fed by the same sign.
+- **the ray is built from the camera basis**, `(x/P00, y/P11, -1)` taken
+  through the inverse of the view's 3x3 — not its transpose, because a runtime
+  camera is an entity transform and can carry scale — and cast from the eye at
+  ANY positive distance, not from `inverse(u_ViewProjection)` into the NDC
+  depth segment. The segment form dropped every hit past the far plane, which
+  from a 3 m eye is most of the rows. Convention-safe: the Vulkan seam negates
+  P11 and flips the NDC y it is fed by the same sign.
 
-Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h).
-Evaluator: `waterProjectGridVertex()` in
-[`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
+Two more are structural rather than found:
 
-Three details that are load-bearing rather than incidental:
-
-- the inverse view-projection is computed **in the vertex stage**, not uploaded.
-  `u_ViewProjection` is the render-relative, backend-adjusted matrix the stage
-  already feeds `gl_Position`; inverting that exact matrix is the only
-  formulation that cannot be in the wrong space or the wrong handedness;
 - the grid is laid out over a computed NDC rectangle, not over the screen
   (`WaterSurfaceLod::ComputeNdcBounds`, per frame on the CPU). It is *smaller*
   than the screen at the horizon end — rows up there reach no plane and would
@@ -462,7 +457,19 @@ That is why the scene authors 256×144 rather than the 192×108 that would tile
 `MaxWaveDisplacement`: the cull's is 2.8× larger (it bounds every detail octave
 by the largest and adds a 1.5× safety factor, both free for a cull), and feeding
 it here pushes 92% of the grid off screen at a grazing angle. The invariant that
-the cull's bound still dominates the grid's is pinned by a test.
+the cull's bound still dominates the grid's is pinned by a test. The same
+runaway happens whenever the margin approaches the eye height, whatever its
+source — an FFT ocean's 4 m default bound above a deck-height camera — so the
+layout margin is also capped at 0.5x the eye's height above the plane
+(`kLayoutMarginEyeFraction`): crests that reach above the eye are the waterline
+regime a projected grid is not built for, and losing cover for them beats
+losing the grid.
+
+Two cases hand the surface back to the world-space grid for the frame, with
+the packed fields left coherent (`PackProjectedGrid` returns false): a
+degenerate surface transform (a zero scale on any axis makes every projected
+vertex NaN, where the world grid merely draws zero area), and an orthographic
+camera, which has no eye for a pinhole ray to be cast from.
 
 A non-uniform (u, v) mapping that spent fewer rows on the skirt would recover
 most of that, and is filed as follow-up work rather than left unmeasured.

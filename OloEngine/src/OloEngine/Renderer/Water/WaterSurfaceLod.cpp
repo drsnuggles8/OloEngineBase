@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Water/WaterSurfaceLod.h"
+#include "OloEngine/Renderer/WaterSurface.h"
 
 #include <limits>
 
@@ -101,22 +102,15 @@ namespace OloEngine::WaterSurfaceLod
 
         f32 total = octaveAmplitude(waveDir0.z, wl0, 0.55f, amp) + octaveAmplitude(waveDir1.z, wl1, 0.55f, amp);
 
-        // WaterCommon.glsl's six detail octaves: wavelength ratio, steepness
-        // ratio, global amplitude weight — the real constants, not the
-        // largest-octave fall-back the culling bound uses.
+        // The six detail octaves, from the one table WaterSurfaceSamplerTest
+        // pins against the shader — the real constants, not the largest-octave
+        // fall-back the culling bound uses.
         const f32 avgWL = (wl0 + wl1) * 0.5f;
         const f32 avgSteepness = (waveDir0.z + waveDir1.z) * 0.5f;
-        constexpr f32 kDetail[6][3] = {
-            { 0.85f, 0.5f, 0.5f },
-            { 0.6f, 0.45f, 0.4f },
-            { 0.4f, 0.38f, 0.3f },
-            { 0.25f, 0.3f, 0.22f },
-            { 0.15f, 0.22f, 0.15f },
-            { 0.09f, 0.15f, 0.1f },
-        };
-        for (const auto& detail : kDetail)
+        for (const WaterSurface::DetailOctave& o : WaterSurface::kDetailOctaves)
         {
-            total += octaveAmplitude(avgSteepness * detail[1], avgWL * detail[0], detail[2], amp);
+            total += octaveAmplitude(avgSteepness * o.m_SteepnessMul, avgWL * o.m_WavelengthMul,
+                                     o.m_AmplitudeWeight, amp);
         }
         return total;
     }
@@ -231,7 +225,16 @@ namespace OloEngine::WaterSurfaceLod
         // plane inside the depth range can still meet one of the offsets — that
         // is the whole point, and it is what pushes the rectangle past the
         // screen edge where the displacement needs the cover.
+        // The three slabs of the displaceable volume: the surface's highest
+        // reach, its resting plane, and its lowest. A ray that misses the base
+        // plane inside the depth range can still meet one of the offsets — that
+        // is the whole point, and it is what pushes the rectangle past the
+        // screen edge where the displacement needs the cover. Slab 1 is the
+        // base plane; it is identified by index, never by comparing the float.
         const f32 slabOffsets[3] = { margin, 0.0f, -margin };
+        constexpr i32 kBaseSlab = 1;
+        // With no margin all three slabs coincide; walk the base one only.
+        const i32 slabCount = (margin > 0.0f) ? 3 : 1;
         constexpr f32 kStep = 2.0f / static_cast<f32>(kNdcProbeSteps - 1);
 
         for (i32 iy = 0; iy < kNdcProbeSteps; ++iy)
@@ -240,26 +243,34 @@ namespace OloEngine::WaterSurfaceLod
             for (i32 ix = 0; ix < kNdcProbeSteps; ++ix)
             {
                 const f32 x = -1.0f + static_cast<f32>(ix) * kStep;
-                for (const f32 offset : slabOffsets)
+                // The ray depends on (x, y) only — cast it once, intersect it
+                // with each slab.
+                glm::vec3 rayOrigin(0.0f);
+                glm::vec3 rayDir(0.0f);
+                f32 tBase = 0.0f;
+                const bool baseHit =
+                    RayPlaneHit(invViewProj, cameraPos, { x, y }, planePoint, n, rayOrigin, rayDir, tBase);
+                const f32 denom = glm::dot(rayDir, n);
+                if (!(glm::dot(rayDir, rayDir) > 0.0f) || std::abs(denom) < kParallelEpsilon)
+                    continue;
+
+                for (i32 slab = 0; slab < slabCount; ++slab)
                 {
-                    const glm::vec3 slabPoint = planePoint + n * offset;
-                    // Explicitly zeroed, not `{}`: glm is built here WITHOUT
-                    // GLM_FORCE_CTOR_INIT, so a default-constructed vec is not
-                    // a documented zero — and RayPlaneHit can return false
-                    // before it writes either of these.
-                    glm::vec3 rayOrigin(0.0f);
-                    glm::vec3 rayDir(0.0f);
-                    f32 t = 0.0f;
-                    if (!RayPlaneHit(invViewProj, cameraPos, { x, y }, slabPoint, n, rayOrigin,
-                                     rayDir, t))
+                    const i32 slabIndex = (slabCount == 1) ? kBaseSlab : slab;
+                    const glm::vec3 slabPoint = planePoint + n * slabOffsets[slabIndex];
+                    const f32 t = (slabIndex == kBaseSlab)
+                                      ? tBase
+                                      : glm::dot(slabPoint - rayOrigin, n) / denom;
+                    const bool hit = (slabIndex == kBaseSlab) ? baseHit : (t > 0.0f && std::isfinite(t));
+                    if (!hit)
                         continue;
 
                     // Flatten the hit onto the BASE plane: the grid is laid out
                     // there, and this is the base position whose displaced form
                     // can reach this pixel.
-                    const glm::vec3 hit = rayOrigin + rayDir * t;
-                    const glm::vec3 flat = hit - n * glm::dot(hit - planePoint, n);
-                    if (offset == 0.0f)
+                    const glm::vec3 hitPoint = rayOrigin + rayDir * t;
+                    const glm::vec3 flat = hitPoint - n * glm::dot(hitPoint - planePoint, n);
+                    if (slabIndex == kBaseSlab)
                     {
                         if (t < nearestHitDistance)
                         {
@@ -299,14 +310,41 @@ namespace OloEngine::WaterSurfaceLod
         // finite bound, which would spend the whole grid on a skirt.
         bounds.m_Min = glm::max(lo - glm::vec2(kStep), glm::vec2(-kNdcBoundsCap));
         bounds.m_Max = glm::min(hi + glm::vec2(kStep), glm::vec2(kNdcBoundsCap));
-        // Near is the end the closest hit lies toward, judged against the
-        // FARTHEST hit — not against the rectangle's midpoint. The skirt widens
-        // the rectangle past the probed [-1, 1] on the near side only, so its
-        // midpoint can sit below every probe row and the comparison inverts;
-        // that is exactly how the GL arm lost its water for one build. A
-        // rectangle with no base-plane hit at all keeps the GL default.
-        const bool nearIsMax = nearestHitDistance < std::numeric_limits<f32>::max()
-                               && farthestHitDistance >= 0.0f && nearestHitY > farthestHitY;
+        // Which y edge is "near" exists to keep the mesh's authored winding
+        // front-facing once its rows are re-laid along screen y, so decide it
+        // by that invariant rather than by a proxy for it. The vertex stage
+        // maps v = 0 -> far edge and v = 1 -> near edge, and CreateWaterGrid's
+        // index order needs (dP/dv x dP/du) . n > 0. Evaluate exactly that on
+        // three real hits: the nearest and farthest probe rows for dP/dv, and
+        // one column step along the nearest row for dP/du. If the sign comes
+        // out negative the ends are swapped. This is well-defined at every
+        // pitch including straight down, where "near" and "far" are
+        // equidistant and a distance rule has nothing to choose by.
+        bool nearIsMax = nearestHitDistance < std::numeric_limits<f32>::max() && farthestHitDistance >= 0.0f && nearestHitY > farthestHitY;
+        if (nearestHitDistance < std::numeric_limits<f32>::max() && farthestHitDistance >= 0.0f)
+        {
+            glm::vec3 o0(0.0f), d0(0.0f), o1(0.0f), d1(0.0f), o2(0.0f), d2(0.0f);
+            f32 t0 = 0.0f, t1 = 0.0f, t2 = 0.0f;
+            const f32 xMid = 0.0f;
+            const bool ok = RayPlaneHit(invViewProj, cameraPos, { xMid, nearestHitY }, planePoint, n, o0, d0, t0) && RayPlaneHit(invViewProj, cameraPos, { xMid, farthestHitY }, planePoint, n, o1, d1, t1) && RayPlaneHit(invViewProj, cameraPos, { xMid + kStep, nearestHitY }, planePoint, n, o2, d2, t2);
+            if (ok)
+            {
+                const glm::vec3 pNear = o0 + d0 * t0;
+                const glm::vec3 pFar = o1 + d1 * t1;
+                const glm::vec3 pNearPlusU = o2 + d2 * t2;
+                // Candidate order: near = the nearest-hit row. dP/dv runs far -> near.
+                const glm::vec3 dPdv = pNear - pFar;
+                const glm::vec3 dPdu = pNearPlusU - pNear;
+                const f32 facing = glm::dot(glm::cross(dPdv, dPdu), n);
+                if (std::isfinite(facing) && std::abs(facing) > 0.0f)
+                {
+                    // nearestHitY is the near candidate; a negative facing means
+                    // the OTHER end has to play "near" for the winding to hold.
+                    const bool nearestIsMaxEnd = nearestHitY > farthestHitY;
+                    nearIsMax = (facing > 0.0f) ? nearestIsMaxEnd : !nearestIsMaxEnd;
+                }
+            }
+        }
         bounds.m_NearEdgeY = nearIsMax ? bounds.m_Max.y : bounds.m_Min.y;
         bounds.m_FarEdgeY = nearIsMax ? bounds.m_Min.y : bounds.m_Max.y;
         bounds.m_Visible = true;
@@ -344,6 +382,72 @@ namespace OloEngine::WaterSurfaceLod
         const glm::vec3 originOnPlane =
             rayOrigin - planeNormal * glm::dot(rayOrigin - planePoint, planeNormal);
         return originOnPlane + (horizontal / std::sqrt(lenSq)) * rimRadius;
+    }
+
+    bool PackProjectedGrid(const ProjectedGridInputs& in, glm::vec4& outParams, glm::vec4& outParams2)
+    {
+        // Disabled by default, with the NDC rectangle left as the whole screen
+        // so the packed value is coherent even though the shader never reads
+        // it while .x is 0.
+        outParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
+        outParams2 = glm::vec4(in.m_HalfExtentX, in.m_HalfExtentZ, 1.0f, 1.0f);
+
+        // The surface plane in the space `m_ViewProjection` maps from: the grid
+        // is built in XZ with +Y up, so the plane normal is the transformed up
+        // axis (column 1) and its centre the translation (column 3) — the same
+        // derivation the planar-reflection plane uses.
+        //
+        // The IN-PLANE axes matter as much as the normal here, and this is the
+        // one place that is true: the vertex stage inverts the model matrix to
+        // clamp a projected vertex into the authored rect, so a transform that
+        // is singular in x or z makes every water vertex NaN. The world-space
+        // grid inverts nothing and just draws a zero-area surface, so its path
+        // has no such guard.
+        const glm::vec3 planeNormal(in.m_Model[1]);
+        const glm::vec3 planePoint(in.m_Model[3]);
+        const f32 normalLenSq = glm::dot(planeNormal, planeNormal);
+        const f32 axisXLenSq = glm::dot(glm::vec3(in.m_Model[0]), glm::vec3(in.m_Model[0]));
+        const f32 axisZLenSq = glm::dot(glm::vec3(in.m_Model[2]), glm::vec3(in.m_Model[2]));
+        const bool usable = std::isfinite(normalLenSq) && normalLenSq > 1e-6f && std::isfinite(axisXLenSq) && axisXLenSq > 1e-6f && std::isfinite(axisZLenSq) && axisZLenSq > 1e-6f && std::isfinite(planePoint.x) && std::isfinite(planePoint.y) && std::isfinite(planePoint.z);
+        if (!usable)
+            return false; // the surface draws as the world-space grid it always was
+
+        // A perspective projection writes clip w = -z_view (P[2][3] == -1, and
+        // the backend seam leaves that row alone); an orthographic one writes
+        // w = 1 there. The ray the vertex stage casts is a pinhole ray, so an
+        // orthographic camera has to take the world-space grid instead.
+        if (!std::isfinite(in.m_Projection[2][3]) || std::abs(in.m_Projection[2][3]) < 0.5f)
+            return false;
+
+        // MaxSurfaceDisplacement, NOT the tess-control cull's MaxWaveDisplacement
+        // — the header explains why the two must differ. `m_VerticalExtent` is
+        // the draw's own bound and the only one that describes an FFT ocean.
+        //
+        // Then capped below the eye's height above the plane. The layout
+        // rectangle grows with the margin, and once the margin reaches the
+        // camera the displaceable slab swallows the viewpoint and the rectangle
+        // runs away to kNdcBoundsCap — at a 3 m eye, a 2 m margin already put
+        // 92% of the grid off screen. An FFT ocean's bound is 4 m at the
+        // component defaults, so without this cap a deck-height camera over FFT
+        // water drew ~30 rows across the whole frame. Crests that reach above
+        // the eye belong to the waterline regime a projected grid is not built
+        // for, and giving up coverage of them beats giving up the grid.
+        const f32 eyeHeight = std::abs(glm::dot(in.m_CameraPosition - planePoint, planeNormal)) / std::sqrt(normalLenSq);
+        const f32 displacementMargin = std::min(
+            std::max(MaxSurfaceDisplacement(in.m_WaveParams, in.m_WaveDir0, in.m_WaveDir1),
+                     in.m_VerticalExtent),
+            kLayoutMarginEyeFraction * eyeHeight);
+
+        const NdcBounds bounds =
+            ComputeNdcBounds(in.m_ViewProjection, in.m_CameraPosition, planePoint, planeNormal, displacementMargin);
+        const f32 spacingPerMetre =
+            SpacingPerMetre(bounds, in.m_Projection, in.m_GridResolutionX, in.m_GridResolutionZ);
+
+        // .z / .w carry the NEAR and FAR y edges, decided by geometry — which of
+        // min/max is near depends on the backend's NDC convention.
+        outParams = glm::vec4(1.0f, bounds.m_Min.x, bounds.m_NearEdgeY, spacingPerMetre);
+        outParams2 = glm::vec4(in.m_HalfExtentX, in.m_HalfExtentZ, bounds.m_Max.x, bounds.m_FarEdgeY);
+        return true;
     }
 
     f32 SpacingPerMetre(const NdcBounds& bounds, const glm::mat4& gpuProjection, u32 gridResolutionX,

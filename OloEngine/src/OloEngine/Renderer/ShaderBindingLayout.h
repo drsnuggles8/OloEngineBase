@@ -4211,41 +4211,6 @@ layout(std140, binding = 21) uniform DecalData {
 };)";
         }
 
-        // STALE, and nothing calls it. The snapshot below stops at
-        // WakeFieldParams2 and is missing every block appended since (#968's
-        // WakeShapeParams, #1033's ShoreParams, #1034's rain/foam params,
-        // #968's WakeHulls array, #1035's ProjectedGridParams). The source of
-        // truth for this block is UBOStructures::WaterUBO above and the five
-        // water shader files that declare it; do not read this as a reference
-        // and do not extend it — the fix is to delete it, which is a wider
-        // change than the issue that noticed it.
-        static const char* GetWaterUBOLayout()
-        {
-            return R"(
-layout(std140, binding = 23) uniform WaterParams {
-    vec4 u_WaveParams;              // x = Time, y = WaveSpeed, z = WaveAmplitude, w = WaveFrequency
-    vec4 u_WaveDir0;                // xy = direction0, z = steepness0, w = wavelength0
-    vec4 u_WaveDir1;                // xy = direction1, z = steepness1, w = wavelength1
-    vec4 u_WaterColor;              // rgb = shallow color, a = Transparency
-    vec4 u_WaterDeepColor;          // rgb = deep color,    a = Reflectivity
-    vec4 u_VisualParams;            // x = FresnelPower, y = SpecularIntensity, z = NormalMapTiling, w = NoiseIntensity
-    vec4 u_NormalMapScroll;         // xy = scroll0 offset, zw = scroll1 offset
-    vec4 u_NormalMapSpeed;          // x = speed0, y = speed1, z = PrevTime (for Gerstner reprojection), w = renderFromBelow
-    vec4 u_LightDirection;          // xyz = directional light dir (normalized), w = unused
-    vec4 u_ScreenParams;            // x = width, y = height, z = 1/width, w = 1/height
-    vec4 u_DepthRefractionParams;   // x = depthSofteningDist, y = refractionDistortion, z = refractionHeightFactor, w = unused
-    vec4 u_RefractionColor;         // rgb = underwater tint, w = unused
-    vec4 u_FoamParams;              // x = foamHeightStart, y = foamFadeDistance, z = foamTiling, w = foamBrightness
-    vec4 u_FoamParams2;             // x = foamAngleExponent, y = shorelineFoamPower, z = sssIntensity, w = vertexSpacing (#943)
-    vec4 u_SSSColor;                // rgb = subsurface scattering color, w = foamCoverage (#943)
-    vec4 u_SSRParams;               // x = maxSteps, y = stepSize, z = maxDistance, w = thickness
-    vec4 u_TessParams;              // x = tessellationFactor (0 = disabled), y = minDist, z = maxDist, w = frustumCullEnable (1=on, 0=off)
-    vec4 u_FFTParams;               // x = useFFT (0/1), y = 1/patchSize, z = heightScale, w = horizontalScale
-    vec4 u_WakeFieldParams;         // xy = field window centre (world XZ), z = 1/fieldExtent, w = intensity (<=0 disables) (#967)
-    vec4 u_WakeFieldParams2;        // x = wake fade start (m), y = wake fade end (m), z = edge-fade start, w = unused (#967)
-};)";
-        }
-
         static const char* GetForwardPlusUBOLayout()
         {
             return R"(

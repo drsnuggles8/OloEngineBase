@@ -148,8 +148,10 @@ Entities:
       TessMaxDistance: 200
       # The tessellation block above is inert while this is on: a projected
       # grid is already at the target screen density, so the tess level is a
-      # constant 1. It is left authored so flipping this back off restores the
-      # surface this scene shipped with.
+      # constant 1. It is left authored so the world-space path still works —
+      # but flipping this off ALONE gives a 256x144 world grid over 1 km
+      # (6.9 m quads, which the #943 band-limit flattens). The surface this
+      # scene shipped with before #1035 was the toggle off AND 512x512.
       ProjectedGridEnabled: true
   - Entity: 300000000000004
     TagComponent:
