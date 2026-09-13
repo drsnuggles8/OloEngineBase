@@ -419,10 +419,14 @@ TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
     // this camera/threshold combination actually routes to the SW path. Hardcoding an
     // expected count would silently stop testing the overflow path if the icosphere
     // fixture or cull math ever changes.
+    // StorageBuffer allocation leaves contents undefined. The SW append cursor
+    // is separate from DrawArgs.SwCount and must start at zero in both runs.
+    u32 const zeroSwHeader[4] = { 0, 0, 0, 0 };
     {
         auto calibrationSwList = StorageBuffer::Create(16u + clusterCount * static_cast<u32>(sizeof(VirtualVisibleCluster)),
                                                        ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST,
                                                        StorageBufferUsage::DynamicCopy);
+        calibrationSwList->SetData(zeroSwHeader, sizeof(zeroSwHeader), 0u);
         calibrationSwList->Bind();
         VirtualDrawArgs const zeroArgs{};
         argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
@@ -450,6 +454,7 @@ TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
     // clusterCount — an unguarded append would write past this allocation.
     auto swListBuffer = StorageBuffer::Create(16u + swCapacity * static_cast<u32>(sizeof(VirtualVisibleCluster)),
                                               ShaderBindingLayout::SSBO_VIRTUAL_SW_LIST, StorageBufferUsage::DynamicCopy);
+    swListBuffer->SetData(zeroSwHeader, sizeof(zeroSwHeader), 0u);
     swListBuffer->Bind();
     VirtualDrawArgs const zeroArgs{};
     argsBuffer->SetData(&zeroArgs, sizeof(zeroArgs), 0);
