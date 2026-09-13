@@ -358,6 +358,13 @@ namespace OloEngine
         // through this.
         static VulkanDevice* Get();
 
+        // One immutable policy for uploads, descriptors, ImGui and graph barriers.
+        [[nodiscard]] bool UsesUnifiedImageLayouts() const
+        {
+            return m_UnifiedImageLayoutsEnabled;
+        }
+        [[nodiscard]] VkImageLayout GetSampledImageLayout() const;
+
       private:
         VkInstance m_Instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
@@ -394,6 +401,7 @@ namespace OloEngine
         bool m_CheckpointsEnabled = false;
         bool m_MeshShaderEnabled = false;
         bool m_HostImageCopyEnabled = false;
+        bool m_UnifiedImageLayoutsEnabled = false;
         // Host-image-copy layout lists, read once after device creation.
         std::vector<VkImageLayout> m_HostCopySrcLayouts;
         std::vector<VkImageLayout> m_HostCopyDstLayouts;

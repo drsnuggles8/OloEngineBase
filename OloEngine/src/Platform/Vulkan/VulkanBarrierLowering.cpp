@@ -172,7 +172,8 @@ namespace OloEngine::VulkanBarrierLowering
         return { VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT };
     }
 
-    VkImageLayout LayoutFor(const RHI::Access access, const RHI::TextureAspect aspect, const bool readWhileAttached)
+    VkImageLayout LayoutFor(const RHI::Access access, const RHI::TextureAspect aspect, const bool readWhileAttached,
+                            const bool unifiedImageLayouts)
     {
         switch (NormalizeAttachmentAccessForAspect(access, aspect))
         {
@@ -183,17 +184,17 @@ namespace OloEngine::VulkanBarrierLowering
                 if (readWhileAttached)
                 {
                     // The attachment half of the feedback is still live: depth
-                    // keeps its read-only attachment layout (the PCSS raw-depth
-                    // case); color needs GENERAL (feedback-loop layout would
+                    // keeps its read-only attachment layout;
+                    // color needs GENERAL (feedback-loop layout would
                     // need VK_EXT_attachment_feedback_loop_layout).
                     return IsDepthLikeAspect(aspect) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
                                                      : VK_IMAGE_LAYOUT_GENERAL;
                 }
-                return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                return unifiedImageLayouts ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             case RHI::Access::InputAttachmentRead:
-                return readWhileAttached ? VK_IMAGE_LAYOUT_GENERAL
-                                         : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                return (unifiedImageLayouts || readWhileAttached) ? VK_IMAGE_LAYOUT_GENERAL
+                                                                  : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             case RHI::Access::StorageRead:
             case RHI::Access::StorageWrite:
@@ -261,7 +262,8 @@ namespace OloEngine::VulkanBarrierLowering
                                             const RHI::TextureAspect aspect,
                                             const VkImageLayout trackedOldLayout,
                                             const u32 imageMipCount,
-                                            const u32 imageLayerCount)
+                                            const u32 imageLayerCount,
+                                            const bool unifiedImageLayouts)
     {
         auto src = LowerAccess(barrier.Before, barrier.SourceQueue, aspect);
         const auto dst = LowerAccess(barrier.After, barrier.DestQueue, aspect);
@@ -293,7 +295,7 @@ namespace OloEngine::VulkanBarrierLowering
         out.dstStageMask = dst.StageMask;
         out.dstAccessMask = dst.AccessMask;
         out.oldLayout = trackedOldLayout;
-        out.newLayout = LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached);
+        out.newLayout = LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached, unifiedImageLayouts);
         out.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         out.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         out.image = image;

@@ -37,6 +37,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #else
 
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
@@ -642,7 +643,7 @@ TEST_F(VulkanResourceFactory, ArrayMipGenerationLeavesTheTrackedLayoutAloneWhenT
     // pass on a version that simply never records anything.
     array->GenerateMipmaps();
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              m_Device->GetSampledImageLayout())
         << "a successful mip chain does advance it";
 }
 
@@ -676,7 +677,7 @@ TEST_F(VulkanResourceFactory, CubemapMipGenerationLeavesTheTrackedLayoutAloneWhe
     // implementation that simply never records the layout at all.
     cubemap->GenerateMipmaps();
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              m_Device->GetSampledImageLayout())
         << "a successful mip chain does advance it";
 }
 
@@ -709,7 +710,7 @@ TEST_F(VulkanResourceFactory, ArrayMipGenerationStillRecordsTheLayoutWhenOnlyThe
         << "the injected timeout must have been consumed by the mip chain's one-shot";
 
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              m_Device->GetSampledImageLayout())
         << "queued-but-unwaited work still executes, so the layout must be recorded";
 }
 
@@ -735,7 +736,7 @@ TEST_F(VulkanResourceFactory, CubemapMipGenerationStillRecordsTheLayoutWhenOnlyT
     EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u);
 
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+              m_Device->GetSampledImageLayout())
         << "queued-but-unwaited work still executes, so the layout must be recorded";
 }
 
@@ -804,6 +805,19 @@ TEST_F(VulkanResourceFactory, DeviceAddressCommandsIsPartOfTheCapabilityContract
     EXPECT_TRUE(report.HasDeviceAddressCommands);
     EXPECT_TRUE(report.DeviceAddressCommandsFeature)
         << "deviceAddressCommands is false on a device this fixture accepted";
+}
+
+TEST_F(VulkanResourceFactory, UnifiedLayoutsAreOptionalAndTheDevicePolicyMatchesTheFeature)
+{
+    const auto required = VulkanCapabilities::RequiredDeviceExtensions();
+    EXPECT_FALSE(std::ranges::any_of(required, [](const char* name)
+                                     { return std::strcmp(name, VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME) == 0; }));
+    const auto report = VulkanCapabilities::Evaluate(m_Device->GetPhysicalDevice());
+    EXPECT_TRUE(report.Satisfied);
+    EXPECT_EQ(m_Device->UsesUnifiedImageLayouts(), report.UnifiedImageLayoutsFeature && !Levers::VulkanNoUnifiedImageLayouts());
+    EXPECT_EQ(m_Device->GetSampledImageLayout(), m_Device->UsesUnifiedImageLayouts()
+                                                     ? VK_IMAGE_LAYOUT_GENERAL
+                                                     : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 
 TEST_F(VulkanResourceFactory, DescriptorSlotCacheKeysViewsAndRecyclesOnDestroy)

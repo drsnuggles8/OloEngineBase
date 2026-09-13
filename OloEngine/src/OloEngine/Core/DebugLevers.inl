@@ -69,6 +69,8 @@ OLO_LEVER_EXACT(VulkanRecordingCosts, "OLO_VK_RECORDING_COSTS",
                 "attachment and sampled-image pre-transitions, the frontend context seeding and the pipeline "
                 "lookups — and report them per region through olo_perf_pass_timings (#1013). Exact \"1\" because "
                 "the clock calls sit on the fork path itself: a typo must not silently pay for them.")
+OLO_LEVER_TOGGLE(VulkanNoUnifiedImageLayouts, "OLO_VULKAN_NO_UNIFIED_IMAGE_LAYOUTS",
+                 "Force optimal sampled-image layouts instead of optional unified layouts (restart required).")
 OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "Force every Vulkan texture upload back onto the staging buffer + one-shot submit path, "
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "

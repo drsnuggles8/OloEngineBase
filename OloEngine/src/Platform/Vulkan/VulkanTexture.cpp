@@ -548,14 +548,14 @@ namespace OloEngine
         }
 
         // Mips [0, N-1) sit in TRANSFER_SRC, the last in TRANSFER_DST — bring
-        // all to SHADER_READ_ONLY, the backend's steady state for sampled
+        // all to the device's resting layout for sampled
         // content (GetData and SubImage both name it as their oldLayout).
         VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                         VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                          VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                          VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u);
         VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                         VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                          VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                          VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u);
     }
@@ -589,13 +589,10 @@ namespace OloEngine
         {
             return false;
         }
-        // The upload MUST end in SHADER_READ_ONLY_OPTIMAL: that is the
-        // backend's steady state for sampled content, and both GetData and
-        // SubImage name it as their barrier's oldLayout. Leaving the image in
-        // GENERAL instead would still sample correctly and would silently
-        // break those two, so a driver that cannot make that host transition
-        // declines the whole route rather than weakening the invariant.
-        if (!device->IsHostTransitionTargetSupported(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+        // Uploads, descriptors and readbacks must share the device's resting
+        // layout. GENERAL is guaranteed for host copies; the optimal arm
+        // still has to query support for its read-only transition.
+        if (!device->IsHostTransitionTargetSupported(device->GetSampledImageLayout()))
         {
             return false;
         }
@@ -651,15 +648,15 @@ namespace OloEngine
             toSampled.sType = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
             toSampled.image = m_Image;
             toSampled.oldLayout = kCopyLayout;
-            toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            toSampled.newLayout = VulkanDevice::Get()->GetSampledImageLayout();
             toSampled.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 1u };
-            if (vkTransitionImageLayout(vkDevice, 1u, &toSampled) != VK_SUCCESS)
+            if (toSampled.newLayout != kCopyLayout && vkTransitionImageLayout(vkDevice, 1u, &toSampled) != VK_SUCCESS)
             {
-                OLO_CORE_WARN("VulkanTexture2D::UploadPixels: host transition to SHADER_READ_ONLY failed — "
+                OLO_CORE_WARN("VulkanTexture2D::UploadPixels: host transition to sampled layout failed — "
                               "falling back to staging");
                 return false;
             }
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             s_HostImageCopyUploadCount.fetch_add(1u, std::memory_order_relaxed);
             return true;
         }
@@ -690,7 +687,7 @@ namespace OloEngine
 
         if (ok)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             s_HostImageCopyUploadCount.fetch_add(1u, std::memory_order_relaxed);
         }
         return ok;
@@ -834,7 +831,7 @@ namespace OloEngine
                 else
                 {
                     VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                     VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
                                                      VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                      VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels);
                 }
@@ -848,7 +845,7 @@ namespace OloEngine
             // VulkanImageInfo::InitialLayout) — without this, the graph's
             // first barrier would transition from UNDEFINED and could
             // legally discard the pixels just uploaded.
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
         return ok;
     }
@@ -927,7 +924,7 @@ namespace OloEngine
 
         if (ok)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
         else
         {
@@ -1076,13 +1073,13 @@ namespace OloEngine
         const VkDeviceAddress stagingAddress = VulkanAddressCommands::QueryAddress(device->GetDevice(), staging);
 
         // PARTIAL update: the untouched texels must survive, so oldLayout is
-        // the steady-state SHADER_READ_ONLY every upload leaves the image in
+        // the steady-state sampled layout every upload leaves the image in
         // — never UNDEFINED (a legal discard of the rest). Backend invariant:
         // sampled asset textures are not graph-written, so outside graph
-        // execution they sit in SHADER_READ_ONLY.
+        // execution they sit in the device's sampled layout.
         //
         // Read it back rather than hardcoding it: a texture created but never
-        // uploaded is still UNDEFINED, and naming SHADER_READ_ONLY as the
+        // uploaded is still UNDEFINED, and naming the sampled layout as the
         // oldLayout there is invalid usage (VUID-VkImageMemoryBarrier2-oldLayout-01197).
         // Discarding is harmless in that case — there are no prior texels to keep.
         const auto* imageInfo = VulkanImageInfoRegistry::Get().Lookup(m_Image);
@@ -1104,7 +1101,7 @@ namespace OloEngine
                                                       { width, height, 1u });
 
                                                   VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                                                                   VulkanDevice::Get()->GetSampledImageLayout(),
                                                                                    VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                                                                                    VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT,
                                                                                    0u, 1u);
@@ -1115,7 +1112,7 @@ namespace OloEngine
         {
             // Only on success: recording a layout the image never reached is
             // exactly the wrong-oldLayout hazard InitialLayout exists to stop.
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
     }
 
@@ -1221,7 +1218,7 @@ namespace OloEngine
         }
 
         // The image's ACTUAL prior layout, not the steady-state assumption.
-        // Sampled asset content usually does sit in SHADER_READ_ONLY between
+        // Sampled asset content usually does sit in its resting layout between
         // graph executions, but two cases break the assumption and both are
         // invalid usage (VUID-VkImageMemoryBarrier2-oldLayout-01197) that also
         // leaves the copied texels undefined: a texture created and never
@@ -1268,7 +1265,7 @@ namespace OloEngine
                 vkCmdCopyImageToBuffer(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
 
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, mipLevel, 1u);
 
@@ -1278,13 +1275,13 @@ namespace OloEngine
                 // VulkanRendererAPI::ReadTextureSubImage's non-borrow arm.
                 if (vk != nullptr)
                 {
-                    vk->LayoutTracker().SetLayout(m_Image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    vk->LayoutTracker().SetLayout(m_Image, range, VulkanDevice::Get()->GetSampledImageLayout());
                 }
             });
 
         if (ok)
         {
-            // The chain ended in SHADER_READ_ONLY, so an image that entered
+            // The chain ended in the sampled layout, so an image that entered
             // UNDEFINED has genuinely reached it. Record it in the registry
             // too: the tracker SetLayout above no-ops for an image the tracker
             // never registered, and leaving a stale UNDEFINED behind would let
@@ -1294,13 +1291,13 @@ namespace OloEngine
             // ONLY when this read covered the whole image. InitialLayout is a
             // WHOLE-IMAGE field and the barriers above name `mipLevel` alone,
             // so stamping it after a single-mip read of a mipped texture would
-            // claim mips 1..N reached SHADER_READ_ONLY when they are still
+            // claim mips 1..N reached the sampled layout when they are still
             // UNDEFINED — manufacturing the very desync this change removes.
             // The per-subresource truth is the tracker's, set inside the
             // callback above.
             if (m_MipLevels == 1u)
             {
-                VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
             }
             vmaInvalidateAllocation(device->GetAllocator(), readbackAllocation, 0, sizeBytes);
             outData.resize(sizeBytes);

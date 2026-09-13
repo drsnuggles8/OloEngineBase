@@ -434,7 +434,7 @@ namespace OloEngine
             { width, height, 1u });
 
         // Left in TRANSFER_DST with the tracker in agreement; the bind-time
-        // visibility seam transitions to SHADER_READ_ONLY at the next sample.
+        // visibility seam transitions to the sampled layout at the next sample.
         // The frame consumes the copy at submit — the staging buffer takes
         // deferred reclaim, never an inline destroy.
         VulkanDeferredReclaim::Get().Enqueue(staging, stagingAllocation);
@@ -617,7 +617,7 @@ namespace OloEngine
                 [&](const VkImageSubresourceRange& run, const VkImageLayout trackedLayout)
                 {
                     auto vkBarrier = VulkanBarrierLowering::BuildImageBarrier(barrier, image, aspect, trackedLayout,
-                                                                              mipCount, layerCount);
+                                                                              mipCount, layerCount, VulkanDevice::Get()->UsesUnifiedImageLayouts());
                     vkBarrier.subresourceRange = run;
                     // THE TRACKED LAYOUT IS EVIDENCE ABOUT THE LAST WRITER,
                     // not just about oldLayout. A subresource sitting in a
@@ -685,7 +685,8 @@ namespace OloEngine
                 });
 
             ctx.Tracker.SetLayout(image, queryRange,
-                                  VulkanBarrierLowering::LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached));
+                                  VulkanBarrierLowering::LayoutFor(barrier.After, aspect, barrier.ReadWhileAttached,
+                                                                   VulkanDevice::Get()->UsesUnifiedImageLayouts()));
         }
 
         VkMemoryBarrier2 globalBarrier{};
@@ -1836,6 +1837,9 @@ namespace OloEngine
             case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
                 return RHI::Access::ShaderSampleRead;
             case VK_IMAGE_LAYOUT_GENERAL:
+                // Covers both storage access and ordinary unified sampling:
+                // both execute in the shader-stage union. Source reads need
+                // execution ordering; the storage mask covers possible writes.
                 return RHI::Access::StorageReadWrite;
             case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
                 return RHI::Access::TransferWrite;
@@ -3743,7 +3747,7 @@ namespace OloEngine
         // layout runs a previous command produced, at bind time, scope-ended
         // first (the ClearTextureFloat shape).
         //
-        // GENERAL is included. It used to be skipped, on the reasoning that a
+        // On the optimal-layout arm, GENERAL is included. It used to be skipped, on the reasoning that a
         // compute store-then-sample chain keeps its image in GENERAL and
         // moving it here "would break the write half" — but that left the
         // baked SHADER_READ_ONLY descriptor disagreeing with the image's real
@@ -3770,7 +3774,7 @@ namespace OloEngine
             whole.levelCount = VK_REMAINING_MIP_LEVELS;
             whole.baseArrayLayer = 0;
             whole.layerCount = VK_REMAINING_ARRAY_LAYERS;
-            EnsureImageLayoutForDescriptor(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, whole);
+            EnsureImageLayoutForDescriptor(image, VulkanDevice::Get()->GetSampledImageLayout(), whole);
         }
 
         // Default whole-image sampled view. Depth-stencil formats sample the
@@ -3790,7 +3794,7 @@ namespace OloEngine
         view.subresourceRange.layerCount = std::max(info->ArrayLayers, 1u);
 
         const u32 heapSlot = VulkanDescriptorSlotCache::Get().AcquireSlot(
-            image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            image, view, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VulkanDevice::Get()->GetSampledImageLayout());
         bindingState.SetTextureHeapSlot(
             slot, heapSlot == VulkanResourceHeap::InvalidSlot ? VulkanBindingState::kNoHeapSlot : heapSlot);
 
@@ -3955,7 +3959,7 @@ namespace OloEngine
         // produced, at bind/publish time, scope-ended first (the
         // ClearTextureFloat shape).
         //
-        // For a SAMPLED target, GENERAL is included. It used to be skipped, on
+        // For an optimal SAMPLED target, GENERAL is included. It used to be skipped, on
         // the reasoning that a compute store-then-sample chain keeps its image
         // in GENERAL and moving it here "would break the write half" — but
         // that left the baked SHADER_READ_ONLY descriptor disagreeing with the
@@ -4304,7 +4308,7 @@ namespace OloEngine
         // Settle the destination back to the RESTING layout and tell the image
         // registry about it — the same two steps every other write path takes
         // (VulkanTextureCubemap::SetFaceDataMip barriers the image to
-        // SHADER_READ_ONLY_OPTIMAL and then calls SetInitialLayout).
+        // the device's sampled layout and then calls SetInitialLayout).
         //
         // Without this the registry keeps the creation-time UNDEFINED while the
         // image really sits in TRANSFER_DST_OPTIMAL, and two things break. The
@@ -4325,7 +4329,7 @@ namespace OloEngine
         // callers, which write every subresource before anything samples them.
         // The WHOLE destination image, not just the copied subresource. The
         // registry stores one layout per image, so settling only the copied
-        // range and then claiming the image is SHADER_READ_ONLY is a lie for
+        // range and then claiming the image is in the sampled layout is a lie for
         // every subresource the caller has not written yet — and the validator
         // catches it: a prefilter cubemap baked to mip 4 reported
         // "expects SHADER_READ_ONLY_OPTIMAL, current is UNDEFINED" for mips 5+
@@ -4350,7 +4354,7 @@ namespace OloEngine
                                          b.dstStageMask = kAllStages;
                                          b.dstAccessMask = kAllAccess;
                                          b.oldLayout = trackedLayout;
-                                         b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                                         b.newLayout = VulkanDevice::Get()->GetSampledImageLayout();
                                          b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                                          b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                                          b.image = dstImage;
@@ -4365,8 +4369,8 @@ namespace OloEngine
             restingDep.pImageMemoryBarriers = toResting.data();
             ctx.RecordBarrier(restingDep);
         }
-        ctx.Tracker.SetLayout(dstImage, dstWholeRange, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        VulkanImageInfoRegistry::Get().SetInitialLayout(dstImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        ctx.Tracker.SetLayout(dstImage, dstWholeRange, VulkanDevice::Get()->GetSampledImageLayout());
+        VulkanImageInfoRegistry::Get().SetInitialLayout(dstImage, VulkanDevice::Get()->GetSampledImageLayout());
     }
 
     void VulkanRendererAPI::CopyFramebufferToTexture(RHI::ResourceHandle /*texture*/, u32 /*width*/, u32 /*height*/)
@@ -6067,7 +6071,7 @@ namespace OloEngine
         {
             // No recording: the blocking one-shot (the SetFaceDataMip shape).
             // Whole-image transitions keep the tracked layout uniform, and
-            // the image settles into SHADER_READ_ONLY for the bind paths.
+            // the image settles into the device's sampled layout for the bind paths.
             const VkImageLayout priorLayout = info->InitialLayout;
             const u32 mipCount = std::max(info->MipLevels, 1u);
             const u32 layerCount = std::max(info->ArrayLayers, 1u);
@@ -6105,14 +6109,14 @@ namespace OloEngine
                     toRead.dstStageMask = kAllStages;
                     toRead.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
                     toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                    toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    toRead.newLayout = VulkanDevice::Get()->GetSampledImageLayout();
                     oneShotDep.pImageMemoryBarriers = &toRead;
                     vkCmdPipelineBarrier2(cmd, &oneShotDep);
                 });
             vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
             if (ok)
             {
-                VulkanImageInfoRegistry::Get().SetInitialLayout(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                VulkanImageInfoRegistry::Get().SetInitialLayout(image, VulkanDevice::Get()->GetSampledImageLayout());
             }
             return;
         }
@@ -6140,7 +6144,7 @@ namespace OloEngine
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, copySubresource, copyOffset, copyExtent);
 
         // Left in TRANSFER_DST with the tracker in agreement — the bind-time
-        // visibility seam transitions produced runs to SHADER_READ_ONLY at
+        // visibility seam transitions produced runs to the sampled layout at
         // the next sample (the ClearTextureFloat discipline).
 
         // The copy is consumed when the FRAME submits — the staging buffer
@@ -6573,7 +6577,7 @@ namespace OloEngine
                 // state and record it, so the next graph execution
                 // transitions from truth.
                 const VkImageLayout settleLayout =
-                    borrowLayout ? borrowedLayout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    borrowLayout ? borrowedLayout : VulkanDevice::Get()->GetSampledImageLayout();
                 VkImageMemoryBarrier2 toRead{};
                 toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
                 toRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
@@ -6591,7 +6595,7 @@ namespace OloEngine
                 vkCmdPipelineBarrier2(cmd, &dep);
                 if (!borrowLayout)
                 {
-                    ctx.Tracker.SetLayout(image, range, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    ctx.Tracker.SetLayout(image, range, VulkanDevice::Get()->GetSampledImageLayout());
                 }
             });
 
@@ -6842,7 +6846,7 @@ namespace OloEngine
         //
         // Usage flags have to satisfy the contract of every API the image is
         // handed to, not just this code's intent for it. ReadTextureSubImage
-        // settles what it reads into SHADER_READ_ONLY_OPTIMAL, and that layout
+        // settles what it reads into SHADER_READ_ONLY_OPTIMAL on the fallback arm, and that layout
         // is only legal on an image created with SAMPLED (or INPUT_ATTACHMENT)
         // — VUID-VkImageMemoryBarrier2-oldLayout-01211. Omitting it produced
         // five validation errors per capture on the first live Vulkan run,

@@ -315,14 +315,14 @@ namespace OloEngine
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, 0u, layer, 1u }, { 0, 0, 0 },
                     { width, height, 1u });
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, layerCount);
             });
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
     }
 
@@ -388,13 +388,13 @@ namespace OloEngine
                 mipHeight = nextHeight;
 
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                                  VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, mip - 1u, 1u, 0u, layerCount);
             }
             // The last mip never became a blit source — settle it directly.
             VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                              VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                              VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, layerCount);
         };
@@ -411,7 +411,7 @@ namespace OloEngine
             const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, layerCount };
             const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
             record(vk->CurrentCommandBuffer(), prior);
-            tracker.SetLayout(m_Image, whole, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            tracker.SetLayout(m_Image, whole, VulkanDevice::Get()->GetSampledImageLayout());
         }
         else
         {
@@ -419,7 +419,7 @@ namespace OloEngine
             const VkImageLayout prior = info != nullptr ? info->InitialLayout : VK_IMAGE_LAYOUT_UNDEFINED;
             // Gated on QUEUE ACCEPTANCE, not on the bool. A chain that never
             // reached the queue leaves the image in `prior`, so recording
-            // SHADER_READ_ONLY would make the NEXT barrier name an oldLayout
+            // the sampled layout would make the NEXT barrier name an oldLayout
             // the image never reached — the desync InitialLayout exists to
             // prevent (#800's family). But a chain that WAS accepted and only
             // outran the fence wait will still execute, so skipping the record
@@ -435,7 +435,7 @@ namespace OloEngine
                 return;
             }
         }
-        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
     }
 } // namespace OloEngine
 

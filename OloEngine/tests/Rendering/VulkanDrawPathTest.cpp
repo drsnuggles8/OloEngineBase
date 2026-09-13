@@ -63,6 +63,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
+#include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "VulkanTestSupport.h"
@@ -580,6 +581,23 @@ void main()
     spec.SRGB = false; // sRGB drops STORAGE usage (the format rule)
     auto target = Texture2D::Create(spec);
     ASSERT_NE(target, nullptr);
+    auto sampledCopy = Texture2D::Create(spec);
+    ASSERT_NE(sampledCopy, nullptr);
+
+    constexpr const char* kSampleCopySrc = R"(
+#version 460 core
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 1) uniform sampler2D u_Source;
+layout(binding = 0, rgba8) writeonly uniform image2D u_Output;
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    imageStore(u_Output, pixel, texelFetch(u_Source, pixel, 0));
+}
+)";
+    auto sampleCopy = ComputeShader::CreateFromSource("DrawPathUnifiedSampleCopy", kSampleCopySrc);
+    ASSERT_NE(sampleCopy, nullptr);
+    ASSERT_TRUE(sampleCopy->IsValid());
 
     auto tintUbo = UniformBuffer::Create(16, 3);
     const f32 magenta[4] = { 1.0f, 0.0f, 1.0f, 1.0f };
@@ -614,12 +632,26 @@ void main()
                     toSampled.Before = RHI::Access::StorageWrite;
                     toSampled.After = RHI::Access::ShaderSampleRead;
                     api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+
+                    // Exercise the production sampled descriptor after a GPU
+                    // storage write. Unified mode must keep GENERAL at bind
+                    // time too; the optimal arm must still transition.
+                    api.BindTexture(1, target->GetRHIHandle());
+                    const auto image = static_cast<VulkanTexture2D*>(target.Raw())->GetVkImage();
+                    const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, 1u, 0u, 1u };
+                    EXPECT_EQ(api.LayoutTracker().CurrentLayout(image, whole), m_Device->GetSampledImageLayout());
+                    sampleCopy->Bind();
+                    api.BindImageTexture(0, sampledCopy->GetRHIHandle(), 0, false, 0, RHI::Access::StorageWrite,
+                                         RHI::Format::RGBA8UNorm);
+                    api.DispatchCompute(2, 2, 1);
+                    toSampled.Resource = sampledCopy->GetRHIHandle();
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
                 });
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "the dispatch path must not fall through to a stub";
 
     std::vector<u8> pixels;
-    ASSERT_TRUE(target->GetData(pixels, 0));
+    ASSERT_TRUE(sampledCopy->GetData(pixels, 0));
     ASSERT_EQ(pixels.size(), sizet{ 16 * 16 * 4 });
     u32 wrongPixels = 0;
     for (sizet i = 0; i < pixels.size(); i += 4)

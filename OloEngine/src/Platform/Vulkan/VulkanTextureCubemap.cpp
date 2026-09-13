@@ -252,14 +252,14 @@ namespace OloEngine
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, { VK_IMAGE_ASPECT_COLOR_BIT, mipLevel, faceIndex, 1u },
                     { 0, 0, 0 }, { mipWidth, mipHeight, 1u });
                 VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_COPY_BIT,
+                                                 VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_COPY_BIT,
                                                  VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                                  VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels, 0u, 6u);
             });
         vmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
         if (ok)
         {
-            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
         }
         return ok;
     }
@@ -318,11 +318,11 @@ namespace OloEngine
             }
             // Unify: mips [0, N-1) sit in TRANSFER_SRC, the last in DST.
             VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                              VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                              VK_ACCESS_2_MEMORY_READ_BIT, 0u, m_MipLevels - 1u, 0u, 6u);
             VulkanUpload::RecordImageBarrier(cmd, m_Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT,
+                                             VulkanDevice::Get()->GetSampledImageLayout(), VK_PIPELINE_STAGE_2_BLIT_BIT,
                                              VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                              VK_ACCESS_2_MEMORY_READ_BIT, m_MipLevels - 1u, 1u, 0u, 6u);
         };
@@ -332,7 +332,7 @@ namespace OloEngine
             // In-frame: the tracker must agree with the chain's transitions.
             // The chain works in whole-subresource strokes, so drive it with
             // the tracker's whole-image answer and settle everything to
-            // SHADER_READ_ONLY afterwards.
+            // the device's sampled layout afterwards.
             auto& tracker = vk->LayoutTracker();
             const auto* info = VulkanImageInfoRegistry::Get().Lookup(m_Image);
             tracker.RegisterImage(m_Image, m_MipLevels, 6u, info != nullptr ? info->RegistrationId : 0u,
@@ -340,7 +340,7 @@ namespace OloEngine
             const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_COLOR_BIT, 0u, m_MipLevels, 0u, 6u };
             const VkImageLayout prior = tracker.CurrentLayout(m_Image, whole);
             recordChain(vk->CurrentCommandBuffer(), prior);
-            tracker.SetLayout(m_Image, whole, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            tracker.SetLayout(m_Image, whole, VulkanDevice::Get()->GetSampledImageLayout());
         }
         else
         {
@@ -359,7 +359,7 @@ namespace OloEngine
                 return;
             }
         }
-        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
     }
 
     bool VulkanTextureCubemap::ReadFaces(u32 baseFace, u32 faceCount, u32 mipLevel, std::vector<u8>& outData,

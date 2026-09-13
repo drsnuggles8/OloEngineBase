@@ -9631,12 +9631,12 @@ namespace
             "VulkanPassSuite::ReadDepthArrayLayer",
             [&](VkCommandBuffer cmd)
             {
-                recordBarrier(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                recordBarrier(cmd, device->GetSampledImageLayout(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
                 VkBufferImageCopy region{};
                 region.imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0u, layer, 1u };
                 region.imageExtent = { width, height, 1u };
                 vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback, 1u, &region);
-                recordBarrier(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                recordBarrier(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, device->GetSampledImageLayout());
             });
 
         if (ok)

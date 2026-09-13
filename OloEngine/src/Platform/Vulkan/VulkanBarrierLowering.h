@@ -17,8 +17,9 @@
 // Layout is resolved from (Access, aspect, read-while-attached) — ADR 0011
 // §1.5 explicitly rejects a bare Access → layout table: the depth/stencil
 // aspect and the read-while-attached flag are the two inputs the common-case
-// mapping cannot do without (the PCSS blocker search samples raw depth of a
-// resource that is simultaneously in play as an attachment).
+// mapping cannot do without for explicitly declared attachment feedback.
+// PCSS itself samples completed shadow outputs, so it takes the ordinary
+// sampled path (issue #1181).
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -63,7 +64,11 @@ namespace OloEngine::VulkanBarrierLowering
     //  - Undefined → UNDEFINED (discardable — the external/first-use state).
     //
     // Buffers have no layout; callers only consult this for image barriers.
-    [[nodiscard]] VkImageLayout LayoutFor(RHI::Access access, RHI::TextureAspect aspect, bool readWhileAttached);
+    // Unified layouts keep ordinary sampled/storage access in GENERAL.
+    // Attachment layouts (including the read-while-attached depth case),
+    // transfers, first use and presentation retain explicit transitions.
+    [[nodiscard]] VkImageLayout LayoutFor(RHI::Access access, RHI::TextureAspect aspect, bool readWhileAttached,
+                                          bool unifiedImageLayouts = false);
 
     [[nodiscard]] VkImageAspectFlags AspectMaskFor(RHI::TextureAspect aspect);
 
@@ -98,7 +103,8 @@ namespace OloEngine::VulkanBarrierLowering
                                                           RHI::TextureAspect aspect,
                                                           VkImageLayout trackedOldLayout,
                                                           u32 imageMipCount,
-                                                          u32 imageLayerCount);
+                                                          u32 imageLayerCount,
+                                                          bool unifiedImageLayouts = false);
 
     [[nodiscard]] VkBufferMemoryBarrier2 BuildBufferBarrier(const RHI::Barrier& barrier, VkBuffer buffer);
 

@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
 
@@ -525,6 +526,20 @@ namespace OloEngine
 
         std::vector<const char*> deviceExtensions = VulkanCapabilities::RequiredDeviceExtensions();
 
+        // Optional: do not narrow ADR 0010's hardware contract for a layout
+        // optimisation. Probe the selected device, and freeze the policy at
+        // vkCreateDevice; changing the debug lever later cannot change it.
+        const auto layoutCapabilities = VulkanCapabilities::Evaluate(m_PhysicalDevice);
+        const bool layoutsForcedOff = Levers::VulkanNoUnifiedImageLayouts();
+        const bool wantUnifiedLayouts = layoutCapabilities.UnifiedImageLayoutsFeature && !layoutsForcedOff;
+        VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unifiedLayoutFeatures{};
+        unifiedLayoutFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR;
+        if (wantUnifiedLayouts)
+        {
+            deviceExtensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
+            unifiedLayoutFeatures.unifiedImageLayouts = VK_TRUE;
+        }
+
         // VK_EXT_extended_dynamic_state3: OPTIONAL (ADR 0011 §5 — dynamic blend
         // state when available, blend baked into the PSO when not). Never a gate
         // row; requiring it would silently widen the ADR 0010 contract. Only the
@@ -880,6 +895,11 @@ namespace OloEngine
 
         void* featureChainHead = wantDynamicBlend ? static_cast<void*>(&eds3Features)
                                                   : static_cast<void*>(&vulkan14Features);
+        if (wantUnifiedLayouts)
+        {
+            unifiedLayoutFeatures.pNext = featureChainHead;
+            featureChainHead = &unifiedLayoutFeatures;
+        }
         if (wantDeviceFault)
         {
             faultFeatures.pNext = featureChainHead;
@@ -920,6 +940,19 @@ namespace OloEngine
         // three blend feature bits are now enabled facts of the logical
         // device — commit the flag the pipeline builder branches on.
         m_DynamicBlendStateEnabled = wantDynamicBlend;
+        m_UnifiedImageLayoutsEnabled = wantUnifiedLayouts;
+        if (m_UnifiedImageLayoutsEnabled)
+        {
+            OLO_CORE_INFO("[RHI/Vulkan] unified image layouts enabled: sampled/storage images use GENERAL; "
+                          "writable attachments and transfers retain explicit layouts");
+        }
+        else
+        {
+            const char* reason = layoutsForcedOff                             ? "OLO_VULKAN_NO_UNIFIED_IMAGE_LAYOUTS=1 (restart required)"
+                                 : !layoutCapabilities.HasUnifiedImageLayouts ? "VK_KHR_unified_image_layouts absent"
+                                                                              : "unifiedImageLayouts feature absent";
+            OLO_CORE_WARN("[RHI/Vulkan] unified image layouts disabled: {}; using optimal sampled layouts", reason);
+        }
         m_DeviceFaultEnabled = wantDeviceFault;
         m_CheckpointsEnabled = hasCheckpointsExtension;
         // Same commit-after-create rule: the flag describes the LOGICAL
@@ -1262,6 +1295,7 @@ namespace OloEngine
         // Shutdown/Init cycle re-probes rather than reusing a verdict (and a
         // per-format memo) minted against the previous device.
         m_HostImageCopyEnabled = false;
+        m_UnifiedImageLayoutsEnabled = false;
         m_HostCopySrcLayouts.clear();
         m_HostCopyDstLayouts.clear();
         m_HostCopyMemoryTypeNeutral = false;
@@ -1465,6 +1499,12 @@ namespace OloEngine
     void VulkanDevice::ResetValidationErrorCount()
     {
         s_ValidationErrorCount.store(0, std::memory_order_relaxed);
+    }
+
+    VkImageLayout VulkanDevice::GetSampledImageLayout() const
+    {
+        return VulkanBarrierLowering::LayoutFor(RHI::Access::ShaderSampleRead, RHI::TextureAspect::Color,
+                                                false, m_UnifiedImageLayoutsEnabled);
     }
 
     VulkanDevice* VulkanDevice::Get()

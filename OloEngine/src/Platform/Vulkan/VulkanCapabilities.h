@@ -37,6 +37,10 @@ namespace OloEngine
         bool ShaderUntypedPointersFeature = false;
         bool HasDeviceAddressCommands = false; // VK_KHR_device_address_commands listed
         bool DeviceAddressCommandsFeature = false;
+
+        // Optional optimisation, never contributes to Missing or Satisfied.
+        bool HasUnifiedImageLayouts = false;
+        bool UnifiedImageLayoutsFeature = false;
     };
 
     class VulkanCapabilities
