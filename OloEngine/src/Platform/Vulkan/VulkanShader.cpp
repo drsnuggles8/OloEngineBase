@@ -47,7 +47,7 @@ namespace OloEngine
 
         // Text description of the shaderc options BuildFromSources applies
         // below (target env vulkan_1_4, SPIR-V 1.6, preserve bindings, no
-        // auto-bind, debug info, performance opt, suppressed warnings, the
+        // auto-bind, debug info, source-controlled optimization, suppressed warnings, the
         // OLO_VULKAN macro) — hashed into the cache key alongside the source
         // (issue #906). MUST be updated alongside that options block, or a
         // changed option silently keeps reusing blobs compiled under the old
@@ -55,6 +55,9 @@ namespace OloEngine
         constexpr std::string_view kOptionsDescriptor =
             "env=vulkan1.4;spirv=1.6;preserve_bindings=1;auto_bind_uniforms=0;"
             "debug_info=1;opt=performance;suppress_warnings=1;define=OLO_VULKAN=1";
+        constexpr std::string_view kUnoptimizedOptionsDescriptor =
+            "env=vulkan1.4;spirv=1.6;preserve_bindings=1;auto_bind_uniforms=0;"
+            "debug_info=1;opt=zero;suppress_warnings=1;define=OLO_VULKAN=1";
 
         [[nodiscard]] const char* StageCacheExtension(VkShaderStageFlagBits stage)
         {
@@ -357,14 +360,16 @@ namespace OloEngine
         std::unordered_map<VkShaderStageFlagBits, std::vector<u32>> spirv;
         for (const auto& [stage, source] : sources)
         {
+            const bool disableOptimization = ShaderSourceScan::MentionsOutsideComments(source, "#pragma optimize(off)");
+            const auto optionsDescriptor = disableOptimization ? kUnoptimizedOptionsDescriptor : kOptionsDescriptor;
             // Content-addressed key (issue #906): the preprocessed source plus
-            // the fixed shaderc option set below plus the stage. Existence
+            // the effective shaderc option set below plus the stage. Existence
             // alone is validity — no mtime staleness check needed, and a
             // fresh worktree with byte-identical shaders lands on the exact
             // filename a warm cache already produced.
             const std::string contentHash =
                 std::format("{:016x}", Hash::FNV1a64(source.data(), source.size(),
-                                                     Hash::FNV1a64(kOptionsDescriptor.data(), kOptionsDescriptor.size(),
+                                                     Hash::FNV1a64(optionsDescriptor.data(), optionsDescriptor.size(),
                                                                    Hash::FNV1a64(&stage, sizeof(stage)))));
             const auto cachePath = CachePathForStage(stage, contentHash);
             bool loaded = false;
@@ -450,7 +455,6 @@ namespace OloEngine
             // ray-query call graphs can make the offline SPIR-V inliner expand
             // excessively; the driver still compiles the resulting SPIR-V.
             // The directive is part of the source-addressed cache key.
-            const bool disableOptimization = ShaderSourceScan::MentionsOutsideComments(source, "#pragma optimize(off)");
             options.SetOptimizationLevel(disableOptimization ? shaderc_optimization_level_zero : shaderc_optimization_level_performance);
             // Load-bearing, not cosmetic: shaderc's message parser asserts on
             // malformed glslang warning strings (same rule as the GL tier).
