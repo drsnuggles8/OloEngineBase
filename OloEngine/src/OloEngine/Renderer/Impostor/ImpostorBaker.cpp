@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -205,6 +206,16 @@ namespace OloEngine
         // next frame, so no explicit restore is needed here.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
+        // Culling OFF, like every other face bake in the engine (IBL, sky,
+        // DDGI). Two reasons, both in RHIProjectionSeam.h: a capture that
+        // rasterizes WITHOUT the seam's screen-space y flip has its facing
+        // determinant inverted relative to the screen path on Vulkan, so a
+        // culling bake would drop exactly the faces GL keeps; and the bake
+        // shader already treats leaves as two-sided (it flips the normal
+        // toward the capture camera), which only holds if the back-facing
+        // leaf quads are rasterized at all. Left to inherit, this picked up
+        // whatever the previous scene draw had set.
+        RenderCommand::DisableCulling();
 
         framebuffer->Bind();
 
@@ -237,7 +248,18 @@ namespace OloEngine
                 const glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, radius * 0.5f, radius * 5.0f);
 
                 ImpostorBakeUBO ubo{};
-                ubo.ViewProjection = proj * view;
+                // A8 seam, CAPTURE flavour (#691): the z remap without the y
+                // flip, as DDGI / IBL do. The atlas is DIRECTION-addressed —
+                // Foliage_Impostor.glsl picks a tile from the view direction
+                // and derives tile-local uv geometrically — so the screen-space
+                // y flip would only store every tile row-mirrored. Identity on
+                // GL. Without this the raw GL-convention ortho placed the whole
+                // mesh at NEGATIVE clip z, which Vulkan's fixed function clips
+                // before rasterization: the clear landed, the 64 tile draws
+                // were issued with a valid pipeline and pull stream, and not
+                // one fragment was written — the impostor canopy simply did
+                // not exist on Vulkan (issue #1264).
+                ubo.ViewProjection = RHI::AdjustCaptureProjectionForBackend(proj * view);
                 ubo.CenterRadius = glm::vec4(center, radius);
                 ubo.DirCutoff = glm::vec4(dir, alphaCutoff);
                 ubo.Tint = glm::vec4(tint, 0.0f);
