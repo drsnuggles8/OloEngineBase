@@ -97,13 +97,54 @@ only. No mid-range or integrated GPU, no other driver, no other OS, and no other
 measured, so this table says nothing about them. Adding a tier means running the fixtures on it.
 Vulkan was verified for correctness (below) but not timed; the numbers above are OpenGL.
 
-### Cross-backend check
+### Cross-backend check — four of five match, `woodland` does not
 
-`reference-head` was captured under `--rhi=vulkan` through the editor front door
-(`olo_benchmark_capture`), all four cameras including the moving one, `warmupTimedOut: false`. The
-Vulkan frame matches the OpenGL frame: same subjects, same rig, same contact shadows, same
-specular response. `LinearDepth` is skipped in that host by design — the editor camera seam cannot
-pin the manifest's near/far clips, so metric linear depth is only available from the test binary.
+All five fixtures were captured under `--rhi=vulkan` through the editor front door
+(`olo_benchmark_capture`), all four cameras each including the moving one, every run
+`warmupTimedOut: false`.
+
+| Fixture | Subject type | OpenGL vs Vulkan |
+|---|---|---|
+| `reference-head` | static models | matches |
+| `animal-short-coat` | skinned + animated | matches |
+| `animal-long-coat` | static mesh | matches |
+| `meadow` | BILLBOARD foliage | matches |
+| `woodland` | MESH foliage + impostors | **does not match** |
+
+**On Vulkan the `woodland` canopy is essentially absent.** Where OpenGL renders a dense canopy
+with trunks and sky gaps, Vulkan renders only scattered disconnected fragments floating at the
+horizon — no trunks, no near-field trees. Confirmed on the `frontal` and `grazing` cameras. The
+understory billboards in the same scene render correctly, and so does every non-foliage fixture,
+so this is **specific to the mesh-foliage / impostor layers**, not to the backend generally, not
+to the editor host, and not to foliage as a whole.
+
+Note that this is the **same path** that skips the G-Buffer on OpenGL (finding 1 below):
+billboard layers write the G-Buffer and render on both backends; mesh/impostor layers do neither.
+Two defects, one code path. Reported, not fixed — `FoliageRenderPass` belongs to the in-flight
+#1230 work.
+
+`LinearDepth` is skipped in the editor host by design — the editor camera seam cannot pin the
+manifest's near/far clips, so metric linear depth is only available from the test binary.
+
+**Do not compare editor-host captures pixel-for-pixel against test-binary ones.** The editor runs
+a live clock with its own frame pacing (`result.json` records `host: "editor-mcp"` and says so);
+the comparison above is qualitative — same subject, same pose, same rig behaviour.
+
+### Editor-host capture races the editor's own warm-up
+
+Applying a manifest's output resolution to a freshly launched Vulkan editor **asserts and kills
+the process**:
+
+    GTAORenderPass: scene depth/normals did not resolve (publishing fully visible AO)
+    AOApplyRenderPass: missing input/output (inputTex=<null>, ..., depthTex=<null>)
+    Assertion Failed: AOApplyRenderPass enabled without resolved graph input/output
+
+Observed 2026-09-13 when a capture was issued ~10 s after the MCP server came up, while scene
+mesh optimisation and IBL loading were still in flight; the viewport override resized 941x628 ->
+1920x1080 into a graph that had not yet published depth/normals. The identical capture succeeds
+and the editor survives when given ~60 s to settle first, and all five fixtures then captured
+back to back without incident. Pre-existing in the issue-#974 editor front door, not introduced
+by the fixtures. **Let the editor settle before the first capture.**
 
 ### Findings the fixtures already produced
 

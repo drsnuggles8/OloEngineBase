@@ -456,6 +456,11 @@ octahedral impostors beyond 45 m, plus a grass understory.
 between.
 **Fail**: an empty canopy (foliage density not reaching the layer), or the whole frame
 already past the impostor distance so the transition never appears.
+**Known**: on `--rhi=vulkan` the canopy is currently almost entirely absent — scattered fragments
+at the horizon, no trunks — while the understory billboards render correctly. Measured
+2026-09-13; the mesh-foliage/impostor path is also the one that skips the G-Buffer on OpenGL.
+Both belong to #1230; see
+[benchmark-reference-fixtures-baseline.md](../../../../docs/guides/benchmark-reference-fixtures-baseline.md).
 
 ---
 
