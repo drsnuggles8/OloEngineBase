@@ -1,0 +1,197 @@
+# Meadow vegetation — diagnostic capture, four sequences (issue #1239).
+#
+# Open field, three alpha-masked billboard layers over procedural terrain, wind
+# on. Wind reads the MOCK clock (issue #974), so the bend at the capture frame
+# is a function of the frame index and the whole fixture reproduces.
+#
+# CURRENT LIMITATION THIS FIXTURE RECORDS: ground cover is camera-facing cards,
+# not geometry. The grazing camera exists to show the card silhouette, and the
+# moving camera to show the alpha-test aliasing it produces under motion.
+# #1230 (foliage instance identity) is in flight on a sibling branch — this
+# fixture consumes foliage exactly as it is today and changes nothing about it.
+#
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 2
+Id: meadow
+Product: diagnostic
+Scene: Scenes/Benchmark/Meadow.olo
+Description: >-
+  Dense wind-driven grass and flower billboards over 192 m of procedural
+  terrain. The open-ground-cover half of the vegetation baseline for epic
+  #1225; Woodland is the canopy half.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Cameras:
+  # 1) FRONTAL. Just above the terrain's 5 m ceiling, looking across the field
+  #    with the sun behind
+  #    the camera — the fully front-lit read, where card foliage flatters
+  #    itself most. Pays the full warm-up.
+  - Id: frontal
+    Position: [0.0, 6.50, 14.0]
+    YawDegrees: 0.0
+    PitchDegrees: 4.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+  # 2) GRAZING. Dropped to just over the grass tops and levelled off, so the
+  #    view direction runs along the ground plane. This is
+  #    the angle at which camera-facing cards stop being convincing: the
+  #    billboards turn edge-on and the field thins out.
+  - Id: grazing
+    Position: [0.0, 5.60, 6.0]
+    YawDegrees: 0.0
+    PitchDegrees: -1.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+  # 3) BACKLIT. Looking into the low sun. Real grass is thin enough to
+  #    transmit; alpha-masked cards are binary, so this frame records the
+  #    absence of any translucency term in the foliage shading.
+  - Id: backlit
+    Position: [-10.0, 7.00, -10.0]
+    YawDegrees: 135.0
+    PitchDegrees: 4.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+  # 4) MOVING. Flying forward through the field at 6 m/s — over the 32 warm-up
+  #    frames (0.533 s) the camera advances 3.2 m. Enough for the velocity
+  #    buffer to carry the full foliage field and for alpha-test edges to
+  #    crawl, which is the thing a still capture cannot show.
+  - Id: moving
+    Position: [0.0, 6.40, 16.0]
+    YawDegrees: 0.0
+    PitchDegrees: 3.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+    Motion:
+      VelocityPerSecond: [0.0, 0.0, -6.0]
+      YawRateDegreesPerSecond: 0.0
+      PitchRateDegreesPerSecond: 0.0
+
+Output:
+  Resolution: [1920, 1080]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 1239
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 64
+  PerFeature:
+    TAA: 8
+    SSAO: 4
+    Fog: 16
+    Exposure: 30
+    # Wind is the slowest history in this scene: the gust envelope has a 0.7 Hz
+    # frequency, so 64 frames (~1.07 s) covers a full gust cycle rather than
+    # catching the field mid-ramp from a standing start.
+    Wind: 64
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+    # NORMALIZED, and it has to be. Measured on the reference-head fixture:
+    # screen-space velocity at these speeds spans about -0.004..0.001, so an
+    # unnormalized PNG quantises the whole field to 0 or 1 of 255 and the
+    # moving sequence's headline AOV reads as a black frame. The absolute
+    # floats stay in result.json's per-attachment min/max; this image is for
+    # SEEING the field. Note the scaling is per camera, so compare velocity
+    # magnitudes across cameras via result.json, never by eye across these PNGs.
+    Normalize: on
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: FogColor
+    Source: FogColor
+    Format: png
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+  - Name: Roughness
+    Source: GBufferNormal
+    Format: png
+    Derive: channel-b
+
+Tolerance:
+  # MEASURED 2026-09-13 on OLE (RTX 4090, NVIDIA GeForce RTX 4090/PCIe/SSE2,
+  # Debug, OpenGL): two fresh capture processes produced 44/44 BYTE-IDENTICAL
+  # attachments across all four cameras — the moving camera included, and for
+  # the animal fixtures with the skinned Walk clip running.
+  #
+  # Zero, not a small tolerance, and that is a real result rather than a lucky
+  # one: these fixtures run no SSGI/SSR temporal resolve over a clustered light
+  # cull, which is the float-accumulation-order noise the Courtyard manifests
+  # document a 0.05 bound for. Camera motion does not weaken it because the
+  # pose is a closed form of the frame index, not an accumulation.
+  #
+  # If this ever fails, something became genuinely nondeterministic. Do not
+  # widen it to make a run pass.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: assets/textures/grass.png
+    Origin: in-repo editor asset; upstream origin not recorded
+    License: unverified (no licence file in-repo)
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 5ddeae5e556cb610ecd6b0afcb294c22969bf4d077ecf7e2bc22bd07f3b1f23b
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. Its upstream origin predates this manifest and could not
+      be established; it is recorded as unverified rather than assigned a
+      licence nobody checked. Replacing it with a documented CC0 grass atlas
+      would close the gap and change only this record.
+  # NOTE: this fixture's sky and image-based lighting are a ProceduralSkyComponent,
+  # not an HDR probe, so there is deliberately no environment-map asset here.
+  # An indoor probe put the Newport Loft ceiling above the grass in the first
+  # capture of this fixture; a procedural sky also carries no third-party
+  # rights, which is why the vegetation fixtures' provenance lists are shorter
+  # than the head and animal ones.

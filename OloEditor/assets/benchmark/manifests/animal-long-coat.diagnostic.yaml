@@ -1,0 +1,189 @@
+# Long-coated animal — diagnostic capture, four sequences (issue #1239).
+#
+# THIS FIXTURE IS A BASELINE, AND IT IS MEANT TO LOOK LIKE ONE. The long coat
+# is a solid offset shell (Models/Reference/generate_reference_animals.py)
+# because that is every long coat this engine can express today: hard
+# silhouette, no strand detail, no anisotropic specular, no wind response.
+# Issues #1232 and #1241 replace the shell with real curves and are measured
+# against this capture. Do not upgrade the coat to make these images nicer.
+#
+# Ground, sky, light rig, resolution and warm-up schedule are IDENTICAL to
+# animal-short-coat.diagnostic.yaml, and the camera poses are the same four
+# shots, so the two captures differ only in the subject.
+#
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 2
+Id: animal-long-coat
+Product: diagnostic
+Scene: Scenes/Benchmark/AnimalLongCoat.olo
+Description: >-
+  Long-coated quadruped whose coat is a solid offset shell — the current
+  no-groom baseline for epic #1225. Paired shot-for-shot with
+  animal-short-coat so the two captures isolate the coat.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Cameras:
+  # 1) FRONTAL. Same pose as the short-coat fixture's frontal camera. The neck
+  #    ruff is the clearest read of "coat as geometry" from this angle.
+  - Id: frontal
+    Position: [2.00, 0.75, 1.20]
+    YawDegrees: -59.0
+    PitchDegrees: 7.0
+    FovDegrees: 45.0
+    Near: 0.05
+    Far: 400.0
+  # 2) GRAZING. Low behind the shoulder with the sun raking the flank. On a
+  #    real groom this angle is where strand specular appears; here it is a
+  #    smooth shell gradient, and the difference is the measurement.
+  - Id: grazing
+    Position: [-1.40, 0.22, 1.90]
+    YawDegrees: 36.4
+    PitchDegrees: -4.0
+    FovDegrees: 45.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 32
+  # 3) BACKLIT. Into the sun. The single most diagnostic frame in this fixture:
+  #    a long coat backlit should glow at the edges, and an opaque shell
+  #    cannot. Expect a hard black silhouette with a thin specular rim.
+  - Id: backlit
+    Position: [-1.90, 0.55, -2.10]
+    YawDegrees: 137.9
+    PitchDegrees: 2.0
+    FovDegrees: 45.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 32
+  # 4) MOVING. The subject is static — no rigged long-coated asset is
+  #    obtainable without a purchase — so ALL the motion here is the camera's.
+  #    That is the honest version of a moving sequence for this fixture, and
+  #    the velocity buffer shows it: rigid parallax only, against the
+  #    short-coat fixture's parallax-plus-skinning.
+  - Id: moving
+    Position: [2.20, 0.65, 2.20]
+    YawDegrees: -45.0
+    PitchDegrees: 6.0
+    FovDegrees: 45.0
+    Near: 0.05
+    Far: 400.0
+    WarmupFrames: 32
+    Motion:
+      VelocityPerSecond: [-1.6, 0.0, 0.0]
+      YawRateDegreesPerSecond: 4.0
+      PitchRateDegreesPerSecond: 0.0
+
+Output:
+  Resolution: [1920, 1080]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 1239
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 64
+  PerFeature:
+    TAA: 8
+    SSAO: 4
+    Exposure: 30
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+    # NORMALIZED, and it has to be. Measured on the reference-head fixture:
+    # screen-space velocity at these speeds spans about -0.004..0.001, so an
+    # unnormalized PNG quantises the whole field to 0 or 1 of 255 and the
+    # moving sequence's headline AOV reads as a black frame. The absolute
+    # floats stay in result.json's per-attachment min/max; this image is for
+    # SEEING the field. Note the scaling is per camera, so compare velocity
+    # magnitudes across cameras via result.json, never by eye across these PNGs.
+    Normalize: on
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+  - Name: Roughness
+    Source: GBufferNormal
+    Format: png
+    Derive: channel-b
+
+Tolerance:
+  # MEASURED 2026-09-13 on OLE (RTX 4090, NVIDIA GeForce RTX 4090/PCIe/SSE2,
+  # Debug, OpenGL): two fresh capture processes produced 40/40 BYTE-IDENTICAL
+  # attachments across all four cameras — the moving camera included, and for
+  # the animal fixtures with the skinned Walk clip running.
+  #
+  # Zero, not a small tolerance, and that is a real result rather than a lucky
+  # one: these fixtures run no SSGI/SSR temporal resolve over a clustered light
+  # cull, which is the float-accumulation-order noise the Courtyard manifests
+  # document a 0.05 bound for. Camera motion does not weaken it because the
+  # pose is a closed form of the frame index, not an accumulation.
+  #
+  # If this ever fails, something became genuinely nondeterministic. Do not
+  # widen it to make a run pass.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/Reference/longcoat-quadruped.obj
+    Origin: generated in-repo by Models/Reference/generate_reference_animals.py (issue #1239)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 64b04e29fba1fd10c410ed8b0ac4c66cb3b4aca2aa167da35a91b34a88f2e39a
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: python OloEditor/SandboxProject/Assets/Models/Reference/generate_reference_animals.py
+  - Path: assets/textures/hdr/newport_loft.hdr
+    Origin: Newport Loft HDR (sIBL Archive / HDR Labs) — in-repo editor asset
+    License: unverified (no licence file in-repo; upstream sIBL Archive terms not confirmed)
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: f521688ab09b3e748341921d0c8c114d1256e6ca9e94c6e6783b9952b0042c44
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: linear
+    Acquisition: http://www.hdrlabs.com/sibl/archive.html (upstream archive; the in-repo copy predates this manifest)

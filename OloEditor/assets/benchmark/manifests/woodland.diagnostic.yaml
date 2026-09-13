@@ -1,0 +1,234 @@
+# Woodland vegetation — diagnostic capture, four sequences (issue #1239).
+#
+# Dense pine/palm canopy with octahedral impostors plus a grass understory,
+# over the same 192 m procedural terrain generator as the meadow (different
+# seed and a 9 m height scale). Wind on, mock-clock driven, so the sway at the
+# capture frame reproduces.
+#
+# Every camera is placed so the frame STRADDLES the impostor cross-fade band
+# (ImpostorStartDistance 45 m, 18 m transition): real mesh in the near field,
+# impostor cards beyond, and the blend between them in shot. That transition is
+# the thing a canopy fixture exists to measure.
+#
+# CURRENT LIMITATION THIS FIXTURE RECORDS: the trees are the two low-poly
+# meshes generate_vegetation.py emits — a few dozen triangles each — because
+# that is every tree this repository owns. This capture measures canopy
+# DENSITY and the impostor transition honestly; it does not measure leaf
+# detail, and nobody should read it as if it did.
+#
+# MEASURED OBSERVATION, 2026-09-13 (RTX 4090, Debug, OpenGL, Deferred): the
+# mesh-foliage canopy appears in Beauty and in ShadowMapCSMCascade0, but writes
+# NEITHER GBufferAlbedo NOR GBufferNormal — both are empty above the horizon
+# while the terrain and the understory billboards are present in them. Every
+# G-Buffer-derived term therefore treats the canopy as sky: SSAO, SSGI and SSR
+# get no canopy occluder, and the derived Roughness lane is blank there. That is
+# a large part of why this fixture's forest floor is lit like open ground.
+#
+# This is REPORTED, NOT FIXED here. FoliageRenderPass belongs to the in-flight
+# #1230 branch and this issue's scope is the measuring instrument, not the
+# thing being measured. The AOVs above are the evidence; see issue #1239.
+#
+# Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
+# positive PitchDegrees looks DOWN.
+ManifestVersion: 2
+Id: woodland
+Product: diagnostic
+Scene: Scenes/Benchmark/Woodland.olo
+Description: >-
+  Dense wind-driven pine/palm canopy with octahedral impostors and a grass
+  understory. The canopy half of the vegetation baseline for epic #1225;
+  Meadow is the open-ground-cover half.
+
+Backends:
+  Supported: [opengl, vulkan]
+  Features:
+    vulkan:
+      UnsupportedAttachments: []
+
+Cameras:
+  # 1) FRONTAL. Above the terrain's 9 m ceiling looking across the canopy with
+  #    the sun behind the camera. Near trees are mesh, the ridge beyond 45 m is
+  #    impostor cards. Pays the full warm-up.
+  - Id: frontal
+    Position: [0.0, 9.00, 20.0]
+    YawDegrees: 0.0
+    PitchDegrees: 1.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+  # 2) GRAZING. Dropped into the understory and levelled off, so the view runs
+  #    through trunks rather than over the canopy. Raking sun, heavy
+  #    inter-shadowing, and the impostor band sitting right in the middle
+  #    distance where it is most visible.
+  - Id: grazing
+    Position: [0.0, 8.00, 8.0]
+    YawDegrees: 0.0
+    PitchDegrees: -1.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+  # 3) BACKLIT. Looking into the low sun through the canopy. Foliage cards have
+  #    no transmission term, so leaves that should glow read as flat masks —
+  #    and the impostor atlas, baked from the same opaque shading, cannot
+  #    recover it either. Both limitations land in one frame.
+  - Id: backlit
+    Position: [-22.0, 9.00, -22.0]
+    YawDegrees: 135.0
+    PitchDegrees: 2.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+  # 4) MOVING. Flying forward at 8 m/s with a slow yaw, so trees cross the
+  #    impostor threshold DURING the shot — over the 32 warm-up frames
+  #    (0.533 s) the camera advances 4.27 m and yaws 1.6 degrees. That is the
+  #    condition under which an impostor pop is visible at all, and it cannot
+  #    be captured from a still camera.
+  - Id: moving
+    Position: [0.0, 9.00, 30.0]
+    YawDegrees: 0.0
+    PitchDegrees: 1.0
+    FovDegrees: 55.0
+    Near: 0.05
+    Far: 2000.0
+    WarmupFrames: 32
+    Motion:
+      VelocityPerSecond: [0.0, 0.0, -8.0]
+      YawRateDegreesPerSecond: 3.0
+      PitchRateDegreesPerSecond: 0.0
+
+Output:
+  Resolution: [1920, 1080]
+  RenderScale: 1.0
+
+RendererSettings:
+  Path: Deferred
+  EnableDDGI: false
+  TAAEnabled: true
+
+Exposure:
+  Mode: Manual
+  Exposure: 1.0
+
+Determinism:
+  Seed: 1239
+  StartTimeSeconds: 12.0
+  FixedDtSeconds: 0.016666666
+
+Warmup:
+  Frames: 64
+  PerFeature:
+    TAA: 8
+    SSAO: 4
+    Fog: 16
+    Exposure: 30
+    Wind: 64
+
+Attachments:
+  - Name: Beauty
+    Source: UIComposite
+    Format: png
+  - Name: SceneColorHDR
+    Source: SceneColor
+    Format: hdr
+  - Name: Albedo
+    Source: GBufferAlbedo
+    Format: png
+  - Name: Normals
+    Source: GBufferNormal
+    Format: png
+    Normalize: none
+  - Name: Velocity
+    Source: Velocity
+    Format: png
+    # NORMALIZED, and it has to be. Measured on the reference-head fixture:
+    # screen-space velocity at these speeds spans about -0.004..0.001, so an
+    # unnormalized PNG quantises the whole field to 0 or 1 of 255 and the
+    # moving sequence's headline AOV reads as a black frame. The absolute
+    # floats stay in result.json's per-attachment min/max; this image is for
+    # SEEING the field. Note the scaling is per camera, so compare velocity
+    # magnitudes across cameras via result.json, never by eye across these PNGs.
+    Normalize: on
+  - Name: AOBuffer
+    Source: AOBuffer
+    Format: png
+  - Name: SceneDepth
+    Source: SceneDepth
+    Format: png
+    Normalize: auto
+  - Name: FogColor
+    Source: FogColor
+    Format: png
+  - Name: ShadowMapCSMCascade0
+    Source: ShadowMapCSMCascade0
+    Format: png
+    Normalize: auto
+  - Name: LinearDepth
+    Source: SceneDepth
+    Format: hdr
+    Derive: linear-depth
+  - Name: Roughness
+    Source: GBufferNormal
+    Format: png
+    Derive: channel-b
+
+Tolerance:
+  # MEASURED 2026-09-13 on OLE (RTX 4090, NVIDIA GeForce RTX 4090/PCIe/SSE2,
+  # Debug, OpenGL): two fresh capture processes produced 44/44 BYTE-IDENTICAL
+  # attachments across all four cameras — the moving camera included, and for
+  # the animal fixtures with the skinned Walk clip running.
+  #
+  # Zero, not a small tolerance, and that is a real result rather than a lucky
+  # one: these fixtures run no SSGI/SSR temporal resolve over a clustered light
+  # cull, which is the float-accumulation-order noise the Courtyard manifests
+  # document a 0.05 bound for. Camera motion does not weaken it because the
+  # pose is a closed form of the frame index, not an accumulation.
+  #
+  # If this ever fails, something became genuinely nondeterministic. Do not
+  # widen it to make a run pass.
+  RepeatRmse: 0.0
+
+Assets:
+  - Path: SandboxProject/Assets/Models/Vegetation/pine.obj
+    Origin: generated in-repo by Models/Vegetation/generate_vegetation.py (issue #880)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: eacfd26375a9e124f878ebff3e02abd4e00914482ce3db3247aa202e72a98790
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: python OloEditor/SandboxProject/Assets/Models/Vegetation/generate_vegetation.py
+  - Path: SandboxProject/Assets/Models/Vegetation/palm.obj
+    Origin: generated in-repo by Models/Vegetation/generate_vegetation.py (issue #880)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 3ec40f6777489539dca7fd4704312fc7156c8f3e2de26223bba8cfb48fe39727
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: python OloEditor/SandboxProject/Assets/Models/Vegetation/generate_vegetation.py
+  - Path: assets/textures/grass.png
+    Origin: in-repo editor asset; upstream origin not recorded
+    License: unverified (no licence file in-repo)
+    Redistribution: committed
+    LicenseVerified: unverified
+    Version: in-repo copy, upstream revision not recorded
+    Sha256: 5ddeae5e556cb610ecd6b0afcb294c22969bf4d077ecf7e2bc22bd07f3b1f23b
+    Units: unitless
+    UpAxis: n/a
+    ColorSpace: srgb
+    Acquisition: >-
+      Already in-tree. Its upstream origin predates this manifest and could not
+      be established; it is recorded as unverified rather than assigned a
+      licence nobody checked.
+  # NOTE: this fixture's sky and image-based lighting are a ProceduralSkyComponent,
+  # not an HDR probe, so there is deliberately no environment-map asset here.
+  # An indoor probe put the Newport Loft ceiling above the grass in the first
+  # capture of this fixture; a procedural sky also carries no third-party
+  # rights, which is why the vegetation fixtures' provenance lists are shorter
+  # than the head and animal ones.
