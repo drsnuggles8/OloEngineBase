@@ -1666,6 +1666,11 @@ namespace OloEngine
             // Per-cascade tile scales + the mid band's domain rotation; built by
             // Ocean::PackCascadeShaderParams from the field's own preset.
             glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+            // Projected grid (issue #1035). Packing: see
+            // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2,
+            // filled by WaterSurfaceLod::PackProjectedGrid.
+            glm::vec4 projectedGridParams = glm::vec4(0.0f);
+            glm::vec4 projectedGridParams2 = glm::vec4(0.0f);
             RHI::ResourceHandle normalMap0ID{};
             RHI::ResourceHandle normalMap1ID{};
             RHI::ResourceHandle noiseTextureID{};

@@ -636,11 +636,16 @@ namespace OloEngine::Tests
         /// the buffers then differ in precisely the 4 bytes of m_FFTCascades —
         /// and excise them. Deriving the offset from the data instead of hard-
         /// coding it means this cannot rot as fields are added around it.
+        ///
+        /// Every later version-gated, non-trailing field of the block is excised
+        /// the same way, because a v23 archive has none of them either:
+        /// m_ProjectedGridEnabled (v30, #1035) is located with its two values.
         std::vector<u8> BuildPreV24WaterPayload(const WaterComponent& seed)
         {
-            auto write = [](WaterComponent c, u32 cascades)
+            auto write = [](WaterComponent c, u32 cascades, bool projectedGrid)
             {
                 c.m_FFTCascades = cascades;
+                c.m_ProjectedGridEnabled = projectedGrid;
                 std::vector<u8> buf;
                 FMemoryWriter writer(buf);
                 writer.ArIsSaveGame = true;
@@ -652,8 +657,8 @@ namespace OloEngine::Tests
             // The obvious choice — the two legal counts, 1 and 3 — differs only
             // in the u32's low byte, which locates the field's start but not its
             // width, and silently under-excises by three bytes.
-            const std::vector<u8> probeA = write(seed, 0x01010101u);
-            const std::vector<u8> probeB = write(seed, 0x02020202u);
+            const std::vector<u8> probeA = write(seed, 0x01010101u, false);
+            const std::vector<u8> probeB = write(seed, 0x02020202u, false);
 
             EXPECT_EQ(probeA.size(), probeB.size()) << "cascade count is not fixed-width";
             std::vector<sizet> differing;
@@ -667,15 +672,38 @@ namespace OloEngine::Tests
                 return {};
             EXPECT_EQ(differing.back() - differing.front(), 3u) << "cascade field bytes are not contiguous";
 
-            // The payload itself is written with a LEGAL count, so everything
-            // except the excised field is byte-for-byte what a real save holds.
-            const std::vector<u8> single = write(seed, Ocean::kSingleCascadeCount);
+            // The v30 projected-grid flag, located the same way. FArchive writes
+            // a bool as a legacy 32-bit UBOOL, so false/true differ in exactly
+            // one byte — the low one, which is where the field starts — and the
+            // excision has to take all four.
+            constexpr sizet kBoolWireWidth = 4u;
+            const std::vector<u8> probeOff = write(seed, Ocean::kSingleCascadeCount, false);
+            const std::vector<u8> probeOn = write(seed, Ocean::kSingleCascadeCount, true);
+            EXPECT_EQ(probeOff.size(), probeOn.size()) << "projected-grid flag is not fixed-width";
+            std::vector<sizet> flagBytes;
+            for (sizet i = 0; i < probeOff.size() && i < probeOn.size(); ++i)
+            {
+                if (probeOff[i] != probeOn[i])
+                    flagBytes.push_back(i);
+            }
+            EXPECT_EQ(flagBytes.size(), 1u) << "expected exactly the low byte of the projected-grid flag to differ";
+            if (flagBytes.size() != 1u)
+                return {};
+            const sizet flagFirst = flagBytes.front();
+            const sizet flagLast = flagFirst + kBoolWireWidth - 1u;
+
+            // The payload itself is written with a LEGAL count and the flag off,
+            // so everything except the excised fields is byte-for-byte what a
+            // real save holds.
+            const std::vector<u8>& single = probeOff;
 
             std::vector<u8> preV24;
-            preV24.reserve(single.size() - 4u);
+            preV24.reserve(single.size() - 4u - kBoolWireWidth);
             for (sizet i = 0; i < single.size(); ++i)
             {
-                if (i < differing.front() || i > differing.back())
+                const bool cascadeByte = i >= differing.front() && i <= differing.back();
+                const bool flagByte = i >= flagFirst && i <= flagLast;
+                if (!cascadeByte && !flagByte)
                     preV24.push_back(single[i]);
             }
             return preV24;

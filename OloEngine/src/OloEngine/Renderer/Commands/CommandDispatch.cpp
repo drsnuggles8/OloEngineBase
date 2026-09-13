@@ -3316,6 +3316,12 @@ namespace OloEngine
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
             waterData.FFTCascadeParams = cmd->fftCascadeParams;
+            // Projected grid (issue #1035). Carried per-surface, unlike the
+            // wake / shore / rain fields below: it is a property of THIS
+            // surface's own plane and rect, and two water tiles at different
+            // heights legitimately get different bands.
+            waterData.ProjectedGridParams = cmd->projectedGridParams;
+            waterData.ProjectedGridParams2 = cmd->projectedGridParams2;
             // Boat / actor wake foam field (issue #967). Read from the service
             // here rather than carried on the draw command, because the field is
             // ONE global resource and not a per-surface property: routing it

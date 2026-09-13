@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
+#include "OloEngine/Renderer/Water/WaterSurfaceLod.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -9356,11 +9357,20 @@ namespace OloEngine
                                            ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
                                            : 100.0f;
 
-                    // Lazy mesh initialization / rebuild
-                    if (water.m_NeedsRebuild || !water.m_WaterMesh)
+                    // The mesh's real resolution — the one number the build,
+                    // the band-limit spacing and the projected grid all agree
+                    // on. Clamped once, here.
+                    const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+                    const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
+
+                    // Lazy mesh initialization / rebuild. The vertex-count test
+                    // catches a resolution written without m_NeedsRebuild (an
+                    // MCP field write, a script): the projected grid derives its
+                    // band-limit spacing from resX/resZ, and a mesh built at a
+                    // different resolution would be drawn with the wrong one.
+                    const sizet expectedVertexCount = static_cast<sizet>(resX + 1u) * static_cast<sizet>(resZ + 1u);
+                    if (water.m_NeedsRebuild || !water.m_WaterMesh || !water.m_WaterMesh->IsValid() || static_cast<sizet>(water.m_WaterMesh->GetVertices().Num()) != expectedVertexCount)
                     {
-                        const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
-                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
                             sizeX, sizeZ,
                             resX, resZ);
@@ -9637,10 +9647,8 @@ namespace OloEngine
                     // with once the resolution exceeds 1024, and the band-limit
                     // weight would then keep octaves the surface cannot carry —
                     // the exact faceting this value exists to prevent.
-                    const f32 spacingCountX =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionX, 1u, 1024u));
-                    const f32 spacingCountZ =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionZ, 1u, 1024u));
+                    const f32 spacingCountX = static_cast<f32>(resX);
+                    const f32 spacingCountZ = static_cast<f32>(resZ);
                     // The coarser of the two axes is the one that limits what the
                     // surface can carry.
                     const f32 vertexSpacing =
@@ -9998,6 +10006,59 @@ namespace OloEngine
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
+
+                    // Projected grid (issue #1035). The mesh is untouched — the
+                    // vertex stage reads its (u, v) as a screen coordinate — so
+                    // all that is uploaded is the NDC rectangle, the band-limit
+                    // spacing step and the rect a vertex is clamped into. The
+                    // draw's bounds stay the authored rect and stay correct: a
+                    // projected vertex is clamped into exactly that rect.
+                    {
+                        WaterSurfaceLod::ProjectedGridInputs gridInputs;
+                        gridInputs.m_Model = modelMat;
+                        // Absolute matrices: NDC is the same in every space, and
+                        // the backend adjustment is the part that MUST be applied
+                        // — Vulkan's row flip mirrors NDC y.
+                        gridInputs.m_ViewProjection = RHI::AdjustProjectionForBackend(viewProjection);
+                        gridInputs.m_Projection = RHI::AdjustProjectionForBackend(projectionMatrix);
+                        gridInputs.m_CameraPosition = cameraPosition;
+                        gridInputs.m_WaveParams = waterParams.waveParams;
+                        gridInputs.m_WaveDir0 = waterParams.waveDir0;
+                        gridInputs.m_WaveDir1 = waterParams.waveDir1;
+                        // The un-floored bound: waveH carries a 3 m floor for
+                        // the draw's cull box, which would be a layout margin
+                        // above a deck-height eye here.
+                        gridInputs.m_VerticalExtent =
+                            water.m_UseFFT
+                                ? clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f) * WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale) * 2.0f
+                                : 0.0f;
+                        gridInputs.m_HalfExtentX = halfX;
+                        gridInputs.m_HalfExtentZ = halfZ;
+                        gridInputs.m_GridResolutionX = resX;
+                        gridInputs.m_GridResolutionZ = resZ;
+                        const bool projected =
+                            water.m_ProjectedGridEnabled && WaterSurfaceLod::PackProjectedGrid(gridInputs, waterParams.projectedGridParams,
+                                                                                               waterParams.projectedGridParams2);
+                        if (!projected)
+                        {
+                            // Disabled, or a degenerate transform: coherent
+                            // disabled fields, and the world-space grid draws.
+                            waterParams.projectedGridParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
+                            waterParams.projectedGridParams2 = glm::vec4(halfX, halfZ, 1.0f, 1.0f);
+                        }
+                        else
+                        {
+                            // Turn the tess-control frustum cull OFF, for the
+                            // same reason the FFT branch above does and a
+                            // sharper one: it tests the UNDISPLACED patch, and
+                            // a projected grid's layout rectangle deliberately
+                            // extends outside the frustum — the skirt rows exist
+                            // precisely so a crest can lift them into frame.
+                            // Culling on the resting position rejects exactly
+                            // the patches the margin was added to create.
+                            waterParams.tessParams.w = 0.0f;
+                        }
+                    }
 
                     auto* packet = Renderer3D::DrawWaterSurface(
                         va->GetRHIHandle(), submesh.m_IndexCount,
