@@ -89,11 +89,14 @@ def main():
         p.error('--prefix must contain only letters, digits, underscore or hyphen')
     if not 0 < args.seconds <= 120 or not 0 < args.hz <= 60:
         p.error('seconds must be (0,120], hz (0,60]')
+    if not math.isfinite(args.degrees_per_second):
+        p.error('degrees-per-second must be finite')
     cases = [(m, 7) for m in furnace.MODES] + [('combined', m) for m in [1, 2, 4]] if args.matrix else [('combined', 7)]
     plan = dict(material=args.material, secondsPerCase=args.seconds, requestedCameraHz=args.hz,
         cases=cases, seeds=args.seeds, ROI=furnace.ROI,
         trajectory=({'kind': 'lateral', 'amplitude': .3, 'height': 1.5, 'z': 3}
                     if args.corner else {'kind': 'orbit', 'radius': 4}),
+        degreesPerSecond=args.degrees_per_second,
         notes=('Asynchronous requests: no exact camera/frame pairing. No every-frame claim. '
                + ('Open corner: multibounce, no per-frame oracle comparison.' if args.corner else 'Sphere zero-secondary only.')))
     print(json.dumps(plan, indent=2))

@@ -13,17 +13,21 @@ The design was committed as `245273c3a` before the first production contract com
 
 The final Debug editor, runtime, and test targets built successfully (exit 0),
 including the review fixes. A focused run then passed all 30 tests with no skips
-or failures (exit 0): PT device/contract suites, water coverage, and shader reload. The full test
-executable ran 8,314 cases: 8,271 passed, 42 skipped, and one failed, with 12 more
-cases disabled; exit 1. All nine PT device cases and the production Vulkan shader
-compilation sweep passed. The single failure was
+or failures (exit 0): PT device/contract suites, water coverage, and shader reload.
+The final full executable ran 8,315 cases: **8,273 passed, 42 skipped, zero failed**,
+with 12 more disabled; **exit 0**, elapsed 1,089.398 seconds. This includes all
+review fixes, nine PT device cases and the production Vulkan shader compilation
+sweep. [Totals, skip list and raw-result hashes](evidence/restir-pt-1211/full-suite.json)
+identify this run separately from the focused and earlier full runs.
+
+The earlier full run had one failure:
 `VirtualClusterCullParity.SwListAppendNeverWritesPastAnUndersizedCapacity`: its
 separate GPU append counter was left uninitialized. Production already clears
 that header. Commit `64c5a0f43` initializes both fixture headers; the two-case
 suite then passed five repetitions (10 passes, no skips or failures), exit 0.
-The whole suite was not rerun after that correction or the later water-coverage
-and review fixes. The water coverage regression and PT admission case both passed
-on the rebuilt targets (two passed, none skipped or failed).
+The final full run above confirms the correction and later water-coverage/review
+fixes together. Generated test captures were preserved separately; tracked goldens
+were restored rather than rebased.
 
 ## Numerical device evidence
 
