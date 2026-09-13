@@ -49,6 +49,8 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <gtest/gtest.h>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <stb_image/stb_image_write.h>
 
 #include <cstdlib>
@@ -267,22 +269,27 @@ namespace OloEngine::Tests
 
         // (2) Groups partition the instances and bound them in WORLD space.
         ASSERT_FALSE(registry.GetGroups().empty()) << "spatial groups were never built";
-        std::size_t grouped = 0;
+        // A partition: every live id in exactly one group. A cardinality check
+        // alone would pass with one id in two groups and another in none.
+        std::set<FoliageInstanceId> groupedIds;
         for (const auto& group : registry.GetGroups())
         {
-            grouped += group.m_Instances.size();
             for (const auto id : group.m_Instances)
             {
+                ASSERT_TRUE(groupedIds.insert(id).second) << "instance " << id << " belongs to multiple spatial groups";
                 const auto* record = registry.Find(id);
                 ASSERT_NE(record, nullptr);
                 const BoundingBox world = record->m_LocalBounds.Transform(registry.GetTerrainTransform());
                 EXPECT_LE(group.m_WorldBounds.Min.x, world.Min.x + 1e-3f);
+                EXPECT_LE(group.m_WorldBounds.Min.y, world.Min.y + 1e-3f);
                 EXPECT_LE(group.m_WorldBounds.Min.z, world.Min.z + 1e-3f);
                 EXPECT_GE(group.m_WorldBounds.Max.x, world.Max.x - 1e-3f);
+                EXPECT_GE(group.m_WorldBounds.Max.y, world.Max.y - 1e-3f);
                 EXPECT_GE(group.m_WorldBounds.Max.z, world.Max.z - 1e-3f);
             }
         }
-        EXPECT_EQ(grouped, static_cast<std::size_t>(uploaded));
+        EXPECT_EQ(groupedIds, LiveIds(registry));
+        EXPECT_EQ(groupedIds.size(), static_cast<std::size_t>(uploaded));
 
         const auto idsBefore = LiveIds(registry);
         const auto censusBefore = census;
@@ -317,6 +324,49 @@ namespace OloEngine::Tests
             EXPECT_LT(delta, greenBefore / 10)
                 << "angle '" << kAngles[i].m_Name << "': foliage coverage moved from " << greenBefore
                 << " to " << greenAfter << " across a no-op regeneration";
+        }
+
+        // (4) The terrain TRANSFORM reaches the registry through the production
+        // path — Scene hands the entity transform to FoliageRenderer, which
+        // forwards it. BuildScene left it at identity, so up to here a broken
+        // hand-off would have been invisible: both sides identity, every bound
+        // "correct". Move the terrain by a KNOWN offset, tick, and compare the
+        // published world bounds against that offset — not against whatever
+        // the registry says its transform is. Done after every capture above so
+        // the evidence frames are unaffected; the ids must not move either.
+        {
+            const glm::vec3 offset(37.0f, 2.0f, -19.0f);
+            auto& terrainTransform = m_TerrainEntity.GetComponent<TransformComponent>();
+            const glm::vec3 restoreTranslation = terrainTransform.Translation;
+            terrainTransform.Translation += offset;
+            const glm::mat4 expected = glm::translate(glm::mat4(1.0f), terrainTransform.Translation) *
+                                       glm::mat4_cast(glm::quat(terrainTransform.GetRotationEuler())) *
+                                       glm::scale(glm::mat4(1.0f), terrainTransform.Scale);
+
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.5f, 2000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose(kAngles[0].m_Position, kAngles[0].m_Yaw, kAngles[0].m_Pitch);
+            RunEditorFrames(camera, 2);
+
+            EXPECT_EQ(LiveIds(registry), idsBefore) << "moving the terrain must not touch identity";
+            ASSERT_FALSE(registry.GetGroups().empty());
+            for (const auto& group : registry.GetGroups())
+            {
+                const BoundingBox world = group.m_LocalBounds.Transform(expected);
+                EXPECT_NEAR(group.m_WorldBounds.Min.x, world.Min.x, 1e-3f);
+                EXPECT_NEAR(group.m_WorldBounds.Min.y, world.Min.y, 1e-3f);
+                EXPECT_NEAR(group.m_WorldBounds.Min.z, world.Min.z, 1e-3f);
+                EXPECT_NEAR(group.m_WorldBounds.Max.x, world.Max.x, 1e-3f);
+                EXPECT_NEAR(group.m_WorldBounds.Max.y, world.Max.y, 1e-3f);
+                EXPECT_NEAR(group.m_WorldBounds.Max.z, world.Max.z, 1e-3f);
+            }
+            // The world bounds really did move by the offset (not identity on
+            // both sides): the first group's min shifted by exactly the offset.
+            EXPECT_NEAR(registry.GetGroups()[0].m_WorldBounds.Min.x - registry.GetGroups()[0].m_LocalBounds.Min.x,
+                        offset.x + restoreTranslation.x, 1e-3f);
+
+            terrainTransform.Translation = restoreTranslation;
+            RunEditorFrames(camera, 1);
         }
 
         // Only the first pass is written. The regenerated frames are asserted

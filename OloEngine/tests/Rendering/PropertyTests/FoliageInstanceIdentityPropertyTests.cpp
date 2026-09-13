@@ -166,12 +166,16 @@ namespace OloEngine::Tests
         ASSERT_GT(registry.GetRecords().size(), 100u) << "fixture must place enough plants to be meaningful";
         const auto before = LiveIds(registry);
 
+        const u64 generationBefore = registry.GetGeneration();
         Regenerate(registry, layers, heights);
 
         EXPECT_EQ(LiveIds(registry), before);
         EXPECT_TRUE(registry.GetLastDelta().m_Added.empty());
         EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
         EXPECT_EQ(registry.GetLastDelta().m_Survived, before.size());
+        // Nothing changed, so nothing is allowed to look like a change.
+        EXPECT_EQ(registry.GetLastDelta().m_Updated, 0u);
+        EXPECT_EQ(registry.GetGeneration(), generationBefore) << "an identical regeneration advanced the generation";
     }
 
     // ── Terrain ──────────────────────────────────────────────────────────
@@ -188,10 +192,15 @@ namespace OloEngine::Tests
 
         // A uniform lift: every cell still qualifies (the field stays flat), so
         // the same plants exist at a new height.
+        const u64 generationBefore = registry.GetGeneration();
         Regenerate(registry, layers, FlatField(0.75f));
 
         EXPECT_EQ(LiveIds(registry), before) << "a sculpt that keeps a placement must keep its id";
         EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        // ...but every one of them MOVED, and a consumer caching bounds has to
+        // be told: same ids, new generation.
+        EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size());
+        EXPECT_GT(registry.GetGeneration(), generationBefore) << "a sculpt that moved every plant did not advance the generation";
 
         const auto* after = registry.Find(sample);
         ASSERT_NE(after, nullptr);
@@ -269,10 +278,15 @@ namespace OloEngine::Tests
         layers[0].BaseColor = glm::vec3(0.9f, 0.1f, 0.2f);
         layers[0].WindStrength = 2.5f;
         layers[0].ViewDistance = 250.0f;
+        const u64 generationBefore = registry.GetGeneration();
         Regenerate(registry, layers, heights);
 
         EXPECT_EQ(LiveIds(registry), before);
         EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
+        // The tint is part of the material, so every plant's state changed
+        // while its identity did not: an update, and a new generation.
+        EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size());
+        EXPECT_GT(registry.GetGeneration(), generationBefore);
 
         // The material association followed the edit rather than going stale.
         const auto* record = registry.Find(*before.begin());

@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <functional>
+#include <string>
 
 namespace OloEngine
 {
@@ -24,6 +26,27 @@ namespace OloEngine
             u32 bits = 0;
             std::memcpy(&bits, &value, sizeof(bits));
             return static_cast<u64>(bits);
+        }
+
+        [[nodiscard]] u64 HashString(const std::string& text)
+        {
+            return static_cast<u64>(std::hash<std::string>{}(text));
+        }
+
+        // Everything about a plant that is not its identity, by bit pattern
+        // (never float ==). Fed into FoliageInstanceRecord::m_StateHash.
+        [[nodiscard]] u64 StateHash(const FoliageInstanceRecord& record, u64 materialHash)
+        {
+            u64 h = 0x84222325CBF29CE4ull;
+            HashCombine(h, FloatBits(record.m_Position.x));
+            HashCombine(h, FloatBits(record.m_Position.y));
+            HashCombine(h, FloatBits(record.m_Position.z));
+            HashCombine(h, FloatBits(record.m_Scale));
+            HashCombine(h, FloatBits(record.m_Rotation));
+            HashCombine(h, FloatBits(record.m_Height));
+            HashCombine(h, static_cast<u64>(record.m_Representation));
+            HashCombine(h, materialHash);
+            return h;
         }
 
         [[nodiscard]] BoundingBox InstanceBounds(const glm::vec3& position, f32 scale, f32 height)
@@ -69,7 +92,7 @@ namespace OloEngine
         m_Previous.reserve(m_Records.size());
         for (const auto& record : m_Records)
         {
-            m_Previous.emplace(record.m_Key, record.m_Id);
+            m_Previous.emplace(record.m_Key, PreviousRecord{ record.m_Id, record.m_StateHash });
         }
 
         m_Records.clear();
@@ -79,6 +102,7 @@ namespace OloEngine
         m_LastDelta.m_Added.clear();
         m_LastDelta.m_Retired.clear();
         m_LastDelta.m_Survived = 0;
+        m_LastDelta.m_Updated = 0;
     }
 
     u32 FoliageInstanceRegistry::AcquireLayerKey(const std::string& name, u32 nameOrdinal)
@@ -123,6 +147,19 @@ namespace OloEngine
         m_CurrentLayerIndex = layerIndex;
         m_CurrentRepresentation = representation;
         m_CurrentMaterialKey = InternMaterial(layer);
+        // The material's CONTENT, not its intern index — the table is rebuilt
+        // every generation, so an index can move while the material did not.
+        {
+            u64 h = 0xA5A5F00DC0FFEE11ull;
+            HashCombine(h, HashString(layer.MeshPath));
+            HashCombine(h, HashString(layer.AlbedoPath));
+            HashCombine(h, FloatBits(layer.BaseColor.r));
+            HashCombine(h, FloatBits(layer.BaseColor.g));
+            HashCombine(h, FloatBits(layer.BaseColor.b));
+            HashCombine(h, FloatBits(layer.Roughness));
+            HashCombine(h, FloatBits(layer.AlphaCutoff));
+            m_CurrentMaterialHash = h;
+        }
 
         const u32 ordinal = layerIndex < m_OrdinalByLayerIndex.size() ? m_OrdinalByLayerIndex[layerIndex] : 0;
 
@@ -174,13 +211,20 @@ namespace OloEngine
         record.m_Rotation = row.RotationHeight.x;
         record.m_Height = row.RotationHeight.y;
         record.m_LocalBounds = InstanceBounds(record.m_Position, record.m_Scale, record.m_Height);
+        record.m_StateHash = StateHash(record, m_CurrentMaterialHash);
 
         // Survival: this placement existed last generation, so it keeps its id
-        // and only its attributes (position, scale, bounds, representation)
-        // move. Otherwise it is a new plant and gets a fresh id.
+        // and only its attributes (position, scale, bounds, representation,
+        // material) may move — and if they did, that is an UPDATE the
+        // generation counter has to reflect. Otherwise it is a new plant and
+        // gets a fresh id.
         if (const auto it = m_Previous.find(key); it != m_Previous.end())
         {
-            record.m_Id = it->second;
+            record.m_Id = it->second.m_Id;
+            if (it->second.m_StateHash != record.m_StateHash)
+            {
+                ++m_LastDelta.m_Updated;
+            }
             m_Previous.erase(it);
             ++m_LastDelta.m_Survived;
         }
@@ -215,9 +259,9 @@ namespace OloEngine
         // Whatever was not re-emitted is gone. Ids are monotonic, so these can
         // never be handed out again — retirement is permanent by construction.
         m_LastDelta.m_Retired.reserve(m_Previous.size());
-        for (const auto& [key, id] : m_Previous)
+        for (const auto& [key, previous] : m_Previous)
         {
-            m_LastDelta.m_Retired.push_back(id);
+            m_LastDelta.m_Retired.push_back(previous.m_Id);
         }
         m_Previous.clear();
 
@@ -261,7 +305,7 @@ namespace OloEngine
         m_Census.m_UnsupportedVariants = m_PendingUnsupportedVariants;
         m_Census.m_SpatialGroups = static_cast<u32>(m_Groups.size());
 
-        if (!m_LastDelta.m_Added.empty() || !m_LastDelta.m_Retired.empty())
+        if (!m_LastDelta.m_Added.empty() || !m_LastDelta.m_Retired.empty() || m_LastDelta.m_Updated > 0)
         {
             ++m_Generation;
         }
@@ -348,6 +392,7 @@ namespace OloEngine
         m_LastDelta.m_Added.clear();
         m_LastDelta.m_Retired.clear();
         m_LastDelta.m_Survived = 0;
+        m_LastDelta.m_Updated = 0;
         m_Census = FoliageCensus{};
         m_Materials.clear();
         m_OrdinalByLayerIndex.clear();

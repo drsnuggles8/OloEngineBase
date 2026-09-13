@@ -181,6 +181,13 @@ namespace OloEngine
         BoundingBox m_LocalBounds;
 
         FoliageRepresentation m_Representation = FoliageRepresentation::MeshCard;
+
+        // Hash of everything above that is not identity — position, scale,
+        // rotation, height, representation and the material descriptor. This
+        // is what "changed" means for GetGeneration(): a surviving plant whose
+        // hash moved is an UPDATE, and a reconcile with updates advances the
+        // generation even when no id was added or retired.
+        u64 m_StateHash = 0;
     };
 
     // A spatial bucket of instances within one layer.
@@ -211,7 +218,10 @@ namespace OloEngine
     {
         std::vector<FoliageInstanceId> m_Added;
         std::vector<FoliageInstanceId> m_Retired;
+        // Survived = kept its id. Updated = survived AND its state hash moved
+        // (a sculpt lifted it, a tint edit changed its material, ...).
         u32 m_Survived = 0;
+        u32 m_Updated = 0;
     };
 
     // Per-generation census, surfaced through GPU Scene diagnostics so foliage
@@ -349,7 +359,12 @@ namespace OloEngine
             return m_LastDelta;
         }
 
-        // Monotonic; bumped on every reconcile that changed anything.
+        // Monotonic; bumped on every reconcile that changed anything — an id
+        // added or retired, or a surviving record whose state hash moved
+        // (position, transform, bounds, representation, material). A terrain
+        // TRANSFORM change is not a reconcile and does not advance it: the
+        // records are terrain-local and nothing about them changed. A
+        // consumer caching world bounds keys on this AND on the transform.
         [[nodiscard]] u64 GetGeneration() const
         {
             return m_Generation;
@@ -409,10 +424,16 @@ namespace OloEngine
         FoliageRegistryDelta m_LastDelta;
 
         // ── Transient generation state ───────────────────────────────────
-        // Last generation's placement -> id, and nothing else: survival only
-        // needs the id, and a foliage system can hold tens of thousands of
-        // records that would otherwise be copied wholesale every regenerate.
-        std::unordered_map<FoliagePlacementKey, FoliageInstanceId, FoliagePlacementKeyHash> m_Previous;
+        // Last generation's placement -> (id, state hash), and nothing else:
+        // survival needs the id and "did it change" needs one hash, and a
+        // foliage system can hold tens of thousands of records that would
+        // otherwise be copied wholesale every regenerate.
+        struct PreviousRecord
+        {
+            FoliageInstanceId m_Id = kInvalidFoliageInstanceId;
+            u64 m_StateHash = 0;
+        };
+        std::unordered_map<FoliagePlacementKey, PreviousRecord, FoliagePlacementKeyHash> m_Previous;
         bool m_Generating = false;
         bool m_InLayer = false;
         // Per layer index, its ordinal among layers sharing its name.
@@ -422,6 +443,7 @@ namespace OloEngine
         u32 m_CurrentLayerIndex = 0;
         FoliagePlacementKey m_CurrentKeyPrototype;
         FoliageMaterialKey m_CurrentMaterialKey = kInvalidFoliageMaterialKey;
+        u64 m_CurrentMaterialHash = 0;
         FoliageRepresentation m_CurrentRepresentation = FoliageRepresentation::MeshCard;
         u32 m_PendingUnsupportedVariants = 0;
     };
