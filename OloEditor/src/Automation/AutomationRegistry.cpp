@@ -1,12 +1,14 @@
 #include "OloEnginePCH.h"
 #include "Automation/AutomationRegistry.h"
 
+#include "Automation/AutomationEvents.h"
 #include "Automation/AutomationSchemaValidation.h"
 
 #include "OloEngine/Core/Assert.h"
 #include "OloEngine/Core/Log.h"
 
 #include <algorithm>
+#include <chrono>
 #include <exception>
 #include <utility>
 
@@ -221,6 +223,25 @@ namespace OloEngine::Automation
 
     AutomationResult AutomationRegistry::RunHandler(const AutomationCommand& command, IAutomationHost& host,
                                                     const Json& arguments)
+    {
+        const auto started = std::chrono::steady_clock::now();
+        AutomationResult result = RunHandlerUnobserved(command, host, arguments);
+        // The automation event bus (#1131) sees every mutating command complete
+        // from HERE, the one place a handler is entered, so a command invoked
+        // through the registry and one invoked through the MCP adapter publish
+        // the same event. Read-only commands publish nothing: see
+        // Events::EmitsCompletionEvent for the rule and the reason.
+        if (Events::EmitsCompletionEvent(command))
+        {
+            const f64 durationMs =
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - started).count();
+            Events::PublishCommandCompleted(command, result, durationMs);
+        }
+        return result;
+    }
+
+    AutomationResult AutomationRegistry::RunHandlerUnobserved(const AutomationCommand& command,
+                                                              IAutomationHost& host, const Json& arguments)
     {
         try
         {

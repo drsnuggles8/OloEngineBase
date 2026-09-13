@@ -18,6 +18,7 @@ set(OLOCTL_CORE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/src/OloCtl/CliRunner.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/OloCtl/CommandCatalogue.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/OloCtl/CommandTree.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/OloCtl/EventsFollow.cpp
     ${CMAKE_CURRENT_LIST_DIR}/src/OloCtl/HelpText.cpp
 )
 

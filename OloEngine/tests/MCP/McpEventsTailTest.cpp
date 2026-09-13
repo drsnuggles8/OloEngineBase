@@ -9,7 +9,10 @@
 // verified separately over the attach loop.
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 
+#include <atomic>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -266,6 +269,11 @@ TEST(DiagnosticsEventCategory, StringRoundTripsForEveryCategory)
         DiagnosticEventCategory::EntityDestroy,
         DiagnosticEventCategory::AssetReload,
         DiagnosticEventCategory::ScriptError,
+        DiagnosticEventCategory::SceneSave,
+        DiagnosticEventCategory::SceneDirty,
+        DiagnosticEventCategory::AssetImport,
+        DiagnosticEventCategory::CompileFinished,
+        DiagnosticEventCategory::CommandCompleted,
     };
     static_assert(std::size(all) == OloEngine::kDiagnosticEventCategoryCount,
                   "update this list when DiagnosticEventCategory changes");
@@ -278,6 +286,233 @@ TEST(DiagnosticsEventCategory, StringRoundTripsForEveryCategory)
         ASSERT_TRUE(DiagnosticEvent::CategoryFromString(token, parsed)) << "token: " << token;
         EXPECT_EQ(category, parsed);
     }
+
+    // AllCategoryTokens is what the tool schemas and error messages are built
+    // from: it must list exactly these, in enum order.
+    const auto tokens = DiagnosticEvent::AllCategoryTokens();
+    ASSERT_EQ(tokens.size(), std::size(all));
+    for (std::size_t i = 0; i < tokens.size(); ++i)
+        EXPECT_EQ(tokens[i], DiagnosticEvent::CategoryToString(all[i]));
+}
+
+// ---- #1131: the structured payload and its closed key set ------------------
+
+TEST_F(DiagnosticsEventLogTest, DataBuilderEmitsCompactJsonWithEscapedStrings)
+{
+    OloEngine::DiagnosticEventData data;
+    EXPECT_TRUE(data.Empty());
+    EXPECT_EQ(data.Build(), "");
+    data.Set("scene", "Say \"hi\"\n").Set("changed", true).Set("handle", u64{ 42 }).Set("seconds", 1.5);
+    EXPECT_FALSE(data.Empty());
+    EXPECT_EQ(data.Build(), R"({"scene":"Say \"hi\"\n","changed":true,"handle":42,"seconds":1.5})");
+    // A repeated key replaces the value in place rather than duplicating it.
+    data.Set("changed", false);
+    EXPECT_EQ(data.Build(), R"({"scene":"Say \"hi\"\n","changed":false,"handle":42,"seconds":1.5})");
+}
+
+TEST_F(DiagnosticsEventLogTest, DataBuilderTruncatesLongValuesVisibly)
+{
+    const std::string document(OloEngine::DiagnosticEventData::kMaxDataValueChars * 3, 'x');
+    OloEngine::DiagnosticEventData data;
+    data.Set("scene", document);
+    const std::string built = data.Build();
+    EXPECT_LT(built.size(), document.size());
+    EXPECT_NE(built.find("..."), std::string::npos) << "truncation must be visible in the record";
+}
+
+TEST_F(DiagnosticsEventLogTest, RecordStoresDataForAnAllowedKeySet)
+{
+    OloEngine::DiagnosticEventData data;
+    data.Set("scene", "Level1").Set("dirty", true);
+    const u64 id = Log().Record(DiagnosticEventCategory::SceneDirty, "dirty", 0, "Level1", data);
+    ASSERT_EQ(1u, id);
+    const auto events = All();
+    ASSERT_EQ(1u, events.size());
+    EXPECT_EQ(events[0].Data, R"({"scene":"Level1","dirty":true})");
+}
+
+TEST_F(DiagnosticsEventLogTest, LegacyCategoriesCarryNoData)
+{
+    Log().Record(DiagnosticEventCategory::Play, "Entered Play mode", 0, "Scene");
+    const auto events = All();
+    ASSERT_EQ(1u, events.size());
+    EXPECT_TRUE(events[0].Data.empty());
+    EXPECT_TRUE(OloEngine::DiagnosticEventDataKeys(DiagnosticEventCategory::Play).empty());
+}
+
+TEST_F(DiagnosticsEventLogTest, EveryCategoryDeclaresExactlyItsClosedKeySet)
+{
+    // The payload rule, pinned as the exact table: a key added to a category
+    // (or one removed) fails here, in a diff a reviewer sees, rather than
+    // widening what a subscriber can be shown. The seven older categories carry
+    // no payload at all.
+    using Keys = std::vector<std::string_view>;
+    const std::vector<std::pair<DiagnosticEventCategory, Keys>> expected = {
+        { DiagnosticEventCategory::SceneLoad, {} },
+        { DiagnosticEventCategory::Play, {} },
+        { DiagnosticEventCategory::Stop, {} },
+        { DiagnosticEventCategory::EntitySpawn, {} },
+        { DiagnosticEventCategory::EntityDestroy, {} },
+        { DiagnosticEventCategory::AssetReload, {} },
+        { DiagnosticEventCategory::ScriptError, {} },
+        { DiagnosticEventCategory::SceneSave, { "scene", "path", "changed" } },
+        { DiagnosticEventCategory::SceneDirty, { "scene", "dirty" } },
+        { DiagnosticEventCategory::AssetImport, { "asset", "type", "handle", "source" } },
+        { DiagnosticEventCategory::CompileFinished, { "kind", "target", "ok", "errors", "warnings", "seconds" } },
+        { DiagnosticEventCategory::CommandCompleted, { "command", "ok", "durationMs", "projectWrite", "toolset" } },
+    };
+    ASSERT_EQ(expected.size(), OloEngine::kDiagnosticEventCategoryCount) << "add the new category's key set here";
+    for (const auto& [category, keys] : expected)
+    {
+        const auto declared = OloEngine::DiagnosticEventDataKeys(category);
+        EXPECT_EQ(Keys(declared.begin(), declared.end()), keys) << DiagnosticEvent::CategoryToString(category);
+    }
+}
+
+TEST_F(DiagnosticsEventLogTest, SuppressCategoryScopeMutesOneCategoryOnThisThreadOnly)
+{
+    {
+        const DiagnosticsEventLog::SuppressCategoryScope quiet(DiagnosticEventCategory::CommandCompleted);
+        EXPECT_EQ(0u, Log().Record(DiagnosticEventCategory::CommandCompleted, "muted"));
+        EXPECT_EQ(1u, Log().Record(DiagnosticEventCategory::Play, "other categories still record"));
+        // Another thread is unaffected: the scope is thread-local by design.
+        u64 fromOtherThread = 0;
+        std::thread other([&fromOtherThread]
+                          { fromOtherThread = DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::CommandCompleted, "elsewhere"); });
+        other.join();
+        EXPECT_EQ(2u, fromOtherThread);
+    }
+    EXPECT_EQ(3u, Log().Record(DiagnosticEventCategory::CommandCompleted, "scope ended"));
+}
+
+TEST_F(DiagnosticsEventLogTest, DataBuilderTruncatesOnAUtf8Boundary)
+{
+    // 90 three-byte characters = 270 bytes; the cut at 256 lands mid-character
+    // and must back off so the value stays valid UTF-8.
+    std::string text;
+    for (int i = 0; i < 90; ++i)
+        text += "\xE3\x81\x82"; // U+3042
+    OloEngine::DiagnosticEventData data;
+    data.Set("scene", text);
+    const std::string built = data.Build();
+    const std::size_t cut = built.find("...");
+    ASSERT_NE(cut, std::string::npos);
+    // Every character before the marker is whole: the byte count is a multiple of 3.
+    const std::size_t valueStart = built.find(':') + 2; // past `{"scene":"`
+    EXPECT_EQ((cut - valueStart) % 3, 0u);
+}
+
+// ---- #1131: the reported gap ------------------------------------------------
+
+TEST_F(DiagnosticsEventLogTest, CursorInsideTheWindowReportsNoGap)
+{
+    for (int i = 0; i < 5; ++i)
+        Log().Record(DiagnosticEventCategory::Play, "p");
+    DiagnosticEventQuery query;
+    query.SinceId = 2;
+    query.MaxCount = 0;
+    const DiagnosticEventQueryResult result = Log().QueryWithCursor(query);
+    EXPECT_EQ(0u, result.Dropped);
+    EXPECT_EQ(3u, result.Events.size());
+    // A cursor at the head, and a cursor with no lower bound, report no gap either.
+    query.SinceId = 5;
+    EXPECT_EQ(0u, Log().QueryWithCursor(query).Dropped);
+    query.SinceId = 0;
+    EXPECT_EQ(0u, Log().QueryWithCursor(query).Dropped);
+}
+
+TEST_F(DiagnosticsEventLogTest, CursorBehindTheWindowReportsHowManyWereEvicted)
+{
+    const std::size_t capacity = DiagnosticsEventLog::kCapacity;
+    for (std::size_t i = 0; i < capacity + 10; ++i)
+        Log().Record(DiagnosticEventCategory::EntitySpawn, "e");
+    // Ids 1..10 have been evicted; the oldest retained is 11.
+    DiagnosticEventQuery query;
+    query.SinceId = 3;
+    query.MaxCount = 0;
+    const DiagnosticEventQueryResult result = Log().QueryWithCursor(query);
+    EXPECT_EQ(7u, result.Dropped) << "ids 4..10 were above the cursor and are gone";
+    ASSERT_FALSE(result.Events.empty());
+    EXPECT_EQ(11u, result.Events.front().Id);
+    EXPECT_EQ(capacity + 10, result.LastId);
+    // The gap is counted before the category filter: a filter that matches
+    // nothing still reports the loss, because the lost records' categories are
+    // unknown.
+    query.Categories = { DiagnosticEventCategory::Play };
+    const DiagnosticEventQueryResult filtered = Log().QueryWithCursor(query);
+    EXPECT_TRUE(filtered.Events.empty());
+    EXPECT_EQ(7u, filtered.Dropped);
+}
+
+// ---- #1131: the long-poll wait ---------------------------------------------
+
+TEST_F(DiagnosticsEventLogTest, WaitReturnsImmediatelyWhenAMatchAlreadyExists)
+{
+    Log().Record(DiagnosticEventCategory::Play, "p");
+    DiagnosticEventQuery query;
+    query.SinceId = 0;
+    const auto started = std::chrono::steady_clock::now();
+    const DiagnosticEventQueryResult result =
+        Log().WaitWithCursor(query, std::chrono::seconds(5), []
+                             { return false; });
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(2));
+    ASSERT_EQ(1u, result.Events.size());
+    EXPECT_EQ(1u, result.LastId);
+}
+
+TEST_F(DiagnosticsEventLogTest, WaitTimesOutWithTheCursorWhenNothingMatches)
+{
+    Log().Record(DiagnosticEventCategory::Play, "p");
+    DiagnosticEventQuery query;
+    query.SinceId = 1;
+    const DiagnosticEventQueryResult result =
+        Log().WaitWithCursor(query, std::chrono::milliseconds(50), []
+                             { return false; });
+    EXPECT_TRUE(result.Events.empty());
+    EXPECT_EQ(1u, result.LastId) << "a timeout still hands back the cursor to resume from";
+}
+
+TEST_F(DiagnosticsEventLogTest, WaitWakesWhenAMatchingEventIsRecorded)
+{
+    DiagnosticEventQuery query;
+    query.SinceId = 0;
+    query.Categories = { DiagnosticEventCategory::Stop };
+    std::thread recorder(
+        []
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Play, "ignored by the filter");
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            DiagnosticsEventLog::Get().Record(DiagnosticEventCategory::Stop, "the one");
+        });
+    const DiagnosticEventQueryResult result =
+        Log().WaitWithCursor(query, std::chrono::seconds(10), []
+                             { return false; });
+    recorder.join();
+    ASSERT_EQ(1u, result.Events.size());
+    EXPECT_EQ(DiagnosticEventCategory::Stop, result.Events[0].Category);
+    EXPECT_EQ(2u, result.LastId);
+}
+
+TEST_F(DiagnosticsEventLogTest, WaitStopsEarlyWhenCancelled)
+{
+    std::atomic<bool> cancelled{ false };
+    DiagnosticEventQuery query;
+    query.SinceId = 0;
+    std::thread canceller(
+        [&cancelled]
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            cancelled.store(true);
+        });
+    const auto started = std::chrono::steady_clock::now();
+    const DiagnosticEventQueryResult result = Log().WaitWithCursor(
+        query, std::chrono::seconds(30), [&cancelled]
+        { return cancelled.load(); });
+    canceller.join();
+    EXPECT_TRUE(result.Events.empty());
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::seconds(5))
+        << "cancellation is polled every 250 ms, not at the deadline";
 }
 
 TEST(DiagnosticsEventCategory, FromStringRejectsUnknownToken)

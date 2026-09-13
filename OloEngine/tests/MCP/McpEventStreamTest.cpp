@@ -109,6 +109,12 @@ TEST(McpEventStreamLevel, MapsCategoryToSeverity)
     EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::Play), "info");
     EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::Stop), "info");
     EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::AssetReload), "info");
+    // #1131: the bus categories. A command completion is as chatty as a spawn.
+    EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::SceneSave), "info");
+    EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::SceneDirty), "info");
+    EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::AssetImport), "info");
+    EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::CompileFinished), "info");
+    EXPECT_STREQ(MCP::EventLogLevel(DiagnosticEventCategory::CommandCompleted), "debug");
 }
 
 // Every category must map to a recognised RFC-5424 severity token (no "unknown" or
@@ -123,6 +129,11 @@ TEST(McpEventStreamLevel, EveryCategoryHasAKnownLevel)
         DiagnosticEventCategory::EntityDestroy,
         DiagnosticEventCategory::AssetReload,
         DiagnosticEventCategory::ScriptError,
+        DiagnosticEventCategory::SceneSave,
+        DiagnosticEventCategory::SceneDirty,
+        DiagnosticEventCategory::AssetImport,
+        DiagnosticEventCategory::CompileFinished,
+        DiagnosticEventCategory::CommandCompleted,
     };
     static_assert(std::size(all) == OloEngine::kDiagnosticEventCategoryCount,
                   "update this list when DiagnosticEventCategory changes");
@@ -133,6 +144,53 @@ TEST(McpEventStreamLevel, EveryCategoryHasAKnownLevel)
         const std::string level = MCP::EventLogLevel(c);
         EXPECT_NE(std::find(valid.begin(), valid.end(), level), valid.end()) << "level: " << level;
     }
+}
+
+// ---- #1131: the structured payload rides under `data` ----------------------
+
+TEST(McpEventStreamJson, StructuredDataIsEmittedAsAnObjectWhenPresent)
+{
+    DiagnosticEvent e = MakeEvent(DiagnosticEventCategory::SceneSave, "Saved scene 'Level1'", 0, "Level1.olo");
+    e.Data = R"({"scene":"Level1","path":"Scenes/Level1.olo","changed":true})";
+    const Json j = MCP::EventToJson(e);
+    ASSERT_TRUE(j.contains("data"));
+    ASSERT_TRUE(j["data"].is_object());
+    EXPECT_EQ(j["data"]["scene"], "Level1");
+    EXPECT_EQ(j["data"]["path"], "Scenes/Level1.olo");
+    EXPECT_EQ(j["data"]["changed"], true);
+}
+
+TEST(McpEventStreamJson, NoDataKeyWhenTheEventCarriesNone)
+{
+    const Json j = MCP::EventToJson(MakeEvent(DiagnosticEventCategory::Play, "Entered Play mode"));
+    EXPECT_FALSE(j.contains("data")) << "the six legacy fields must serialize byte-identically to before";
+}
+
+TEST(McpEventStreamJson, UnparseableDataIsSurfacedAsAnErrorNotDropped)
+{
+    DiagnosticEvent e = MakeEvent(DiagnosticEventCategory::SceneSave, "x");
+    e.Data = "{not json";
+    const Json j = MCP::EventToJson(e);
+    ASSERT_TRUE(j.contains("data"));
+    // An object naming the defect, never the raw text: that text may be invalid
+    // UTF-8, and dump() would then throw inside every carrier.
+    ASSERT_TRUE(j["data"].is_object());
+    EXPECT_TRUE(j["data"].contains("error"));
+    EXPECT_NO_THROW((void)j.dump());
+}
+
+// ---- MakeLogNotification (the envelope the gap warning shares) -------------
+
+TEST(McpEventStreamNotification, LogNotificationCarriesLevelLoggerAndData)
+{
+    const Json n = MCP::MakeLogNotification("warning", Json{ { "gap", 7 }, { "resumedAt", 120 } });
+    EXPECT_EQ(n["jsonrpc"], "2.0");
+    EXPECT_EQ(n["method"], "notifications/message");
+    EXPECT_FALSE(n.contains("id"));
+    EXPECT_EQ(n["params"]["level"], "warning");
+    EXPECT_EQ(n["params"]["logger"], "olo.events");
+    EXPECT_EQ(n["params"]["data"]["gap"], 7);
+    EXPECT_EQ(n["params"]["data"]["resumedAt"], 120);
 }
 
 // ---- MakeEventNotification (JSON-RPC envelope) -----------------------------

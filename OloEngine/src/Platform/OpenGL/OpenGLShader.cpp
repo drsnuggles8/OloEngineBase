@@ -2684,7 +2684,7 @@ namespace OloEngine
         }
     }
 
-    void OpenGLShader::Reload()
+    bool OpenGLShader::Reload()
     {
         // Capture the currently-live program up front. Every recompile path funnels
         // through FinalizeProgram, which reassigns m_RendererID to a fresh
@@ -2801,6 +2801,7 @@ namespace OloEngine
                                                               Shader::UnregisterProgram(oldProgram);
                                                               glDeleteProgram(oldProgram); });
         }
+        return success;
     }
 
     void OpenGLShader::Bind() const

@@ -1,8 +1,10 @@
 #include "OloEnginePCH.h"
 #include "Automation/AutomationSceneDocument.h"
+#include "Automation/AutomationEvents.h"
 
 #include "Automation/AutomationFileWrite.h"
 
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "UndoRedo/EditorCommand.h"
 
@@ -237,16 +239,29 @@ namespace OloEngine::Automation
             after.Name = after.Path.stem().string();
         auto oldBytes = ReadFileContents(after.Path);
         auto newBytes = SerializeDocument(after);
+        // The one save path the editor menu, Ctrl+S and olo_scene_save* share, so
+        // the `scene_save` event (#1131) is published here and nowhere else. The
+        // path is recorded relative to the PROJECT root — the spelling every
+        // olo_asset_* / olo_scene_open argument and the asset_import event use —
+        // so one file has one name on the bus; a host with no project (the tests)
+        // falls back to the asset directory the document access names.
+        const std::filesystem::path projectRoot =
+            Project::GetActive() ? Project::GetProjectDirectory()
+                                 : (access.AssetDirectory ? access.AssetDirectory() : std::filesystem::path{});
+        const std::string savedName = after.Name;
+        const std::filesystem::path savedPath = after.Path;
         if (oldBytes && *oldBytes == newBytes && before.Path == after.Path && before.Name == after.Name &&
             SerializeDocument(before) == newBytes)
         {
             RequireFileContents(after.Path, oldBytes);
             history.MarkSaved();
+            Events::PublishSceneSaved(savedName, savedPath, projectRoot, /*changed=*/false);
             return false;
         }
         history.Execute(std::make_unique<SaveSceneDocumentCommand>(access, std::move(before), std::move(after),
                                                                    std::move(oldBytes), std::move(newBytes)),
                         true);
+        Events::PublishSceneSaved(savedName, savedPath, projectRoot, /*changed=*/true);
         return true;
     }
 } // namespace OloEngine::Automation

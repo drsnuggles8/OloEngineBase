@@ -2,6 +2,7 @@
 
 #include "OloCtl/ArgumentBinder.h"
 #include "OloCtl/CommandTree.h"
+#include "OloCtl/EventsFollow.h"
 #include "OloCtl/HelpText.h"
 
 #include <algorithm>
@@ -144,7 +145,7 @@ namespace OloCtl
             for (const TreeGroup& group : tree.Groups())
             {
                 if (group.Name != "help" && group.Name != "version" && group.Name != "catalogue" &&
-                    group.Name != "call")
+                    group.Name != "call" && group.Name != "events")
                 {
                     continue;
                 }
@@ -386,6 +387,13 @@ namespace OloCtl
             out << kVersion << '\n';
             return ExitCode::Ok;
         }
+
+        // `events follow` needs no command tree - it loops one registry name it
+        // knows - so it is dispatched before the catalogue fetch, like `version`.
+        // An editor whose catalogue cannot be read can still be followed, and the
+        // fetch's cost is not paid on every follower start.
+        if (!rest.empty() && rest[0] == "events")
+            return RunEventsVerb(options, rest, source, out, err);
 
         const bool wantsRootHelp = rest.empty() || rest[0] == "help";
         const bool noArguments = rest.empty() && !options.Help;

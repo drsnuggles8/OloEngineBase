@@ -155,8 +155,10 @@ namespace OloEngine
         void BuildAssetPack();
 
         // Shader Pack Building
-        // Bundles all compiled SPIR-V into a single binary file for distribution builds
-        void BuildShaderPack() const;
+        // Bundles all compiled SPIR-V into a single binary file for distribution builds.
+        // Returns whether the pack was written, so the olo_editor_build_shader_pack
+        // hook (issue #1131) can report the outcome; the menu item only logs it.
+        bool BuildShaderPack() const;
 
         // Asset reference validation (issue #455)
         // Sweeps the active asset manager's dependency registry for dangling

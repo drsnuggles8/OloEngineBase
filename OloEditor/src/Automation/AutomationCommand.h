@@ -148,8 +148,8 @@ namespace OloEngine::Automation
         // When set and it returns false, the command is not listed and cannot be
         // invoked — the host it would run against cannot serve it (no editor, no
         // GPU, a subsystem compiled out). Empty means always available, which is
-        // what every command says today, so this changes nothing observable until
-        // one declares otherwise.
+        // what every command said until the #1131 editor actions (pause, step,
+        // gizmo, shader pack) declared that they need an editor hook.
         //
         // This is NOT the exposure profile (#1124), which hides a command from
         // `tools/list` while keeping it dispatchable by name. Unavailable means

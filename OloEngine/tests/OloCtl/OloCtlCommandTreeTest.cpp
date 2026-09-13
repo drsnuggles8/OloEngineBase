@@ -174,7 +174,8 @@ TEST(OloCtlCommandTree, NoProductionGroupShadowsAnOloCtlSubcommand)
     const Catalogue catalogue = ProductionCatalogue(registry);
     const CommandTree tree = CommandTree::Build(catalogue);
 
-    const std::set<std::string> reserved{ "help", "version", "catalogue", "call" };
+    // Keep in step with ReportCatalogue's shadow list in OloCtl/CliRunner.cpp.
+    const std::set<std::string> reserved{ "help", "version", "catalogue", "call", "events" };
     for (const TreeGroup& group : tree.Groups())
         EXPECT_EQ(reserved.count(group.Name), 0u) << "group `" << group.Name << "` shadows an oloctl subcommand";
 }

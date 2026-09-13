@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/Environment.h"
 #include "EditorLayer.h"
+#include "Automation/AutomationEvents.h"
 #include "Automation/AutomationSceneDocument.h"
 #include "Panels/AssetPackBuilderPanel.h"
 #include "Panels/BuildGamePanel.h"
@@ -12,6 +13,7 @@
 #include "MCP/McpTools.h"
 #include "MCP/McpEditorPanels.h"
 #include "MCP/McpEditorDebugDraw.h"
+#include "MCP/McpEditorActions.h"
 #include "OloEngine/Renderer/Preview/AssetPreviewRenderer.h"
 #include "OloEngine/Core/SyntheticInput.h"
 
@@ -101,6 +103,11 @@
 
 namespace
 {
+    // Where Build > Build Shader Pack writes, relative to the editor's working
+    // directory. Shared by the menu item and the olo_editor_build_shader_pack
+    // hook (issue #1131) so the two cannot disagree about the path they report.
+    constexpr char kShaderPackOutputPath[] = "assets/ShaderPack.osp";
+
     // Interprets ImGui drag-drop payload bytes as a UTF-8 path.
     [[nodiscard]] std::filesystem::path PathFromUtf8Payload(const ImGuiPayload& payload)
     {
@@ -509,6 +516,16 @@ namespace OloEngine
             // their mutation through the same undo stack as the editor's own edits,
             // so an agent's change is a single Ctrl-Z. Main-thread-only, like the
             // readers above (the MCP server calls it from a MarshalRead job).
+            // The automation event bus (#1131): every edit, undo, redo, save and
+            // transaction on the scene history publishes a `scene_dirty` edge, so
+            // an agent can wait for "the document has unsaved changes" (or "is
+            // clean again") instead of polling olo_scene_status. Wired once, here,
+            // for the scene history only; the panels' own histories stay silent.
+            m_CommandHistory.OnDirtyChanged = [this](bool dirty)
+            {
+                Automation::Events::PublishSceneDirty(m_EditorScene ? m_EditorScene->GetName() : std::string{},
+                                                      dirty);
+            };
             mcpContext.GetCommandHistory = [this]() -> CommandHistory*
             {
                 // Only expose the undo stack in Edit mode. In Play / Simulate the
@@ -680,6 +697,173 @@ namespace OloEngine
                 result.Simulating = m_SceneState == SceneState::Simulate;
                 result.Mode = result.Playing ? "play" : (result.Simulating ? "simulate" : "edit");
                 result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
+                return result;
+            };
+            // ---- Editor command registry (issue #1131) ----------------------------
+            // The toolbar and menu actions that were mouse-only before #1131. Each
+            // runs the SAME statement the button, shortcut or menu item runs
+            // (UI_Toolbar, OnKeyPressed, the Build menu), so the command cannot
+            // drift from the click. All main-thread-only: the handlers call them
+            // from inside a MarshalRead job.
+            const auto sceneModeToken = [this]() -> std::string
+            {
+                switch (m_SceneState)
+                {
+                    case SceneState::Play:
+                        return "play";
+                    case SceneState::Simulate:
+                        return "simulate";
+                    case SceneState::Edit:
+                        break;
+                }
+                return "edit";
+            };
+            // olo_editor_pause: the toolbar Pause/Resume button
+            // (m_ActiveScene->SetPaused). Idempotent; nothing to pause in Edit mode.
+            mcpContext.SetScenePauseState = [this, sceneModeToken](bool paused) -> MCP::McpEditorPauseResult
+            {
+                MCP::McpEditorPauseResult result;
+                result.Available = true;
+                result.Mode = sceneModeToken();
+                result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
+                if (m_SceneState == SceneState::Edit)
+                {
+                    result.Message = "Nothing to pause: the editor is in Edit mode. Enter Play (olo_scene_play) or "
+                                     "Simulate (olo_scene_simulate) first.";
+                    return result;
+                }
+                if (!m_ActiveScene)
+                {
+                    result.Message = "No active scene.";
+                    return result;
+                }
+
+                const bool wasPaused = m_ActiveScene->IsPaused();
+                if (wasPaused != paused)
+                    m_ActiveScene->SetPaused(paused);
+                result.Ok = true;
+                result.Changed = wasPaused != paused;
+                result.Paused = m_ActiveScene->IsPaused();
+                if (!result.Changed)
+                    result.Message = paused ? "Already paused." : "Already running.";
+                else
+                    result.Message = (paused ? "Paused the " : "Resumed the ") + result.Mode + " session.";
+                return result;
+            };
+            // olo_editor_step: the toolbar Step button (m_ActiveScene->Step), with a
+            // frame count. The paused scene advances that many frames and stays paused.
+            mcpContext.StepScene = [this, sceneModeToken](int frames) -> MCP::McpEditorStepResult
+            {
+                MCP::McpEditorStepResult result;
+                result.Available = true;
+                result.FramesRequested = frames;
+                result.Mode = sceneModeToken();
+                result.SceneName = m_ActiveScene ? m_ActiveScene->GetName() : std::string{};
+                if (m_SceneState == SceneState::Edit)
+                {
+                    result.Message = "Nothing to step: the editor is in Edit mode. Enter Play or Simulate, then pause "
+                                     "(olo_editor_pause { paused: true }) first.";
+                    return result;
+                }
+                if (!m_ActiveScene)
+                {
+                    result.Message = "No active scene.";
+                    return result;
+                }
+                result.Paused = m_ActiveScene->IsPaused();
+                if (!result.Paused)
+                {
+                    result.Message = "Not paused: step only advances a paused session. Call olo_editor_pause "
+                                     "{ paused: true } first.";
+                    return result;
+                }
+                if (frames < 1)
+                {
+                    result.Message = "'frames' must be at least 1.";
+                    return result;
+                }
+
+                m_ActiveScene->Step(frames);
+                result.Ok = true;
+                result.Message = "Queued " + std::to_string(frames) +
+                                 " frame(s): the paused session advances that many frames and stays paused.";
+                return result;
+            };
+            // olo_editor_gizmo_set: the Q/W/E/R shortcuts (OnKeyPressed). Same two
+            // refusals as the shortcuts: not mid-drag, and Edit mode only — the
+            // gizmo draws in any scene state, but only Edit-mode drags push an
+            // undo entry, so a gizmo shown in Play would move a runtime entity
+            // with nothing to take it back. The viewport-hover half of the
+            // shortcuts' guard is keyboard focus, which an agent has no use for.
+            mcpContext.SetGizmoMode = [this](const std::string& mode) -> MCP::McpEditorGizmoResult
+            {
+                // Token <-> ImGuizmo operation, both directions from one table.
+                // Anything that is not one of the three operations draws no gizmo.
+                static constexpr std::array<std::pair<std::string_view, int>, 4> kGizmoOps{ {
+                    { "none", -1 },
+                    { "translate", ImGuizmo::OPERATION::TRANSLATE },
+                    { "rotate", ImGuizmo::OPERATION::ROTATE },
+                    { "scale", ImGuizmo::OPERATION::SCALE },
+                } };
+                const auto gizmoToken = [](int gizmoType) -> std::string
+                {
+                    for (const auto& [token, op] : kGizmoOps)
+                    {
+                        if (op == gizmoType)
+                            return std::string(token);
+                    }
+                    return "none";
+                };
+
+                MCP::McpEditorGizmoResult result;
+                result.Available = true;
+                result.Mode = gizmoToken(m_GizmoType);
+                int target = -1;
+                bool known = false;
+                for (const auto& [token, op] : kGizmoOps)
+                {
+                    if (token == mode)
+                    {
+                        target = op;
+                        known = true;
+                    }
+                }
+                if (!known)
+                {
+                    result.Message = "Unknown gizmo mode '" + mode + "'; expected none, translate, rotate or scale.";
+                    return result;
+                }
+                if (m_SceneState != SceneState::Edit)
+                {
+                    result.Message = "The gizmo mode can only be changed in Edit mode (the editor is in " +
+                                     std::string(m_SceneState == SceneState::Play ? "Play" : "Simulate") +
+                                     "); stop the session first.";
+                    return result;
+                }
+                if (ImGuizmo::IsUsing())
+                {
+                    result.Message = "The gizmo is being dragged; the mode can change once the drag ends.";
+                    return result;
+                }
+
+                result.Changed = m_GizmoType != target;
+                m_GizmoType = target;
+                result.Ok = true;
+                result.Mode = gizmoToken(m_GizmoType);
+                result.Message = result.Changed ? "Gizmo mode set to " + result.Mode + "."
+                                                : "Gizmo mode already " + result.Mode + ".";
+                return result;
+            };
+            // olo_editor_build_shader_pack: the Build > Build Shader Pack menu item.
+            mcpContext.BuildShaderPack = [this]() -> MCP::McpEditorShaderPackResult
+            {
+                MCP::McpEditorShaderPackResult result;
+                result.Available = true;
+                result.OutputPath = kShaderPackOutputPath;
+                result.Ok = BuildShaderPack();
+                result.Message = result.Ok ? "Shader pack written to " + result.OutputPath + "."
+                                           : "Shader pack build failed: ShaderPack::CreateFromLibraries returned false "
+                                             "(see the engine log).";
                 return result;
             };
             // olo_input_inject (#607): synthetic mouse/keyboard input. All three run on
@@ -4771,6 +4955,14 @@ namespace OloEngine
         // Reset hovered entity before changing scenes to prevent accessing stale registry
         m_HoveredEntity = Entity();
 
+        // UI open/new establishes a new history; an automation document command
+        // retains the stack so its scene replacement itself can be undone. Cleared
+        // BEFORE the swap: a dirty outgoing document becomes clean here, and the
+        // `scene_dirty` edge that publishes (#1131) must name the scene that had
+        // the unsaved changes, not the one arriving.
+        if (clearHistory)
+            m_CommandHistory.Clear();
+
         m_EditorScene = scene;
         Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         m_SceneHierarchyPanel.SetContext(m_EditorScene);
@@ -4797,11 +4989,6 @@ namespace OloEngine
         m_AudioEventsPanel.SetActiveScene(m_EditorScene);
 
         m_ActiveScene = m_EditorScene;
-
-        // UI open/new establishes a new history; an automation document command
-        // retains the stack so its scene replacement itself can be undone.
-        if (clearHistory)
-            m_CommandHistory.Clear();
 
         // (The ephemeral MCP sun-direction override clear that used to live here
         // was retired by issue #633 — the MCP time-of-day tools now edit the
@@ -5596,11 +5783,15 @@ namespace OloEngine
             m_ContentBrowserPanel->OnAssetImported(e.GetPath());
         }
 
-        DiagnosticsEventLog::Get().Record(
-            DiagnosticEventCategory::AssetReload,
-            std::string("Auto-imported ") + AssetUtils::AssetTypeToString(e.GetAssetType()) + " '" +
-                e.GetPath().filename().string() + "'",
-            static_cast<u64>(e.GetHandle()), e.GetPath().string());
+        // `asset_import` on the automation event bus (#1131). This used to be
+        // recorded as `asset_reload` with the ABSOLUTE path in `context`; it is
+        // its own category now, and the path is project-relative — an event
+        // carries identities, never a path a redacted read would hide.
+        Automation::Events::PublishAssetImported(static_cast<u64>(e.GetHandle()),
+                                                 AssetUtils::AssetTypeToString(e.GetAssetType()), e.GetPath(),
+                                                 Project::GetActive() ? Project::GetProjectDirectory()
+                                                                      : std::filesystem::path{},
+                                                 "filewatch");
 
         OLO_TRACE("✨ Asset Imported Event Received!");
         OLO_TRACE("   Handle: {}", static_cast<u64>(e.GetHandle()));
@@ -6280,14 +6471,14 @@ namespace OloEngine
                       result.BakedEntityCount, result.SkippedEntityCount, assetPath.string());
     }
 
-    void EditorLayer::BuildShaderPack() const
+    bool EditorLayer::BuildShaderPack() const
     {
         OLO_PROFILE_FUNCTION();
 
-        const std::filesystem::path outputPath = "assets/ShaderPack.osp";
+        const std::filesystem::path outputPath = kShaderPackOutputPath;
         OLO_CORE_INFO("Building Shader Pack to '{}'...", outputPath.string());
 
-        bool success = ShaderPack::CreateFromLibraries(
+        const bool success = ShaderPack::CreateFromLibraries(
             Renderer2D::GetShaderLibrary(),
             Renderer3D::GetShaderLibrary(),
             outputPath);
@@ -6300,6 +6491,7 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("Shader Pack build failed");
         }
+        return success;
     }
 
     void EditorLayer::ValidateAssetReferences() const

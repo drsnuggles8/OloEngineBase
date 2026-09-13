@@ -93,7 +93,7 @@ Two things this asks of you, both enforced by `OloCtlCommandTreeTest`:
   spelling ambiguous, and `oloctl` refuses it rather than picking
   (`NoTwoProductionCommandsDeriveTheSameSpelling`). The fix is a rename, and the moment
   to make it is before the tool ships. `oloctl call <registry-name>` still reaches both.
-- **Do not name a toolset `help`, `version`, `catalogue` or `call`.** Those are
+- **Do not name a toolset `help`, `version`, `catalogue`, `call` or `events`.** Those are
   `oloctl`'s own subcommands, so such a group cannot be reached by typing it
   (`NoProductionGroupShadowsAnOloCtlSubcommand`).
 

@@ -784,18 +784,20 @@ namespace OloEngine
         return s_CurrentlyBound;
     }
 
-    void VulkanShader::Reload()
+    bool VulkanShader::Reload()
     {
         OLO_PROFILE_FUNCTION();
         if (m_FilePath.empty())
         {
-            return; // Source-string shaders have nothing to re-read.
+            return true; // Source-string shaders have nothing to re-read; the live modules stay live.
         }
 
         const std::string raw = ReadWholeFile(m_FilePath);
         if (raw.empty())
         {
-            return;
+            OLO_CORE_ERROR("VulkanShader '{}': reload read nothing from '{}' — keeping the previous modules", m_Name,
+                           m_FilePath);
+            return false;
         }
         auto stages = SplitStages(raw);
         // Asked BEFORE the splice, as in the constructor — a reload that read the
@@ -821,7 +823,7 @@ namespace OloEngine
             m_Modules = std::move(oldModules);
             m_Status = previousStatus;
             OLO_CORE_ERROR("VulkanShader '{}': reload failed — keeping the previous modules", m_Name);
-            return;
+            return false;
         }
 
         const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
@@ -836,6 +838,7 @@ namespace OloEngine
         m_Status = ShaderCompilationStatus::Ready;
         OLO_CORE_INFO("VulkanShader '{}': reloaded ({} dependent pipeline(s) invalidated, lazy recreation)",
                       m_Name, invalidated);
+        return true;
     }
 
     // Default-block uniforms do not exist on this backend (see header).

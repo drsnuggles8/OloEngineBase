@@ -128,6 +128,9 @@ namespace OloEngine::MCP
             std::string_view{ "olo_scene_list_entities" },
             std::string_view{ "olo_scene_get_entity" },
             std::string_view{ "olo_events_tail" },
+            // the subscription half of the tail (#1131): an agent that can list the
+            // tail but not the wait polls, which is the loop the bus exists to end
+            std::string_view{ "olo_events_wait" },
             // the two error channels
             std::string_view{ "olo_log_tail" },
             std::string_view{ "olo_shader_errors" },
