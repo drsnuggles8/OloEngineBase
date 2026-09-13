@@ -217,7 +217,6 @@ namespace
         }
     }
 
-
     // AnimationStateComponent mixes authored settings with per-tick playback
     // state, so it is excluded FIELD by field (kFieldsNotLiveEditable) rather
     // than wholesale. Excluding it wholesale also hid IsPlaying, which no system
@@ -231,7 +230,8 @@ namespace
         const auto has = [&fields](std::string_view name)
         {
             return std::any_of(fields.begin(), fields.end(),
-                               [name](const auto* f) { return f->m_Field == name; });
+                               [name](const auto* f)
+                               { return f->m_Field == name; });
         };
 
         EXPECT_TRUE(has("IsPlaying"));
