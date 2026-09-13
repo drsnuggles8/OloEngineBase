@@ -33,12 +33,15 @@ ROI = {'x': 72, 'y': 37, 'w': 16, 'h': 16}
 TARGET = 'ReSTIRPTRadianceTexture'
 
 
-def validate_seeds(parser, seeds):
+def validate_seeds(parser, seeds, *, oracle=False):
     if len(set(seeds)) != len(seeds):
         parser.error('seeds must be distinct for independent seed blocks')
     if any(seed < 0 or seed > 16777215 for seed in seeds):
         parser.error('PT seeds must be in [0, 16777215]')
-    if set(seeds).intersection(seed + 100000 for seed in seeds):
+    # GPU oracle seeds use a u32 field (unlike PT's 24-bit packed seed).
+    if oracle and any(seed + 100000 > 0xFFFFFFFF for seed in seeds):
+        parser.error('derived oracle seeds must fit the GPU path tracer u32 field')
+    if oracle and set(seeds).intersection(seed + 100000 for seed in seeds):
         parser.error('PT seeds must not overlap derived oracle seeds (seed + 100000)')
 
 
@@ -79,6 +82,7 @@ def prepare(args):
             Exposure={'Mode': 'Manual', 'Exposure': 1},
             Determinism={'Seed': args.seeds[0], 'StartTimeSeconds': 12, 'FixedDtSeconds': 1/60},
             Warmup={'Frames': 16},
+            Tolerance={'RepeatRmse': 0},
             Attachments=[{'Name': 'PTRadiance', 'Source': TARGET, 'Format': 'hdr'},
                          {'Name': 'Beauty', 'Source': 'UIComposite', 'Format': 'png'}])
         (HERE / (args.prefix + '-' + material + '.yaml')).write_text(yaml.safe_dump(manifest, sort_keys=False), encoding='utf-8', newline='\n')
@@ -190,6 +194,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true')
     parser.add_argument('--matrix', action='store_true', help='4 modes x 4 masks x 3 stepped poses x materials/seeds')
+    parser.add_argument('--modes', nargs='+', choices=list(MODES), help='Override the selected reuse modes')
+    parser.add_argument('--masks', nargs='+', type=int, choices=[1, 2, 4, 7], help='Override the selected mapping masks')
     parser.add_argument('--materials', nargs='+', choices=['diffuse', 'glossy'], default=['diffuse'])
     parser.add_argument('--seeds', nargs='+', type=int, default=[1211, 974])
     parser.add_argument('--samples', type=int, default=8)
@@ -200,15 +206,22 @@ def main():
     parser.add_argument('--prefix', default='repro', help='Scratch scene/manifest filename prefix')
     parser.add_argument('--hdr', action='store_true', help='Separate representative benchmark capture after numeric runs; reloads scene')
     args = parser.parse_args()
-    validate_seeds(parser, args.seeds)
+    validate_seeds(parser, args.seeds, oracle=True)
+    for name in ('materials', 'modes', 'masks'):
+        values = getattr(args, name)
+        if values and len(set(values)) != len(values):
+            parser.error(name + ' must not contain duplicate entries')
     if not args.prefix or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for c in args.prefix):
         parser.error('--prefix must contain only letters, digits, underscore or hyphen')
-    assert args.samples > 0 and args.oracle_spp > 0
+    if args.samples <= 0 or args.oracle_spp <= 0:
+        parser.error('samples and oracle-spp must be positive')
     scenes = prepare(args)
     print('Prepared scratch scenes and RGBE manifests:', HERE)
     if not args.run:
         return
     h = Harness(args)
+    # Scratch scenes enable PT on load; bound allocations before opening one.
+    h.call('olo_viewport_set_size', {'width': 160, 'height': 90})
     all_results = []
     for material in args.materials:
         h.call('olo_scene_open', {'path': str(scenes[material])})
@@ -222,8 +235,8 @@ def main():
         for seed in args.seeds:
             for i, position in enumerate(poses):
                 reference[seed, i] = h.oracle(position, seed + 100000)
-        for mode in MODES if args.matrix else ['initial']:
-            for mask in [1, 2, 4, 7] if args.matrix else [1]:
+        for mode in args.modes or (list(MODES) if args.matrix else ['initial']):
+            for mask in args.masks or ([1, 2, 4, 7] if args.matrix else [1]):
                 for seed in args.seeds:
                     rows = h.ensemble(mode, mask, seed, poses)
                     for row in rows:
@@ -235,9 +248,6 @@ def main():
             h.setting('ReSTIRPTDebugView', debug)
             h.call('olo_render_capture_target', {'name': TARGET, 'forceFrame': True, 'maxWidth': 160}, image=True)
         h.setting('ReSTIRPTDebugView', 0)
-        if args.hdr:
-            h.call('olo_benchmark_capture', {'manifest': str(HERE / (args.prefix + '-' + material + '.yaml')),
-                   'outDir': str(h.out / ('rgbe-'+material))})
     groups = {}
     for r in all_results:
         groups.setdefault((r['material'], r['mode'], r['mask'], r['pose']), []).append(r)
@@ -250,6 +260,12 @@ def main():
             difference_standard_error=[statistics.stdev(d[c] for d in differences)/math.sqrt(len(rows))
                 if len(rows)>1 else None for c in range(3)]))
     (h.out / 'summary.json').write_text(json.dumps(summary, indent=2)+'\n', encoding='utf-8', newline='\n')
+    # Optional exports must not prevent other materials' numeric comparisons or
+    # their summary from being saved if an export fails.
+    if args.hdr:
+        for material in args.materials:
+            h.call('olo_benchmark_capture', {'manifest': str(HERE / (args.prefix + '-' + material + '.yaml')),
+                   'outDir': str(h.out / ('rgbe-'+material))})
     print('Evidence:', h.out, '(no automatic unbiasedness verdict; seed blocks, not frames, define uncertainty)')
 
 if __name__ == '__main__':

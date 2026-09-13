@@ -1,0 +1,1647 @@
+{
+  "shaderErrors": {
+    "count": 0,
+    "errors": []
+  },
+  "graphOn": {
+    "barrierDiagnostics": [
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'BrdfLut' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "BrdfLut"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'PlanarReflectionPass'",
+        "pass": "PlanarReflectionPass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'PlanarReflectionPass'",
+        "pass": "PlanarReflectionPass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'GTAOPass'",
+        "pass": "GTAOPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'GTAOPass'",
+        "pass": "GTAOPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'VirtualShadowMapMarkPass'",
+        "pass": "VirtualShadowMapMarkPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'VirtualShadowMapMarkPass'",
+        "pass": "VirtualShadowMapMarkPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'ReSTIRPTPass'",
+        "pass": "ReSTIRPTPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'ReSTIRPTPass'",
+        "pass": "ReSTIRPTPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'ReSTIRPTPass'",
+        "pass": "ReSTIRPTPass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'BrdfLut' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "BrdfLut"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'AOApplyPass'",
+        "pass": "AOApplyPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'AOApplyPass'",
+        "pass": "AOApplyPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'ToneMapPass'",
+        "pass": "ToneMapPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'ToneMapPass'",
+        "pass": "ToneMapPass",
+        "resource": "GBufferBakedGI"
+      }
+    ],
+    "buildDiagnostics": [],
+    "computeDispatchCensus": {
+      "GTAO": {
+        "dropped": 0,
+        "recorded": 12318,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      },
+      "GTAO_Denoise": {
+        "dropped": 0,
+        "recorded": 36954,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      },
+      "HZB": {
+        "dropped": 0,
+        "recorded": 36954,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      }
+    },
+    "consumedButUnbacked": [],
+    "drawCensus": {
+      "DeferredLighting": {
+        "dropped": 0,
+        "prepared": 12044
+      },
+      "DepthPrepass": {
+        "dropped": 0,
+        "prepared": 28799
+      },
+      "EquirectangularToCubemap": {
+        "dropped": 0,
+        "prepared": 30
+      },
+      "FullscreenBlit": {
+        "dropped": 0,
+        "prepared": 24636
+      },
+      "PBR_GBuffer": {
+        "dropped": 0,
+        "prepared": 26726
+      },
+      "PBR_MultiLight": {
+        "dropped": 0,
+        "prepared": 2073
+      },
+      "Particle_Billboard_GPU": {
+        "dropped": 0,
+        "prepared": 49272
+      },
+      "PostProcess_BloomComposite": {
+        "dropped": 0,
+        "prepared": 12318
+      },
+      "PostProcess_BloomDownsample": {
+        "dropped": 0,
+        "prepared": 49272
+      },
+      "PostProcess_BloomThreshold": {
+        "dropped": 0,
+        "prepared": 12318
+      },
+      "PostProcess_BloomUpsample": {
+        "dropped": 0,
+        "prepared": 49272
+      },
+      "PostProcess_FXAA": {
+        "dropped": 0,
+        "prepared": 12318
+      },
+      "PostProcess_Fog": {
+        "dropped": 0,
+        "prepared": 8
+      },
+      "PostProcess_FogUpsample": {
+        "dropped": 0,
+        "prepared": 8
+      },
+      "PostProcess_SSAOApply": {
+        "dropped": 0,
+        "prepared": 12318
+      },
+      "PostProcess_ToneMap": {
+        "dropped": 0,
+        "prepared": 12318
+      },
+      "ReSTIR_PT": {
+        "dropped": 0,
+        "prepared": 43943
+      },
+      "Renderer2D_Quad": {
+        "dropped": 0,
+        "prepared": 524
+      },
+      "Renderer2D_Text": {
+        "dropped": 0,
+        "prepared": 1048
+      },
+      "Skybox": {
+        "dropped": 0,
+        "prepared": 34
+      },
+      "Skybox_GBuffer": {
+        "dropped": 0,
+        "prepared": 24076
+      },
+      "Water": {
+        "dropped": 0,
+        "prepared": 67
+      },
+      "Water_Depth": {
+        "dropped": 0,
+        "prepared": 67
+      },
+      "__WarmupBoot": {
+        "dropped": 0,
+        "prepared": 4
+      }
+    },
+    "drawObservability": {
+      "conditionallySkipped": 0,
+      "dropped": 0,
+      "gpuWrittenRoot": 0,
+      "prepared": 28
+    },
+    "hazardCount": 0,
+    "hazards": [],
+    "meta": {
+      "frameIndex": 15606,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 15606,
+        "iconified": false,
+        "msSinceLastFrame": 30.12,
+        "ticking": true,
+        "visible": false
+      },
+      "stale": false,
+      "timestampMs": 1789326826307
+    },
+    "ok": true,
+    "resolveFailures": [],
+    "versionGroups": [
+      {
+        "baseName": "AOApplyColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColor@AOApplyPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "AOApplyColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColorTexture",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColorTexture@AOApplyPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "BloomColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColor",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColor@BloomPass",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          }
+        ]
+      },
+      {
+        "baseName": "BloomColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColorTexture",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColorTexture@BloomPass",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          }
+        ]
+      },
+      {
+        "baseName": "FXAAColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColor",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColor@FXAAPass",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          }
+        ]
+      },
+      {
+        "baseName": "FXAAColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColorTexture",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColorTexture@FXAAPass",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          }
+        ]
+      },
+      {
+        "baseName": "FogColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "name": "FogColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "name": "FogColor@FogPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "ReSTIRPTRadiance",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ReSTIRPTPass",
+            "name": "ReSTIRPTRadiance",
+            "nativeTextureHandle": "0x36C880000036C88",
+            "textureIdentity": "#1342:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ReSTIRPTPass",
+            "name": "ReSTIRPTRadiance@ReSTIRPTPass",
+            "nativeTextureHandle": "0x36C880000036C88",
+            "textureIdentity": "#1342:9"
+          }
+        ]
+      },
+      {
+        "baseName": "ReSTIRPTRadianceTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ReSTIRPTPass",
+            "name": "ReSTIRPTRadianceTexture",
+            "nativeTextureHandle": "0x36C880000036C88",
+            "textureIdentity": "#1342:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ReSTIRPTPass",
+            "name": "ReSTIRPTRadianceTexture@ReSTIRPTPass",
+            "nativeTextureHandle": "0x36C880000036C88",
+            "textureIdentity": "#1342:9"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColor",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColor@ParticlePass",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColorTexture",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColorTexture@ParticlePass",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneDepthAttachment",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneDepthAttachment",
+            "nativeTextureHandle": "0x36B350000036B35",
+            "textureIdentity": "#1336:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneDepthAttachment@ParticlePass",
+            "nativeTextureHandle": "0x36B350000036B35",
+            "textureIdentity": "#1336:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneEntityID",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneEntityID",
+            "nativeTextureHandle": "0x36B320000036B32",
+            "textureIdentity": "#1347:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneEntityID@ParticlePass",
+            "nativeTextureHandle": "0x36B320000036B32",
+            "textureIdentity": "#1347:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneViewNormals",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneViewNormals",
+            "nativeTextureHandle": "0x36B330000036B33",
+            "textureIdentity": "#1348:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneViewNormals@ParticlePass",
+            "nativeTextureHandle": "0x36B330000036B33",
+            "textureIdentity": "#1348:7"
+          }
+        ]
+      },
+      {
+        "baseName": "ToneMapColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColor@ToneMapPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "ToneMapColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColorTexture",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColorTexture@ToneMapPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "UIComposite",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UIComposite",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          },
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UIComposite@UICompositePass",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          }
+        ]
+      },
+      {
+        "baseName": "UICompositeTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UICompositeTexture",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          },
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UICompositeTexture@UICompositePass",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          }
+        ]
+      }
+    ],
+    "vulkanStubs": {
+      "deferredFeature": 0,
+      "outsideRecording": 0,
+      "preconditionFailure": 0,
+      "total": 0
+    }
+  },
+  "graphOff": {
+    "barrierDiagnostics": [
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'BrdfLut' before pass 'ScenePass'",
+        "pass": "ScenePass",
+        "resource": "BrdfLut"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'PlanarReflectionPass'",
+        "pass": "PlanarReflectionPass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'PlanarReflectionPass'",
+        "pass": "PlanarReflectionPass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'GTAOPass'",
+        "pass": "GTAOPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'GTAOPass'",
+        "pass": "GTAOPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'VirtualShadowMapMarkPass'",
+        "pass": "VirtualShadowMapMarkPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'VirtualShadowMapMarkPass'",
+        "pass": "VirtualShadowMapMarkPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'IrradianceMap' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "IrradianceMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'PrefilterMap' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "PrefilterMap"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'BrdfLut' before pass 'DeferredLightingPass'",
+        "pass": "DeferredLightingPass",
+        "resource": "BrdfLut"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'AOApplyPass'",
+        "pass": "AOApplyPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'AOApplyPass'",
+        "pass": "AOApplyPass",
+        "resource": "GBufferBakedGI"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferResolved' before pass 'ToneMapPass'",
+        "pass": "ToneMapPass",
+        "resource": "GBufferResolved"
+      },
+      {
+        "kind": "MissingProducer",
+        "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'ToneMapPass'",
+        "pass": "ToneMapPass",
+        "resource": "GBufferBakedGI"
+      }
+    ],
+    "buildDiagnostics": [],
+    "computeDispatchCensus": {
+      "GTAO": {
+        "dropped": 0,
+        "recorded": 12326,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      },
+      "GTAO_Denoise": {
+        "dropped": 0,
+        "recorded": 36978,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      },
+      "HZB": {
+        "dropped": 0,
+        "recorded": 36978,
+        "refusedNoBracket": 0,
+        "refusedNoShader": 0
+      }
+    },
+    "consumedButUnbacked": [],
+    "drawCensus": {
+      "DeferredLighting": {
+        "dropped": 0,
+        "prepared": 12052
+      },
+      "DepthPrepass": {
+        "dropped": 0,
+        "prepared": 28807
+      },
+      "EquirectangularToCubemap": {
+        "dropped": 0,
+        "prepared": 30
+      },
+      "FullscreenBlit": {
+        "dropped": 0,
+        "prepared": 24652
+      },
+      "PBR_GBuffer": {
+        "dropped": 0,
+        "prepared": 26734
+      },
+      "PBR_MultiLight": {
+        "dropped": 0,
+        "prepared": 2073
+      },
+      "Particle_Billboard_GPU": {
+        "dropped": 0,
+        "prepared": 49304
+      },
+      "PostProcess_BloomComposite": {
+        "dropped": 0,
+        "prepared": 12326
+      },
+      "PostProcess_BloomDownsample": {
+        "dropped": 0,
+        "prepared": 49304
+      },
+      "PostProcess_BloomThreshold": {
+        "dropped": 0,
+        "prepared": 12326
+      },
+      "PostProcess_BloomUpsample": {
+        "dropped": 0,
+        "prepared": 49304
+      },
+      "PostProcess_FXAA": {
+        "dropped": 0,
+        "prepared": 12326
+      },
+      "PostProcess_Fog": {
+        "dropped": 0,
+        "prepared": 8
+      },
+      "PostProcess_FogUpsample": {
+        "dropped": 0,
+        "prepared": 8
+      },
+      "PostProcess_SSAOApply": {
+        "dropped": 0,
+        "prepared": 12326
+      },
+      "PostProcess_ToneMap": {
+        "dropped": 0,
+        "prepared": 12326
+      },
+      "ReSTIR_PT": {
+        "dropped": 0,
+        "prepared": 43947
+      },
+      "Renderer2D_Quad": {
+        "dropped": 0,
+        "prepared": 524
+      },
+      "Renderer2D_Text": {
+        "dropped": 0,
+        "prepared": 1048
+      },
+      "Skybox": {
+        "dropped": 0,
+        "prepared": 34
+      },
+      "Skybox_GBuffer": {
+        "dropped": 0,
+        "prepared": 24092
+      },
+      "Water": {
+        "dropped": 0,
+        "prepared": 67
+      },
+      "Water_Depth": {
+        "dropped": 0,
+        "prepared": 67
+      },
+      "__WarmupBoot": {
+        "dropped": 0,
+        "prepared": 4
+      }
+    },
+    "drawObservability": {
+      "conditionallySkipped": 0,
+      "dropped": 0,
+      "gpuWrittenRoot": 0,
+      "prepared": 24
+    },
+    "hazardCount": 0,
+    "hazards": [],
+    "meta": {
+      "frameIndex": 15616,
+      "liveness": {
+        "captureUnready": false,
+        "focused": false,
+        "frameIndex": 15616,
+        "iconified": false,
+        "msSinceLastFrame": 25.79,
+        "ticking": true,
+        "visible": false
+      },
+      "stale": false,
+      "timestampMs": 1789326826597
+    },
+    "ok": true,
+    "resolveFailures": [],
+    "versionGroups": [
+      {
+        "baseName": "AOApplyColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColor@AOApplyPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "AOApplyColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColorTexture",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "AOApplyPass",
+            "name": "AOApplyColorTexture@AOApplyPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "BloomColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColor",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColor@BloomPass",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          }
+        ]
+      },
+      {
+        "baseName": "BloomColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColorTexture",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          },
+          {
+            "backed": true,
+            "lastWriter": "BloomPass",
+            "name": "BloomColorTexture@BloomPass",
+            "nativeTextureHandle": "0x36B420000036B42",
+            "textureIdentity": "#1291:9"
+          }
+        ]
+      },
+      {
+        "baseName": "FXAAColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColor",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColor@FXAAPass",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          }
+        ]
+      },
+      {
+        "baseName": "FXAAColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColorTexture",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "FXAAPass",
+            "name": "FXAAColorTexture@FXAAPass",
+            "nativeTextureHandle": "0x36B360000036B36",
+            "textureIdentity": "#1337:7"
+          }
+        ]
+      },
+      {
+        "baseName": "FogColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "name": "FogColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "name": "FogColor@FogPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "ReSTIRPTRadiance",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": false,
+            "name": "ReSTIRPTRadiance",
+            "textureIdentity": "#4294967295:0"
+          },
+          {
+            "backed": false,
+            "name": "ReSTIRPTRadiance@ReSTIRPTPass",
+            "textureIdentity": "#4294967295:0"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColor",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColor@ParticlePass",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColorTexture",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneColorTexture@ParticlePass",
+            "nativeTextureHandle": "0x36B310000036B31",
+            "textureIdentity": "#1346:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneDepthAttachment",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneDepthAttachment",
+            "nativeTextureHandle": "0x36B350000036B35",
+            "textureIdentity": "#1336:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneDepthAttachment@ParticlePass",
+            "nativeTextureHandle": "0x36B350000036B35",
+            "textureIdentity": "#1336:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneEntityID",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneEntityID",
+            "nativeTextureHandle": "0x36B320000036B32",
+            "textureIdentity": "#1347:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneEntityID@ParticlePass",
+            "nativeTextureHandle": "0x36B320000036B32",
+            "textureIdentity": "#1347:7"
+          }
+        ]
+      },
+      {
+        "baseName": "SceneViewNormals",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneViewNormals",
+            "nativeTextureHandle": "0x36B330000036B33",
+            "textureIdentity": "#1348:7"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ParticlePass",
+            "name": "SceneViewNormals@ParticlePass",
+            "nativeTextureHandle": "0x36B330000036B33",
+            "textureIdentity": "#1348:7"
+          }
+        ]
+      },
+      {
+        "baseName": "ToneMapColor",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColor",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColor@ToneMapPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "ToneMapColorTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColorTexture",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          },
+          {
+            "backed": true,
+            "lastWriter": "ToneMapPass",
+            "name": "ToneMapColorTexture@ToneMapPass",
+            "nativeTextureHandle": "0x36B410000036B41",
+            "textureIdentity": "#1037:11"
+          }
+        ]
+      },
+      {
+        "baseName": "UIComposite",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UIComposite",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          },
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UIComposite@UICompositePass",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          }
+        ]
+      },
+      {
+        "baseName": "UICompositeTexture",
+        "multiplePhysicalIds": false,
+        "versions": [
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UICompositeTexture",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          },
+          {
+            "backed": true,
+            "lastWriter": "UICompositePass",
+            "name": "UICompositeTexture@UICompositePass",
+            "nativeTextureHandle": "0x36B430000036B43",
+            "textureIdentity": "#1352:1"
+          }
+        ]
+      }
+    ],
+    "vulkanStubs": {
+      "deferredFeature": 0,
+      "outsideRecording": 0,
+      "preconditionFailure": 0,
+      "total": 0
+    }
+  },
+  "additionalGraphDiagnostics": [
+    {
+      "kind": "MissingProducer",
+      "message": "No producer declared for read resource 'GBufferResolved' before pass 'ReSTIRPTPass'",
+      "pass": "ReSTIRPTPass",
+      "resource": "GBufferResolved"
+    },
+    {
+      "kind": "MissingProducer",
+      "message": "No producer declared for read resource 'GBufferBakedGI' before pass 'ReSTIRPTPass'",
+      "pass": "ReSTIRPTPass",
+      "resource": "GBufferBakedGI"
+    },
+    {
+      "kind": "MissingProducer",
+      "message": "No producer declared for read resource 'PrefilterMap' before pass 'ReSTIRPTPass'",
+      "pass": "ReSTIRPTPass",
+      "resource": "PrefilterMap"
+    }
+  ],
+  "clampOn": {
+    "active": true,
+    "available": true,
+    "biasedClamp": true,
+    "counterFrame": 12305,
+    "counters": {
+      "clampedPixels": 13246,
+      "conditioningRejected": 166,
+      "domainRejected": 2316,
+      "glossyEvents": 0,
+      "hybridAccepted": 19506,
+      "initialCandidates": 109072,
+      "inverseRejected": 49,
+      "nonfinite": 0,
+      "rays": 1181567,
+      "reconnectionAccepted": 19444,
+      "replayAccepted": 19313,
+      "shadowRays": 777732,
+      "spatialAccepted": 32467,
+      "temporalAccepted": 25796,
+      "validCandidates": 12515,
+      "validPixels": 13634
+    },
+    "countersValid": true,
+    "fallbackReason": "none",
+    "historyValid": true,
+    "requested": true,
+    "reservoirBytes": 34099200,
+    "sceneEpoch": 6
+  },
+  "water": {
+    "enabled": {
+      "pt": {
+        "active": false,
+        "available": true,
+        "biasedClamp": false,
+        "counterFrame": 0,
+        "counters": {
+          "clampedPixels": 0,
+          "conditioningRejected": 0,
+          "domainRejected": 0,
+          "glossyEvents": 0,
+          "hybridAccepted": 0,
+          "initialCandidates": 0,
+          "inverseRejected": 0,
+          "nonfinite": 0,
+          "rays": 0,
+          "reconnectionAccepted": 0,
+          "replayAccepted": 0,
+          "shadowRays": 0,
+          "spatialAccepted": 0,
+          "temporalAccepted": 0,
+          "validCandidates": 0,
+          "validPixels": 0
+        },
+        "countersValid": false,
+        "fallbackReason": "incomplete GPU scene geometry coverage",
+        "historyValid": false,
+        "requested": true,
+        "reservoirBytes": 0,
+        "sceneEpoch": 2
+      },
+      "rt": {
+        "availability": {
+          "available": true,
+          "enabled": true,
+          "hasData": true,
+          "status": "ready"
+        },
+        "capability": {
+          "properties": {
+            "maxGeometryCount": 16777215,
+            "maxInstanceCount": 16777215,
+            "maxPrimitiveCount": 536870911,
+            "minScratchOffsetAlignment": 128
+          },
+          "rayTracingPipeline": true,
+          "reason": "supported",
+          "supported": true
+        },
+        "frame": {
+          "blasBuildGpuNs": 0,
+          "blasBuilds": 0,
+          "blasCompactions": 0,
+          "blasRefits": 0,
+          "blasRetired": 0,
+          "instancesSkipped": 0,
+          "instancesTraced": 3,
+          "tlasBuildGpuNs": 0,
+          "tlasBuilds": 0,
+          "tlasUpdates": 1
+        },
+        "freshness": {
+          "model": "previousFrame",
+          "sampleAgeFrames": null,
+          "stale": false
+        },
+        "gpuScene": {
+          "available": true,
+          "geometries": 1,
+          "instances": 3,
+          "lights": 0,
+          "materials": 3,
+          "notStagedByCategory": {
+            "cloth": 0,
+            "fluids": 0,
+            "foliage": 0,
+            "legacyModel": 0,
+            "legacySubmesh": 0,
+            "notExtractable": 0,
+            "particles": 0,
+            "procedural": 1,
+            "skinned": 0,
+            "softwareRaster": 0,
+            "terrain": 0,
+            "tiles": 0,
+            "virtualized": 0
+          },
+          "notStagedTotal": 1
+        },
+        "lastTlasReason": "Update",
+        "resident": {
+          "accelerationStructureBytes": 4224,
+          "blasByClass": {
+            "deformed": 0,
+            "masked": 0,
+            "rigidDynamic": 0,
+            "static": 1,
+            "unsupported": 0
+          },
+          "compactionSavedBytes": 2688,
+          "scratchBytes": 3584,
+          "tlasInstances": 3,
+          "unsupportedInstances": 0
+        }
+      }
+    },
+    "offscreen": {
+      "pt": {
+        "active": false,
+        "available": true,
+        "biasedClamp": false,
+        "counterFrame": 0,
+        "counters": {
+          "clampedPixels": 0,
+          "conditioningRejected": 0,
+          "domainRejected": 0,
+          "glossyEvents": 0,
+          "hybridAccepted": 0,
+          "initialCandidates": 0,
+          "inverseRejected": 0,
+          "nonfinite": 0,
+          "rays": 0,
+          "reconnectionAccepted": 0,
+          "replayAccepted": 0,
+          "shadowRays": 0,
+          "spatialAccepted": 0,
+          "temporalAccepted": 0,
+          "validCandidates": 0,
+          "validPixels": 0
+        },
+        "countersValid": false,
+        "fallbackReason": "incomplete GPU scene geometry coverage",
+        "historyValid": false,
+        "requested": true,
+        "reservoirBytes": 0,
+        "sceneEpoch": 3
+      },
+      "rt": {
+        "availability": {
+          "available": true,
+          "enabled": true,
+          "hasData": true,
+          "status": "ready"
+        },
+        "capability": {
+          "properties": {
+            "maxGeometryCount": 16777215,
+            "maxInstanceCount": 16777215,
+            "maxPrimitiveCount": 536870911,
+            "minScratchOffsetAlignment": 128
+          },
+          "rayTracingPipeline": true,
+          "reason": "supported",
+          "supported": true
+        },
+        "frame": {
+          "blasBuildGpuNs": 0,
+          "blasBuilds": 0,
+          "blasCompactions": 0,
+          "blasRefits": 0,
+          "blasRetired": 0,
+          "instancesSkipped": 0,
+          "instancesTraced": 3,
+          "tlasBuildGpuNs": 0,
+          "tlasBuilds": 0,
+          "tlasUpdates": 1
+        },
+        "freshness": {
+          "model": "previousFrame",
+          "sampleAgeFrames": null,
+          "stale": false
+        },
+        "gpuScene": {
+          "available": true,
+          "geometries": 1,
+          "instances": 3,
+          "lights": 0,
+          "materials": 3,
+          "notStagedByCategory": {
+            "cloth": 0,
+            "fluids": 0,
+            "foliage": 0,
+            "legacyModel": 0,
+            "legacySubmesh": 0,
+            "notExtractable": 0,
+            "particles": 0,
+            "procedural": 1,
+            "skinned": 0,
+            "softwareRaster": 0,
+            "terrain": 0,
+            "tiles": 0,
+            "virtualized": 0
+          },
+          "notStagedTotal": 1
+        },
+        "lastTlasReason": "Update",
+        "resident": {
+          "accelerationStructureBytes": 4224,
+          "blasByClass": {
+            "deformed": 0,
+            "masked": 0,
+            "rigidDynamic": 0,
+            "static": 1,
+            "unsupported": 0
+          },
+          "compactionSavedBytes": 5376,
+          "scratchBytes": 3584,
+          "tlasInstances": 3,
+          "unsupportedInstances": 0
+        }
+      }
+    },
+    "disabled": {
+      "pt": {
+        "active": true,
+        "available": true,
+        "biasedClamp": false,
+        "counterFrame": 446,
+        "counters": {
+          "clampedPixels": 0,
+          "conditioningRejected": 0,
+          "domainRejected": 0,
+          "glossyEvents": 0,
+          "hybridAccepted": 0,
+          "initialCandidates": 109072,
+          "inverseRejected": 0,
+          "nonfinite": 0,
+          "rays": 125445,
+          "reconnectionAccepted": 0,
+          "replayAccepted": 0,
+          "shadowRays": 0,
+          "spatialAccepted": 0,
+          "temporalAccepted": 0,
+          "validCandidates": 12731,
+          "validPixels": 13634
+        },
+        "countersValid": true,
+        "fallbackReason": "none",
+        "historyValid": false,
+        "requested": true,
+        "reservoirBytes": 34099200,
+        "sceneEpoch": 4
+      },
+      "rt": {
+        "availability": {
+          "available": true,
+          "enabled": true,
+          "hasData": true,
+          "status": "ready"
+        },
+        "capability": {
+          "properties": {
+            "maxGeometryCount": 16777215,
+            "maxInstanceCount": 16777215,
+            "maxPrimitiveCount": 536870911,
+            "minScratchOffsetAlignment": 128
+          },
+          "rayTracingPipeline": true,
+          "reason": "supported",
+          "supported": true
+        },
+        "frame": {
+          "blasBuildGpuNs": 0,
+          "blasBuilds": 0,
+          "blasCompactions": 0,
+          "blasRefits": 0,
+          "blasRetired": 0,
+          "instancesSkipped": 0,
+          "instancesTraced": 3,
+          "tlasBuildGpuNs": 0,
+          "tlasBuilds": 0,
+          "tlasUpdates": 1
+        },
+        "freshness": {
+          "model": "previousFrame",
+          "sampleAgeFrames": null,
+          "stale": false
+        },
+        "gpuScene": {
+          "available": true,
+          "geometries": 1,
+          "instances": 3,
+          "lights": 0,
+          "materials": 3,
+          "notStagedByCategory": {
+            "cloth": 0,
+            "fluids": 0,
+            "foliage": 0,
+            "legacyModel": 0,
+            "legacySubmesh": 0,
+            "notExtractable": 0,
+            "particles": 0,
+            "procedural": 0,
+            "skinned": 0,
+            "softwareRaster": 0,
+            "terrain": 0,
+            "tiles": 0,
+            "virtualized": 0
+          },
+          "notStagedTotal": 0
+        },
+        "lastTlasReason": "Update",
+        "resident": {
+          "accelerationStructureBytes": 4224,
+          "blasByClass": {
+            "deformed": 0,
+            "masked": 0,
+            "rigidDynamic": 0,
+            "static": 1,
+            "unsupported": 0
+          },
+          "compactionSavedBytes": 8064,
+          "scratchBytes": 3584,
+          "tlasInstances": 3,
+          "unsupportedInstances": 0
+        }
+      }
+    }
+  },
+  "openGLUnsupportedBackend": {
+    "active": false,
+    "available": true,
+    "biasedClamp": false,
+    "counterFrame": 0,
+    "counters": {
+      "clampedPixels": 0,
+      "conditioningRejected": 0,
+      "domainRejected": 0,
+      "glossyEvents": 0,
+      "hybridAccepted": 0,
+      "initialCandidates": 0,
+      "inverseRejected": 0,
+      "nonfinite": 0,
+      "rays": 0,
+      "reconnectionAccepted": 0,
+      "replayAccepted": 0,
+      "shadowRays": 0,
+      "spatialAccepted": 0,
+      "temporalAccepted": 0,
+      "validCandidates": 0,
+      "validPixels": 0
+    },
+    "countersValid": false,
+    "fallbackReason": "hardware ray queries unavailable",
+    "historyValid": false,
+    "requested": true,
+    "reservoirBytes": 0,
+    "sceneEpoch": 2
+  },
+  "notes": [
+    "MCP available reports pass/diagnostic presence; active and fallbackReason describe whether the tier can execute."
+  ]
+}

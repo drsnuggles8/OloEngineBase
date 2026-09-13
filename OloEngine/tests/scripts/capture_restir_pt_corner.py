@@ -94,7 +94,7 @@ def main():
     p.add_argument('--port', type=int, default=18311)
     p.add_argument('--max-seconds', type=int, default=1800)
     args = p.parse_args()
-    furnace.validate_seeds(p, args.seeds)
+    furnace.validate_seeds(p, args.seeds, oracle=True)
     if not args.prefix or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for c in args.prefix):
         p.error('--prefix must contain only letters, digits, underscore or hyphen')
     if args.samples <= 0 or args.oracle_spp <= 0:
@@ -104,6 +104,7 @@ def main():
     if not args.run:
         return
     h = furnace.Harness(args)
+    h.call('olo_viewport_set_size', {'width': 160, 'height': 90})
     rows = []
     references = []
     positions = POSES[:args.poses]

@@ -91,7 +91,9 @@ def main():
         p.error('seconds must be (0,120], hz (0,60]')
     cases = [(m, 7) for m in furnace.MODES] + [('combined', m) for m in [1, 2, 4]] if args.matrix else [('combined', 7)]
     plan = dict(material=args.material, secondsPerCase=args.seconds, requestedCameraHz=args.hz,
-        cases=cases, seeds=args.seeds, radius=4, ROI=furnace.ROI,
+        cases=cases, seeds=args.seeds, ROI=furnace.ROI,
+        trajectory=({'kind': 'lateral', 'amplitude': .3, 'height': 1.5, 'z': 3}
+                    if args.corner else {'kind': 'orbit', 'radius': 4}),
         notes=('Asynchronous requests: no exact camera/frame pairing. No every-frame claim. '
                + ('Open corner: multibounce, no per-frame oracle comparison.' if args.corner else 'Sphere zero-secondary only.')))
     print(json.dumps(plan, indent=2))
@@ -105,6 +107,7 @@ def main():
     (h.out/'plan.json').write_text(json.dumps(plan, indent=2)+'\n', encoding='utf-8', newline='\n')
     # Separate MCP sessions: worker never shares the main client's sequence state.
     camera_client = type(h.client)(args.port)
+    h.call('olo_viewport_set_size', {'width': 160, 'height': 90})
     h.call('olo_scene_open', {'path': str(scene)})
     h.call('olo_editor_debug_draw_set', {'category': 'all', 'enabled': False})
     h.call('olo_renderer_settings_set', {'setting': 'renderpath', 'value': 'deferred'})
