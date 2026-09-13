@@ -470,7 +470,7 @@ namespace OloEngine::Automation
         struct ComponentDiff
         {
             std::string Component;
-            std::string State;      // added | removed | modified | identical | unknown
+            std::string State; // added | removed | modified | identical | unknown
             std::vector<FieldDiff> Fields;
             u32 ComparedFields = 0;
             u32 UncomparedFields = 0;
@@ -653,7 +653,7 @@ namespace OloEngine::Automation
         // source entity -- that is a second instance of this very prefab parented
         // under the first, and unpacking the outer one must not unpack it.
         void CollectInstanceSubtree(const Ref<Scene>& scene, Entity root, AssetHandle handle, UUID prefabRootId,
-                                   std::vector<Entity>& outOwned, std::vector<Entity>& outNested)
+                                    std::vector<Entity>& outOwned, std::vector<Entity>& outNested)
         {
             outOwned.push_back(root);
             for (UUID childId : root.Children())
@@ -1324,13 +1324,11 @@ namespace OloEngine::Automation
                 return unchanged;
             }
 
-
             FileContents fileBefore;
             if (file.Registered)
             {
                 fileBefore = ReadFileContents(file.Path);
             }
-
 
             // Peers: every OTHER instance in the active scene stamped from the same
             // prefab entity. They are what makes "one undo puts all of them back"
