@@ -446,7 +446,12 @@ namespace OloEngine
             options.SetPreserveBindings(true);
             options.SetAutoBindUniforms(false);
             options.SetGenerateDebugInfo();
-            options.SetOptimizationLevel(shaderc_optimization_level_performance);
+            // Honor an explicit per-stage GLSL optimization opt-out. Large
+            // ray-query call graphs can make the offline SPIR-V inliner expand
+            // excessively; the driver still compiles the resulting SPIR-V.
+            // The directive is part of the source-addressed cache key.
+            const bool disableOptimization = ShaderSourceScan::MentionsOutsideComments(source, "#pragma optimize(off)");
+            options.SetOptimizationLevel(disableOptimization ? shaderc_optimization_level_zero : shaderc_optimization_level_performance);
             // Load-bearing, not cosmetic: shaderc's message parser asserts on
             // malformed glslang warning strings (same rule as the GL tier).
             options.SetSuppressWarnings();

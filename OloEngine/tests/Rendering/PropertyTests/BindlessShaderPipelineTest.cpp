@@ -1963,4 +1963,12 @@ void main()
                "A shader with no samplers of its own opts in with OLO_BINDLESS_ROUTE_PARITY."
             << split;
     }
+    TEST(ShaderSourceScan, OptimizationOptOutDoesNotReadCommentedDirectives)
+    {
+        constexpr std::string_view directive = "#pragma optimize(off)";
+        EXPECT_TRUE(ShaderSourceScan::MentionsOutsideComments("#version 460\n#pragma optimize(off)\nvoid main() {}", directive));
+        EXPECT_FALSE(ShaderSourceScan::MentionsOutsideComments("// #pragma optimize(off)\nvoid main() {}", directive));
+        EXPECT_FALSE(ShaderSourceScan::MentionsOutsideComments("/*\n#pragma optimize(off)\n*/\nvoid main() {}", directive));
+        EXPECT_FALSE(ShaderSourceScan::MentionsOutsideComments("#pragma optimize(on)\nvoid main() {}", directive));
+    }
 } // namespace OloEngine::Tests
