@@ -2027,14 +2027,16 @@ namespace OloEngine
                                                         const glm::mat4& modelMatrix,
                                                         const Material& material,
                                                         const std::vector<glm::mat4>& boneMatrices,
-                                                        bool isStatic)
+                                                        bool isStatic,
+                                                        i32 entityID)
     {
         // Legacy entry point: no prev-pose information available. Alias current
         // bones and transform into the prev slot so motion-vector shaders see
         // zero per-bone and per-object motion for this draw.
         static const std::vector<glm::mat4> s_EmptyPrev;
         return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
-                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic);
+                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic,
+                                        entityID);
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
@@ -2045,7 +2047,8 @@ namespace OloEngine
                                                         const std::vector<glm::mat4>& prevBoneMatrices,
                                                         const glm::mat4& prevModelMatrix,
                                                         bool hasPrevTransform,
-                                                        bool isStatic)
+                                                        bool isStatic,
+                                                        i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2220,6 +2223,12 @@ namespace OloEngine
         cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
         cmd->needsBoneOffsetRemap = true;
 
+        // Picking ID, exactly as the serial DrawAnimatedMesh writes it. Omitting
+        // it here left every animated draw on this route at the default -1, so
+        // an animated mesh became unselectable in the editor as soon as its
+        // batch was large enough for SubmitMeshesParallel to go parallel.
+        cmd->entityID = entityID;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
@@ -2361,7 +2370,8 @@ namespace OloEngine
                             prevBones,
                             desc.PrevTransform,
                             desc.HasPrevTransform,
-                            desc.IsStatic);
+                            desc.IsStatic,
+                            desc.EntityID);
                     }
                     else
                     {
@@ -2371,7 +2381,8 @@ namespace OloEngine
                             desc.Transform,
                             desc.MaterialData,
                             *desc.BoneMatrices,
-                            desc.IsStatic);
+                            desc.IsStatic,
+                            desc.EntityID);
                     }
                 }
                 else

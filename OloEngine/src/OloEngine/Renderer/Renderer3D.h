@@ -741,13 +741,21 @@ namespace OloEngine
 
         /**
          * @brief Thread-safe animated mesh drawing for parallel submission
+         *
+         * `entityID` is the picking ID written into the draw command, exactly
+         * as the serial DrawAnimatedMesh writes it. It matters more than a
+         * defaulted parameter suggests: a command left at the default -1 is
+         * invisible to the editor picking buffer, so an animated mesh stops
+         * being selectable the moment its batch grows past
+         * SubmitMeshesParallel's threshold and switches to this route.
          */
         static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
                                                        const Ref<Mesh>& mesh,
                                                        const glm::mat4& modelMatrix,
                                                        const Material& material,
                                                        const std::vector<glm::mat4>& boneMatrices,
-                                                       bool isStatic = false);
+                                                       bool isStatic = false,
+                                                       i32 entityID = -1);
 
         /**
          * @brief Thread-safe animated mesh drawing with previous-frame pose
@@ -767,7 +775,8 @@ namespace OloEngine
                                                        const std::vector<glm::mat4>& prevBoneMatrices,
                                                        const glm::mat4& prevModelMatrix,
                                                        bool hasPrevTransform,
-                                                       bool isStatic = false);
+                                                       bool isStatic = false,
+                                                       i32 entityID = -1);
 
         /**
          * @brief Submit a packet to the worker's bucket (thread-safe)
