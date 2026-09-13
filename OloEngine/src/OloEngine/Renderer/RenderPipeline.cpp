@@ -1216,11 +1216,43 @@ namespace OloEngine
         // already have been enabled and the stats would be a frame stale. A
         // one-frame stale verdict is a one-frame double count on every toggle,
         // and "the room flashes brighter for a frame" is not a bug anyone files.
+        // Resolve the full indirect tier before any fallback consumer this frame.
+        if (SceneCompositePasses.ReSTIRPT)
+        {
+            auto& pt = *SceneCompositePasses.ReSTIRPT;
+            pt.SetSettings(data.PostProcess.ReSTIRPT);
+            if (data.RGraph && data.RGraph->GetPhysicalWidth() > 0u && data.RGraph->GetPhysicalHeight() > 0u)
+            {
+                const f32 scale = UpscaleModeToRenderScale(data.PostProcess.Upscale);
+                const u32 width = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(data.RGraph->GetPhysicalWidth()) * scale)));
+                const u32 height = std::max(1u, static_cast<u32>(glm::floor(static_cast<f32>(data.RGraph->GetPhysicalHeight()) * scale)));
+                pt.ResizeFramebuffer(width, height);
+            }
+            pt.SetEnabled(data.PostProcess.ReSTIRPT.Enabled);
+            pt.SetEmissiveTable(&data.PathTracerEmissive);
+            pt.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
+            pt.SetEnvironment(data.PostProcess.GpuPathTracer.UniformEnvironmentRadiance,
+                              data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity,
+                              data.GlobalPrefilterMapID.IsValid());
+            pt.SetCameraMatrices(data.ViewMatrix,
+                                 data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix,
+                                 Renderer3D::GetRenderOrigin());
+            pt.SetFrameIndex(data.StochasticFrameIndex);
+            pt.SetSceneEpoch(ReSTIRPTSceneEpoch);
+            pt.ResolveAvailabilityForFrame(data.Settings.Path == RenderingPath::Deferred, data.Fog.Enabled);
+        }
+        const auto ptOwnership = SelectReSTIRPTOwnership({
+            .PTActive = SceneCompositePasses.ReSTIRPT && SceneCompositePasses.ReSTIRPT->GetStats().Active,
+            .SSGIActive = data.PostProcess.SSGIEnabled,
+            .SSRActive = data.PostProcess.SSREnabled,
+            .RTReflectionActive = data.PostProcess.RayTracedReflection.Enabled,
+        });
         // ReSTIR GI (#1169, #979 Phase 3, second half).
         if (SceneCompositePasses.ReSTIRGI)
         {
             auto& giPass = *SceneCompositePasses.ReSTIRGI;
-            const auto& giSettings = data.PostProcess.ReSTIRGI;
+            auto giSettings = data.PostProcess.ReSTIRGI;
+            giSettings.Enabled &= !ptOwnership.PTIndirectDiffuse;
             // UBO before the readiness check, for the reason the tiers above
             // give: IsReadyForExecution() validates it.
             giPass.SetParamsUBO(data.PostProcessGPU.ReSTIRGI);
@@ -1292,7 +1324,7 @@ namespace OloEngine
                 SceneCompositePasses.ReSTIRGI &&
                 !SceneCompositePasses.ReSTIRGI->GetIndirectDiffuseSources().SSGIComposite &&
                 data.PostProcess.SSGIEnabled;
-            const bool ssgiEnabled = data.PostProcess.SSGIEnabled && !ssgiOwnedElsewhere && deferredPath &&
+            const bool ssgiEnabled = ptOwnership.DiffuseFallbacks.SSGIComposite && !ssgiOwnedElsewhere && deferredPath &&
                                      PostProcessPasses.SSGI->IsReadyForExecution();
             // Half resolution changes the SIZE of all four SSGI histories, so
             // flipping it has to drop them exactly as toggling the feature does
@@ -1407,7 +1439,7 @@ namespace OloEngine
             // CreatePostProcessPasses has no frame data to take it from.
             rtReflectionPass.SetParamsUBO(data.PostProcessGPU.RayTracedReflection);
             rtReflectionPass.SetSettings(rtReflectionSettings);
-            rtReflectionPass.SetEnabled(rtReflectionSettings.Enabled && deferredPath &&
+            rtReflectionPass.SetEnabled(ptOwnership.RTReflection && deferredPath &&
                                         rtReflectionPass.IsReadyForExecution());
             rtReflectionPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix,
                                                Renderer3D::GetRenderOrigin());
@@ -1515,7 +1547,7 @@ namespace OloEngine
             // also validates the UBO, so setting it first avoids dropping the
             // first frame SSR is enabled.
             PostProcessPasses.SSR->SetSSRUBO(data.PostProcessGPU.SSR);
-            const bool ssrEnabled = data.PostProcess.SSREnabled && deferredPath &&
+            const bool ssrEnabled = ptOwnership.SSR && deferredPath &&
                                     PostProcessPasses.SSR->IsReadyForExecution();
             PostProcessPasses.SSR->SetEnabled(ssrEnabled);
 
@@ -2843,6 +2875,9 @@ namespace OloEngine
         // ARMED condition rather than the raw setting, plus the two settings that
         // pick the history EXTRACTION SOURCE, because Setup() freezes that
         // contract for as long as the cached topology survives.
+        HashBool(h, data.PostProcess.ReSTIRPT.Enabled);
+        HashBool(h, data.PostProcess.ReSTIRPT.SpatialReuse);
+        HashBool(h, SceneCompositePasses.ReSTIRPT && SceneCompositePasses.ReSTIRPT->GetStats().Active);
         const bool restirGIArmed = data.PostProcess.ReSTIRGI.Enabled && SceneCompositePasses.ReSTIRGI &&
                                    SceneCompositePasses.ReSTIRGI->IsReadyForExecution();
         HashBool(h, restirGIArmed);
@@ -3149,6 +3184,7 @@ namespace OloEngine
         HashPassState(h, PostProcessPasses.ContactShadow);
         HashPassState(h, PostProcessPasses.GpuPathTracer);
         HashPassState(h, SceneCompositePasses.ReSTIRDI);
+        HashPassState(h, SceneCompositePasses.ReSTIRPT);
         HashPassState(h, SceneCompositePasses.ReSTIRGI);
         HashPassState(h, PostProcessPasses.FSR2);
         HashPassState(h, PostProcessPasses.Bloom);
@@ -3234,6 +3270,8 @@ namespace OloEngine
                         pipeline.SceneCompositePasses.RayTracedShadow->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.ReSTIRDI)
                         pipeline.SceneCompositePasses.ReSTIRDI->ResizeFramebuffer(sceneW, sceneH);
+                    if (pipeline.SceneCompositePasses.ReSTIRPT)
+                        pipeline.SceneCompositePasses.ReSTIRPT->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.SceneCompositePasses.ReSTIRGI)
                         pipeline.SceneCompositePasses.ReSTIRGI->ResizeFramebuffer(sceneW, sceneH);
                     if (pipeline.RenderStreamPasses.FluidIntermediates)
@@ -4322,6 +4360,28 @@ namespace OloEngine
         // again every time the scene's last light is deleted. The pass handles
         // both by clearing the radiance target to alpha 0, which the lighting
         // shader reads as "the ambient ladder answers this pixel".
+        if (pipeline.SceneCompositePasses.ReSTIRPT && pipeline.SceneCompositePasses.ReSTIRPT->GetStats().Active)
+        {
+            RGResourceDesc desc;
+            desc.Kind = RGResourceHandle::Kind::Framebuffer;
+            desc.Width = sceneBandWidth;
+            desc.Height = sceneBandHeight;
+            desc.Format = RGResourceFormat::RGBA32Float;
+            desc.Attachments = { RGResourceFormat::RGBA32Float, RGResourceFormat::RGBA32Float,
+                                 RGResourceFormat::RGBA32Float, RGResourceFormat::RGBA32Float };
+            const auto target = [&](std::string_view name)
+            {
+                desc.DebugName = std::string(name);
+                return declareGraphOnlyFramebuffer(name, desc);
+            };
+            board.Scratch.ReSTIRPTInitial = target(ResourceNames::ReSTIRPTInitial);
+            board.Scratch.ReSTIRPTTemporal = target(ResourceNames::ReSTIRPTTemporal);
+            board.Scratch.ReSTIRPTSpatial = target(ResourceNames::ReSTIRPTSpatial);
+            board.Lighting.ReSTIRPTRadiance = target(ResourceNames::ReSTIRPTRadiance);
+            board.Lighting.ReSTIRPTRadianceTexture = graph.CreateFramebufferAttachmentView(
+                ResourceNames::ReSTIRPTRadianceTexture, board.Lighting.ReSTIRPTRadiance, 0u);
+        }
+
         if (pipeline.SceneCompositePasses.ReSTIRGI)
         {
             const auto& gi = *pipeline.SceneCompositePasses.ReSTIRGI;
@@ -5619,6 +5679,7 @@ namespace OloEngine
         inputs.Passes.SphereProxyAO = SceneCompositePasses.SphereProxyAO.Raw();
         inputs.Passes.RayTracedShadow = SceneCompositePasses.RayTracedShadow.Raw();
         inputs.Passes.ReSTIRDI = SceneCompositePasses.ReSTIRDI.Raw();
+        inputs.Passes.ReSTIRPT = SceneCompositePasses.ReSTIRPT.Raw();
         inputs.Passes.ReSTIRGI = SceneCompositePasses.ReSTIRGI.Raw();
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
@@ -5832,6 +5893,12 @@ namespace OloEngine
         // published several nodes earlier. The tables, the settings, the
         // environment, the camera and the probe-volume flag are per-frame handoff
         // in ConfigurePassesForFrame().
+        SceneCompositePasses.ReSTIRPT = Ref<ReSTIRPTPass>::Create();
+        SceneCompositePasses.ReSTIRPT->SetName("ReSTIRPTPass");
+        SceneCompositePasses.ReSTIRPT->Init(scenePassSpec);
+        SceneCompositePasses.ReSTIRPT->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+        SceneCompositePasses.ReSTIRPT->SetGPUScene(&Renderer3D::GetGPUScene());
+
         SceneCompositePasses.ReSTIRGI = Ref<ReSTIRGIPass>::Create();
         SceneCompositePasses.ReSTIRGI->SetName("ReSTIRGIPass");
         SceneCompositePasses.ReSTIRGI->Init(scenePassSpec);

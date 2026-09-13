@@ -9,6 +9,24 @@
 
 namespace OloEngine::Tests
 {
+    TEST(ReSTIRPTTechnique, SettingsRejectNonfiniteInputsAndClampWorkBudgets)
+    {
+        ReSTIRPTSettings settings;
+        EXPECT_FALSE(settings.Enabled);
+        settings.InitialCandidates = 0;
+        settings.MappingMask = 0xFFFFFFFFu;
+        settings.ConfidenceCap = std::numeric_limits<f32>::infinity();
+        settings.NormalBias = std::numeric_limits<f32>::quiet_NaN();
+        settings.DebugView = static_cast<ReSTIRPTDebugView>(99u);
+        const auto sanitized = SanitizeReSTIRPTSettings(settings);
+        EXPECT_EQ(sanitized.InitialCandidates, 1u);
+        EXPECT_EQ(sanitized.MappingMask, 7u);
+        EXPECT_FLOAT_EQ(sanitized.ConfidenceCap, 8.0f);
+        EXPECT_FLOAT_EQ(sanitized.NormalBias, 0.01f);
+        EXPECT_EQ(sanitized.DebugView, ReSTIRPTDebugView::Radiance);
+        EXPECT_EQ(sanitized, SanitizeReSTIRPTSettings(sanitized));
+    }
+
     TEST(ReSTIRPTTechnique, EveryEngagementCombinationHasExclusiveIndirectOwnership)
     {
         for (u32 bits = 0; bits < 512u; ++bits)

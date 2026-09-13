@@ -245,6 +245,8 @@ namespace OloEngine
                  s_Data.PathTracerEmissive.ChangedThisFrame()))
             {
                 s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
+                if (s_Data.Pipeline)
+                    ++s_Data.Pipeline->ReSTIRPTSceneEpoch;
             }
             // The commit-to-consumer step (issue #994): slots and generations
             // are final here, so every draw link staged during submission is

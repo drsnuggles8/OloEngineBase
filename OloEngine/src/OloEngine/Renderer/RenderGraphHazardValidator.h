@@ -32,7 +32,8 @@ namespace OloEngine::RenderGraphHazardValidator
         // Predicates injected by the graph.
         std::function<bool(const std::string&)> IsPassReachable;
         std::function<u32(RGTextureHandle)> ResolveTexture;
-        std::function<u32(RGBufferHandle)> ResolveBuffer;
+        // Either a native backing or a live generation-checked RHI buffer.
+        std::function<bool(RGBufferHandle)> HasBufferBacking;
         std::function<Ref<Framebuffer>(RGFramebufferHandle)> ResolveFramebuffer;
 
         // Topology (already up to date — caller has run UpdateDependencyGraph

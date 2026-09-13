@@ -535,6 +535,14 @@ namespace OloEngine
         return m_Graph.ImportBuffer(name, bufferID, desc);
     }
 
+    RGBufferHandle RGBuilder::ImportBufferHandle(
+        std::string_view name,
+        RHI::ResourceHandle buffer,
+        const RGResourceDesc& desc)
+    {
+        return m_Graph.ImportBufferHandle(name, buffer, desc);
+    }
+
     // -------------------------------------------------------------------
     // Extract operations
     // -------------------------------------------------------------------

@@ -125,12 +125,15 @@ namespace OloEngine::Tests
         expectCompatible("two-sided flag");
         materialB.m_Flags |= GPUSceneMaterialFlagDisableShadowCasting;
         expectCompatible("shadow-casting flag");
+        materialB.m_Flags |= GPUSceneMaterialFlagTransmission;
+        expectCompatible("transmission transport flag");
         materialB.m_Albedo.m_HeapOffset = 9;
         expectCompatible("albedo heap offset");
 
         const GPUSceneMaterial* record = scene.GetMaterialRecord(handleB);
         ASSERT_NE(record, nullptr);
         EXPECT_EQ(record->Generation, 1u);
+        EXPECT_NE(record->Flags & GPUSceneMaterialFlagTransmission, 0u);
         EXPECT_EQ(record->AlbedoHeapOffset, 9u) << "a heap re-resolve is stored without touching identity";
         EXPECT_NE(record->Flags & GPUSceneMaterialFlagAlbedoMap, 0u);
         EXPECT_TRUE(extract().m_MaterialDirtyRanges.empty());

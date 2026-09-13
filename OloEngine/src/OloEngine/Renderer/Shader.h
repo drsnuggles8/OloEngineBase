@@ -130,6 +130,14 @@ namespace OloEngine
         // may restore the previous compilation status on failure (#1131).
         virtual bool Reload() = 0;
 
+        // Resource identity survives reload. Histories whose sample measure
+        // depends on this program must instead observe successful replacements.
+        // Reload and history consumers run on the render thread.
+        [[nodiscard("Invalidate shader-dependent history when this revision changes")]] u64 GetReloadRevision() const noexcept
+        {
+            return m_ReloadRevision;
+        }
+
         // --- Async compilation status ---
         [[nodiscard]] virtual ShaderCompilationStatus GetCompilationStatus() const
         {
@@ -218,5 +226,16 @@ namespace OloEngine
         // PrepareBatch() call that produced `prepared` — needed by a backend
         // that deferred its entire Create() here (see PrepareBatch() above).
         static std::vector<Ref<Shader>> FinalizeBatch(const std::vector<std::string>& filepaths, std::vector<Ref<Shader>> prepared, const std::vector<bool>& alreadyFinal);
+
+      protected:
+        // Call only after a replacement program is live. A failed reload that
+        // restores the previous program must leave its revision unchanged.
+        void MarkReloadSucceeded() noexcept
+        {
+            ++m_ReloadRevision;
+        }
+
+      private:
+        u64 m_ReloadRevision = 0;
     };
 } // namespace OloEngine

@@ -152,6 +152,11 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.ReSTIRDI.Raw() : nullptr;
     }
 
+    ReSTIRPTPass* Renderer3D::GetReSTIRPTPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.ReSTIRPT.Raw() : nullptr;
+    }
+
     ReSTIRGIPass* Renderer3D::GetReSTIRGIPass()
     {
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.ReSTIRGI.Raw() : nullptr;

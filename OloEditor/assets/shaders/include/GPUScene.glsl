@@ -70,6 +70,7 @@ struct GPUSceneGeometry
 #define OLO_GPU_SCENE_MATERIAL_OCCLUSION_MAP (1u << 11)
 #define OLO_GPU_SCENE_MATERIAL_EMISSIVE_MAP (1u << 12)
 #define OLO_GPU_SCENE_MATERIAL_SPECULAR_MAP (1u << 13)
+#define OLO_GPU_SCENE_MATERIAL_TRANSMISSION (1u << 14)
 
 // A heap offset a consumer must not index with: the texture was not
 // resolvable through the descriptor heap at extraction (GL without the

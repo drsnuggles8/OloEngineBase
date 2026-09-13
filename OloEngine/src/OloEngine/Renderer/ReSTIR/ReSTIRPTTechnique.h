@@ -1,14 +1,83 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRGITechnique.h"
 
 #include <algorithm>
 #include <cmath>
 #include <span>
+#include <array>
+#include <string_view>
 
 namespace OloEngine
 {
+    enum class ReSTIRPTDebugView : u32
+    {
+        Radiance,
+        Raw,
+        HistoryValidity,
+        Variance,
+        Lineage,
+        Conditioning,
+        Clamp
+    };
+    struct ReSTIRPTSettings
+    {
+        bool Enabled = false;
+        bool TemporalReuse = true;
+        bool SpatialReuse = true;
+        u32 InitialCandidates = 1;
+        u32 MappingMask = 7;
+        u32 Seed = 1211;
+        f32 SpatialRadius = 8.0f;
+        f32 ConfidenceCap = 8.0f;
+        f32 RayEpsilon = 0.001f;
+        f32 NormalBias = 0.01f;
+        f32 MaxRayDistance = 1000.0f;
+        f32 RadianceClamp = 0.0f;
+        ReSTIRPTDebugView DebugView = ReSTIRPTDebugView::Radiance;
+        [[nodiscard("Compare authored PT settings")]] auto operator==(const ReSTIRPTSettings& other) const -> bool
+        {
+            const bool switches = Enabled == other.Enabled && TemporalReuse == other.TemporalReuse && SpatialReuse == other.SpatialReuse;
+            const bool counts = InitialCandidates == other.InitialCandidates && MappingMask == other.MappingMask && Seed == other.Seed;
+            const bool reuse = Math::BitwiseEqual(SpatialRadius, other.SpatialRadius) && Math::BitwiseEqual(ConfidenceCap, other.ConfidenceCap);
+            const bool rays = Math::BitwiseEqual(RayEpsilon, other.RayEpsilon) && Math::BitwiseEqual(NormalBias, other.NormalBias);
+            const bool output = Math::BitwiseEqual(MaxRayDistance, other.MaxRayDistance) && Math::BitwiseEqual(RadianceClamp, other.RadianceClamp) && DebugView == other.DebugView;
+            const bool sampling = switches && counts && reuse;
+            return sampling && rays && output;
+        }
+    };
+    [[nodiscard("Use sanitized PT settings")]] inline ReSTIRPTSettings SanitizeReSTIRPTSettings(ReSTIRPTSettings settings)
+    {
+        const auto finiteClamp = [](f32 v, f32 lo, f32 hi, f32 fallback)
+        { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+        settings.InitialCandidates = std::clamp(settings.InitialCandidates, 1u, 8u);
+        settings.MappingMask &= 7u;
+        settings.Seed &= 0xFFFFFFu;
+        settings.SpatialRadius = finiteClamp(settings.SpatialRadius, 1.0f, 32.0f, 8.0f);
+        settings.ConfidenceCap = finiteClamp(settings.ConfidenceCap, 1.0f, 32.0f, 8.0f);
+        settings.RayEpsilon = finiteClamp(settings.RayEpsilon, 0.00001f, 0.1f, 0.001f);
+        settings.NormalBias = finiteClamp(settings.NormalBias, 0.0f, 0.1f, 0.01f);
+        settings.MaxRayDistance = finiteClamp(settings.MaxRayDistance, 1.0f, 100000.0f, 1000.0f);
+        settings.RadianceClamp = finiteClamp(settings.RadianceClamp, 0.0f, 1000000.0f, 0.0f);
+        if (static_cast<u32>(settings.DebugView) > static_cast<u32>(ReSTIRPTDebugView::Clamp))
+            settings.DebugView = ReSTIRPTDebugView::Radiance;
+        return settings;
+    }
+    struct ReSTIRPTStats
+    {
+        bool Requested = false;
+        bool Active = false;
+        bool HistoryValid = false;
+        bool BiasedClamp = false;
+        bool CountersValid = false;
+        u32 CounterFrame = 0;
+        u64 SceneEpoch = 0;
+        u64 ReservoirBytes = 0;
+        std::string_view FallbackReason = "disabled";
+        std::array<u32, 16> Counters{};
+    };
     // Pure contracts for the restricted prototype, not evidence of a live PT pass.
     // Engagement means an actual usable output, not a requested setting.
     struct ReSTIRPTOwnershipInputs

@@ -843,6 +843,7 @@ namespace OloEngine
         m_Status = ShaderCompilationStatus::Ready;
         OLO_CORE_INFO("VulkanShader '{}': reloaded ({} dependent pipeline(s) invalidated, lazy recreation)",
                       m_Name, invalidated);
+        MarkReloadSucceeded();
         return true;
     }
 

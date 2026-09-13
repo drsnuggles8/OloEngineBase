@@ -459,6 +459,7 @@ vec3 ComputeDeferredLit(
     // itself at the composite. Asking twice would let the two answers drift.
     vec3 restirIndirect;
     bool restirGIActive = oloReSTIRGIIndirectDiffuse(restirIndirect);
+    bool restirPTActive = restirGIActive && u_MSAAParams.z > 1.5;
 
     vec3 ambient = vec3(0.0);
     if (restirGIActive)
@@ -472,7 +473,7 @@ vec3 ComputeDeferredLit(
         // With IBL off there is no specular ambient to keep, so the whole term
         // is zero: calculateSimpleAmbient would have put a flat DIFFUSE fill
         // back, which is the one thing this tier has just replaced.
-        if (enableIBL)
+        if (enableIBL && !restirPTActive)
         {
             ambient = calculateCombinedAmbientPrefiltered(vec3(0.0), N, V, albedo, metallic, roughness,
                                                           u_BRDFLutMap, prefilteredColor);

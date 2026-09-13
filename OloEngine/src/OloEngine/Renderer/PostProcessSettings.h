@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRDITechnique.h"
 #include "OloEngine/Renderer/ReSTIR/ReSTIRGITechnique.h"
+#include "OloEngine/Renderer/ReSTIR/ReSTIRPTTechnique.h"
 #include "OloEngine/Renderer/ReflectionTier.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Core/Base.h"
@@ -432,6 +433,7 @@ namespace OloEngine
         // and it stands SSGI down while it is live, because SSGI composites a
         // THIRD estimate of the same integral and leaving it on double-counts.
         ReSTIRGISettings ReSTIRGI{};
+        ReSTIRPTSettings ReSTIRPT{};
 
         // Screen-Space Global Illumination (SSGI)
         // Deferred-only: one-bounce indirect *diffuse* lighting. For each opaque

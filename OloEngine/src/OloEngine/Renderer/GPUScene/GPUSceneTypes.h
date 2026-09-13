@@ -148,6 +148,7 @@ namespace OloEngine
         GPUSceneMaterialFlagOcclusionMap = 1u << 11,
         GPUSceneMaterialFlagEmissiveMap = 1u << 12,
         GPUSceneMaterialFlagSpecularMap = 1u << 13,
+        GPUSceneMaterialFlagTransmission = 1u << 14, // authored transport unsupported by the restricted PT tier
     };
 
     enum GPUSceneLightFlag : u32

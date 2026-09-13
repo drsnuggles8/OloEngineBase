@@ -203,6 +203,10 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // term this one never touches. Registering GI second also keeps
         // DeferredLightingPass the immediate successor of whichever of the two is
         // last, so the builder derives both radiance edges in registration order.
+        if (inputs.Passes->ReSTIRPT)
+        {
+            graph.AddNode(PrepareGraphNode("ReSTIRPTPass", inputs.Passes->ReSTIRPT));
+        }
         if (inputs.Passes->ReSTIRGI)
         {
             graph.AddNode(PrepareGraphNode("ReSTIRGIPass", inputs.Passes->ReSTIRGI));

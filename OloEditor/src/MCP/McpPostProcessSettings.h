@@ -290,6 +290,16 @@ namespace OloEngine::MCP::PostProcess
     {                                                                                                                                                                                                                    \
         token, "restirgi", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRGI, &ReSTIRGISettings::name>, nullptr, nullptr \
     }
+#define OLO_RESTIR_PT_BOOL(token, name, desc)                                                                                                                                                                                         \
+    FieldInfo                                                                                                                                                                                                                         \
+    {                                                                                                                                                                                                                                 \
+        token, "restirpt", FieldType::Bool, 0.0, 1.0, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRPT, &ReSTIRPTSettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRPT, &ReSTIRPTSettings::name>, nullptr, nullptr \
+    }
+#define OLO_RESTIR_PT_NUM(token, name, type, lo, hi, desc)                                                                                                                                                               \
+    FieldInfo                                                                                                                                                                                                            \
+    {                                                                                                                                                                                                                    \
+        token, "restirpt", type, lo, hi, {}, false, desc, &GetPpNested<&PostProcessSettings::ReSTIRPT, &ReSTIRPTSettings::name>, &SetPpNested<&PostProcessSettings::ReSTIRPT, &ReSTIRPTSettings::name>, nullptr, nullptr \
+    }
 #define OLO_FOG_BOOL(token, name, desc)                                                                                                      \
     FieldInfo                                                                                                                                \
     {                                                                                                                                        \
@@ -645,6 +655,20 @@ namespace OloEngine::MCP::PostProcess
                           "0 radiance, 1 raw candidate, 2 history validity, 3 variance, 4 reservoir M, "
                           "5 reservoir W, 6 sample kind, 7 sample AGE, 8 sample radiance, "
                           "9 reconnection length, 10 bias/clamp state."),
+
+        OLO_RESTIR_PT_BOOL("ReSTIRPTEnabled", Enabled, "Experimental multi-bounce indirect tier; deferred Vulkan RT only. Replaces indirect diffuse and specular."),
+        OLO_RESTIR_PT_BOOL("ReSTIRPTTemporalReuse", TemporalReuse, "TemporalReuse for the restricted PT estimator."),
+        OLO_RESTIR_PT_BOOL("ReSTIRPTSpatialReuse", SpatialReuse, "SpatialReuse for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTInitialCandidates", InitialCandidates, FieldType::Int, 1, 8, "InitialCandidates for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTMappingMask", MappingMask, FieldType::Int, 0, 7, "Shift mask: 1 reconnection, 2 replay, 4 hybrid; 0 initial candidates only."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTSeed", Seed, FieldType::Int, 0, 16777215, "Seed for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTSpatialRadius", SpatialRadius, FieldType::Float, 1, 32, "SpatialRadius for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTConfidenceCap", ConfidenceCap, FieldType::Float, 1, 32, "ConfidenceCap for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTRayEpsilon", RayEpsilon, FieldType::Float, 1e-05, 0.1, "RayEpsilon for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTNormalBias", NormalBias, FieldType::Float, 0, 0.1, "NormalBias for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTMaxRayDistance", MaxRayDistance, FieldType::Float, 1, 100000, "MaxRayDistance for the restricted PT estimator."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTRadianceClamp", RadianceClamp, FieldType::Float, 0, 1000000, "Biased output clamp; 0 disables it."),
+        OLO_RESTIR_PT_NUM("ReSTIRPTDebugView", DebugView, FieldType::Int, 0, 6, "0 radiance, 1 raw, 2 history validity, 3 raw candidate variance, 4 lineage, 5 conditioning, 6 clamp."),
 
         // ---- screen-space global illumination ----------------------------------
         OLO_PP_BOOL(SSGIEnabled, "ssgi", "Run screen-space indirect diffuse (Deferred path only)."),

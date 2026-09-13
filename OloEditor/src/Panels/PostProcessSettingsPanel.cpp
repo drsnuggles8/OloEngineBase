@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/SphereProxyAO.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
@@ -104,6 +105,19 @@ namespace OloEngine
                          after.ReSTIRDI.MaxRadianceClamp);
             AppendChange(changes, "ReSTIRDIRayOriginNormalBias", before.ReSTIRDI.RayOriginNormalBias,
                          after.ReSTIRDI.RayOriginNormalBias);
+            AppendChange(changes, "ReSTIRPTEnabled", before.ReSTIRPT.Enabled, after.ReSTIRPT.Enabled);
+            AppendChange(changes, "ReSTIRPTTemporalReuse", before.ReSTIRPT.TemporalReuse, after.ReSTIRPT.TemporalReuse);
+            AppendChange(changes, "ReSTIRPTSpatialReuse", before.ReSTIRPT.SpatialReuse, after.ReSTIRPT.SpatialReuse);
+            AppendChange(changes, "ReSTIRPTInitialCandidates", before.ReSTIRPT.InitialCandidates, after.ReSTIRPT.InitialCandidates);
+            AppendChange(changes, "ReSTIRPTMappingMask", before.ReSTIRPT.MappingMask, after.ReSTIRPT.MappingMask);
+            AppendChange(changes, "ReSTIRPTSeed", before.ReSTIRPT.Seed, after.ReSTIRPT.Seed);
+            AppendChange(changes, "ReSTIRPTSpatialRadius", before.ReSTIRPT.SpatialRadius, after.ReSTIRPT.SpatialRadius);
+            AppendChange(changes, "ReSTIRPTConfidenceCap", before.ReSTIRPT.ConfidenceCap, after.ReSTIRPT.ConfidenceCap);
+            AppendChange(changes, "ReSTIRPTRayEpsilon", before.ReSTIRPT.RayEpsilon, after.ReSTIRPT.RayEpsilon);
+            AppendChange(changes, "ReSTIRPTNormalBias", before.ReSTIRPT.NormalBias, after.ReSTIRPT.NormalBias);
+            AppendChange(changes, "ReSTIRPTMaxRayDistance", before.ReSTIRPT.MaxRayDistance, after.ReSTIRPT.MaxRayDistance);
+            AppendChange(changes, "ReSTIRPTRadianceClamp", before.ReSTIRPT.RadianceClamp, after.ReSTIRPT.RadianceClamp);
+            AppendChange(changes, "ReSTIRPTDebugView", static_cast<u32>(before.ReSTIRPT.DebugView), static_cast<u32>(after.ReSTIRPT.DebugView));
             AppendChange(changes, "ReSTIRGIEnabled", before.ReSTIRGI.Enabled, after.ReSTIRGI.Enabled);
             AppendChange(changes, "ReSTIRGIInitialCandidates", before.ReSTIRGI.InitialCandidates,
                          after.ReSTIRGI.InitialCandidates);
@@ -858,6 +872,40 @@ namespace OloEngine
         // this tier is live it stands SSGI down, and putting them next to each
         // other is what makes that visible to someone dragging the SSGI slider
         // and seeing nothing happen.
+        if (ImGui::CollapsingHeader("ReSTIR Path Tracing (experimental)"))
+        {
+            auto& pt = settings.ReSTIRPT;
+            ImGui::Checkbox("Enable##ReSTIRPT", &pt.Enabled);
+            ImGui::TextWrapped("Deferred Vulkan ray tracing. Three secondary vertices; replaces indirect diffuse and specular lighting. Transmission and sphere-area lights are unsupported.");
+            ImGui::Checkbox("Temporal reuse##ReSTIRPT", &pt.TemporalReuse);
+            ImGui::Checkbox("Spatial reuse##ReSTIRPT", &pt.SpatialReuse);
+            int candidates = static_cast<int>(pt.InitialCandidates);
+            if (ImGui::SliderInt("Candidates##ReSTIRPT", &candidates, 1, 8))
+                pt.InitialCandidates = static_cast<u32>(candidates);
+            const char* mappingNames[] = { "Reconnection", "Random replay", "Hybrid" };
+            for (u32 i = 0; i < 3u; ++i)
+            {
+                bool enabled = (pt.MappingMask & (1u << i)) != 0u;
+                if (ImGui::Checkbox(mappingNames[i], &enabled))
+                    pt.MappingMask = enabled ? pt.MappingMask | (1u << i) : pt.MappingMask & ~(1u << i);
+            }
+            ImGui::SliderFloat("Spatial radius##ReSTIRPT", &pt.SpatialRadius, 1.0f, 32.0f);
+            ImGui::SliderFloat("Confidence cap##ReSTIRPT", &pt.ConfidenceCap, 1.0f, 32.0f);
+            ImGui::DragFloat("Biased radiance clamp (0 off)##ReSTIRPT", &pt.RadianceClamp, 0.1f, 0.0f, 1000000.0f);
+            int view = static_cast<int>(pt.DebugView);
+            if (ImGui::Combo("View##ReSTIRPT", &view, "Radiance\0Raw initial\0History validity\0Raw candidate variance\0Lineage\0Conditioning\0Clamp\0"))
+                pt.DebugView = static_cast<ReSTIRPTDebugView>(view);
+            pt = SanitizeReSTIRPTSettings(pt);
+            if (const auto* pass = Renderer3D::GetReSTIRPTPass())
+            {
+                const auto& stats = pass->GetStats();
+                ImGui::Text("%s", stats.Active ? "Active" : std::string(stats.FallbackReason).c_str());
+                if (stats.CountersValid)
+                    ImGui::Text("Frame %u: %u rays, %u shadow rays; %u nonfinite", stats.CounterFrame,
+                                stats.Counters[0], stats.Counters[1], stats.Counters[13]);
+            }
+        }
+
         if (ImGui::CollapsingHeader("ReSTIR Global Illumination"))
         {
             ImGui::Indent();

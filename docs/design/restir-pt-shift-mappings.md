@@ -307,3 +307,54 @@ Sampling* (2022), sections 4–8, particularly chart/padded-space discussion in 
 <https://graphics.cs.utah.edu/research/projects/gris/>. The concrete conditioning,
 history and ownership policies above are this prototype's decisions, not measured
 results or claims made by that paper.
+
+## 10. Prototype GPU representation and observability
+
+`ReSTIRPTGPU.h` and `ReSTIRPTTypes.glsl` define layout version 1. Every field is
+16-byte aligned: a vertex occupies 112 bytes, an endpoint 80 bytes, and a complete
+record 592 bytes. Four vertices (primary plus three secondary) occupy bytes 0–447;
+the endpoint starts at 448, metadata at 528, lineage at 544, reservoir state at
+560, and extended contribution at 576. The state is `(W, M, pHat, logJ)`.
+Lineage validity flags distinguish a valid receiver from a selected nonzero path:
+a black initial sample still supplies a receiver and scheduled confidence. Bit 4
+tracks whether the selected suffix has temporal ancestry; the history view uses
+that bit, rather than displaying fresh-candidate validity as history.
+The upper 16 bits carry the layout version; reuse rejects mismatched records.
+The parameter block also carries the host layout version and a mismatched shader
+fails closed before accessing pools. Successful shader reloads invalidate history
+and pending counters, including sampler-only edits; failed reloads retain the old
+program and history. Changing the CPU/GPU byte layout requires rebuilding and
+restarting the editor, not only hot-reloading GLSL.
+The contribution's fourth component records raw initial-candidate sample variance;
+it is **not** the variance of the final resampled estimator.
+
+The 416-byte parameter block binds at 65. Canonical/neighbor addresses begin at
+256, destination/counter addresses at 272, previous/current initial addresses at
+288, then candidate/stage/mapping/epoch controls. Texture and environment feature
+bits are respectively 1 and 2. Four full-resolution path pools hold two initial
+frames and the temporal/spatial outputs. Thus storage is 2368 bytes per pixel,
+plus graph attachments and a 64-byte counter buffer. This deliberately explicit
+prototype trades substantial memory and ray work for inspectable full suffixes.
+
+Stages 0–3 generate initial candidates, combine temporal history, combine a
+spatial neighbor, and resolve. Only initial pools survive between frames.
+Four float attachments per stage expose radiance/raw, history or variance, lineage,
+and conditioning/clamp diagnostics. Deferred binding 74 carries either GI or PT;
+its control value is 1 for diffuse GI and 2 for full indirect PT. PT therefore
+suppresses specular ambient as well as the diffuse ladder. Fallback ownership is
+resolved before configuring GI, SSGI, SSR, and ray-traced reflections.
+
+Counters, in index order, are closest rays, shadow rays, initial candidates, valid
+candidates, temporal acceptance, spatial acceptance, reconnection acceptance,
+replay acceptance, hybrid acceptance, domain rejection, inverse rejection,
+conditioning rejection, glossy events, nonfinite events, valid pixels, and clamped
+pixels. `olo_restir_pt_stats` attributes readback to its producer frame. Four GPU
+timestamp scopes carry the stage names. Readback synchronizes in this prototype;
+its cost must be included in measurements.
+
+Ray queries use an offset origin to avoid self-intersection. Replay retains the
+actual sampled direction in the subsequent vertex's incoming field, rather than
+reconstructing it from unoffset hit positions. Reconnection evaluates the same
+projected-area formula using the effective source and destination ray origins;
+the signed front-side domain keeps the normal-offset branch fixed. Visibility
+and finite epsilon remain numerical approximations shared with the reference.

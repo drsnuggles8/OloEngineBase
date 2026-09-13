@@ -91,6 +91,8 @@ namespace OloEngine
             {
                 flags |= GPUSceneMaterialFlagUseTextureMaps;
             }
+            if (material.IsTransmissive())
+                flags |= GPUSceneMaterialFlagTransmission;
             input.m_Flags = flags;
 
             input.m_Albedo = ResolveRecordTexture2D(pbr ? material.GetAlbedoMap() : material.GetDiffuseMap(), heapEnabled);

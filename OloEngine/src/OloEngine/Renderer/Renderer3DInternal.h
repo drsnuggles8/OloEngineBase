@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/Passes/RayTracedShadowPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
@@ -160,6 +161,7 @@ namespace OloEngine
         // execution edge on RayTracingScenePass, for the same reason.
         Ref<ReSTIRDIPass> ReSTIRDI;
         Ref<ReSTIRGIPass> ReSTIRGI;
+        Ref<ReSTIRPTPass> ReSTIRPT;
         Ref<ParticleRenderPass> Particle;
         Ref<OITPrepareRenderPass> OITPrepare;
         Ref<OITResolveRenderPass> OITResolve;
@@ -176,6 +178,7 @@ namespace OloEngine
             RayTracedShadow.Reset();
             ReSTIRDI.Reset();
             ReSTIRGI.Reset();
+            ReSTIRPT.Reset();
             Particle.Reset();
             OITPrepare.Reset();
             OITResolve.Reset();
@@ -368,6 +371,7 @@ namespace OloEngine
         u32 m_ReportedReSTIRDIVerdict = kNoReSTIRDIVerdict;
         static constexpr u32 kNoReSTIRGIVerdict = ~0u;
         u32 m_ReportedReSTIRGIVerdict = kNoReSTIRGIVerdict;
+        u64 ReSTIRPTSceneEpoch = 1;
 
       private:
         void ApplyGlobalResources(Renderer3DData& data) const;

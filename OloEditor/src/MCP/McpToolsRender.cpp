@@ -70,6 +70,7 @@
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
+#include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -6722,6 +6723,34 @@ namespace OloEngine::MCP
             return report;
         }
 
+        ToolResult Handle_ReSTIRPTStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            return ToolResult::Structured(host.MarshalRead([]() -> Json
+                                                           {
+                const auto* pass = Renderer3D::HasInitialized() ? Renderer3D::GetReSTIRPTPass() : nullptr;
+                Json report = { { "available", pass != nullptr } };
+                if (!pass)
+                    return report;
+                const auto& stats = pass->GetStats();
+                report["requested"] = stats.Requested;
+                report["active"] = stats.Active;
+                report["fallbackReason"] = stats.FallbackReason;
+                report["historyValid"] = stats.HistoryValid;
+                report["sceneEpoch"] = stats.SceneEpoch;
+                report["reservoirBytes"] = stats.ReservoirBytes;
+                report["biasedClamp"] = stats.BiasedClamp;
+                report["countersValid"] = stats.CountersValid;
+                report["counterFrame"] = stats.CounterFrame;
+                constexpr std::array names = { "rays", "shadowRays", "initialCandidates", "validCandidates",
+                    "temporalAccepted", "spatialAccepted", "reconnectionAccepted", "replayAccepted", "hybridAccepted",
+                    "domainRejected", "inverseRejected", "conditioningRejected", "glossyEvents", "nonfinite",
+                    "validPixels", "clampedPixels" };
+                const sizet counterCount = names.size();
+                for (sizet i = 0; i < counterCount; ++i)
+                    report["counters"][names[i]] = stats.Counters[i];
+                return report; }));
+        }
+
         ToolResult Handle_ReSTIRGIStats(IAutomationHost& host, const Json& /*args*/)
         {
             const Json result = host.MarshalRead([]() -> Json
@@ -8958,6 +8987,48 @@ namespace OloEngine::MCP
                     .Required({ "availability" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ReSTIRGIStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_restir_pt_stats";
+            tool.Toolset = "render";
+            tool.Title = "ReSTIR path tracing statistics";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description = "Restricted multi-bounce tier availability, initial-only history and completed GPU counters. Counter frame identifies the measured submission; zero counters are meaningful only when countersValid is true. Raw targets expose initial candidate variance, not final estimator variance.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("available", Schema::Bool())
+                                    .Prop("requested", Schema::Bool())
+                                    .Prop("active", Schema::Bool())
+                                    .Prop("fallbackReason", Schema::String())
+                                    .Prop("historyValid", Schema::Bool())
+                                    .Prop("sceneEpoch", Schema::Int().Min(0))
+                                    .Prop("reservoirBytes", Schema::Int().Min(0))
+                                    .Prop("biasedClamp", Schema::Bool())
+                                    .Prop("countersValid", Schema::Bool())
+                                    .Prop("counterFrame", Schema::Int().Min(0))
+                                    .Prop("counters", Schema::Object()
+                                                          .Prop("rays", Schema::Int().Min(0))
+                                                          .Prop("shadowRays", Schema::Int().Min(0))
+                                                          .Prop("initialCandidates", Schema::Int().Min(0))
+                                                          .Prop("validCandidates", Schema::Int().Min(0))
+                                                          .Prop("temporalAccepted", Schema::Int().Min(0))
+                                                          .Prop("spatialAccepted", Schema::Int().Min(0))
+                                                          .Prop("reconnectionAccepted", Schema::Int().Min(0))
+                                                          .Prop("replayAccepted", Schema::Int().Min(0))
+                                                          .Prop("hybridAccepted", Schema::Int().Min(0))
+                                                          .Prop("domainRejected", Schema::Int().Min(0))
+                                                          .Prop("inverseRejected", Schema::Int().Min(0))
+                                                          .Prop("conditioningRejected", Schema::Int().Min(0))
+                                                          .Prop("glossyEvents", Schema::Int().Min(0))
+                                                          .Prop("nonfinite", Schema::Int().Min(0))
+                                                          .Prop("validPixels", Schema::Int().Min(0))
+                                                          .Prop("clampedPixels", Schema::Int().Min(0)))
+                                    .Required({ "available" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_ReSTIRPTStats;
             registry.Register(std::move(tool));
         }
 

@@ -512,6 +512,9 @@ namespace OloEngine
         [[nodiscard]] RGBufferHandle ImportBuffer(std::string_view name, u32 bufferID,
                                                   const RGResourceDesc& desc = {});
 
+        [[nodiscard("Use the imported buffer identity")]] RGBufferHandle ImportBufferHandle(std::string_view name, RHI::ResourceHandle buffer,
+                                                                                            const RGResourceDesc& desc = {});
+
         // Import a temporal history texture (same as ImportTexture but records
         // the IsHistory flag so the debug dump can distinguish live from history
         // resources). Returns an invalid handle when `textureID == 0`.
@@ -1757,7 +1760,7 @@ namespace OloEngine
                                             RHI::ResourceHandle identity, const RGResourceDesc& desc);
         RGTextureHandle AllocateTextureHandle(std::string_view name, u32 textureID, bool isHistory, bool isPlaceholder = false, std::string_view placeholderReason = "", RHI::ResourceHandle identity = {});
         RGFramebufferHandle AllocateFramebufferHandle(std::string_view name, const Ref<Framebuffer>& fb, bool isPlaceholder = false, std::string_view placeholderReason = "");
-        RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "");
+        RGBufferHandle AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder = false, std::string_view placeholderReason = "", RHI::ResourceHandle identity = {});
         [[nodiscard]] RGTextureHandle CreateVersionedTextureHandle(RGTextureHandle sourceHandle,
                                                                    std::string_view versionedName,
                                                                    std::string_view ownerPassName);

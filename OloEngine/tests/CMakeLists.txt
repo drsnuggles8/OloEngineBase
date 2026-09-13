@@ -222,6 +222,7 @@ add_executable(OloEngine-Tests
 		Rendering/ReSTIR/PathShiftTest.cpp
 		Rendering/ReSTIR/PathReplayChartsTest.cpp
 		Rendering/ReSTIR/ReSTIRPTTechniqueTest.cpp
+        Rendering/ReSTIR/ReSTIRPTDeviceTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
