@@ -662,6 +662,12 @@ namespace OloEngine
 
         ParticleBatchRenderer::Shutdown();
 
+        // The shared default primitives own GPU buffers (issue #1191). Drop them
+        // here, before the memory tracker's teardown census, or each one reads as
+        // a Ref that outlived the renderer - and a test that restarts the renderer
+        // would be handed a source whose buffers died with the previous one.
+        MeshPrimitives::ReleaseSharedSources();
+
         if (s_Data.DecalVisibilityQueriesInitialized)
         {
             RenderCommand::DeleteQueries(s_Data.DecalReceiverIntersectionQueries);

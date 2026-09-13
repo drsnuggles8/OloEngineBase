@@ -1,10 +1,12 @@
 #include "OloEnginePCH.h"
 #include "MeshPrimitives.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "MeshSource.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 
+#include <array>
 #include <iterator>
 
 namespace OloEngine
@@ -138,6 +140,69 @@ namespace OloEngine
         s_FullscreenTriangleVA.Reset();
     }
 
+    namespace
+    {
+        using SharedSourceTable = std::array<Ref<MeshSource>, static_cast<sizet>(MeshPrimitives::SharedDefault::Count)>;
+
+        SharedSourceTable& SharedDefaultSources()
+        {
+            static SharedSourceTable s_Sources;
+            return s_Sources;
+        }
+
+        Ref<Mesh> BuildDefault(MeshPrimitives::SharedDefault kind)
+        {
+            switch (kind)
+            {
+                case MeshPrimitives::SharedDefault::Cube:
+                    return MeshPrimitives::CreateCube();
+                case MeshPrimitives::SharedDefault::Sphere:
+                    return MeshPrimitives::CreateSphere();
+                case MeshPrimitives::SharedDefault::Plane:
+                    return MeshPrimitives::CreatePlane();
+                case MeshPrimitives::SharedDefault::Cylinder:
+                    return MeshPrimitives::CreateCylinder();
+                case MeshPrimitives::SharedDefault::Cone:
+                    return MeshPrimitives::CreateCone();
+                case MeshPrimitives::SharedDefault::Icosphere:
+                    return MeshPrimitives::CreateIcosphere();
+                case MeshPrimitives::SharedDefault::Torus:
+                    return MeshPrimitives::CreateTorus();
+                case MeshPrimitives::SharedDefault::Count:
+                    break;
+            }
+            OLO_CORE_ASSERT(false, "CreateSharedDefault: unknown primitive kind");
+            return nullptr;
+        }
+    } // namespace
+
+    Ref<Mesh> MeshPrimitives::CreateSharedDefault(SharedDefault kind)
+    {
+        if (!RenderCommand::IsDeviceAvailable())
+            return BuildDefault(kind);
+
+        auto& sources = SharedDefaultSources();
+        const auto index = static_cast<sizet>(kind);
+        OLO_CORE_ASSERT(index < sources.size(), "CreateSharedDefault: unknown primitive kind");
+        if (index >= sources.size())
+            return nullptr;
+        auto& shared = sources[index];
+        if (!shared)
+        {
+            auto built = BuildDefault(kind);
+            if (!built)
+                return nullptr;
+            shared = built->GetMeshSource();
+        }
+        return Ref<Mesh>::Create(shared, 0);
+    }
+
+    void MeshPrimitives::ReleaseSharedSources()
+    {
+        for (auto& source : SharedDefaultSources())
+            source.Reset();
+    }
+
     Ref<Mesh> MeshPrimitives::CreateCube()
     {
         OLO_PROFILE_FUNCTION();
@@ -200,22 +265,59 @@ namespace OloEngine
             }
         }
 
-        // Generate indices
+        // Generate indices.
+        //
+        // THE POLE ROWS ARE A TRIANGLE FAN, NOT A QUAD STRIP. Ring 0 evaluates
+        // sin(pi * 0 * R) == 0 for every sector, so all `sectors` of its vertices
+        // are the same point (0, -radius, 0); the last ring collapses the same way
+        // onto (0, +radius, 0). A quad with two corners at one point is one real
+        // triangle plus one with zero area, so emitting both there produced a full
+        // sector's worth of degenerate triangles at each pole — 62 of 930 at the
+        // default segments = 16, submitted, transformed and rasterized to nothing
+        // on every draw of every sphere in the engine (issue #1191).
+        //
+        // Half of them were invisible to the import census as well: r * R is
+        // exactly 0 at the south pole so those triangles are exactly zero-area,
+        // while (rings - 1) * (1.0f / (rings - 1)) is not exactly 1.0f in float, so
+        // the north pole's are slivers of ~1e-7 area that pass a zero-area test.
+        // AnalyzeDegenerateTriangles reported 31, not 62, for exactly that reason.
+        //
+        // Dropping them cannot change the rendered image: a triangle with no area
+        // covers no pixels. It removes 62 triangles of the 930 and the index
+        // buffer shrinks to match.
         indices.reserve((rings - 1) * (sectors - 1) * 6);
         for (u32 r = 0; r < rings - 1; ++r)
         {
+            // rings == 2 would make one band both poles at once, leaving nothing to
+            // draw. That shape is already fully degenerate (both its rings ARE the
+            // poles), so leave it exactly as it was rather than emitting an empty
+            // index buffer for it.
+            const bool poleRowsAreSeparable = rings > 2;
+            const bool southPoleBand = poleRowsAreSeparable && r == 0;
+            const bool northPoleBand = poleRowsAreSeparable && r == rings - 2;
+
             for (u32 s = 0; s < sectors - 1; ++s)
             {
                 const u32 curRow = r * sectors;
                 const u32 nextRow = (r + 1) * sectors;
 
-                indices.push_back(curRow + s);
-                indices.push_back(nextRow + s);
-                indices.push_back(nextRow + (s + 1));
+                // Degenerate at the NORTH pole: nextRow + s and nextRow + (s + 1)
+                // are the same point there.
+                if (!northPoleBand)
+                {
+                    indices.push_back(curRow + s);
+                    indices.push_back(nextRow + s);
+                    indices.push_back(nextRow + (s + 1));
+                }
 
-                indices.push_back(curRow + s);
-                indices.push_back(nextRow + (s + 1));
-                indices.push_back(curRow + (s + 1));
+                // Degenerate at the SOUTH pole: curRow + s and curRow + (s + 1)
+                // are the same point there.
+                if (!southPoleBand)
+                {
+                    indices.push_back(curRow + s);
+                    indices.push_back(nextRow + (s + 1));
+                    indices.push_back(curRow + (s + 1));
+                }
             }
         }
 
