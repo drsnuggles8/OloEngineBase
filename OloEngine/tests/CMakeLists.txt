@@ -218,6 +218,10 @@ add_executable(OloEngine-Tests
 		# analytically-shaded Lambertian occluder, with a negative control that
 		# fails if dropping the Jacobian does NOT bias the result.
 		Rendering/ReSTIR/ReSTIRGIOracleTest.cpp
+		# #1211: suffix change-of-measure, invertible replay charts, and ownership contracts.
+		Rendering/ReSTIR/PathShiftTest.cpp
+		Rendering/ReSTIR/PathReplayChartsTest.cpp
+		Rendering/ReSTIR/ReSTIRPTTechniqueTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
