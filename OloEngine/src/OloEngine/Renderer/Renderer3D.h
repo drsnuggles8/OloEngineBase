@@ -2375,6 +2375,11 @@ namespace OloEngine
             Ref<Shader> FoliageGBufferShader; // Deferred: Foliage_Instance_GBuffer.glsl
             Ref<Shader> FoliageDepthShader;
             Ref<Shader> FoliageImpostorShader; // Octahedral impostor card (issue #433)
+            // Deferred sibling of the impostor card (#1225). Without it the
+            // canopy draws after DeferredLightingPass and never reaches
+            // GBufferAlbedo / GBufferNormal, so SSAO / SSGI / SSR see no
+            // canopy occluder at all.
+            Ref<Shader> FoliageImpostorGBufferShader;
 
             // Water
             Ref<Shader> WaterShader;

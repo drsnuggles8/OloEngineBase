@@ -355,6 +355,7 @@ namespace OloEngine::Tests
             { "Foliage_Depth.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
             { "Foliage_Instance_GBuffer.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
             { "Foliage_Impostor.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
+            { "Foliage_Impostor_GBuffer.glsl", { ShaderBindingLayout::SSBO_VERTEX_PULL, ShaderBindingLayout::SSBO_BONE_PULL } },
         };
 
         const fs::path root = SH::ResolveShaderRoot();
@@ -418,6 +419,7 @@ namespace OloEngine::Tests
             "Terrain_Voxel_GBuffer.glsl",
             "Terrain_VoxelGreedy_GBuffer.glsl",
             "Foliage_Instance_GBuffer.glsl",
+            "Foliage_Impostor_GBuffer.glsl",
             "VirtualMeshGBuffer.glsl",
             "VirtualMeshletGBuffer.glsl",
         };

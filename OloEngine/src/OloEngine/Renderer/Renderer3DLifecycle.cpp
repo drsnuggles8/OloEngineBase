@@ -128,6 +128,7 @@ namespace
         "assets/shaders/Foliage_Instance_GBuffer.glsl",
         "assets/shaders/Foliage_Depth.glsl",
         "assets/shaders/Foliage_Impostor.glsl",
+        "assets/shaders/Foliage_Impostor_GBuffer.glsl",
         "assets/shaders/Impostor_Bake.glsl",
         "assets/shaders/Water.glsl",
         "assets/shaders/Water_Depth.glsl",
@@ -279,7 +280,7 @@ namespace OloEngine
         }
 
         // NOTE: Keep totalShaders3D in sync with kShaderPaths3D's length above.
-        constexpr u32 totalShaders3D = 52;
+        constexpr u32 totalShaders3D = 53;
         static_assert(kShaderPaths3D.size() == totalShaders3D);
 
         // Boot + fallback are idempotent — no-ops when already initialized by
@@ -358,6 +359,7 @@ namespace OloEngine
         s_Data.FoliageGBufferShader = m_ShaderLibrary.Get("Foliage_Instance_GBuffer");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.FoliageImpostorShader = m_ShaderLibrary.Get("Foliage_Impostor");
+        s_Data.FoliageImpostorGBufferShader = m_ShaderLibrary.Get("Foliage_Impostor_GBuffer");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
         s_Data.WaterDepthShader = m_ShaderLibrary.Get("Water_Depth");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
@@ -869,6 +871,7 @@ namespace OloEngine
         s_Data.FoliageGBufferShader.Reset();
         s_Data.FoliageDepthShader.Reset();
         s_Data.FoliageImpostorShader.Reset();
+        s_Data.FoliageImpostorGBufferShader.Reset();
         s_Data.WaterShader.Reset();
         s_Data.WaterDepthShader.Reset();
         s_Data.DecalShader.Reset();
