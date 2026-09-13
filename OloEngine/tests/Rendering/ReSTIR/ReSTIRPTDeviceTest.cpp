@@ -124,6 +124,7 @@ namespace OloEngine::Tests
       public:
         void SetUp() override
         {
+            m_PreviousDirectory = std::filesystem::current_path();
             const auto gate = ProbeVulkanDeviceTestGate();
             if (!gate.Available)
                 GTEST_SKIP() << gate.Reason;
@@ -163,6 +164,9 @@ namespace OloEngine::Tests
 
         void TearDown() override
         {
+            std::error_code directoryError;
+            std::filesystem::current_path(m_PreviousDirectory, directoryError);
+            EXPECT_FALSE(directoryError) << directoryError.message();
             if (!m_Device)
                 return;
             m_Backend.reset();
@@ -592,6 +596,7 @@ namespace OloEngine::Tests
             }
         }
 
+        std::filesystem::path m_PreviousDirectory;
         std::unique_ptr<VulkanDevice> m_Device;
         std::unique_ptr<RT::IRayTracingBackend> m_Backend;
         VkCommandBuffer m_Cmd = VK_NULL_HANDLE;

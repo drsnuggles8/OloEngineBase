@@ -35,7 +35,15 @@ namespace OloEngine::Tests
             const auto bit = [bits](u32 i)
             { return (bits & (1u << i)) != 0u; };
             const ReSTIRPTOwnershipInputs inputs{
-                bit(0), bit(1), bit(2), bit(3), bit(4), bit(5), bit(6), bit(7), bit(8)
+                .DIActive = bit(0),
+                .GIActive = bit(1),
+                .PTActive = bit(2),
+                .DDGIAvailable = bit(3),
+                .SSGIActive = bit(4),
+                .GICacheTailRequested = bit(5),
+                .SpecularIBLActive = bit(6),
+                .SSRActive = bit(7),
+                .RTReflectionActive = bit(8),
             };
             const auto ownership = SelectReSTIRPTOwnership(inputs);
             EXPECT_EQ(ownership.DIAtPrimary, inputs.DIActive);

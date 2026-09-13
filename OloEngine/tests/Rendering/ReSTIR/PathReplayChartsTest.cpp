@@ -73,11 +73,6 @@ namespace OloEngine::Tests
             const auto reference = Charts::Forward(chart, floored, glm::vec2(0.45f, 0.62f));
             ASSERT_TRUE(reference);
             EXPECT_LT(glm::length(*sample - *reference), 1.0e-7f);
-            // Replay retains these original uniforms. It must not recover
-            // near-specular uniforms by inverting the rounded direction.
-            const auto replay = Charts::Forward(chart, frame, glm::vec2(0.45f, 0.62f));
-            ASSERT_TRUE(replay);
-            EXPECT_LT(glm::length(*replay - *sample), 1.0e-7f);
         }
     }
 

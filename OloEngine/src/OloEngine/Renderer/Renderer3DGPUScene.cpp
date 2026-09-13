@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/Renderer3DInternal.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include <algorithm>
@@ -530,6 +531,10 @@ namespace OloEngine
     void Renderer3D::ResetGPUScene()
     {
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+        // PT suffix pools live outside the texture-history registry. Retired
+        // scene slots must not become valid again merely by reusing their IDs.
+        if (s_Data.Pipeline)
+            ++s_Data.Pipeline->ReSTIRPTSceneEpoch;
         s_Data.SceneGPU.Reset();
         s_Data.GPUSceneExtractionActive = false;
         // A reload or backend switch tombstones every record, so every link
