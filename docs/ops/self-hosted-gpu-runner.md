@@ -12,7 +12,8 @@ and the Linux CI jobs in
 | Runner(s) | Labels | Serves |
 |---|---|---|
 | `olo-gpu-amd` | `self-hosted,Linux,X64,gpu-amd` | the nightly GPU conformance run, exclusively |
-| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | the three Linux sanitizer jobs on every same-repo PR, `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job |
+| `olo-ci-1` | `self-hosted,Linux,X64,olo-ci,olo-ci-priority` | everything `olo-ci-2` does, plus the priority lane below |
+| `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | the three Linux sanitizer jobs on every same-repo PR, `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job |
 
 **The Linux sanitizer jobs run here with hosted parity** (#1015): every ctest-launched test
 process gets `--olo-gl-backend=none`, so the GL-gated tests skip exactly as they do on a
@@ -486,7 +487,8 @@ sudo bash scripts/setup-olo-ci-runners.sh   "$(gh api -X POST repos/drsnuggles8/
 It installs `clang`/`lld`/`compiler-rt`, `mesa-libEGL-devel`, `nasm` and the
 X/Wayland `-devel` set; creates the `~/.cache/olo/*` directories from §1c; and
 registers `olo-ci-1` and `olo-ci-2` with labels `self-hosted,linux,x64,olo-ci`
-under user systemd, exactly like the GPU runner.
+under user systemd, exactly like the GPU runner. `olo-ci-1` gets one label more,
+`olo-ci-priority` — see §7.
 
 **Both Linux arms build with clang-23** (#1036, #1095), from the same official LLVM
 release tarball at the same `/opt/llvm-23.1.0` prefix: on the box installed by
@@ -530,6 +532,61 @@ Note the Linux sanitizer jobs use the **Unix Makefiles** generator, so the root
 Ninja-only. Their link concurrency is bounded only by `--parallel 2`, i.e. up to
 2 jobs × 2 links on this box. That is the pessimistic worst case behind the
 9 GiB figure above.
+
+### 7. The priority lane (#1202)
+
+**Ordering on these runners is FIFO and there is exactly one lever on it: dispatch the
+Sanitizers workflow with `lane=priority`.**
+
+```bash
+gh workflow run asan.yml --ref <your-branch> -f lane=priority
+```
+
+That run's three Linux sanitizer jobs ask for `olo-ci-priority` instead of `olo-ci`. Only
+`olo-ci-1` serves that label, and nothing else on the account requests it, so the jobs take
+that runner's next free slot — ahead of the entire `olo-ci` backlog — without cancelling
+anything. Add `-f only=<sanitizer>` to jump the queue with one job instead of three.
+
+**When it is worth using.** When something is *blocked* on the result: the PR that fixes the
+test every other queued job is failing on, a revert, a CI fix. Not for "mine is urgent" — the
+lane is one runner deep, and a second priority dispatch queues behind the first, which is
+FIFO again with extra steps.
+
+**What it does not do.** It does not reserve a runner and it does not speed anything up.
+`olo-ci-1` keeps taking ordinary `olo-ci` work whenever no priority job is queued, so with
+nothing dispatched both runners drain the normal queue exactly as they did before the label
+existed — that is what makes the lane free when unused. It also cannot move a job that was
+never going to the box: the `OLO_LINUX_SELF_HOSTED` kill switch, `force_hosted`, the
+`push`/`schedule` cache-warm exclusions and the fork boundary all come first in `runs-on`
+and all still win.
+
+**Why a label and not a priority setting.** There is no priority setting. Actions' scheduler
+is inside the closed service — `actions/runner` is open source but it only takes the job it
+is handed — and a free runner takes the oldest queued job carrying its label, with a re-run
+going to the back. This account is a User, not an org, so there are no runner groups and no
+merge queue either. Before the label, the only way to get one PR's run ahead of others was
+to **cancel** the runs in front of it, which is what had to happen on 2026-09-12: eight PRs ×
+three sanitizer jobs queued FIFO, and the PR fixing the test all of them were failing on was
+sixth in line behind ~40 min of doomed job each.
+
+**The label is owned by `scripts/setup-olo-ci-runners.sh`, not by the API.** `config.sh
+--replace` re-registers a runner with exactly the labels on its command line, so a label
+added out of band is silently dropped the next time that script runs — and a `runs-on`
+naming a label nobody serves does not fail, it queues for 24 hours. To patch a runner that
+is already registered (rather than re-running the script):
+
+```bash
+# add it
+gh api -X POST repos/drsnuggles8/OloEngineBase/actions/runners/22/labels \
+  -f 'labels[]=olo-ci-priority'
+# check it took -- and check `status`, because an OFFLINE runner reads as a
+# perfectly ordinary pending job at 0 elapsed, not as an error
+gh api repos/drsnuggles8/OloEngineBase/actions/runners \
+  --jq '.runners[] | {name, status, busy, labels: [.labels[].name]}'
+```
+
+The runner id (`22` above) is the `id` field from that same listing; it is not the `1`/`2` in
+the runner's name.
 
 ## GitHub-side settings
 

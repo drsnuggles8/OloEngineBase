@@ -88,6 +88,39 @@ on:
         type: choice
         options: [all, asan-lsan, ubsan, tsan, asan-windows]
         default: all
+      lane:
+        # THE ONLY LEVER ON QUEUE ORDER THERE IS (#1202). GitHub Actions has no job
+        # priority: a free runner takes the OLDEST queued job carrying its label, a
+        # re-run goes to the back, and the scheduler is inside the closed Actions
+        # service -- `actions/runner` is open but it only takes the job it is handed.
+        # On a User account there are no runner groups and no merge queue either, so
+        # until this input existed the only way to get one PR's sanitizer run ahead of
+        # the queue was to CANCEL the runs in front of it. That is what had to happen
+        # on 2026-09-12: eight PRs x three Linux sanitizer jobs were queued FIFO on
+        # olo-ci-1/2, and the one PR fixing the test every other job was failing on
+        # (#1197) was sixth in line, behind ~40 min of doomed job each.
+        #
+        # Priority IS expressible on the runner side, because a runner serves a SET of
+        # labels and a job requesting a rarer label skips the queue for the commoner
+        # one. `olo-ci-1` carries `olo-ci-priority` in addition to `olo-ci`
+        # (scripts/setup-olo-ci-runners.sh registers it; the ops doc has the
+        # after-the-fact `gh api` form). `priority` here requests that rarer label, so
+        # the run lands on olo-ci-1 as soon as its current job ends, ahead of the whole
+        # olo-ci backlog, WITHOUT cancelling anything.
+        #
+        # ADDITIVE, AND THAT IS THE WHOLE SAFETY ARGUMENT. With nothing dispatched this
+        # input is the empty string, the comparison in `runs-on` is false, and both
+        # runners go on draining `olo-ci` exactly as they do today. The priority runner
+        # is not reserved: it is an ordinary olo-ci runner that ALSO answers a second
+        # label. A priority dispatch therefore cannot starve the normal queue -- it can
+        # only take the next free slot on one of the two runners.
+        #
+        # It reaches the three LINUX sanitizer jobs only, and only on the self-hosted
+        # arm: a hosted runner has no queue worth jumping.
+        description: 'Queue lane for the Linux sanitizer jobs: priority requests the olo-ci-priority runner, jumping the olo-ci FIFO backlog'
+        type: choice
+        options: [normal, priority]
+        default: normal
 
 concurrency:
   # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
@@ -98,12 +131,20 @@ concurrency:
   # flake. Keyed on the input, the two arms are independent runs.
   # `only` is in the key for the same reason `force_hosted` is (below): a TSan-only
   # dispatch fired beside a full one on the same ref must not cancel it.
+  # `lane` is in the key for the same reason a THIRD time (#1202), and it is the
+  # instance that matters most. A group holds at most one PENDING run, so a
+  # `lane=priority` dispatch sharing a group with a normal dispatch of the same ref
+  # would be evicted by it -- and the priority run is by construction the one run
+  # nobody can afford to lose, dispatched precisely because something is blocked on
+  # it. Keyed on the lane, the two are independent runs. (A PR's own `pull_request`
+  # run is already in a different group: `github.event_name` is in the key. This term
+  # is about two dispatches of the same ref, not about the PR.)
   # `github.event_name` is in the key for a third instance of the same reason: the
   # `push` warm and the `schedule` nightly both run on `refs/heads/master`, and since
   # neither is cancellable they would share one group -- where a group holds at most
   # one PENDING run, so the next merge would cancel the pending nightly. The nightly
   # is the full sanitizer run and must never be cancelled.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}-${{ github.event.inputs.force_hosted || 'default' }}-${{ github.event.inputs.only || 'all' }}-${{ github.event.inputs.lane || 'normal' }}
   # PULL REQUESTS ONLY. A cancelled run banks no cache -- `actions/cache/save` runs
   # `if: always()`, which survives a cancel, but the run still stops mid-build, so
   # what it banks is a partial snapshot at best. The nightly and the `push` warm are
@@ -1311,12 +1352,30 @@ jobs:
     # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
     # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
     # concurrency is not the scarce thing, they just run.
+    # THE `lane` INPUT IS THE ONLY QUEUE-ORDER LEVER (#1202), and it sits INSIDE the
+    # self-hosted arm on purpose. `olo-ci-priority` is a second label on `olo-ci-1`,
+    # not a second runner: with nothing dispatched the comparison is false, both
+    # runners drain `olo-ci` exactly as before, and a priority dispatch takes the next
+    # free slot on olo-ci-1 ahead of the FIFO backlog rather than reserving anything.
+    # The full argument is on the input's own comment at the top of this file.
+    #
+    # It is deliberately the LAST term. Every gate above it -- the kill switch,
+    # `force_hosted`, the two cache-warm exclusions, the fork boundary -- can still
+    # send this job hosted, and a lane request must never be able to override one of
+    # them. All it may do is choose WHICH self-hosted label set to ask for, once every
+    # other term has already said "the box".
+    #
+    # `detect-changes` does NOT carry this clause, and that is not drift: the lane
+    # changes which label is requested, not whether the run is self-hosted, so the
+    # shard plan computed there is unaffected either way.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+                 && (github.event.inputs.lane == 'priority'
+                     && fromJSON('["self-hosted","linux","x64","olo-ci-priority"]')
+                     || fromJSON('["self-hosted","linux","x64","olo-ci"]')) || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -1809,10 +1868,10 @@ jobs:
     if: ${{ github.event_name != 'push'
         && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
-    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
-    # and the `force_hosted` A/B live on that job. Keep the three expressions
-    # byte-identical: a job that drifts onto a label set nobody serves does not
-    # fail, it queues for 24 hours.
+    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary,
+    # the `force_hosted` A/B and the `lane` priority selection all live on that job.
+    # Keep the three expressions byte-identical: a job that drifts onto a label set
+    # nobody serves does not fail, it queues for 24 hours.
     # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
     # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
     # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
@@ -1834,7 +1893,9 @@ jobs:
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+                 && (github.event.inputs.lane == 'priority'
+                     && fromJSON('["self-hosted","linux","x64","olo-ci-priority"]')
+                     || fromJSON('["self-hosted","linux","x64","olo-ci"]')) || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it
@@ -2254,10 +2315,10 @@ jobs:
     # has been observed finishing at 126 minutes, i.e. over this cap. The
     # asymmetry, not the duration, was the bug.
     timeout-minutes: 180
-    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
-    # and the `force_hosted` A/B live on that job. Keep the three expressions
-    # byte-identical: a job that drifts onto a label set nobody serves does not
-    # fail, it queues for 24 hours.
+    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary,
+    # the `force_hosted` A/B and the `lane` priority selection all live on that job.
+    # Keep the three expressions byte-identical: a job that drifts onto a label set
+    # nobody serves does not fail, it queues for 24 hours.
     # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
     # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
     # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
@@ -2279,7 +2340,9 @@ jobs:
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+                 && (github.event.inputs.lane == 'priority'
+                     && fromJSON('["self-hosted","linux","x64","olo-ci-priority"]')
+                     || fromJSON('["self-hosted","linux","x64","olo-ci"]')) || 'ubuntu-24.04' }}
     permissions:
       # Job-level permissions replace the workflow-level block entirely,
       # so re-declare contents: read alongside checks: write. Without it

@@ -169,6 +169,31 @@ echo "  (each runner also keeps its own vcpkg clone at .cache/olo/vcpkg-<runner-
 # gpu-amd and so can only ever land on olo-gpu-amd; the CI jobs request olo-ci
 # and can only ever land here. Neither can starve the other. That is the fix for
 # "a single runner serialises every job behind the nightly" in #1009.
+#
+# AND `olo-ci-priority` ON THE FIRST RUNNER ONLY (#1202) -- the priority lane.
+# Actions has no job priority: a free runner takes the oldest queued job for its
+# label. But a runner answers a SET of labels, and a job asking for a label only
+# one runner serves queues behind a far shorter line. asan.yml's `lane: priority`
+# dispatch input requests `olo-ci-priority`, which lands here on olo-ci-1 as soon
+# as its current job ends, ahead of the whole olo-ci backlog and without having to
+# cancel anything (which was the only lever before, and was used on 2026-09-12).
+#
+# IT IS ADDITIVE, NOT A RESERVATION. olo-ci-1 still carries `olo-ci` and still
+# takes normal work whenever nothing priority is queued, so with no dispatch
+# outstanding both runners drain the normal queue exactly as they did before this
+# label existed. The cost of the lane is therefore zero when it is unused.
+#
+# ON ONE RUNNER, NOT BOTH. Two priority runners would be two-deep FIFO again the
+# moment a second priority dispatch went out, which is the thing being fixed; one
+# also guarantees that a priority run can never occupy the whole pool and stall
+# normal work behind it. `olo-ci-2` stays plain.
+#
+# THIS IS ALSO WHERE THE LABEL HAS TO LIVE. `config.sh --replace` re-registers the
+# runner with exactly the labels named here, so a label added afterwards through
+# the API or the settings UI is silently dropped the next time this script runs --
+# and a `runs-on` asking for a label nobody serves does not fail, it queues for 24
+# hours. Add it here first; the ops doc's `gh api` form is for patching a runner
+# that is already registered, not for owning the fact.
 # ---------------------------------------------------------------------------
 echo "== runners =="
 if [ -z "$REG_TOKEN" ]; then
@@ -188,7 +213,13 @@ for i in $(seq 1 "$CI_RUNNER_COUNT"); do
     dir="${RUNNER_HOME}/actions-runner-ci-${i}"
     unit="actions-runner-ci-${i}.service"
 
-    echo "-- ${name} (${dir})"
+    # The priority lane rides on the FIRST runner only -- see the label note above.
+    labels="self-hosted,linux,x64,olo-ci"
+    if [ "$i" = "1" ]; then
+        labels="${labels},olo-ci-priority"
+    fi
+
+    echo "-- ${name} (${dir})  labels: ${labels}"
 
     # Extract as ROOT then hand ownership over. /home/obueker is mode 0700, so
     # gh-runner-olo cannot traverse into it and `tar` would fail with "Cannot
@@ -215,7 +246,7 @@ for i in $(seq 1 "$CI_RUNNER_COUNT"); do
         --url "$REPO_URL" \
         --token "$REG_TOKEN" \
         --name "$name" \
-        --labels self-hosted,linux,x64,olo-ci \
+        --labels "$labels" \
         --work _work \
         --unattended --replace
 
