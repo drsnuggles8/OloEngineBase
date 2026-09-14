@@ -238,19 +238,20 @@ namespace OloEngine
                 virtualPrepared && haveVirtualCasters &&
                 VirtualGeometryShadow::PrepareVirtualShadowMapRoute(m_VsmVirtualResources);
 
-            const auto uploadBones = [](const ShadowSkinnedCaster& caster, UniformBuffer& animUBO)
+            const auto uploadBones = [](const ShadowSkinnedCaster& caster, UniformBuffer& animUBO) -> bool
             {
                 animUBO.Bind();
                 if (caster.boneCount == 0)
-                    return;
+                    return true; // nothing to upload, not a failure
                 const auto count = std::min(caster.boneCount,
                                             static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
                 // Range-checked: this uploads `count` matrices from the returned
                 // pointer, and GetBoneMatrixPtr validates only the first one.
                 const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(caster.boneBufferOffset, count);
                 if (!boneMatrices)
-                    return;
+                    return false; // GetBoneMatrixRange already logged the range
                 animUBO.SetData(boneMatrices, count * sizeof(glm::mat4));
+                return true;
             };
 
             // The clip levels worth a cluster-cull dispatch: those whose ortho
@@ -777,10 +778,14 @@ namespace OloEngine
                         // executes; nothing writes it while a region is open.
                         auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
                         const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(caster.boneBufferOffset, count);
-                        if (boneMatrices)
+                        if (!boneMatrices)
                         {
-                            animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
+                            // The UBO still holds the previous caster's pose, so
+                            // drawing would cast the wrong silhouette rather than
+                            // none. GetBoneMatrixRange already logged the range.
+                            continue;
                         }
+                        animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
                     }
 
                     RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);

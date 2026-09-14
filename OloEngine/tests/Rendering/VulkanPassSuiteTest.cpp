@@ -11809,7 +11809,10 @@ TEST_F(VulkanPassSuite, VirtualShadowMapRunsAFullFrameOnVulkan)
     }
 
     const std::vector<ShadowSkinnedCaster> skinnedCasters;
-    const auto noBones = [](const ShadowSkinnedCaster&, UniformBuffer&) {};
+    // Returns true: no casters carry bones here, and BoneUploader now reports
+    // whether a palette reached the GPU so a failed upload can suppress its draw.
+    const auto noBones = [](const ShadowSkinnedCaster&, UniformBuffer&)
+    { return true; };
 
     // INSIDE SubmitFrame's recording bracket, which is not optional and not
     // obvious: on Vulkan every DispatchCompute/Draw issued outside a bracket is

@@ -699,7 +699,11 @@ namespace OloEngine
         // `uploadBones` is invoked once per skinned caster, immediately before its
         // draw, to publish that caster's bone palette into the supplied item-owned
         // upload buffer. The callback resolves the frame's immutable bone data.
-        using BoneUploader = std::function<void(const ShadowSkinnedCaster&, UniformBuffer&)>;
+        // Returns false when the caster's bone palette could not be uploaded,
+        // in which case the caller must NOT draw it: the animation UBO still
+        // holds the previous caster's pose, so the shadow would be cast by the
+        // wrong silhouette rather than be missing (issue #1031 review).
+        using BoneUploader = std::function<bool(const ShadowSkinnedCaster&, UniformBuffer&)>;
 
         // A caster family this class does not know how to draw (issue #1149).
         //

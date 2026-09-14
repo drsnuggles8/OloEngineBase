@@ -925,6 +925,74 @@ TEST_F(CommandBucketBatchTest, SingleCommandGroupsRemainDrawMesh)
 // Instance Group Tables — MaxMeshInstances Cap
 // =============================================================================
 
+// =============================================================================
+// MaxMeshInstances validation (issue #1031 review)
+// =============================================================================
+//
+// The cap has to survive two failure modes that both end in a wrong image
+// rather than a crash, and CommandBucket::SetConfig made both reachable at
+// runtime rather than only at construction:
+//
+//   * 0 makes every group collapse to an instanced command of zero instances,
+//     and the skinned counter's `totalInstances - 1` underflow a u32;
+//   * a value above what CommandDispatch::DrawMeshInstanced can draw collapses
+//     source draws the dispatcher then truncates away, so objects go missing
+//     from the frame with only a per-draw warning at the far end.
+
+TEST_F(CommandBucketBatchTest, MaxMeshInstancesOfZeroIsRejected)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    config.MaxMeshInstances = 0;
+    CommandBucket bucket(config);
+
+    EXPECT_GE(bucket.GetConfig().MaxMeshInstances, 1u)
+        << "a cap of 0 must not survive into the bucket";
+
+    for (u32 i = 0; i < 4; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Whatever the cap became, no packet may claim fewer than two instances:
+    // that is the degenerate command the underflow rode on.
+    for (const auto* packet : bucket.GetSortedCommands())
+    {
+        if (packet->GetCommandType() != CommandType::DrawMeshInstanced)
+            continue;
+        auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+        EXPECT_GE(icmd->instanceCount, 2u) << "an instanced command of 0 or 1 instances was emitted";
+    }
+}
+
+TEST_F(CommandBucketBatchTest, MaxMeshInstancesAboveTheDispatchCapIsClamped)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    config.MaxMeshInstances = CommandBucketConfig::kMaxDispatchableMeshInstances + 1024u;
+    CommandBucket bucket(config);
+
+    EXPECT_EQ(bucket.GetConfig().MaxMeshInstances, CommandBucketConfig::kMaxDispatchableMeshInstances)
+        << "batching above the dispatch cap collapses draws that then never render";
+
+    // SetConfig is the runtime door onto the same field and must validate too.
+    CommandBucketConfig raised = bucket.GetConfig();
+    raised.MaxMeshInstances = CommandBucketConfig::kMaxDispatchableMeshInstances * 2u;
+    bucket.SetConfig(raised);
+    EXPECT_EQ(bucket.GetConfig().MaxMeshInstances, CommandBucketConfig::kMaxDispatchableMeshInstances)
+        << "SetConfig let an undispatchable cap through";
+}
+
 TEST_F(CommandBucketBatchTest, BatchRespectsMaxMeshInstances)
 {
     CommandBucketConfig config;

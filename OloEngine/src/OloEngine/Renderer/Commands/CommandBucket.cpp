@@ -288,8 +288,30 @@ namespace OloEngine
         s_ViewStateWriter = writeFn;
     }
 
+    CommandBucketConfig CommandBucket::ValidateConfig(const CommandBucketConfig& config)
+    {
+        CommandBucketConfig validated = config;
+        if (validated.MaxMeshInstances == 0)
+        {
+            OLO_CORE_WARN("CommandBucket: MaxMeshInstances of 0 cannot batch anything; using 1.");
+            validated.MaxMeshInstances = 1;
+        }
+        else if (validated.MaxMeshInstances > CommandBucketConfig::kMaxDispatchableMeshInstances)
+        {
+            // Not a preference: CommandDispatch::DrawMeshInstanced truncates to
+            // this and never splits, so the excess draws would be collapsed here
+            // and then dropped there -- objects missing from the frame, with
+            // only a per-draw warning at the far end to say so.
+            OLO_CORE_WARN("CommandBucket: MaxMeshInstances {} exceeds what the dispatcher can draw ({}); "
+                          "clamping, or the surplus instances would be batched here and dropped at dispatch.",
+                          validated.MaxMeshInstances, CommandBucketConfig::kMaxDispatchableMeshInstances);
+            validated.MaxMeshInstances = CommandBucketConfig::kMaxDispatchableMeshInstances;
+        }
+        return validated;
+    }
+
     CommandBucket::CommandBucket(const CommandBucketConfig& config)
-        : m_Config(config)
+        : m_Config(ValidateConfig(config))
     {
         // Initialize statistics
         m_Stats = Statistics();
@@ -749,6 +771,15 @@ namespace OloEngine
 
             u32 totalInstances = static_cast<u32>(
                 std::min(indices.size(), static_cast<sizet>(m_Config.MaxMeshInstances)));
+
+            // A group that survives the cap with fewer than two members is not a
+            // batch: emitting an instanced command for it would draw zero or one
+            // instance through the batched path for no reason, and the skinned
+            // counter below would underflow on `totalInstances - 1`. Reachable
+            // only through a MaxMeshInstances of 1, which ValidateConfig allows
+            // because it is a legitimate "never batch" setting.
+            if (totalInstances <= 1)
+                continue;
 
             // Allocate three parallel per-instance streams in FrameDataBuffer:
             //   • transforms      — current-frame world transforms (always present)

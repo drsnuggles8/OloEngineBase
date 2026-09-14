@@ -109,23 +109,33 @@ namespace OloEngine
     // Configuration for command bucket processing
     struct CommandBucketConfig
     {
-        bool EnableSorting = true;    // Sort commands to minimize state changes
-        bool EnableBatching = true;   // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
-        u32 MaxMeshInstances = 16384; // Maximum instances per DrawMeshInstanced packet, for CommandBucket's CPU
-                                      // auto-batching of separate DrawMesh entities that share mesh/material/render
-                                      // state — a different path from the GPU-cull InstancedMeshComponent draw (see
-                                      // FrameDataBuffer::DEFAULT_ENTITY_ID_CAPACITY, 262144, for that one; issue
-                                      // #524's draws_unique/draws_instanced/anim_crowd stress scenes all route
-                                      // around this path — unique materials, single-InstancedMeshComponent, and
-                                      // animated-mesh-skips-batching, respectively — so there's no evidence this
-                                      // needs to scale with those). Well below FrameDataBuffer's EntityID/Color/
-                                      // Custom capacity (so an N-into-1 collapse never truncates per-source picking
-                                      // IDs) and below DEFAULT_TRANSFORM_CAPACITY (65536) with headroom — a group
-                                      // at this cap uses only 1/4 of the transform buffer for its current-transform
-                                      // allocation, leaving room for the prev-transform stream plus other groups in
-                                      // the same frame. Dispatcher uses a TLS heap scratch so raising this doesn't
-                                      // bloat the stack.
-        u32 InitialCapacity = 1024;   // Initial capacity for command arrays
+        bool EnableSorting = true;  // Sort commands to minimize state changes
+        bool EnableBatching = true; // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
+        // The cap the DISPATCHER can actually honour. CommandDispatch::
+        // DrawMeshInstanced truncates to this and does not split the batch, so
+        // a bucket configured above it collapses source draws that then never
+        // render. It used to be spelled `CommandBucketConfig{}.MaxMeshInstances`
+        // at the two dispatch-side sites -- i.e. the DEFAULT config rather than
+        // the bucket's own -- which is why a raised cap silently dropped
+        // instances instead of failing. Naming it once is what lets
+        // ValidateConfig below reject a value the dispatcher cannot serve.
+        static constexpr u32 kMaxDispatchableMeshInstances = 16384;
+
+        u32 MaxMeshInstances = kMaxDispatchableMeshInstances; // Maximum instances per DrawMeshInstanced packet, for CommandBucket's CPU
+                                                              // auto-batching of separate DrawMesh entities that share mesh/material/render
+                                                              // state — a different path from the GPU-cull InstancedMeshComponent draw (see
+                                                              // FrameDataBuffer::DEFAULT_ENTITY_ID_CAPACITY, 262144, for that one; issue
+                                                              // #524's draws_unique/draws_instanced/anim_crowd stress scenes all route
+                                                              // around this path — unique materials, single-InstancedMeshComponent, and
+                                                              // animated-mesh-skips-batching, respectively — so there's no evidence this
+                                                              // needs to scale with those). Well below FrameDataBuffer's EntityID/Color/
+                                                              // Custom capacity (so an N-into-1 collapse never truncates per-source picking
+                                                              // IDs) and below DEFAULT_TRANSFORM_CAPACITY (65536) with headroom — a group
+                                                              // at this cap uses only 1/4 of the transform buffer for its current-transform
+                                                              // allocation, leaving room for the prev-transform stream plus other groups in
+                                                              // the same frame. Dispatcher uses a TLS heap scratch so raising this doesn't
+                                                              // bloat the stack.
+        u32 InitialCapacity = 1024;                           // Initial capacity for command arrays
     };
 
     // Cache-line padded slot for thread-local storage
@@ -271,7 +281,7 @@ namespace OloEngine
         void SetConfig(const CommandBucketConfig& config)
         {
             TUniqueLock<FMutex> lock(m_Mutex);
-            m_Config = config;
+            m_Config = ValidateConfig(config);
         }
 
         // Get command count
@@ -474,6 +484,13 @@ namespace OloEngine
 
         // Try to merge compatible commands for batching (works on array indices)
         bool TryMergeCommands(sizet targetIdx, sizet sourceIdx, CommandAllocator& allocator);
+
+        // Clamp a config into what the rest of the pipeline can serve, loudly.
+        // Zero would make BatchCommands emit an instanced command of zero
+        // instances; anything above the dispatch cap would make it collapse
+        // source draws the dispatcher then truncates away. Both are silent
+        // wrong-image failures, so the clamp reports rather than just clamps.
+        [[nodiscard]] static CommandBucketConfig ValidateConfig(const CommandBucketConfig& config);
 
         // Convert a DrawMeshCommand to DrawMeshInstancedCommand for batching
         CommandPacket* ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator);

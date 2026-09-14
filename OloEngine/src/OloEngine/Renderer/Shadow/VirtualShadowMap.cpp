@@ -1834,8 +1834,8 @@ namespace OloEngine
                 VSM::PassUBO pass{};
                 item.Pass->SetData(&pass, VSM::PassUBO::GetSize());
                 item.Pass->Bind();
-                if (uploadBones)
-                    uploadBones(caster, *item.Animation);
+                if (uploadBones && !uploadBones(caster, *item.Animation))
+                    continue; // no palette: this caster would cast someone else's pose
                 RenderCommand::DrawIndexedInstancedRaw(caster.vaoID, caster.indexCount, caster.baseIndex, draw.InstanceCount);
             } });
         return static_cast<u32>(m_PreparedSkinnedDraws.size());
