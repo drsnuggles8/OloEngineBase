@@ -1821,6 +1821,8 @@
 		"Platform/Vulkan/VulkanContext.h"
 		"Platform/Vulkan/VulkanDebugNames.cpp"
 		"Platform/Vulkan/VulkanDebugNames.h"
+		"Platform/Vulkan/VulkanAftermath.cpp"
+		"Platform/Vulkan/VulkanAftermath.h"
 		"Platform/Vulkan/VulkanDeferredReclaim.cpp"
 		"Platform/Vulkan/VulkanDeferredReclaim.h"
 		"Platform/Vulkan/VulkanDescriptorHeapBackend.cpp"

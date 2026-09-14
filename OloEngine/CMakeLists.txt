@@ -359,6 +359,22 @@ else()
 	target_compile_definitions(OloEngine PUBLIC OLO_WITH_VULKAN=0)
 endif()
 
+# Nsight Aftermath (issue #1198). The SDK is DETECTED in cmake/Aftermath.cmake, included from the
+# root above every add_subdirectory() — see that file for why the detection cannot live here.
+# This block only consumes what it resolved.
+if(OLO_AFTERMATH_FOUND)
+	# The Platform/Vulkan sources live in the OloEngineRenderer archive, not in OloEngine itself
+	# (the three-way split above), so the include dir has to reach every part or the TU that
+	# includes the SDK cannot find it.
+	foreach(aftermathPart OloEngine OloEngineRenderer OloEngineContent)
+		target_include_directories(${aftermathPart} PRIVATE "${OLO_AFTERMATH_ROOT}/include")
+	endforeach()
+	target_link_libraries(OloEngine "${OLO_AFTERMATH_ROOT}/lib/x64/GFSDK_Aftermath_Lib.x64.lib")
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_AFTERMATH=1)
+else()
+	target_compile_definitions(OloEngine PUBLIC OLO_WITH_AFTERMATH=0)
+endif()
+
 # FSR2 temporal upscaler (#684), gated on OLO_WITH_FSR2 (cmake/fsr2.cmake, which
 # forces it OFF on any non-Windows host — see the WHY IT IS WINDOWS-ONLY note there).
 # Platform/OpenGL/OpenGLTemporalUpscaler.cpp is ALWAYS listed (src/CMakeLists.txt) and

@@ -267,6 +267,29 @@ function(olo_copy_steam_runtime target_name)
     endif()
 endfunction()
 
+# Stage GFSDK_Aftermath_Lib.x64.dll next to an executable (#1198). No-op unless the build was
+# configured with AFTERMATH_SDK_ROOT — a build without the SDK has no Aftermath at all and its
+# VulkanAftermath TU is the stub.
+#
+# Same directory-scope rule as olo_copy_steam_runtime above, and the same failure it exists to
+# prevent: add_custom_command(TARGET ...) must run in the directory that created the target, so
+# call this next to each add_executable. A missing DLL is not a build error — it is 0xC0000135
+# at startup, hours later, naming nothing about Aftermath.
+#
+# OLO_AFTERMATH_RUNTIME_DLL is set by OloEngine/CMakeLists.txt, which runs from
+# add_subdirectory(OloEngine) ABOVE every app directory, so it is always resolved by the time a
+# caller reaches it. Unlike the Steam twin this is not a FATAL_ERROR when unset: Aftermath is
+# genuinely optional and "no SDK" is the normal case, not a misconfiguration.
+function(olo_copy_aftermath_runtime target_name)
+    if(OLO_AFTERMATH_RUNTIME_DLL AND EXISTS "${OLO_AFTERMATH_RUNTIME_DLL}")
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${OLO_AFTERMATH_RUNTIME_DLL}" "$<TARGET_FILE_DIR:${target_name}>"
+            COMMENT "Staging GFSDK_Aftermath_Lib.x64.dll next to ${target_name}"
+            VERBATIM)
+    endif()
+endfunction()
+
 # Complete setup for an application target (combines all the above).
 # Pass PCH_HEADER <path/to/pch.h> to opt-in to PCH; omit it to skip PCH entirely.
 function(olo_configure_app target_name)
