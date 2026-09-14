@@ -11484,6 +11484,35 @@ namespace OloEngine
                     continue;
                 }
 
+                // The virtual loop owns an entity that also carries an active
+                // VirtualMeshComponent — the SAME guard, condition for condition,
+                // that the static MeshComponent loop has carried since #629, and
+                // it is needed here for the first time because of issue #1150.
+                //
+                // A skinned virtual mesh is authored as VirtualMeshComponent +
+                // SkeletonComponent, and the skeleton comes from an
+                // AnimationStateComponent whose loader
+                // (ModelImporter::PopulateAnimatedEntity) ADDS a MeshComponent
+                // if the entity has none. So every skinned virtual mesh
+                // necessarily has one, and without this guard every one of them
+                // is drawn twice — once deformed here and once deformed there —
+                // which z-fights, doubles the shadow caster and doubles the
+                // cost. There was no way to reach that before: a skinned entity
+                // could not be a virtual mesh at all.
+                //
+                // Skipping HERE rather than there keeps the entity drawn exactly
+                // once in BOTH master-switch states, because the virtual loop's
+                // own classic fallback poses it when the switch is off.
+                if (virtualPathOwnsMeshEntities && m_Registry.all_of<VirtualMeshComponent>(entity))
+                {
+                    if (const auto& vm = m_Registry.get<VirtualMeshComponent>(entity);
+                        vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0 &&
+                        AssetManager::GetAsset<MeshSource>(vm.m_MeshSource))
+                    {
+                        continue;
+                    }
+                }
+
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Same precedence as the static MeshComponent loop: MaterialComponent
