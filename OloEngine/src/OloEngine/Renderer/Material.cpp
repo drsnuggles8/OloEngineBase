@@ -44,6 +44,8 @@ namespace OloEngine
           // operator= below as well.
           m_AlphaMode(other.m_AlphaMode), m_AlphaCutoff(other.m_AlphaCutoff),
           m_PBRModel(other.m_PBRModel),
+          // Material kind + skin profile (issue #1231), in for the same reason.
+          m_MaterialKind(other.m_MaterialKind), m_SkinProfileHandle(other.m_SkinProfileHandle),
           // Physical transmission / IOR / volume (issue #970). Same trap as the
           // alpha pair above: forget one and a copied glass material comes back
           // solid, on the by-value paths only.
@@ -104,6 +106,9 @@ namespace OloEngine
             m_AlphaMode = other.m_AlphaMode;
             m_AlphaCutoff = other.m_AlphaCutoff;
             m_PBRModel = other.m_PBRModel;
+            // Material kind + skin profile (issue #1231).
+            m_MaterialKind = other.m_MaterialKind;
+            m_SkinProfileHandle = other.m_SkinProfileHandle;
             // Physical transmission / IOR / volume (issue #970).
             m_TransmissionFactor = other.m_TransmissionFactor;
             m_IOR = other.m_IOR;

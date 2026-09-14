@@ -659,6 +659,15 @@ namespace OloEngine
 
         ParticleBatchRenderer::Shutdown();
 
+        // Skin profile slots (issue #1231). Sticky by design and therefore
+        // process-lifetime unless something drops them: a renderer that came
+        // back up with the previous run's seven slots still taken would hand
+        // every new profile SlotBudgetFull, and the deferred path would shade
+        // every head with the neutral fallback while forward kept the authored
+        // one. Scene::OnRuntimeStart / OnSimulationStart reset it for the same
+        // reason a scene switch resets the water fields.
+        s_Data.SkinProfiles.Reset();
+
         // The shared default primitives own GPU buffers (issue #1191). Drop them
         // here, before the memory tracker's teardown census, or each one reads as
         // a Ref that outlived the renderer - and a test that restarts the renderer

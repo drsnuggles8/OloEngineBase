@@ -125,7 +125,35 @@ namespace OloEngine
                                                         return;
                                                     }
                                                     mc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
-                                                }));
+                                                }),
+                                            // Material kind (issue #1231): 0=Generic, 1=Snow, 2=Skin.
+                                            // A SEPARATE property from pbrModel above because it is a
+                                            // separate question — what the surface IS, not which version
+                                            // of the closure evaluates it (ADR 0024). Same discriminated
+                                            // rule: out-of-range writes are rejected, never saturated.
+                                            "materialKind",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> int
+                                                { return static_cast<int>(mc.m_Material.GetMaterialKind()); },
+                                                [](MaterialComponent& mc, int kind)
+                                                {
+                                                    if (!IsValidMaterialKind(kind))
+                                                    {
+                                                        OLO_CORE_WARN("[Lua] MaterialComponent.materialKind rejects {} (valid: 0=Generic, 1=Snow, 2=Skin)", kind);
+                                                        return;
+                                                    }
+                                                    mc.m_Material.SetMaterialKind(static_cast<MaterialKind>(kind));
+                                                }),
+                                            // The SkinProfile asset this material names, as a raw handle.
+                                            // 0 means "none assigned"; the renderer reports and counts that
+                                            // (SkinProfileTable::Resolve) rather than substituting a default
+                                            // quietly, so a script that clears it is visible in the log.
+                                            "skinProfile",
+                                            sol::property(
+                                                [](const MaterialComponent& mc) -> u64
+                                                { return static_cast<u64>(mc.m_Material.GetSkinProfileHandle()); },
+                                                [](MaterialComponent& mc, u64 handle)
+                                                { mc.m_Material.SetSkinProfileHandle(handle); }));
 
         // --- DirectionalLightComponent ---
         lua.new_usertype<DirectionalLightComponent>("DirectionalLightComponent",

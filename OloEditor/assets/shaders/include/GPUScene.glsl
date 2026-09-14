@@ -111,6 +111,14 @@ struct GPUSceneMaterial
     uint SpecularHeapOffset;
     uint StableIndex;
     uint Generation;
+    // Issue #1231 — mirrors GPUSceneMaterial's tail in GPUSceneTypes.h, which
+    // static_asserts the 192-byte size this completes. The two pads are real
+    // members on both sides rather than implicit padding, so neither compiler
+    // has to agree with the other about something it was not told.
+    uint MaterialKind;
+    uint SkinProfileSlot;
+    uint SkinPad0;
+    uint SkinPad1;
 };
 
 // GPUSceneLightType — the same numbering as PBRCommon.glsl's *_LIGHT tags.

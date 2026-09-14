@@ -1,5 +1,6 @@
 #pragma once
 
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -334,6 +335,24 @@ namespace OloEngine
         u32 SpecularHeapOffset = GPUSceneHeapOffsetUnresolved;
         u32 StableIndex = GPUSceneHandle::InvalidIndex;
         u32 Generation = 0;
+
+        // MATERIAL KIND + SKIN PROFILE SLOT (issue #1231), carried for the same
+        // reason ClosureVersion is (#975): PBR_GBuffer.glsl reads the material
+        // from the PER-INSTANCE record when one is linked, so an instanced batch
+        // can cover several materials in one draw. Left in the per-draw UBO
+        // alone, every instance in such a batch would have been tagged with
+        // whichever material's kind and profile the UBO happened to hold, and on
+        // the deferred path that is a head shading as a generic dielectric — or
+        // a rock wearing someone's skin profile — with nothing to see in a log.
+        //
+        // Appended AFTER Generation so every existing field keeps its offset;
+        // the two pads make the addition a whole 16-byte group, which is what
+        // keeps this struct's size and its std430 twin's in step without
+        // implicit trailing padding either side has to guess at.
+        u32 MaterialKind = 0;
+        u32 SkinProfileSlot = kSkinProfileSlotNone;
+        u32 SkinPad0 = 0;
+        u32 SkinPad1 = 0;
     };
 
     // The canonical analytic light record (issue #993). Field inventory is the
@@ -430,7 +449,7 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneGeometry, VertexFormat) == 32);
     static_assert(offsetof(GPUSceneGeometry, BaseVertex) == 48);
     static_assert(offsetof(GPUSceneGeometry, Generation) == 56);
-    static_assert(sizeof(GPUSceneMaterial) == 176);
+    static_assert(sizeof(GPUSceneMaterial) == 192);
     static_assert(alignof(GPUSceneMaterial) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneMaterial>);
     static_assert(std::is_trivially_copyable_v<GPUSceneMaterial>);
@@ -709,6 +728,11 @@ namespace OloEngine
         f32 m_AlphaCutoff = 0.5f;
         u32 m_AlphaMode = 0;
         u32 m_ClosureVersion = 0;
+        // Issue #1231. `m_MaterialKind` is WHAT the surface is; m_ClosureVersion
+        // above is which version of the closure evaluates it. The slot is the
+        // one SkinProfileTable assigned, already resolved by the caller.
+        u32 m_MaterialKind = 0;
+        u32 m_SkinProfileSlot = kSkinProfileSlotNone;
         // GPUSceneMaterialFlag bits other than Active and the *Map bits, which
         // the encoder derives.
         u32 m_Flags = 0;
@@ -770,6 +794,8 @@ namespace OloEngine
         record.AlphaCutoff = input.m_AlphaCutoff;
         record.AlphaMode = input.m_AlphaMode;
         record.ClosureVersion = input.m_ClosureVersion;
+        record.MaterialKind = input.m_MaterialKind;
+        record.SkinProfileSlot = input.m_SkinProfileSlot;
 
         // The map bits and Active are the encoder's: they reflect the supplied
         // handles, never a bit a caller left in m_Flags.

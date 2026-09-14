@@ -2000,6 +2000,11 @@ namespace OloEngine
             SceneCompositePasses.DeferredLighting->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
             SceneCompositePasses.DeferredLighting->SetDebugChannel(deferred ? data.Settings.Deferred.DebugChannel : 0);
             SceneCompositePasses.DeferredLighting->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+            // Material debug view (issue #1231). Forced off outside Deferred so
+            // the setting cannot sit armed on a path that never reads it and
+            // then surprise someone who switched paths back.
+            SceneCompositePasses.DeferredLighting->SetMaterialDebugView(
+                deferred ? data.PostProcess.MaterialDebug : MaterialDebugView::None);
         }
 
         // Wire the opaque-decal graph shim: in Deferred mode it drains the

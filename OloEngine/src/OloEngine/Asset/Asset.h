@@ -153,6 +153,7 @@ namespace OloEngine
         friend class LightmapSerializer;
         friend class VolumeSerializer;
         friend class TilesetSerializer;
+        friend class SkinProfileSerializer;
 
         bool IsValid() const
         {

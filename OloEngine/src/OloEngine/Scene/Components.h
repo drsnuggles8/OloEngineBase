@@ -2804,11 +2804,12 @@ namespace OloEngine
         OLO_PROPERTY(Name = "Roughness", Type = "float", Get = "comp.m_Material.GetRoughnessFactor()", Set = "comp.m_Material.SetRoughnessFactor({v})")
         OLO_PROPERTY(Name = "Emissive", Type = "vec4", Get = "comp.m_Material.GetEmissiveFactor()", Set = "comp.m_Material.SetEmissiveFactor({v})")
         // DELIBERATE C# EXEMPTION: the material's enum-shaped fields —
-        // AlphaMode and the #975 PBRModel closure selector — are not
-        // OLO_PROPERTY-annotated, matching each other. Lua exposes pbrModel
-        // (with range rejection) because Lua is the runtime-tuning surface;
-        // extend the C# surface for both enums together when a C# materials
-        // API grows past the four factors above.
+        // AlphaMode, the #975 PBRModel closure selector and the #1231
+        // MaterialKind — are not OLO_PROPERTY-annotated, matching each other.
+        // Lua exposes pbrModel, materialKind and skinProfile (all with range
+        // rejection) because Lua is the runtime-tuning surface; extend the C#
+        // surface for all three together when a C# materials API grows past the
+        // four factors above.
         Material m_Material;
         AssetHandle m_ShaderGraphHandle = 0;
 
@@ -2838,6 +2839,14 @@ namespace OloEngine
             if (!Math::BitwiseEqual(m_Material.GetNormalScale(), other.m_Material.GetNormalScale()))
                 return false;
             if (m_Material.GetPBRModel() != other.m_Material.GetPBRModel())
+                return false;
+            // Material kind + skin profile (issue #1231). In for the same reason
+            // PBRModel is: both are scene-serialized and inspector-editable, so
+            // a field missing here makes its edits invisible to undo and
+            // reverted by Play.
+            if (m_Material.GetMaterialKind() != other.m_Material.GetMaterialKind())
+                return false;
+            if (static_cast<u64>(m_Material.GetSkinProfileHandle()) != static_cast<u64>(other.m_Material.GetSkinProfileHandle()))
                 return false;
             // Physical glTF material extensions (issue #970). In for the same
             // reason PBRModel is: these are scene-serialized and inspector-

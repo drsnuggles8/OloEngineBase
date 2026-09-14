@@ -263,6 +263,29 @@ vec3 ComputeDeferredLit(
     // appended to PBRModel.h arrives here un-truncated.
     int pbrModel = oloGBufferFlagsPbrModel(gbFlags);
 
+    // Material kind + skin profile (issue #1231). The kind is what the surface
+    // IS; the slot names the authored profile whose parameters this pass reads
+    // out of u_SkinProfileParams. The slot is ONLY consulted under the Skin
+    // test: the G-Buffer writers that do not go through
+    // oloEncodeGBufferPbrFlagsEx (Terrain, Foliage, Water) leave the lane at
+    // 0.0, whose slot bits read as 0, and treating that as "profile 0" would
+    // tint every terrain highlight with somebody's skin.
+    int materialKind = oloGBufferFlagsMaterialKind(gbFlags);
+    int skinProfileSlot = (materialKind == OLO_MATERIAL_KIND_SKIN)
+                              ? oloGBufferFlagsSkinProfileSlot(gbFlags)
+                              : OLO_SKIN_PROFILE_SLOT_NONE;
+    vec3 skinSpecularTint = vec3(1.0);
+    int skinEvaluationModel = OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT;
+    if (skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
+    {
+        skinSpecularTint = u_SkinProfileParams[skinProfileSlot].rgb;
+        // The .w lane is the profile's transport VERSION, carried as a float
+        // because it is a small exact integer. It is what makes the forward and
+        // deferred paths take the same arm of oloApplySkinProfile's version
+        // branch for the same profile.
+        skinEvaluationModel = int(u_SkinProfileParams[skinProfileSlot].w + 0.5);
+    }
+
     vec3 V = normalize(u_CameraPosition - worldPos);
 
     // Weather response + cloud shadow (issue #633) — identical placement to
@@ -277,7 +300,18 @@ vec3 ComputeDeferredLit(
     float iblIntensity = u_DeferredControls.z;
     bool cascadeDebug  = u_DeferredControls.w > 0.5;
 
-    vec3 Lo = vec3(0.0);
+    // Direct lighting, diffuse and specular kept apart to the composite (issue
+    // #1231) — the same seam PBR_MultiLight.glsl cuts, cut here so the two
+    // paths mean the same thing by construction rather than by review.
+    OloSurfaceLighting Lo = oloSurfaceLightingZero();
+
+    // Terms that arrive ALREADY COMBINED and cannot be split here. The ReSTIR DI
+    // estimate is one resampled radiance covering both lobes; splitting it would
+    // mean re-deriving the estimator, which is that tier's own work and not
+    // #1231's. They are summed into the composite exactly as before, and the
+    // diffuse/specular debug views say so by excluding them — an honest gap is
+    // better than a plausible-looking half.
+    vec3 unsplitDirect = vec3(0.0);
 
     // The ReSTIR DI tier owns the direct term for every light EXCEPT the
     // directional ones (issue #1140).
@@ -297,14 +331,15 @@ vec3 ComputeDeferredLit(
     bool restirActive = oloReSTIRDIDirectLighting(restirDirect);
     if (restirActive)
     {
-        Lo += restirDirect;
+        unsplitDirect += restirDirect;
     }
 
     bool fplusActive = !restirActive && (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness, fplusViewDepth, pbrModel);
+        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
+                                                                    roughness, fplusViewDepth, pbrModel));
     }
 
     // DIRECTIONAL-ONLY when either ReSTIR DI or Forward+ answered for the rest:
@@ -316,11 +351,12 @@ vec3 ComputeDeferredLit(
     for (int i = 0; i < loopCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, worldPos, pbrModel);
+        OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                          roughness, worldPos, pbrModel);
 
         if (lightType == DIRECTIONAL_LIGHT)
         {
-            lightContrib *= cloudShadow;
+            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(cloudShadow));
         }
         // The ray-traced branch is tested BEFORE u_DirectionalShadowEnabled,
         // not inside it. That flag belongs to the CSM: only the FIRST
@@ -331,7 +367,7 @@ vec3 ComputeDeferredLit(
         float rayTracedDirectional;
         if (lightType == DIRECTIONAL_LIGHT && oloRayTracedShadowFactor(i, rayTracedDirectional))
         {
-            lightContrib *= rayTracedDirectional;
+            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(rayTracedDirectional));
         }
         else if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -362,7 +398,7 @@ vec3 ComputeDeferredLit(
                     u_ShadowMapResolution,
                     u_SoftShadowMode);
             }
-            lightContrib *= shadow;
+            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
         }
         else if (lightType == SPOT_LIGHT)
         {
@@ -375,11 +411,11 @@ vec3 ComputeDeferredLit(
             float localShadow;
             if (oloRayTracedShadowFactor(i, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
@@ -393,7 +429,7 @@ vec3 ComputeDeferredLit(
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
-                lightContrib *= shadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
             }
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
@@ -405,11 +441,11 @@ vec3 ComputeDeferredLit(
             float localShadow;
             if (oloRayTracedShadowFactor(i, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
@@ -425,11 +461,11 @@ vec3 ComputeDeferredLit(
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z);
-                lightContrib *= shadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
             }
         }
 
-        Lo += lightContrib;
+        Lo = oloSurfaceLightingAdd(Lo, lightContrib);
     }
 
     // Specular reflection source (issue #705): the global prefilter map at
@@ -461,7 +497,7 @@ vec3 ComputeDeferredLit(
     bool restirGIActive = oloReSTIRGIIndirectDiffuse(restirIndirect);
     bool restirPTActive = restirGIActive && u_MSAAParams.z > 1.5;
 
-    vec3 ambient = vec3(0.0);
+    OloSurfaceLighting ambient = oloSurfaceLightingZero();
     if (restirGIActive)
     {
         // The SPECULAR half only, and only when IBL is on at all.
@@ -475,9 +511,9 @@ vec3 ComputeDeferredLit(
         // back, which is the one thing this tier has just replaced.
         if (enableIBL && !restirPTActive)
         {
-            ambient = calculateCombinedAmbientPrefiltered(vec3(0.0), N, V, albedo, metallic, roughness,
-                                                          u_BRDFLutMap, prefilteredColor);
-            ambient *= iblIntensity;
+            ambient = calculateCombinedAmbientPrefilteredSplit(vec3(0.0), N, V, albedo, metallic, roughness,
+                                                               u_BRDFLutMap, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
         }
     }
     else if (bakedGI.a > 0.5)
@@ -492,13 +528,13 @@ vec3 ComputeDeferredLit(
         // which the G-Buffer pass already applied before writing RT5.
         if (enableIBL)
         {
-            ambient = calculateCombinedAmbientPrefiltered(bakedGI.rgb, N, V, albedo, metallic, roughness,
-                                                          u_BRDFLutMap, prefilteredColor);
-            ambient *= iblIntensity;
+            ambient = calculateCombinedAmbientPrefilteredSplit(bakedGI.rgb, N, V, albedo, metallic, roughness,
+                                                               u_BRDFLutMap, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
         }
         else
         {
-            ambient = calculateLightProbeAmbient(bakedGI.rgb, albedo, metallic, roughness, N, V);
+            ambient = calculateLightProbeAmbientSplit(bakedGI.rgb, albedo, metallic, roughness, N, V);
         }
     }
     else if (enableProbes && enableIBL)
@@ -508,41 +544,78 @@ vec3 ComputeDeferredLit(
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
-            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo, metallic, roughness,
-                                                          u_BRDFLutMap, prefilteredColor);
-            ambient *= iblIntensity;
+            ambient = calculateCombinedAmbientPrefilteredSplit(probeIrradiance, N, V, albedo, metallic, roughness,
+                                                               u_BRDFLutMap, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
         }
         else
         {
-            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                              u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-            ambient *= iblIntensity;
+            ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
+                                                   u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
         }
     }
     else if (enableProbes)
     {
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
-            ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
+            ambient = calculateLightProbeAmbientSplit(probeIrradiance, albedo, metallic, roughness, N, V);
         else
-            ambient = calculateSimpleAmbient(albedo, metallic, ao);
+            ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
     }
     else if (enableIBL)
     {
-        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
-        ambient *= iblIntensity;
+        ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
+                                               u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
+        ambient = oloSurfaceLightingScale(ambient, vec3(iblIntensity));
     }
     else
     {
-        ambient = calculateSimpleAmbient(albedo, metallic, ao);
+        ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
     }
 
     // ambient * ao, then the resampled indirect diffuse UNMULTIPLIED — see
-    // oloReSTIRGIIndirectDiffuse for why the AO term must not touch it.
-    vec3 color = ambient * ao + Lo + emissive;
+    // oloReSTIRGIIndirectDiffuse for why the AO term must not touch it. It joins
+    // the DIFFUSE half because that is exactly what that tier estimates; its own
+    // comment above says so, and putting it anywhere else would make the diffuse
+    // debug view disagree with the tier's documented contract.
+    OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ao)), Lo);
     if (restirGIActive)
-        color += restirIndirect;
+        lighting.Diffuse += restirIndirect;
+
+    // The skin profile, applied to the SPECULAR half alone and at the last
+    // moment the two halves are still separable (issue #1231) — the same place
+    // and the same order as PBR_MultiLight.glsl. A non-skin pixel reads a
+    // neutral tint, so this is a multiply by one.
+    lighting = oloApplySkinProfile(lighting, materialKind, skinEvaluationModel, skinSpecularTint);
+
+    // The four separated outputs, exposed (issue #1231). Returned BEFORE the
+    // debug tints below because those composite over a finished frame and would
+    // otherwise paint over the thing being inspected.
+    int materialDebug = int(u_MSAAParams.w + 0.5);
+    if (materialDebug == OLO_MATERIAL_DEBUG_DIFFUSE)
+        return lighting.Diffuse;   // linear HDR radiance, Rec.709
+    if (materialDebug == OLO_MATERIAL_DEBUG_SPECULAR)
+        return lighting.Specular;  // linear HDR radiance, Rec.709
+    if (materialDebug == OLO_MATERIAL_DEBUG_PROFILE_ID)
+    {
+        // Profile identity. Black where the pixel names no profile — which is
+        // every non-skin surface — and a distinct hue per slot otherwise. The
+        // hue is derived from the slot rather than looked up so adding a slot
+        // needs no table: slot 0 is red, and each further slot rotates.
+        if (skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
+            return vec3(0.0);
+        float hue = float(skinProfileSlot) / float(OLO_SKIN_PROFILE_SLOT_NONE);
+        return clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+    }
+    if (materialDebug == OLO_MATERIAL_DEBUG_SCATTERING_MASK)
+        return vec3(oloSkinScatteringMask(materialKind, metallic)); // unitless [0,1]
+
+    // Ordered `lighting + unsplitDirect + emissive` so the sum stays as close to
+    // the pre-#1231 `ambient * ao + Lo + emissive` as the regrouping allows: the
+    // resampled direct term used to live inside Lo, which is where it lands
+    // again here, just outside the split.
+    vec3 color = oloSurfaceLightingSum(lighting) + unsplitDirect + emissive;
 
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);

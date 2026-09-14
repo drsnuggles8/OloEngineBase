@@ -59,7 +59,7 @@ namespace OloEngine::Tests
             { "Generation", offsetof(GPUSceneGeometry, Generation) },
             { "Flags", offsetof(GPUSceneGeometry, Flags) },
         } };
-        constexpr std::array<MemberPin, 32> kMaterialPins{ {
+        constexpr std::array<MemberPin, 36> kMaterialPins{ {
             { "BaseColorFactor", offsetof(GPUSceneMaterial, BaseColorFactor) },
             { "EmissiveFactor", offsetof(GPUSceneMaterial, EmissiveFactor) },
             { "LegacyAmbient", offsetof(GPUSceneMaterial, LegacyAmbient) },
@@ -92,6 +92,10 @@ namespace OloEngine::Tests
             { "SpecularHeapOffset", offsetof(GPUSceneMaterial, SpecularHeapOffset) },
             { "StableIndex", offsetof(GPUSceneMaterial, StableIndex) },
             { "Generation", offsetof(GPUSceneMaterial, Generation) },
+            { "MaterialKind", offsetof(GPUSceneMaterial, MaterialKind) },
+            { "SkinProfileSlot", offsetof(GPUSceneMaterial, SkinProfileSlot) },
+            { "SkinPad0", offsetof(GPUSceneMaterial, SkinPad0) },
+            { "SkinPad1", offsetof(GPUSceneMaterial, SkinPad1) },
         } };
         constexpr std::array<MemberPin, 8> kLightPins{ {
             { "PositionAndRange", offsetof(GPUSceneLight, PositionAndRange) },

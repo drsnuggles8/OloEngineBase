@@ -74,6 +74,7 @@ namespace OloEngine
         serializers[AssetType::VisualScript] = CreateScope<VisualScriptAssetSerializer>();
         serializers[AssetType::Volume] = CreateScope<VolumeSerializer>();
         serializers[AssetType::Tileset] = CreateScope<TilesetSerializer>();
+        serializers[AssetType::SkinProfile] = CreateScope<SkinProfileSerializer>();
     }
 
     void AssetImporter::Shutdown()

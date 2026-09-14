@@ -20,6 +20,35 @@
 
 namespace OloEngine
 {
+    // Which of a material's separated lighting outputs replaces the composite
+    // (issue #1231). The four values are the four things the issue asks a
+    // reference head to expose, and each names its own units and colour space
+    // because a debug view whose scale is unstated cannot be read:
+    //
+    //   Diffuse        linear HDR radiance, Rec.709 primaries, tone-mapped by
+    //                  the normal chain (so it is directly comparable with the
+    //                  composite, not a raw dump)
+    //   Specular       the same, for the surface lobe
+    //   ProfileIdentity   the G-Buffer's three-bit skin-profile slot, as a
+    //                  distinct hue per slot; BLACK where the pixel names no
+    //                  profile, which is every non-skin surface
+    //   ScatteringMask unitless [0,1], greyscale, 0 = no subsurface transport
+    //
+    // Append, never renumber: the value is written into a render setting the
+    // MCP surface and the editor both name by token, and it is MIRRORED in GLSL
+    // as OLO_MATERIAL_DEBUG_* (include/PBRCommon.glsl), which
+    // DeferredLightingShared.glsl branches on. Adding a view means adding both.
+    enum class MaterialDebugView : u32
+    {
+        None = 0,
+        Diffuse = 1,
+        Specular = 2,
+        ProfileIdentity = 3,
+        ScatteringMask = 4,
+
+        Count
+    };
+
     // Tonemap operator constants (match PBRCommon.glsl defines)
     enum class TonemapOperator : i32
     {
@@ -544,6 +573,20 @@ namespace OloEngine
         // Path-agnostic (works in Forward / Forward+ / Deferred). Not persisted —
         // an ephemeral session render setting, like the other *DebugView flags.
         bool OverdrawDebugView = false;
+
+        // Material debug view (#1231). Replaces the deferred composite with one
+        // of the four outputs a skin surface exposes, so "what is this pixel's
+        // diffuse half / specular half / profile / scattering mask?" is a
+        // question the running editor can answer instead of one that needs a
+        // capture tool. DEFERRED ONLY, and deliberately so: the deferred path is
+        // the one that carries all four PER PIXEL (the G-Buffer flags lane plus
+        // the profile table), and a forward pass has no fullscreen stage to
+        // substitute. The forward paths' agreement with it is pinned by
+        // SkinMaterialSplitTest instead of by a second visualisation.
+        //
+        // Not persisted — an ephemeral session render setting, like the other
+        // *DebugView flags.
+        MaterialDebugView MaterialDebug = MaterialDebugView::None;
 
         bool operator==(const PostProcessSettings&) const = default;
     };

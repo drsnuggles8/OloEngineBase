@@ -1724,6 +1724,20 @@ namespace OloEngine::MCP
                 return DebugView::SSGI;
             if (pp.OverdrawDebugView)
                 return DebugView::Overdraw;
+            switch (pp.MaterialDebug)
+            {
+                case MaterialDebugView::Diffuse:
+                    return DebugView::MaterialDiffuse;
+                case MaterialDebugView::Specular:
+                    return DebugView::MaterialSpecular;
+                case MaterialDebugView::ProfileIdentity:
+                    return DebugView::SkinProfileId;
+                case MaterialDebugView::ScatteringMask:
+                    return DebugView::SkinScatteringMask;
+                case MaterialDebugView::None:
+                case MaterialDebugView::Count:
+                    break;
+            }
             switch (VirtualMeshRegistry::Get().GetDebugMode())
             {
                 case VirtualDebugMode::ClusterId:
@@ -1807,6 +1821,20 @@ namespace OloEngine::MCP
                     // it works on every rendering path.
                     r.PassEnabled = true;
                     break;
+                case DebugView::MaterialDiffuse:
+                case DebugView::MaterialSpecular:
+                case DebugView::SkinProfileId:
+                case DebugView::SkinScatteringMask:
+                    // The deferred lighting pass substitutes these for the
+                    // composite, so there is no backing effect pass to enable —
+                    // but there IS a path requirement, and saying so here is
+                    // what stops "the view did nothing" being reported as a bug
+                    // in the view.
+                    r.PassEnabled = deferred;
+                    if (!deferred)
+                        r.Note = "The material debug views are produced by the deferred lighting pass; "
+                                 "switch the rendering path to Deferred.";
+                    break;
                 case DebugView::VGClusterId:
                 case DebugView::VGLod:
                 case DebugView::VGOverdraw:
@@ -1864,6 +1892,10 @@ namespace OloEngine::MCP
                 pp.SSRDebugView = (view == DebugView::SSR);
                 pp.SSGIDebugView = (view == DebugView::SSGI);
                 pp.OverdrawDebugView = (view == DebugView::Overdraw);
+                // One assignment, not four: MaterialDebugForDebugView returns
+                // None for every non-material view, so selecting any other view
+                // clears this one by the same rule the bools above follow.
+                pp.MaterialDebug = MaterialDebugForDebugView(view);
 
                 VirtualDebugMode virtualMode = VirtualDebugMode::Off;
                 (void)VirtualModeForDebugView(view, virtualMode);
@@ -7529,7 +7561,8 @@ namespace OloEngine::MCP
             tool.Description =
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
                 "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
-                "vgclusterid, vglod, vgoverdraw — exactly one is shown at a time; mode 'none' (or "
+                "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask "
+                "— exactly one is shown at a time; mode 'none' (or "
                 "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
                 "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "
                 "opaque geometry with depth test off + additive blend; it needs no backing pass and works on "
@@ -7538,6 +7571,11 @@ namespace OloEngine::MCP
                 "'VirtualGeometryDebug' target (Deferred path only): set the mode, then capture it with "
                 "olo_render_capture_target; the response's 'captureTarget' says so. They are the SAME knob as "
                 "olo_virtual_geometry_set { debugMode }, so the two tools always agree on the current state. "
+                "The four material modes (issue #1231) substitute one of a skin surface's separated outputs "
+                "for the composite — the diffuse half, the specular half, the per-pixel skin-profile identity "
+                "as a hue (black where a pixel names no profile), or the scattering mask as unitless 0..1 "
+                "greyscale. They are produced by the deferred lighting pass, so they need the Deferred path; "
+                "'passEnabled' is false with a note saying so on the forward paths. "
                 "Returns the active mode, the *DebugView flag states, the virtual-geometry debug mode, and "
                 "'passEnabled' — whether the pass that produces the chosen buffer is actually running this "
                 "frame (with an actionable 'note' if not, e.g. enable SSAO first with olo_render_toggle_pass). "
@@ -7545,7 +7583,14 @@ namespace OloEngine::MCP
                 "it is never saved and a scene reload restores it. Call with no arguments to list the modes + "
                 "current state.";
             tool.InputSchema = Schema::Object()
-                                   .Prop("mode", Schema::String().Enum({ "none", "ssao", "gtao", "ssr", "ssgi", "overdraw", "vgclusterid", "vglod", "vgoverdraw" }).Desc("Debug view to show. 'none' clears all. The vg* modes write to the 'VirtualGeometryDebug' capture target. Omit to list modes + state."))
+                                   // EnumFrom, not a written-out list: the value set IS
+                                   // RenderOverrides::kDebugViews, and a hand-restated copy of it
+                                   // goes stale silently — #1231's four material views parsed,
+                                   // applied and listed correctly while this gate still rejected
+                                   // them, which reads as a missing feature rather than as an
+                                   // un-updated list. That is the exact failure EnumFrom was added
+                                   // for in #702; see McpSchemaBuilder.h.
+                                   .Prop("mode", Schema::String().EnumFrom(RenderOverrides::DebugViewModes()).Desc("Debug view to show. 'none' clears all. The vg* modes write to the 'VirtualGeometryDebug' capture target; the material/skin modes need the Deferred path. Omit to list modes + state."))
                                    .Prop("enabled", Schema::Bool().Desc("Set false as an alias for mode:'none' (clear all debug views)."))
                                    .NoAdditional();
             // Two result shapes (set vs introspection), so no field is

@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Camera/PerspectiveCamera.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/LOD.h"
@@ -981,6 +982,16 @@ namespace OloEngine
         [[nodiscard]] static f32 GetGlobalIBLIntensity()
         {
             return s_Data.GlobalIBLIntensity;
+        }
+
+        // AssetHandle -> the three-bit slot the G-Buffer names a skin profile by
+        // (issue #1231). One table per renderer so the G-Buffer writer, the
+        // deferred lighting pass and the editor's profile-id debug view cannot
+        // disagree about what a slot means. Reset by Renderer3D::Shutdown and by
+        // a scene load — see SkinProfileTable.h for why slots are sticky.
+        [[nodiscard]] static SkinProfileTable& GetSkinProfileTable()
+        {
+            return s_Data.SkinProfiles;
         }
 
         // (The ephemeral MCP sun-direction override from #316 was
@@ -2543,6 +2554,9 @@ namespace OloEngine
             // into the render graph. Set from the same SetGlobalIBL call so the
             // two spellings cannot describe different textures.
             f32 GlobalIBLIntensity = 1.0f;
+
+            // Skin profile identity table (issue #1231).
+            SkinProfileTable SkinProfiles;
 
             // Nearest water-surface depth texture for underwater fog (§7.2);
             // published by WaterRenderPass, consumed by ToneMap. 0 = no water.

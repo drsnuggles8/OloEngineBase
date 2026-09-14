@@ -139,15 +139,19 @@ uvec2 fplusGetTileData(float viewDepth)
 // previously tile-culled lights were shadowless).
 // ---------------------------------------------------------------------------
 
-vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
-                              vec3 albedo, float metallic, float roughness,
-                              float viewDepth, int pbrModel)
+// The REAL body (issue #1231): the clustered loop accumulates the diffuse and
+// specular halves separately, so the forward+ path can hand a skin material the
+// same two outputs the forward and deferred paths do. The vec3 spelling below
+// sums it, and is what every existing caller uses.
+OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
+                                                vec3 albedo, float metallic, float roughness,
+                                                float viewDepth, int pbrModel)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
     uint offset = tileData.x;
     uint count  = tileData.y;
 
-    vec3 Lo = vec3(0.0);
+    OloSurfaceLighting Lo = oloSurfaceLightingZero();
 
     for (uint i = 0u; i < count; ++i)
     {
@@ -205,7 +209,9 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo += evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness) * radiance;
+            Lo = oloSurfaceLightingAdd(
+                Lo, oloSurfaceLightingScale(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness),
+                                            radiance));
         }
         else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
         {
@@ -216,9 +222,9 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             float intensity    = sl.ColorAndIntensity.w;
             float range        = sl.RangeAndPadding.x;
 
-            vec3 contribution = calculateSphereAreaLightContribution(N, V, lightPos, sphereRadius,
-                                                                     lightColor, intensity, range,
-                                                                     albedo, metallic, roughness, worldPos);
+            OloSurfaceLighting contribution = calculateSphereAreaLightContributionSplit(
+                N, V, lightPos, sphereRadius, lightColor, intensity, range,
+                albedo, metallic, roughness, worldPos);
 
 #ifdef FPLUS_ATLAS_SHADOWS
             // Sphere-area lights shadow from their centre through the point path
@@ -227,19 +233,20 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             float localShadow;
             if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
             {
-                contribution *= localShadow;
+                contribution = oloSurfaceLightingScale(contribution, vec3(localShadow));
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
                 int entry = baseEntry + atlasCubeFace(worldPos - lightPos);
-                contribution *= calculateAtlasEntryShadow(
+                float atlasShadow = calculateAtlasEntryShadow(
                     worldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
                     u_ShadowAtlas, u_ShadowAtlasRaw,
                     u_AtlasDepthBias, u_AtlasResolution, 0, u_ShadowParams.z);
+                contribution = oloSurfaceLightingScale(contribution, vec3(atlasShadow));
             }
 #endif
 
-            Lo += contribution;
+            Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
         else // FPLUS_TYPE_TAG_SPOT
         {
@@ -287,7 +294,9 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo += evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness) * radiance;
+            Lo = oloSurfaceLightingAdd(
+                Lo, oloSurfaceLightingScale(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness),
+                                            radiance));
         }
     }
 
@@ -298,6 +307,19 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
 // terrain shader) keep their existing signature and closure. The sphere-area
 // branch above deliberately stays on the Legacy representative-point
 // evaluator for every model — see PBR CLOSURE V2 in PBRCommon.glsl.
+
+// The combined spelling with an explicit closure model — what the forward and
+// deferred paths called before #1231 split the body, and what every caller that
+// does not need the two halves still calls.
+vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
+                             vec3 albedo, float metallic, float roughness,
+                             float viewDepth, int pbrModel)
+{
+    return oloSurfaceLightingSum(fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
+                                                              roughness, viewDepth, pbrModel));
+}
+
+// And the Legacy-model convenience overload itself.
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                               vec3 albedo, float metallic, float roughness,
                               float viewDepth)

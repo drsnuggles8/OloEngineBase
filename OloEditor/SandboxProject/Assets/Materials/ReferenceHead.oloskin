@@ -1,0 +1,23 @@
+SkinProfile:
+  Name: Reference Head
+  # The VERSION of the skin transport this profile was authored against — NOT
+  # the material's kind, and NOT its PBR closure version. The three are separate
+  # selectors on purpose; see docs/adr/0024-material-kind-is-not-the-closure-version.md.
+  # 0 = DiffuseSpecularSplit, which is what the engine evaluates today.
+  EvaluationModel: 0
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # Transport albedo: the fraction of light entering the surface that leaves it
+  # again rather than being absorbed. Red survives, blue does not.
+  ScatterColor: [0.85, 0.55, 0.45]
+  # Per-channel mean free path in MILLIMETRES. A mid-tone dermis: red travels
+  # roughly 1.5 mm, blue barely leaves the epidermis. Consumed by the diffusion
+  # that issue #1241 adds; carried and validated here so the authored numbers
+  # exist before the maths that reads them.
+  ScatterRadiusMM: [1.55, 0.8, 0.55]
+  # Takes the material's authored thickness (metres, per glTF KHR_materials_volume)
+  # into the millimetre space of the radii above. 1000 is the identity.
+  ThicknessScale: 1000
+  # Multiplies the SURFACE specular term. Slightly warm and slightly below one:
+  # skin's oil layer is not a perfect white mirror. This is the knob that stays
+  # meaningful only because the diffuse and specular outputs are separate.
+  SpecularTint: [0.97, 0.93, 0.9]

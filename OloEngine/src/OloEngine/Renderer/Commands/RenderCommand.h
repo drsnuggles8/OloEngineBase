@@ -218,6 +218,23 @@ namespace OloEngine
         f32 thicknessFactor = 0.0f;
         glm::vec3 attenuationSigma = glm::vec3(0.0f);
 
+        // Material kind + skin profile (issue #1231). `materialKind` is what the
+        // surface IS (MaterialKind.h); `pbrModel` above is which VERSION of the
+        // closure evaluates it — separate questions, separate lanes.
+        //
+        // The profile is RESOLVED at submission, not carried as an AssetHandle:
+        // SkinProfileTable turns the handle into a small slot the G-Buffer can
+        // name per pixel plus the parameters this pass needs, so nothing
+        // downstream of submission touches the asset manager. That also makes
+        // this struct's equality compare the values the UBO cache keys on.
+        i32 materialKind = 0;
+        // kSkinProfileSlotNone (Renderer/SkinProfile.h) — "names no profile".
+        // Spelled as a literal here so this hot header keeps its include set;
+        // CommandDispatch.cpp static_asserts the two agree.
+        u32 skinProfileSlot = 7;
+        glm::vec3 skinSpecularTint = glm::vec3(1.0f); // LINEAR Rec.709, unitless
+        i32 skinEvaluationModel = 0;                  // SkinEvaluationModel
+
         // PBR texture identities (an invalid handle means no map for that slot;
         // test with .IsValid(), never against a literal 0)
         RHI::ResourceHandle albedoMapID{};
@@ -233,7 +250,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

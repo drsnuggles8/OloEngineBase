@@ -39,7 +39,9 @@
 #include "OloEngine/Renderer/EnvironmentMap.h" // IBLConfiguration / IBLQuality
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/PBRModel.h"
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
@@ -1678,11 +1680,12 @@ namespace OloEngine::Tests
             << "BRDF LUT bias term never approaches unity — degenerate Fresnel-offset channel";
     }
     // =========================================================================
-    // The G-Buffer RT2 material-flags lane (issue #996).
+    // The G-Buffer RT2 material-flags lane (issues #996, #1231).
     //
-    // The deferred path carries a material's PBR closure model to the lighting
-    // pass through a bitfield packed into RT2's alpha: bit 0 unlit, the model
-    // index in bits 1.. . Its encode and decode live together in
+    // The deferred path carries a material's PBR closure model, its KIND and the
+    // skin profile it names to the lighting pass through a bitfield packed into
+    // RT2's alpha: bit 0 unlit, kind in bits 1..2, skin profile slot in bits
+    // 3..5, the model index in bits 6.. . Its encode and decode live together in
     // include/PBRCommon.glsl; ShaderUnit_GBufferFlagsLane.glsl calls THOSE
     // functions (not a transcription of them) and pushes the value through the
     // fp16 quantisation the real RGBA16F attachment applies, so this sweeps
@@ -1695,18 +1698,29 @@ namespace OloEngine::Tests
     // correctly: a silent Forward/Deferred photometric divergence. That is the
     // exact failure class ClosureV2DeferredParityEvidenceTest pins for the
     // models that exist today; this pins it for every model that could exist.
+    //
+    // #1231 added the two fields BELOW the model and lowered its ceiling from
+    // 1023 to 31 to pay for them. The sweep grew a second axis rather than a
+    // second test: a kind or a slot that carried into the model field would be
+    // the same silent divergence, and it is only visible when all three are
+    // swept together.
     // =========================================================================
 
-    TEST(GBufferFlagsLaneTest, EveryEncodableModelRoundTripsUnTruncated)
+    TEST(GBufferFlagsLaneTest, EveryEncodableModelKindAndProfileRoundTripsUnTruncated)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        // One texel per model index, sweeping 0 .. 1023 — the whole range
-        // PBRModel.h::kPBRModelGBufferLaneMax declares carryable. The row count
-        // is redundancy, not a second axis.
+        // Two axes now, because the lane carries three fields (issue #1231):
+        // one COLUMN per model index, sweeping the whole range
+        // PBRModel.h::kPBRModelGBufferLaneMax declares carryable, and one ROW
+        // per (kind, slot) pair, which together cover every value either of the
+        // two fixed-width fields can hold.
         constexpr u32 kWidth = static_cast<u32>(kPBRModelGBufferLaneMax) + 1u;
-        constexpr u32 kHeight = 1;
-        static_assert(kWidth == 1024u, "the probe sweeps the whole declared lane range");
+        constexpr u32 kKindCount = static_cast<u32>(kMaterialKindGBufferMax) + 1u;
+        constexpr u32 kSlotCount = kSkinProfileSlotNone + 1u;
+        constexpr u32 kHeight = kKindCount * kSlotCount;
+        static_assert(kWidth == 32u, "the probe sweeps the whole declared model range");
+        static_assert(kHeight == 32u, "the probe sweeps every (kind, slot) pair");
 
         PbrProbeHarness harness(kWidth, kHeight, "assets/shaders/tests/ShaderUnit_GBufferFlagsLane.glsl");
         harness.Draw();
@@ -1716,66 +1730,92 @@ namespace OloEngine::Tests
         ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4);
 
         std::set<i32> seenLaneValues;
-        for (u32 model = 0; model < kWidth; ++model)
+        for (u32 row = 0; row < kHeight; ++row)
         {
-            const std::size_t idx = static_cast<std::size_t>(model) * 4;
-            const f32 lane = pixels[idx + 0];
-            const f32 decodedModel = pixels[idx + 1];
-            const f32 unlitBit = pixels[idx + 2];
+            const u32 expectedKind = row % kKindCount;
+            const u32 expectedSlot = row / kKindCount;
+            for (u32 model = 0; model < kWidth; ++model)
+            {
+                const std::size_t idx = (static_cast<std::size_t>(row) * kWidth + model) * 4;
+                const f32 lane = pixels[idx + 0];
+                const f32 decodedModel = pixels[idx + 1];
+                const f32 decodedKind = pixels[idx + 2];
+                const f32 decodedSlot = pixels[idx + 3];
 
-            // A GPU readback is an external float boundary, so validate before
-            // any of it reaches a cast to integer (cpp-coding-quality §2b):
-            // static_cast / std::lround of NaN or ±inf is undefined behaviour,
-            // and a NaN would otherwise slip silently into the distinctness set
-            // below rather than failing here. A non-finite texel means the draw
-            // or the readback failed, which makes nothing after it measurable.
-            ASSERT_TRUE(std::isfinite(lane) && std::isfinite(decodedModel) && std::isfinite(unlitBit))
-                << "model " << model << ": the probe read back a non-finite texel (lane " << lane
-                << ", decoded " << decodedModel << ", unlit " << unlitBit
-                << ") — the harness draw or its readback failed.";
+                // A GPU readback is an external float boundary, so validate
+                // before any of it reaches a cast to integer
+                // (cpp-coding-quality §2b): static_cast / std::lround of NaN or
+                // ±inf is undefined behaviour, and a NaN would otherwise slip
+                // silently into the distinctness set below rather than failing
+                // here. A non-finite texel means the draw or the readback
+                // failed, which makes nothing after it measurable.
+                ASSERT_TRUE(std::isfinite(lane) && std::isfinite(decodedModel) &&
+                            std::isfinite(decodedKind) && std::isfinite(decodedSlot))
+                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
+                    << ": the probe read back a non-finite texel — the harness draw or its readback failed.";
 
-            // The lane carries `model * 2` (+ the unlit bit), so a value outside
-            // that range is the transport breaking rather than the comparison
-            // below disagreeing — and it is what makes the lround safe.
-            constexpr f32 kLaneMax = static_cast<f32>(2 * kPBRModelGBufferLaneMax + 1);
-            ASSERT_GE(lane, 0.0f) << "model " << model << ": lane value " << lane << " is negative.";
-            ASSERT_LE(lane, kLaneMax)
-                << "model " << model << ": lane value " << lane << " exceeds the " << kLaneMax
-                << " the RGBA16F lane can carry exactly.";
+                // The lane carries `model * 64 + slot * 8 + kind * 2`, so a
+                // value outside that range is the transport breaking rather
+                // than the comparisons below disagreeing — and it is what makes
+                // the lround safe.
+                constexpr f32 kLaneMax = static_cast<f32>(64 * kPBRModelGBufferLaneMax + 63);
+                ASSERT_GE(lane, 0.0f) << "model " << model << ": lane value " << lane << " is negative.";
+                ASSERT_LE(lane, kLaneMax)
+                    << "model " << model << ": lane value " << lane << " exceeds the " << kLaneMax
+                    << " the RGBA16F lane can carry exactly.";
 
-            // Both quantities are exact small integers by construction (the
-            // shader writes them through fp16, which represents every integer
-            // up to 2048 exactly), so the tolerance is a float-comparison
-            // formality rather than slack: 1e-3 is four orders of magnitude
-            // below the 1.0 that separates neighbouring model indices. That
-            // makes this STRICTER than the truncating `static_cast<i32>` it
-            // replaces, which accepted anything in [model, model + 1).
-            constexpr f32 kExactTolerance = 1e-3f;
+                // Every quantity is an exact small integer by construction (the
+                // shader writes them through fp16, which represents every
+                // integer up to 2048 exactly), so the tolerance is a
+                // float-comparison formality rather than slack: 1e-3 is four
+                // orders of magnitude below the 1.0 that separates neighbouring
+                // indices. That makes this STRICTER than a truncating
+                // `static_cast<i32>`, which would accept anything in [n, n+1).
+                constexpr f32 kExactTolerance = 1e-3f;
 
-            // The whole point: what goes in comes back out. A truncating lane
-            // (the pre-#996 `min(pbrModel, 1)`) fails from model 2 onward.
-            EXPECT_NEAR(decodedModel, static_cast<f32>(model), kExactTolerance)
-                << "model " << model << " did not survive the G-Buffer flags lane"
-                << " (lane value " << lane << ") — it decoded as " << decodedModel
-                << "; a model that truncates here shades a DIFFERENT closure on Deferred"
-                << " than on Forward, silently.";
+                // The whole point: what goes in comes back out. A truncating
+                // lane (the pre-#996 `min(pbrModel, 1)`) fails from model 2
+                // onward; a kind or slot field that carried into the model
+                // field fails here too.
+                EXPECT_NEAR(decodedModel, static_cast<f32>(model), kExactTolerance)
+                    << "model " << model << " (kind " << expectedKind << ", slot " << expectedSlot
+                    << ") did not survive the G-Buffer flags lane (lane value " << lane
+                    << ") — it decoded as " << decodedModel
+                    << "; a model that truncates here shades a DIFFERENT closure on Deferred"
+                    << " than on Forward, silently.";
 
-            // A model index must never alias onto the unlit code. This is the
-            // half of the encoding that decides whether a pixel is shaded at
-            // all: the averaged-resolve defect #996 fixed produced exactly this
-            // (a ClosureV2 silhouette decoding UNLIT and returning raw
-            // emissive, i.e. a black fringe).
-            EXPECT_NEAR(unlitBit, 0.0f, kExactTolerance)
-                << "model " << model << " set the unlit bit (lane value " << lane
-                << ") — that pixel would return raw emissive instead of being shaded.";
+                // The two #1231 fields. A kind that does not survive means a
+                // skin surface shades as a generic one on the deferred path
+                // only; a slot that does not survive means it shades with
+                // someone else's profile.
+                EXPECT_NEAR(decodedKind, static_cast<f32>(expectedKind), kExactTolerance)
+                    << "material kind " << expectedKind << " decoded as " << decodedKind
+                    << " (model " << model << ", slot " << expectedSlot << ", lane " << lane << ").";
+                EXPECT_NEAR(decodedSlot, static_cast<f32>(expectedSlot), kExactTolerance)
+                    << "skin profile slot " << expectedSlot << " decoded as " << decodedSlot
+                    << " (model " << model << ", kind " << expectedKind << ", lane " << lane << ").";
 
-            // Distinctness. Two models sharing a lane value is the same silent
-            // divergence wearing a different hat. Safe to narrow here: the
-            // finiteness and range guards above already ran.
-            const i32 laneCode = static_cast<i32>(std::lround(lane));
-            EXPECT_TRUE(seenLaneValues.insert(laneCode).second)
-                << "model " << model << " encodes to lane value " << laneCode
-                << ", which another model already uses.";
+                // Safe to narrow here: the finiteness and range guards above
+                // already ran.
+                const i32 laneCode = static_cast<i32>(std::lround(lane));
+
+                // The unlit bit must never be set by a PBR writer. Asserted
+                // against the TRANSPORTED value rather than a second decode:
+                // the lane is even if and only if bit 0 is clear, and the
+                // averaged-resolve defect #996 fixed produced exactly this (a
+                // ClosureV2 silhouette decoding UNLIT and returning raw
+                // emissive, i.e. a black fringe).
+                EXPECT_EQ(laneCode % 2, 0)
+                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
+                    << " set the unlit bit (lane value " << laneCode
+                    << ") — that pixel would return raw emissive instead of being shaded.";
+
+                // Distinctness. Two triples sharing a lane value is the same
+                // silent divergence wearing a different hat.
+                EXPECT_TRUE(seenLaneValues.insert(laneCode).second)
+                    << "model " << model << " kind " << expectedKind << " slot " << expectedSlot
+                    << " encodes to lane value " << laneCode << ", which another triple already uses.";
+            }
         }
     }
 } // namespace OloEngine::Tests

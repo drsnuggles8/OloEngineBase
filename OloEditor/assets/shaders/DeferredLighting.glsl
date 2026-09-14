@@ -120,7 +120,16 @@ layout(std140, binding = 8) uniform MotionBlurMatrices {
 // Per-pass deferred controls UBO (binding 30).
 layout(std140, binding = 30) uniform DeferredLightingControls {
     vec4 u_DeferredControls; // x=EnableIBL, y=EnableLightProbes, z=IBLIntensity, w=CascadeDebug
-    vec4 u_MSAAParams;       // x=SampleCount (float, >=1), yzw reserved
+    vec4 u_MSAAParams;       // x=SampleCount (float, >=1), y=ReSTIR DI live, z=ReSTIR GI live,
+                             // w=MaterialDebugView (issue #1231)
+    // The skin profile table (issue #1231), indexed by the three-bit slot the
+    // G-Buffer flags lane carries. MUST mirror DeferredControlsData in
+    // DeferredLightingPass.cpp, which static_asserts this size.
+    //   xyz = SpecularTint, LINEAR Rec.709, unitless [0,1]
+    //   w   = SkinEvaluationModel as a float (exact: a small integer)
+    // A slot nobody claimed stays neutral, so a stale slot reads as "no profile
+    // effect" rather than as garbage.
+    vec4 u_SkinProfileParams[7];
 };
 
 // Texture inputs. Under heap-bindless (issue #691) every one of these

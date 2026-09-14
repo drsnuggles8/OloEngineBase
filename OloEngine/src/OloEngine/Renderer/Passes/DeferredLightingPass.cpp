@@ -13,9 +13,11 @@
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include <array>
+#include <utility>
 
 namespace OloEngine
 {
@@ -26,13 +28,36 @@ namespace OloEngine
     namespace
     {
         // Must match the `DeferredLightingControls` block layout in
-        // DeferredLighting.glsl / DeferredLighting_MSAA.glsl (two vec4s, 32
-        // bytes std140).
+        // DeferredLighting.glsl / DeferredLighting_MSAA.glsl.
         struct DeferredControlsData
         {
             glm::vec4 Controls;   // x=EnableIBL, y=EnableProbes, z=IBLIntensity, w=CascadeDebug
-            glm::vec4 MSAAParams; // x=SampleCount (float), yzw reserved
+            glm::vec4 MSAAParams; // x=SampleCount (float), y=ReSTIR DI, z=ReSTIR GI, w=MaterialDebugView
+
+            // THE SKIN PROFILE TABLE (issue #1231), indexed by the three-bit
+            // slot the G-Buffer flags lane carries.
+            //
+            // WHY THE PARAMETERS TRAVEL HERE AND NOT IN THE G-BUFFER. The
+            // forward paths read a profile's parameters from the per-material
+            // UBO, which a fullscreen lighting pass does not have. Without this
+            // table the deferred path would know WHICH profile a pixel names and
+            // nothing about it — the exact per-path divergence the issue's third
+            // acceptance criterion is about. Seven vec4 is 112 bytes on a UBO
+            // that is uploaded once per frame, against a G-Buffer channel that
+            // would have cost 4 bytes per pixel.
+            //
+            //   xyz = SpecularTint, LINEAR Rec.709, unitless [0,1]
+            //   w   = SkinEvaluationModel, as a float (exact: it is a small int)
+            //
+            // A slot nobody claimed stays neutral (tint 1,1,1, model 0), so a
+            // stale slot reads as "no profile effect" rather than as garbage.
+            std::array<glm::vec4, kMaxSkinProfileSlots> SkinProfileParams{};
         };
+        static_assert(sizeof(DeferredControlsData) % 16 == 0,
+                      "DeferredControlsData must be 16-byte aligned for std140");
+        static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16,
+                      "DeferredControlsData no longer matches the DeferredLightingControls block in "
+                      "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
     } // namespace
 
     DeferredLightingPass::DeferredLightingPass()
@@ -323,7 +348,23 @@ namespace OloEngine
         // additionally tests the target's alpha per pixel, which covers sky and
         // unlit pixels inside a live frame.
         controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? (m_SelectedInputs.UsesReSTIRPT ? 2.0f : 1.0f) : 0.0f;
-        controls.MSAAParams.w = 0.0f;
+        // Material debug view (issue #1231) — which of the four separated
+        // outputs replaces the composite. 0 (None) is the normal frame.
+        controls.MSAAParams.w = static_cast<f32>(std::to_underlying(m_MaterialDebugView));
+
+        // The skin profile table. Filled from the SAME SkinProfileTable that
+        // assigned the slots the G-Buffer wrote, so the two cannot disagree
+        // about what slot N means, and filled EVERY frame so a profile edited in
+        // the editor reaches the deferred path on the next one.
+        {
+            const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+            for (u32 slot = 0; slot < kMaxSkinProfileSlots; ++slot)
+            {
+                const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);
+                controls.SkinProfileParams[slot] = glm::vec4(parameters.SpecularTint,
+                                                             static_cast<f32>(std::to_underlying(parameters.EvaluationModel)));
+            }
+        }
         m_ControlsUBO->SetData(&controls, sizeof(controls));
         m_ControlsUBO->Bind();
 

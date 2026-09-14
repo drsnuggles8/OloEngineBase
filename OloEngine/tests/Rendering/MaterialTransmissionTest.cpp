@@ -407,18 +407,24 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
 {
     // The header static_asserts this too, so this test is the readable
     // statement of the same contract: the physical scalars sit between the
-    // PBRModel selector and the trailing heap-offset lanes, and the block is
-    // 176 bytes. Every .glsl mirroring PBRMaterialProperties depends on both.
+    // PBRModel selector and the trailing heap-offset lanes. Every .glsl
+    // mirroring PBRMaterialProperties depends on both.
+    //
+    // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile
+    // group, which was INSERTED after the physical scalars and before the heap
+    // offsets — so every offset asserted below is unchanged and only the
+    // trailing two moved. That is the property this test is really guarding.
     using UBO = ShaderBindingLayout::PBRMaterialUBO;
 
-    EXPECT_EQ(sizeof(UBO), 176u);
+    EXPECT_EQ(sizeof(UBO), 192u);
     EXPECT_EQ(offsetof(UBO, TransmissionFactor), 96u);
     EXPECT_EQ(offsetof(UBO, IOR), 100u);
     EXPECT_EQ(offsetof(UBO, ThicknessFactor), 104u);
     EXPECT_EQ(offsetof(UBO, AttenuationSigmaR), 108u);
     EXPECT_EQ(offsetof(UBO, AttenuationSigmaG), 112u);
     EXPECT_EQ(offsetof(UBO, AttenuationSigmaB), 116u);
-    EXPECT_EQ(offsetof(UBO, HeapOffsets), 128u) << "the heap-offset lanes must stay LAST (issue #691)";
+    EXPECT_EQ(offsetof(UBO, MaterialKind), 120u) << "the #1231 material-kind group starts where the two spare pads were";
+    EXPECT_EQ(offsetof(UBO, HeapOffsets), 144u) << "the heap-offset lanes must stay LAST (issue #691)";
 
     // A default-constructed UBO is neutral, which is what a draw that never
     // touched a physical material uploads.
