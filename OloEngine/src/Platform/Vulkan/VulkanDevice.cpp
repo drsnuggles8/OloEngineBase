@@ -164,6 +164,17 @@ namespace OloEngine
                 }
             }
 
+            // Subscribing to INFO for the address-binding messages above also
+            // subscribes to every OTHER info-severity message, which would
+            // otherwise all land in the log. They are not what the severity was
+            // widened for, so drop them here rather than tracing them.
+            if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0 &&
+                (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)) == 0)
+            {
+                return VK_FALSE;
+            }
+
             const char* message = (callbackData != nullptr && callbackData->pMessage != nullptr)
                                       ? callbackData->pMessage
                                       : "(no message)";
@@ -948,8 +959,15 @@ namespace OloEngine
 
         // Address-binding reporting (issue #1198): opt-in, because the layer
         // reports every allocation. See the recorder above.
+        //
+        // OLO_DEBUG-ONLY, and the guard is on the USE as well as on the recorder:
+        // the extension is implemented BY the validation layer, which only the
+        // Debug build loads, and the recorder itself is inside the same guard.
+        // Without this the Release and Dist configurations do not compile — and
+        // nothing local catches that, because every local build is Debug.
         VkPhysicalDeviceAddressBindingReportFeaturesEXT addressBindingFeatures{};
         addressBindingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
+#ifdef OLO_DEBUG
         if (AddressBindingReportRequested())
         {
             if (hasAddressBindingExtension)
@@ -969,6 +987,9 @@ namespace OloEngine
                               "resolve to objects");
             }
         }
+#else
+        (void)hasAddressBindingExtension;
+#endif
 
         // Mesh shaders (issue #813): OPTIONAL — enabled when the extension is
         // listed AND the driver supports both stages; never an ADR 0010 gate
@@ -1634,8 +1655,13 @@ namespace OloEngine
         }
     }
 
-    void VulkanDevice::LogAddressOwners(const u64 address, const u64 precision)
+    void VulkanDevice::LogAddressOwners([[maybe_unused]] const u64 address, [[maybe_unused]] const u64 precision)
     {
+#ifndef OLO_DEBUG
+        // The recorder lives behind OLO_DEBUG (the validation layer implements
+        // the extension), so there is nothing to resolve against here.
+        return;
+#else
         if (!AddressBindingReportRequested())
         {
             return;
@@ -1670,6 +1696,7 @@ namespace OloEngine
             OLO_CORE_ERROR("[Vulkan]     owner: no recorded binding covers {:#x} ({} ranges tracked)", address,
                            s_AddressBindings.size());
         }
+#endif
     }
 
     void VulkanDevice::LogQueueCheckpoints() const

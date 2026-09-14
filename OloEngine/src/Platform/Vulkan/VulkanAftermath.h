@@ -55,6 +55,14 @@ namespace OloEngine::VulkanAftermath
     // its device, and a hang here replaces a diagnosable crash with a hung one.
     void OnDeviceLost();
 
+    // Remember `name` for this SPIR-V module so a crash dump's active-shader
+    // list can be reported by NAME instead of by hash. Aftermath identifies a
+    // shader by a hash of its binary, which is meaningless on its own; hashing
+    // every module we create is what turns "hash=0x3dc4a10b8749b9db" into
+    // "ScenePass fragment". No-op when Aftermath is off, so the hashing cost is
+    // only paid by a session that asked for crash dumps.
+    void RegisterShaderBinary(const char* name, const void* spirv, sizet sizeBytes);
+
     // Release the crash-dump handler. Safe to call when never initialized.
     void Shutdown();
 } // namespace OloEngine::VulkanAftermath

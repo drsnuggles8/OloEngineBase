@@ -276,9 +276,8 @@ endfunction()
 # call this next to each add_executable. A missing DLL is not a build error — it is 0xC0000135
 # at startup, hours later, naming nothing about Aftermath.
 #
-# OLO_AFTERMATH_RUNTIME_DLL is set by OloEngine/CMakeLists.txt, which runs from
-# add_subdirectory(OloEngine) ABOVE every app directory, so it is always resolved by the time a
-# caller reaches it. Unlike the Steam twin this is not a FATAL_ERROR when unset: Aftermath is
+# OLO_AFTERMATH_RUNTIME_DLL is set by cmake/Aftermath.cmake, included from the ROOT above every
+# add_subdirectory(), so it is always resolved by the time a caller reaches it. Unlike the Steam twin this is not a FATAL_ERROR when unset: Aftermath is
 # genuinely optional and "no SDK" is the normal case, not a misconfiguration.
 function(olo_copy_aftermath_runtime target_name)
     if(OLO_AFTERMATH_RUNTIME_DLL AND EXISTS "${OLO_AFTERMATH_RUNTIME_DLL}")

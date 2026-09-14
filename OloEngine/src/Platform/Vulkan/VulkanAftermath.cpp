@@ -22,6 +22,9 @@
 #include <fstream>
 #include <thread>
 #include <vector>
+#include <unordered_map>
+#include <string>
+#include <mutex>
 
 #endif
 
@@ -32,6 +35,11 @@ namespace OloEngine::VulkanAftermath
     {
         std::atomic<bool> s_Initialized{ false };
         std::atomic<bool> s_DumpReceived{ false };
+
+        // Shader-binary hash -> our own name for it. Written while shaders are
+        // created (any thread), read once from the crash-dump callback.
+        std::mutex s_ShaderNameMutex;
+        std::unordered_map<u64, std::string> s_ShaderNames;
 
         [[nodiscard]] bool Requested()
         {
@@ -92,10 +100,11 @@ namespace OloEngine::VulkanAftermath
             if (GFSDK_Aftermath_GpuCrashDump_GetPageFaultInfo(decoder, &pageFault) ==
                 GFSDK_Aftermath_Result_Success)
             {
-                OLO_CORE_ERROR("[Aftermath] PAGE FAULT at {:#x} — {} (engine={}, client={}, {} resource(s) named)",
+                OLO_CORE_ERROR("[Aftermath] PAGE FAULT at {:#x} — {} faultType={} (engine={}, client={}, {} resource(s) "
+                               "named)",
                                pageFault.faultingGpuVA, AccessTypeName(pageFault.accessType),
-                               static_cast<int>(pageFault.engine), static_cast<int>(pageFault.client),
-                               pageFault.resourceInfoCount);
+                               static_cast<int>(pageFault.faultType), static_cast<int>(pageFault.engine),
+                               static_cast<int>(pageFault.client), pageFault.resourceInfoCount);
 
                 if (pageFault.resourceInfoCount > 0u)
                 {
@@ -137,9 +146,23 @@ namespace OloEngine::VulkanAftermath
                 {
                     for (const auto& s : shaders)
                     {
-                        OLO_CORE_ERROR("[Aftermath]   active shader: hash={:#x} debugInfoUid={:#x} type={} "
+                        // The dump's shaderHash is NOT the binary hash (the SDK
+                        // header says so explicitly) — it has to be converted
+                        // before it can be matched against what we registered.
+                        std::string name = "<unmatched>";
+                        GFSDK_Aftermath_ShaderBinaryHash binaryHash = {};
+                        if (GFSDK_Aftermath_GetShaderHashForShaderInfo(decoder, &s, &binaryHash) ==
+                            GFSDK_Aftermath_Result_Success)
+                        {
+                            const std::lock_guard lock(s_ShaderNameMutex);
+                            if (const auto it = s_ShaderNames.find(binaryHash.hash); it != s_ShaderNames.end())
+                            {
+                                name = it->second;
+                            }
+                        }
+                        OLO_CORE_ERROR("[Aftermath]   active shader: '{}' hash={:#x} binaryHash={:#x} type={} "
                                        "internal={}",
-                                       s.shaderHash, s.shaderDebugInfoUid, static_cast<int>(s.shaderType),
+                                       name, s.shaderHash, binaryHash.hash, static_cast<int>(s.shaderType),
                                        s.isInternal != 0);
                     }
                 }
@@ -278,10 +301,14 @@ namespace OloEngine::VulkanAftermath
         constexpr auto kTimeout = std::chrono::seconds(10);
         const auto deadline = std::chrono::steady_clock::now() + kTimeout;
         auto status = GFSDK_Aftermath_CrashDump_Status_Unknown;
+        bool statusQueryFailed = false;
         while (std::chrono::steady_clock::now() < deadline)
         {
             if (GFSDK_Aftermath_GetCrashDumpStatus(&status) != GFSDK_Aftermath_Result_Success)
             {
+                // NOT a timeout, and `status` may not have been written — say
+                // which of the two happened rather than blaming the clock.
+                statusQueryFailed = true;
                 break;
             }
             if (status == GFSDK_Aftermath_CrashDump_Status_Finished ||
@@ -292,7 +319,12 @@ namespace OloEngine::VulkanAftermath
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
-        if (status == GFSDK_Aftermath_CrashDump_Status_CollectingDataFailed)
+        if (statusQueryFailed)
+        {
+            OLO_CORE_ERROR("[Aftermath] GFSDK_Aftermath_GetCrashDumpStatus failed — cannot tell whether a dump is "
+                           "still being collected");
+        }
+        else if (status == GFSDK_Aftermath_CrashDump_Status_CollectingDataFailed)
         {
             OLO_CORE_ERROR("[Aftermath] the driver failed to collect a crash dump");
         }
@@ -304,11 +336,42 @@ namespace OloEngine::VulkanAftermath
         }
     }
 
+    void RegisterShaderBinary(const char* name, const void* spirv, const sizet sizeBytes)
+    {
+        if (!IsEnabled() || name == nullptr || spirv == nullptr || sizeBytes == 0u)
+        {
+            return;
+        }
+        GFSDK_Aftermath_SpirvCode code{};
+        code.pData = spirv;
+        code.size = static_cast<u32>(sizeBytes);
+        GFSDK_Aftermath_ShaderBinaryHash hash = {};
+        if (GFSDK_Aftermath_GetShaderHashSpirv(GFSDK_Aftermath_Version_API, &code, &hash) !=
+            GFSDK_Aftermath_Result_Success)
+        {
+            return;
+        }
+        try
+        {
+            const std::lock_guard lock(s_ShaderNameMutex);
+            s_ShaderNames.emplace(hash.hash, name);
+        }
+        catch (...)
+        {
+            // A diagnostic must never take a shader compile down with it.
+        }
+    }
+
     void Shutdown()
     {
         if (s_Initialized.exchange(false, std::memory_order_acq_rel))
         {
             GFSDK_Aftermath_DisableGpuCrashDumps();
+            // Reset with the handler, not just alongside it: a second device
+            // (backend switch, swapchain rebuild) would otherwise inherit a
+            // latched "a dump already arrived" and stay silent about one that
+            // never came.
+            s_DumpReceived.store(false, std::memory_order_release);
         }
     }
 #else
@@ -344,6 +407,10 @@ namespace OloEngine::VulkanAftermath
     }
 
     void OnDeviceLost()
+    {
+    }
+
+    void RegisterShaderBinary(const char*, const void*, sizet)
     {
     }
 
