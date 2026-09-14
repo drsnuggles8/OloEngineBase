@@ -29,6 +29,7 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -2815,6 +2816,30 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
+        // A shader that declares no root data at all assembles zero bytes, and
+        // the arena refuses a zero-byte push — so the work drops. That is the
+        // conservative answer (an EMPTY layout is far more often failed
+        // reflection than a genuinely input-free shader, and running on failed
+        // reflection is worse than not running), but it was the second fully
+        // silent drop in this chain: no warning, only the counter. Name it,
+        // the way the pipeline-creation failure above names its shader.
+        //
+        // "draw or dispatch" is not hedging: DispatchCompute and
+        // DispatchComputeIndirect push their root data through here too, so
+        // naming this a draw would misdescribe a compute shader's drop.
+        if (ctx.RootScratch.empty())
+        {
+            static VulkanWarnOnceSet s_WarnedEmptyLayouts; // items may fail concurrently (#806)
+            if (s_WarnedEmptyLayouts.Insert(shaderName != nullptr ? shaderName : "<unnamed>"))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] '{}' assembled an empty root-data layout — every draw or dispatch "
+                               "using it is dropped. A shader reaches its inputs through root data, so an empty "
+                               "layout is normally failed reflection; a shader that genuinely needs no input "
+                               "still has to declare one binding to be runnable here.",
+                               shaderName != nullptr ? shaderName : "<unnamed>");
+            }
+            return false;
+        }
         const auto rootAllocation = VulkanFrameArena::Get().Push(ctx.RootScratch.data(), ctx.RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
@@ -2857,7 +2882,7 @@ namespace OloEngine
                      // VulkanIndexBuffer is created INDEX|TRANSFER_DST|
                      // TRANSFER_SRC|SHADER_DEVICE_ADDRESS (+ AS build input) —
                      // no STORAGE_BUFFER_BIT, so VUID-13123 forbids the flag.
-                     VulkanAddressCommands::StorageUsage::Absent };
+                     VulkanAddressCommands::StorageUsage::Absent, indexBuffer->GetVkBuffer() };
         }
         // The raw element buffer (SetVertexArrayIndexBuffer, #1052). Resolved
         // here rather than cached on the VAO so a re-allocate under the same
@@ -2871,9 +2896,23 @@ namespace OloEngine
                      // The raw family's one conservative usage set includes
                      // STORAGE_BUFFER_BIT (it is the dual-role element/SSBO
                      // arena), so VUID-13122 REQUIRES the flag here.
-                     VulkanAddressCommands::StorageUsage::Present };
+                     VulkanAddressCommands::StorageUsage::Present, raw->Buffer };
         }
         return {};
+    }
+
+    VkAddressCommandFlagsKHR VulkanRendererAPI::IndexBindAddressFlagsFor(const VulkanVertexArray* vao)
+    {
+        const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
+        // The SAME refusal BindIndexBufferFor applies, extent included: a raw
+        // arena allocated at 0 bytes still has a valid address, and reporting
+        // STORAGE_BUFFER_USAGE for a bind that will never be recorded would
+        // make this accessor disagree with the command it describes.
+        if (indexBuffer.Address == 0 || indexBuffer.SizeBytes == 0)
+        {
+            return 0;
+        }
+        return VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
     }
 
     bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
@@ -2928,6 +2967,12 @@ namespace OloEngine
             bindInfo.addressRange = VulkanAddressCommands::MakeRange(indexBuffer.Address, indexBuffer.SizeBytes);
             bindInfo.addressFlags = VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
             bindInfo.indexType = VK_INDEX_TYPE_UINT32;
+            if (Levers::VulkanTraceBuffers())
+            {
+                OLO_CORE_TRACE("[RHI/Vulkan] index bind {:#x}..{:#x} ({} bytes, VkBuffer {:#x}, flags {:#x})",
+                               indexBuffer.Address, indexBuffer.Address + indexBuffer.SizeBytes,
+                               indexBuffer.SizeBytes, VulkanUpload::VkHandleToU64(indexBuffer.Buffer), bindInfo.addressFlags);
+            }
             vkCmdBindIndexBuffer3KHR(ctx.Cmd, &bindInfo);
             ctx.BoundIndexBufferAddress = indexBuffer.Address;
             ctx.BoundIndexBufferSize = indexBuffer.SizeBytes;
