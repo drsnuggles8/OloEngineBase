@@ -49,6 +49,15 @@ namespace OloEngine
         // this copy against it — pass ShaderStorage as well whenever the source
         // was written by shader atomics, or the copy reads a value that is right
         // most of the time.
+        //
+        // That barrier is load-bearing on GL and inert on VULKAN, where calling
+        // it between frames is a counted no-op: there is no command buffer for
+        // it to order anything in. Nothing is lost — VulkanRendererAPI::
+        // CopyBufferSubData runs the between-frames copy as a one-shot submit
+        // carrying its own ALL_COMMANDS -> COPY availability barrier, and a
+        // separate submission is ordered after every frame already submitted.
+        // Pinned by VulkanRawBufferUpload.StagedReadbackOutsideAFrameCopiesRatherThanNoOps,
+        // which also explains why the no-op must not be "fixed" away.
         void Stage(RHI::ResourceHandle source, u64 srcOffsetBytes, u64 sizeBytes,
                    MemoryBarrierFlags barriers = MemoryBarrierFlags::ShaderStorage);
 
