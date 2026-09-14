@@ -7,7 +7,9 @@
 namespace OloEngine
 {
     class Scene;
-}
+    class Skeleton;
+    struct MorphTargetComponent;
+} // namespace OloEngine
 
 namespace OloEngine::Animation
 {
@@ -39,6 +41,18 @@ namespace OloEngine::Animation
         Teleport,
         /// Asked for explicitly by editor tooling or a test.
         Manual,
+        /// The morphed rest surface this frame is not the one the last frame drew
+        /// (#1227). The shaders reproject the previous pose through the CURRENT
+        /// rest position, so a rest surface that moved cannot be expressed as a
+        /// velocity at all — see MorphDeformationSystem.
+        MorphSurfaceChanged,
+        /// The bound MorphTargetSet was replaced, so the previous weight vector
+        /// indexes a different set of targets and is not comparable.
+        MorphSetChanged,
+        /// The mesh being drawn changed — a conventional LOD switch. Different
+        /// vertex count and different topology, so the previous surface is a
+        /// different surface (#1227).
+        MeshTopologyChanged,
     };
 
     [[nodiscard]] std::string_view ToString(DeformationHistoryResetCause cause);
@@ -61,6 +75,13 @@ namespace OloEngine::Animation
         u32 SkeletonsWithHistory = 0;
         /// Bone matrices advanced this frame, across all skeletons.
         u32 BoneMatricesAdvanced = 0;
+        /// Morphing entities whose morph-weight history was advanced this frame.
+        u32 MorphSurfacesAdvanced = 0;
+        /// Of those, how many carried a genuine previous weight vector afterwards.
+        u32 MorphSurfacesWithHistory = 0;
+        /// Morphing entities whose surface moved this frame, so their deformation
+        /// history was rejected rather than reprojected.
+        u32 MorphSurfacesRejected = 0;
 
         // --- Cumulative for the session. NOT cleared per frame. ---
         //
@@ -76,8 +97,24 @@ namespace OloEngine::Animation
         u32 HistoryResetsFirstUse = 0;
         u32 HistoryResetsBoneCountChanged = 0;
         u32 HistoryResetsExplicit = 0;
+        u32 HistoryResetsMorphSurfaceChanged = 0;
+        u32 HistoryResetsMorphSetChanged = 0;
+        u32 HistoryResetsMeshTopologyChanged = 0;
         /// Cause of the most recent reset, for the statistics panel.
         DeformationHistoryResetCause LastResetCause = DeformationHistoryResetCause::None;
+
+        // --- Malformed morph input, cumulative for the session (#1227). ---
+        //
+        // "A path that cannot do its job says so loudly and countably": each of
+        // these is an input the morph producer refused, and a refusal nobody can
+        // count reads as "this never happens".
+
+        /// Authored weights naming a target the bound set does not have.
+        u32 MorphUnknownTargets = 0;
+        /// Morph sets refused because they do not span the mesh they are bound to.
+        u32 MorphIncompatibleSets = 0;
+        /// Base-surface caches dropped because the mesh behind them changed.
+        u32 MorphBaseCacheInvalidations = 0;
 
         /// Clear the per-frame counters only. Called once per frame.
         void BeginFrame()
@@ -85,6 +122,9 @@ namespace OloEngine::Animation
             SkeletonsAdvanced = 0;
             SkeletonsWithHistory = 0;
             BoneMatricesAdvanced = 0;
+            MorphSurfacesAdvanced = 0;
+            MorphSurfacesWithHistory = 0;
+            MorphSurfacesRejected = 0;
         }
 
         /// Clear everything, including the session totals.
@@ -152,5 +192,80 @@ namespace OloEngine::Animation
         /// Record an explicit per-entity reset performed by a caller that
         /// already holds the skeleton, so the counters stay complete.
         static void NoteExplicitReset(DeformationHistoryResetCause cause);
+
+        // Malformed morph input, counted where it is refused (#1227). These are
+        // session totals on the same block as the bone counters, because the two
+        // halves are one surface and a reader comparing them should not have to
+        // find two places.
+        static void NoteMorphUnknownTargets(u32 count);
+        static void NoteMorphIncompatibleSet();
+        static void NoteMorphBaseCacheInvalidated();
     };
+
+    /**
+     * @brief The morph half of the one shared animated surface (#1227).
+     *
+     * Deliberately the same vocabulary, the same counters and the same frame
+     * boundary as SkeletalDeformationSystem above rather than a parallel morph
+     * path, because the whole point of the surface is that raster, depth, shadows
+     * and velocity refer to ONE deformed vertex. Morph deltas are applied to the
+     * rest surface on the CPU and the skin matrix is then applied to that morphed
+     * rest surface on the GPU, so the combination order is morph-then-skin and it
+     * is the same order for every consumer by construction: every pass reads the
+     * one vertex buffer the morph pass wrote.
+     *
+     * What this system owns is the part the GPU producer cannot see.
+     * OloDeformSkinnedVertex builds its previous-pose position as
+     * `prevSkinMatrix * restPosition`, where `restPosition` is whatever is in the
+     * vertex buffer THIS frame — i.e. the surface as morphed this frame. When the
+     * morph weights move, that previous position is a hybrid: last frame's pose on
+     * this frame's surface. The honest answer is not a velocity but an explicit
+     * history rejection, which is the second branch the issue's acceptance
+     * criterion allows, and it is what this system decides.
+     *
+     * (The first branch — a real morph velocity — needs the PREVIOUS morphed rest
+     * position in the vertex stage, which is a second per-draw vertex stream. Both
+     * engine-wide vertex-pull bindings are taken, so that is not a change this
+     * issue can make; the rejection is counted and attributed instead of silently
+     * emitting a bone-only velocity across a surface that moved.)
+     */
+    class MorphDeformationSystem
+    {
+      public:
+        /**
+         * @brief Advance every morphing entity's weight history by one frame.
+         *
+         * Call once per frame, at the frame boundary, from every entry point that
+         * calls SkeletalDeformationSystem::AdvanceHistory — and for the same
+         * reason: a morphing entity that is paused must advance into
+         * prev == current and emit zero motion rather than keep re-emitting the
+         * last delta. SkeletalDeformationContract pins that pairing over the call
+         * sites, because a history pass wired into only some of the frame entry
+         * points is invisible in every test.
+         *
+         * @return the number of morphing entities advanced.
+         */
+        static u32 AdvanceHistory(Scene* scene);
+
+        /**
+         * @brief Drop every morphing entity's history, attributing the cause.
+         * @return the number of entities reset.
+         */
+        static u32 ResetHistory(Scene* scene, DeformationHistoryResetCause cause);
+    };
+
+    /**
+     * @brief Throw away one entity's deformation history, both halves, with a cause.
+     *
+     * For a discontinuity discovered per entity rather than scene-wide: an LOD
+     * switch, a morph set swap, a morphed surface that moved. Either argument may
+     * be null — an entity can be skinned, morphing, or both, and the history is
+     * only meaningful where it exists.
+     *
+     * Holding prev equal to current is what makes the next frame emit exactly zero
+     * motion; the alternative is a velocity measured between two different
+     * surfaces, which TAA and motion blur faithfully smear.
+     */
+    void RejectDeformationHistory(Skeleton* skeleton, MorphTargetComponent* morph,
+                                  DeformationHistoryResetCause cause);
 } // namespace OloEngine::Animation

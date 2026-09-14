@@ -16,6 +16,9 @@
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/Vertex.h"
+#include "OloEngine/Animation/Skeleton.h"
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file, brevity preferred
 
@@ -1354,5 +1357,168 @@ TEST(MeshPrimitivesShared, DefaultPrimitivesShareOneSourcePerKind)
         // Headless: nothing is cached, because a source built without a device
         // has no GPU buffers and must not be handed to a later device-backed caller.
         EXPECT_NE(a->GetMeshSource().Raw(), b->GetMeshSource().Raw()) << "headless: no sharing";
+    }
+}
+
+// =============================================================================
+// LOD generation for the shared ANIMATED surface (issue #1227)
+//
+// All three LOD generators used to refuse a source with a skeleton, morph
+// targets or a bone table outright — "not supported until auxiliary streams
+// (weights/morphs) are preserved" — which is what kept conventional LOD out of
+// the animated surface entirely: every skinned or morphing mesh drew at LOD 0
+// forever, however far away it was.
+//
+// Two things have to hold for that refusal to be safely gone, and they fail in
+// opposite directions. A level that loses the bone stream draws a skinned mesh
+// with all-zero weights, which the shared producer treats as unskinned, so the
+// character snaps to its rest pose at a distance. A level whose morph deltas are
+// carried over WITHOUT the remap deforms whichever vertices happen to sit at
+// those indices after compaction — a face that pulls apart rather than smiles.
+// Neither raises anything.
+// =============================================================================
+
+namespace
+{
+    // A grid with one bone per vertex and one morph target that displaces exactly
+    // one vertex. Both streams are made ASYMMETRIC on purpose: a remap bug that
+    // shuffles them cannot hide behind uniform data.
+    [[nodiscard]] Ref<MeshSource> MakeSkinnedMorphingGrid(u32 gridSize)
+    {
+        auto mesh = MakeGridMesh(gridSize);
+        const i32 vertexCount = mesh->GetVertices().Num();
+
+        auto skeleton = Ref<Skeleton>::Create(1);
+        skeleton->m_BoneNames = { "Root" };
+        skeleton->m_ParentIndices = { -1 };
+        mesh->SetSkeleton(skeleton);
+
+        auto& bones = mesh->GetBoneInfluences();
+        bones.SetNum(vertexCount);
+        for (i32 i = 0; i < vertexCount; ++i)
+        {
+            BoneInfluence influence;
+            influence.m_BoneIDs[0] = static_cast<u32>(i);
+            influence.m_Weights[0] = 1.0f;
+            bones[i] = influence;
+        }
+
+        auto targets = Ref<MorphTargetSet>::Create();
+        MorphTarget bulge("Bulge", static_cast<u32>(vertexCount));
+        for (i32 i = 0; i < vertexCount; ++i)
+        {
+            // Encode the vertex index in the delta, so a remapped delta can be
+            // traced back to the vertex it was authored for.
+            bulge.Vertices[static_cast<sizet>(i)].DeltaPosition = glm::vec3(0.0f, static_cast<f32>(i), 0.0f);
+        }
+        targets->AddTarget(bulge);
+        mesh->SetMorphTargets(targets);
+
+        return mesh;
+    }
+} // namespace
+
+TEST(MeshOptimization, GenerateLODAcceptsASkinnedSource)
+{
+    auto mesh = MakeSkinnedMorphingGrid(16);
+
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
+    ASSERT_NE(lod, nullptr)
+        << "LOD generation still refuses a skinned source — conventional LOD cannot reach "
+           "the animated surface at all while it does";
+    EXPECT_LT(lod->GetIndices().Num(), mesh->GetIndices().Num());
+}
+
+TEST(MeshOptimization, GenerateLODCarriesTheBoneStream)
+{
+    auto mesh = MakeSkinnedMorphingGrid(16);
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
+    ASSERT_NE(lod, nullptr);
+
+    ASSERT_TRUE(lod->HasSkeleton())
+        << "the LOD level has no skeleton, so MeshSource::Build() never creates its bone "
+           "influence buffer and the draw binds no bone stream at all";
+    EXPECT_EQ(lod->GetBoneInfluences().Num(), lod->GetVertices().Num())
+        << "the bone stream is not parallel to the LOD level's vertex array";
+    EXPECT_TRUE(lod->HasBoneInfluences())
+        << "every bone weight on the LOD level is zero — the shared producer reads that as an "
+           "unskinned vertex, so the character snaps to its rest pose at this level";
+}
+
+TEST(MeshOptimization, GenerateLODCarriesMorphDeltasInStep)
+{
+    // GenerateLODMesh keeps the source vertex array verbatim and only shrinks the
+    // index buffer, so every delta must still sit on the vertex it was authored
+    // for — index for index.
+    auto mesh = MakeSkinnedMorphingGrid(16);
+    auto lod = MeshOptimization::GenerateLODMesh(*mesh, 0.25f);
+    ASSERT_NE(lod, nullptr);
+
+    ASSERT_TRUE(lod->HasMorphTargets());
+    const auto& targets = lod->GetMorphTargets();
+    ASSERT_EQ(targets->GetTargetCount(), 1u);
+    EXPECT_EQ(targets->Targets[0].Name, "Bulge");
+
+    EXPECT_EQ(targets->CheckCompatibility(static_cast<u32>(lod->GetVertices().Num())),
+              MorphTargetSet::ECompatibility::Compatible)
+        << "the LOD level's morph deltas do not span its vertices, so applying them deforms "
+           "the wrong vertices or is refused outright";
+
+    ASSERT_EQ(targets->Targets[0].Vertices.size(), static_cast<sizet>(lod->GetVertices().Num()));
+    for (i32 i = 0; i < lod->GetVertices().Num(); ++i)
+    {
+        EXPECT_FLOAT_EQ(targets->Targets[0].Vertices[static_cast<sizet>(i)].DeltaPosition.y,
+                        static_cast<f32>(i))
+            << "delta " << i << " moved off the vertex it was authored for";
+    }
+
+    // The set that was copied must be the LEVEL'S set, not the source's: the two
+    // levels have different vertex arrays once a compacting generator is used, and
+    // sharing one set would make the second level deform through the first's deltas.
+    EXPECT_NE(targets.Raw(), mesh->GetMorphTargets().Raw());
+}
+
+TEST(MeshOptimization, AutoLODChainRemapsBothStreamsTogether)
+{
+    // BuildAutoLODChain COMPACTS the vertex array (meshopt_optimizeVertexFetch),
+    // so this is the path where a carried-but-unremapped stream shows up: the
+    // deltas and the bone influences have to follow the same remap the positions
+    // did, or each level deforms and skins a shuffled mesh.
+    auto mesh = MakeSkinnedMorphingGrid(24);
+
+    MeshOptimization::AutoLODSettings settings;
+    settings.MaxLevels = 4;
+    const auto chain = MeshOptimization::BuildAutoLODChain(*mesh, settings);
+    ASSERT_GT(chain.size(), 1u)
+        << "the auto-LOD chain produced no simplified level for a skinned + morphing source";
+
+    // From 1: entry 0 IS the source mesh and carries a null Source by contract.
+    for (sizet level = 1; level < chain.size(); ++level)
+    {
+        const auto& entry = chain[level];
+        ASSERT_NE(entry.Source, nullptr);
+        const i32 levelVertices = entry.Source->GetVertices().Num();
+
+        EXPECT_EQ(entry.Source->GetBoneInfluences().Num(), levelVertices)
+            << "a compacted level's bone stream is a different length from its vertex array";
+        ASSERT_TRUE(entry.Source->HasMorphTargets());
+        EXPECT_EQ(entry.Source->GetMorphTargets()->CheckCompatibility(static_cast<u32>(levelVertices)),
+                  MorphTargetSet::ECompatibility::Compatible)
+            << "a compacted level's morph deltas do not span its vertices";
+
+        // The delta encodes the ORIGINAL vertex index, and the position encodes it
+        // too (the grid's y is 0 everywhere, x/z give the vertex away), so a delta
+        // that is still on its own vertex has a y equal to an index that really
+        // exists in the source. A shuffled stream is not detectable that cheaply,
+        // so check the stronger property the remap guarantees: every surviving
+        // delta value is one the source authored.
+        const auto& deltas = entry.Source->GetMorphTargets()->Targets[0].Vertices;
+        for (const auto& delta : deltas)
+        {
+            EXPECT_GE(delta.DeltaPosition.y, 0.0f);
+            EXPECT_LT(delta.DeltaPosition.y, static_cast<f32>(mesh->GetVertices().Num()))
+                << "a level carries a morph delta that was never authored — the delta array was "
+                   "copied without being remapped onto the compacted vertex array";
+        }
     }
 }

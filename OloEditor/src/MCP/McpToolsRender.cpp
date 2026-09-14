@@ -6457,6 +6457,15 @@ namespace OloEngine::MCP
             snapshot.HistoryResetsBoneCountChanged = stats.HistoryResetsBoneCountChanged;
             snapshot.HistoryResetsExplicit = stats.HistoryResetsExplicit;
             snapshot.LastResetCause = std::string(Animation::ToString(stats.LastResetCause));
+            snapshot.MorphSurfacesAdvanced = stats.MorphSurfacesAdvanced;
+            snapshot.MorphSurfacesWithHistory = stats.MorphSurfacesWithHistory;
+            snapshot.MorphSurfacesRejected = stats.MorphSurfacesRejected;
+            snapshot.HistoryResetsMorphSurfaceChanged = stats.HistoryResetsMorphSurfaceChanged;
+            snapshot.HistoryResetsMorphSetChanged = stats.HistoryResetsMorphSetChanged;
+            snapshot.HistoryResetsMeshTopologyChanged = stats.HistoryResetsMeshTopologyChanged;
+            snapshot.MorphUnknownTargets = stats.MorphUnknownTargets;
+            snapshot.MorphIncompatibleSets = stats.MorphIncompatibleSets;
+            snapshot.MorphBaseCacheInvalidations = stats.MorphBaseCacheInvalidations;
             return SkeletalDeformationStats::BuildReport(snapshot);
         }
 

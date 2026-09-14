@@ -1103,9 +1103,14 @@ namespace OloEngine
         void UpdateAnimationGraphs(Timestep ts); // animation state machines
         void UpdateRootMotion(Timestep ts);      // apply extracted root-motion deltas (issue #631)
         void EvaluateMorphTargets();             // deform meshes from morph weights
-        void UpdateNavigation(Timestep ts);      // pathfinding / crowds
-        void UpdatePerception(Timestep ts);      // AI sight sensing
-        void UpdateAI(Timestep ts);              // behavior trees / FSM / GOAP
+        // Resolve, once per frame at the frame boundary, which conventional mesh LOD
+        // level every ANIMATED entity's shared surface is drawn at (#1227). Must run
+        // before the morph deformation pass: that pass writes into the very mesh the
+        // renderer is about to draw, so the two have to agree on which mesh that is.
+        void SelectAnimatedSurfaceLOD();
+        void UpdateNavigation(Timestep ts); // pathfinding / crowds
+        void UpdatePerception(Timestep ts); // AI sight sensing
+        void UpdateAI(Timestep ts);         // behavior trees / FSM / GOAP
         // Flocking is split across two nodes (issue #731): the neighbour search
         // + force solve is worker-safe because it writes nothing but each
         // agent's own component, while the integrate/move half writes

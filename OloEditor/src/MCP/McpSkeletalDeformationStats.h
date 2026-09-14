@@ -33,6 +33,18 @@ namespace OloEngine::MCP::SkeletalDeformationStats
         u32 HistoryResetsBoneCountChanged = 0;
         u32 HistoryResetsExplicit = 0;
         std::string LastResetCause = "None";
+        // The morph half of the same surface (#1227). Same two lifetimes: the
+        // advance counts are this frame, the resets and the malformed-input
+        // counts are session totals.
+        u32 MorphSurfacesAdvanced = 0;
+        u32 MorphSurfacesWithHistory = 0;
+        u32 MorphSurfacesRejected = 0;
+        u32 HistoryResetsMorphSurfaceChanged = 0;
+        u32 HistoryResetsMorphSetChanged = 0;
+        u32 HistoryResetsMeshTopologyChanged = 0;
+        u32 MorphUnknownTargets = 0;
+        u32 MorphIncompatibleSets = 0;
+        u32 MorphBaseCacheInvalidations = 0;
     };
 
     [[nodiscard("this builds the response; it does not send it")]] inline Json BuildReport(const Snapshot& snapshot)
@@ -59,7 +71,25 @@ namespace OloEngine::MCP::SkeletalDeformationStats
             { "firstUse", snapshot.HistoryResetsFirstUse },
             { "boneCountChanged", snapshot.HistoryResetsBoneCountChanged },
             { "explicit", snapshot.HistoryResetsExplicit },
+            { "morphSurfaceChanged", snapshot.HistoryResetsMorphSurfaceChanged },
+            { "morphSetChanged", snapshot.HistoryResetsMorphSetChanged },
+            { "meshTopologyChanged", snapshot.HistoryResetsMeshTopologyChanged },
             { "lastCause", snapshot.LastResetCause },
+        };
+
+        // The morph half. `rejected` is the one to watch: a morphing surface that
+        // moved this frame cannot be reprojected at all -- the shaders build the
+        // previous position from THIS frame's rest surface -- so its history is
+        // thrown away deliberately rather than turned into a wrong velocity. A
+        // count that stays at zero while a face is visibly expressing means the
+        // rejection is not reaching the entity that is deforming.
+        out["morph"] = Json{
+            { "surfacesAdvanced", snapshot.MorphSurfacesAdvanced },
+            { "surfacesWithHistory", snapshot.MorphSurfacesWithHistory },
+            { "surfacesRejected", snapshot.MorphSurfacesRejected },
+            { "unknownTargets", snapshot.MorphUnknownTargets },
+            { "incompatibleSets", snapshot.MorphIncompatibleSets },
+            { "baseCacheInvalidations", snapshot.MorphBaseCacheInvalidations },
         };
         return out;
     }

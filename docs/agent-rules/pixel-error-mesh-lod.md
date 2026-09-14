@@ -168,12 +168,13 @@ physics bodies and crowd agents already needed. Grep `m_Registry.destroy() does 
 `Scene.cpp` for the other members of that club before assuming a removal hook covers you.
 
 `ModelImporter::DiscardGeneratedLODGroup` handles the re-import case, and it runs **before** the
-animated gate, not inside it. Both halves are load-bearing: the editor's "Import Model" buttons
+eligibility gate, not inside it. Both halves are load-bearing: the editor's "Import Model" buttons
 assign a new `m_MeshSource` onto an **existing** entity, so a chain generated for the previous mesh
-is stale whatever the new mesh is — and re-importing a static model as an *animated* one takes the
-"no chain for skinned meshes" skip path, which would otherwise leave that stale chain attached to a
-skinned mesh forever. `ModelImporterTest.StaticToAnimatedReimportDiscardsTheGeneratedLODGroup` pins
-exactly that ordering. An *authored* group still wins and is never discarded.
+is stale whatever the new mesh is — and it must be discarded even on a re-import that then declines
+to generate anything at all, or the stale chain outlives the mesh that produced it forever.
+`ModelImporterTest.StaticToAnimatedReimportDiscardsTheGeneratedLODGroup` pins exactly that ordering
+(before #1227 the declining branch was the skinned refusal; now it is the empty-source one). An
+*authored* group still wins and is never discarded.
 
 **Known residual: a duplicated entity shares the original's chain without owning it.** The copy
 constructor deliberately does not copy `m_GeneratedLODHandles` (ownership is not duplicable), so
@@ -197,8 +198,12 @@ measured one.
 - **Multi-submesh sources are rejected.** The generator collapses everything onto material index 0,
   so a 25-submesh Sponza import gets no chain. That is the pre-existing limitation of
   `GenerateLODMesh`, inherited.
-- **Skinned and morph-target sources are rejected.** Simplification drops bone weights and morph
-  deltas, so a skinned LOD would render in bind pose.
+- ~~**Skinned and morph-target sources are rejected.**~~ Lifted by #1227: the generators now carry
+  bone influences and morph deltas through the same vertex-fetch remap the positions take
+  (`MeshOptimization::CopyDeformationStreams`), and `Scene::SelectAnimatedSurfaceLOD` resolves an
+  animated entity's level once per frame and treats a switch as a deformation-history
+  discontinuity. See
+  [morph-and-lod-in-the-animated-surface.md](morph-and-lod-in-the-animated-surface.md).
 - **Shadow casters always draw LOD 0.** `SubmitMeshSourceClassic` adds the caster from the
   unselected submesh, so the depth pass keeps full density. Correct but not free.
 - **No cross-entity sharing.** Two entities importing the same model each generate and own their

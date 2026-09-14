@@ -2,6 +2,7 @@
 #include "OloEngine/Animation/SkeletalDeformation.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
@@ -30,6 +31,15 @@ namespace OloEngine::Animation
                 case DeformationHistoryResetCause::BoneCountChanged:
                     ++s_Stats.HistoryResetsBoneCountChanged;
                     break;
+                case DeformationHistoryResetCause::MorphSurfaceChanged:
+                    ++s_Stats.HistoryResetsMorphSurfaceChanged;
+                    break;
+                case DeformationHistoryResetCause::MorphSetChanged:
+                    ++s_Stats.HistoryResetsMorphSetChanged;
+                    break;
+                case DeformationHistoryResetCause::MeshTopologyChanged:
+                    ++s_Stats.HistoryResetsMeshTopologyChanged;
+                    break;
                 default:
                     ++s_Stats.HistoryResetsExplicit;
                     break;
@@ -55,6 +65,12 @@ namespace OloEngine::Animation
                 return "Teleport";
             case DeformationHistoryResetCause::Manual:
                 return "Manual";
+            case DeformationHistoryResetCause::MorphSurfaceChanged:
+                return "MorphSurfaceChanged";
+            case DeformationHistoryResetCause::MorphSetChanged:
+                return "MorphSetChanged";
+            case DeformationHistoryResetCause::MeshTopologyChanged:
+                return "MeshTopologyChanged";
         }
         return "Unknown";
     }
@@ -157,5 +173,115 @@ namespace OloEngine::Animation
     void SkeletalDeformationSystem::NoteExplicitReset(DeformationHistoryResetCause cause)
     {
         CountReset(cause);
+    }
+
+    void SkeletalDeformationSystem::NoteMorphUnknownTargets(u32 count)
+    {
+        s_Stats.MorphUnknownTargets += count;
+    }
+
+    void SkeletalDeformationSystem::NoteMorphIncompatibleSet()
+    {
+        ++s_Stats.MorphIncompatibleSets;
+    }
+
+    void SkeletalDeformationSystem::NoteMorphBaseCacheInvalidated()
+    {
+        ++s_Stats.MorphBaseCacheInvalidations;
+    }
+
+    u32 MorphDeformationSystem::AdvanceHistory(Scene* scene)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!scene)
+            return 0;
+
+        // NOT BeginFrame() -- SkeletalDeformationSystem::AdvanceHistory already
+        // cleared the per-frame counters for this frame, and the two halves of the
+        // surface share one stats block on purpose.
+        auto view = scene->GetAllEntitiesWith<MorphTargetComponent>();
+        for (auto entityID : view)
+        {
+            auto& morph = view.template get<MorphTargetComponent>(entityID);
+
+            // Rotate the weight vector the last RENDERED frame deformed with into
+            // the previous slot, whether or not this entity animated. An entity
+            // skipped while paused keeps prev and current one frame apart and
+            // re-reports that stale difference forever -- the bone-side failure
+            // #1226 fixed, in the morph half.
+            morph.PrevAppliedWeights = morph.AppliedWeights;
+            morph.HasMorphHistory = morph.HasAppliedSurface;
+
+            // The rejection is a statement about ONE frame: the surface moved
+            // between the last frame and this one. It is re-decided by the morph
+            // evaluation below, so it must not survive into a frame that did not
+            // re-decide it -- a paused morphing entity would otherwise be stuck
+            // emitting zero motion for the length of the pause.
+            morph.RejectDeformationHistory = false;
+
+            ++s_Stats.MorphSurfacesAdvanced;
+            if (morph.HasMorphHistory)
+                ++s_Stats.MorphSurfacesWithHistory;
+        }
+
+        return s_Stats.MorphSurfacesAdvanced;
+    }
+
+    u32 MorphDeformationSystem::ResetHistory(Scene* scene, DeformationHistoryResetCause cause)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!scene)
+            return 0;
+
+        u32 resetCount = 0;
+        auto view = scene->GetAllEntitiesWith<MorphTargetComponent>();
+        for (auto entityID : view)
+        {
+            auto& morph = view.template get<MorphTargetComponent>(entityID);
+            morph.PrevAppliedWeights.clear();
+            morph.HasMorphHistory = false;
+            morph.RejectDeformationHistory = true;
+            CountReset(cause);
+            ++resetCount;
+        }
+
+        if (resetCount > 0)
+        {
+            OLO_CORE_TRACE("MorphDeformation: dropped morph history for {} entit(ies), cause {}",
+                           resetCount, ToString(cause));
+        }
+        return resetCount;
+    }
+
+    void RejectDeformationHistory(Skeleton* skeleton, MorphTargetComponent* morph,
+                                  DeformationHistoryResetCause cause)
+    {
+        bool rejectedAnything = false;
+
+        if (skeleton)
+        {
+            skeleton->ResetBoneHistory();
+            rejectedAnything = true;
+        }
+        if (morph)
+        {
+            morph->RejectDeformationHistory = true;
+            morph->HasMorphHistory = false;
+            morph->PrevAppliedWeights.clear();
+            rejectedAnything = true;
+            // Only a MORPH surface counts here. A skeleton-only rejection (an LOD
+            // switch on an unmorphed character) bumping this would make the
+            // olo_skeletal_deformation_stats `morph.surfacesRejected` field report
+            // entities that have no morph surface at all, which inverts the one
+            // question it exists to answer.
+            ++s_Stats.MorphSurfacesRejected;
+        }
+
+        if (rejectedAnything)
+        {
+            CountReset(cause);
+        }
     }
 } // namespace OloEngine::Animation
