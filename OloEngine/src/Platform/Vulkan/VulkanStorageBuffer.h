@@ -178,6 +178,9 @@ namespace OloEngine
 
         VkBuffer m_Buffer = VK_NULL_HANDLE;
         VmaAllocation m_Allocation = VK_NULL_HANDLE;
+        // Backing store for the VMA allocation name: vmaSetAllocationName copies the
+        // string, but keeping it also makes the tag greppable from a debugger.
+        std::string m_DebugAllocationName;
         void* m_Mapped = nullptr; ///< Non-null when VMA gave a host-visible placement.
         bool m_NeedsFlush = false;
         VkDeviceAddress m_DeviceAddress = 0;

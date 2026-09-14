@@ -66,11 +66,11 @@ namespace OloEngine::Tests
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714), the two DDGI blocks (#707),
         // ShadingRateParams (#683), WaterDisturbanceParams (#967),
-        // the two VSM blocks (#715), TerrainBrushParams (#716) and
-        // DDGIRelocateParams (#846).
+        // the two VSM blocks (#715), TerrainBrushParams (#716), the two
+        // shared-deformation blocks (#1226) and DDGIRelocateParams (#846).
         // Keep this arithmetic in step with the array size — it drifted once
         // already, reading 44 while the array held 45.
-        const std::array<KnownBlock, 47> kKnownBlocks = { {
+        const std::array<KnownBlock, 49> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -81,6 +81,13 @@ namespace OloEngine::Tests
             { "MeshInstanceData", sizeof(UBOStructures::ModelUBO) },
             { "AnimationMatrices", sizeof(UBOStructures::AnimationUBO) },
             { "BoneMatrices", sizeof(UBOStructures::AnimationUBO) },
+            // The shared skeletal deformation producer's block names (#1226).
+            // An unrecognised block is SKIPPED by FindKnownBlock, not failed, so
+            // renaming these without adding them here would have silently left
+            // the AnimationUBO size guard covering no shader at all while this
+            // test stayed green.
+            { "OloBoneMatrices", sizeof(UBOStructures::AnimationUBO) },
+            { "OloPrevBoneMatrices", sizeof(UBOStructures::AnimationUBO) },
             { "ShadowData", sizeof(UBOStructures::ShadowUBO) },
             { "TerrainParams", sizeof(UBOStructures::TerrainUBO) },
             { "BrushPreview", sizeof(UBOStructures::BrushPreviewUBO) },
