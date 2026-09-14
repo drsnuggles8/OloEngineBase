@@ -1058,8 +1058,15 @@ namespace OloEngine
             //     short of the sky and extends PAST the near edge by however
             //     far a crest can move a vertex there;
             // w = band-limit spacing per metre of ray distance
-            //     (WaterSurfaceLod::SpacingPerMetre): one grid step of view
-            //     angle, so a vertex t metres out is sampled ~w*t metres apart.
+            //     (WaterSurfaceLod::SpacingPerMetre): one ON-SCREEN grid step
+            //     of view angle. Not one step of the whole rectangle: since
+            //     issue #1217 the skirt rows are compressed into a fixed share
+            //     of each axis, so the rectangle's average step describes no
+            //     row. The vertex stage scales this by the vertex's OWN step
+            //     ratio -- 1 everywhere on screen, larger in a compressed skirt
+            //     -- before multiplying by the ray distance, so a vertex t
+            //     metres out on screen is sampled ~w*t metres apart and a skirt
+            //     vertex proportionally coarser.
             //     The rim radius a missed ray is pushed to is derived in-shader
             //     from ProjectedGridParams2.xy and the model matrix.
             glm::vec4 ProjectedGridParams;

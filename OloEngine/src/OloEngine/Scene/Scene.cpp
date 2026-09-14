@@ -51,6 +51,7 @@
 #include "OloEngine/Scripting/VisualScript/VisualScriptSystem.h"
 #include "OloEngine/Animation/BoneEntityUtils.h"
 #include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Asset/SoundGraphAsset.h"
 #include "OloEngine/Asset/SoundConfigAsset.h"
 #include "OloEngine/Audio/SoundGraph/GraphGeneration.h"
@@ -1449,6 +1450,13 @@ namespace OloEngine
     {
         m_IsRunning = true;
 
+        // Entering Play is a deformation discontinuity: whatever previous pose
+        // the skeletons carried from edit-mode preview describes a different
+        // session. Dropping it explicitly makes the first runtime frame emit
+        // zero bone motion instead of a velocity across the seam (#1226).
+        Animation::SkeletalDeformationSystem::ResetHistory(
+            this, Animation::DeformationHistoryResetCause::SceneTransition);
+
         // Item definitions are runtime data, not an editor-only cache. Loading
         // them at the shared Scene entry point covers Editor Play, OloRuntime,
         // and OloServer with the same authored weapon definitions.
@@ -2337,6 +2345,20 @@ namespace OloEngine
         }
         OLO_PERF_SCOPE("Scene::OnUpdateRuntime", perfProfiler);
 
+        // Advance the shared deformation history for EVERY skinned entity,
+        // before anything writes this frame's pose, and unconditionally —
+        // including while paused (#1226).
+        //
+        // Both halves of that matter. Advancing for every skinned entity rather
+        // than only the animating ones is what makes a paused character emit
+        // zero motion instead of last frame's delta: prev is copied from a pose
+        // that then does not change, so prev == current. And advancing here,
+        // at the frame boundary rather than inside the tick, is what keeps it
+        // true while paused at all — the pause gate below skips the whole
+        // gameplay schedule, so a history pass registered there would simply
+        // stop running and freeze the stale delta it was meant to prevent.
+        Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+
         UpdateStreaming();
 
         // Advance the gameplay simulation by exactly `ts`. This single-step
@@ -2362,6 +2384,20 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateRuntimeFixed", perfProfiler);
+
+        // Advance the shared deformation history for EVERY skinned entity,
+        // before anything writes this frame's pose, and unconditionally —
+        // including while paused (#1226).
+        //
+        // Both halves of that matter. Advancing for every skinned entity rather
+        // than only the animating ones is what makes a paused character emit
+        // zero motion instead of last frame's delta: prev is copied from a pose
+        // that then does not change, so prev == current. And advancing here,
+        // at the frame boundary rather than inside the tick, is what keeps it
+        // true while paused at all — the pause gate below skips the whole
+        // gameplay schedule, so a history pass registered there would simply
+        // stop running and freeze the stale delta it was meant to prevent.
+        Animation::SkeletalDeformationSystem::AdvanceHistory(this);
 
         UpdateStreaming();
 
@@ -4646,6 +4682,21 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateSimulation", perfProfiler);
+
+        // Advance the shared deformation history for EVERY skinned entity,
+        // before anything writes this frame's pose, and unconditionally —
+        // including while paused (#1226).
+        //
+        // Both halves of that matter. Advancing for every skinned entity rather
+        // than only the animating ones is what makes a paused character emit
+        // zero motion instead of last frame's delta: prev is copied from a pose
+        // that then does not change, so prev == current. And advancing here,
+        // at the frame boundary rather than inside the tick, is what keeps it
+        // true while paused at all — the pause gate below skips the whole
+        // gameplay schedule, so a history pass registered there would simply
+        // stop running and freeze the stale delta it was meant to prevent.
+        Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
             // Advance the deterministic simulation clock so the buoyancy wave
@@ -4765,6 +4816,12 @@ namespace OloEngine
         // preview without entering Play (issue #631). Idempotent per
         // settings — steady-state ticks are a cheap equality walk.
         Animation::RetargetingSystem::OnUpdate(this);
+
+        // Advance the deformation history before the preview poses are written
+        // (#1226) — the edit-mode counterpart of the frame-boundary advance in
+        // OnUpdateRuntime. Without it an edit-mode skeleton's previous pose
+        // stays frozen at whatever it held when Play last stopped.
+        Animation::SkeletalDeformationSystem::AdvanceHistory(this);
 
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
@@ -11427,9 +11484,25 @@ namespace OloEngine
                                                        ? &m_Registry.get<MaterialComponent>(entity).m_Material
                                                        : nullptr;
 
-                // Get bone matrices from skeleton
+                // Get bone matrices from skeleton. Offer the previous pose ONLY
+                // when the skeleton actually has one (#1226): after a
+                // discontinuity — entering Play, a teleport, a skeleton swap, the
+                // first frame of a freshly built skeleton — the previous palette
+                // describes a pose this skeleton was never in, and handing it to
+                // the shaders emits a velocity across the seam that TAA and motion
+                // blur faithfully smear. Passing an empty span makes
+                // CommandDispatch alias the current palette into the prev slot,
+                // i.e. exactly zero bone motion.
+                //
+                // This is THE live path: Renderer3D::RenderAnimatedMeshes carries
+                // the same guard but has no callers, so gating only there would
+                // have left the guard decorative on everything that actually
+                // renders.
+                static const std::vector<glm::mat4> s_NoBoneHistory;
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
-                const auto& prevBoneMatrices = skeleton.m_Skeleton->m_PrevFinalBoneMatrices;
+                const auto& prevBoneMatrices = skeleton.m_Skeleton->HasBoneHistory()
+                                                   ? skeleton.m_Skeleton->m_PrevFinalBoneMatrices
+                                                   : s_NoBoneHistory;
 
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));

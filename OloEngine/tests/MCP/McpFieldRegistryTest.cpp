@@ -188,13 +188,64 @@ TEST(McpFieldRegistry, TransformRotationAccessorRoundTripsAndUndoes)
 TEST(McpFieldRegistry, RefusesRuntimeOnlyComponents)
 {
     for (const char* component : { "IDComponent", "UIResolvedRectComponent", "WorldTransformComponent",
-                                   "AnimationStateComponent", "DialogueStateComponent",
+                                   "DialogueStateComponent",
                                    "SpringBoneStateComponent", "NoiseAnimationStateComponent",
                                    "RetargetingStateComponent", "FootIKStateComponent",
                                    "LocomotionStateComponent" })
     {
         EXPECT_FALSE(RegistryHasComponent(component)) << component << " is per-tick/identity state — must not be MCP-writable";
     }
+}
+
+// AnimationStateComponent is the mixed case. It used to be excluded wholesale on
+// the grounds that every field is per-tick playback state -- true of the clock and
+// the blend, but not of IsPlaying, which the animation system only ever READS: it
+// is the gate Scene tests before updating at all. Excluding it removed the only
+// way to start or stop a clip from outside the editor. It is now excluded field by
+// field.
+TEST(McpFieldRegistry, AnimationStateExposesItsSettingsButNotItsPlaybackState)
+{
+    EXPECT_TRUE(RegistryHasComponent("AnimationStateComponent"));
+
+    // Authored settings, read by the animation system and never written by it.
+    EXPECT_TRUE(RegistryHas("AnimationStateComponent", "IsPlaying"));
+    EXPECT_TRUE(RegistryHas("AnimationStateComponent", "BlendDuration"));
+
+    // Everything a system rewrites every tick: a write would be overwritten before
+    // anything could observe it, or would leave the component inconsistent.
+    for (const char* field : { "CurrentTime", "NextTime", "BlendFactor", "BlendTime", "Blending", "State",
+                               "CurrentClipIndex", "SourceFilePath", "RootMotionTranslation",
+                               "RootMotionRotation", "HasRootMotion" })
+    {
+        EXPECT_FALSE(RegistryHas("AnimationStateComponent", field))
+            << "AnimationStateComponent." << field << " is per-tick derived state - must not be writable";
+    }
+}
+
+// BlendDuration divides the blend clock -- AnimationSystem computes
+// clamp(m_BlendTime / m_BlendDuration, 0, 1) -- so zero divides by zero and a
+// negative pins the alpha at 0 and the blend never completes. Making the field
+// live-writable in #1226 is what put that within reach of a caller, so the bound
+// travels with it.
+TEST(McpFieldRegistry, BlendDurationCannotBeWrittenToZeroOrNegative)
+{
+    Fixture f;
+    f.TheEntity.AddComponent<OloEngine::AnimationStateComponent>();
+
+    const auto negative = GFW::Apply(f.Scene_, f.History, f.Uuid, "AnimationStateComponent",
+                                     "BlendDuration", Json(-1.0));
+    EXPECT_TRUE(negative.Ok) << negative.Error;
+    EXPECT_TRUE(negative.Data.value("clamped", false)) << "a negative blend duration was accepted unclamped";
+    EXPECT_GT(f.TheEntity.GetComponent<OloEngine::AnimationStateComponent>().m_BlendDuration, 0.0f);
+
+    const auto zero = GFW::Apply(f.Scene_, f.History, f.Uuid, "AnimationStateComponent",
+                                 "BlendDuration", Json(0.0));
+    EXPECT_TRUE(zero.Ok) << zero.Error;
+    EXPECT_TRUE(zero.Data.value("clamped", false))
+        << "a zero blend duration was accepted unclamped; without this the assertion below "
+           "would also pass if the write had simply been ignored";
+    EXPECT_GT(f.TheEntity.GetComponent<OloEngine::AnimationStateComponent>().m_BlendDuration, 0.0f)
+        << "a zero blend duration would divide by zero in the blend clock";
 }
 
 // A write to a runtime-only component is REFUSED, and the error names the valid

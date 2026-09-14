@@ -251,6 +251,30 @@ namespace OloEngine
             return m_Shaders;
         }
 
+        // @brief Whether this BUILD tracks shaders at all.
+        //
+        // The OLO_SHADER_REGISTER macros compile to nothing outside OLO_DEBUG, so
+        // in a Release or Dist build the tracked set is permanently empty. Callers
+        // MUST consult this before reading a count: an empty map means "this build
+        // does not track shaders", not "there are no shaders" -- and for the error
+        // list it means "unknown", not "clean". Reporting the second as though it
+        // were the first is how a Release editor came to be cited as evidence of
+        // zero shader errors.
+        [[nodiscard]] static constexpr bool IsTrackingCompiledIn() noexcept
+        {
+#ifdef OLO_DEBUG
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        // @brief Whether tracking is compiled in AND Initialize() has run.
+        [[nodiscard]] bool IsTracking() const noexcept
+        {
+            return IsTrackingCompiledIn() && m_IsInitialized;
+        }
+
         // @brief Export shader debugging report
         // @param filePath Output file path
         // @return True if export succeeded

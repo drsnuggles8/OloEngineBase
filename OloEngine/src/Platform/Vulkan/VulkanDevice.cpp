@@ -9,6 +9,10 @@
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
+#include "Platform/Vulkan/VulkanDeferredReclaim.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "OloEngine/Core/DebugLevers.h"
 
@@ -1422,9 +1426,19 @@ namespace OloEngine
         if (m_Device != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(m_Device);
-            // The parallel recorder's per-(slot, worker) pools belong to this
-            // device (#806); every owner — the context, the test fixtures —
-            // reaches this Shutdown, so this is the one release point.
+            // The parallel recorder has two halves and both belong to this
+            // device. The FRONTEND half is the per-item recording contexts,
+            // each holding cloned engine resources — a CameraUBO, a bone
+            // palette, an InstanceBuffer at SSBO_INSTANCE_DATA. They were
+            // released only by CommandDispatch::Shutdown, which a teardown
+            // arriving straight at this function never reaches, so those clones
+            // stayed alive into vmaDestroyAllocator and aborted it. Releasing
+            // them here first also lets the reclaim drain below actually free
+            // them. A no-op on OpenGL and when no API is installed.
+            RenderCommand::ReleaseParallelRecordingResources();
+            // The BACKEND half: the per-(slot, worker) command pools (#806);
+            // every owner — the context, the test fixtures — reaches this
+            // Shutdown, so this is the one release point.
             VulkanSecondaryCommandPools::Get().ReleaseAll();
             if (m_CommandPool != VK_NULL_HANDLE)
             {
@@ -1440,6 +1454,31 @@ namespace OloEngine
                 vkDestroyCommandPool(m_Device, m_AsyncComputeCommandPool, nullptr);
                 m_AsyncComputeCommandPool = VK_NULL_HANDLE;
             }
+            // Drain the deferred reclaim queue HERE, for the same reason the
+            // secondary command pools are released here: every owner reaches
+            // this Shutdown, and only some of them reach VulkanContext::Shutdown.
+            //
+            // A resource destroyed during the frame does not call vmaDestroyBuffer
+            // inline -- prior frames may still be executing -- it enqueues. Those
+            // entries were drained only by VulkanContext::Shutdown, so a teardown
+            // arriving by any other route (the test fixtures, or ~VulkanDevice
+            // running Shutdown for a context nobody shut down explicitly) walked
+            // straight into vmaDestroyAllocator with the queue still full. That is
+            // the "Some allocations were not freed" abort, attributed to whichever
+            // unlucky test happened to run last.
+            //
+            // FlushAll's precondition is a completed vkDeviceWaitIdle, which the
+            // call at the top of this function has already done, and it is
+            // idempotent -- the context's own earlier drain stays where it is,
+            // because that one has to run before the swapchain and surface teardown.
+            VulkanDeferredReclaim::Get().FlushAll();
+
+            // Name the survivors on THIS path too. The forensics lived only in
+            // VulkanContext::Shutdown, so a teardown arriving by another route
+            // reached the VMA abort with no idea who was holding the memory.
+            VulkanRootObjectRegistry::Get().LogSurvivingVertexArrays();
+            VulkanLogSurvivingTransients();
+
             if (m_Allocator != VK_NULL_HANDLE)
             {
                 // vmaDestroyAllocator ASSERTS (debug-CRT abort in Debug) when

@@ -51,18 +51,12 @@ layout(std140, binding = 0) uniform CameraMatrices {
 // Model UBO (binding 3)
 #include "include/InstanceBlock_Vertex.glsl"
 
-// Bone Matrices UBO (binding 4)
-layout(std140, binding = 4) uniform BoneMatrices {
-    mat4 u_BoneTransforms[100];
-};
-
-// Previous-frame bone matrices for per-bone velocity. CommandDispatch always
-// populates this UBO — when the caller has no actual prev pose it aliases
-// the current palette here, so a read returns either the real previous pose
-// or the current pose (zero bone motion) and never undefined memory.
-layout(std140, binding = 31) uniform PrevBoneMatrices {
-    mat4 u_PrevBoneTransforms[100];
-};
+// Skeletal deformation producer (#1226): declares the bone palette at binding 4,
+// the previous-frame palette at binding 31, and owns the skinning math shared
+// with every other skinned consumer. This pass emits velocity, so it opts into
+// the previous pose; the depth and shadow consumers never declare binding 31.
+#define OLO_DEFORM_WANT_PREV 1
+#include "include/SkeletalDeformation.glsl"
 
 // Output to fragment shader
 layout(location = 0) out vec3 v_WorldPos;
@@ -89,33 +83,10 @@ void main()
     vec4 a_BoneWeights = vec4(b_Bones.v[boneBase + 4], b_Bones.v[boneBase + 5], b_Bones.v[boneBase + 6], b_Bones.v[boneBase + 7]);
 #endif
     OLO_INSTANCE_FORWARD();
-    // Calculate bone transformation
-    mat4 boneTransform = mat4(0.0);
-    mat4 prevBoneTransform = mat4(0.0);
-    float totalWeight = a_BoneWeights.x + a_BoneWeights.y + a_BoneWeights.z + a_BoneWeights.w;
-    if (totalWeight > 0.001)
-    {
-        for (int i = 0; i < 4; ++i)
-        {
-            int boneID = a_BoneIDs[i];
-            if (boneID >= 0 && boneID < 100)
-            {
-                boneTransform     += u_BoneTransforms[boneID]     * a_BoneWeights[i];
-                prevBoneTransform += u_PrevBoneTransforms[boneID] * a_BoneWeights[i];
-            }
-        }
-    }
-    else
-    {
-        // Vertex has no bone influence — pass through without skinning
-        boneTransform = mat4(1.0);
-        prevBoneTransform = mat4(1.0);
-    }
-
-    // Transform position and normal by bones
-    vec4 localPosition = boneTransform * vec4(a_Position, 1.0);
-    vec3 localNormal = mat3(boneTransform) * a_Normal;
-    vec4 prevLocalPosition = prevBoneTransform * vec4(a_Position, 1.0);
+    OloDeformedSurface surface = OloDeformSkinnedVertex(a_Position, a_Normal, a_BoneIDs, a_BoneWeights);
+    vec4 localPosition = surface.Position;
+    vec3 localNormal = surface.Normal;
+    vec4 prevLocalPosition = surface.PrevPosition;
 
     // Transform to world space
     v_WorldPos = vec3(u_Model * localPosition);
