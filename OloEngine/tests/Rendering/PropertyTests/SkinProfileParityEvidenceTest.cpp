@@ -335,7 +335,13 @@ namespace OloEngine::Tests
             // memory-only handle from this test must not outlive it and hold a
             // slot the next test's profile could have used.
             Renderer3D::GetSkinProfileTable().Reset();
+            // Unload(), not just a Reset(): the project is a process-wide static
+            // that owns the asset manager, and leaving it installed keeps the
+            // manager alive until static destruction -- past the point where the
+            // scratch directory below still exists. See the matching note in
+            // SkinProfileTest.cpp and on Project::Unload itself.
             m_AssetManager.Reset();
+            Project::Unload();
             std::error_code ec;
             if (!m_ProjectDir.empty())
                 fs::remove_all(m_ProjectDir, ec);

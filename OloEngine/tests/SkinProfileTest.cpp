@@ -324,7 +324,17 @@ namespace OloEngine::Tests
 
         void TearDown() override
         {
+            // Unload(), not just a Reset(): Project::Load installed this project
+            // in a process-wide static that holds the asset manager, and
+            // SetAssetManager asserts on null, so Unload is the only way back to
+            // the no-project state. Leaving it installed keeps the manager alive
+            // until STATIC destruction, where it serializes its registry into a
+            // temp directory this TearDown already deleted and then reads
+            // already-destroyed state -- an exit-time heap-use-after-free the
+            // ASan CI job catches after every case has passed (see the note on
+            // Project::Unload in Project.h).
             m_AssetManager.Reset();
+            Project::Unload();
             std::error_code ec;
             if (!m_ProjectDir.empty())
                 std::filesystem::remove_all(m_ProjectDir, ec);
