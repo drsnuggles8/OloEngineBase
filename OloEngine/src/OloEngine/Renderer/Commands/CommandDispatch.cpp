@@ -1295,7 +1295,9 @@ namespace OloEngine
                           boneCount, MAX_BONES);
         }
 
-        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(boneBufferOffset);
+        // Bounded accessor: this reads `count` matrices from the pointer, and
+        // GetBoneMatrixPtr validates only the first one.
+        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(boneBufferOffset, static_cast<u32>(count));
         if (boneMatrices)
         {
             Data().BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
@@ -1311,7 +1313,7 @@ namespace OloEngine
         {
             const glm::mat4* prevBoneMatrices = nullptr;
             if (prevBoneBufferOffset != UINT32_MAX)
-                prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
+                prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(prevBoneBufferOffset, static_cast<u32>(count));
 
             // Fall back to current bones whenever the prev stream is missing
             // (sentinel offset OR allocator pointer lookup returned null) so

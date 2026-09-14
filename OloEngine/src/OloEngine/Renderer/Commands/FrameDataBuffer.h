@@ -146,6 +146,21 @@ namespace OloEngine
         const glm::mat4* GetBoneMatrixPtr(u32 offset) const;
 
         /**
+         * @brief Get a bone palette, validating the WHOLE range.
+         *
+         * GetBoneMatrixPtr above bounds-checks only the first element, and
+         * every caller then reads `count` matrices from what it returns — an
+         * offset near the end of the buffer therefore hands back a valid
+         * pointer to an invalid range. Use this wherever the count is known.
+         *
+         * @param offset Offset returned by AllocateBoneMatrices
+         * @param count Number of matrices the caller intends to read
+         * @return Pointer to the first matrix, or nullptr if [offset, offset +
+         *         count) does not fit inside the buffer
+         */
+        const glm::mat4* GetBoneMatrixRange(u32 offset, u32 count) const;
+
+        /**
          * @brief Get pointer to transform at offset
          * @param offset Offset returned by AllocateTransforms
          * @return Pointer to the first matrix at this offset

@@ -243,11 +243,13 @@ namespace OloEngine
                 animUBO.Bind();
                 if (caster.boneCount == 0)
                     return;
-                const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
-                if (!boneMatrices)
-                    return;
                 const auto count = std::min(caster.boneCount,
                                             static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                // Range-checked: this uploads `count` matrices from the returned
+                // pointer, and GetBoneMatrixPtr validates only the first one.
+                const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(caster.boneBufferOffset, count);
+                if (!boneMatrices)
+                    return;
                 animUBO.SetData(boneMatrices, count * sizeof(glm::mat4));
             };
 
@@ -773,10 +775,10 @@ namespace OloEngine
                     {
                         // A read of the frame's bone array, filled before the graph
                         // executes; nothing writes it while a region is open.
-                        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(caster.boneBufferOffset);
+                        auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
+                        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(caster.boneBufferOffset, count);
                         if (boneMatrices)
                         {
-                            auto count = std::min(caster.boneCount, static_cast<u32>(ShaderBindingLayout::AnimationUBO::MAX_BONES));
                             animUBO->SetData(boneMatrices, count * sizeof(glm::mat4));
                         }
                     }
