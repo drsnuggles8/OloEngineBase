@@ -2815,6 +2815,30 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
+        // A shader that declares no root data at all assembles zero bytes, and
+        // the arena refuses a zero-byte push — so the work drops. That is the
+        // conservative answer (an EMPTY layout is far more often failed
+        // reflection than a genuinely input-free shader, and running on failed
+        // reflection is worse than not running), but it was the second fully
+        // silent drop in this chain: no warning, only the counter. Name it,
+        // the way the pipeline-creation failure above names its shader.
+        //
+        // "draw or dispatch" is not hedging: DispatchCompute and
+        // DispatchComputeIndirect push their root data through here too, so
+        // naming this a draw would misdescribe a compute shader's drop.
+        if (ctx.RootScratch.empty())
+        {
+            static VulkanWarnOnceSet s_WarnedEmptyLayouts; // items may fail concurrently (#806)
+            if (s_WarnedEmptyLayouts.Insert(shaderName != nullptr ? shaderName : "<unnamed>"))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] '{}' assembled an empty root-data layout — every draw or dispatch "
+                               "using it is dropped. A shader reaches its inputs through root data, so an empty "
+                               "layout is normally failed reflection; a shader that genuinely needs no input "
+                               "still has to declare one binding to be runnable here.",
+                               shaderName != nullptr ? shaderName : "<unnamed>");
+            }
+            return false;
+        }
         const auto rootAllocation = VulkanFrameArena::Get().Push(ctx.RootScratch.data(), ctx.RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
