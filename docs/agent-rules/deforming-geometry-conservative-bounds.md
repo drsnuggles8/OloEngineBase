@@ -3,8 +3,11 @@
 When geometry deforms at runtime and its culling data was computed against a rest pose, work out
 which of the two kinds each bound is before you widen it:
 
-- **Rejection bounds** — a frustum sphere, a Hi-Z box, a size threshold. Being wrong costs a wasted
-  draw. Make these as tight as the deformation data allows, per cluster.
+- **Rejection bounds** — a frustum sphere, a Hi-Z box, a size threshold. These must still CONTAIN
+  their geometry; an undersized one rejects what is on screen, which is the whole failure this
+  document is about. What is cheap here is the other direction: an oversized one costs only a wasted
+  draw, no invariant depends on it, so tighten it as far as the deformation data safely allows, per
+  cluster.
 - **Selection bounds** — anything a hierarchy's invariants are stated over: the LOD sphere and error
   of a cluster DAG, a quadtree node's extent, an impostor's switch distance. Being wrong costs a
   **crack**, because the invariant (nesting, monotonicity) is what made neighbouring pieces agree on

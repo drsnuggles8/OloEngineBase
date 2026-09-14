@@ -7293,7 +7293,13 @@ namespace OloEngine
                         }
                     }
                 }
-                SubmitDDGICasterIfCollecting(submesh, worldTransform, material);
+                // No DDGI caster, matching the classic animated-mesh loop, which
+                // submits none either. SubmitDDGICasterIfCollecting takes the
+                // unskinned VAO and index range and no bone palette, so it would
+                // capture this character in its REST POSE into the irradiance
+                // field — and ADR 0007 has skinned geometry receive-only in any
+                // case. The static ModelComponent loop does call it, which is
+                // why this is worth saying rather than leaving as an omission.
                 continue;
             }
             // Canonical material record (issue #992), visited once per key per
@@ -10884,7 +10890,18 @@ namespace OloEngine
                     skeletonComponent != nullptr && skeletonComponent->m_Skeleton)
                 {
                     boneMatrices = skeletonComponent->m_Skeleton->m_FinalBoneMatrices;
-                    prevBoneMatrices = skeletonComponent->m_Skeleton->m_PrevFinalBoneMatrices;
+                    // Gated on HasBoneHistory(), never read raw (issue #1226):
+                    // after a discontinuity — a first frame, a skeleton swap, a
+                    // scene load — m_PrevFinalBoneMatrices does not hold a pose
+                    // this character was ever in, and handing it to the shaders
+                    // emits a velocity across that seam which TAA and motion
+                    // blur smear. Falling back to the CURRENT palette is the
+                    // same degrade CommandDispatch::UploadBoneMatrices applies
+                    // on the classic path, and it reads as zero bone motion.
+                    prevBoneMatrices = skeletonComponent->m_Skeleton->HasBoneHistory()
+                                           ? std::span<const glm::mat4>(
+                                                 skeletonComponent->m_Skeleton->m_PrevFinalBoneMatrices)
+                                           : boneMatrices;
                 }
 
                 // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very

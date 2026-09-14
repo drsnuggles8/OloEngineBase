@@ -32,6 +32,30 @@
 //                          unbound-but-declared descriptor is a Vulkan
 //                          validation error, so the prev palette stays opt-in.
 //
+//   OLO_DEFORM_EXTERNAL_PALETTE
+//                          This consumer supplies the palette itself: the UBOs
+//                          below are NOT declared, and the consumer must define
+//                          OLO_DEFORM_BONE(i), OLO_DEFORM_BONE_COUNT and — with
+//                          OLO_DEFORM_WANT_PREV — OLO_DEFORM_PREV_BONE(i).
+//
+//                          Added for virtualized geometry (#1150), and the
+//                          reason it is a palette HOOK rather than a second
+//                          producer is that the math is identical and only the
+//                          storage differs: a classic skinned draw is one mesh
+//                          with one skeleton, so its palette is a per-draw UBO,
+//                          while ONE virtual-geometry draw covers many
+//                          instances with a palette each, which a per-draw
+//                          uniform block cannot express. Writing the skinning
+//                          out again to reach a different buffer is exactly the
+//                          drift this file exists to prevent — the palette
+//                          source is the only thing that legitimately differs,
+//                          so it is the only thing the hook moves.
+//
+//                          A consumer that does NOT define it expands to the
+//                          same text as before, so the colour/depth passes stay
+//                          bit-identical and their `invariant gl_Position`
+//                          depth-prepass contract is untouched.
+//
 // The bone-ID bounds test and the zero-weight identity fallback below are the
 // behaviour the colour and depth passes already had; they are reproduced here
 // unchanged, including the explicit component-wise weight sum, so that the
@@ -47,10 +71,17 @@
 // the model pivot.
 #define OLO_MIN_TOTAL_BONE_WEIGHT 0.001
 
+#ifndef OLO_DEFORM_EXTERNAL_PALETTE
 layout(std140, binding = 4) uniform OloBoneMatrices
 {
 	mat4 u_BoneTransforms[OLO_MAX_BONES];
 };
+
+// The default palette access: the per-draw UBO above, bounded by its declared
+// length. Both are macros so that a consumer with a different STORAGE can
+// redirect them without the skinning itself being written a second time.
+#define OLO_DEFORM_BONE(i) u_BoneTransforms[i]
+#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES
 
 #ifdef OLO_DEFORM_WANT_PREV
 // Previous-frame bone palette. CommandDispatch::UploadBoneMatrices always
@@ -61,6 +92,15 @@ layout(std140, binding = 31) uniform OloPrevBoneMatrices
 {
 	mat4 u_PrevBoneTransforms[OLO_MAX_BONES];
 };
+#define OLO_DEFORM_PREV_BONE(i) u_PrevBoneTransforms[i]
+#endif
+#endif // !OLO_DEFORM_EXTERNAL_PALETTE
+
+#if !defined(OLO_DEFORM_BONE) || !defined(OLO_DEFORM_BONE_COUNT)
+#error "OLO_DEFORM_EXTERNAL_PALETTE requires OLO_DEFORM_BONE(i) and OLO_DEFORM_BONE_COUNT"
+#endif
+#if defined(OLO_DEFORM_WANT_PREV) && !defined(OLO_DEFORM_PREV_BONE)
+#error "OLO_DEFORM_WANT_PREV with an external palette requires OLO_DEFORM_PREV_BONE(i)"
 #endif
 
 // The deformed surface, in object space, as every consumer sees it.
@@ -113,8 +153,8 @@ mat4 OloSkinMatrix(ivec4 boneIDs, vec4 boneWeights)
 	for (int i = 0; i < 4; ++i)
 	{
 		int boneID = boneIDs[i];
-		if (boneID >= 0 && boneID < OLO_MAX_BONES)
-			skinMatrix += u_BoneTransforms[boneID] * boneWeights[i];
+		if (boneID >= 0 && boneID < int(OLO_DEFORM_BONE_COUNT))
+			skinMatrix += OLO_DEFORM_BONE(boneID) * boneWeights[i];
 	}
 	return skinMatrix;
 }
@@ -132,8 +172,8 @@ mat4 OloSkinMatrixPrev(ivec4 boneIDs, vec4 boneWeights)
 	for (int i = 0; i < 4; ++i)
 	{
 		int boneID = boneIDs[i];
-		if (boneID >= 0 && boneID < OLO_MAX_BONES)
-			skinMatrix += u_PrevBoneTransforms[boneID] * boneWeights[i];
+		if (boneID >= 0 && boneID < int(OLO_DEFORM_BONE_COUNT))
+			skinMatrix += OLO_DEFORM_PREV_BONE(boneID) * boneWeights[i];
 	}
 	return skinMatrix;
 }

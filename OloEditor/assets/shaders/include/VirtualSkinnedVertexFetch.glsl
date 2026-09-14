@@ -2,23 +2,42 @@
 #define VIRTUAL_SKINNED_VERTEX_FETCH_GLSL
 
 // =============================================================================
-// VirtualSkinnedVertexFetch.glsl — the ONE spelling of "pose a virtual-geometry
-// vertex" (issue #1150), shared by every stage that turns a cooked rest-pose
-// vertex into the position it is drawn at:
+// VirtualSkinnedVertexFetch.glsl — how virtualized geometry reaches the ONE
+// skeletal deformation producer (issue #1150, consuming #1226).
+//
+// Shared by every stage that turns a cooked rest-pose virtual vertex into the
+// position it is drawn at:
 //   * VirtualGBufferVertexStage.glsl  — the MDI and mesh-shader G-Buffer arms
 //   * VirtualMeshShadowDepth.glsl     — the CSM / atlas shadow cascades
 //   * VSM_VirtualMeshDepth.glsl       — the virtual shadow map clip levels
 //
-// They must agree EXACTLY or the depth a shadow was rasterized at stops
-// matching the surface it was rasterized for, and a character self-shadows in
-// stripes. The depth-prepass contract has the same requirement on the classic
-// path, which is why DepthPrepass_Skinned.glsl replicates PBR_GBuffer_Skinned's
-// position math verbatim; here the math is shared instead of replicated.
+// THE SKINNING ITSELF IS NOT HERE. It is in include/SkeletalDeformation.glsl
+// with every other skinned consumer's, which is rule 1 of
+// docs/agent-rules/skeletal-deformation-shared-output.md: a pass that reaches
+// the bone palette on its own is free to drift from the pass it is
+// depth-tested and shadow-matched against, and that had already happened seven
+// ways before #1226 collapsed it.
+//
+// WHAT THIS FILE ADDS, AND WHY IT IS A HOOK RATHER THAN A COPY
+//
+// The producer's default palette is a per-draw UBO (binding 4): one mesh, one
+// skeleton, one draw. Virtual geometry cannot use it — ONE multi-draw or mesh
+// dispatch covers many instances, each with its own palette — so the palette
+// rides the instance buffer's tail instead (VirtualInstanceGpuRecord's
+// SkinBoneBase). The math is identical; only the STORAGE differs. So this file
+// redirects the producer's palette accessors with
+// OLO_DEFORM_EXTERNAL_PALETTE and calls the same OloDeformSkinnedVertex()
+// everything else calls.
+//
+// The two globals below are what make that possible: the producer's accessor
+// macros expand inside its own functions, where an instance's palette base is
+// not a parameter, so the base and length are published per invocation before
+// the call. They are written in exactly one place — SkinVirtualVertex — and a
+// caller must not set them itself.
 //
 // UNLIKE VirtualSkinning.glsl this file DOES declare bindings — 39 (the vertex
 // arena, which carries the packed skin tail) and 35 (the instance buffer, whose
-// tail carries the bone palettes). Every consumer needs both anyway, so
-// declaring them once here is what lets the fetch live in one place; a stage
+// tail carries the bone palettes). Every consumer needs both anyway; a stage
 // that includes this must not declare them again.
 // =============================================================================
 
@@ -29,6 +48,26 @@
 layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
 layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
 
+// This invocation's palette window inside the instance buffer's tail. Set by
+// SkinVirtualVertex immediately before it calls the producer; read only by the
+// accessor macros below.
+uint oloVgBoneBase = 0u;
+uint oloVgBoneCount = 0u;
+
+// A palette entry IS a VirtualInstance record, reusing two of its matrices with
+// their own meanings — Transform is the bone's current skinning matrix,
+// PrevTransform last frame's. (Its NormalMatrix lane is unused: the producer
+// derives the deformed normal from the blended skin matrix, as every other
+// skinned consumer does, so nothing needs a per-bone inverse-transpose.)
+#define OLO_DEFORM_EXTERNAL_PALETTE
+#define OLO_DEFORM_BONE(i) instances[oloVgBoneBase + uint(i)].Transform
+#define OLO_DEFORM_BONE_COUNT oloVgBoneCount
+// Virtual geometry emits velocity from its G-Buffer arms, and the depth arms
+// dead-code the previous pose away — the producer's own note on this define.
+#define OLO_DEFORM_WANT_PREV
+#define OLO_DEFORM_PREV_BONE(i) instances[oloVgBoneBase + uint(i)].PrevTransform
+#include "SkeletalDeformation.glsl"
+
 struct VirtualSkinnedVertex {
     vec3 Position;
     vec3 Normal;
@@ -36,23 +75,19 @@ struct VirtualSkinnedVertex {
 };
 
 // The instance's bone palette applied to one rest-pose vertex, in OBJECT space
-// — before the instance transform, exactly as the classic path does it
-// (PBR_GBuffer_Skinned.glsl). The palette is a model-space pose and the
-// instance transform places the posed model in the world; doing it the other
-// way round would apply the entity's scale to the bone translations.
+// — before the instance transform, exactly as every classic skinned pass does
+// it. The palette is a model-space pose and the instance transform places the
+// posed model in the world; doing it the other way round would apply the
+// entity's scale to the bone translations.
 //
-// A palette entry IS a VirtualInstance record, reusing its three matrices with
-// their own meanings — Transform is the bone's current skinning matrix,
-// PrevTransform last frame's, NormalMatrix what its normals transform by. See
-// VirtualInstanceGpuRecord::SkinBoneBase for why that is the shape it is.
+// Returns the vertex UNCHANGED for a rigid instance, an arena with no skin
+// tail, or a binding with no usable influence — the last of which is a rigid
+// vertex inside a skinned mesh, and returning it unchanged rather than
+// collapsed onto the model origin is the producer's own zero-weight rule (and
+// the defect #1226 found in three shadow shaders).
 //
-// Returns the vertex UNCHANGED for a rigid instance, an arena with no skin tail,
-// or a binding with no usable influence — that last case is a rigid vertex
-// inside a skinned mesh, and returning it unchanged is what stops it collapsing
-// to the model origin.
-//
-// `globalVertexIndex` is the SAME index the vertex fetch used (gl_VertexIndex on
-// the MDI arm, cluster.VertexBase + local on the mesh arm): it addresses the
+// `globalVertexIndex` is the SAME index the vertex fetch used (gl_VertexIndex
+// on the MDI arm, cluster.VertexBase + local on the mesh arm): it addresses the
 // skin tail, so a caller holding a VirtualGpuVertex but not its index cannot
 // pose it.
 VirtualSkinnedVertex SkinVirtualVertex(VirtualInstance inst, uint globalVertexIndex, vec3 restPosition,
@@ -71,44 +106,29 @@ VirtualSkinnedVertex SkinVirtualVertex(VirtualInstance inst, uint globalVertexIn
     OloSkinBinding binding = oloUnpackSkinBinding(vertices[element].PositionU, vertices[element].NormalV,
                                                  globalVertexIndex);
 
-    vec3 position = vec3(0.0);
-    vec3 normal = vec3(0.0);
-    vec3 prevPosition = vec3(0.0);
-    float applied = 0.0;
-    // Constant trip count over SSBO loads — deliberately NOT a data-dependent
-    // loop over a dynamically indexed LOCAL array, which is the shape that took
-    // Mesa's AMD compiler 200 s and 14 GB in
-    // docs/agent-rules/amd-mesa-shader-compile-blowup.md.
-    for (int i = 0; i < 4; ++i)
-    {
-        float weight = binding.Weights[i];
-        uint boneId = binding.BoneIDs[i];
-        if (weight <= 0.0 || boneId >= inst.SkinBoneCount)
-        {
-            continue;
-        }
-        // Member access rather than a struct copy: a VirtualInstance is 256
-        // bytes and a copy of one per influence is real register pressure in a
-        // stage that runs per vertex.
-        uint slot = inst.SkinBoneBase + boneId;
-        position += weight * vec3(instances[slot].Transform * vec4(restPosition, 1.0));
-        prevPosition += weight * vec3(instances[slot].PrevTransform * vec4(restPosition, 1.0));
-        normal += weight * (mat3(instances[slot].NormalMatrix) * restNormal);
-        applied += weight;
-    }
-    if (applied <= 1e-3)
-    {
-        return o;
-    }
+    // Publish this instance's palette window, then hand the rest to the shared
+    // producer. The sentinel id (OLO_NO_SKIN_BONE) survives the ivec4 cast as a
+    // value past SkinBoneCount, which the producer's own bounds test drops —
+    // and its slot already carries weight 0, so it contributes nothing twice
+    // over.
+    oloVgBoneBase = inst.SkinBoneBase;
+    oloVgBoneCount = inst.SkinBoneCount;
 
-    // Renormalized by the weight that ACTUALLY landed, not by the binding's
-    // nominal sum. The two differ when a slot names a bone past SkinBoneCount,
-    // and dividing by the nominal sum there would pull the vertex toward the
-    // model origin instead of leaving it where its remaining bones put it. It
-    // also absorbs the unorm16 quantization of the weights exactly.
-    o.Position = position / applied;
-    o.PrevPosition = prevPosition / applied;
-    o.Normal = normal / applied;
+    OloDeformedSurface surface =
+        OloDeformSkinnedVertex(restPosition, restNormal, ivec4(binding.BoneIDs), binding.Weights);
+
+    // Position is HOMOGENEOUS by the producer's contract (w is the total
+    // influence weight). The cook normalizes every binding's weights to sum to
+    // one, so w is 1 here — but the division is what keeps this honest if that
+    // ever stops being true, and it is the only place virtual geometry differs
+    // from the classic consumers, which multiply the vec4 straight into their
+    // model matrix. Virtual geometry cannot: its callers need a vec3 to feed
+    // both the instance transform and the cluster bounds.
+    float invW = (abs(surface.Position.w) > 1e-6) ? (1.0 / surface.Position.w) : 1.0;
+    o.Position = surface.Position.xyz * invW;
+    o.Normal = surface.Normal;
+    float invPrevW = (abs(surface.PrevPosition.w) > 1e-6) ? (1.0 / surface.PrevPosition.w) : 1.0;
+    o.PrevPosition = surface.PrevPosition.xyz * invPrevW;
     return o;
 }
 

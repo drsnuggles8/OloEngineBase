@@ -296,9 +296,16 @@ namespace OloEngine::Tests
         // would still see a static image — a test that cannot fail and cannot
         // pass for the right reason. Pivoting at (0, -1, 0) is also what a real
         // bone chain does: a joint, not the model centre.
+        // Writes this frame's pose and NOTHING else. In particular it does not
+        // advance the previous-pose history: SkeletalDeformationSystem::
+        // AdvanceHistory is the engine's single caller for that (issue #1226's
+        // rule 2), Scene::OnUpdateEditor runs it once per frame over every
+        // entity carrying a SkeletonComponent — not merely the animated ones —
+        // and RunEditorFrames below goes through exactly that path. A second
+        // advance here would be a test hand-rolling a frame-boundary the engine
+        // owns, and would hide a regression in it rather than exercise it.
         void PoseSkeleton(Skeleton& skeleton, f32 amount)
         {
-            skeleton.RotateBoneHistory();
             const glm::vec3 pivot(0.0f, -1.0f, 0.0f);
             for (u32 b = 0; b < kSkinnedBoneCount; ++b)
             {

@@ -1376,8 +1376,13 @@ namespace OloEngine
                             paletteEntry.Transform = submission.BoneMatrices[b];
                             paletteEntry.PrevTransform =
                                 usePrev ? submission.PrevBoneMatrices[b] : submission.BoneMatrices[b];
-                            paletteEntry.NormalMatrix =
-                                glm::mat4(glm::transpose(glm::inverse(glm::mat3(submission.BoneMatrices[b]))));
+                            // NormalMatrix is left at identity and unread: the
+                            // shared deformation producer derives the deformed
+                            // normal from the blended skin matrix, as every
+                            // other skinned consumer does (issue #1226), so a
+                            // per-bone inverse-transpose would be a second
+                            // answer to a question that already has one — and
+                            // an inverse per bone per frame to compute it.
                             bonePalette.push_back(paletteEntry);
                         }
                     }
@@ -1388,8 +1393,25 @@ namespace OloEngine
                     gpu.SkinBoneBase = submissionPaletteBase;
                     gpu.SkinBoneCount = static_cast<u32>(submission.BoneMatrices.size());
                     gpu.SkinClusterBoneBase = m_ClusterBoneBaseElement + entry.ClusterBase;
+                    // The MAX over both poses, not the current one alone.
+                    //
+                    // This single scalar pads the instance's PrevBounds as well
+                    // as its current bounds, and the previous pose can have
+                    // displaced further — a character that just lowered its arm
+                    // moved more last frame than this one. Padding the previous
+                    // bounds by the current pose's bound then under-covers the
+                    // old silhouette, which is exactly what shadow-page
+                    // invalidation needs: it would leave the pages that arm
+                    // swept through holding a stale caster. It also feeds the
+                    // cull's previous-pose fallback sphere for a cluster whose
+                    // bone set did not fit.
+                    const auto& effectivePrevPalette =
+                        submission.PrevBoneMatrices.size() == submission.BoneMatrices.size()
+                            ? submission.PrevBoneMatrices
+                            : submission.BoneMatrices;
                     gpu.SkinBoundsPadding =
-                        SkinDisplacementBound(entry.Packed.BoneBounds, submission.BoneMatrices);
+                        std::max(SkinDisplacementBound(entry.Packed.BoneBounds, submission.BoneMatrices),
+                                 SkinDisplacementBound(entry.Packed.BoneBounds, effectivePrevPalette));
 
                     // The group ERROR scale, applied to the THRESHOLD instead of
                     // to the errors. A bone that stretches its vertices by s

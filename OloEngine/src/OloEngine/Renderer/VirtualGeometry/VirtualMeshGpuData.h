@@ -74,7 +74,7 @@ namespace OloEngine
     //      8     8  ViewportWidth / ViewportHeight (resolve + shadow)
     //     16     8  ArgsSlot / MaxClusters         (mesh task stage, #813)
     //     24     8  LightmapUVBase / SwListCapacity
-    //     32    16  SkinningBase / SkinningPad0..2    (skinned VG, #1150)
+    //     32    16  SkinningBase / Pad0..2            (skinned VG, #1150)
     struct VirtualDrawInfoGpu
     {
         u32 InstanceIndex = 0;
@@ -108,9 +108,9 @@ namespace OloEngine
         // to a 16-byte multiple anyway, so the three that follow cost nothing
         // and are named rather than left implicit.
         u32 SkinningBase = 0;
-        u32 SkinningPad0 = 0;
-        u32 SkinningPad1 = 0;
-        u32 SkinningPad2 = 0;
+        u32 Pad0 = 0;
+        u32 Pad1 = 0;
+        u32 Pad2 = 0;
     };
     static_assert(sizeof(VirtualDrawInfoGpu) == 48,
                   "std140 mirror in include/VirtualDrawInfo.glsl expects a 48-byte block");
@@ -277,14 +277,19 @@ namespace OloEngine
         // frame and the vertex arena is device-local static geometry filled by
         // page loads. This buffer is restaged every frame already.
         //
-        // A palette entry IS a VirtualInstanceGpuRecord, reusing its three mat4s
-        // with exactly their meanings: Transform = the bone's current skinning
-        // matrix, PrevTransform = last frame's (per-bone velocity, the same
-        // thing PrevBoneMatrices gives the classic path), NormalMatrix = the
-        // matrix its normals transform by. That is why this is not a wasteful
-        // reinterpretation of an unrelated struct: a posed bone needs those
-        // three matrices and nothing else, and GLSL cannot reinterpret an array
-        // of one block type as another anyway.
+        // A palette entry IS a VirtualInstanceGpuRecord, reusing TWO of its
+        // mat4s with exactly their meanings: Transform = the bone's current
+        // skinning matrix, PrevTransform = last frame's (per-bone velocity, the
+        // same thing PrevBoneMatrices gives the classic path). Its NormalMatrix
+        // lane is unused — the shared deformation producer derives the deformed
+        // normal from the blended skin matrix (issue #1226), so nothing wants a
+        // per-bone inverse-transpose.
+        //
+        // Reusing this record rather than declaring a palette type is not a
+        // wasteful reinterpretation of an unrelated struct: GLSL cannot
+        // reinterpret an array of one block type as another, so a tail inside
+        // this buffer has to BE this type, and a posed bone happens to need
+        // exactly a current and a previous matrix.
         u32 SkinBoneBase = 0;
         // Palette entries. 0 = not skinned, which is the ONLY thing a reader
         // should test — SkinBoneBase of 0 is a legal base for the first skinned
