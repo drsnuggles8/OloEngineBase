@@ -406,6 +406,20 @@ namespace OloEngine::Tests
                                          MemoryBarrierFlags::TextureUpdate);
         };
 
+        // A cleared probe-data image is only visible to the dispatch's imageLoad
+        // after a barrier: ClearTextureFloat is glClearTexImage on the GL
+        // backend, i.e. a texture-update client, and the barrier at the END of
+        // each arm cannot order a clear that happened BEFORE it. Without this
+        // the arms can read the previous arm's converged offsets instead of
+        // zeroes, which makes the equivalence check below agree or disagree for
+        // reasons that have nothing to do with batching.
+        const auto ClearProbeData = [&]()
+        {
+            RenderCommand::ClearTextureFloat(probeData, 0, glm::vec4(0.0f));
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::TextureUpdate |
+                                         MemoryBarrierFlags::ShaderImageAccess);
+        };
+
         // Equivalence: arm C must relocate the SAME probes to the SAME places.
         // Both arms start from a cleared image so neither inherits the other's
         // spring state, and the comparison is exact — the two paths run the same
@@ -418,13 +432,13 @@ namespace OloEngine::Tests
             std::vector<f32> serialImage(imageFloats, 0.0f);
             std::vector<f32> batchedImage(imageFloats, 0.0f);
 
-            RenderCommand::ClearTextureFloat(probeData, 0, glm::vec4(0.0f));
+            ClearProbeData();
             runSerialOne(captureSet);
             ::glFinish();
             ASSERT_TRUE(RenderCommand::ReadTextureImage(probeData, 0, RHI::Format::RGBA32Float,
                                                         serialImage.size() * sizeof(f32), serialImage.data()));
 
-            RenderCommand::ClearTextureFloat(probeData, 0, glm::vec4(0.0f));
+            ClearProbeData();
             runBatched(captureSet);
             ::glFinish();
             ASSERT_TRUE(RenderCommand::ReadTextureImage(probeData, 0, RHI::Format::RGBA32Float,
