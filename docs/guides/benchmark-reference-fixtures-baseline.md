@@ -93,7 +93,12 @@ run; their ranges are given where the spread matters.
 | `animal-short-coat` | 30 | 2,370 | 482 MiB | `DeferredLightingPass` 1.28 ms |
 | `animal-long-coat` | 30 | 4,218 | 476 MiB | `DeferredLightingPass` 1.36 ms |
 | `meadow` | 76 | 3,365,412 | 489 MiB | `ScenePass` 9.50 ms |
-| `woodland` | 76 | 985,996 | 491 MiB | `FoliagePass` 1.75 ms |
+| `woodland` | 76 | 985,996 | 491 MiB | `ScenePass` 3.72 ms † |
+
+† `woodland`'s heaviest-pass cell is the only one re-measured after PR #1265 (2026-09-14,
+master `5acc47238`, N=5) — before it, this row read `FoliagePass` 1.75 ms. Its Draws, Triangles
+and GPU-mem columns are the original N=3 figures and were confirmed unchanged by the re-run
+(76 / 985,996 / 491 MiB), so only the pass attribution moved.
 
 The two fixture classes are bound by different things, and that is the durable result:
 
@@ -103,8 +108,12 @@ The two fixture classes are bound by different things, and that is the durable r
   `ScenePass`.
 - **Vegetation fixtures are geometry- and shadow-bound.** `meadow` spends 9.50 ms in `ScenePass`
   against 1.36 ms of deferred lighting at 3.4M triangles, plus 2.76 ms of `ShadowPass`.
-  `woodland` renders a third of the meadow's triangles and adds a dedicated `FoliagePass`
-  (1.75 ms, the most repeatable pass measured anywhere in this set).
+  `woodland` renders a third of the meadow's triangles in `ScenePass` (3.72 ms) — its canopy used
+  to sit in a dedicated forward `FoliagePass` at 1.75 ms. Since PR #1265 a Deferred frame whose
+  G-Buffer foliage programs loaded routes **every** foliage layer, impostor and billboard alike,
+  to `ScenePass`, so `FoliagePass` receives no commands and does not appear in `passTimingsMs`.
+  `FoliagePass` is still the live path for Forward/Forward+ and for a Deferred frame missing one
+  of those programs, which the engine warns about once.
 
 ### Proposed gates
 
@@ -117,18 +126,28 @@ A single-capture gate at these values would flap.
 | `animal-short-coat` | 1.82 ms (3) | 4.0 ms |
 | `animal-long-coat` | 1.90 ms (3) | 4.0 ms |
 | `meadow` | 15.02 ms (6) | 22.0 ms |
-| `woodland` | 11.72 ms (6) | 18.0 ms |
+| `woodland` | 11.72 ms (6) | 18.0 ms ‡ |
 
-Per-pass gates are the better instrument where a pass is stable — `FoliagePass` on `woodland`
-(1.744-1.749 ms over three runs) would catch a foliage regression far more sharply than the frame
-total it sits inside.
+‡ `woodland`'s frame total was measured before PR #1265 moved its canopy out of `FoliagePass`
+and into `ScenePass`. Only the per-pass numbers were re-measured afterwards, so treat this row as
+provisional until someone re-runs the frame total; nothing here estimates what it became.
+
+Per-pass gates are the better instrument where a pass is stable. The `FoliagePass` figure this
+section originally quoted for `woodland` (1.744-1.749 ms over three runs) no longer exists: since
+PR #1265 the impostor canopy draws in `ScenePass` and `FoliagePass` is culled to zero commands, so
+a foliage gate on this fixture belongs on `ScenePass`. Measured there on master `5acc47238`
+(2026-09-14, RTX 4090, Debug, OpenGL): median **3.723 ms** over five back-to-back runs, range
+3.652-3.738 — but a sixth run issued minutes later, after a 35 s test-suite run on the same GPU,
+measured **4.827 ms**. So the tight spread is a within-session property, not a property of the
+pass: a gate here needs headroom for the machine's warm-up state, exactly as the frame-total
+gates above do. Do not quote the 2% figure as the tolerance.
 
 **Untested tiers have no number, and none is invented here.** These were measured on an RTX 4090
 only. No mid-range or integrated GPU, no other driver, no other OS, and no other resolution was
 measured, so this table says nothing about them. Adding a tier means running the fixtures on it.
 Vulkan was verified for correctness (below) but not timed; the numbers above are OpenGL.
 
-### Cross-backend check — four of five match, `woodland` does not
+### Cross-backend check — all five match
 
 All five fixtures were captured under `--rhi=vulkan` through the editor front door
 (`olo_benchmark_capture`), all four cameras each including the moving one, every run
@@ -140,19 +159,19 @@ All five fixtures were captured under `--rhi=vulkan` through the editor front do
 | `animal-short-coat` | skinned + animated | matches |
 | `animal-long-coat` | static mesh | matches |
 | `meadow` | BILLBOARD foliage | matches |
-| `woodland` | MESH foliage + impostors | **does not match** |
+| `woodland` | impostor canopy + billboard understory | matches (since PR #1265) |
 
-**On Vulkan the `woodland` canopy is essentially absent.** Where OpenGL renders a dense canopy
-with trunks and sky gaps, Vulkan renders only scattered disconnected fragments floating at the
-horizon — no trunks, no near-field trees. Confirmed on the `frontal` and `grazing` cameras. The
-understory billboards in the same scene render correctly, and so does every non-foliage fixture,
-so this is **specific to the mesh-foliage / impostor layers**, not to the backend generally, not
-to the editor host, and not to foliage as a whole.
+**The `woodland` canopy was absent on Vulkan when these fixtures were first run** (2026-09-13):
+where OpenGL rendered a dense canopy with trunks and sky gaps, Vulkan rendered only scattered
+disconnected fragments at the horizon. **Fixed by PR #1265** (closing #1264) — `ImpostorBaker` was
+the one capture path that skipped `RHIProjectionSeam`, so its GL-convention ortho put the mesh at
+negative clip z, which Vulkan clips before rasterization and the atlas baked as its clear colour.
 
-Note that this is the **same path** that skips the G-Buffer on OpenGL (finding 1 below):
-billboard layers write the G-Buffer and render on both backends; mesh/impostor layers do neither.
-Two defects, one code path. Reported, not fixed — `FoliageRenderPass` belongs to the in-flight
-#1230 work.
+Re-verified 2026-09-14 on master `5acc47238` for issue #1267: all four cameras on `--rhi=vulkan`
+render a dense canopy with trunks and sky gaps, comparable to OpenGL, with the canopy present in
+`GBufferAlbedo` and `GBufferNormal` on `frontal` and `grazing`, `attachmentFailures: 0`,
+`warmupTimedOut: false` and 0 shader errors. `meadow` was re-captured on Vulkan as the control
+and is unchanged.
 
 `LinearDepth` is skipped in the editor host by design — the editor camera seam cannot pin the
 manifest's near/far clips, so metric linear depth is only available from the test binary.
@@ -179,13 +198,23 @@ by the fixtures. **Let the editor settle before the first capture.**
 
 ### Findings the fixtures already produced
 
-1. **The mesh-foliage canopy does not write the G-Buffer.** In `woodland`, the canopy is present
-   in `Beauty` and in `ShadowMapCSMCascade0` but **absent from both `GBufferAlbedo` and
-   `GBufferNormal`** — they are empty above the horizon while the terrain and the understory
-   billboards appear normally. Every G-Buffer-derived term therefore treats the canopy as sky:
-   SSAO, SSGI and SSR get no canopy occluder, and the derived `Roughness` lane is blank there.
-   It is a large part of why the fixture's forest floor is lit like open ground. **Reported, not
-   fixed** — `FoliageRenderPass` belongs to the in-flight #1230 work.
+1. **The impostor canopy did not write the G-Buffer.** In `woodland`, the canopy was present in
+   `Beauty` and in `ShadowMapCSMCascade0` but **absent from both `GBufferAlbedo` and
+   `GBufferNormal`**, so every G-Buffer-derived term treated it as sky and SSAO/SSGI/SSR got no
+   canopy occluder. The cause was routing: an impostor layer (`Impostor.Enabled` with a valid
+   atlas) had no deferred program, so it fell to the forward `FoliagePass`, which runs after
+   `DeferredLightingPass` and writes only `SceneColor`. **Fixed by PR #1265**, which added
+   `Foliage_Impostor_GBuffer.glsl`; `SelectFoliageRenderStream` now asks only whether the
+   G-Buffer sibling loaded, so the canopy routes through `ScenePass` instead.
+   The split was `UseImpostor`, not mesh-vs-billboard — no foliage layer draws mesh geometry at
+   all, every layer is a card quad (`FoliageRenderer::BuildQuadGeometry`), and `MeshPath` only
+   feeds the impostor bake. Real plant meshes are #1233.
+
+   Re-verified 2026-09-14 on master `5acc47238` for issue #1267: the canopy is present in
+   `Albedo`, `Normals` and `AOBuffer` on the `frontal` and `grazing` cameras — the two the
+   original report named, and the only two re-read at AOV level. `FoliagePass` no longer appears
+   in `result.json`'s `passTimingsMs` at all, in 5 of 5 runs — the whole canopy moved to
+   `ScenePass`.
 2. **The editor capture front door drew the grid and world axis into its captures.** It disabled
    the viewport helpers on the `Scene`, but `EditorLayer` re-pushes them from `RendererSettings`
    every frame, so the disable was overwritten before the first warm-up frame. Found by looking at
