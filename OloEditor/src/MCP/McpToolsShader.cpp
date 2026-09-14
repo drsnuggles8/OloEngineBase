@@ -43,7 +43,26 @@ namespace OloEngine::MCP
         {
             Json j = host.MarshalRead([]() -> Json
                                       {
-                const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
+                const auto& debugger = ShaderDebugger::GetInstance();
+                // "No errors" and "this build cannot tell you" are different
+                // answers and must not both render as count: 0. The registration
+                // macros compile out below OLO_DEBUG, so a Release editor would
+                // otherwise report a clean bill of health it never checked.
+                if (!debugger.IsTracking())
+                {
+                    return Json{ { "available", false },
+                                 { "status", ShaderDebugger::IsTrackingCompiledIn() ? "notInitialized" : "unavailableInThisBuild" },
+                                 { "count", nullptr },
+                                 { "errors", Json::array() },
+                                 { "detail", ShaderDebugger::IsTrackingCompiledIn()
+                                                 ? "Shader tracking is compiled in but ShaderDebugger::Initialize() has "
+                                                   "not run in this process, so no shader has registered. Nothing was "
+                                                   "checked; a zero here would be a guess, not a result."
+                                                 : "Shader tracking is compiled out of this build "
+                                                   "(OLO_SHADER_REGISTER is Debug-only), so shader errors cannot be "
+                                                   "reported. Use a Debug editor to check shader errors." } };
+                }
+                const auto& shaders = debugger.GetAllShaders();
                 Json arr = Json::array();
                 for (const auto& [id, info] : shaders)
                 {
@@ -52,7 +71,10 @@ namespace OloEngine::MCP
                     arr.push_back(Json{ { "name", info.m_Name },
                                         { "errorMessage", info.m_LastCompilation.m_ErrorMessage } });
                 }
-                return Json{ { "count", static_cast<int>(arr.size()) }, { "errors", std::move(arr) } }; });
+                return Json{ { "available", true },
+                             { "status", "ready" },
+                             { "count", static_cast<int>(arr.size()) },
+                             { "errors", std::move(arr) } }; });
             return ToolResult::Structured(j);
         }
 
@@ -142,7 +164,27 @@ namespace OloEngine::MCP
         {
             Json j = host.MarshalRead([]() -> Json
                                       {
-                const auto& shaders = ShaderDebugger::GetInstance().GetAllShaders();
+                const auto& debugger = ShaderDebugger::GetInstance();
+                // Same distinction as olo_shader_errors: an empty list here means
+                // "this build does not track shaders", not "there are none", and a
+                // caller that reads it as the latter concludes shader hot reload is
+                // unavailable when it is simply unlistable.
+                if (!debugger.IsTracking())
+                {
+                    return Json{ { "available", false },
+                                 { "status", ShaderDebugger::IsTrackingCompiledIn() ? "notInitialized" : "unavailableInThisBuild" },
+                                 { "count", nullptr },
+                                 { "shaders", Json::array() },
+                                 { "detail", ShaderDebugger::IsTrackingCompiledIn()
+                                                 ? "Shader tracking is compiled in but ShaderDebugger::Initialize() has "
+                                                   "not run in this process, so nothing has registered. The shaders "
+                                                   "exist and render; they cannot be enumerated here."
+                                                 : "Shader tracking is compiled out of this build "
+                                                   "(OLO_SHADER_REGISTER is Debug-only). The shaders exist and render; "
+                                                   "they cannot be enumerated here. Use a Debug editor to list or "
+                                                   "hot-reload them by name." } };
+                }
+                const auto& shaders = debugger.GetAllShaders();
                 const auto& registry = ShaderRegistry::Get();
                 Json arr = Json::array();
                 for (const auto& [id, info] : shaders)
@@ -153,7 +195,10 @@ namespace OloEngine::MCP
                                         { "reloadable", registry.Contains(info.m_Name) },
                                         { "instructionCount", info.m_LastCompilation.m_InstructionCount } });
                 }
-                return Json{ { "count", static_cast<int>(arr.size()) }, { "shaders", std::move(arr) } }; });
+                return Json{ { "available", true },
+                             { "status", "ready" },
+                             { "count", static_cast<int>(arr.size()) },
+                             { "shaders", std::move(arr) } }; });
             return ToolResult::Structured(j);
         }
 
@@ -339,15 +384,20 @@ namespace OloEngine::MCP
             tool.Title = "Shader compile errors";
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "Shaders that currently have compile/link errors, with the error message. Empty when all "
-                "shaders compiled cleanly.";
+                "Shaders that currently have compile/link errors, with the error message. CHECK `available` "
+                "FIRST: shader tracking is compiled out below OLO_DEBUG, so a Release or Dist editor cannot "
+                "answer this at all and returns available:false with a null count. An empty errors list is only "
+                "evidence of a clean build when available is true — otherwise it means nobody looked.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
-                                    .Prop("count", Schema::Int().Min(0).Desc("Number of shaders currently in error (size of errors)."))
+                                    .Prop("available", Schema::Bool().Desc("False when this build does not track shaders; count is then null."))
+                                    .Prop("status", Schema::String().Enum({ "ready", "notInitialized", "unavailableInThisBuild" }))
+                                    .Prop("count", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
                                     .Prop("errors", Schema::Array(Schema::Object()
                                                                       .Prop("name", Schema::String())
                                                                       .Prop("errorMessage", Schema::String())))
-                                    .Required({ "count", "errors" });
+                                    .Prop("detail", Schema::String())
+                                    .Required({ "available", "status", "count", "errors" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderErrors;
             registry.Register(std::move(tool));
@@ -404,17 +454,25 @@ namespace OloEngine::MCP
                 "Inventory of all registered shaders (id, name, hasErrors, reloadable, instruction count). Use "
                 "it to discover a shader name/id to pass to olo_shader_get / olo_shader_reload. 'reloadable' is "
                 "true when the shader is backed by a file on disk (library- AND pass-owned shaders, including "
-                "compute); it is false only for source-string shaders (boot / fallback / shader-graph).";
+                "compute); it is false only for source-string shaders (boot / fallback / shader-graph). CHECK "
+                "`available` FIRST: the tracking this reads is compiled out below OLO_DEBUG, so a Release or Dist "
+                "editor returns available:false and an empty list even though the shaders exist and render. An "
+                "empty list there means unlistable, not absent. olo_shader_reload still works there: it resolves a "
+                "name through ShaderLibrary and the pass-owned shaders, not through this tracking, so a name you "
+                "already know can be reloaded — you just cannot discover names here.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
-                                    .Prop("count", Schema::Int().Min(0).Desc("Number of registered shaders (size of shaders)."))
+                                    .Prop("available", Schema::Bool().Desc("False when this build does not track shaders; count is then null."))
+                                    .Prop("status", Schema::String().Enum({ "ready", "notInitialized", "unavailableInThisBuild" }))
+                                    .Prop("detail", Schema::String())
+                                    .Prop("count", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
                                     .Prop("shaders", Schema::Array(Schema::Object()
                                                                        .Prop("id", Schema::Int().Min(0).Desc("GL program id."))
                                                                        .Prop("name", Schema::String())
                                                                        .Prop("hasErrors", Schema::Bool())
                                                                        .Prop("reloadable", Schema::Bool().Desc("Backed by a file on disk; feed to olo_shader_reload."))
                                                                        .Prop("instructionCount", Schema::Int().Min(0))))
-                                    .Required({ "count", "shaders" });
+                                    .Required({ "available", "status", "count", "shaders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
             registry.Register(std::move(tool));

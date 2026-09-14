@@ -118,7 +118,15 @@ namespace OloEngine
         VmaAllocationInfo outInfo{};
         VulkanUpload::VkCheck(vmaCreateBuffer(device->GetAllocator(), &bufferInfo, &allocInfo, &m_Buffer, &m_Allocation, &outInfo),
                               "vmaCreateBuffer (VulkanStorageBuffer)");
-        vmaSetAllocationName(device->GetAllocator(), m_Allocation, "VulkanStorageBuffer");
+        // Owner tag for the teardown leak dump (VulkanDevice::Shutdown). The
+        // class name alone does not identify anything -- every storage buffer in
+        // the engine reports it -- so carry the binding point and size, which
+        // together name the tenant via ShaderBindingLayout.
+        m_DebugAllocationName = "VulkanStorageBuffer(binding=" +
+                                (m_Binding == StorageBuffer::kNoBinding ? std::string("none")
+                                                                        : std::to_string(m_Binding)) +
+                                ", " + std::to_string(m_Size) + "B)";
+        vmaSetAllocationName(device->GetAllocator(), m_Allocation, m_DebugAllocationName.c_str());
 
         m_Mapped = nullptr;
         m_NeedsFlush = false;

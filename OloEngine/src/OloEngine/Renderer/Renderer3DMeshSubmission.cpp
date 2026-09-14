@@ -1665,7 +1665,17 @@ namespace OloEngine
 
             glm::mat4 worldTransform = transformComp.GetTransform();
             const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+            // Only offer a previous pose when the skeleton actually has one
+            // (#1226). After a discontinuity -- a skeleton swap, a bone-count
+            // change, entering Play -- the previous palette describes a pose
+            // this skeleton was never in, and handing it to the shaders emits a
+            // velocity across the seam that TAA and motion blur faithfully
+            // smear. Passing none makes CommandDispatch alias the current
+            // palette into the prev slot, i.e. exactly zero bone motion.
+            static const std::vector<glm::mat4> s_NoBoneHistory;
+            const auto& prevBoneMatrices = skeletonComp.m_Skeleton->HasBoneHistory()
+                                               ? skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices
+                                               : s_NoBoneHistory;
             const i32 pickEntityID = static_cast<i32>(std::to_underlying(entityID));
 
             // Get material from entity or use default.
@@ -1791,9 +1801,15 @@ namespace OloEngine
         // Get current + previous bone matrices from the skeleton. The prev
         // pose feeds motion-vector computation in animated PBR shaders so
         // TAA / MotionBlur get correct per-bone velocity rather than a
-        // stale-identity fallback.
+        // stale-identity fallback -- but only when the skeleton HAS a previous
+        // pose (#1226). After a discontinuity the previous palette describes a
+        // pose this skeleton was never in, and offering none makes
+        // CommandDispatch alias the current palette, i.e. zero bone motion.
+        static const std::vector<glm::mat4> s_NoBoneHistory;
         const auto& boneMatrices = skeletonComp.m_Skeleton->m_FinalBoneMatrices;
-        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices;
+        const auto& prevBoneMatrices = skeletonComp.m_Skeleton->HasBoneHistory()
+                                           ? skeletonComp.m_Skeleton->m_PrevFinalBoneMatrices
+                                           : s_NoBoneHistory;
 
         // Convert entt entity id to the i32 picking ID used by the editor.
         const i32 entityID = static_cast<i32>(static_cast<u32>(entity));
@@ -2080,14 +2096,16 @@ namespace OloEngine
                                                         const glm::mat4& modelMatrix,
                                                         const Material& material,
                                                         const std::vector<glm::mat4>& boneMatrices,
-                                                        bool isStatic)
+                                                        bool isStatic,
+                                                        i32 entityID)
     {
         // Legacy entry point: no prev-pose information available. Alias current
         // bones and transform into the prev slot so motion-vector shaders see
         // zero per-bone and per-object motion for this draw.
         static const std::vector<glm::mat4> s_EmptyPrev;
         return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
-                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic);
+                                        s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic,
+                                        entityID);
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
@@ -2098,7 +2116,8 @@ namespace OloEngine
                                                         const std::vector<glm::mat4>& prevBoneMatrices,
                                                         const glm::mat4& prevModelMatrix,
                                                         bool hasPrevTransform,
-                                                        bool isStatic)
+                                                        bool isStatic,
+                                                        i32 entityID)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2273,6 +2292,12 @@ namespace OloEngine
         cmd->workerIndex = static_cast<u8>(ctx.WorkerIndex);
         cmd->needsBoneOffsetRemap = true;
 
+        // Picking ID, exactly as the serial DrawAnimatedMesh writes it. Omitting
+        // it here left every animated draw on this route at the default -1, so
+        // an animated mesh became unselectable in the editor as soon as its
+        // batch was large enough for SubmitMeshesParallel to go parallel.
+        cmd->entityID = entityID;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
@@ -2414,7 +2439,8 @@ namespace OloEngine
                             prevBones,
                             desc.PrevTransform,
                             desc.HasPrevTransform,
-                            desc.IsStatic);
+                            desc.IsStatic,
+                            desc.EntityID);
                     }
                     else
                     {
@@ -2424,7 +2450,8 @@ namespace OloEngine
                             desc.Transform,
                             desc.MaterialData,
                             *desc.BoneMatrices,
-                            desc.IsStatic);
+                            desc.IsStatic,
+                            desc.EntityID);
                     }
                 }
                 else

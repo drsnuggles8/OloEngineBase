@@ -109,9 +109,11 @@ namespace OloEngine::Animation
         skeleton.m_GlobalTransforms.resize(boneCount, glm::mat4(1.0f));
         skeleton.m_FinalBoneMatrices.resize(boneCount, glm::mat4(1.0f));
 
-        // Rotate current final bones into the previous-frame slot so the
-        // G-Buffer skinned pass can compute per-bone motion vectors.
-        skeleton.RotateBoneHistory();
+        // Deformation history is NOT advanced here. SkeletalDeformationSystem
+        // advances it once per tick for every skinned entity, animating or not
+        // (#1226) — doing it here would tie the previous pose to whether this
+        // entity animated, and a paused one would then emit last tick's delta
+        // for as long as the pause lasted.
 
         // Apply procedural noise (breathing / idle sway) before IK so the noise
         // produces the organic "intent" pose that IK then corrects.

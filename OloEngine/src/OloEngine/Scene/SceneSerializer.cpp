@@ -3399,7 +3399,12 @@ namespace OloEngine
             anim.m_CurrentTime = animComponent["CurrentTime"].as<f32>(anim.m_CurrentTime);
             SanitizeFloat(anim.m_CurrentTime, 0.0f, 1.0e6f, 0.0f);
             anim.m_BlendDuration = animComponent["BlendDuration"].as<f32>(anim.m_BlendDuration);
-            SanitizeFloat(anim.m_BlendDuration, 0.0f, 1.0e6f, 0.3f);
+            // Floor above zero, matching the OLO_SERIALIZE(Clamp) annotation the
+            // live-write registries read: AnimationSystem computes
+            // clamp(m_BlendTime / m_BlendDuration, 0, 1), so a stored 0 divides the
+            // blend clock by zero. This component is hand-serialized, so the
+            // annotation does not reach this path on its own (#1226).
+            SanitizeFloat(anim.m_BlendDuration, 0.001f, 1.0e6f, 0.3f);
             anim.m_CurrentClipIndex = animComponent["CurrentClipIndex"].as<int>(anim.m_CurrentClipIndex);
             anim.m_IsPlaying = animComponent["IsPlaying"].as<bool>(anim.m_IsPlaying);
 
