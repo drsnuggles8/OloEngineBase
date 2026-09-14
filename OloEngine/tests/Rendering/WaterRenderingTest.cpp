@@ -36,7 +36,7 @@ TEST(WaterRendering, WaterUBOAlignment)
 
 TEST(WaterRendering, WaterUBOSizeStable)
 {
-    // 107 x glm::vec4 = 107 x 16 = 1712 bytes:
+    // 109 x glm::vec4 = 109 x 16 = 1744 bytes:
     //   21  the scalar params (18 until #967 appended WakeFieldParams /
     //       WakeFieldParams2 for the boat-wake foam field; FFTParams was the one
     //       before that, water-ocean.md §1; FFTCascadeParams the
@@ -45,14 +45,18 @@ TEST(WaterRendering, WaterUBOSizeStable)
     //   +2  ShoreParams / ShoreParams2 for the #1033 shore wave transform,
     //   +3  RainRippleParams / RainRippleParams2 / FoamFieldParams for #1034's
     //       rain-impact ripples and advected open-ocean foam, and
-    //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE.
+    //   +80 WakeHulls[WaterWake::kHullVec4Count] for the #968 wake SHAPE,
+    //   +2  ProjectedGridParams / ProjectedGridParams2 for #1035's projected
+    //       grid. Appended AFTER the hull array on purpose: it is the one
+    //       insertion point that cannot silently re-align that 80-vec4 array in
+    //       whichever of the five shader files gets edited last.
     //
     // The array is what makes #968 cost ZERO new binding slots — the engine has
     // exactly one UBO slot left below UBO_BINDING_LIMIT, and a wake block was
     // not what to spend it on. #1034 spent none either: its foam field is a
     // CHANNEL of #967's texture, so it needed no sampler slot, and its compute
     // params are extra members of #967's block, so it needed no UBO slot.
-    // 1712 B is comfortably under the 16 KB std140 block ceiling, and water is
+    // 1744 B is comfortably under the 16 KB std140 block ceiling, and water is
     // single-instance so it uploads once per draw.
     //
     // A change here is a five-file edit, not a one-line one: the block is
@@ -60,8 +64,8 @@ TEST(WaterRendering, WaterUBOSizeStable)
     // WaterTess*/WaterVertexStage includes, because GL requires every stage of a
     // program to declare a shared uniform block the same way.
     EXPECT_EQ(sizeof(UBOStructures::WaterUBO),
-              (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count) * sizeof(glm::vec4));
-    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1712u);
+              (21u + 1u + 2u + 3u + WaterWake::kHullVec4Count + 2u) * sizeof(glm::vec4));
+    EXPECT_EQ(sizeof(UBOStructures::WaterUBO), 1744u);
 }
 
 TEST(WaterRendering, WaterUBOGetSizeMatchesSizeof)
@@ -107,6 +111,10 @@ TEST(WaterRendering, WaterUBOFieldRoundTrip)
     // five GLSL declarations were kept honest about it.
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams), 304u);
     EXPECT_EQ(offsetof(UBOStructures::WaterUBO, WakeFieldParams2), 320u);
+    // #1035's two vec4s sit AFTER the 80-vec4 hull array; a same-size reorder
+    // on the C++ side would pass the size test and desync the upload.
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, ProjectedGridParams), 1712u);
+    EXPECT_EQ(offsetof(UBOStructures::WaterUBO, ProjectedGridParams2), 1728u);
 
     UBOStructures::WaterUBO ubo{};
     ubo.WaveParams = glm::vec4(1.0f, 2.0f, 0.5f, 3.0f);

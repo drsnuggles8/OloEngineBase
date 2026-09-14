@@ -264,6 +264,9 @@ namespace OloEngine
             // VERTEX both lose meaningful precision in half, and a vertex that
             // drifts moves the Jacobian, which is the one term whose error is
             // invisible in the image.
+            RGFramebufferHandle ReSTIRPTInitial;
+            RGFramebufferHandle ReSTIRPTTemporal;
+            RGFramebufferHandle ReSTIRPTSpatial;
             RGFramebufferHandle ReSTIRGIInitial;
             RGFramebufferHandle ReSTIRGITemporal;
             RGFramebufferHandle ReSTIRGISpatial0;
@@ -332,6 +335,8 @@ namespace OloEngine
             //
             // Invalid whenever the tier stood down, which is what makes the
             // fallback visible to the GRAPH rather than only to the shader.
+            RGFramebufferHandle ReSTIRPTRadiance;
+            RGTextureHandle ReSTIRPTRadianceTexture;
             RGFramebufferHandle ReSTIRGIRadiance;
             RGTextureHandle ReSTIRGIRadianceTexture;
         };

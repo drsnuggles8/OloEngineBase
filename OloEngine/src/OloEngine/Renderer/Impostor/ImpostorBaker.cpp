@@ -4,10 +4,12 @@
 
 #include "OloEngine/Memory/AlignmentTemplates.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
+#include "OloEngine/Renderer/CaptureStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -200,11 +202,18 @@ namespace OloEngine
         const bool wasStencil = RenderCommand::IsStencilTestEnabled();
         if (wasStencil)
             RenderCommand::DisableStencilTest();
-        // Depth test + write on so per-tile silhouettes resolve correctly. The
-        // scene's command dispatch re-applies its own PODRenderState per draw
-        // next frame, so no explicit restore is needed here.
+        // Restores FBO, cull state, the pre-bake VIEWPORT and the dispatch
+        // state cache on every exit. The viewport is the one that bit: this
+        // bake left it at the last 1/N tile rect, and on Vulkan nothing
+        // between here and ScenePass sets it again (see the guard's header).
+        // The bake uses its own UBO binding, so the camera UBO is left alone.
+        CaptureStateGuard stateGuard{ framebuffer, /*restoreCameraUBO=*/false };
+        // Depth test + write on so per-tile silhouettes resolve correctly.
         RenderCommand::SetDepthTest(true);
         RenderCommand::SetDepthMask(true);
+        // Culling OFF like every face bake — winding caveat in
+        // RHIProjectionSeam.h, two-sided leaves in Impostor_Bake.glsl.
+        RenderCommand::DisableCulling();
 
         framebuffer->Bind();
 
@@ -237,7 +246,11 @@ namespace OloEngine
                 const glm::mat4 proj = glm::ortho(-radius, radius, -radius, radius, radius * 0.5f, radius * 5.0f);
 
                 ImpostorBakeUBO ubo{};
-                ubo.ViewProjection = proj * view;
+                // Capture flavour of the A8 seam (#691): z remap, no y flip —
+                // the atlas is direction-addressed; see RHIProjectionSeam.h.
+                // Without it Vulkan clipped the whole mesh at negative clip z
+                // and the canopy did not exist there (#1264).
+                ubo.ViewProjection = RHI::AdjustCaptureProjectionForBackend(proj * view);
                 ubo.CenterRadius = glm::vec4(center, radius);
                 ubo.DirCutoff = glm::vec4(dir, alphaCutoff);
                 ubo.Tint = glm::vec4(tint, 0.0f);

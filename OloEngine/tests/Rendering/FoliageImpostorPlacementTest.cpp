@@ -61,15 +61,52 @@ namespace
         return oss.str();
     }
 
+    /// Splice `#include "include/X.glsl"` directives with the include file's
+    /// text, one level deep. The impostor card's vertex stage lives in a shared
+    /// include (FoliageImpostorVertexStage.glsl) so the forward and deferred
+    /// programs cannot drift; the placement rules below are asserted on the
+    /// text that actually reaches the compiler, which is the spliced form.
+    [[nodiscard]] std::string ExpandIncludes(const std::string& stage)
+    {
+        std::string out;
+        std::istringstream in(stage);
+        std::string line;
+        while (std::getline(in, line))
+        {
+            const auto inc = line.find("#include \"include/");
+            if (inc != std::string::npos)
+            {
+                const auto start = line.find('"', inc) + 1;
+                const auto end = line.find('"', start);
+                const std::string rel = line.substr(start, end - start); // include/X.glsl
+                const fs::path path = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets" / "shaders" / rel;
+                std::ifstream file(path);
+                if (file)
+                {
+                    std::ostringstream oss;
+                    oss << file.rdbuf();
+                    out += oss.str();
+                    out += '\n';
+                    continue;
+                }
+            }
+            out += line;
+            out += '\n';
+        }
+        return out;
+    }
+
     /// The vertex stage only — `#type fragment` onward is a different program
-    /// and has its own `u_Model`-free coordinate conventions.
+    /// and has its own `u_Model`-free coordinate conventions. Shared-stage
+    /// includes are spliced in, so both impostor programs are pinned by the
+    /// same assertions.
     [[nodiscard]] std::string VertexStageOf(const std::string& source)
     {
         const auto vs = source.find("#type vertex");
         if (vs == std::string::npos)
             return {};
         const auto fsStart = source.find("#type fragment", vs);
-        return source.substr(vs, (fsStart == std::string::npos) ? std::string::npos : fsStart - vs);
+        return ExpandIncludes(source.substr(vs, (fsStart == std::string::npos) ? std::string::npos : fsStart - vs));
     }
 
     /// Strip // and /* */ comments so a doc comment quoting an expression can
@@ -162,17 +199,23 @@ TEST(FoliageImpostorPlacementTest, BothFoliageStagesPlaceInstancesThroughTheTerr
 
 // The specific regression: the impostor stage must not go back to treating the
 // instance position as absolute world.
+constexpr const char* kImpostorPrograms[] = { "Foliage_Impostor.glsl", "Foliage_Impostor_GBuffer.glsl" };
+
 TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsoluteWorld)
 {
-    const std::string vertex = StripComments(VertexStageOf(ReadShader("Foliage_Impostor.glsl")));
-    ASSERT_FALSE(vertex.empty());
+    for (const char* program : kImpostorPrograms)
+    {
+        SCOPED_TRACE(program);
+        const std::string vertex = StripComments(VertexStageOf(ReadShader(program)));
+        ASSERT_FALSE(vertex.empty());
 
-    EXPECT_EQ(vertex.find("a_PositionScale.xyz - u_RenderOrigin"), std::string::npos)
-        << "Foliage_Impostor.glsl is subtracting the render origin from the instance position "
-           "again. That treats a TERRAIN-LOCAL position as absolute world (issue #953). Reading "
-           "u_Model here is safe: OLO_INSTANCE_SINGLE pins it to instances[0] rather than "
-           "indexing by gl_InstanceIndex, which is the out-of-bounds hazard from issue #433 that "
-           "the original comment conflated this with.";
+        EXPECT_EQ(vertex.find("a_PositionScale.xyz - u_RenderOrigin"), std::string::npos)
+            << "Foliage_Impostor.glsl is subtracting the render origin from the instance position "
+               "again. That treats a TERRAIN-LOCAL position as absolute world (issue #953). Reading "
+               "u_Model here is safe: OLO_INSTANCE_SINGLE pins it to instances[0] rather than "
+               "indexing by gl_InstanceIndex, which is the out-of-bounds hazard from issue #433 that "
+               "the original comment conflated this with.";
+    }
 }
 
 // The card's ANCHOR has to scale with the card too. Sizing the card by the plant
@@ -182,59 +225,67 @@ TEST(FoliageImpostorPlacementTest, ImpostorDoesNotTreatInstancePositionsAsAbsolu
 // height, never the card radius.
 TEST(FoliageImpostorPlacementTest, ImpostorCardIsAnchoredOnTheMeshCentreNotItsRadius)
 {
-    const std::string vertex = StripComments(VertexStageOf(ReadShader("Foliage_Impostor.glsl")));
-    ASSERT_FALSE(vertex.empty());
+    for (const char* program : kImpostorPrograms)
+    {
+        SCOPED_TRACE(program);
+        const std::string vertex = StripComments(VertexStageOf(ReadShader(program)));
+        ASSERT_FALSE(vertex.empty());
 
-    const auto at = vertex.find("cardCenter = instWorld");
-    ASSERT_NE(at, std::string::npos) << "no card anchor expression found";
-    const std::string expr = vertex.substr(at, vertex.find(';', at) - at);
+        const auto at = vertex.find("cardCenter = instWorld");
+        ASSERT_NE(at, std::string::npos) << "no card anchor expression found";
+        const std::string expr = vertex.substr(at, vertex.find(';', at) - at);
 
-    // Assert what the offset IS, not merely that the word "height" appears in it:
-    // `vec3(0.0, height, 0.0)` and `vec3(0.0, height * 2.0, 0.0)` both mention the
-    // height and both float the tree. Term ORDER is free — `0.5 * height * scale`,
-    // `height * scale * 0.5` and `scale * height * 0.5` are the same offset — so
-    // the Y term is checked by the factors it carries, not by its spelling.
-    const std::vector<std::string> args = Vec3Args(expr);
-    ASSERT_EQ(args.size(), 3u) << "card anchor is not a vec3(x, y, z) offset: " << expr;
+        // Assert what the offset IS, not merely that the word "height" appears in it:
+        // `vec3(0.0, height, 0.0)` and `vec3(0.0, height * 2.0, 0.0)` both mention the
+        // height and both float the tree. Term ORDER is free — `0.5 * height * scale`,
+        // `height * scale * 0.5` and `scale * height * 0.5` are the same offset — so
+        // the Y term is checked by the factors it carries, not by its spelling.
+        const std::vector<std::string> args = Vec3Args(expr);
+        ASSERT_EQ(args.size(), 3u) << "card anchor is not a vec3(x, y, z) offset: " << expr;
 
-    EXPECT_TRUE(args[0] == "0.0" || args[0] == "0") << "card anchor shifts X: " << expr;
-    EXPECT_TRUE(args[2] == "0.0" || args[2] == "0") << "card anchor shifts Z: " << expr;
+        EXPECT_TRUE(args[0] == "0.0" || args[0] == "0") << "card anchor shifts X: " << expr;
+        EXPECT_TRUE(args[2] == "0.0" || args[2] == "0") << "card anchor shifts Z: " << expr;
 
-    const std::string& y = args[1];
-    const bool carriesHeight = y.find("height") != std::string::npos;
-    const bool carriesScale = y.find("scale") != std::string::npos;
-    const bool carriesHalf = y.find("0.5") != std::string::npos || y.find("/2.0") != std::string::npos ||
-                             y.find("/2") != std::string::npos;
+        const std::string& y = args[1];
+        const bool carriesHeight = y.find("height") != std::string::npos;
+        const bool carriesScale = y.find("scale") != std::string::npos;
+        const bool carriesHalf = y.find("0.5") != std::string::npos || y.find("/2.0") != std::string::npos ||
+                                 y.find("/2") != std::string::npos;
 
-    EXPECT_TRUE(carriesHeight && carriesScale && carriesHalf)
-        << "the card anchor must be HALF the DRAWN height (height * scale), because the bake "
-           "centres each tile on the source mesh's bounding-box centre. Got: "
-        << y
-        << " -- missing" << (carriesHalf ? "" : " the 1/2 factor") << (carriesHeight ? "" : " the height")
-        << (carriesScale ? "" : " the instance scale") << " (issue #953).";
+        EXPECT_TRUE(carriesHeight && carriesScale && carriesHalf)
+            << "the card anchor must be HALF the DRAWN height (height * scale), because the bake "
+               "centres each tile on the source mesh's bounding-box centre. Got: "
+            << y
+            << " -- missing" << (carriesHalf ? "" : " the 1/2 factor") << (carriesHeight ? "" : " the height")
+            << (carriesScale ? "" : " the instance scale") << " (issue #953).";
 
-    EXPECT_EQ(y.find("radius"), std::string::npos)
-        << "the card anchor is back to offsetting by the card radius: " << y
-        << " -- that floats the tree inside its own card once the radius carries the height.";
+        EXPECT_EQ(y.find("radius"), std::string::npos)
+            << "the card anchor is back to offsetting by the card radius: " << y
+            << " -- that floats the tree inside its own card once the radius carries the height.";
+    }
 }
 
 // The card has to carry the per-instance height, or it is short by the whole
 // unit-height-mesh factor.
 TEST(FoliageImpostorPlacementTest, ImpostorCardRadiusUsesThePerInstanceHeight)
 {
-    const std::string vertex = StripComments(VertexStageOf(ReadShader("Foliage_Impostor.glsl")));
-    ASSERT_FALSE(vertex.empty());
+    for (const char* program : kImpostorPrograms)
+    {
+        SCOPED_TRACE(program);
+        const std::string vertex = StripComments(VertexStageOf(ReadShader(program)));
+        ASSERT_FALSE(vertex.empty());
 
-    EXPECT_NE(vertex.find("a_RotationHeight.y"), std::string::npos)
-        << "Foliage_Impostor.glsl never reads the per-instance height. The foliage meshes are "
-           "authored unit-height (pine.obj spans y in [0,1]) and the near path applies the world "
-           "height itself (`localPos.y *= height * scale`), so a card sized from the bake radius "
-           "and `scale` alone is short by that factor — issue #953 measured a 9-16 m pine drawn "
-           "as a ~1.5 m card.";
+        EXPECT_NE(vertex.find("a_RotationHeight.y"), std::string::npos)
+            << "Foliage_Impostor.glsl never reads the per-instance height. The foliage meshes are "
+               "authored unit-height (pine.obj spans y in [0,1]) and the near path applies the world "
+               "height itself (`localPos.y *= height * scale`), so a card sized from the bake radius "
+               "and `scale` alone is short by that factor — issue #953 measured a 9-16 m pine drawn "
+               "as a ~1.5 m card.";
 
-    const auto radiusAt = vertex.find("float radius =");
-    ASSERT_NE(radiusAt, std::string::npos) << "no card radius expression found";
-    const std::string radiusExpr = vertex.substr(radiusAt, vertex.find(';', radiusAt) - radiusAt);
-    EXPECT_NE(radiusExpr.find("height"), std::string::npos)
-        << "the card radius expression does not include the per-instance height: " << radiusExpr;
+        const auto radiusAt = vertex.find("float radius =");
+        ASSERT_NE(radiusAt, std::string::npos) << "no card radius expression found";
+        const std::string radiusExpr = vertex.substr(radiusAt, vertex.find(';', radiusAt) - radiusAt);
+        EXPECT_NE(radiusExpr.find("height"), std::string::npos)
+            << "the card radius expression does not include the per-instance height: " << radiusExpr;
+    }
 }

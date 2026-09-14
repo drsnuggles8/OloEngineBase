@@ -2801,6 +2801,8 @@ namespace OloEngine
                                                               Shader::UnregisterProgram(oldProgram);
                                                               glDeleteProgram(oldProgram); });
         }
+        if (success)
+            MarkReloadSucceeded();
         return success;
     }
 

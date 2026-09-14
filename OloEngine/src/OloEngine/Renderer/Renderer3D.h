@@ -75,6 +75,7 @@ namespace OloEngine
     class GpuPathTracerPass;
     class ReSTIRDIPass;
     class ReSTIRGIPass;
+    class ReSTIRPTPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -384,6 +385,10 @@ namespace OloEngine
         // extracts it once per frame, just before the registry commits.
         static void ExtractGPUSceneEnvironment();
         static void ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count = 1);
+        // Foliage's per-instance representation census (issue #1230): how much
+        // foliage has canonical identity, how it is represented, and what the
+        // raster path cannot draw. Reported once per FoliageComponent.
+        static void ReportFoliageCensusGPUScene(const GPUSceneFoliageStats& census);
         // Explicit discontinuity seam for editor/runtime camera teleports and scene
         // transitions. Resize and render-scale changes are detected by RenderGraph.
         static u32 InvalidateTemporalHistories(
@@ -1306,6 +1311,7 @@ namespace OloEngine
         // ReSTIR GI (#1169). Null until the pipeline exists, and inert on a
         // device with no ray tracing - the shaders are never created there.
         [[nodiscard]] static ReSTIRGIPass* GetReSTIRGIPass();
+        [[nodiscard("Inspect the PT pass state")]] static ReSTIRPTPass* GetReSTIRPTPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a
@@ -1675,6 +1681,11 @@ namespace OloEngine
             // Per-cascade tile scales + the mid band's domain rotation; built by
             // Ocean::PackCascadeShaderParams from the field's own preset.
             glm::vec4 fftCascadeParams = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+            // Projected grid (issue #1035). Packing: see
+            // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2,
+            // filled by WaterSurfaceLod::PackProjectedGrid.
+            glm::vec4 projectedGridParams = glm::vec4(0.0f);
+            glm::vec4 projectedGridParams2 = glm::vec4(0.0f);
             RHI::ResourceHandle normalMap0ID{};
             RHI::ResourceHandle normalMap1ID{};
             RHI::ResourceHandle noiseTextureID{};
@@ -2379,6 +2390,11 @@ namespace OloEngine
             Ref<Shader> FoliageGBufferShader; // Deferred: Foliage_Instance_GBuffer.glsl
             Ref<Shader> FoliageDepthShader;
             Ref<Shader> FoliageImpostorShader; // Octahedral impostor card (issue #433)
+            // Deferred sibling of the impostor card (#1225). Without it the
+            // canopy draws after DeferredLightingPass and never reaches
+            // GBufferAlbedo / GBufferNormal, so SSAO / SSGI / SSR see no
+            // canopy occluder at all.
+            Ref<Shader> FoliageImpostorGBufferShader;
 
             // Water
             Ref<Shader> WaterShader;

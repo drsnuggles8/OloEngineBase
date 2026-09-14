@@ -31,6 +31,7 @@
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
 #include "OloEngine/Renderer/Water/WaterSpraySystem.h"
 #include "OloEngine/Renderer/Water/WaterShoreDepthSystem.h"
+#include "OloEngine/Renderer/Water/WaterSurfaceLod.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -7383,6 +7384,13 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Terrain,
             static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
+        // One tick per foliage SYSTEM, meaning "this system does not consume
+        // GPU Scene instance records" — still true, foliage rides its own
+        // vertex stream (see GPUSceneLegacyAdapters). What each system CONTAINS
+        // is reported per instance further down, once the foliage pass has run:
+        // GPUSceneFrameStats::m_Foliage distinguishes plants with canonical
+        // identity, and how they are represented, from the ones the raster path
+        // cannot draw (issue #1230).
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Foliage,
             static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
@@ -7392,16 +7400,26 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Fluids,
             static_cast<u32>(m_Registry.view<FluidComponent>().size()));
-        u32 proceduralTerrainCount = 0;
+        u32 proceduralCount = 0;
         for (auto terrainEntity : m_Registry.view<TerrainComponent>())
         {
             if (m_Registry.get<TerrainComponent>(terrainEntity).m_ProceduralEnabled)
             {
-                ++proceduralTerrainCount;
+                ++proceduralCount;
+            }
+        }
+        // Water is rendered by a separate procedural stream and has no
+        // canonical RT geometry. Count enabled surfaces even outside the
+        // raster frustum: secondary rays can still reach them.
+        for (auto waterEntity : m_Registry.view<WaterComponent>())
+        {
+            if (m_Registry.get<WaterComponent>(waterEntity).m_Enabled)
+            {
+                ++proceduralCount;
             }
         }
         Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Procedural,
-                                              proceduralTerrainCount);
+                                              proceduralCount);
 
         // The CULLING camera (issue #726). Identical to the matrices above
         // unless the observer camera has frozen it, at which point everything
@@ -8511,6 +8529,19 @@ namespace OloEngine
                         // (derived from height/slope) must be regenerated too.
                         terrain.m_AutoSplatNeedsRebuild = true;
 
+                        // Foliage is PLACED on the height field — its x/z jitter,
+                        // its slope gate and its ground height all sample the data
+                        // that just changed. Nothing told the FoliageComponent, so a
+                        // terrain regenerate (a procedural reseed, a sculpt, a script
+                        // Regenerate()) left every plant standing at its old height,
+                        // on slopes the new terrain no longer has. Mark it for
+                        // rebuild here, next to the flag the splatmap uses for the
+                        // same reason; the foliage pass below runs later this tick.
+                        if (auto* staleFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            staleFoliage->m_NeedsRebuild = true;
+                        }
+
                         // Keep collision in sync with the freshly (re)built height field
                         // when running (e.g. a script Regenerate() during play). In edit
                         // mode m_JoltScene is null, so this is a no-op there; the initial
@@ -8551,6 +8582,13 @@ namespace OloEngine
                             terrain.m_SplatmapGenResolution,
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         terrain.m_AutoSplatNeedsRebuild = false;
+                        // The splatmap is a density MASK for foliage placement
+                        // (FoliageLayer::SplatmapChannel), so a regenerated splatmap
+                        // moves plants just as a regenerated height field does.
+                        if (auto* maskedFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            maskedFoliage->m_NeedsRebuild = true;
+                        }
                         // Same reason as the material rebuild above: the splatmap is
                         // an INPUT to every baked tile.
                         if (terrain.m_VirtualTexture)
@@ -8769,7 +8807,23 @@ namespace OloEngine
                     auto& foliage = foliageView.get<FoliageComponent>(entity);
 
                     if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                    {
+                        // Nothing draws, so nothing should still be claiming to
+                        // exist. Without this the registry kept the records of a
+                        // switched-off system and its census reported plants the
+                        // frame does not contain (issue #1230).
+                        //
+                        // Clearing also zeroes every layer's InstanceCount, and
+                        // the Enabled checkbox does NOT dirty m_NeedsRebuild —
+                        // so without marking it here, re-enabling the component
+                        // would leave it permanently blank.
+                        if (foliage.m_Renderer)
+                        {
+                            foliage.m_Renderer->ClearInstances();
+                            foliage.m_NeedsRebuild = true;
+                        }
                         continue;
+                    }
 
                     if (!foliage.m_Renderer)
                     {
@@ -8798,6 +8852,21 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         foliage.m_NeedsRebuild = false;
                     }
+
+                    // Publish this system's representation census (issue #1230).
+                    // Reported every frame, not just on a rebuild: the registry
+                    // holds its records between regenerations, and a diagnostic
+                    // that only appeared on the frame something was rebuilt
+                    // would read as "no foliage" for every other frame.
+                    const auto& census = foliage.m_Renderer->GetInstanceRegistry().GetCensus();
+                    Renderer3D::ReportFoliageCensusGPUScene(GPUSceneFoliageStats{
+                        .m_CanonicalInstances = census.m_CanonicalInstances,
+                        .m_MeshCardInstances = census.m_MeshCardInstances,
+                        .m_ImpostorInstances = census.m_ImpostorInstances,
+                        .m_UnsupportedInstances = census.m_UnsupportedInstances,
+                        .m_UnsupportedVariants = census.m_UnsupportedVariants,
+                        .m_SpatialGroups = census.m_SpatialGroups,
+                    });
                 }
             }
 
@@ -9413,11 +9482,20 @@ namespace OloEngine
                                            ? std::clamp(water.m_WorldSizeZ, 0.1f, 10000.0f)
                                            : 100.0f;
 
-                    // Lazy mesh initialization / rebuild
-                    if (water.m_NeedsRebuild || !water.m_WaterMesh)
+                    // The mesh's real resolution — the one number the build,
+                    // the band-limit spacing and the projected grid all agree
+                    // on. Clamped once, here.
+                    const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
+                    const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
+
+                    // Lazy mesh initialization / rebuild. The vertex-count test
+                    // catches a resolution written without m_NeedsRebuild (an
+                    // MCP field write, a script): the projected grid derives its
+                    // band-limit spacing from resX/resZ, and a mesh built at a
+                    // different resolution would be drawn with the wrong one.
+                    const sizet expectedVertexCount = static_cast<sizet>(resX + 1u) * static_cast<sizet>(resZ + 1u);
+                    if (water.m_NeedsRebuild || !water.m_WaterMesh || !water.m_WaterMesh->IsValid() || static_cast<sizet>(water.m_WaterMesh->GetVertices().Num()) != expectedVertexCount)
                     {
-                        const u32 resX = std::clamp(water.m_GridResolutionX, 1u, 1024u);
-                        const u32 resZ = std::clamp(water.m_GridResolutionZ, 1u, 1024u);
                         water.m_WaterMesh = MeshPrimitives::CreateWaterGrid(
                             sizeX, sizeZ,
                             resX, resZ);
@@ -9694,10 +9772,8 @@ namespace OloEngine
                     // with once the resolution exceeds 1024, and the band-limit
                     // weight would then keep octaves the surface cannot carry —
                     // the exact faceting this value exists to prevent.
-                    const f32 spacingCountX =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionX, 1u, 1024u));
-                    const f32 spacingCountZ =
-                        static_cast<f32>(std::clamp(water.m_GridResolutionZ, 1u, 1024u));
+                    const f32 spacingCountX = static_cast<f32>(resX);
+                    const f32 spacingCountZ = static_cast<f32>(resZ);
                     // The coarser of the two axes is the one that limits what the
                     // surface can carry.
                     const f32 vertexSpacing =
@@ -10055,6 +10131,59 @@ namespace OloEngine
                     BoundingBox bounds;
                     bounds.Min = glm::vec3(-halfX, -waveH, -halfZ);
                     bounds.Max = glm::vec3(halfX, waveH, halfZ);
+
+                    // Projected grid (issue #1035). The mesh is untouched — the
+                    // vertex stage reads its (u, v) as a screen coordinate — so
+                    // all that is uploaded is the NDC rectangle, the band-limit
+                    // spacing step and the rect a vertex is clamped into. The
+                    // draw's bounds stay the authored rect and stay correct: a
+                    // projected vertex is clamped into exactly that rect.
+                    {
+                        WaterSurfaceLod::ProjectedGridInputs gridInputs;
+                        gridInputs.m_Model = modelMat;
+                        // Absolute matrices: NDC is the same in every space, and
+                        // the backend adjustment is the part that MUST be applied
+                        // — Vulkan's row flip mirrors NDC y.
+                        gridInputs.m_ViewProjection = RHI::AdjustProjectionForBackend(viewProjection);
+                        gridInputs.m_Projection = RHI::AdjustProjectionForBackend(projectionMatrix);
+                        gridInputs.m_CameraPosition = cameraPosition;
+                        gridInputs.m_WaveParams = waterParams.waveParams;
+                        gridInputs.m_WaveDir0 = waterParams.waveDir0;
+                        gridInputs.m_WaveDir1 = waterParams.waveDir1;
+                        // The un-floored bound: waveH carries a 3 m floor for
+                        // the draw's cull box, which would be a layout margin
+                        // above a deck-height eye here.
+                        gridInputs.m_VerticalExtent =
+                            water.m_UseFFT
+                                ? clampF(water.m_FFTAmplitude, 0.0f, 100.0f, 2.0f) * WaterSurface::ClampFFTHeightScale(water.m_FFTHeightScale) * 2.0f
+                                : 0.0f;
+                        gridInputs.m_HalfExtentX = halfX;
+                        gridInputs.m_HalfExtentZ = halfZ;
+                        gridInputs.m_GridResolutionX = resX;
+                        gridInputs.m_GridResolutionZ = resZ;
+                        const bool projected =
+                            water.m_ProjectedGridEnabled && WaterSurfaceLod::PackProjectedGrid(gridInputs, waterParams.projectedGridParams,
+                                                                                               waterParams.projectedGridParams2);
+                        if (!projected)
+                        {
+                            // Disabled, or a degenerate transform: coherent
+                            // disabled fields, and the world-space grid draws.
+                            waterParams.projectedGridParams = glm::vec4(0.0f, -1.0f, -1.0f, 0.0f);
+                            waterParams.projectedGridParams2 = glm::vec4(halfX, halfZ, 1.0f, 1.0f);
+                        }
+                        else
+                        {
+                            // Turn the tess-control frustum cull OFF, for the
+                            // same reason the FFT branch above does and a
+                            // sharper one: it tests the UNDISPLACED patch, and
+                            // a projected grid's layout rectangle deliberately
+                            // extends outside the frustum — the skirt rows exist
+                            // precisely so a crest can lift them into frame.
+                            // Culling on the resting position rejects exactly
+                            // the patches the margin was added to create.
+                            waterParams.tessParams.w = 0.0f;
+                        }
+                    }
 
                     auto* packet = Renderer3D::DrawWaterSurface(
                         va->GetRHIHandle(), submesh.m_IndexCount,

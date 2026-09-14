@@ -125,6 +125,35 @@ layout(std140, binding = 23) uniform WaterParams
     // WaterWake.h's, verbatim; WATER_WAKE_* in WaterWakeCommon.glsl mirrors the
     // offsets so nothing here indexes it by a bare literal.
     vec4 u_WakeHulls[80];
+    // Projected grid (issue #1035, water-ocean.md §4.1). C++ twin:
+    // UBOStructures::WaterUBO::ProjectedGridParams / ProjectedGridParams2; the
+    // contract and the census that chose this scheme are
+    // Renderer/Water/WaterSurfaceLod.h, the evaluator is
+    // waterProjectGridVertex() in include/WaterVertexStage.glsl. Declared in
+    // EVERY stage of the water programs, identically, for the same reason every
+    // block above is: GL requires a uniform block shared across a program's
+    // stages to be declared the same way in each, so appending to only the
+    // stages that read it is a LINK error rather than a silent mismatch. Read
+    // by the vertex stage (which places the grid) and the tess-control stage
+    // (whose subdivision rule changes with it).
+    //
+    // x = enable; x <= 0 IS the disabled state, so a build with no projected
+    //     water pays one compare per vertex,
+    // y = the NDC x minimum of the rectangle the grid is laid out over,
+    // z = its NEAR y edge — near by geometry, not by sign: the bottom of the
+    //     screen is y = -1 on GL and +1 under the Vulkan seam's row flip. The
+    //     rectangle stops short of the sky and extends PAST the near edge by
+    //     however far a crest can move a vertex there,
+    // w = band-limit spacing per metre of ray distance: one grid step of view
+    //     angle, so a vertex t metres out is sampled ~w*t metres apart. The
+    //     rim radius a missed ray is pushed to is derived in-shader from the
+    //     half-extents below and u_Model, not uploaded.
+    vec4 u_ProjectedGridParams;
+    // xy = the surface's LOCAL half-extents. The clamp into this rect is what
+    //      keeps a finite water tile finite: a screen-space grid has no idea
+    //      where the water ends.
+    // z = the NDC x maximum, w = the FAR y edge (partner of .z above).
+    vec4 u_ProjectedGridParams2;
 };
 
 layout(location = 0) in vec3 v_WorldPos[];
@@ -137,14 +166,29 @@ layout(location = 5) in vec3 v_Bitangent[];
 layout(location = 6) in float v_WaveHeight[]; // non-tess fallback interface only
 #endif
 layout(location = 7) in vec3 v_PrevWorldPos[];
+layout(location = 9) in float v_ProjSpacing[]; // issue #1035, see the vertex stage
 
 layout(location = 0) out vec3 tc_WorldPos[];
 layout(location = 1) out vec3 tc_Normal[];
 layout(location = 2) out vec2 tc_TexCoord[];
 layout(location = 3) out vec3 tc_PrevWorldPos[];
+layout(location = 4) out float tc_ProjSpacing[];
 
 float calcTessLevel(vec3 p0, vec3 p1)
 {
+    // Projected grid (issue #1035): the patches are already laid out at a
+    // uniform screen density, so the distance ramp has nothing left to do —
+    // and applying it would UNDO the uniformity, subdividing the near rows that
+    // are already the right size on screen. The grid resolution is the single
+    // knob in this mode; the tessellation factor is deliberately ignored rather
+    // than multiplied in, so a scene that flips the toggle without also
+    // lowering its old factor of 8 does not silently pay 64x per patch.
+    //
+    // 1.0, not 0.0. A level below 1 discards the patch (GL 4.6 §11.2.2) — see
+    // the note below, which is the same bug wearing a different hat.
+    if (u_ProjectedGridParams.x > 0.5)
+        return 1.0;
+
     // u_TessParams.x is the near-camera subdivision factor. When tessellation is
     // disabled the C++ side passes 0 here — but a DRAWN patch needs a tess level
     // of at least 1; a level below 1 (and especially 0) discards the patch
@@ -241,6 +285,7 @@ void main()
     tc_Normal[gl_InvocationID] = v_Normal[gl_InvocationID];
     tc_TexCoord[gl_InvocationID] = v_TexCoord[gl_InvocationID];
     tc_PrevWorldPos[gl_InvocationID] = v_PrevWorldPos[gl_InvocationID];
+    tc_ProjSpacing[gl_InvocationID] = v_ProjSpacing[gl_InvocationID];
 
     if (gl_InvocationID == 0)
     {

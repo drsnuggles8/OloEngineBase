@@ -36,6 +36,7 @@
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -357,5 +358,35 @@ namespace OloEngine::Tests
                 << " is not wearing its own albedo — a material record resolved to the wrong slot";
             EXPECT_GT(dominant, other1) << names[static_cast<std::size_t>(cube)] << " albedo channel is not dominant";
         }
+    }
+    TEST_F(GPUSceneRasterMigrationScene, EnabledWaterIsCountedOutsideTheViewAndClearsWhenDisabled)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Entity waterEntity = GetScene().CreateEntity("OffscreenWater");
+        waterEntity.GetComponent<TransformComponent>().Translation = { 10000.0f, 0.0f, 10000.0f };
+        auto& water = waterEntity.AddComponent<WaterComponent>();
+        water.m_UseFFT = false;
+        water.m_PlanarReflectionsEnabled = false;
+        water.m_Enabled = true;
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.05f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 3.0f, 18.0f }, 0.0f, 0.0f);
+        const auto proceduralCount = []()
+        {
+            return Renderer3D::GetGPUScene().GetLastFrameUpdate().m_Stats.m_UnsupportedCounts[static_cast<sizet>(GPUSceneUnsupportedCategory::Procedural)];
+        };
+
+        RunEditorFrames(camera, 2);
+        EXPECT_GT(Renderer3D::GetGPUScene().GetInstanceSlotCount(), 0u);
+        EXPECT_EQ(proceduralCount(), 1u) << "A nonempty canonical scene must not hide omitted water";
+        water.m_Enabled = false;
+        RunEditorFrames(camera, 2);
+        EXPECT_EQ(proceduralCount(), 0u);
+        water.m_Enabled = true;
+        RunEditorFrames(camera, 2);
+        EXPECT_EQ(proceduralCount(), 1u);
+        GetScene().DestroyEntity(waterEntity);
+        RunEditorFrames(camera, 2);
+        EXPECT_EQ(proceduralCount(), 0u) << "Omission counts must not survive entity removal";
     }
 } // namespace OloEngine::Tests

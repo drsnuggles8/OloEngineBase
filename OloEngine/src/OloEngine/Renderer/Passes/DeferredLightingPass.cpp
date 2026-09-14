@@ -100,6 +100,7 @@ namespace OloEngine
         m_SelectedInputs.RayTracedShadowMask = {};
         m_SelectedInputs.ReSTIRDIRadiance = {};
         m_SelectedInputs.ReSTIRGIRadiance = {};
+        m_SelectedInputs.UsesReSTIRPT = false;
         m_SelectedInputs.ShadowMapCSMRawID = blackboard.Shadows.ShadowMapCSMRawID;
         m_SelectedInputs.ShadowMapAtlasRawID = blackboard.Shadows.ShadowMapAtlasRawID;
         if (blackboard.Shadows.ShadowMapCSM.IsValid())
@@ -124,7 +125,13 @@ namespace OloEngine
             [[maybe_unused]] const auto restirRead =
                 builder.Read(blackboard.Lighting.ReSTIRDIRadianceTexture, RGReadUsage::ShaderSample);
         }
-        if (blackboard.Lighting.ReSTIRGIRadianceTexture.IsValid())
+        if (blackboard.Lighting.ReSTIRPTRadianceTexture.IsValid())
+        {
+            m_SelectedInputs.ReSTIRGIRadiance = blackboard.Lighting.ReSTIRPTRadianceTexture;
+            m_SelectedInputs.UsesReSTIRPT = true;
+            builder.Read(blackboard.Lighting.ReSTIRPTRadianceTexture, RGReadUsage::ShaderSample);
+        }
+        else if (blackboard.Lighting.ReSTIRGIRadianceTexture.IsValid())
         {
             m_SelectedInputs.ReSTIRGIRadiance = blackboard.Lighting.ReSTIRGIRadianceTexture;
             [[maybe_unused]] const auto restirGIRead =
@@ -315,7 +322,7 @@ namespace OloEngine
         // construction rather than by remembering to clear a flag. The shader
         // additionally tests the target's alpha per pixel, which covers sky and
         // unlit pixels inside a live frame.
-        controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? 1.0f : 0.0f;
+        controls.MSAAParams.z = m_SelectedInputs.ReSTIRGIRadiance.IsValid() ? (m_SelectedInputs.UsesReSTIRPT ? 2.0f : 1.0f) : 0.0f;
         controls.MSAAParams.w = 0.0f;
         m_ControlsUBO->SetData(&controls, sizeof(controls));
         m_ControlsUBO->Bind();

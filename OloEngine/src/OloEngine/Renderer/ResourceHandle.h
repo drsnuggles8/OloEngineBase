@@ -518,6 +518,11 @@ namespace OloEngine::ResourceNames
     // different terms, and carry reservoirs at different LAYOUT VERSIONS - a
     // shared plane would make a DI packing bump invalidate GI's history for no
     // reason, which reads as "the tier restarts by itself".
+    inline constexpr std::string_view ReSTIRPTInitial = "ReSTIRPTInitial";
+    inline constexpr std::string_view ReSTIRPTTemporal = "ReSTIRPTTemporal";
+    inline constexpr std::string_view ReSTIRPTSpatial = "ReSTIRPTSpatial";
+    inline constexpr std::string_view ReSTIRPTRadiance = "ReSTIRPTRadiance";
+    inline constexpr std::string_view ReSTIRPTRadianceTexture = "ReSTIRPTRadianceTexture";
     inline constexpr std::string_view ReSTIRGIInitial = "ReSTIRGIInitial";
     inline constexpr std::string_view ReSTIRGITemporal = "ReSTIRGITemporal";
     inline constexpr std::string_view ReSTIRGISpatial0 = "ReSTIRGISpatial0";

@@ -1690,6 +1690,13 @@ namespace OloEngine
         water.m_TessellationFactor = waterComponent["TessellationFactor"].as<f32>(water.m_TessellationFactor);
         water.m_TessMinDistance = waterComponent["TessMinDistance"].as<f32>(water.m_TessMinDistance);
         water.m_TessMaxDistance = waterComponent["TessMaxDistance"].as<f32>(water.m_TessMaxDistance);
+        // Issue #1035. Guarded like TessellationEnabled above rather than read
+        // through a defaulted `as<bool>` so a scene written before this existed
+        // keeps the world-space grid it was authored against.
+        if (auto const projectedGrid = waterComponent["ProjectedGridEnabled"])
+        {
+            water.m_ProjectedGridEnabled = projectedGrid.as<bool>(water.m_ProjectedGridEnabled);
+        }
         water.m_UnderwaterFogColor = waterComponent["UnderwaterFogColor"].as<glm::vec3>(water.m_UnderwaterFogColor);
         water.m_UnderwaterFogDensity = waterComponent["UnderwaterFogDensity"].as<f32>(water.m_UnderwaterFogDensity);
         water.m_UnderwaterRefractionStrength = waterComponent["UnderwaterRefractionStrength"].as<f32>(water.m_UnderwaterRefractionStrength);
@@ -5762,6 +5769,7 @@ namespace OloEngine
             out << YAML::Key << "TessellationFactor" << YAML::Value << water.m_TessellationFactor;
             out << YAML::Key << "TessMinDistance" << YAML::Value << water.m_TessMinDistance;
             out << YAML::Key << "TessMaxDistance" << YAML::Value << water.m_TessMaxDistance;
+            out << YAML::Key << "ProjectedGridEnabled" << YAML::Value << water.m_ProjectedGridEnabled;
             out << YAML::Key << "UnderwaterFogColor" << YAML::Value << water.m_UnderwaterFogColor;
             out << YAML::Key << "UnderwaterFogDensity" << YAML::Value << water.m_UnderwaterFogDensity;
             out << YAML::Key << "UnderwaterRefractionStrength" << YAML::Value << water.m_UnderwaterRefractionStrength;
@@ -6780,6 +6788,21 @@ namespace OloEngine
             out << YAML::Key << "ReSTIRGIMaxRadianceClamp" << YAML::Value << pp.ReSTIRGI.MaxRadianceClamp;
             out << YAML::Key << "ReSTIRGIRayOriginNormalBias" << YAML::Value << pp.ReSTIRGI.RayOriginNormalBias;
             out << YAML::Key << "ReSTIRGIDebugView" << YAML::Value << static_cast<u32>(pp.ReSTIRGI.DebugView);
+            out << YAML::Key << "ReSTIRPT" << YAML::Value << YAML::BeginMap;
+            out << YAML::Key << "Enabled" << YAML::Value << pp.ReSTIRPT.Enabled;
+            out << YAML::Key << "TemporalReuse" << YAML::Value << pp.ReSTIRPT.TemporalReuse;
+            out << YAML::Key << "SpatialReuse" << YAML::Value << pp.ReSTIRPT.SpatialReuse;
+            out << YAML::Key << "InitialCandidates" << YAML::Value << pp.ReSTIRPT.InitialCandidates;
+            out << YAML::Key << "MappingMask" << YAML::Value << pp.ReSTIRPT.MappingMask;
+            out << YAML::Key << "Seed" << YAML::Value << pp.ReSTIRPT.Seed;
+            out << YAML::Key << "SpatialRadius" << YAML::Value << pp.ReSTIRPT.SpatialRadius;
+            out << YAML::Key << "ConfidenceCap" << YAML::Value << pp.ReSTIRPT.ConfidenceCap;
+            out << YAML::Key << "RayEpsilon" << YAML::Value << pp.ReSTIRPT.RayEpsilon;
+            out << YAML::Key << "NormalBias" << YAML::Value << pp.ReSTIRPT.NormalBias;
+            out << YAML::Key << "MaxRayDistance" << YAML::Value << pp.ReSTIRPT.MaxRayDistance;
+            out << YAML::Key << "RadianceClamp" << YAML::Value << pp.ReSTIRPT.RadianceClamp;
+            out << YAML::Key << "DebugView" << YAML::Value << static_cast<u32>(pp.ReSTIRPT.DebugView);
+            out << YAML::EndMap;
             out << YAML::Key << "SSGIEnabled" << YAML::Value << pp.SSGIEnabled;
             out << YAML::Key << "SSGIIntensity" << YAML::Value << pp.SSGIIntensity;
             out << YAML::Key << "SSGIMaxDistance" << YAML::Value << pp.SSGIMaxDistance;
@@ -7140,6 +7163,25 @@ namespace OloEngine
                 // The ONE sanitizer every path shares (GpuPathTracerTypes.h):
                 // loop bounds, finite floats, ranges, the enum's range.
                 pt = SanitizeGpuPathTracerSettings(pt);
+            }
+            if (const auto ptNode = ppNode["ReSTIRPT"])
+            {
+                TrySet(pp.ReSTIRPT.Enabled, ptNode["Enabled"]);
+                TrySet(pp.ReSTIRPT.TemporalReuse, ptNode["TemporalReuse"]);
+                TrySet(pp.ReSTIRPT.SpatialReuse, ptNode["SpatialReuse"]);
+                TrySet(pp.ReSTIRPT.InitialCandidates, ptNode["InitialCandidates"]);
+                TrySet(pp.ReSTIRPT.MappingMask, ptNode["MappingMask"]);
+                TrySet(pp.ReSTIRPT.Seed, ptNode["Seed"]);
+                TrySet(pp.ReSTIRPT.SpatialRadius, ptNode["SpatialRadius"]);
+                TrySet(pp.ReSTIRPT.ConfidenceCap, ptNode["ConfidenceCap"]);
+                TrySet(pp.ReSTIRPT.RayEpsilon, ptNode["RayEpsilon"]);
+                TrySet(pp.ReSTIRPT.NormalBias, ptNode["NormalBias"]);
+                TrySet(pp.ReSTIRPT.MaxRayDistance, ptNode["MaxRayDistance"]);
+                TrySet(pp.ReSTIRPT.RadianceClamp, ptNode["RadianceClamp"]);
+                u32 view = static_cast<u32>(pp.ReSTIRPT.DebugView);
+                TrySet(view, ptNode["DebugView"]);
+                pp.ReSTIRPT.DebugView = static_cast<ReSTIRPTDebugView>(view);
+                pp.ReSTIRPT = SanitizeReSTIRPTSettings(pp.ReSTIRPT);
             }
             TrySet(pp.SSGIEnabled, ppNode["SSGIEnabled"]);
             TrySet(pp.SSGIIntensity, ppNode["SSGIIntensity"]);

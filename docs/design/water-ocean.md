@@ -16,7 +16,7 @@ issue tracker and the picker. The remaining open work now lives in GitHub:
 |---|---|
 | §5.3 shore wave deformation | [#1033](https://github.com/drsnuggles8/OloEngineBase/issues/1033) |
 | §2.2 foam advection, §2.3 spray particles, §7.3 rain impact | [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034) |
-| §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) |
+| §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) — **drained**: §4.1 shipped opt-in, §4.2 measured and declined, §6.3/§6.4 answered. All four are recorded in place below. |
 
 §7.4 (foam trail persistence) is **shipped** — the wake disturbance field from
 issue #967 is exactly that, so it is not in the table.
@@ -370,6 +370,151 @@ Improvements:
 
 ## 4. Tessellation & LOD (Medium Impact / Medium Effort)
 
+### 4.1 Projected Grid — **shipped, opt-in (issue #1035)**
+
+`WaterComponent::m_ProjectedGridEnabled` reads the surface mesh's (u, v) as a
+SCREEN coordinate and ray-casts it onto the water plane (Johanson 2004), so
+vertex density is set by screen resolution rather than by `m_WorldSizeX/Z`. The
+same mesh is used — only its interpretation changes — so the depth capture, the
+wake, the shore transform and buoyancy are untouched. When it is on,
+`m_GridResolutionX/Z` counts quads across the VIEWPORT and the tessellation
+factor is ignored: the grid is already at the target screen density, so the
+tess level is a constant 1 and the grid resolution is the only knob.
+WaterShowcase.olo opts in at 256x144.
+
+Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h)
+(28 tests in `WaterGeometryLodProfileTest`, built against the real
+`EditorCamera` matrix). Evaluator: `waterProjectGridVertex()` in
+[`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
+Visual evidence, both grids at both acceptance-criterion angles:
+`OloEditor/assets/tests/visual/WaterProjGrid_*.png`
+(`WaterProjectedGridVisualEvidenceTest`). Measured at 256x144 over 1 km:
+73,728 patches = 221,184 patch-vertex inputs (three per triangle patch, what
+the vertex stage is invoked for under `GL_PATCHES`) over 37,265 unique
+vertices, **0.2% / 0% sub-pixel** triangles at 61.6 px (grazing) and 36.8 px
+(overhead); the world grid at the same pose is 262,144 patches = 1,572,864
+patch-vertex inputs over 263,169 unique vertices, and 511,474 generated
+triangles with 80% of them sub-pixel. On the same metric that is 7.1x fewer
+patch-vertex inputs and 7.1x fewer unique vertices, at every camera pose.
+
+Five things are load-bearing rather than incidental, and four of them were
+found by capturing frames after every CPU test was already green:
+
+- **the v axis is mapped with the near edge at v = 1, and which NDC y IS near is decided by geometry** (`NdcBounds::m_NearEdgeY`): it is −1 on GL and +1 under the Vulkan seam's row flip, and a flip hard-coded for GL left Vulkan with no water at all. The mesh's index order
+  is counter-clockwise from above for its authored (u -> +x, v -> +z) frame,
+  and +z is TOWARD a camera looking down -z. Screen-up is AWAY from the camera,
+  so mapping v straight onto NDC y hands the same index order a frame of the
+  opposite handedness: every triangle is back-facing from above, and the
+  fragment stage's waterline rule (keep the face the camera is on) discards the
+  whole surface. The symptom is not an artefact, it is "the water is not
+  there" — with the skybox's painted sea and the editor grid showing through
+  where it should be, which looked almost like water;
+- **the band-limit spacing is derived per VERTEX** in the vertex stage (ray
+  distance x one grid step of view angle / incidence) and interpolated to the
+  tess-eval stage. Derived per patch from the patch's own edges it is the
+  right magnitude but gives a shared vertex two different octave weights,
+  and the surface tears along every patch edge — 16 pinholes of seabed per
+  overhead frame, 0 with the per-vertex form;
+- **the tess-control frustum cull is off** for a projected grid, as it is for
+  the FFT path: it tests the UNDISPLACED patch, and the skirt rows exist
+  precisely to be outside the frustum until a crest lifts them in;
+- **the miss fall-back is oriented** — it slides from the point under the
+  camera along the ray's forward horizontal to the rim. Along an unoriented
+  view LINE, half of those vertices land behind the eye and the projection
+  mirrors them back across the frame as a sheet over the near water;
+- **the ray is built from the camera basis**, `(x/P00, y/P11, -1)` taken
+  through the inverse of the view's 3x3 — not its transpose, because a runtime
+  camera is an entity transform and can carry scale — and cast from the eye at
+  ANY positive distance, not from `inverse(u_ViewProjection)` into the NDC
+  depth segment. The segment form dropped every hit past the far plane, which
+  from a 3 m eye is most of the rows. Convention-safe: the Vulkan seam negates
+  P11 and flips the NDC y it is fed by the same sign.
+
+Two more are structural rather than found:
+
+- the grid is laid out over a computed NDC rectangle, not over the screen
+  (`WaterSurfaceLod::ComputeNdcBounds`, per frame on the CPU). It is *smaller*
+  than the screen at the horizon end — rows up there reach no plane and would
+  collapse onto the horizon line — and *larger* at the near edge, because the
+  grid is placed on the resting plane and displaced afterwards: a vertex on the
+  bottom row lifted by a crest leaves the frame, and from a 3 m eye a 1.5 m
+  crest moves it up by a quarter of the vertical field of view. Both fall out of
+  one construction (Johanson's displaceable-volume intersection);
+- a projected vertex is clamped into the surface's authored rect, which is what
+  keeps a finite water tile finite. Rows past the rect collapse to zero-area
+  triangles on its edge instead of extending the ocean to the horizon.
+
+**The skirt is the real cost, and it is view-dependent.** The rectangle reaches
+below the screen by the displacement bound, so part of the grid is always laid
+out where the camera cannot see it until a crest lifts it into frame. How much
+depends on the camera's height above the water relative to the crest height —
+measured on WaterShowcase's waves (a 1.28 m bound):
+
+| pose | rows below the screen | vertices on screen | px per on-screen triangle at 256×144 |
+|---|---|---|---|
+| low grazing, 3 m eye | 61% | 25% | ~60 |
+| high overhead, 150 m eye | 7% | 76% | ~37 |
+
+That is why the scene authors 256×144 rather than the 192×108 that would tile
+1080p exactly. It is also why the bound the rectangle uses is
+`MaxSurfaceDisplacement` and **not** the tess-control cull's
+`MaxWaveDisplacement`: the cull's is 2.8× larger (it bounds every detail octave
+by the largest and adds a 1.5× safety factor, both free for a cull), and feeding
+it here pushes 92% of the grid off screen at a grazing angle. The invariant that
+the cull's bound still dominates the grid's is pinned by a test. The same
+runaway happens whenever the margin approaches the eye height, whatever its
+source — an FFT ocean's 4 m default bound above a deck-height camera — so the
+layout margin is also capped at 0.5x the eye's height above the plane
+(`kLayoutMarginEyeFraction`): crests that reach above the eye are the waterline
+regime a projected grid is not built for, and losing cover for them beats
+losing the grid.
+
+Two cases hand the surface back to the world-space grid for the frame, with
+the packed fields left coherent (`PackProjectedGrid` returns false): a
+degenerate surface transform (a zero scale on any axis makes every projected
+vertex NaN, where the world grid merely draws zero area), and an orthographic
+camera, which has no eye for a pinhole ray to be cast from.
+
+A non-uniform (u, v) mapping that spent fewer rows on the skirt would recover
+most of that, and is filed as follow-up work rather than left unmeasured.
+
+**Off by default**, deliberately: it moves every water vertex, so a scene opts
+in and its goldens move in the same commit. Only WaterShowcase does.
+
+### 4.2 Gradient-Adaptive Tessellation — **measured, not built (issue #1035)**
+
+The idea was to feed the local displacement-gradient magnitude into
+`calcTessLevel()` so vertices land on crests rather than on calm water. #1035
+made the profile a gate before either §4.1 or §4.2 was built, and the profile
+said the gradient is not where the cost is.
+[`WaterGeometryLodProfileTest`](../../OloEngine/tests/Rendering/PropertyTests/WaterGeometryLodProfileTest.cpp)
+is that census, kept in the suite so the decision can be re-run rather than
+re-argued. On the two shipped water scenes at the two camera poses the issue
+names:
+
+| scene / camera | patches culled | sub-pixel geometry | VS invocations |
+|---|---|---|---|
+| WaterShowcase, low grazing | 53.2% | 79.9% | 1,572,864 |
+| WaterShowcase, high overhead | 85.6% | 0.0% | 1,572,864 |
+| Drift, low grazing | 70.9% | 93.6% | 2,457,600 |
+| Drift, high overhead | 94.7% | 0.0% | 2,457,600 |
+
+Two terms dominate, and neither is crest detail: at a grazing angle most drawn
+triangles are finer than a pixel, and every base patch pays its vertex and
+tess-control invocations before the frustum reject can discard 53–95% of them —
+a cost that is a function of world size and grid resolution and of nothing else,
+so no tessellation rule can reach it.
+
+The roughness signal is not there to redistribute either. `|grad h|` spans p5–p95
+of 0.027–0.125 (WaterShowcase) and 0.004–0.024 (Drift), and the existing
+distance rule already lands 9.7–10.0% of its geometry on the roughest decile of
+patches, which is the share a rule blind to roughness lands there. §6.4's mesh
+band-limit (#943) is why: it removes every octave the base grid cannot sample,
+so the rendered surface cannot be rougher than the grid drawn under it.
+
+Worth revisiting only if that band-limit changes, or if a wave model with a much
+wider roughness spread (a breaking surf model, say) ships.
+
 ### 4.3 GPU Tessellation with Hull Shader Culling — **shipped**
 
 Frustum culling in the TCS lands in
@@ -560,6 +705,35 @@ Distance-impostor reflection probes with a cluster-culled lookup:
 
 When planar reflections are too expensive, blend between multiple reflection
 probes based on the camera/water position. Update probes asynchronously.
+
+### 6.3 Hex-Tiling Detail Normals — **answered by #943, not needed as filed**
+
+The proposal was hash-offset or hex-tiling (Mikkelsen 2022) to kill normal-map
+tiling artefacts. The artefact that actually bit — detail normals at ×8/×12
+cycles per metre moiréing into large smooth lobes that tilted the shading normal
+30–60° off vertical — was diagnosed and fixed under #943 by a
+distance-dependent blend strength, documented at `Water.glsl:524` and in
+[water-shading-nyquist.md](../agent-rules/water-shading-nyquist.md).
+
+Hex-tiling is still a *better* answer to a *narrower* remaining problem (visible
+repetition at mid range), but the severe case is gone, so this is polish rather
+than a bug. Left unfiled on purpose: a new issue for it would score below the
+work already in the tracker.
+
+### 6.4 Compute-Shader Wave Evaluation — **delivered by the FFT path**
+
+The proposal was to move Gerstner out of the vertex shader into a compute pass
+writing a displacement texture, to decouple wave resolution from mesh
+resolution and share one texture between rendering, physics and foam. §1's FFT
+ocean already delivers all three:
+[`OceanFFTGpu`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanFFTGpu.h) /
+`OceanFFTField` produce exactly that shared displacement texture, and
+`OceanFFTGpu.h`'s own header comment calls itself the §6.4 transition path.
+
+What remains on the vertex/tess path is only the *Gerstner* ladder
+(`sumGerstnerWaves` in `WaterCommon.glsl`), which is the deliberate
+fallback/comparison surface. Moving a fallback to compute buys little, so this
+is recorded as answered rather than left open.
 
 ## 7. Visual Polish (Low–Medium Impact / Low Effort)
 

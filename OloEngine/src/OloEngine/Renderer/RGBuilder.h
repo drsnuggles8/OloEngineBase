@@ -281,6 +281,8 @@ namespace OloEngine
             std::string_view name,
             u32 bufferID,
             const RGResourceDesc& desc = {});
+        [[nodiscard("Use the imported buffer identity")]] RGBufferHandle ImportBufferHandle(std::string_view name, RHI::ResourceHandle buffer,
+                                                                                            const RGResourceDesc& desc = {});
 
         // -------------------------------------------------------------------
         // Extract operations — readback or reuse next frame

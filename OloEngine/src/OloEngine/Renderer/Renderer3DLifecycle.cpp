@@ -84,8 +84,7 @@ namespace
     // The 3D shader filepaths Init() loads, and what Renderer3D::GetShaderFilepaths()
     // (issue #908) returns — ONE array, two readers, so the headless ShaderPack
     // bake can never enumerate a different set than what this library actually
-    // tries to serve from the pack at runtime. Keep totalShaders3D (below) in
-    // sync with this array's length.
+    // tries to serve from the pack at runtime.
     constexpr std::array kShaderPaths3D = {
         "assets/shaders/LightCube.glsl",
         "assets/shaders/Renderer3D_Quad.glsl",
@@ -128,6 +127,7 @@ namespace
         "assets/shaders/Foliage_Instance_GBuffer.glsl",
         "assets/shaders/Foliage_Depth.glsl",
         "assets/shaders/Foliage_Impostor.glsl",
+        "assets/shaders/Foliage_Impostor_GBuffer.glsl",
         "assets/shaders/Impostor_Bake.glsl",
         "assets/shaders/Water.glsl",
         "assets/shaders/Water_Depth.glsl",
@@ -278,10 +278,6 @@ namespace OloEngine
             s_Data.FullscreenQuadVAO->AddVertexBuffer(quadVBO);
         }
 
-        // NOTE: Keep totalShaders3D in sync with kShaderPaths3D's length above.
-        constexpr u32 totalShaders3D = 52;
-        static_assert(kShaderPaths3D.size() == totalShaders3D);
-
         // Boot + fallback are idempotent — no-ops when already initialized by
         // Renderer::Init().  Needed here for the lazy-init path (EditorLayer
         // calls Renderer3D::Init() directly without going through Renderer::Init).
@@ -310,7 +306,7 @@ namespace OloEngine
         // Log how many shaders are still compiling asynchronously
         if (const u32 pending = m_ShaderLibrary.GetPendingCount(); pending > 0)
         {
-            OLO_CORE_INFO("{} of {} shaders issued for async linking", pending, totalShaders3D);
+            OLO_CORE_INFO("{} of {} shaders issued for async linking", pending, kShaderPaths3D.size());
         }
 
         // Display a loading screen with progress bar while shaders finish linking.
@@ -358,6 +354,7 @@ namespace OloEngine
         s_Data.FoliageGBufferShader = m_ShaderLibrary.Get("Foliage_Instance_GBuffer");
         s_Data.FoliageDepthShader = m_ShaderLibrary.Get("Foliage_Depth");
         s_Data.FoliageImpostorShader = m_ShaderLibrary.Get("Foliage_Impostor");
+        s_Data.FoliageImpostorGBufferShader = m_ShaderLibrary.Get("Foliage_Impostor_GBuffer");
         s_Data.WaterShader = m_ShaderLibrary.Get("Water");
         s_Data.WaterDepthShader = m_ShaderLibrary.Get("Water_Depth");
         s_Data.DecalShader = m_ShaderLibrary.Get("Decal");
@@ -869,6 +866,7 @@ namespace OloEngine
         s_Data.FoliageGBufferShader.Reset();
         s_Data.FoliageDepthShader.Reset();
         s_Data.FoliageImpostorShader.Reset();
+        s_Data.FoliageImpostorGBufferShader.Reset();
         s_Data.WaterShader.Reset();
         s_Data.WaterDepthShader.Reset();
         s_Data.DecalShader.Reset();

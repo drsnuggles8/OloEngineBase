@@ -60,6 +60,15 @@ Concretely (see `SaveGameComponentSerializer.cpp` / `AssetPack.cpp`):
    `SaveGameComponentSerializer.cpp`'s `HasFieldsSince(ar, introducedInVersion)`
    is the shared helper; `TerrainComponent` (3 gated blocks) and
    `IKTargetComponent` (1) are the reference examples.
+
+   **A gated field in the middle of `WaterComponent`'s block also has to be
+   excised by `SaveGameVersionMigrationTest`'s `BuildPreV24WaterPayload`.**
+   That fixture synthesizes a v23 archive by writing the current layout and
+   cutting out every non-trailing gated field, located by probing two values.
+   Because `IsSaving()` always writes, a new gated field lands in the payload
+   and desyncs the v23 read by its wire width — and `FArchive` writes a bool
+   as a 32-bit UBOOL, so the flag's probe differs in one byte but four have to
+   go (#1035's `m_ProjectedGridEnabled` failed the test both ways).
 4. **Keep a no-op migration-chain scaffold** for the day a change can't be
    expressed as a per-field gate (a field renamed/removed, a cross-field
    invariant) — `MigrateSceneYAML` (scene) and `MigrateAssetPackIndex`

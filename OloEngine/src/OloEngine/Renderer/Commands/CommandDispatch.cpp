@@ -3179,7 +3179,16 @@ namespace OloEngine
         // Resolve and apply render state from table
         ApplyPODRenderState(cmd->renderStateIndex, api);
 
-        // Bind shader (cached)
+        // Bind shader (cached). NO depth-only swap here, unlike DrawMesh
+        // (ResolveDepthPrepassShader) and DrawWater (WaterDepthShaderID): in
+        // Deferred the Geometry bucket is replayed with DepthPrepassActive, so
+        // a G-Buffer foliage program runs its FULL fragment stage in the
+        // prepass (colour writes masked) and again in the colour pass. Measured
+        // on courtyard.diagnostic when the impostor card joined that bucket
+        // (#1225): ScenePass/DepthPrepass +0.085 ms median, N=5, Debug, RTX
+        // 4090, ~720 cards. A Foliage_*_Depth swap would have to reproduce the
+        // identical coverage / parallax / discard math or the LEqual colour
+        // pass loses edge fragments — only the post-coverage work is skippable.
         if (Data().CurrentBoundShader != cmd->shaderRendererID)
         {
             api.BindShaderProgram(cmd->shaderRendererID);
@@ -3316,6 +3325,12 @@ namespace OloEngine
             waterData.TessParams = cmd->tessParams;
             waterData.FFTParams = cmd->fftParams;
             waterData.FFTCascadeParams = cmd->fftCascadeParams;
+            // Projected grid (issue #1035). Carried per-surface, unlike the
+            // wake / shore / rain fields below: it is a property of THIS
+            // surface's own plane and rect, and two water tiles at different
+            // heights legitimately get different bands.
+            waterData.ProjectedGridParams = cmd->projectedGridParams;
+            waterData.ProjectedGridParams2 = cmd->projectedGridParams2;
             // Boat / actor wake foam field (issue #967). Read from the service
             // here rather than carried on the draw command, because the field is
             // ONE global resource and not a per-surface property: routing it

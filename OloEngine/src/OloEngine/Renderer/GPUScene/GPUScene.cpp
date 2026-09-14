@@ -416,6 +416,7 @@ namespace OloEngine
         RecordTable<GPUSceneLightKey, GPUSceneLightInput, GPUSceneLight> m_Lights;
         RecordTable<GPUSceneEnvironmentKey, GPUSceneEnvironmentInput, GPUSceneEnvironment> m_Environments;
         std::array<u32, GPUSceneUnsupportedCategoryCount> m_UnsupportedCounts{};
+        GPUSceneFoliageStats m_FoliageCensus;
 
         bool m_UploadPending = false;
         GPUSceneFrameUpdate m_LastFrameUpdate;
@@ -522,6 +523,7 @@ namespace OloEngine
         impl.m_HasOwner = true;
         impl.m_RenderOrigin = renderOrigin;
         impl.m_UnsupportedCounts.fill(0);
+        impl.m_FoliageCensus = GPUSceneFoliageStats{};
         impl.m_ExtractionStart = std::chrono::steady_clock::now();
         impl.m_Extracting = true;
     }
@@ -567,6 +569,18 @@ namespace OloEngine
         const auto index = static_cast<sizet>(category);
         OLO_CORE_ASSERT(index < m_Impl->m_UnsupportedCounts.size(), "Invalid GPUScene unsupported category");
         m_Impl->m_UnsupportedCounts[index] += count;
+    }
+
+    void GPUScene::ReportFoliageCensus(const GPUSceneFoliageStats& census)
+    {
+        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ReportFoliageCensus requires BeginExtraction");
+        auto& total = m_Impl->m_FoliageCensus;
+        total.m_CanonicalInstances += census.m_CanonicalInstances;
+        total.m_MeshCardInstances += census.m_MeshCardInstances;
+        total.m_ImpostorInstances += census.m_ImpostorInstances;
+        total.m_UnsupportedInstances += census.m_UnsupportedInstances;
+        total.m_UnsupportedVariants += census.m_UnsupportedVariants;
+        total.m_SpatialGroups += census.m_SpatialGroups;
     }
 
     GPUSceneFrameUpdate GPUScene::EndExtraction()
@@ -661,6 +675,7 @@ namespace OloEngine
         stats.m_UnsupportedTotal = unsupportedTotal;
         stats.m_ExtractionTimeMs = extractionTimeMs;
         stats.m_UnsupportedCounts = impl.m_UnsupportedCounts;
+        stats.m_Foliage = impl.m_FoliageCensus;
         impl.m_LastFrameUpdate = GPUSceneFrameUpdate{
             .m_InstanceDirtyRanges = impl.m_Instances.TakeDirtyRanges(),
             .m_GeometryDirtyRanges = impl.m_Geometries.TakeDirtyRanges(),
@@ -943,6 +958,7 @@ namespace OloEngine
         impl.m_HasOwner = false;
         impl.m_Extracting = false;
         impl.m_UnsupportedCounts.fill(0);
+        impl.m_FoliageCensus = GPUSceneFoliageStats{};
         impl.m_LastFrameUpdate = GPUSceneFrameUpdate{};
         impl.m_LastFrameUpdate.m_Stats = impl.BuildStats();
         impl.PublishPendingDirtyRanges();

@@ -6527,6 +6527,30 @@ namespace OloEngine
                 ImGui::Separator();
                 ImGui::Text("Layers: %u", static_cast<u32>(component.m_Layers.size()));
 
+                // Canonical instance census (issue #1230). Read-only: this is
+                // runtime state owned by the renderer, not authored data, so it
+                // adds nothing to the serialized component. Without it the only
+                // way to see that a layer's impostor never baked was to notice
+                // one line in OloEngine.log.
+                if (component.m_Renderer)
+                {
+                    const auto& census = component.m_Renderer->GetInstanceRegistry().GetCensus();
+                    ImGui::Text("Instances: %u in %u spatial groups",
+                                census.m_CanonicalInstances, census.m_SpatialGroups);
+                    ImGui::Text("  cards %u | impostors %u | undrawable %u",
+                                census.m_MeshCardInstances, census.m_ImpostorInstances,
+                                census.m_UnsupportedInstances);
+                    if (census.m_UnsupportedVariants > 0)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                           "  %u layer(s) asked for an impostor and did not get one",
+                                           census.m_UnsupportedVariants);
+                        ImGui::SetItemTooltip(
+                            "The atlas failed to bake (usually a missing or unreadable Mesh Path), "
+                            "so the layer falls back to a flat billboard card. See OloEngine.log.");
+                    }
+                }
+
                 if (ImGui::Button("+ Add Layer"))
                 {
                     FoliageLayer newLayer;
@@ -7099,6 +7123,15 @@ namespace OloEngine
                     if (ImGui::DragFloat("Tess Max Distance", &component.m_TessMaxDistance, 1.0f, 10.0f, 1000.0f))
                         component.m_TessMaxDistance = std::max(component.m_TessMaxDistance, component.m_TessMinDistance + 1.0f);
                 }
+
+                ImGui::SeparatorText("Surface Grid");
+                ImGui::Checkbox("Projected Grid", &component.m_ProjectedGridEnabled);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Read the surface mesh's UV as a screen coordinate and ray-cast it onto the water "
+                                      "plane (issue #1035). Grid Resolution then counts quads across the VIEWPORT, not "
+                                      "across the world, so lower it accordingly -- but not all the way: part of the grid "
+                                      "is laid out outside the frame so a crest can lift water into the bottom edge. "
+                                      "WaterShowcase uses 256x144 for ~60 px per on-screen triangle at 1080p.");
 
                 ImGui::SeparatorText("Underwater");
                 ImGui::Checkbox("Render From Below", &component.m_RenderFromBelow);

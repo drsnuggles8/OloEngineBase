@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+
 namespace OloEngine::Ocean
 {
     class OceanFFTField; // FFT ocean cascade (Renderer/Ocean/OceanFFTField.h) — sampled by SampleHeightFFT.
@@ -103,4 +105,34 @@ namespace OloEngine::WaterSurface
     /// and the buoyancy sampler (BuoyancySystem.cpp) so the rendered FFT crest and
     /// the physics surface can't silently drift apart.
     [[nodiscard]] f32 ClampFFTHeightScale(f32 heightScale);
+
+    // =========================================================================
+    // The six detail octaves of WaterCommon.glsl :: sumGerstnerWaves, as
+    // multipliers of the two primaries' averages. ONE copy: this is the table
+    // WaterSurfaceSamplerTest pins against the shader, and the water-LOD census
+    // and MaxSurfaceDisplacement (WaterSurfaceLod) read it rather than carrying
+    // their own — a retuned octave in the shader must fail exactly one test and
+    // move every consumer.
+    // =========================================================================
+    struct DetailOctave
+    {
+        f32 m_AngleMul; ///< golden-angle multiple added to the primary heading
+        f32 m_WavelengthMul;
+        f32 m_SteepnessMul;
+        f32 m_Phase;
+        f32 m_TimeMul;
+        f32 m_AmplitudeWeight;
+        f32 m_WarpSeed;
+    };
+    inline constexpr f32 kDetailOctavePi = 3.14159265f;
+    inline constexpr std::array<DetailOctave, 6> kDetailOctaves = { {
+        { 1.0f, 0.85f, 0.50f, kDetailOctavePi * 1.7231f, 1.03f, 0.50f, 1.0f },
+        { 2.0f, 0.60f, 0.45f, kDetailOctavePi * 3.4519f, 0.97f, 0.40f, 2.7f },
+        { 3.0f, 0.40f, 0.38f, kDetailOctavePi * 0.8637f, 1.11f, 0.30f, 4.1f },
+        { 4.0f, 0.25f, 0.30f, kDetailOctavePi * 5.1043f, 0.89f, 0.22f, 5.9f },
+        { 5.0f, 0.15f, 0.22f, kDetailOctavePi * 2.6891f, 1.23f, 0.15f, 7.3f },
+        { 6.0f, 0.09f, 0.15f, kDetailOctavePi * 4.3127f, 1.07f, 0.10f, 9.1f },
+    } };
+    /// Golden angle in radians, the heading step between detail octaves.
+    inline constexpr f32 kDetailOctaveGoldenAngle = 2.39996f;
 } // namespace OloEngine::WaterSurface

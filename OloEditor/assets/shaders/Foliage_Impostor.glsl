@@ -1,196 +1,29 @@
 // =============================================================================
 // Foliage_Impostor.glsl — octahedral impostor card for distant foliage (issue
-// #433). Replaces the flat Y-rotated billboard with a fully camera-facing card
-// that samples a baked octahedral atlas (albedo + object-normal + depth),
-// blending the 3 lattice frames around the current view direction (no slice
-// pop), applying single-step depth parallax (kills the flat-card look), and
-// relighting from the baked object normal. A distance-driven detail ramp across
-// [ImpostorStart, ImpostorStart+Band] fades parallax + cross-frame blend in with
-// range so there is no visible transition. Forward pass: composites into
-// SceneColor after opaque.
+// #433), FORWARD variant. Replaces the flat Y-rotated billboard with a fully
+// camera-facing card that samples a baked octahedral atlas (albedo +
+// object-normal + depth), blending the 3 lattice frames around the current view
+// direction (no slice pop), applying single-step depth parallax (kills the
+// flat-card look), and relighting from the baked object normal. A
+// distance-driven detail ramp across [ImpostorStart, ImpostorStart+Band] fades
+// parallax + cross-frame blend in with range so there is no visible transition.
+// Forward pass: composites into SceneColor after opaque.
+//
+// The card's placement (vertex stage) and its atlas sampling + discard rule
+// (fragment body) live in shared includes with the deferred sibling,
+// Foliage_Impostor_GBuffer.glsl (#1225): the two paths must place and sample
+// the same card or it jumps at the Forward/Deferred seam. This file owns only
+// its OUTPUT — the self-relight and SceneColor write.
 // =============================================================================
 
 #type vertex
 #version 460 core
 
-#ifdef OLO_VULKAN
-// #691 (ADR 0011 §5): V8 foliage two-stream pull — stream 0 = the
-// 20-byte card quad on the engine-wide binding 57, stream 1 = FoliageRenderer's
-// 48-byte per-instance VB {PositionScale, RotationHeight, ColorAlpha} on the
-// reserved stream-1 binding 63, indexed by gl_InstanceIndex. Pulled locals
-// under the attribute names in main() keep the body shared (Foliage_Instance
-// carries the canonical comment).
-layout(std430, binding = 57) readonly buffer OloVertexPull
-{
-    float v[];
-} b_Vertices;
-layout(std430, binding = 63) readonly buffer OloBonePull
-{
-    float v[];
-} b_Instances;
-#define OLO_PULLED_VERTEX 1
-#else
-layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec2 a_TexCoord;
-
-layout(location = 2) in vec4 a_PositionScale;  // xyz = world pos, w = scale
-layout(location = 3) in vec4 a_RotationHeight; // x = Y rotation (rad), y = height, z = fade, w = unused
-layout(location = 4) in vec4 a_ColorAlpha;     // rgb = tint, a = alpha cutoff
-#endif
-
-layout(std140, binding = 0) uniform CameraMatrices
-{
-    mat4 u_ViewProjection;
-    mat4 u_View;
-    mat4 u_Projection;
-    vec3 u_CameraPosition;
-    float _padding0;
-    mat4 u_PrevViewProjection;
-    vec3 u_RenderOrigin;
-    float _padding1;
-};
-
-// Foliage uploads ONE shared InstanceData entry for all N pulled instances
-// (see FoliageRenderer::Render) — per-instance data rides the 48-byte
-// instance stream instead. OLO_INSTANCE_SINGLE keeps the include from
-// indexing that one entry by gl_InstanceIndex (GL: garbage read, Vulkan:
-// device-losing page fault at high instance counts).
-#define OLO_INSTANCE_SINGLE 1
-// This shader's consuming stage never reads v_InstanceIndex — declare no
-// varying (a written-but-unconsumed output is a per-pipeline Vulkan
-// validation interface warning).
+// Nothing in this fragment stage reads the instance index — declare no
+// varying for it (a written-but-unconsumed output is a per-pipeline Vulkan
+// validation interface warning). The deferred sibling omits this define.
 #define OLO_INSTANCE_NO_FORWARD 1
-#include "include/InstanceBlock_Vertex.glsl"
-
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3 u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
-};
-
-layout(location = 0) out vec3 v_CardWorld;  // this fragment's card world position
-layout(location = 1) out vec3 v_PivotWorld; // card centre (world)
-layout(location = 2) out vec2 v_Uv;         // card uv 0..1
-layout(location = 3) out vec3 v_Color;      // tint
-layout(location = 4) out float v_AlphaCutoff;
-layout(location = 5) out float v_Rotation;  // instance Y rotation
-layout(location = 6) out vec3 v_PrevCardWorld;
-layout(location = 7) out float v_Radius;    // WORLD-space card radius (object radius * scale)
-
-void main()
-{
-#ifdef OLO_PULLED_VERTEX
-    int vertBase = gl_VertexIndex * 5;
-    vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
-    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
-    int instBase = gl_InstanceIndex * 12;
-    vec4 a_PositionScale = vec4(b_Instances.v[instBase + 0], b_Instances.v[instBase + 1],
-                                b_Instances.v[instBase + 2], b_Instances.v[instBase + 3]);
-    vec4 a_RotationHeight = vec4(b_Instances.v[instBase + 4], b_Instances.v[instBase + 5],
-                                 b_Instances.v[instBase + 6], b_Instances.v[instBase + 7]);
-    vec4 a_ColorAlpha = vec4(b_Instances.v[instBase + 8], b_Instances.v[instBase + 9],
-                             b_Instances.v[instBase + 10], b_Instances.v[instBase + 11]);
-#endif
-    OLO_INSTANCE_FORWARD();
-
-    float scale = a_PositionScale.w;
-    float rotation = a_RotationHeight.x;
-    float height = a_RotationHeight.y;
-
-    // World-space card radius. u_ImpostorParams1.y is the OBJECT-space radius the
-    // bake framed the mesh with, and the meshes are authored unit-height
-    // (pine.obj spans y in [0,1], radius 0.560) — so the per-instance world
-    // height has to come back in here, exactly as the near path applies it
-    // (`localPos.y *= height * scale` in Foliage_Instance.glsl). This used to
-    // read only `scale`, drawing a 9-16 m pine as a ~1.5 m card: an ~8x shrink
-    // the moment an instance crossed ImpostorStartDistance (issue #953).
-    //
-    // UNIFORM, not anisotropic. Matching the near quad's aspect exactly would
-    // mean stretching the card 1:16, which renders the baked pine as a needle —
-    // and the near quad is a deliberately different thing anyway (a tufted
-    // billboard; the impostor is what "gives the tree line a 3D silhouette from
-    // any azimuth at range", issue #433). Scaling uniformly puts the drawn tree
-    // at exactly `height * scale` tall, so nothing pops vertically across the
-    // transition, and leaves it its own proportions.
-    float radius = u_ImpostorParams1.y * height * scale;
-
-    // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
-    // [0, WorldSize], y the raw sampled height), so they only become world
-    // positions after the owning terrain's transform — which DrawFoliageLayer
-    // uploads as the single u_Model entry, already made render-relative by
-    // UploadModelInstance. Foliage_Instance.glsl has always multiplied through
-    // it; this stage did not, and subtracted the render origin directly instead
-    // on the belief that a_PositionScale was absolute world (issue #953). It is
-    // not: no island sits at the origin, so every impostor card rendered at its
-    // island's LOCAL coordinates — all six islands' pines piled into one heap
-    // over open water near (0,0,0), hanging above anything the terrain can
-    // reach, which from the boat reads as a swarm of dark specks in the sky.
-    //
-    // The OLO_INSTANCE_SINGLE define above is what makes u_Model safe here: it
-    // pins the read to instances[0] rather than indexing by gl_InstanceIndex,
-    // which is the out-of-bounds hazard the old comment was really about (issue
-    // #433). The two got conflated, and the transform was dropped with them.
-    vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
-    // Anchor the card on the MESH CENTRE, because that is what the bake framed:
-    // ImpostorBaker centres each tile on the source mesh's bounding-box centre
-    // and spans +-u_ImpostorParams1.y around it, so the card's centre has to
-    // land on that same point in world space or the tree floats inside its own
-    // card. The meshes are authored base-at-origin (pine.obj spans y in [0,1])
-    // and the near path already relies on that (`localPos.y *= height * scale`
-    // in Foliage_Instance.glsl), so the centre is half the drawn height up.
-    //
-    // This offset by `radius` instead, which was indistinguishable while radius
-    // was the UNIT-mesh radius (~0.5 m). The moment radius became
-    // R0 * height * scale (6-12 m for Drift's pines) the same line lifted the
-    // card centre — and the tree drawn around it — metres into the air: trees in
-    // the sky. The card's BOTTOM stayed on the terrain, so the card extent
-    // looked right and only its contents floated, which is what made this read
-    // as a placement bug rather than an anchoring one.
-    vec3 cardCenter = instWorld + vec3(0.0, 0.5 * height * scale, 0.0);
-
-    // Subtle whole-card wind sway (legacy sine model, matching the near
-    // billboard's fallback branch) so a distant tree still moves with the wind.
-    float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
-    float windPhasePrev = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_PrevTime * u_WindSpeed;
-    float sway = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * 0.15;
-    float swayPrev = sin(windPhasePrev) * cos(windPhasePrev * 0.7 + 1.3) * u_WindStrength * 0.15;
-    vec3 cardCenterCur = cardCenter + vec3(sway, 0.0, sway * 0.5);
-    vec3 cardCenterPrev = cardCenter + vec3(swayPrev, 0.0, swayPrev * 0.5);
-
-    // Camera-facing basis. u_CameraPosition is treated in the same space as the
-    // render-relative pivot (renderOrigin ~ 0 for authored scenes) — matches the
-    // existing foliage distance/fade convention.
-    vec3 toCam = u_CameraPosition - cardCenterCur;
-    vec3 zAxis = normalize(toCam);
-    vec3 upRef = (abs(zAxis.y) > 0.999) ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
-    vec3 xAxis = normalize(cross(upRef, zAxis));
-    vec3 yAxis = normalize(cross(zAxis, xAxis));
-
-    vec2 offset = (a_TexCoord - 0.5) * (2.0 * radius);
-    vec3 cardWorld = cardCenterCur + xAxis * offset.x + yAxis * offset.y;
-    vec3 cardWorldPrev = cardCenterPrev + xAxis * offset.x + yAxis * offset.y;
-
-    v_CardWorld = cardWorld;
-    v_PrevCardWorld = cardWorldPrev;
-    v_PivotWorld = cardCenterCur;
-    v_Uv = a_TexCoord;
-    v_Color = a_ColorAlpha.rgb;
-    v_AlphaCutoff = a_ColorAlpha.a;
-    v_Rotation = rotation;
-    v_Radius = radius; // world-space half-size, needed by the fragment's virtual-plane UV
-
-    gl_Position = u_ViewProjection * vec4(cardWorld, 1.0);
-}
+#include "include/FoliageImpostorVertexStage.glsl"
 
 #type fragment
 #version 460 core
@@ -200,8 +33,6 @@ layout(location = 3) out vec2 o_Velocity;
 
 layout(location = 0) in vec3 v_CardWorld;
 layout(location = 1) in vec3 v_PivotWorld;
-layout(location = 2) in vec2 v_Uv;
-layout(location = 3) in vec3 v_Color;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
@@ -248,150 +79,29 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
 };
 
-#include "include/BindlessHeap.glsl"
-#ifdef OLO_BINDLESS
-#define u_AlbedoAtlas OLO_HEAP_TEX_2D(0)  // rgb=albedo, a=coverage — TEX_DIFFUSE
-#define u_NormalDepthAtlas OLO_HEAP_TEX_2D(10)  // rgb=obj normal, a=depth — TEX_USER_0
-#else
-layout(binding = 0) uniform sampler2D u_AlbedoAtlas;      // rgb=albedo, a=coverage
-layout(binding = 10) uniform sampler2D u_NormalDepthAtlas; // rgb=obj normal, a=depth
-#endif
-
-#include "include/OctahedralImpostor.glsl"
-
-// Rotate a vector about +Y by angle.
-vec3 rotateY(vec3 v, float angle)
-{
-    float c = cos(angle);
-    float s = sin(angle);
-    return vec3(v.x * c + v.z * s, v.y, -v.x * s + v.z * c);
-}
+#include "include/FoliageImpostorSampling.glsl"
 
 void main()
 {
-    float framesPerAxis = max(u_ImpostorParams0.x, 2.0);
-    bool hemi = u_ImpostorParams0.y > 0.5;
-    // WORLD-space card half-size — the virtual-plane offset vectors below are in
-    // world units, so they must be divided by the world radius (object radius *
-    // instance scale), NOT the object-space atlas radius.
-    float radius = max(v_Radius, 1e-4);
+    ImpostorSample card = SampleImpostorCard();
 
-    // Distance-driven detail ramp: near [< start] the card behaves like a cheap
-    // stable single-frame billboard (no parallax, no cross-frame blend); across
-    // [start, start+band] it cross-fades continuously to the full parallax
-    // octahedral impostor — no pop, and both authoring knobs stay meaningful.
-    float dist = distance(v_PivotWorld, u_CameraPosition);
-    float lod = (u_ImpostorParams1.x > 0.5)
-                    ? smoothstep(u_ImpostorParams0.z, u_ImpostorParams0.z + max(u_ImpostorParams0.w, 1e-3), dist)
-                    : 1.0;
-    float parallaxScale = u_ImpostorParams1.z * lod;
-
-    // View direction in mesh-local space (undo the instance Y rotation).
-    vec3 viewWorld = normalize(u_CameraPosition - v_PivotWorld);
-    vec3 viewLocal = rotateY(viewWorld, -v_Rotation);
-
-    vec2 grid = OctaDirToGrid(viewLocal, framesPerAxis, hemi);
-    vec2 gridFloor = min(floor(grid), vec2(framesPerAxis - 1.0));
-    vec2 f = grid - gridFloor;
-
-    // 3-tile barycentric blend (quadBlendWeights); the two off-frames ramp in
-    // with lod so the near look collapses to the single dominant frame.
-    float w0 = min(1.0 - f.x, 1.0 - f.y);
-    float w1 = abs(f.x - f.y) * lod;
-    float w2 = min(f.x, f.y) * lod;
-    float wsum = max(w0 + w1 + w2, 1e-4);
-    w0 /= wsum;
-    w1 /= wsum;
-    w2 /= wsum;
-    vec2 diag = (f.x > f.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
-    vec2 maxFrame = vec2(framesPerAxis - 1.0);
-    vec2 frame0 = gridFloor;
-    vec2 frame1 = clamp(gridFloor + diag, vec2(0.0), maxFrame);
-    vec2 frame2 = clamp(gridFloor + vec2(1.0, 1.0), vec2(0.0), maxFrame);
-
-    vec2 frames[3] = vec2[3](frame0, frame1, frame2);
-    float weights[3] = float[3](w0, w1, w2);
-
-    float invN = 1.0 / framesPerAxis;
-    vec3 pivotToCam = u_CameraPosition - v_PivotWorld;
-    vec3 vertexToCam = u_CameraPosition - v_CardWorld;
-
-    vec3 accAlbedo = vec3(0.0);
-    vec3 accNormal = vec3(0.0);
-    float accCoverage = 0.0;
-
-    for (int i = 0; i < 3; ++i)
-    {
-        float weight = weights[i];
-        if (weight <= 0.0)
-            continue;
-
-        // The direction this frame was captured from, back in world space.
-        vec3 dirLocal = OctaFrameToDir(frames[i], framesPerAxis, hemi);
-        vec3 dirWorld = rotateY(dirLocal, v_Rotation);
-
-        // Virtual-plane reprojection: project the card ray onto this frame's
-        // capture plane so each frame samples its own geometrically-correct UV
-        // (otherwise the 3-frame blend ghosts). See issue #433 research.
-        vec3 planeN = dirWorld;
-        vec3 planeUp = (abs(planeN.y) > 0.999) ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
-        vec3 planeX = normalize(cross(planeUp, planeN));
-        vec3 planeY = normalize(cross(planeN, planeX));
-
-        // Intersect the camera->card-vertex ray with this frame's capture plane
-        // (through the pivot, normal planeN): X = camera - offLen*vertexToCam, and
-        // the in-plane offset from the pivot is pivotToCam - offLen*vertexToCam.
-        float denom = dot(planeN, vertexToCam);
-        if (abs(denom) < 1e-5)
-            continue;
-        float offLen = dot(planeN, pivotToCam) / denom;
-        vec3 offVec = pivotToCam - vertexToCam * offLen;
-        vec2 uvFrame = vec2(dot(planeX, offVec), dot(planeY, offVec)) / (2.0 * radius) + 0.5;
-
-        // Single-step depth parallax along the in-plane view direction.
-        vec2 tileUV = (frames[i] + clamp(uvFrame, 0.0, 1.0)) * invN;
-        float depth = texture(u_NormalDepthAtlas, tileUV).a;
-        vec2 viewTan = vec2(dot(planeX, viewWorld), dot(planeY, viewWorld));
-        uvFrame += viewTan * (0.5 - depth) * parallaxScale;
-
-        vec2 finalUV = (frames[i] + clamp(uvFrame, 0.0, 1.0)) * invN;
-        vec4 alb = texture(u_AlbedoAtlas, finalUV);
-        vec4 nd = texture(u_NormalDepthAtlas, finalUV);
-
-        accAlbedo += alb.rgb * weight;
-        accCoverage += alb.a * weight;
-        accNormal += (nd.rgb * 2.0 - 1.0) * weight;
-    }
-
-    // The atlas albedo already has the layer tint baked in (ImpostorBaker applies
-    // BaseColor at bake time) — do NOT re-multiply by v_Color here or the tint
-    // is applied twice and the card reads far too dark.
-    vec3 albedo = accAlbedo;
-    float coverage = accCoverage;
-
-    // Alpha test against the baked coverage.
-    if (coverage < v_AlphaCutoff)
-        discard;
-
-    // Distance fade (matches the flat-billboard path).
-    float distFade = 1.0 - smoothstep(u_FadeStart, u_ViewDistance, dist);
-    if (distFade <= 0.0)
-        discard;
-
-    // Relight from the baked object-space normal (dynamic sun direction).
-    vec3 localN = normalize(accNormal);
-    vec3 worldN = normalize(rotateY(localN, v_Rotation));
+    // Relight from the baked object-space normal (dynamic sun direction). This
+    // is the forward path's ONE light plus a flat ambient; the deferred sibling
+    // hands the same normal to DeferredLightingPass instead.
+    vec3 worldN = normalize(rotateY(card.LocalNormal, v_Rotation));
     vec3 lightDir = normalize(-u_Light0_Direction.xyz);
     float NdotL = max(dot(worldN, lightDir), 0.0);
     if (NdotL < 0.01)
         NdotL = max(dot(-worldN, lightDir), 0.0) * 0.5; // two-sided foliage
 
     vec3 lightColor = u_Light0_ColorIntensity.rgb * u_Light0_ColorIntensity.w;
-    vec3 ambient = albedo * 0.3;
-    vec3 diffuse = albedo * lightColor * NdotL;
+    vec3 ambient = card.Albedo * 0.3;
+    vec3 diffuse = card.Albedo * lightColor * NdotL;
     vec3 litColor = ambient + diffuse;
 
-    FragColor = vec4(litColor, coverage * distFade);
+    // Foliage blends are OFF (opaque alpha-tested), so this alpha is never
+    // seen; the visible fade is the discard SampleImpostorCard applies.
+    FragColor = vec4(litColor, card.Coverage * card.DistFade);
 
     // Camera-motion velocity (impostor has no per-instance prev history).
     vec4 clipCurr = u_ViewProjection * vec4(v_CardWorld, 1.0);

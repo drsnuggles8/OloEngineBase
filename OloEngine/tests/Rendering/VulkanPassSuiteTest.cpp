@@ -7662,7 +7662,7 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     ASSERT_TRUE(foliageShader);
     ASSERT_EQ(foliageShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
     for (const char* sibling : { "assets/shaders/Foliage_Depth.glsl", "assets/shaders/Foliage_Instance_GBuffer.glsl",
-                                 "assets/shaders/Foliage_Impostor.glsl" })
+                                 "assets/shaders/Foliage_Impostor.glsl", "assets/shaders/Foliage_Impostor_GBuffer.glsl" })
     {
         auto shader = Shader::Create(sibling);
         ASSERT_TRUE(shader);

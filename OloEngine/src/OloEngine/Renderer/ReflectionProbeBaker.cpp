@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/CaptureStateGuard.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -282,26 +283,10 @@ namespace OloEngine
         std::vector<f32> rgReadback(static_cast<sizet>(kRes) * kRes * 2u);
         sizet const faceBytes = rgReadback.size() * sizeof(f32);
 
-        // Deliberate restore as a scope guard (no GLStateGuard here — see
-        // docs/agent-rules/render-pass-published-state.md) so it also runs if
-        // a face capture throws: unbind the FBO, undo the cull flip, put the
-        // pre-capture viewport back, and re-establish the engine camera UBO.
-        // The bind cache must be invalidated FIRST or BindUBOIfNeeded thinks
-        // the camera binding never changed and skips the re-bind.
-        struct CaptureStateGuard
-        {
-            Ref<Framebuffer>& m_Fbo;
-            Viewport m_PrevViewport;
-            ~CaptureStateGuard()
-            {
-                m_Fbo->Unbind();
-                RenderCommand::EnableCulling();
-                RenderCommand::SetViewport(m_PrevViewport.x, m_PrevViewport.y,
-                                           m_PrevViewport.width, m_PrevViewport.height);
-                CommandDispatch::InvalidateRenderStateCache();
-                CommandDispatch::UploadCameraUBO();
-            }
-        } stateGuard{ fbo, RenderCommand::GetViewport() };
+        // Restore on every exit path, including a throwing face capture: FBO,
+        // cull flip, pre-capture viewport, dispatch state cache, and — because
+        // this bake rewrote it — the engine camera UBO (see the guard's header).
+        CaptureStateGuard stateGuard{ fbo, /*restoreCameraUBO=*/true };
 
         fbo->Bind();
         RenderCommand::SetViewport(0, 0, kRes, kRes);

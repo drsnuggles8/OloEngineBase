@@ -200,7 +200,7 @@ namespace OloEngine::RenderGraphHazardValidator
             if (resource.TextureHandle.IsValid())
                 hasValidBacking = input.ResolveTexture(resource.TextureHandle) != 0;
             else if (resource.BufferHandle.IsValid())
-                hasValidBacking = input.ResolveBuffer(resource.BufferHandle) != 0;
+                hasValidBacking = input.HasBufferBacking(resource.BufferHandle);
             else if (resource.FramebufferHandle.IsValid())
                 hasValidBacking = input.ResolveFramebuffer(resource.FramebufferHandle) != nullptr;
             else

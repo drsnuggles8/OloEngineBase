@@ -218,6 +218,11 @@ add_executable(OloEngine-Tests
 		# analytically-shaded Lambertian occluder, with a negative control that
 		# fails if dropping the Jacobian does NOT bias the result.
 		Rendering/ReSTIR/ReSTIRGIOracleTest.cpp
+		# #1211: suffix change-of-measure, invertible replay charts, and ownership contracts.
+		Rendering/ReSTIR/PathShiftTest.cpp
+		Rendering/ReSTIR/PathReplayChartsTest.cpp
+		Rendering/ReSTIR/ReSTIRPTTechniqueTest.cpp
+        Rendering/ReSTIR/ReSTIRPTDeviceTest.cpp
 		Rendering/Baking/LightmapUnwrapTest.cpp
 		Rendering/Baking/LightmapBakeParityTest.cpp
 		Rendering/Baking/LightmapSkyAndTextureBakeTest.cpp
@@ -226,6 +231,7 @@ add_executable(OloEngine-Tests
 		Asset/LightmapAssetSerializationTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
+		Rendering/FoliageImpostorShaderInterfaceTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
 		Rendering/ShaderReflectionBindingTest.cpp
@@ -571,6 +577,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TwoSidedShadowCastTest.cpp
 		Rendering/PropertyTests/WaterShoreVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterShoreWaveTest.cpp
+		Rendering/PropertyTests/WaterGeometryLodProfileTest.cpp
+		Rendering/PropertyTests/WaterProjectedGridVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterSurfaceSamplerTest.cpp
 		Rendering/PropertyTests/WaterDisturbanceFieldTest.cpp
 		Rendering/PropertyTests/WaterRainRippleTest.cpp
@@ -593,6 +601,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
+		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
