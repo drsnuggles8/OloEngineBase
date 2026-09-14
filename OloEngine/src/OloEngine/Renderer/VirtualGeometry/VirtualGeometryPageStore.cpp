@@ -11,11 +11,11 @@
 #include <utility>
 
 #ifdef OLO_PLATFORM_WINDOWS
-    #include <Windows.h>
-    #include <process.h>
+#include <Windows.h>
+#include <process.h>
 #else
-    #include <signal.h>
-    #include <unistd.h>
+#include <signal.h>
+#include <unistd.h>
 #endif
 
 namespace OloEngine
@@ -267,7 +267,8 @@ namespace OloEngine
                 continue;
             }
             m_WorkerFiles.push_back(stream);
-            m_Workers.emplace_back([this, stream]() { WorkerMain(stream); });
+            m_Workers.emplace_back([this, stream]()
+                                   { WorkerMain(stream); });
         }
         if (m_Workers.empty())
         {
@@ -614,7 +615,7 @@ namespace OloEngine
     }
 
     VirtualGeometryPageStore::FetchState VirtualGeometryPageStore::Fetch(u32 meshBase, u32 pageIndex,
-                                                                        const VirtualPagePayload*& outPayload)
+                                                                         const VirtualPagePayload*& outPayload)
     {
         outPayload = nullptr;
         auto const page = meshBase + pageIndex;

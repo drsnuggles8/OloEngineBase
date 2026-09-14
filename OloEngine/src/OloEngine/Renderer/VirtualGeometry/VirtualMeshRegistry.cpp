@@ -799,7 +799,8 @@ namespace OloEngine
         // binding. Allocated only when some registered mesh carries UV2, so an
         // unbaked scene's arena is byte-for-byte what it was before.
         const bool anyLightmapUVs = std::ranges::any_of(
-            m_Entries, [](const MeshEntry& entry) { return entry.Valid && entry.HasLightmapUVs; });
+            m_Entries, [](const MeshEntry& entry)
+            { return entry.Valid && entry.HasLightmapUVs; });
         u64 const lightmapElements =
             anyLightmapUVs ? VirtualLightmapUVElementCount(static_cast<u32>(vertexElements)) : 0u;
         m_LightmapUVBaseElement = anyLightmapUVs ? static_cast<u32>(vertexElements) : 0u;

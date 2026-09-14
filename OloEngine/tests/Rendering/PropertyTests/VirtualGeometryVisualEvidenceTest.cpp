@@ -1355,7 +1355,7 @@ namespace OloEngine::Tests
                 << stats.PageReadFailures << " page read(s) failed against the backing store";
             EXPECT_EQ(stats.FailedPages, 0u)
                 << stats.FailedPages << " page(s) are permanently unavailable — their clusters are stuck at "
-                                       "a coarser DAG cut";
+                                        "a coarser DAG cut";
             EXPECT_GT(stats.PageBytesRead, 0ull) << "pages were requested but no bytes were ever read back";
             // Staging RAM is the streaming path's own footprint and the thing that would make
             // "stream from disk" pointless if it grew with the scene. It is capped by the

@@ -20,6 +20,7 @@
 // =============================================================================
 
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPageStore.h"
+#include "TestTempDir.h"
 
 #include <gtest/gtest.h>
 
@@ -135,15 +136,15 @@ namespace
       protected:
         void SetUp() override
         {
-            // A per-test directory under the OS temp root. The store already names its file
-            // by pid + serial, but several test binaries share %TEMP% on this box and a test
-            // that asserts on "the file exists" must not be able to see a sibling's.
-            m_Directory = std::filesystem::temp_directory_path() /
-                          ("OloEngineVGPageStoreTest_" + std::to_string(::testing::UnitTest::GetInstance()
-                                                                            ->current_test_info()
-                                                                            ->line()));
+            // Tests::TempDir() rather than the shared temp root: every gtest case runs in its
+            // own process and CI runs them in parallel, so a fixed path would be shared
+            // mutable state (TestTempDir.h). It matters more than usual here — this fixture
+            // asserts on which files EXIST in its directory, so a sibling's spill turning up
+            // would fail the orphan-sweep case for no reason of its own.
+            m_Directory = OloEngine::Tests::TempDir("vgpagestore");
             std::error_code ec;
             std::filesystem::remove_all(m_Directory, ec);
+            std::filesystem::create_directories(m_Directory, ec);
             VirtualGeometryPageStore::SetSpillDirectory(m_Directory);
         }
 
@@ -459,9 +460,7 @@ TEST_F(VirtualGeometryPageStoreTest, OpeningAStoreReclaimsSpillsFromDeadProcesse
         stream << "dead session payload";
     }
     // ...and a file the sweep must NOT touch: it belongs to a process that is very much alive.
-    auto const mine = m_Directory / ("vgpages_" + std::to_string(::testing::UnitTest::GetInstance()
-                                                                     ->current_test_info()
-                                                                     ->line()) + "_0.ovgp");
+    // ...and a file the sweep must NOT touch, because it is not a spill at all.
     auto const live = m_Directory / "not-a-spill.txt";
     {
         std::ofstream stream(live, std::ios::binary);
@@ -478,7 +477,6 @@ TEST_F(VirtualGeometryPageStoreTest, OpeningAStoreReclaimsSpillsFromDeadProcesse
            "hundreds of MB each";
     EXPECT_TRUE(std::filesystem::exists(live)) << "the sweep deleted a file that is not a spill";
     EXPECT_TRUE(std::filesystem::exists(store.GetPath())) << "the sweep deleted the store's own file";
-    (void)mine;
 }
 
 // Close() joins the workers and removes the spill file. A session-scoped store that leaked

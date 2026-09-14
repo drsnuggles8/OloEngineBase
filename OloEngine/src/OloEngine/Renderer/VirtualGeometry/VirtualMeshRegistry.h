@@ -764,7 +764,7 @@ namespace OloEngine
             // store (issue #1151), whose per-mesh base is stamped once at spill time and must
             // survive later rebuilds.
             u32 EntryPageIndex = 0;
-            u32 PooledGroup = 0;    // group index in the pooled buffers
+            u32 PooledGroup = 0; // group index in the pooled buffers
             u32 PooledFirstCluster = 0;
             u32 SlotIndex = kNoSlot;
             u64 LastUsedFrame = 0;
@@ -782,9 +782,9 @@ namespace OloEngine
         // come back for it, not walk on and start thousands more reads it will never collect.
         enum class PageLoadResult : u8
         {
-            Loaded = 0,      // resident now; an upload was staged
-            Pending = 1,     // a read is outstanding — try again in a later frame
-            NotLoaded = 2    // no slot free this frame, or the page is permanently unavailable
+            Loaded = 0,   // resident now; an upload was staged
+            Pending = 1,  // a read is outstanding — try again in a later frame
+            NotLoaded = 2 // no slot free this frame, or the page is permanently unavailable
         };
 
         void RebuildPools();
