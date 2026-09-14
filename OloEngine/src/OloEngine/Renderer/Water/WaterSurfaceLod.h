@@ -224,6 +224,61 @@ namespace OloEngine::WaterSurfaceLod
                                              const glm::vec3& planeNormal,
                                              f32 displacementMargin);
 
+    /// The largest share of one axis' PARAMETER that an off-screen skirt may
+    /// take (issue #1217). The layout rectangle reaches past the screen so a
+    /// crest can lift near water into frame, but those rows only have to
+    /// EXIST — their density buys nothing, because what the viewer sees of them
+    /// is the displaced surface, not the resting lattice. Mapped uniformly they
+    /// took 61% of the rows at WaterShowcase's 3 m grazing pose and 25% of the
+    /// vertices reached the screen.
+    ///
+    /// Applied per axis END, so an axis keeps at least 80% of its rows for the
+    /// part of the rectangle that is on screen even when both of its ends
+    /// overhang. A skirt that already takes less than this share is left
+    /// exactly as it was.
+    inline constexpr f32 kSkirtParamShare = 0.1f;
+
+    /// One projected-grid vertex's place in the layout rectangle.
+    struct ProjectedGridSample
+    {
+        /// The NDC the vertex's view ray is cast through.
+        glm::vec2 m_Ndc{ 0.0f, 0.0f };
+        /// This vertex's NDC step divided by the ON-SCREEN step, the larger of
+        /// the two axes. 1 over the whole on-screen part of the rectangle and
+        /// above 1 in a compressed skirt, which is exactly the factor the
+        /// band-limit spacing has to be widened by out there: SpacingPerMetre
+        /// describes the on-screen step, and a skirt row whose neighbours are
+        /// 40x further apart must not be sampled as if they were not.
+        ///
+        /// One number for both axes, deliberately. SpacingPerMetre already
+        /// takes the coarser axis, so `max(stepX, stepY) * max(ratioX, ratioY)`
+        /// is >= `max(stepX * ratioX, stepY * ratioY)`, the real requirement: it
+        /// can only ever over-estimate, which costs smoothing in a corner of
+        /// the skirt, and can never under-estimate, which would alias.
+        f32 m_StepRatio = 1.0f;
+    };
+
+    /// Where the grid's own (u, v) lands in the layout rectangle.
+    ///
+    /// Uniform over the part of the rectangle that is ON SCREEN — that is the
+    /// property the whole design rests on and it is unchanged — and compressed
+    /// over each end that is not, to at most `kSkirtParamShare` of the axis.
+    ///
+    /// The compression is C1 at the join rather than piecewise-linear: the step
+    /// is what the mesh band-limit reads, and a step that jumps between two
+    /// adjacent rows changes the octave ladder across one edge of the mesh.
+    /// Inside a skirt the NDC advances as `a*w + (1-a)*w^2` in the skirt's own
+    /// parameter `w` (0 at the screen edge, 1 at the outer edge), with `a`
+    /// chosen so the slope matches the on-screen one at w = 0. `a` is exactly 1
+    /// — i.e. the whole map is the uniform one — whenever the skirt already
+    /// takes no more than its share, which is why an overhead pose (7% of rows
+    /// outside the screen) is left bit-for-bit alone.
+    ///
+    /// v = 1 still lands on `m_NearEdgeY`; see NdcBounds for why that
+    /// orientation is load-bearing.
+    [[nodiscard]] ProjectedGridSample MapProjectedGridUV(const glm::vec2& uv,
+                                                         const NdcBounds& bounds);
+
     /// The world position one projected-grid vertex lands on: cast a ray from
     /// `cameraPos` through the point `ndc` unprojects to, intersect it with the
     /// plane at ANY positive distance (the depth range is not a cutoff — a
@@ -282,7 +337,11 @@ namespace OloEngine::WaterSurfaceLod
                                          glm::vec4& outParams2);
 
     /// The band-limit spacing per metre of ray distance a projected grid is
-    /// sampled at: one grid step of view angle. `gpuProjection` is the
+    /// sampled at: one ON-SCREEN grid step of view angle. Not one step of the
+    /// whole rectangle: since #1217 the skirt rows are compressed into a fixed
+    /// share of the axis, so the rectangle's average step describes no row.
+    /// `ProjectedGridSample::m_StepRatio` carries a skirt row's own widening,
+    /// and is 1 everywhere on screen. `gpuProjection` is the
     /// backend-adjusted projection the vertex stage sees (its [0][0] / [1][1]
     /// focal terms are read, by magnitude — the Vulkan seam negates the second).
     /// The vertex stage multiplies this by each vertex's own ray distance and
