@@ -1014,6 +1014,7 @@
 		"OloEngine/Renderer/Passes/ReSTIRDIPass.cpp"
 		"OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 		"OloEngine/Renderer/Passes/ReSTIRGIPass.cpp"
+        "OloEngine/Renderer/Passes/ReSTIRPTPass.cpp"
 		"OloEngine/Renderer/Passes/RayTracingScenePass.h"
 		"OloEngine/Renderer/Passes/RayTracingScenePass.cpp"
 		"OloEngine/Renderer/Passes/AOApplyRenderPass.h"

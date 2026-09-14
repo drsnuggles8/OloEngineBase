@@ -190,6 +190,7 @@ vec3 OloRtApplyNormalMap(vec3 n, vec3 p0, vec3 p1, vec3 p2, vec2 uv0, vec2 uv1, 
 
 struct OloRtHit
 {
+    uvec4 Identity; // instance, geometry, primitive, material; invalid on a miss
     bool Hit;
     float Distance;
     vec3 Position;
@@ -282,6 +283,7 @@ void OloRtFetchTriangle(GPUSceneGeometry geometry, uint primitiveIndex, mat4x3 o
 // contribution rather than collecting the environment through it.
 bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloRtHit hit)
 {
+    hit.Identity = uvec4(0xffffffffu);
     hit.Hit = false;
     hit.Distance = 0.0;
     hit.Position = vec3(0.0);
@@ -337,6 +339,7 @@ bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloR
         return OloRtUnshadeableHit(origin, direction, t, hit);
     const vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
     const uint primitiveIndex = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
+    hit.Identity = uvec4(instanceSlot, instance.GeometryIndex, primitiveIndex, instance.MaterialIndex);
     const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
 
     vec3 p0, p1, p2, n0, n1, n2;

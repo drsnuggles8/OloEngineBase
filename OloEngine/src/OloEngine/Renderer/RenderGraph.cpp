@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 
 #include <algorithm>
@@ -1010,7 +1011,7 @@ namespace OloEngine
         return versionHandle;
     }
 
-    RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder, std::string_view placeholderReason)
+    RGBufferHandle RenderGraph::AllocateBufferHandle(std::string_view name, u32 bufferID, bool isPlaceholder, std::string_view placeholderReason, RHI::ResourceHandle identity)
     {
         RGBufferHandle handle;
 
@@ -1039,14 +1040,9 @@ namespace OloEngine
             // Bump generation only when the backing resource or placeholder
             // state actually changes. A no-op re-import keeps prior handle
             // copies valid for callers caching handles across frames.
-            // A slot whose previous occupant carried the IDENTITY currency (a
-            // materialized transient sets BOTH) changes occupants
-            // even when the native id happens to match: the native import
-            // below clears phys.Handle, so cached RGBufferHandles must fail
-            // their generation check rather than silently resolve to the new
-            // native-only occupant (AllocateTextureHandle's identity
-            // comparison, mirrored).
-            const bool resourceChanged = (phys.BufferID != bufferID) || phys.Handle.IsValid();
+            // Native and identity imports are alternative currencies. Switching
+            // either retires cached handles before publishing the new backing.
+            const bool resourceChanged = (phys.BufferID != bufferID) || (phys.Handle != identity);
             const bool placeholderChanged = (slot.IsPlaceholder != isPlaceholder) ||
                                             (slot.PlaceholderReason != placeholderReason);
             const bool needsGenBump = wasOnFreeList || !slot.Alive || resourceChanged || placeholderChanged;
@@ -1064,10 +1060,9 @@ namespace OloEngine
             handle.Generation = slot.Generation;
 
             phys.BufferID = bufferID;
-            // A native import holds ONE currency — clear any stale identity a
-            // prior transient occupant left ("alternatives, never both", and
-            // the native path clears the identity for free).
-            phys.Handle = RHI::ResourceHandle{};
+            // The native import supplies a null identity; the typed import
+            // supplies a zero native ID. Replace both backing fields together.
+            phys.Handle = identity;
             m_BufferHandlesByName[std::string(name)] = handle;
             return handle;
         }
@@ -1095,7 +1090,7 @@ namespace OloEngine
                 m_PhysicalBuffers.resize(static_cast<sizet>(handle.Index) + 1u);
 
             m_PhysicalBuffers[handle.Index].BufferID = bufferID;
-            m_PhysicalBuffers[handle.Index].Handle = RHI::ResourceHandle{};
+            m_PhysicalBuffers[handle.Index].Handle = identity;
         }
         else
         {
@@ -1113,6 +1108,7 @@ namespace OloEngine
 
             PhysicalBuffer phys;
             phys.BufferID = bufferID;
+            phys.Handle = identity;
             m_PhysicalBuffers.push_back(std::move(phys));
         }
 
@@ -1218,6 +1214,22 @@ namespace OloEngine
         m_ResourceRegistryDirty = true;
 
         return AllocateBufferHandle(name, bufferID, importDesc.IsPlaceholder, importDesc.PlaceholderReason);
+    }
+
+    RGBufferHandle RenderGraph::ImportBufferHandle(std::string_view name, RHI::ResourceHandle buffer,
+                                                   const RGResourceDesc& desc)
+    {
+        RGResourceDesc importDesc = desc;
+        importDesc.Imported = true;
+        if (importDesc.Kind == RGResourceHandle::Kind::Unknown)
+            importDesc.Kind = RGResourceHandle::Kind::UniformBuffer;
+        if (importDesc.DebugName.empty())
+            importDesc.DebugName = std::string(name);
+
+        m_ImportedResources[std::string(name)] = importDesc;
+        m_ResourceRegistryDirty = true;
+
+        return AllocateBufferHandle(name, 0u, importDesc.IsPlaceholder, importDesc.PlaceholderReason, buffer);
     }
 
     RGTextureHandle RenderGraph::ImportHistory(std::string_view name, u32 textureID,
@@ -5265,8 +5277,13 @@ namespace OloEngine
             { return IsPassReachable(passName); },
             .ResolveTexture = [this](RGTextureHandle handle)
             { return ResolveTexture(handle); },
-            .ResolveBuffer = [this](RGBufferHandle handle)
-            { return ResolveBuffer(handle); },
+            .HasBufferBacking = [this](RGBufferHandle handle)
+            {
+                if (ResolveBuffer(handle) != 0u)
+                    return true;
+                const auto identity = ResolveBufferHandle(handle);
+                const auto& registry = RHI::ResourceRegistry::Get();
+                return registry.IsLive(identity) && registry.KindOf(identity) == RHI::ResourceKind::Buffer; },
             .ResolveFramebuffer = [this](RGFramebufferHandle handle)
             { return ResolveFramebuffer(handle); },
             .ExecutionOrder = m_ExecutionOrder,

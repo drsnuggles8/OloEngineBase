@@ -75,6 +75,7 @@ namespace OloEngine
     class GpuPathTracerPass;
     class ReSTIRDIPass;
     class ReSTIRGIPass;
+    class ReSTIRPTPass;
     struct DDGIVolumeDesc;
     struct DDGIMeshCaster;
     class RenderCommand;
@@ -1297,6 +1298,7 @@ namespace OloEngine
         // ReSTIR GI (#1169). Null until the pipeline exists, and inert on a
         // device with no ray tracing - the shaders are never created there.
         [[nodiscard]] static ReSTIRGIPass* GetReSTIRGIPass();
+        [[nodiscard("Inspect the PT pass state")]] static ReSTIRPTPass* GetReSTIRPTPass();
 
         // Auxiliary mesh-caster sink (issue #705). While set, the scene's
         // SubmitDDGICasterIfCollecting sites ALSO append to this vector, so a

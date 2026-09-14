@@ -13161,3 +13161,76 @@ TEST(RenderGraphTransientDebugFlags, VersionAliasTargetsAreExposedForDiagnostics
     }
     EXPECT_TRUE(sawSceneColorVersion);
 }
+
+TEST(RenderGraph, BufferIdentityImportsRetainAndRetireTheCorrectBacking)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto first = registry.Register(RHI::ResourceKind::Buffer, 7101u, RHI::Backend::Vulkan);
+    const auto second = registry.Register(RHI::ResourceKind::Buffer, 7102u, RHI::Backend::Vulkan);
+    const auto desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "PTPool");
+    RenderGraph graph;
+    const auto before = graph.ImportBufferHandle("PTPool", first, desc);
+    const auto unchanged = graph.ImportBufferHandle("PTPool", first, desc);
+    EXPECT_EQ(before.Generation, unchanged.Generation);
+    EXPECT_EQ(graph.ResolveBuffer(before), 0u);
+    EXPECT_EQ(graph.ResolveBufferHandle(before), first);
+    const auto after = graph.ImportBufferHandle("PTPool", second, desc);
+    EXPECT_EQ(after.Index, before.Index);
+    EXPECT_NE(after.Generation, before.Generation);
+    EXPECT_FALSE(graph.ResolveBufferHandle(before).IsValid());
+    EXPECT_EQ(graph.ResolveBufferHandle(after), second);
+    const auto native = graph.ImportBuffer("PTPool", 7u, desc);
+    EXPECT_FALSE(graph.ResolveBufferHandle(after).IsValid());
+    EXPECT_FALSE(graph.ResolveBufferHandle(native).IsValid());
+    EXPECT_EQ(graph.ResolveBuffer(native), 7u);
+    registry.Unregister(first);
+    registry.Unregister(second);
+}
+
+TEST(RenderGraph, ImportedBufferLifetimeValidationAcceptsLiveIdentityAndRejectsRetiredBacking)
+{
+    auto& registry = RHI::ResourceRegistry::Get();
+    const auto identity = registry.Register(RHI::ResourceKind::Buffer, 7103u, RHI::Backend::Vulkan);
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    AddSetupNode(graph, "ReservoirPass", [identity](RGBuilder& builder)
+                 {
+        const auto desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SuffixPool");
+        const auto pool = builder.ImportBufferHandle("SuffixPool", identity, desc);
+        builder.AllowSamePassReadWrite(pool);
+        [[maybe_unused]] const auto read = builder.Read(pool, RGReadUsage::ShaderStorage);
+        builder.Write(pool, RGWriteUsage::ShaderStorage); });
+    graph.SetFinalPass("ReservoirPass");
+    graph.BuildFrameGraph();
+    EXPECT_TRUE(graph.ValidateResourceHazards().empty());
+
+    // A non-null identity alone is insufficient after the object is retired.
+    registry.Unregister(identity);
+    const auto hazards = graph.ValidateResourceHazards();
+    EXPECT_TRUE(std::ranges::any_of(hazards, [](const RenderGraph::Hazard& hazard)
+                                    { return hazard.Kind == RenderGraph::HazardKind::ImportedResourceLifetimeMisuse &&
+                                             hazard.Resource == "SuffixPool"; }));
+}
+
+TEST(RenderGraph, ImportedBufferLifetimeValidationKeepsNativeAndMissingBackingDistinct)
+{
+    for (const u32 native : { 0u, 7104u })
+    {
+        SCOPED_TRACE(native);
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+        AddSetupNode(graph, "ReservoirPass", [native](RGBuilder& builder)
+                     {
+            const auto desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::StorageBuffer, "SuffixPool");
+            const auto pool = builder.ImportBuffer("SuffixPool", native, desc);
+            builder.AllowSamePassReadWrite(pool);
+            [[maybe_unused]] const auto read = builder.Read(pool, RGReadUsage::ShaderStorage);
+            builder.Write(pool, RGWriteUsage::ShaderStorage); });
+        graph.SetFinalPass("ReservoirPass");
+        graph.BuildFrameGraph();
+        const auto hazards = graph.ValidateResourceHazards();
+        const bool missingBacking = std::ranges::any_of(hazards, [](const RenderGraph::Hazard& hazard)
+                                                        { return hazard.Kind == RenderGraph::HazardKind::ImportedResourceLifetimeMisuse; });
+        EXPECT_EQ(missingBacking, native == 0u);
+    }
+}

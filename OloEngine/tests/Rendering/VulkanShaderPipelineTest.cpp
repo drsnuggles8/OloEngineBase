@@ -28,6 +28,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "../TestTempDir.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -45,7 +46,10 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -790,6 +794,59 @@ TEST_F(VulkanShaderPipeline, FxaaGoldenPassRendersCorrectlyOnVulkan)
     DestroyOffscreen(*m_Device, input);
     DestroyOffscreen(*m_Device, output);
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanShaderPipeline, SuccessfulReloadAdvancesRevisionAndFailurePreservesLiveProgram)
+{
+    // Isolate both the temporary source and Vulkan's relative shader cache.
+    // Never leave cache entries whose source disappears after this test.
+    struct ScratchDirectory
+    {
+        std::filesystem::path Previous = std::filesystem::current_path();
+        std::filesystem::path Directory = OloEngine::Tests::TempDir("reload");
+        ~ScratchDirectory()
+        {
+            std::error_code error;
+            std::filesystem::current_path(Previous, error);
+        }
+    } scratch;
+    std::filesystem::current_path(scratch.Directory);
+    const auto sourcePath = scratch.Directory / "reload.glsl";
+    const auto writeSource = [&sourcePath](std::string_view fragmentBody)
+    {
+        std::ofstream source(sourcePath, std::ios::trunc);
+        source << "#type vertex\n#version 460 core\n"
+                  "void main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n"
+                  "#type fragment\n#version 460 core\n"
+                  "layout(location = 0) out vec4 color;\nvoid main() { "
+               << fragmentBody << " }\n";
+        source.close();
+        return !source.fail();
+    };
+    ASSERT_TRUE(writeSource("color = vec4(1.0, 0.0, 0.0, 1.0);"));
+    auto shader = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(shader->IsReady());
+    EXPECT_EQ(shader->GetReloadRevision(), 0u);
+    const auto identity = shader->GetRHIHandle();
+    const auto initialFragment = shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT);
+    ASSERT_NE(initialFragment, VK_NULL_HANDLE);
+
+    ASSERT_TRUE(writeSource("color = vec4(0.0, 1.0, 0.0, 1.0);"));
+    ASSERT_TRUE(shader->Reload());
+    EXPECT_EQ(shader->GetReloadRevision(), 1u);
+    EXPECT_EQ(shader->GetRHIHandle(), identity);
+    ASSERT_TRUE(shader->IsReady());
+    const auto replacementFragment = shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT);
+    EXPECT_NE(replacementFragment, initialFragment);
+    const auto replacementSpirv = shader->GetSPIRV();
+
+    ASSERT_TRUE(writeSource("color = undeclared_reload_identifier;"));
+    EXPECT_FALSE(shader->Reload());
+    EXPECT_EQ(shader->GetReloadRevision(), 1u);
+    EXPECT_EQ(shader->GetRHIHandle(), identity);
+    EXPECT_TRUE(shader->IsReady());
+    EXPECT_EQ(shader->GetModule(VK_SHADER_STAGE_FRAGMENT_BIT), replacementFragment);
+    EXPECT_EQ(shader->GetSPIRV(), replacementSpirv);
 }
 
 #endif // OLO_WITH_VULKAN

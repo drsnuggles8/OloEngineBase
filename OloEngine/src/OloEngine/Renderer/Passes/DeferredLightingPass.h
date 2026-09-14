@@ -97,6 +97,7 @@ namespace OloEngine
             // the shader's own per-pixel alpha test is the second half.
             RGTextureHandle ReSTIRDIRadiance;
             RGTextureHandle ReSTIRGIRadiance;
+            bool UsesReSTIRPT = false;
             // Comparison-OFF raw-depth view GL ids (PCSS blocker search); 0 = none.
             RHI::ResourceHandle ShadowMapCSMRawID{};
             RHI::ResourceHandle ShadowMapAtlasRawID{};

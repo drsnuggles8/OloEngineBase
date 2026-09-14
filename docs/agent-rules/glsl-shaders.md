@@ -1065,3 +1065,14 @@ Rules distilled:
   `.GtaoShaderMapsHilbertIndexThroughR2Sequence`. Each threshold is paired
   with an assertion that the *regressed* formulation fails it, so the guards
   cannot pass vacuously.
+
+
+### Per-stage SPIR-V optimization opt-out
+
+Vulkan shaders may explicitly use `#pragma optimize(off)` (that canonical spelling)
+to skip shaderc's offline performance optimization for the stage. Other shaders
+retain performance optimization. The source scanner ignores commented directives,
+and the directive participates in the source-based cache key. The device driver
+still compiles the SPIR-V. Use this only with measured compiler evidence, such as
+ReSTIR PT's deeply nested ray-query shift/inverse/MIS call graph; validate both
+runtime performance and numerical behavior after opting out.

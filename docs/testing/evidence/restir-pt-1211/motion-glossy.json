@@ -1,0 +1,402 @@
+{
+  "material": "glossy",
+  "trajectory": "x=0.3*sin(t*12deg/s), y=1.5, z=3, target=(0,0,0)",
+  "requestedHz": 20,
+  "secondsPerCase": 20,
+  "warning": "No matched moving oracle; temporal standard deviation and quarter differences include real viewpoint changes. Temporal frames are correlated.",
+  "sourceSha256": "f90199548ae58e77bb23781d6f940863d5856722bc84b188e9261c7a45ce86ef",
+  "cases": [
+    {
+      "case": "initial-mask7-seed1211",
+      "sampleCount": 180,
+      "sampleRateHz": 8.99643421828945,
+      "cameraRequests": 399,
+      "cameraRateHz": 19.9729760615174,
+      "xRange": [
+        -0.2592295315069121,
+        0.2999999855370637
+      ],
+      "meanRGB": [
+        0.2934161407899309,
+        0.2934161407899309,
+        0.2934161407899309
+      ],
+      "roiMeanTemporalStdDev": 0.019114797047227836,
+      "firstQuarterMean": 0.2920849964142285,
+      "lastQuarterMean": 0.29181927325359236,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 0,
+      "maxTemporalAccepted": 0,
+      "finiteROI": true,
+      "frameBounds": [
+        897,
+        1826
+      ]
+    },
+    {
+      "case": "initial-mask7-seed974",
+      "sampleCount": 166,
+      "sampleRateHz": 8.276281336369188,
+      "cameraRequests": 401,
+      "cameraRateHz": 19.953870243666522,
+      "xRange": [
+        -0.2612714782885276,
+        0.2999986964255746
+      ],
+      "meanRGB": [
+        0.29213839949116815,
+        0.29213839949116815,
+        0.29213839949116815
+      ],
+      "roiMeanTemporalStdDev": 0.01943950008474734,
+      "firstQuarterMean": 0.2922794219364111,
+      "lastQuarterMean": 0.29266932243955945,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 0,
+      "maxTemporalAccepted": 0,
+      "finiteROI": true,
+      "frameBounds": [
+        1926,
+        2745
+      ]
+    },
+    {
+      "case": "temporal-mask7-seed1211",
+      "sampleCount": 148,
+      "sampleRateHz": 7.367607283135748,
+      "cameraRequests": 399,
+      "cameraRateHz": 19.88567803649059,
+      "xRange": [
+        -0.2618464283644827,
+        0.299998581936244
+      ],
+      "meanRGB": [
+        0.29331490634387125,
+        0.29331490634387125,
+        0.29331490634387125
+      ],
+      "roiMeanTemporalStdDev": 0.013727576404912727,
+      "firstQuarterMean": 0.2954102035266162,
+      "lastQuarterMean": 0.28824880401857256,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 147,
+      "maxTemporalAccepted": 22550,
+      "finiteROI": true,
+      "frameBounds": [
+        2847,
+        3641
+      ]
+    },
+    {
+      "case": "temporal-mask7-seed974",
+      "sampleCount": 145,
+      "sampleRateHz": 7.204842747472511,
+      "cameraRequests": 399,
+      "cameraRateHz": 19.79793550511455,
+      "xRange": [
+        -0.26301601796995727,
+        0.29999899478434455
+      ],
+      "meanRGB": [
+        0.2915627126405588,
+        0.2915627126405588,
+        0.2915627126405588
+      ],
+      "roiMeanTemporalStdDev": 0.014747774222580617,
+      "firstQuarterMean": 0.29359100375333785,
+      "lastQuarterMean": 0.2904422001275462,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 145,
+      "maxTemporalAccepted": 22463,
+      "finiteROI": true,
+      "frameBounds": [
+        3746,
+        4540
+      ]
+    },
+    {
+      "case": "spatial-mask7-seed1211",
+      "sampleCount": 146,
+      "sampleRateHz": 7.287109504075636,
+      "cameraRequests": 394,
+      "cameraRateHz": 19.72662214575635,
+      "xRange": [
+        -0.25926479547381953,
+        0.2999947925276481
+      ],
+      "meanRGB": [
+        0.2955587638980308,
+        0.2955587638980308,
+        0.2955587638980308
+      ],
+      "roiMeanTemporalStdDev": 0.020772396751229737,
+      "firstQuarterMean": 0.2933220942419818,
+      "lastQuarterMean": 0.29329790155158686,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 0,
+      "maxTemporalAccepted": 0,
+      "finiteROI": true,
+      "frameBounds": [
+        4646,
+        5426
+      ]
+    },
+    {
+      "case": "spatial-mask7-seed974",
+      "sampleCount": 147,
+      "sampleRateHz": 7.3272936694742485,
+      "cameraRequests": 398,
+      "cameraRateHz": 19.86283347593148,
+      "xRange": [
+        -0.26150408333926123,
+        0.29999457204134206
+      ],
+      "meanRGB": [
+        0.2938285023944389,
+        0.2938285023944389,
+        0.2938285023944389
+      ],
+      "roiMeanTemporalStdDev": 0.020315502695421307,
+      "firstQuarterMean": 0.29459406105130864,
+      "lastQuarterMean": 0.2899689604581343,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 0,
+      "maxTemporalAccepted": 0,
+      "finiteROI": true,
+      "frameBounds": [
+        5539,
+        6335
+      ]
+    },
+    {
+      "case": "combined-mask7-seed1211",
+      "sampleCount": 134,
+      "sampleRateHz": 6.690020062203709,
+      "cameraRequests": 396,
+      "cameraRateHz": 19.808208003891387,
+      "xRange": [
+        -0.25956826644531933,
+        0.29999982439613954
+      ],
+      "meanRGB": [
+        0.2941102964959195,
+        0.2941102964959195,
+        0.2941102964959195
+      ],
+      "roiMeanTemporalStdDev": 0.015352928226678232,
+      "firstQuarterMean": 0.2969663756335704,
+      "lastQuarterMean": 0.28803991631406567,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 134,
+      "maxTemporalAccepted": 22465,
+      "finiteROI": true,
+      "frameBounds": [
+        6445,
+        7171
+      ]
+    },
+    {
+      "case": "combined-mask7-seed974",
+      "sampleCount": 128,
+      "sampleRateHz": 6.366746293088099,
+      "cameraRequests": 389,
+      "cameraRateHz": 19.37016877791193,
+      "xRange": [
+        -0.26243332875281894,
+        0.29999999719348214
+      ],
+      "meanRGB": [
+        0.29440187072735213,
+        0.29440187072735213,
+        0.29440187072735213
+      ],
+      "roiMeanTemporalStdDev": 0.016694342034913538,
+      "firstQuarterMean": 0.2942275251575097,
+      "lastQuarterMean": 0.2925079927340022,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 128,
+      "maxTemporalAccepted": 22649,
+      "finiteROI": true,
+      "frameBounds": [
+        7299,
+        8013
+      ]
+    },
+    {
+      "case": "combined-mask1-seed1211",
+      "sampleCount": 165,
+      "sampleRateHz": 8.242512666377394,
+      "cameraRequests": 400,
+      "cameraRateHz": 19.970907443206595,
+      "xRange": [
+        -0.25917760739794016,
+        0.29999896775090046
+      ],
+      "meanRGB": [
+        0.2921871612925977,
+        0.2921871612925977,
+        0.2921871612925977
+      ],
+      "roiMeanTemporalStdDev": 0.017086835279264533,
+      "firstQuarterMean": 0.28832573755914004,
+      "lastQuarterMean": 0.2910087581747662,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 164,
+      "maxTemporalAccepted": 4824,
+      "finiteROI": true,
+      "frameBounds": [
+        8128,
+        8921
+      ]
+    },
+    {
+      "case": "combined-mask1-seed974",
+      "sampleCount": 153,
+      "sampleRateHz": 7.629455364419889,
+      "cameraRequests": 401,
+      "cameraRateHz": 19.973099430776347,
+      "xRange": [
+        -0.2606797347156579,
+        0.29999810018039746
+      ],
+      "meanRGB": [
+        0.2937719540222924,
+        0.2937719540222924,
+        0.2937719540222924
+      ],
+      "roiMeanTemporalStdDev": 0.021129985949654328,
+      "firstQuarterMean": 0.2932035572832415,
+      "lastQuarterMean": 0.2983921586567773,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 152,
+      "maxTemporalAccepted": 4837,
+      "finiteROI": true,
+      "frameBounds": [
+        9015,
+        9788
+      ]
+    },
+    {
+      "case": "combined-mask2-seed1211",
+      "sampleCount": 160,
+      "sampleRateHz": 7.950268368265919,
+      "cameraRequests": 401,
+      "cameraRateHz": 19.956045612257473,
+      "xRange": [
+        -0.26272770130791284,
+        0.2999999957361656
+      ],
+      "meanRGB": [
+        0.2931042605058366,
+        0.2931042605058366,
+        0.2931042605058366
+      ],
+      "roiMeanTemporalStdDev": 0.014695037103642566,
+      "firstQuarterMean": 0.29587664276405123,
+      "lastQuarterMean": 0.2941971387803278,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 160,
+      "maxTemporalAccepted": 8798,
+      "finiteROI": true,
+      "frameBounds": [
+        9886,
+        10669
+      ]
+    },
+    {
+      "case": "combined-mask2-seed974",
+      "sampleCount": 155,
+      "sampleRateHz": 7.724918618340298,
+      "cameraRequests": 399,
+      "cameraRateHz": 19.932626620249827,
+      "xRange": [
+        -0.26054627144132664,
+        0.2999980629476964
+      ],
+      "meanRGB": [
+        0.29379028369180415,
+        0.29379028369180415,
+        0.29379028369180415
+      ],
+      "roiMeanTemporalStdDev": 0.013200907137547735,
+      "firstQuarterMean": 0.29487735484345695,
+      "lastQuarterMean": 0.29089479554591563,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 155,
+      "maxTemporalAccepted": 8794,
+      "finiteROI": true,
+      "frameBounds": [
+        10772,
+        11573
+      ]
+    },
+    {
+      "case": "combined-mask4-seed1211",
+      "sampleCount": 121,
+      "sampleRateHz": 6.019284284500222,
+      "cameraRequests": 324,
+      "cameraRateHz": 16.13392053147427,
+      "xRange": [
+        -0.2621872958374807,
+        0.29999711250031524
+      ],
+      "meanRGB": [
+        0.29179907491248924,
+        0.29179907491248924,
+        0.29179907491248924
+      ],
+      "roiMeanTemporalStdDev": 0.013516434090687169,
+      "firstQuarterMean": 0.29245095584325703,
+      "lastQuarterMean": 0.2895978521302177,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 121,
+      "maxTemporalAccepted": 8823,
+      "finiteROI": true,
+      "frameBounds": [
+        11672,
+        12255
+      ]
+    },
+    {
+      "case": "combined-mask4-seed974",
+      "sampleCount": 150,
+      "sampleRateHz": 7.484497622052637,
+      "cameraRequests": 400,
+      "cameraRateHz": 19.918999264691145,
+      "xRange": [
+        -0.2608477702088065,
+        0.29999995557912995
+      ],
+      "meanRGB": [
+        0.2936192754837854,
+        0.2936192754837854,
+        0.2936192754837854
+      ],
+      "roiMeanTemporalStdDev": 0.013625660455524206,
+      "firstQuarterMean": 0.29499562644107485,
+      "lastQuarterMean": 0.29314520686334855,
+      "maxNonfinite": 0,
+      "maxClamped": 0,
+      "historyValidSamples": 150,
+      "maxTemporalAccepted": 8840,
+      "finiteROI": true,
+      "frameBounds": [
+        12368,
+        13128
+      ]
+    }
+  ]
+}
