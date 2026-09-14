@@ -214,7 +214,8 @@ TEST(McpFieldRegistry, AnimationStateExposesItsSettingsButNotItsPlaybackState)
     // Everything a system rewrites every tick: a write would be overwritten before
     // anything could observe it, or would leave the component inconsistent.
     for (const char* field : { "CurrentTime", "NextTime", "BlendFactor", "BlendTime", "Blending", "State",
-                               "CurrentClipIndex", "SourceFilePath", "RootMotionTranslation", "HasRootMotion" })
+                               "CurrentClipIndex", "SourceFilePath", "RootMotionTranslation",
+                               "RootMotionRotation", "HasRootMotion" })
     {
         EXPECT_FALSE(RegistryHas("AnimationStateComponent", field))
             << "AnimationStateComponent." << field << " is per-tick derived state - must not be writable";
@@ -240,6 +241,9 @@ TEST(McpFieldRegistry, BlendDurationCannotBeWrittenToZeroOrNegative)
     const auto zero = GFW::Apply(f.Scene_, f.History, f.Uuid, "AnimationStateComponent",
                                  "BlendDuration", Json(0.0));
     EXPECT_TRUE(zero.Ok) << zero.Error;
+    EXPECT_TRUE(zero.Data.value("clamped", false))
+        << "a zero blend duration was accepted unclamped; without this the assertion below "
+           "would also pass if the write had simply been ignored";
     EXPECT_GT(f.TheEntity.GetComponent<OloEngine::AnimationStateComponent>().m_BlendDuration, 0.0f)
         << "a zero blend duration would divide by zero in the blend clock";
 }

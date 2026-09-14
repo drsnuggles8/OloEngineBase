@@ -238,7 +238,7 @@ namespace
         EXPECT_TRUE(has("BlendDuration"));
         for (const char* field : { "CurrentTime", "NextTime", "BlendFactor", "BlendTime", "Blending",
                                    "State", "CurrentClipIndex", "SourceFilePath",
-                                   "RootMotionTranslation", "HasRootMotion" })
+                                   "RootMotionTranslation", "RootMotionRotation", "HasRootMotion" })
         {
             EXPECT_FALSE(has(field)) << field << " is per-tick derived state - must not be exposed";
         }

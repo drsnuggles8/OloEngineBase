@@ -397,7 +397,7 @@ namespace OloEngine::MCP
                                                                       .Prop("name", Schema::String())
                                                                       .Prop("errorMessage", Schema::String())))
                                     .Prop("detail", Schema::String())
-                                    .Required({ "available", "status", "errors" });
+                                    .Required({ "available", "status", "count", "errors" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderErrors;
             registry.Register(std::move(tool));
@@ -472,7 +472,7 @@ namespace OloEngine::MCP
                                                                        .Prop("hasErrors", Schema::Bool())
                                                                        .Prop("reloadable", Schema::Bool().Desc("Backed by a file on disk; feed to olo_shader_reload."))
                                                                        .Prop("instructionCount", Schema::Int().Min(0))))
-                                    .Required({ "available", "status", "shaders" });
+                                    .Required({ "available", "status", "count", "shaders" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_ShaderList;
             registry.Register(std::move(tool));
