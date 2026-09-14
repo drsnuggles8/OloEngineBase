@@ -3764,12 +3764,6 @@ static void EmitSceneBinaryCoveredIds(std::ostream& out, const std::map<std::str
 static const std::set<std::string> kComponentsNotFieldEditable = {
     "IDComponent",
     "WorldTransformComponent",
-    // AnimationStateComponent is in the scene-copy tuple and IS serialized, but every
-    // field is playback state the animation system rewrites each tick (current time,
-    // blend factor, clip index): an MCP write is overwritten on the next frame at best
-    // and desyncs the blend at worst. Drive animation through the graph/state machine,
-    // not by poking this.
-    "AnimationStateComponent",
     "UIResolvedRectComponent",
     "DialogueStateComponent",
     "SpringBoneStateComponent",
@@ -3788,6 +3782,47 @@ static const std::set<std::string> kComponentsNotFieldEditable = {
     // reparent nothing - and could install a cycle that never met SetParent's
     // guard. Reparenting needs a node that calls SetParent, not a field write.
     "RelationshipComponent",
+};
+
+// Individual fields kept out of the LIVE-WRITE registries (MCP's
+// `olo_entity_set_field` and the visual-script field setter), keyed
+// "Component.Field" exactly like kHandWrittenFieldClamps.
+//
+// This exists because component-level exclusion is too blunt for a component that
+// mixes authored settings with per-tick derived state. AnimationStateComponent was
+// excluded wholesale on the grounds that "every field is playback state the
+// animation system rewrites each tick" — true of the clock and the blend, but NOT
+// of m_IsPlaying, which the animation system only ever READS: it is the gate Scene
+// tests before updating at all, and m_BlendDuration, which is authored in the scene
+// file and only read. Excluding them meant there was no way to start or stop a clip
+// from outside the editor at all, so a live check of anything animation-driven
+// could not be set up.
+//
+// The rule for adding here: a system WRITES the field every tick (so a live write
+// is overwritten before anyone sees it), or writing it alone leaves the component
+// internally inconsistent.
+static const std::set<std::string> kFieldsNotLiveEditable = {
+    // Playback clocks and blend state: rewritten by AnimationSystem::Update every
+    // tick from the clips themselves.
+    "AnimationStateComponent.State",
+    "AnimationStateComponent.CurrentTime",
+    "AnimationStateComponent.NextTime",
+    "AnimationStateComponent.BlendFactor",
+    "AnimationStateComponent.BlendTime",
+    "AnimationStateComponent.Blending",
+    // Selects a clip out of m_AvailableClips, but m_CurrentClip is what the sampler
+    // actually reads. Writing the index alone changes nothing and leaves the two
+    // disagreeing — clip selection needs a node that sets both.
+    "AnimationStateComponent.CurrentClipIndex",
+    // Consumed once at load to rebuild the animated model; writing it live reloads
+    // nothing.
+    "AnimationStateComponent.SourceFilePath",
+    // This tick's extracted root motion: AnimationSystem::Update writes both every
+    // tick and the scheduler's RootMotionApply consumes and clears them in the same
+    // tick. A live write is gone before any system could act on it.
+    "AnimationStateComponent.RootMotionTranslation",
+    "AnimationStateComponent.RootMotionRotation",
+    "AnimationStateComponent.HasRootMotion",
 };
 
 // Ranges the SceneSerializer's HAND-WRITTEN deserialize enforces but which are
@@ -4038,6 +4073,8 @@ static void EmitMcpFieldsRecursive(std::ostream& out, const std::string& compone
             continue;
 
         const std::string key = keyPrefix + f.key;
+        if (kFieldsNotLiveEditable.contains(component + "." + key))
+            continue;
 
         FieldRange range;
         // Reject shares Clamp's bounds here. MCP only knows how to RANGE a write,
@@ -5082,6 +5119,8 @@ static void EmitVisualScriptFieldsRecursive(std::ostream& out, const std::string
             continue;
 
         const std::string key = keyPrefix + f.key;
+        if (kFieldsNotLiveEditable.contains(component + "." + key))
+            continue;
 
         FieldRange range;
         // Reject shares Clamp's bounds here, for the same reason the MCP emitter

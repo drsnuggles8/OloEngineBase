@@ -40,10 +40,9 @@ layout(location = 4) in vec4 a_BoneWeights;
 #include "include/VirtualShadowResources.glsl"
 #include "include/VirtualShadowDrawList.glsl"
 
-layout(std140, binding = 4) uniform AnimationMatrices
-{
-	mat4 u_BoneMatrices[100];
-};
+// Skeletal deformation producer (#1226): declares the bone palette at binding 4
+// and owns the skinning math shared with every other skinned consumer.
+#include "include/SkeletalDeformation.glsl"
 
 layout(location = 0) flat out uint v_VSMLocalLayer;
 layout(location = 1) flat out uint v_VSMLocalMip;
@@ -58,10 +57,12 @@ void main()
 	                            floatBitsToInt(b_Bones.v[boneBase + 2]), floatBitsToInt(b_Bones.v[boneBase + 3]));
 	vec4 a_BoneWeights = vec4(b_Bones.v[boneBase + 4], b_Bones.v[boneBase + 5], b_Bones.v[boneBase + 6], b_Bones.v[boneBase + 7]);
 #endif
-	mat4 boneTransform = u_BoneMatrices[a_BoneIndices[0]] * a_BoneWeights[0];
-	boneTransform += u_BoneMatrices[a_BoneIndices[1]] * a_BoneWeights[1];
-	boneTransform += u_BoneMatrices[a_BoneIndices[2]] * a_BoneWeights[2];
-	boneTransform += u_BoneMatrices[a_BoneIndices[3]] * a_BoneWeights[3];
+	// Deformed vertex from the shared producer (#1226). Before that, this pass
+	// accumulated the bone palette inline with no bone-ID bounds test and no
+	// zero-weight guard: an unweighted vertex accumulated a zero matrix and
+	// collapsed onto the model origin, so its shadow detached from the caster
+	// that the colour and depth passes drew at the rest position.
+	vec4 animatedPosition = OloDeformSkinnedPosition(a_Position, a_BoneIndices, a_BoneWeights);
 
 	VSMDrawInstance instance = b_DrawInstances[u_VSMPassParams.x + uint(gl_InstanceIndex)];
 	uint layer = min(instance.LocalLayer, uint(VSM_MAX_LOCAL_LAYERS - 1));
@@ -70,7 +71,6 @@ void main()
 	v_VSMLocalLayer = layer;
 	v_VSMLocalMip = rasterMip;
 
-	vec4 animatedPosition = boneTransform * vec4(a_Position, 1.0);
 	vec4 clipPos = b_LocalLights[layer].ViewProjectionRaster * instance.Transform * animatedPosition;
 
 	// Sub-rect scale — see VSM_DepthLocal.glsl.
