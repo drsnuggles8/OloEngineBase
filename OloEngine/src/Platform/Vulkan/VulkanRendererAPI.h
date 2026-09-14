@@ -308,6 +308,19 @@ namespace OloEngine
         {
             return m_UnimplementedStubHits;
         }
+
+        // The `VkBindIndexBuffer3InfoKHR::addressFlags` an indexed draw on
+        // `vao` would carry, without recording anything (issue #1200).
+        //
+        // Exposed because the flags are a TWO-DIRECTIONAL obligation whose two
+        // legal answers sit on opposite sides of one `if`: VUID-13122 makes
+        // STORAGE_BUFFER_USAGE mandatory for the raw dual-role element/SSBO
+        // arena, VUID-13123 forbids it for a VulkanIndexBuffer. A test that
+        // only draws cannot tell a right answer from a wrong one the layer
+        // happens not to adjudicate, so the decision itself is the assertion.
+        // 0 whenever no bind would be recorded — no index buffer of either
+        // family, or one whose extent is 0 (BindIndexBufferFor's own refusal).
+        [[nodiscard]] static VkAddressCommandFlagsKHR IndexBindAddressFlagsFor(const VulkanVertexArray* vao);
         [[nodiscard]] u64 GetStubHitCount(StubKind kind) const
         {
             // Count (and anything out of range) is not a bucket — 0, not an
@@ -706,6 +719,10 @@ namespace OloEngine
             /// dual-role element/SSBO arena with it — and VUID-13122/13123
             /// make the flag mandatory in one case and forbidden in the other.
             VulkanAddressCommands::StorageUsage Storage = VulkanAddressCommands::StorageUsage::Absent;
+            /// Diagnostics only — the VkBuffer the address was queried from, so
+            /// the OLO_VK_TRACE_BUFFERS bind trace can be matched against a
+            /// validation message that names a handle (issue #1200).
+            VkBuffer Buffer = VK_NULL_HANDLE;
         };
         [[nodiscard]] static ResolvedIndexBuffer ResolveIndexBufferFor(const VulkanVertexArray* vao);
         [[nodiscard]] bool BindIndexBufferFor(const VulkanVertexArray* vao);
