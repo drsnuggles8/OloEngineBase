@@ -222,7 +222,7 @@ TEST_F(AnimatedSurfaceLODTest, TheSelectedLevelCoarsensWithDistance)
 
     EXPECT_GT(farLevel, nearLevel)
         << "the animated surface stayed at level " << nearLevel << " from 3 units to 400 — a "
-           "skinned entity is still pinned to whatever level it started on";
+                                                                   "skinned entity is still pinned to whatever level it started on";
 }
 
 TEST_F(AnimatedSurfaceLODTest, ALevelSwitchRejectsDeformationHistory)

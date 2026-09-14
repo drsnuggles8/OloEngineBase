@@ -333,245 +333,245 @@ namespace OloEngine::Tests
                "the GPU vertex buffer, which no CPU-side test can see";
     }
 
+    // =============================================================================
+    // The LOD half of the same surface, on the GPU.
+    //
+    // The CPU tests in AnimatedSurfaceLODTest prove a skinned + morphing source now
+    // GETS an LOD chain, that every level keeps its bone influences and morph
+    // deltas, that the selected level coarsens with distance, and that the switch is
+    // an attributed history rejection. What none of them can prove is that the
+    // coarse level RASTERISES: the bone influence buffer is rebuilt per level from
+    // an array CopyDeformationStreams resized, and a level whose stream ended up the
+    // wrong length draws a mesh whose weights the shared producer reads as
+    // unskinned — the rest pose, not an error.
+    //
+    // The level is forced through the renderer's pixel-error threshold rather than
+    // by moving the subject away, so both captures frame the subject identically and
+    // the only difference between them is which level was drawn. Moving it instead
+    // would shrink it to a few pixels at the coarse level, where nothing about its
+    // correctness is judgeable.
+    // =============================================================================
 
-// =============================================================================
-// The LOD half of the same surface, on the GPU.
-//
-// The CPU tests in AnimatedSurfaceLODTest prove a skinned + morphing source now
-// GETS an LOD chain, that every level keeps its bone influences and morph
-// deltas, that the selected level coarsens with distance, and that the switch is
-// an attributed history rejection. What none of them can prove is that the
-// coarse level RASTERISES: the bone influence buffer is rebuilt per level from
-// an array CopyDeformationStreams resized, and a level whose stream ended up the
-// wrong length draws a mesh whose weights the shared producer reads as
-// unskinned — the rest pose, not an error.
-//
-// The level is forced through the renderer's pixel-error threshold rather than
-// by moving the subject away, so both captures frame the subject identically and
-// the only difference between them is which level was drawn. Moving it instead
-// would shrink it to a few pixels at the coarse level, where nothing about its
-// correctness is judgeable.
-// =============================================================================
-
-namespace
-{
-    // A skinned sphere. Built from the primitive's geometry into a FRESH
-    // MeshSource because MeshSource::Build() latches: the skeleton and the
-    // influences have to be in place before the first build or the bone influence
-    // buffer is never created.
-    [[nodiscard]] Ref<MeshSource> MakeSkinnedSphere()
+    namespace
     {
-        Ref<Mesh> sphere = MeshPrimitives::CreateSphere(1.0f, 48);
-        if (!sphere || !sphere->GetMeshSource())
-            return nullptr;
-
-        const auto& srcVerts = sphere->GetMeshSource()->GetVertices();
-        const auto& srcIndices = sphere->GetMeshSource()->GetIndices();
-
-        std::vector<Vertex> vertices(srcVerts.GetData(), srcVerts.GetData() + srcVerts.Num());
-        std::vector<u32> indices(srcIndices.GetData(), srcIndices.GetData() + srcIndices.Num());
-
-        auto source = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
-
-        auto skeleton = Ref<Skeleton>::Create(1);
-        skeleton->m_BoneNames = { "Root" };
-        skeleton->m_ParentIndices = { -1 };
-        skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
-        skeleton->m_BonePreTransforms = { glm::mat4(1.0f) };
-        skeleton->m_GlobalTransforms[0] = glm::mat4(1.0f);
-        skeleton->SetBindPose();
-        source->SetSkeleton(skeleton);
-
-        auto& bones = source->GetBoneInfluences();
-        bones.SetNum(source->GetVertices().Num());
-        for (i32 i = 0; i < bones.Num(); ++i)
+        // A skinned sphere. Built from the primitive's geometry into a FRESH
+        // MeshSource because MeshSource::Build() latches: the skeleton and the
+        // influences have to be in place before the first build or the bone influence
+        // buffer is never created.
+        [[nodiscard]] Ref<MeshSource> MakeSkinnedSphere()
         {
-            BoneInfluence influence;
-            influence.m_BoneIDs[0] = 0u;
-            influence.m_Weights[0] = 1.0f;
-            bones[i] = influence;
+            Ref<Mesh> sphere = MeshPrimitives::CreateSphere(1.0f, 48);
+            if (!sphere || !sphere->GetMeshSource())
+                return nullptr;
+
+            const auto& srcVerts = sphere->GetMeshSource()->GetVertices();
+            const auto& srcIndices = sphere->GetMeshSource()->GetIndices();
+
+            std::vector<Vertex> vertices(srcVerts.GetData(), srcVerts.GetData() + srcVerts.Num());
+            std::vector<u32> indices(srcIndices.GetData(), srcIndices.GetData() + srcIndices.Num());
+
+            auto source = Ref<MeshSource>::Create(std::move(vertices), std::move(indices));
+
+            auto skeleton = Ref<Skeleton>::Create(1);
+            skeleton->m_BoneNames = { "Root" };
+            skeleton->m_ParentIndices = { -1 };
+            skeleton->m_LocalTransforms = { glm::mat4(1.0f) };
+            skeleton->m_BonePreTransforms = { glm::mat4(1.0f) };
+            skeleton->m_GlobalTransforms[0] = glm::mat4(1.0f);
+            skeleton->SetBindPose();
+            source->SetSkeleton(skeleton);
+
+            auto& bones = source->GetBoneInfluences();
+            bones.SetNum(source->GetVertices().Num());
+            for (i32 i = 0; i < bones.Num(); ++i)
+            {
+                BoneInfluence influence;
+                influence.m_BoneIDs[0] = 0u;
+                influence.m_Weights[0] = 1.0f;
+                bones[i] = influence;
+            }
+
+            Submesh submesh;
+            submesh.m_BaseVertex = 0;
+            submesh.m_BaseIndex = 0;
+            submesh.m_VertexCount = static_cast<u32>(source->GetVertices().Num());
+            submesh.m_IndexCount = static_cast<u32>(source->GetIndices().Num());
+            submesh.m_MaterialIndex = 0;
+            submesh.m_IsRigged = true;
+            source->AddSubmesh(submesh);
+
+            source->Build();
+            return source;
         }
+    } // namespace
 
-        Submesh submesh;
-        submesh.m_BaseVertex = 0;
-        submesh.m_BaseIndex = 0;
-        submesh.m_VertexCount = static_cast<u32>(source->GetVertices().Num());
-        submesh.m_IndexCount = static_cast<u32>(source->GetIndices().Num());
-        submesh.m_MaterialIndex = 0;
-        submesh.m_IsRigged = true;
-        source->AddSubmesh(submesh);
-
-        source->Build();
-        return source;
-    }
-} // namespace
-
-class SkinnedLODVisualEvidenceTest : public RendererAttachedTest
-{
-  protected:
-    // A throwaway project so AssetManager::AddMemoryOnlyAsset has somewhere to put
-    // the generated LOD meshes. RendererAttachedTest brings up the renderer, not
-    // the asset system — without this, GenerateAutoLODGroup dereferences a null
-    // active manager and the fixture dies in SetUp with an access violation.
-    // Same idiom as AutoMeshLODVisualEvidenceTest.
-    void SetUpAssetManager()
+    class SkinnedLODVisualEvidenceTest : public RendererAttachedTest
     {
-        m_TempDir = OloEngine::Tests::TempDir("skinnedlod");
-        std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
-        fs::create_directories(m_TempDir / "Assets", ec);
-        ASSERT_FALSE(ec) << "failed to create temp project dir: " << ec.message();
-
-        const fs::path projectFile = m_TempDir / "SkinnedLOD.oloproj";
+      protected:
+        // A throwaway project so AssetManager::AddMemoryOnlyAsset has somewhere to put
+        // the generated LOD meshes. RendererAttachedTest brings up the renderer, not
+        // the asset system — without this, GenerateAutoLODGroup dereferences a null
+        // active manager and the fixture dies in SetUp with an access violation.
+        // Same idiom as AutoMeshLODVisualEvidenceTest.
+        void SetUpAssetManager()
         {
-            std::ofstream proj(projectFile);
-            proj << "Project:\n"
-                    "  Name: SkinnedLOD\n"
-                    "  StartScene: \"\"\n"
-                    "  AssetDirectory: \"Assets\"\n"
-                    "  ScriptModulePath: \"\"\n";
-        }
-        ASSERT_TRUE(Project::Load(projectFile)) << "Project::Load failed for " << m_TempDir.string();
-
-        m_AssetManager = Ref<EditorAssetManager>::Create();
-        m_AssetManager->Initialize(/*startFileWatcher=*/false);
-        Project::SetAssetManager(m_AssetManager);
-    }
-
-    void TearDown() override
-    {
-        RendererAttachedTest::TearDown();
-        m_AssetManager.Reset();
-        std::error_code ec;
-        fs::remove_all(m_TempDir, ec);
-    }
-
-    void BuildScene() override
-    {
-        SetUpAssetManager();
-
-        Scene& scene = GetScene();
-        EnableRendering(kWidth, kHeight);
-
-        {
-            Entity light = scene.CreateEntity("Sun");
-            auto& tc = light.GetComponent<TransformComponent>();
-            tc.Translation = { 0.0f, 6.0f, 4.0f };
-            auto& dl = light.AddComponent<DirectionalLightComponent>();
-            dl.m_Direction = glm::normalize(glm::vec3(-0.4f, -0.6f, -0.7f));
-            dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
-            dl.m_Intensity = 3.0f;
-        }
-
-        Ref<MeshSource> source = MakeSkinnedSphere();
-        ASSERT_TRUE(source) << "could not build a skinned subject";
-
-        m_Subject = scene.CreateEntity("SkinnedSubject");
-        m_Subject.AddComponent<MeshComponent>(source);
-        m_Subject.AddComponent<SkeletonComponent>(source->GetSkeletonRef());
-
-        auto& mat = m_Subject.AddComponent<MaterialComponent>();
-        mat.m_Material.SetBaseColorFactor(glm::vec4(0.75f, 0.55f, 0.3f, 1.0f));
-
-        auto baseMesh = Ref<Mesh>::Create(source, 0);
-        const AssetHandle baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);
-        auto& lod = m_Subject.AddComponent<LODGroupComponent>();
-        lod.m_LODGroup = MeshOptimization::GenerateAutoLODGroup(*source, baseHandle);
-        lod.m_AutoGenerated = true;
-    }
-
-    [[nodiscard]] i32 ActiveLevel()
-    {
-        return m_Subject.GetComponent<LODGroupComponent>().m_ActiveAnimatedLOD;
-    }
-
-    void Capture(const std::string& poseName, f32 pixelErrorThreshold, std::vector<u8>& outPixels)
-    {
-        Renderer3D::GetRendererSettings().LODPixelErrorThreshold = pixelErrorThreshold;
-
-        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 200.0f);
-        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-        camera.Focus(glm::vec3(0.0f), 3.4f, glm::radians(-35.0f), glm::radians(12.0f));
-
-        // Enough frames for the frame-boundary selection to see the new threshold
-        // AND for the deformation pass and submission to agree on the result.
-        RunEditorFrames(camera, 4);
-
-        auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
-        if (!fb)
-            fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
-        if (!fb)
-            fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-        ASSERT_TRUE(fb) << "No composited framebuffer for '" << poseName << "'";
-
-        ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
-        ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
-
-        const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
-        std::vector<u8> tmp(rowBytes);
-        for (u32 y = 0; y < kHeight / 2u; ++y)
-        {
-            u8* top = outPixels.data() + static_cast<std::size_t>(y) * rowBytes;
-            u8* bot = outPixels.data() + static_cast<std::size_t>(kHeight - 1u - y) * rowBytes;
-            std::memcpy(tmp.data(), top, rowBytes);
-            std::memcpy(top, bot, rowBytes);
-            std::memcpy(bot, tmp.data(), rowBytes);
-        }
-
-        // Evidence, not a golden: what this test ASSERTS is the selected level and
-        // that the two frames differ, both of which are numbers. A committed PNG
-        // here would be an RMSE golden over a silhouette that moves with the
-        // simplifier's output, which is not a contract worth pinning.
-        if (GoldenRebaseRequested())
-        {
-            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            m_TempDir = OloEngine::Tests::TempDir("skinnedlod");
             std::error_code ec;
-            fs::create_directories(dir, ec);
-            const std::string path = (dir / ("SkinnedLOD_" + poseName + ".png")).string();
-            (void)::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
-                                   outPixels.data(), static_cast<int>(kWidth) * 4);
+            fs::remove_all(m_TempDir, ec);
+            fs::create_directories(m_TempDir / "Assets", ec);
+            ASSERT_FALSE(ec) << "failed to create temp project dir: " << ec.message();
+
+            const fs::path projectFile = m_TempDir / "SkinnedLOD.oloproj";
+            {
+                std::ofstream proj(projectFile);
+                proj << "Project:\n"
+                        "  Name: SkinnedLOD\n"
+                        "  StartScene: \"\"\n"
+                        "  AssetDirectory: \"Assets\"\n"
+                        "  ScriptModulePath: \"\"\n";
+            }
+            ASSERT_TRUE(Project::Load(projectFile)) << "Project::Load failed for " << m_TempDir.string();
+
+            m_AssetManager = Ref<EditorAssetManager>::Create();
+            m_AssetManager->Initialize(/*startFileWatcher=*/false);
+            Project::SetAssetManager(m_AssetManager);
         }
+
+        void TearDown() override
+        {
+            RendererAttachedTest::TearDown();
+            m_AssetManager.Reset();
+            std::error_code ec;
+            fs::remove_all(m_TempDir, ec);
+        }
+
+        void BuildScene() override
+        {
+            SetUpAssetManager();
+
+            Scene& scene = GetScene();
+            EnableRendering(kWidth, kHeight);
+
+            {
+                Entity light = scene.CreateEntity("Sun");
+                auto& tc = light.GetComponent<TransformComponent>();
+                tc.Translation = { 0.0f, 6.0f, 4.0f };
+                auto& dl = light.AddComponent<DirectionalLightComponent>();
+                dl.m_Direction = glm::normalize(glm::vec3(-0.4f, -0.6f, -0.7f));
+                dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
+                dl.m_Intensity = 3.0f;
+            }
+
+            Ref<MeshSource> source = MakeSkinnedSphere();
+            ASSERT_TRUE(source) << "could not build a skinned subject";
+
+            m_Subject = scene.CreateEntity("SkinnedSubject");
+            m_Subject.AddComponent<MeshComponent>(source);
+            m_Subject.AddComponent<SkeletonComponent>(source->GetSkeletonRef());
+
+            auto& mat = m_Subject.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.75f, 0.55f, 0.3f, 1.0f));
+
+            auto baseMesh = Ref<Mesh>::Create(source, 0);
+            const AssetHandle baseHandle = AssetManager::AddMemoryOnlyAsset(baseMesh);
+            auto& lod = m_Subject.AddComponent<LODGroupComponent>();
+            lod.m_LODGroup = MeshOptimization::GenerateAutoLODGroup(*source, baseHandle);
+            lod.m_AutoGenerated = true;
+        }
+
+        [[nodiscard]] i32 ActiveLevel()
+        {
+            return m_Subject.GetComponent<LODGroupComponent>().m_ActiveAnimatedLOD;
+        }
+
+        void Capture(const std::string& poseName, f32 pixelErrorThreshold, std::vector<u8>& outPixels)
+        {
+            Renderer3D::GetRendererSettings().LODPixelErrorThreshold = pixelErrorThreshold;
+
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 200.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.Focus(glm::vec3(0.0f), 3.4f, glm::radians(-35.0f), glm::radians(12.0f));
+
+            // Enough frames for the frame-boundary selection to see the new threshold
+            // AND for the deformation pass and submission to agree on the result.
+            RunEditorFrames(camera, 4);
+
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            if (!fb)
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(fb) << "No composited framebuffer for '" << poseName << "'";
+
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
+
+            const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
+            std::vector<u8> tmp(rowBytes);
+            for (u32 y = 0; y < kHeight / 2u; ++y)
+            {
+                u8* top = outPixels.data() + static_cast<std::size_t>(y) * rowBytes;
+                u8* bot = outPixels.data() + static_cast<std::size_t>(kHeight - 1u - y) * rowBytes;
+                std::memcpy(tmp.data(), top, rowBytes);
+                std::memcpy(top, bot, rowBytes);
+                std::memcpy(bot, tmp.data(), rowBytes);
+            }
+
+            // Evidence, not a golden: what this test ASSERTS is the selected level and
+            // that the two frames differ, both of which are numbers. A committed PNG
+            // here would be an RMSE golden over a silhouette that moves with the
+            // simplifier's output, which is not a contract worth pinning.
+            if (GoldenRebaseRequested())
+            {
+                const fs::path dir = fs::path("assets") / "tests" / "visual";
+                std::error_code ec;
+                fs::create_directories(dir, ec);
+                const std::string path = (dir / ("SkinnedLOD_" + poseName + ".png")).string();
+                (void)::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
+                                       outPixels.data(), static_cast<int>(kWidth) * 4);
+            }
+        }
+
+        Entity m_Subject;
+        Ref<EditorAssetManager> m_AssetManager;
+        fs::path m_TempDir;
+    };
+
+    TEST_F(SkinnedLODVisualEvidenceTest, ACoarseLevelOfASkinnedMeshRasterises)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const f32 restoreThreshold = Renderer3D::GetRendererSettings().LODPixelErrorThreshold;
+
+        ASSERT_GT(m_Subject.GetComponent<LODGroupComponent>().m_LODGroup.Levels.size(), 1u)
+            << "no LOD chain for a skinned source — the generators still refuse one";
+
+        std::vector<u8> fine;
+        Capture("Fine", 1.0f, fine);
+        const i32 fineLevel = ActiveLevel();
+
+        std::vector<u8> coarse;
+        Capture("Coarse", 100000.0f, coarse);
+        const i32 coarseLevel = ActiveLevel();
+
+        Renderer3D::GetRendererSettings().LODPixelErrorThreshold = restoreThreshold;
+
+        EXPECT_GE(fineLevel, 0) << "no level was resolved for the animated surface at all";
+        EXPECT_GT(coarseLevel, fineLevel)
+            << "raising the pixel-error threshold did not coarsen the level (fine " << fineLevel
+            << ", coarse " << coarseLevel << ")";
+
+        // The coarse level drew, and drew something DIFFERENT from the fine one. A
+        // level that silently fell back to LOD 0 would produce an identical frame;
+        // one that drew nothing would produce an empty one.
+        EXPECT_GT(Rgba8Rmse(fine, coarse), 0.5)
+            << "the coarse level rendered the same image as the fine one — the selected level is not "
+               "reaching the draw, so the whole chain is decorative";
+
+        const bool coarseHasSubject = std::ranges::any_of(
+            coarse, [](u8 channel)
+            { return channel > 0u; });
+        EXPECT_TRUE(coarseHasSubject) << "the coarse frame is empty — the level drew nothing at all";
     }
-
-    Entity m_Subject;
-    Ref<EditorAssetManager> m_AssetManager;
-    fs::path m_TempDir;
-};
-
-TEST_F(SkinnedLODVisualEvidenceTest, ACoarseLevelOfASkinnedMeshRasterises)
-{
-    OLO_ENSURE_GPU_OR_SKIP();
-
-    const f32 restoreThreshold = Renderer3D::GetRendererSettings().LODPixelErrorThreshold;
-
-    ASSERT_GT(m_Subject.GetComponent<LODGroupComponent>().m_LODGroup.Levels.size(), 1u)
-        << "no LOD chain for a skinned source — the generators still refuse one";
-
-    std::vector<u8> fine;
-    Capture("Fine", 1.0f, fine);
-    const i32 fineLevel = ActiveLevel();
-
-    std::vector<u8> coarse;
-    Capture("Coarse", 100000.0f, coarse);
-    const i32 coarseLevel = ActiveLevel();
-
-    Renderer3D::GetRendererSettings().LODPixelErrorThreshold = restoreThreshold;
-
-    EXPECT_GE(fineLevel, 0) << "no level was resolved for the animated surface at all";
-    EXPECT_GT(coarseLevel, fineLevel)
-        << "raising the pixel-error threshold did not coarsen the level (fine " << fineLevel
-        << ", coarse " << coarseLevel << ")";
-
-    // The coarse level drew, and drew something DIFFERENT from the fine one. A
-    // level that silently fell back to LOD 0 would produce an identical frame;
-    // one that drew nothing would produce an empty one.
-    EXPECT_GT(Rgba8Rmse(fine, coarse), 0.5)
-        << "the coarse level rendered the same image as the fine one — the selected level is not "
-           "reaching the draw, so the whole chain is decorative";
-
-    const bool coarseHasSubject = std::ranges::any_of(
-        coarse, [](u8 channel) { return channel > 0u; });
-    EXPECT_TRUE(coarseHasSubject) << "the coarse frame is empty — the level drew nothing at all";
-}
 
 } // namespace OloEngine::Tests
