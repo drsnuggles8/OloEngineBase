@@ -7327,6 +7327,13 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Terrain,
             static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
+        // One tick per foliage SYSTEM, meaning "this system does not consume
+        // GPU Scene instance records" — still true, foliage rides its own
+        // vertex stream (see GPUSceneLegacyAdapters). What each system CONTAINS
+        // is reported per instance further down, once the foliage pass has run:
+        // GPUSceneFrameStats::m_Foliage distinguishes plants with canonical
+        // identity, and how they are represented, from the ones the raster path
+        // cannot draw (issue #1230).
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Foliage,
             static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
@@ -8465,6 +8472,19 @@ namespace OloEngine
                         // (derived from height/slope) must be regenerated too.
                         terrain.m_AutoSplatNeedsRebuild = true;
 
+                        // Foliage is PLACED on the height field — its x/z jitter,
+                        // its slope gate and its ground height all sample the data
+                        // that just changed. Nothing told the FoliageComponent, so a
+                        // terrain regenerate (a procedural reseed, a sculpt, a script
+                        // Regenerate()) left every plant standing at its old height,
+                        // on slopes the new terrain no longer has. Mark it for
+                        // rebuild here, next to the flag the splatmap uses for the
+                        // same reason; the foliage pass below runs later this tick.
+                        if (auto* staleFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            staleFoliage->m_NeedsRebuild = true;
+                        }
+
                         // Keep collision in sync with the freshly (re)built height field
                         // when running (e.g. a script Regenerate() during play). In edit
                         // mode m_JoltScene is null, so this is a no-op there; the initial
@@ -8505,6 +8525,13 @@ namespace OloEngine
                             terrain.m_SplatmapGenResolution,
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         terrain.m_AutoSplatNeedsRebuild = false;
+                        // The splatmap is a density MASK for foliage placement
+                        // (FoliageLayer::SplatmapChannel), so a regenerated splatmap
+                        // moves plants just as a regenerated height field does.
+                        if (auto* maskedFoliage = m_Registry.try_get<FoliageComponent>(entity))
+                        {
+                            maskedFoliage->m_NeedsRebuild = true;
+                        }
                         // Same reason as the material rebuild above: the splatmap is
                         // an INPUT to every baked tile.
                         if (terrain.m_VirtualTexture)
@@ -8723,7 +8750,23 @@ namespace OloEngine
                     auto& foliage = foliageView.get<FoliageComponent>(entity);
 
                     if (!foliage.m_Enabled || foliage.m_Layers.empty())
+                    {
+                        // Nothing draws, so nothing should still be claiming to
+                        // exist. Without this the registry kept the records of a
+                        // switched-off system and its census reported plants the
+                        // frame does not contain (issue #1230).
+                        //
+                        // Clearing also zeroes every layer's InstanceCount, and
+                        // the Enabled checkbox does NOT dirty m_NeedsRebuild —
+                        // so without marking it here, re-enabling the component
+                        // would leave it permanently blank.
+                        if (foliage.m_Renderer)
+                        {
+                            foliage.m_Renderer->ClearInstances();
+                            foliage.m_NeedsRebuild = true;
+                        }
                         continue;
+                    }
 
                     if (!foliage.m_Renderer)
                     {
@@ -8752,6 +8795,21 @@ namespace OloEngine
                             terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
                         foliage.m_NeedsRebuild = false;
                     }
+
+                    // Publish this system's representation census (issue #1230).
+                    // Reported every frame, not just on a rebuild: the registry
+                    // holds its records between regenerations, and a diagnostic
+                    // that only appeared on the frame something was rebuilt
+                    // would read as "no foliage" for every other frame.
+                    const auto& census = foliage.m_Renderer->GetInstanceRegistry().GetCensus();
+                    Renderer3D::ReportFoliageCensusGPUScene(GPUSceneFoliageStats{
+                        .m_CanonicalInstances = census.m_CanonicalInstances,
+                        .m_MeshCardInstances = census.m_MeshCardInstances,
+                        .m_ImpostorInstances = census.m_ImpostorInstances,
+                        .m_UnsupportedInstances = census.m_UnsupportedInstances,
+                        .m_UnsupportedVariants = census.m_UnsupportedVariants,
+                        .m_SpatialGroups = census.m_SpatialGroups,
+                    });
                 }
             }
 

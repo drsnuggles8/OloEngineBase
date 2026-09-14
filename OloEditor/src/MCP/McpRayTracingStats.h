@@ -128,6 +128,20 @@ namespace OloEngine::MCP::RayTracingStats
             out["gpuScene"]["lights"] = snapshot.GPUScene.m_Lights.m_Live;
             out["gpuScene"]["notStagedTotal"] = snapshot.GPUScene.m_UnsupportedTotal;
             out["gpuScene"]["notStagedByCategory"] = std::move(byCategory);
+
+            // Foliage rides its own vertex stream, so "Foliage" above only
+            // counts SYSTEMS that skip the records. This says what is inside
+            // them: how many plants carry canonical identity, how each is
+            // represented, and what the raster path cannot draw (issue #1230).
+            const auto& foliage = snapshot.GPUScene.m_Foliage;
+            out["gpuScene"]["foliage"] = Json{
+                { "canonicalInstances", foliage.m_CanonicalInstances },
+                { "meshCardInstances", foliage.m_MeshCardInstances },
+                { "impostorInstances", foliage.m_ImpostorInstances },
+                { "unsupportedInstances", foliage.m_UnsupportedInstances },
+                { "unsupportedVariants", foliage.m_UnsupportedVariants },
+                { "spatialGroups", foliage.m_SpatialGroups },
+            };
         }
 
         if (StatsSnapshot::Status(snapshot.State) != "ready")

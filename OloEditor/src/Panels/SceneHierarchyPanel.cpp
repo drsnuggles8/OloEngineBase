@@ -6527,6 +6527,30 @@ namespace OloEngine
                 ImGui::Separator();
                 ImGui::Text("Layers: %u", static_cast<u32>(component.m_Layers.size()));
 
+                // Canonical instance census (issue #1230). Read-only: this is
+                // runtime state owned by the renderer, not authored data, so it
+                // adds nothing to the serialized component. Without it the only
+                // way to see that a layer's impostor never baked was to notice
+                // one line in OloEngine.log.
+                if (component.m_Renderer)
+                {
+                    const auto& census = component.m_Renderer->GetInstanceRegistry().GetCensus();
+                    ImGui::Text("Instances: %u in %u spatial groups",
+                                census.m_CanonicalInstances, census.m_SpatialGroups);
+                    ImGui::Text("  cards %u | impostors %u | undrawable %u",
+                                census.m_MeshCardInstances, census.m_ImpostorInstances,
+                                census.m_UnsupportedInstances);
+                    if (census.m_UnsupportedVariants > 0)
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                           "  %u layer(s) asked for an impostor and did not get one",
+                                           census.m_UnsupportedVariants);
+                        ImGui::SetItemTooltip(
+                            "The atlas failed to bake (usually a missing or unreadable Mesh Path), "
+                            "so the layer falls back to a flat billboard card. See OloEngine.log.");
+                    }
+                }
+
                 if (ImGui::Button("+ Add Layer"))
                 {
                     FoliageLayer newLayer;

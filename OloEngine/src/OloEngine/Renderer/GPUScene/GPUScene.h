@@ -85,6 +85,10 @@ namespace OloEngine
         // uses it is submitted separately.
         [[nodiscard]] bool IsMaterialStaged(const GPUSceneMaterialKey& key) const;
         void ReportUnsupported(GPUSceneUnsupportedCategory category, u32 count = 1);
+        // Foliage's per-instance representation census (issue #1230).
+        // Accumulates across FoliageComponents, so a scene with several
+        // vegetated terrains reports their sum, like every other counter here.
+        void ReportFoliageCensus(const GPUSceneFoliageStats& census);
         [[nodiscard]] GPUSceneFrameUpdate EndExtraction();
 
         // GPU resources are explicit so CPU-only tools/tests can use the
