@@ -5455,7 +5455,8 @@ namespace OloEngine
         {
             // Transfer commands are illegal inside a dynamic-rendering scope.
             EndRenderingScope();
-            recordCopy(ctx.Cmd, [&ctx](const VkDependencyInfo& dep) { ctx.RecordBarrier(dep); });
+            recordCopy(ctx.Cmd, [&ctx](const VkDependencyInfo& dep)
+                       { ctx.RecordBarrier(dep); });
             return;
         }
 
@@ -5491,7 +5492,8 @@ namespace OloEngine
         const bool copied = VulkanOneShot::Submit(
             "CopyBufferSubData(outside recording bracket)",
             [&](VkCommandBuffer cmd)
-            { recordCopy(cmd, [cmd](const VkDependencyInfo& dep) { vkCmdPipelineBarrier2(cmd, &dep); }); },
+            { recordCopy(cmd, [cmd](const VkDependencyInfo& dep)
+                         { vkCmdPipelineBarrier2(cmd, &dep); }); },
             &outcome);
         if (!copied)
         {
@@ -5503,7 +5505,7 @@ namespace OloEngine
             OLO_CORE_ERROR("[RHI/Vulkan] CopyBufferSubData one-shot {} - the destination was NOT written, so "
                            "any readback of it is meaningless",
                            outcome == VulkanOneShot::Outcome::NotSubmitted ? "never reached the queue"
-                                                                          : "was submitted but never retired");
+                                                                           : "was submitted but never retired");
         }
     }
 
