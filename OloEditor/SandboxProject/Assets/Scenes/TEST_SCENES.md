@@ -450,7 +450,8 @@ shows the cards turning edge-on.
 
 **Purpose**: canopy vegetation and impostor-transition reference.
 **Contents**: same terrain generator at a 6 m height scale and its own forest-floor palette
-(the meadow's would flood the tile with its snow layer), pine/palm mesh layers with
+(the meadow's fourth layer is DryGrass, a pale sand tone, and at the woodland's height
+scale it covered most of the tile), pine/palm mesh layers with
 octahedral impostors beyond 45 m, plus a grass understory.
 **Pass**: every camera frames the impostor cross-fade band — mesh near, cards far, blend
 between.

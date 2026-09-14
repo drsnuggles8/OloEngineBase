@@ -66,6 +66,51 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+def resolve_in_asset_root(rel):
+    """`ASSET_ROOT / rel`, but only if the result stays inside ASSET_ROOT.
+
+    `pathlib` join is not containment: an absolute `Path` on the right replaces
+    the left entirely, and `../..` walks out. A manifest is repo-controlled, so
+    this is not a live threat today — but every mode of this tool takes a
+    manifest-supplied path and then reads, hashes, creates directories under,
+    or REPLACES the file at it, and `--fetch` does that with bytes off the
+    network. A path that leaves the asset root is a manifest bug in every case,
+    so it is rejected once, here, rather than trusted three times.
+
+    Returns None for a path that escapes; callers treat that as a failure.
+    """
+    candidate = pathlib.Path(rel)
+    if candidate.is_absolute():
+        return None
+    resolved = (ASSET_ROOT / candidate).resolve()
+    root = ASSET_ROOT.resolve()
+    if resolved == root or root not in resolved.parents:
+        return None
+    return resolved
+
+
+# Acquisition URLs are fetched, so the scheme is not a formality: `file:` would
+# make --fetch copy a local file into the asset tree and "verify" it, and a
+# plain-http or internal-host URL is a request the manifest author controls.
+ALLOWED_FETCH_SCHEMES = ("https",)
+
+
+def fetch_url_error(url):
+    """None if `url` is safe to hand to urlretrieve, else the reason it is not."""
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        return f"unparseable URL ({exc})"
+    if parsed.scheme.lower() not in ALLOWED_FETCH_SCHEMES:
+        return (f"scheme {parsed.scheme!r} is not permitted "
+                f"(allowed: {', '.join(ALLOWED_FETCH_SCHEMES)})")
+    if not parsed.netloc:
+        return "no host in URL"
+    return None
+
+
 def load_manifests():
     """Every v2 manifest, as (path, parsed dict). v1 manifests carry no
     provenance contract and are skipped rather than warned about."""
@@ -90,7 +135,10 @@ def check_asset(record):
     rel = record.get("Path", "")
     declared = record.get("Sha256", "")
     redistribution = record.get("Redistribution", "")
-    target = ASSET_ROOT / rel
+    target = resolve_in_asset_root(rel)
+    if target is None:
+        return MISMATCH, (f"Path escapes the asset root — refusing to read it. "
+                          f"Asset paths are relative to OloEditor/ and must stay inside it.")
 
     if redistribution == "local-only":
         if target.exists():
@@ -197,7 +245,11 @@ def cmd_write_hashes(args):
         fresh = {}
         for record in data.get("Assets") or []:
             rel = record.get("Path", "")
-            target = ASSET_ROOT / rel
+            target = resolve_in_asset_root(rel)
+            if target is None:
+                print(f"ERROR: {path.name}: asset Path {rel!r} escapes the asset root",
+                      file=sys.stderr)
+                return 2
             if target.exists():
                 fresh[rel] = sha256_of(target)
 
@@ -235,19 +287,56 @@ def cmd_fetch(args):
     import urllib.request
 
     manifests = load_manifests()
+    # A manifest that failed to parse must stop the fetch, not be skipped:
+    # collect_records() ignores it, so --fetch would report success while
+    # silently omitting every asset that manifest declares.
+    if any(data is None for _, data in manifests):
+        print("ERROR: at least one manifest failed to parse — refusing to fetch, because "
+              "its assets would be silently omitted", file=sys.stderr)
+        return 2
+
     records = collect_records(manifests)
-    todo = [(rel, record) for (rel, _), (record, _) in sorted(records.items())
-            if record.get("Redistribution") == "fetch-required"
-            and not (ASSET_ROOT / rel).exists()]
-    local_only = [(rel, record) for (rel, _), (record, _) in sorted(records.items())
-                  if record.get("Redistribution") == "local-only"
-                  and not (ASSET_ROOT / rel).exists()]
+
+    # Conflicting hashes must be caught BEFORE any download. `todo` is built up
+    # front, so two records for one path with different hashes would both be
+    # fetched, the second would overwrite the first, and the run would report
+    # success for a file only one of them describes.
+    by_path = {}
+    for (rel, digest), (record, users) in records.items():
+        by_path.setdefault(rel, set()).add(digest)
+    conflicted = {rel for rel, digests in by_path.items() if len(digests) > 1}
+    if conflicted:
+        for rel in sorted(conflicted):
+            print(f"ERROR: {rel} is declared with {len(by_path[rel])} different hashes — "
+                  f"resolve the conflict before fetching", file=sys.stderr)
+        return 1
+
+    def pending(kind):
+        out = []
+        for (rel, _), (record, _) in sorted(records.items()):
+            if record.get("Redistribution") != kind:
+                continue
+            target = resolve_in_asset_root(rel)
+            if target is None:
+                continue
+            if not target.exists():
+                out.append((rel, record, target))
+        return out
+
+    todo = pending("fetch-required")
+    local_only = pending("local-only")
 
     if not todo:
         print("nothing to fetch — every fetch-required asset is already in place")
-    for rel, record in todo:
+    for rel, record, target in todo:
         url = record.get("Acquisition", "")
-        target = ASSET_ROOT / rel
+        # The URL comes from the manifest and is about to be requested, so the
+        # scheme and host are checked first: `file:` would copy a local file in
+        # and "verify" it, and a non-HTTPS or internal host is a request the
+        # manifest author chose, not this tool.
+        if (why := fetch_url_error(url)) is not None:
+            print(f"  FAILED: {rel}: refusing to fetch {url!r} — {why}", file=sys.stderr)
+            return 1
         print(f"fetching {rel}\n  from {url}")
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".part")
@@ -265,7 +354,7 @@ def cmd_fetch(args):
         tmp.replace(target)
         print("  ok")
 
-    for rel, record in local_only:
+    for rel, record, _target in local_only:
         print(f"\nLOCAL-ONLY GAP: {rel}")
         print("  This repository may not redistribute it. To fill the gap yourself:")
         print(f"  {record.get('Acquisition', '(no procedure recorded)')}")

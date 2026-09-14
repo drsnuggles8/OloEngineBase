@@ -41,6 +41,37 @@ Release runs of the same manifest, with byte-identical images every time:
 | `meadow` | 6 | 15.02 ms | 10.68 - 18.16 | 1.70x |
 | `woodland` | 6 | 11.72 ms | 8.41 - 16.98 | 2.02x |
 
+**Raw samples**, so the medians above are recalculable rather than asserted (top-level pass sum
+per run, ms, sorted):
+
+| Fixture | The six runs |
+|---|---|
+| `reference-head` | 2.74 / 2.94 / 3.24 / 3.88 / 4.59 / 10.76 |
+| `meadow` | 10.68 / 12.68 / 13.58 / 16.46 / 17.28 / 18.16 |
+| `woodland` | 8.41 / 9.28 / 11.38 / 12.05 / 15.65 / 16.98 |
+| `meadow` `ScenePass/DepthPrepass` | 1.71 / 2.13 / 3.41 / 4.55 / 7.12 / 8.06 |
+
+Note `reference-head`: five runs inside 2.74-4.59 and one at 10.76. The median is robust to that;
+a mean would not be, which is the second reason not to gate on a single capture.
+
+**Exact inputs.** Branch base `1fe145af7`; each run is a fresh process invoked as
+
+```powershell
+build-cached/OloEngine/tests/Release/OloEngine-Tests.exe `
+  --olo-capture-manifest=OloEditor/assets/benchmark/manifests/<id>.diagnostic.yaml `
+  --olo-capture-out=<dir>
+```
+
+Windows 11 Pro 10.0.22631, clang-cl via the `dev-cached` preset, Release. Every capture's own
+`result.json` additionally records the commit SHA, backend, GPU strings, machine tag, applied
+settings and the full per-pass table — that file is the machine-readable record, and result
+directories are git-ignored by the issue-#974 contract rather than committed.
+
+**Known gap in the record:** the capture does not record a GPU *driver version* — the GL renderer
+string (`NVIDIA GeForce RTX 4090/PCIe/SSE2`) carries none. Two runs on different drivers are
+therefore indistinguishable from the result directory alone. Worth closing before these numbers
+are compared across a driver update.
+
 The capture harness records one frame's timings at the end of a fresh process, and that frame's
 GPU state is cold in a way that varies run to run. `ScenePass/DepthPrepass` is the worst single
 offender (`meadow`, N=6: 1.71 / 2.13 / 3.41 / 4.55 / 7.12 / 8.06 ms — 4.7x on identical input),

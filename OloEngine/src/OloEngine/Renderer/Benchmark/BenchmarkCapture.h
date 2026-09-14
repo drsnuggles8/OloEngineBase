@@ -79,6 +79,14 @@ namespace OloEngine::Benchmark
         std::string MachineTag;
         std::string Host; // "test-binary" | "editor-mcp"
         u32 TotalFramesRendered = 0;
+        // Set when a host could not confirm the declared warm-up frames
+        // actually rendered (the editor host counts live frames and can time
+        // out). The capture is still written — partial evidence is useful for
+        // live inspection — but `capturedPose` is derived from the declared
+        // frame count, so with this set it may describe a frame that never
+        // rendered. result.json says so rather than asserting a pose it cannot
+        // back.
+        bool WarmupTimedOut = false;
         f32 FinalMockTimeSeconds = 0.0f;
         std::vector<PassTimingRecord> PassTimings;
         RendererCounters Counters;

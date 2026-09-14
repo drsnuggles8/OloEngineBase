@@ -107,22 +107,37 @@ def compare(dir_a, dir_b):
     tolerance = float(result_a.get("determinism", {}).get("repeatRmseTolerance", 0.0))
     manifest_id = result_a.get("manifest", {}).get("id", dir_a.name)
 
-    files = sorted(p for p in dir_a.rglob("*") if p.suffix in (".png", ".hdr"))
-    if not files:
-        print(f"no attachments found under {dir_a}", file=sys.stderr)
+    # BOTH directories are enumerated. Walking only A meant an EXTRA attachment
+    # in B — a manifest that gained an AOV between the two runs, say — compared
+    # clean and exited 0, reporting determinism for two capture sets that were
+    # not even the same shape.
+    def attachments(root):
+        return {p.relative_to(root): p for p in root.rglob("*") if p.suffix in (".png", ".hdr")}
+
+    set_a = attachments(dir_a)
+    set_b = attachments(dir_b)
+    if not set_a and not set_b:
+        print(f"no attachments found under {dir_a} or {dir_b}", file=sys.stderr)
         return 2
 
-    print(f"{manifest_id}: {len(files)} attachment(s), declared RepeatRmse tolerance {tolerance}")
+    print(f"{manifest_id}: {len(set_a)} attachment(s) in A, {len(set_b)} in B, "
+          f"declared RepeatRmse tolerance {tolerance}")
     print(f"  A: {dir_a}\n  B: {dir_b}\n")
 
     worst = 0.0
     worst_name = ""
     failures = 0
     identical = 0
+
+    for rel in sorted(set_b.keys() - set_a.keys()):
+        print(f"  EXTRA in B (absent from A): {rel}")
+        failures += 1
+
+    files = [set_a[rel] for rel in sorted(set_a.keys())]
     for path_a in files:
         rel = path_a.relative_to(dir_a)
         path_b = dir_b / rel
-        if not path_b.exists():
+        if rel not in set_b:
             print(f"  MISSING in B: {rel}")
             failures += 1
             continue
@@ -144,19 +159,26 @@ def compare(dir_a, dir_b):
             print(f"  SIZE MISMATCH {rel}")
             failures += 1
             continue
-        over = path_a.suffix == ".png" and value > tolerance
-        print(f"  {'OVER ' if over else '     '}{rel}: RMSE {value:.6f}{unit}")
+        # An HDR difference is ALWAYS a failure. `Tolerance.RepeatRmse` is
+        # defined in 0..255 PNG units and does not convert to float radiance,
+        # so there is no meaningful threshold to compare an .hdr against —
+        # which previously meant an HDR attachment could differ by any amount
+        # and the determinism check still exited 0. These captures are expected
+        # byte-identical (every committed manifest declares RepeatRmse 0.0), so
+        # the honest bound for HDR is "no difference at all".
+        is_png = path_a.suffix == ".png"
+        over = (value > tolerance) if is_png else True
+        label = "OVER " if (over and is_png) else ("HDRDIFF" if over else "     ")
+        print(f"  {label}{rel}: RMSE {value:.6f}{unit}")
         if over:
             failures += 1
-        if path_a.suffix == ".png" and value > worst:
+        if is_png and value > worst:
             worst, worst_name = value, str(rel)
 
     print(f"\n  {identical}/{len(files)} byte-identical")
     if worst_name:
         print(f"  worst PNG RMSE: {worst:.6f}/255 ({worst_name})")
-    else:
-        print("  every differing attachment was HDR or none differed")
-    print(f"  {failures} attachment(s) outside tolerance or unreadable")
+    print(f"  {failures} attachment(s) differing beyond tolerance, missing, extra or unreadable")
     return 1 if failures else 0
 
 

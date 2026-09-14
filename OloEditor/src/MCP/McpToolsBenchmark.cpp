@@ -415,6 +415,10 @@ namespace OloEngine::MCP
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
             runInfo.TotalFramesRendered = totalWarmFrames;
+            // Carried into result.json so a reader of the capture sees it too — the
+            // MCP summary alone is not part of the result directory, and capturedPose
+            // is derived from the DECLARED frame count.
+            runInfo.WarmupTimedOut = warmupTimedOut;
             runInfo.FinalMockTimeSeconds = 0.0f; // live clock — no mock stepping in this host
             runInfo.PassTimings = *passTimings;
             runInfo.Counters = *counters;

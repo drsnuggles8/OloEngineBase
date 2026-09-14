@@ -585,6 +585,7 @@ namespace OloEngine::Benchmark
                                 { "startTimeSeconds", manifest.StartTimeSeconds },
                                 { "fixedDtSeconds", manifest.FixedDtSeconds },
                                 { "totalFramesRendered", runInfo.TotalFramesRendered },
+                                { "warmupTimedOut", runInfo.WarmupTimedOut },
                                 { "finalMockTimeSeconds", runInfo.FinalMockTimeSeconds },
                                 { "repeatRmseTolerance", manifest.RepeatRmseTolerance } };
         json["exposure"] = { { "mode", manifest.Exposure == ExposureMode::Manual ? "manual" : "auto" },
@@ -613,6 +614,16 @@ namespace OloEngine::Benchmark
                 const auto pose = CameraPoseAtFrame(*spec, warmFrames > 0u ? warmFrames - 1u : 0u,
                                                     manifest.FixedDtSeconds);
                 cameraJson["warmupFrames"] = warmFrames;
+                if (runInfo.WarmupTimedOut)
+                {
+                    // The pose below is computed from the DECLARED warm-up
+                    // count. If the host could not confirm those frames
+                    // rendered, it may name a frame that never happened, so the
+                    // claim is qualified rather than made silently.
+                    cameraJson["capturedPoseUnreliable"] =
+                        "warm-up did not complete within the host's deadline — this pose is the "
+                        "scheduled pose for the declared frame count, not a confirmed one";
+                }
                 cameraJson["capturedPose"] = { { "position", { pose.Position.x, pose.Position.y, pose.Position.z } },
                                                { "yawDegrees", pose.YawDegrees },
                                                { "pitchDegrees", pose.PitchDegrees },

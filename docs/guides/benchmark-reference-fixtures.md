@@ -66,8 +66,14 @@ parse error at an unrelated moment.
     PitchRateDegreesPerSecond: 0.0
 ```
 
-Rates are **per second**, integrated against `Determinism.FixedDtSeconds`, so halving the dt and
-doubling the frame count lands on the same pose. The pose is a **closed form** of the frame index
+Rates are **per second**, integrated against `Determinism.FixedDtSeconds`, so the pose at a given
+frame index is frame-rate independent: `CameraPoseAtFrame(c, 2N, dt/2) == CameraPoseAtFrame(c, N, dt)`.
+
+Careful with the CAPTURE, though — it is taken at the last warm-up frame, so the shot integrates
+`(WarmupFrames - 1) * FixedDtSeconds`, not `WarmupFrames * FixedDtSeconds`. Halving the dt
+therefore needs **`2N - 1`** frames, not `2N`, to land on the same captured pose; plain doubling
+overshoots by half a step. The invariant to preserve when re-timing a shot is
+`(WarmupFrames - 1) * FixedDtSeconds`. The pose is a **closed form** of the frame index
 (`BenchmarkManifest.cpp::CameraPoseAtFrame`), not an accumulation — that is what lets the test
 binary (stepping a mock clock) and the editor host (counting live frames) trace the same path
 without drifting apart. The editor host re-poses one frame at a time when `Motion` is present.
