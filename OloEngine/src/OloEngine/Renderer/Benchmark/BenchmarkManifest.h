@@ -18,6 +18,14 @@
 // determinism contract, and a silently-ignored typo would reproduce exactly
 // the "why did nothing happen?" failure the TestOptions flags were built to
 // kill. See docs/guides/renderer-benchmarks.md for the schema reference.
+//
+// ManifestVersion 2 (issue #1239) adds the two things the reference-fixture
+// work needed and nothing else: full ASSET PROVENANCE (redistribution class,
+// upstream version, SHA-256, units, up axis, colour space, acquisition path,
+// and how the licence was verified) and per-frame CAMERA MOTION for moving
+// sequences. Both are rejected in a v1 manifest and required in a v2 one, so
+// the version number tells you exactly which contract a file signed up to.
+// See docs/guides/benchmark-reference-fixtures.md.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -74,6 +82,23 @@ namespace OloEngine::Benchmark
         ChannelA
     };
 
+    // Per-frame camera movement for a MOVING sequence (issue #1239). A static
+    // pose produces a zero velocity buffer, so temporal reprojection, motion
+    // blur and the TAA/SSGI/SSR history rejection paths are never exercised by
+    // a still capture — the "moving sequences" fixture axis needs the camera to
+    // actually advance BETWEEN frames, not just sit at a different pose.
+    //
+    // Motion is expressed per SECOND and integrated against the manifest's
+    // FixedDtSeconds, so it stays a property of the shot rather than of the
+    // frame rate: halving the fixed dt doubles the frame count and leaves the
+    // captured pose identical. See CameraPoseAtFrame for the exact schedule.
+    struct ManifestCameraMotion
+    {
+        glm::vec3 VelocityPerSecond{ 0.0f }; // world metres / second
+        f32 YawRateDegreesPerSecond = 0.0f;
+        f32 PitchRateDegreesPerSecond = 0.0f;
+    };
+
     struct ManifestCamera
     {
         std::string Id;
@@ -87,7 +112,28 @@ namespace OloEngine::Benchmark
         // defaults to Warmup.Frames; a later camera is a deterministic camera
         // CUT, and defaults to the same full warm-up unless it declares fewer.
         std::optional<u32> WarmupFrames;
+        // ManifestVersion 2+ only. Absent = the still pose above, unchanged.
+        std::optional<ManifestCameraMotion> Motion;
     };
+
+    // The camera state a host must apply before rendering one warm-up frame.
+    struct ManifestCameraPose
+    {
+        glm::vec3 Position{ 0.0f };
+        f32 YawDegrees = 0.0f;
+        f32 PitchDegrees = 0.0f;
+    };
+
+    /// The pose for 0-based warm-up frame `frameInCamera` of `camera`.
+    ///
+    /// ONE implementation for both capture front doors — the test binary steps
+    /// the mock clock itself and the editor host counts live frames, but a
+    /// moving shot has to trace the same path through both or the two hosts
+    /// would silently disagree about where the camera was. The captured frame
+    /// is the LAST warm-up frame, so its pose is the one at
+    /// `frameInCamera == warmupFrames - 1`, not at `warmupFrames`.
+    [[nodiscard]] ManifestCameraPose CameraPoseAtFrame(const ManifestCamera& camera, u32 frameInCamera,
+                                                       f32 fixedDtSeconds);
 
     struct ManifestAttachment
     {
@@ -98,11 +144,81 @@ namespace OloEngine::Benchmark
         AttachmentDerive Derive = AttachmentDerive::None;
     };
 
+    // Whether the asset's rights let its BYTES live in this repository — the
+    // field that decides what a checkout actually contains, which is why it is
+    // an enum rather than prose (issue #1239).
+    enum class AssetRedistribution : u8
+    {
+        Committed = 0, // licence permits redistribution; the bytes are in-tree
+        FetchRequired, // freely obtainable but NOT redistributed here; the
+                       // acquisition path fetches it into place
+        LocalOnly      // rights forbid redistribution entirely; the user must
+                       // supply their own copy, and the fixture says so rather
+                       // than rendering a substitute and calling it the same
+    };
+
+    // How the licence claim was established. An asset whose rights nobody
+    // checked is recorded as Unverified rather than asserted — the schema's
+    // whole point is that "we did not verify this" is a statable, greppable
+    // answer instead of an optimistic string.
+    enum class LicenseVerification : u8
+    {
+        InRepoFile = 0,   // a LICENSE file sits beside the asset in this repo
+        UpstreamDeclared, // the upstream project declares it; no in-repo copy
+        Unverified        // origin unknown or licence not established
+    };
+
+    // Scene units the asset's geometry is authored in. Mixing these silently is
+    // how a "head" arrives 100x too large; the fixture scenes state the
+    // convention so a scale factor is a documented decision.
+    enum class AssetUnits : u8
+    {
+        Metres = 0,
+        Centimetres,
+        Unitless // procedural / non-metric source (e.g. a texture)
+    };
+
+    enum class AssetUpAxis : u8
+    {
+        YUp = 0,
+        ZUp,
+        NotApplicable // textures and other non-geometry assets
+    };
+
+    // Colour convention of the asset's base-colour / albedo data. Getting this
+    // wrong is a gamma bug that looks like a lighting bug.
+    enum class AssetColorSpace : u8
+    {
+        Srgb = 0,
+        Linear,
+        NotApplicable
+    };
+
     struct ManifestAssetRecord
     {
         std::string Path;
         std::string Origin;
         std::string License;
+
+        // ---- ManifestVersion 2 provenance (issue #1239) -------------------
+        // Required from v2; absent (nullopt / empty) in a v1 manifest, which
+        // keeps every issue-#974 manifest parsing byte-for-byte as before.
+        std::optional<AssetRedistribution> Redistribution;
+        std::optional<LicenseVerification> LicenseVerified;
+        std::optional<AssetUnits> Units;
+        std::optional<AssetUpAxis> UpAxis;
+        std::optional<AssetColorSpace> ColorSpace;
+        // Upstream release tag / commit, or "generated" for an asset this repo
+        // produces from a committed script.
+        std::string Version;
+        // SHA-256 of the file AS ACQUIRED, 64 lowercase hex — what makes the
+        // acquisition path checkable instead of merely described. The parser
+        // validates the FORMAT; tools/benchmark/reference_assets.py verifies
+        // the bytes.
+        std::string Sha256;
+        // URL, or the documented local procedure for a LocalOnly asset. This is
+        // the "reproducible local acquisition path" acceptance criterion.
+        std::string Acquisition;
     };
 
     // The subset of renderer-side (non-scene-serialized) state a benchmark

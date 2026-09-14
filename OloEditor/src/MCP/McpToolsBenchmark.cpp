@@ -147,6 +147,53 @@ namespace OloEngine::MCP
             };
             auto applied = std::make_shared<AppliedState>();
             const auto manifestCopy = std::make_shared<Benchmark::BenchmarkManifest>(*manifest);
+
+            // Renderer settings are restored on EVERY exit path, not just the
+            // happy one. A marshal timeout THROWS out of this handler (see the
+            // comment above), and the capture now clears ShowGrid /
+            // ShowLightGizmos / ShowWorldAxisHelper / ShowCameraFrustums in
+            // RendererSettings — which EditorLayer::SyncPrefsFromMembers copies
+            // into m_Prefs and serialises. So an abandoned capture would leave
+            // the user's editor permanently without a grid AND write that into
+            // their preferences file. The scene-only disable this replaced was
+            // self-healing by accident; this is self-healing on purpose.
+            struct RendererStateRestoreGuard
+            {
+                IAutomationHost* Host = nullptr;
+                std::shared_ptr<AppliedState> State;
+                bool Armed = false;
+
+                void Disarm() noexcept
+                {
+                    Armed = false;
+                }
+
+                ~RendererStateRestoreGuard()
+                {
+                    if (!Armed || Host == nullptr)
+                    {
+                        return;
+                    }
+                    // Best effort, and never throw out of a destructor: this
+                    // runs while an exception is already in flight.
+                    try
+                    {
+                        auto state = State;
+                        Host->MarshalRead(
+                            [state]() -> Json
+                            {
+                                Renderer3D::GetRendererSettings() = state->PriorRendererSettings;
+                                Renderer3D::GetPostProcessSettings() = state->PriorPostProcessSettings;
+                                Renderer3D::ApplyRendererSettings();
+                                Renderer3D::SetRenderScale(state->PriorRenderScale);
+                                return Json{ { "ok", true } };
+                            });
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            } restoreGuard{ &host, applied, /*Armed=*/false };
             host.MarshalRead(
                 [&host, applied, manifestCopy, isVulkan]() -> Json
                 {
@@ -168,6 +215,22 @@ namespace OloEngine::MCP
                     // A benchmark capture is a picture of the SCENE: turn off the
                     // editor-only viewport helpers the editor render path draws
                     // (infinite grid, world-axis helper, light gizmos, frustums).
+                    //
+                    // These must be cleared in RENDERER SETTINGS, not on the
+                    // Scene. EditorLayer re-pushes ShowGrid / ShowLightGizmos /
+                    // ShowWorldAxisHelper from RendererSettings onto the active
+                    // scene EVERY FRAME, so a scene-level disable is overwritten
+                    // before the warm-up renders a single frame and the capture
+                    // comes back with the grid and the world axis drawn into it
+                    // — which is what a Vulkan capture of the issue-#1239
+                    // reference-head fixture actually showed. Clearing the
+                    // settings is also self-restoring: PriorRendererSettings is
+                    // snapshotted just above and the epilogue puts it back.
+                    auto& rendererSettings = Renderer3D::GetRendererSettings();
+                    rendererSettings.ShowGrid = false;
+                    rendererSettings.ShowWorldAxisHelper = false;
+                    rendererSettings.ShowLightGizmos = false;
+                    rendererSettings.ShowCameraFrustums = false;
                     if (host.Context().GetActiveScene)
                     {
                         if (Ref<Scene> activeScene = host.Context().GetActiveScene())
@@ -198,6 +261,9 @@ namespace OloEngine::MCP
                 },
                 kBenchmarkMarshalTimeout);
 
+            // The settings are now overwritten, so the guard becomes live.
+            restoreGuard.Armed = true;
+
             // ---- Per camera: pose, warm, capture --------------------------
             // The editor camera seam controls pose + FOV only — the manifest's
             // Near/Far clips CANNOT be applied through it, so a `Derive:
@@ -214,22 +280,53 @@ namespace OloEngine::MCP
 
             for (const auto& cameraSpec : manifest->Cameras)
             {
-                const glm::vec3 position = cameraSpec.Position;
-                const f32 yawRadians = glm::radians(cameraSpec.YawDegrees);
-                const f32 pitchRadians = glm::radians(cameraSpec.PitchDegrees);
                 const f32 fovDegrees = cameraSpec.FovDegrees;
-                host.MarshalRead(
-                    [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
-                    {
-                        host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
-                        return Json{ { "ok", true } };
-                    });
-
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
                 totalWarmFrames += warmFrames;
-                if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
+
+                const auto poseAt = [&host, &cameraSpec, fovDegrees, dt = manifest->FixedDtSeconds](u32 frame)
                 {
-                    warmupTimedOut = true; // recorded, not fatal — capture what we have
+                    const auto pose = Benchmark::CameraPoseAtFrame(cameraSpec, frame, dt);
+                    const glm::vec3 position = pose.Position;
+                    const f32 yawRadians = glm::radians(pose.YawDegrees);
+                    const f32 pitchRadians = glm::radians(pose.PitchDegrees);
+                    host.MarshalRead(
+                        [&host, position, yawRadians, pitchRadians, fovDegrees]() -> Json
+                        {
+                            host.Context().SetCameraPose(position, yawRadians, pitchRadians, fovDegrees);
+                            return Json{ { "ok", true } };
+                        });
+                };
+
+                if (!cameraSpec.Motion)
+                {
+                    // Still camera: pose once, then wait out the whole warm-up
+                    // in one await — the issue-#974 path, unchanged.
+                    poseAt(0u);
+                    if (!AwaitBenchmarkFrames(host, CurrentFrame(host), warmFrames))
+                    {
+                        warmupTimedOut = true; // recorded, not fatal — capture what we have
+                    }
+                }
+                else
+                {
+                    // Moving camera (issue #1239): the pose has to advance
+                    // BETWEEN live frames, so re-pose and wait one frame at a
+                    // time. This is the same schedule the test-binary host
+                    // walks — both go through CameraPoseAtFrame — just paid for
+                    // with one marshal per frame instead of one per camera.
+                    // Capturing a moving manifest as a still frame would be a
+                    // silently wrong picture, which is the one outcome this
+                    // schema exists to prevent.
+                    for (u32 frame = 0; frame < warmFrames; ++frame)
+                    {
+                        poseAt(frame);
+                        if (!AwaitBenchmarkFrames(host, CurrentFrame(host), 1u))
+                        {
+                            warmupTimedOut = true;
+                            break;
+                        }
+                    }
                 }
 
                 const std::string cameraId = cameraSpec.Id;
@@ -290,16 +387,24 @@ namespace OloEngine::MCP
                     }
                     if (host.Context().GetActiveScene)
                     {
+                        // Restore from the SNAPSHOT, not to `true`. Hardcoding
+                        // true switched the grid and the gizmos back on for a
+                        // user who had deliberately turned them off before
+                        // asking for a capture.
+                        const auto& prior = applied->PriorRendererSettings;
                         if (Ref<Scene> activeScene = host.Context().GetActiveScene())
                         {
-                            activeScene->SetGridVisible(true);
-                            activeScene->SetWorldAxisHelperVisible(true);
-                            activeScene->SetLightGizmosVisible(true);
-                            activeScene->SetCameraFrustumsVisible(true);
+                            activeScene->SetGridVisible(prior.ShowGrid);
+                            activeScene->SetWorldAxisHelperVisible(prior.ShowWorldAxisHelper);
+                            activeScene->SetLightGizmosVisible(prior.ShowLightGizmos);
+                            activeScene->SetCameraFrustumsVisible(prior.ShowCameraFrustums);
                         }
                     }
                     return Json{ { "ok", true } };
                 });
+
+            // The epilogue above did the restore; the guard must not repeat it.
+            restoreGuard.Disarm();
 
             // ---- Result directory -----------------------------------------
             Benchmark::RunInfo runInfo;
@@ -310,6 +415,10 @@ namespace OloEngine::MCP
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
             runInfo.TotalFramesRendered = totalWarmFrames;
+            // Carried into result.json so a reader of the capture sees it too — the
+            // MCP summary alone is not part of the result directory, and capturedPose
+            // is derived from the DECLARED frame count.
+            runInfo.WarmupTimedOut = warmupTimedOut;
             runInfo.FinalMockTimeSeconds = 0.0f; // live clock — no mock stepping in this host
             runInfo.PassTimings = *passTimings;
             runInfo.Counters = *counters;
