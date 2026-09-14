@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualSkinningBounds.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualSkinningPacking.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
 
@@ -284,6 +286,37 @@ namespace OloEngine
         return true;
     }
 
+    bool VirtualMeshRegistry::MeshIsSkinned(AssetHandle handle) const
+    {
+        // ANY part, deliberately NOT the all-or-nothing rule MeshHasLightmapUVs
+        // uses, and the difference is not an inconsistency.
+        //
+        // A uv2 region is published PER MESH, so a mesh whose parts disagree
+        // would address a sibling's charts — there is no per-part gate to save
+        // it. Skinning has one: PrepareFrame decides per part, on that part's own
+        // `Packed.IsSkinned()`. So "some parts of this mesh deform" is a state
+        // the runtime can represent exactly, and it is the CORRECT state for the
+        // ordinary case that produces it — a static prop submesh parented into a
+        // rigged character's file, which carries no bone weights and genuinely
+        // does not deform.
+        //
+        // Requiring every part would make that whole character render in its
+        // rest pose because one prop was not weighted.
+        const MeshParts parts = FindParts(handle);
+        if (!parts.Valid || parts.Count == 0)
+        {
+            return false;
+        }
+        for (u32 i = 0; i < parts.Count; ++i)
+        {
+            if (GetEntry(parts.FirstEntry + i).Packed.IsSkinned())
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     VirtualMeshRegistry::MeshParts VirtualMeshRegistry::FindParts(AssetHandle handle) const
     {
         if (auto it = m_EntryLookup.find(handle); it != m_EntryLookup.end())
@@ -404,6 +437,28 @@ namespace OloEngine
                              VirtualLightmapUVElementOffset(static_cast<u32>(slotVertexBase))) *
                                 sizeof(VirtualGpuVertex),
                             uvStaging.data(),
+                            static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
+        }
+
+        // The page's skin bindings, packed two to a 32-byte element (issue
+        // #1150). Same slot-local-from-0 packing the uv2 tail above uses, and
+        // legal for the same two reasons: a page's vertices start at slot-local
+        // index 0, and m_SlotVertexCapacity is 4-aligned and therefore also
+        // 2-aligned, so a global index's lane equals its slot-local lane.
+        if (m_SkinningBaseElement != 0 && packed.IsSkinned())
+        {
+            u32 const packedElements = VirtualSkinningElementCount(page.Info.VertexCount);
+            std::vector<VirtualGpuVertex> skinStaging(packedElements);
+            for (u32 v = 0; v < page.Info.VertexCount; ++v)
+            {
+                PackVirtualSkinning(skinStaging[VirtualSkinningElementOffset(v)], v,
+                                    packed.Skinning[page.Info.VertexOffset + v]);
+            }
+            CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
+                            (static_cast<u64>(m_SkinningBaseElement) +
+                             VirtualSkinningElementOffset(static_cast<u32>(slotVertexBase))) *
+                                sizeof(VirtualGpuVertex),
+                            skinStaging.data(),
                             static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
         }
 
@@ -619,7 +674,27 @@ namespace OloEngine
             anyLightmapUVs ? VirtualLightmapUVElementCount(static_cast<u32>(vertexElements)) : 0u;
         m_LightmapUVBaseElement = anyLightmapUVs ? static_cast<u32>(vertexElements) : 0u;
 
-        u64 const vertexArenaBytes = (vertexElements + lightmapElements) * sizeof(VirtualGpuVertex);
+        // The skinning tails (issue #1150), allocated on the same all-or-nothing
+        // rule and for the same reason — see VirtualSkinningPacking.h for the
+        // arena layout. A scene with no skinned virtual mesh allocates exactly
+        // what it did before.
+        //
+        // TWO tails, not one, because they are keyed differently: the skin
+        // bindings are per VERTEX and therefore per SLOT (refilled by every page
+        // load), while the per-cluster bone sets are per POOLED CLUSTER and
+        // fully resident like the cluster records themselves — the cull must be
+        // able to bound a cluster whether or not its page is in memory.
+        const bool anySkinned = std::ranges::any_of(m_Entries, [](const MeshEntry& entry)
+                                                    { return entry.Packed.IsSkinned(); });
+        u64 const skinningElements =
+            anySkinned ? VirtualSkinningElementCount(static_cast<u32>(vertexElements)) : 0u;
+        m_SkinningBaseElement = anySkinned ? static_cast<u32>(vertexElements + lightmapElements) : 0u;
+        u64 const clusterBoneElements = anySkinned ? m_PooledClusters.size() : 0u;
+        m_ClusterBoneBaseElement =
+            anySkinned ? static_cast<u32>(vertexElements + lightmapElements + skinningElements) : 0u;
+
+        u64 const vertexArenaBytes =
+            (vertexElements + lightmapElements + skinningElements + clusterBoneElements) * sizeof(VirtualGpuVertex);
         if (!m_VertexBuffer || m_VertexBuffer->GetSize() < vertexArenaBytes)
         {
             m_VertexBuffer = StorageBuffer::Create(static_cast<u32>(vertexArenaBytes),
@@ -644,6 +719,32 @@ namespace OloEngine
         if (!m_UploadRing.IsCreated())
         {
             [[maybe_unused]] bool const ringCreated = m_UploadRing.Create(kUploadRingBytes);
+        }
+
+        // The per-cluster bone-set tail (issue #1150). Uploaded ONCE here, with
+        // the pools, rather than per page load: the cull bounds a cluster
+        // whether or not the cluster's geometry page is resident (that is the
+        // whole point of the residency-clamped cut), so its bone set has to be
+        // there unconditionally — and it is keyed by pooled cluster index, which
+        // does not move.
+        if (m_ClusterBoneBaseElement != 0 && !m_PooledClusters.empty())
+        {
+            static_assert(sizeof(VirtualGpuVertex) == kMaxClusterBones * sizeof(u32),
+                          "one arena element must hold exactly one cluster's bone set");
+            std::vector<u32> boneStaging(m_PooledClusters.size() * kMaxClusterBones, kNoClusterBone);
+            for (const MeshEntry& entry : m_Entries)
+            {
+                if (!entry.Valid || !entry.Packed.IsSkinned())
+                {
+                    continue; // a rigid part's clusters keep the all-sentinel fill
+                }
+                std::ranges::copy(entry.Packed.ClusterBoneRefs,
+                                  boneStaging.begin() +
+                                      static_cast<std::ptrdiff_t>(entry.ClusterBase) * kMaxClusterBones);
+            }
+            CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
+                            static_cast<u64>(m_ClusterBoneBaseElement) * sizeof(VirtualGpuVertex),
+                            boneStaging.data(), boneStaging.size() * sizeof(u32));
         }
 
         // Residency reset: nothing resident, then load pinned pages (always) and
@@ -1042,7 +1143,13 @@ namespace OloEngine
     void VirtualMeshRegistry::EnsureFrameBuffers()
     {
         auto const instanceCount = static_cast<u32>(m_FrameInstances.size());
-        auto const instanceBytes = instanceCount * static_cast<u32>(sizeof(VirtualInstanceGpuRecord));
+        // The bone-palette tail rides this buffer (issue #1150) — one palette
+        // entry per element, in the same record layout, because a posed bone
+        // needs exactly the three matrices a VirtualInstance carries and there
+        // is no SSBO binding left to give it. See VirtualInstanceGpuRecord's
+        // SkinBoneBase for the full reasoning.
+        auto const instanceBytes =
+            (instanceCount + m_BonePaletteElementCount) * static_cast<u32>(sizeof(VirtualInstanceGpuRecord));
         if (!m_InstanceBuffer || m_InstanceBuffer->GetSize() < instanceBytes)
         {
             m_InstanceBuffer = StorageBuffer::Create(std::max(instanceBytes, 1024u),
@@ -1135,6 +1242,12 @@ namespace OloEngine
         m_FrameInstances.reserve(m_Submissions.size());
         m_TotalFrameClusterCount = 0;
 
+        // This frame's bone palettes, accumulated beside the instance records
+        // and appended to the same upload as the buffer's tail (issue #1150).
+        // Built here rather than in a second pass because the base an instance
+        // records IS its position in this vector.
+        std::vector<VirtualInstanceGpuRecord> bonePalette;
+
         for (const VirtualMeshSubmission& submission : m_Submissions)
         {
             MeshParts const parts = FindParts(submission.Mesh);
@@ -1154,6 +1267,14 @@ namespace OloEngine
             {
                 continue;
             }
+
+            // One bone palette per SUBMISSION, not per part (issue #1150).
+            // Every part of a mesh is posed by the same skeleton, so appending
+            // it once per part would store a 100-bone palette three times for a
+            // three-submesh character and change nothing about the result.
+            // Filled lazily by the first part that turns out to be skinned.
+            constexpr u32 kNoPalette = 0xFFFFFFFFu;
+            u32 submissionPaletteBase = kNoPalette;
 
             // One GPU instance PER PART. Each part is an independent DAG over one submesh, so
             // it gets its own cluster range and its own material — which is what makes a
@@ -1230,9 +1351,80 @@ namespace OloEngine
                 gpu.LightmapScaleOffset = submission.LightmapScaleOffset;
                 gpu.CommandBase = m_TotalFrameClusterCount;
 
+                // ── Skinning (issue #1150) ───────────────────────────────────
+                //
+                // Gated on BOTH the submission carrying a palette and this
+                // PART's cook carrying a skinning payload. They can disagree:
+                // the DAG is cooked the first time the mesh is registered while
+                // the palette comes from the live skeleton, so a mesh cooked by
+                // a builder that predates #1150 has no bindings at all.
+                // Deforming that part's BOUNDS while its vertices stay rigid is
+                // geometry sliding out of its own culling volume, which flickers
+                // rather than failing — so the part renders rigid instead, and
+                // the warn-once below says why.
+                if (submission.IsSkinned() && entry.Packed.IsSkinned())
+                {
+                    if (submissionPaletteBase == kNoPalette)
+                    {
+                        submissionPaletteBase = static_cast<u32>(bonePalette.size());
+                        // Bone velocity degrades to "no motion" rather than to a
+                        // mismatched pairing when the two sets disagree in length.
+                        const bool usePrev = submission.PrevBoneMatrices.size() == submission.BoneMatrices.size();
+                        for (sizet b = 0; b < submission.BoneMatrices.size(); ++b)
+                        {
+                            VirtualInstanceGpuRecord paletteEntry;
+                            paletteEntry.Transform = submission.BoneMatrices[b];
+                            paletteEntry.PrevTransform =
+                                usePrev ? submission.PrevBoneMatrices[b] : submission.BoneMatrices[b];
+                            paletteEntry.NormalMatrix =
+                                glm::mat4(glm::transpose(glm::inverse(glm::mat3(submission.BoneMatrices[b]))));
+                            bonePalette.push_back(paletteEntry);
+                        }
+                    }
+
+                    gpu.Flags |= VirtualInstanceGpuRecord::kFlagSkinned;
+                    // RELATIVE to the tail here; rebased to an absolute element
+                    // index below, once the instance count is final.
+                    gpu.SkinBoneBase = submissionPaletteBase;
+                    gpu.SkinBoneCount = static_cast<u32>(submission.BoneMatrices.size());
+                    gpu.SkinClusterBoneBase = m_ClusterBoneBaseElement + entry.ClusterBase;
+                    gpu.SkinBoundsPadding =
+                        SkinDisplacementBound(entry.Packed.BoneBounds, submission.BoneMatrices);
+
+                    // The group ERROR scale, applied to the THRESHOLD instead of
+                    // to the errors. A bone that stretches its vertices by s
+                    // stretches the surface deviation a coarse LOD stands in for
+                    // by at most s as well, so every group error should scale by
+                    // the largest s in the palette. Both cut rules compare a
+                    // projected error against this threshold and the projection
+                    // is linear in the error, so dividing the threshold once on
+                    // the CPU is EXACTLY multiplying every error on the GPU —
+                    // for no new field in a record whose lanes are spoken for,
+                    // and no arithmetic in the cull's hot loop.
+                    f32 const errorScale = SkinMaxBoneScale(submission.BoneMatrices);
+                    if (errorScale > 1.0f)
+                    {
+                        // Floored rather than clamped at the scale: below a
+                        // hundredth of a pixel every finite group error is over
+                        // the threshold, so the cut is already the finest the
+                        // DAG has and going lower cannot refine it further.
+                        gpu.ErrorThresholdPixels = std::max(gpu.ErrorThresholdPixels / errorScale, 0.01f);
+                    }
+                }
+                // No `else` warning here. A part that is not skinned inside a
+                // skinned submission is the ORDINARY case now that MeshIsSkinned
+                // is per-mesh-any rather than per-mesh-all (an unweighted prop
+                // submesh), so warning would fire on healthy assets every frame.
+                // The condition actually worth reporting — a palette published
+                // for a mesh whose cook carries no skinning at ALL — is a stale
+                // cook, and it is caught in Renderer3D::SubmitVirtualMesh, which
+                // is the place that can still tell the difference.
+
                 // Conservative world-space sphere scaling + cone validity
                 gpu.MaxScale = maxScale;
-                gpu.Flags = 0;
+                // NOT reset to 0 here: the skinning block above may already have
+                // set kFlagSkinned, and `gpu` is a freshly default-constructed
+                // record per part, so a reset would only ever destroy that.
                 if ((maxScale / minScale) < 1.01f)
                 {
                     gpu.Flags |= VirtualInstanceGpuRecord::kFlagUniformScale;
@@ -1258,10 +1450,21 @@ namespace OloEngine
                 instance.HasBounds = entry.HasBounds;
                 if (entry.HasBounds)
                 {
-                    TransformedBounds(gpu.Transform, entry.LocalBoundsMin, entry.LocalBoundsMax,
-                                      instance.BoundsMin, instance.BoundsMax);
-                    TransformedBounds(gpu.PrevTransform, entry.LocalBoundsMin, entry.LocalBoundsMax,
-                                      instance.PrevBoundsMin, instance.PrevBoundsMax);
+                    // The part's LOCAL bounds were computed from the REST-POSE
+                    // cluster spheres at registration, so a deforming instance
+                    // needs the same conservative padding its group spheres get
+                    // (issue #1150) — applied in OBJECT space, before the
+                    // transform, which is where SkinBoundsPadding is measured.
+                    //
+                    // Both consumers would fail silently without it: the VSM
+                    // route would skip a clip level a raised arm reaches into,
+                    // and shadow-page invalidation would leave the pages that
+                    // arm moved through holding a stale silhouette.
+                    glm::vec3 const localMin = entry.LocalBoundsMin - glm::vec3(gpu.SkinBoundsPadding);
+                    glm::vec3 const localMax = entry.LocalBoundsMax + glm::vec3(gpu.SkinBoundsPadding);
+                    TransformedBounds(gpu.Transform, localMin, localMax, instance.BoundsMin, instance.BoundsMax);
+                    TransformedBounds(gpu.PrevTransform, localMin, localMax, instance.PrevBoundsMin,
+                                      instance.PrevBoundsMax);
                 }
 
                 m_TotalFrameClusterCount += gpu.ClusterCount;
@@ -1271,17 +1474,37 @@ namespace OloEngine
 
         if (m_FrameInstances.empty())
         {
+            m_BonePaletteBaseElement = 0;
+            m_BonePaletteElementCount = 0;
             return false;
+        }
+
+        // The palette tail starts where the instance records end, which is only
+        // knowable now — hence the two steps: the loop above recorded a base
+        // RELATIVE to the tail, and this rebases it to the absolute element the
+        // shader indexes with.
+        m_BonePaletteBaseElement = static_cast<u32>(m_FrameInstances.size());
+        m_BonePaletteElementCount = static_cast<u32>(bonePalette.size());
+        for (FrameInstance& instance : m_FrameInstances)
+        {
+            if (instance.Gpu.SkinBoneCount != 0)
+            {
+                instance.Gpu.SkinBoneBase += m_BonePaletteBaseElement;
+            }
         }
 
         EnsureFrameBuffers();
 
         std::vector<VirtualInstanceGpuRecord> gpuRecords;
-        gpuRecords.reserve(m_FrameInstances.size());
+        gpuRecords.reserve(m_FrameInstances.size() + bonePalette.size());
         for (const FrameInstance& instance : m_FrameInstances)
         {
             gpuRecords.push_back(instance.Gpu);
         }
+        // One upload, not two: the tail is part of the same array, so appending
+        // here keeps the two regions contiguous by construction rather than by
+        // two offsets that could drift apart.
+        gpuRecords.insert(gpuRecords.end(), bonePalette.begin(), bonePalette.end());
         m_InstanceBuffer->SetData(gpuRecords.data(),
                                   static_cast<u32>(gpuRecords.size() * sizeof(VirtualInstanceGpuRecord)), 0);
 
@@ -1307,6 +1530,10 @@ namespace OloEngine
         m_GroupStatesBuffer = nullptr;
         m_VertexBuffer = nullptr;
         m_LightmapUVBaseElement = 0;
+        m_SkinningBaseElement = 0;
+        m_ClusterBoneBaseElement = 0;
+        m_BonePaletteBaseElement = 0;
+        m_BonePaletteElementCount = 0;
         m_InstanceBuffer = nullptr;
         m_CommandBuffer = nullptr;
         m_ArgsBuffer = nullptr;

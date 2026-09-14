@@ -48,7 +48,17 @@ struct VirtualCluster {
     uint _Pad2;
 };
 
-// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B)
+// Mirrors OloEngine::VirtualGroupGpuRecord (32 B). The monotone LOD selection
+// unit: a group's error is >= that of every group it refines, and its sphere
+// contains theirs, which is what makes the DAG cut watertight from any
+// viewpoint. Only the cull reads it.
+struct VirtualGroup {
+    vec4 LODSphere;    // xyz mesh-local center, w radius
+    float Error;       // absolute object-space error; FLT_MAX marks terminal groups
+    float _p0; float _p1; float _p2;
+};
+
+// Mirrors OloEngine::VirtualInstanceGpuRecord (256 B)
 struct VirtualInstance {
     mat4 Transform;      // render-origin-relative
     mat4 PrevTransform;
@@ -65,6 +75,20 @@ struct VirtualInstance {
     // page in the integer part of .z. All zeros = no lightmap; every consumer
     // gates on the .x scale lane, never on the colour.
     vec4 LightmapScaleOffset;
+    // Skinning (issue #1150). Flags bit3 (kFlagSkinned) says the instance
+    // deforms; SkinBoneBase/Count address its palette inside THIS buffer's tail
+    // (a palette entry is one of these records, reusing the three matrices with
+    // their own meanings); SkinClusterBoneBase addresses its per-cluster bone
+    // sets in the vertex arena; SkinBoundsPadding is the conservative
+    // object-space displacement bound every group radius grows by.
+    //
+    // Declared even where unused: the std430 array stride IS the struct size, so
+    // omitting it makes every instance after the first read the previous one's
+    // transform.
+    uint SkinBoneBase;
+    uint SkinBoneCount;
+    uint SkinClusterBoneBase;
+    float SkinBoundsPadding;
 };
 
 // Mirrors OloEngine::VirtualVisibleCluster (16 B)

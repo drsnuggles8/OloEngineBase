@@ -74,6 +74,7 @@ namespace OloEngine
     //      8     8  ViewportWidth / ViewportHeight (resolve + shadow)
     //     16     8  ArgsSlot / MaxClusters         (mesh task stage, #813)
     //     24     8  LightmapUVBase / SwListCapacity
+    //     32    16  SkinningBase / SkinningPad0..2    (skinned VG, #1150)
     struct VirtualDrawInfoGpu
     {
         u32 InstanceIndex = 0;
@@ -95,9 +96,24 @@ namespace OloEngine
         // list. Claimed out of the block's second pad word, same as
         // LightmapUVBase claimed the first.
         u32 SwListCapacity = 0;
+        // First ELEMENT of the packed skin-binding tail inside the vertex arena
+        // (issue #1150), two bindings to a 32-byte element — see
+        // VirtualSkinningPacking.h for why it has no binding of its own. 0 = this
+        // arena carries no skinning, and every reader must treat that as
+        // don't-fetch for the same reason LightmapUVBase must: past the arena
+        // there are no bounds on a buffer-device-address read.
+        //
+        // A NEW 16 bytes rather than a claimed pad, because there was no pad
+        // left: #867 and #1058 took the last two words. std140 rounds the block
+        // to a 16-byte multiple anyway, so the three that follow cost nothing
+        // and are named rather than left implicit.
+        u32 SkinningBase = 0;
+        u32 SkinningPad0 = 0;
+        u32 SkinningPad1 = 0;
+        u32 SkinningPad2 = 0;
     };
-    static_assert(sizeof(VirtualDrawInfoGpu) == 32,
-                  "std140 mirror in include/VirtualDrawInfo.glsl expects a 32-byte block");
+    static_assert(sizeof(VirtualDrawInfoGpu) == 48,
+                  "std140 mirror in include/VirtualDrawInfo.glsl expects a 48-byte block");
     static_assert(sizeof(VirtualDrawInfoGpu) % 16 == 0,
                   "std140 block size must be a 16-byte multiple");
 
@@ -170,6 +186,7 @@ namespace OloEngine
     //    192     4  ClusterBase / 196 ClusterCount / 200 GroupBase / 204 EntityID
     //    208     4  MaxScale / 212 ErrorThresholdPixels / 216 CommandBase / 220 Flags (bit0 = uniform scale)
     //    224    16  LightmapScaleOffset (baked atlas region, issue #867)
+    //    240    16  SkinBoneBase / SkinBoneCount / SkinClusterBoneBase / SkinBoundsPadding (#1150)
     struct VirtualInstanceGpuRecord
     {
         glm::mat4 Transform{ 1.0f };
@@ -234,8 +251,60 @@ namespace OloEngine
         // and VirtualMeshShadowDepth.glsl. A stride mismatch does not error; every
         // instance past the first reads the previous one's transform.
         glm::vec4 LightmapScaleOffset{ 0.0f };
+
+        // The instance DEFORMS: it carries a bone palette and every bound the
+        // cull reads was cooked against a pose it is no longer in (issue #1150).
+        // Three things change in VirtualClusterCull.comp when it is set:
+        //   * cluster cull spheres are recomputed from the live bone palette
+        //     rather than used as cooked;
+        //   * the normal-cone backface test is SKIPPED, because a cone baked in
+        //     the rest pose says nothing about where the deformed triangles face
+        //     — and a cone test that has stopped being true drops clusters that
+        //     are on screen;
+        //   * every group LOD sphere grows by SkinBoundsPadding and every group
+        //     error scales, keeping the DAG cut watertight (VirtualSkinningBounds.h).
+        static constexpr u32 kFlagSkinned = 1u << 3;
+
+        // ── Skinning (issue #1150), all zero for a rigid instance ────────────
+
+        // First ELEMENT of this instance's bone palette inside the INSTANCE
+        // buffer's own tail, one palette entry per element.
+        //
+        // The palette rides this buffer rather than getting a binding for the
+        // same reason the vertex streams ride the vertex arena — there is no
+        // binding to get (VirtualSkinningPacking.h) — but it rides THIS one and
+        // not the vertex arena because of LIFETIME: bone matrices change every
+        // frame and the vertex arena is device-local static geometry filled by
+        // page loads. This buffer is restaged every frame already.
+        //
+        // A palette entry IS a VirtualInstanceGpuRecord, reusing its three mat4s
+        // with exactly their meanings: Transform = the bone's current skinning
+        // matrix, PrevTransform = last frame's (per-bone velocity, the same
+        // thing PrevBoneMatrices gives the classic path), NormalMatrix = the
+        // matrix its normals transform by. That is why this is not a wasteful
+        // reinterpretation of an unrelated struct: a posed bone needs those
+        // three matrices and nothing else, and GLSL cannot reinterpret an array
+        // of one block type as another anyway.
+        u32 SkinBoneBase = 0;
+        // Palette entries. 0 = not skinned, which is the ONLY thing a reader
+        // should test — SkinBoneBase of 0 is a legal base for the first skinned
+        // instance in the buffer.
+        u32 SkinBoneCount = 0;
+        // First ELEMENT of THIS PART's per-cluster bone sets inside the vertex
+        // arena's cluster-bone tail, i.e. the tail base plus this part's pooled
+        // ClusterBase. Cluster `c` of this instance reads element
+        // SkinClusterBoneBase + (c - ClusterBase).
+        u32 SkinClusterBoneBase = 0;
+        // Conservative OBJECT-SPACE displacement bound for the current pose
+        // (VirtualSkinningBounds::SkinDisplacementBound): no point of the rest
+        // surface moves further than this. Added to every group LOD radius and
+        // to any cluster radius that had no tight bound of its own.
+        //
+        // Object space, not world: the cull already scales mesh-local radii by
+        // MaxScale, and a padding in world units would be scaled twice.
+        f32 SkinBoundsPadding = 0.0f;
     };
-    static_assert(sizeof(VirtualInstanceGpuRecord) == 240, "std430 mirrors (5 of them) expect 240-byte instance records");
+    static_assert(sizeof(VirtualInstanceGpuRecord) == 256, "std430 mirrors (5 of them) expect 256-byte instance records");
     static_assert(sizeof(VirtualInstanceGpuRecord) % 16 == 0, "std430 array stride must stay a 16-byte multiple");
 
     // Per-instance cull output header. The first field doubles as the
@@ -306,6 +375,14 @@ namespace OloEngine
         // they must always be either equal in size or this one empty — the
         // registry checks that before it uploads.
         std::vector<glm::vec2> LightmapUVs;
+        // Cluster-owned skin bindings, one per entry of Vertices, or EMPTY for a
+        // rigid cook (issue #1150). Same lockstep contract as LightmapUVs: equal
+        // in size to Vertices or empty, checked before upload.
+        std::vector<VirtualVertexSkinning> Skinning;
+        // Copied straight from the cook — see PackVirtualMeshForGpu for why
+        // neither needs expanding.
+        std::vector<VirtualBoneBounds> BoneBounds;
+        std::vector<u32> ClusterBoneRefs; // kMaxClusterBones per cluster, cluster-major
         std::vector<u32> Indices;
         std::vector<VirtualClusterGpuRecord> Clusters;
         std::vector<VirtualGroupGpuRecord> Groups;
@@ -314,6 +391,16 @@ namespace OloEngine
         [[nodiscard]] bool IsValid() const
         {
             return !Clusters.empty() && !Groups.empty();
+        }
+
+        // The one predicate consumers ask, and it is deliberately the FULL
+        // consistency check rather than `!Skinning.empty()`: a part whose
+        // streams fell out of step must not be treated as skinned at all, or the
+        // upload addresses one vertex's bones with another's binding.
+        [[nodiscard]] bool IsSkinned() const
+        {
+            return !Skinning.empty() && Skinning.size() == Vertices.size() && !BoneBounds.empty() &&
+                   ClusterBoneRefs.size() == Clusters.size() * kMaxClusterBones;
         }
     };
 

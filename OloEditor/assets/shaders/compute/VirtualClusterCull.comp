@@ -60,44 +60,16 @@
 
 layout(local_size_x = 64) in;
 
-// Mirrors OloEngine::VirtualClusterGpuRecord (VirtualMeshGpuData.h, 64 B std430).
-// Drift here produces silent culling corruption; pinned by static_asserts + parity test.
-struct VirtualCluster {
-    vec4 CullSphere;   // xyz mesh-local center, w radius
-    vec4 Cone;         // xyz mesh-local axis, w cutoff (>= 1 disables)
-    uint VertexBase;
-    uint IndexBase;
-    uint IndexCount;
-    uint GroupIndex;
-    uint RefinedGroup; // ~0u for LOD-0 clusters
-    uint _p0; uint _p1; uint _p2;
-};
-
-// Mirrors OloEngine::VirtualGroupGpuRecord (32 B std430).
-struct VirtualGroup {
-    vec4 LODSphere;    // xyz mesh-local center, w radius
-    float Error;       // absolute object-space error; FLT_MAX marks terminal groups
-    float _p0; float _p1; float _p2;
-};
-
-// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430).
-struct VirtualInstance {
-    mat4 Transform;      // render-origin-relative
-    mat4 PrevTransform;
-    mat4 NormalMatrix;
-    uint ClusterBase;
-    uint ClusterCount;
-    uint GroupBase;
-    int  EntityID;
-    float MaxScale;
-    float ErrorThresholdPixels;
-    uint CommandBase;
-    uint Flags;          // bit0 = uniform scale (enables the cone test)
-    // Baked lightmap atlas region (issue #867). Declared even where unused: the
-    // std430 array stride IS the struct size, so omitting it makes every
-    // instance after the first read the previous one's transform.
-    vec4 LightmapScaleOffset;
-};
+// STRUCT MIRRORS — one spelling, in include/VirtualGeometryGpuStructs.glsl.
+//
+// This file carried its own copies until issue #1150, which grew
+// VirtualInstance from 240 to 256 bytes. FIVE hand-written copies had to move
+// together, and a std430 stride mismatch does not error: every instance past
+// the first reads the previous one's transform. The copies were already
+// recorded as follow-up work by the shared header; a change that has to touch
+// all of them is when that debt comes due.
+#include "../include/VirtualGeometryGpuStructs.glsl"
+#include "../include/VirtualSkinning.glsl"
 
 // DrawElementsIndirectCommand, 32 B stride (matches GPUFrustumCuller's IndirectCommandPOD).
 struct DrawCommand {
@@ -118,19 +90,22 @@ struct DrawArgs {
     uint SwCount;
 };
 
-// Mirrors OloEngine::VirtualVisibleCluster (16 B std430).
-struct VisibleCluster {
-    uint InstanceIndex;
-    uint ClusterIndex;
-    uint _p0; uint _p1;
-};
-
 layout(std430, binding = 33) readonly buffer VirtualClusters { VirtualCluster clusters[]; };
 layout(std430, binding = 34) readonly buffer VirtualGroups { VirtualGroup groups[]; };
 layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
 layout(std430, binding = 36) writeonly buffer VirtualDrawCommands { DrawCommand commands[]; };
 layout(std430, binding = 37) buffer VirtualDrawArgsBuf { DrawArgs args[]; };
 layout(std430, binding = 38) writeonly buffer VirtualVisible { VisibleCluster visible[]; };
+
+// The cluster VERTEX ARENA, bound here for its TAIL and not for its vertices
+// (issue #1150): the per-cluster bone sets ride it, because the SSBO namespace
+// has no free number below Mesa's ceiling of 80 and this pass already has the
+// buffer resident. The cull never reads a vertex.
+//
+// Read unconditionally safe: the tail is addressed only inside the skinned
+// branch, which requires SkinClusterBoneBase to be non-zero — and that is only
+// non-zero when the registry actually allocated the tail.
+layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
 
 // Software-raster work list (slice 3): header count + records, appended for
 // clusters whose projected coverage is under u_SwRasterThresholdPixels.
@@ -357,10 +332,134 @@ float ProjectErrorPixels(vec3 worldCenter, float worldRadius, float worldError)
     return worldError / denom * (proj11 * 0.5) * u_ViewportHeight;
 }
 
+// ── Skinned virtual geometry: the deformed cluster bound (issue #1150) ──────
+//
+// Every bound this shader reads was cooked against the REST POSE. For a
+// deforming instance that is not merely imprecise: a cull sphere that has
+// stopped containing its cluster drops geometry that is on screen, and it does
+// it silently — the character flickers apart rather than erroring.
+//
+// THE INEQUALITY (derived in full in VirtualSkinningBounds.h, whose CPU
+// implementation this mirrors): a skinned position is a CONVEX COMBINATION
+//     p'(v) = SUM_b w_b * M_b * v ,  w_b >= 0 ,  SUM w_b = 1
+// so it never leaves the convex hull of { M_b * v }. Each M_b * v of this
+// cluster lies inside sphere(M_b * c, s_b * r), so a sphere covering all of
+// those spheres covers the deformed cluster — WITHOUT knowing a single weight.
+// Only which bones are involved matters, which is exactly what the cook stored.
+//
+// Returns an OBJECT-space sphere; the caller applies inst.Transform and
+// MaxScale as it does for a rigid cluster.
+//
+// `usePrevPose` selects the palette's previous-frame matrices, for the phase-1
+// Hi-Z test that reprojects through PrevTransform. Getting that one wrong would
+// only cost a deferral — phase 1 is allowed to reject wrongly and phase 2
+// recovers it — but the palette carries both poses, so there is no reason to.
+vec4 SkinnedClusterSphere(VirtualInstance inst, uint clusterIndex, vec4 restSphere, bool usePrevPose)
+{
+    // No tail allocated, or no palette: fall back to the instance-wide bound.
+    if (inst.SkinClusterBoneBase == 0u || inst.SkinBoneCount == 0u)
+    {
+        return vec4(restSphere.xyz, restSphere.w + inst.SkinBoundsPadding);
+    }
+
+    uint element = inst.SkinClusterBoneBase + (clusterIndex - inst.ClusterBase);
+    vec4 boneLow = vertices[element].PositionU;
+    vec4 boneHigh = vertices[element].NormalV;
+    vec3 restCenter = restSphere.xyz;
+
+    // Pass 1 — the centroid of the per-bone images of the rest centre. Any
+    // point inside the hull would be correct; the centroid is what keeps the
+    // radius small when two bones pull in opposite directions.
+    // EVERY listed bone must be in the palette, not merely one of them: a
+    // vertex whose only influences are bones the palette does not have is left
+    // in its REST position by the skin, and the hull of the bones that ARE
+    // present need not contain that position. `listed != used` below is what
+    // turns that into the instance-wide fallback instead of a bound that is
+    // quietly too small. (The cook applies the same rule to a cluster holding a
+    // vertex with no influence at all — it emits an all-sentinel list.)
+    vec3 sum = vec3(0.0);
+    uint used = 0u;
+    uint listed = 0u;
+    for (int k = 0; k < OLO_MAX_CLUSTER_BONES; ++k)
+    {
+        uint boneId = oloClusterBoneRef(boneLow, boneHigh, k);
+        if (boneId == OLO_NO_CLUSTER_BONE)
+        {
+            continue;
+        }
+        listed += 1u;
+        if (boneId >= inst.SkinBoneCount)
+        {
+            continue;
+        }
+        // Member access rather than a struct copy: a VirtualInstance is 256
+        // bytes and only one of its matrices is wanted here.
+        uint slot = inst.SkinBoneBase + boneId;
+        mat4 pose = usePrevPose ? instances[slot].PrevTransform : instances[slot].Transform;
+        sum += (pose * vec4(restCenter, 1.0)).xyz;
+        used += 1u;
+    }
+    if (used == 0u || used != listed)
+    {
+        // The cluster's set overflowed at cook time (all-sentinel), or it names
+        // a bone this palette does not have — either way there is no tight
+        // bound to build, and the instance-wide displacement bound is the
+        // honest answer. Loss of culling precision, never loss of geometry.
+        return vec4(restCenter, restSphere.w + inst.SkinBoundsPadding);
+    }
+    vec3 center = sum / float(used);
+
+    // Pass 2 — the radius that reaches every bone's image sphere.
+    float radius = 0.0;
+    for (int k = 0; k < OLO_MAX_CLUSTER_BONES; ++k)
+    {
+        uint boneId = oloClusterBoneRef(boneLow, boneHigh, k);
+        if (boneId == OLO_NO_CLUSTER_BONE)
+        {
+            continue;
+        }
+        uint slot = inst.SkinBoneBase + boneId;
+        mat4 pose = usePrevPose ? instances[slot].PrevTransform : instances[slot].Transform;
+        vec3 posedCenter = (pose * vec4(restCenter, 1.0)).xyz;
+        radius = max(radius, length(posedCenter - center) + oloSkinBoneScale(pose) * restSphere.w);
+    }
+    return vec4(center, radius);
+}
+
+// This cluster's object-space cull sphere for the current (or previous) pose —
+// the cooked one for a rigid instance, the deformed one for a skinned one. The
+// ONE place the branch is written, so no test can accidentally use the rest
+// sphere on a deforming instance.
+vec4 ClusterObjectSphere(VirtualInstance inst, uint clusterIndex, VirtualCluster cluster, bool usePrevPose)
+{
+    if ((inst.Flags & 8u) == 0u)
+    {
+        return cluster.CullSphere;
+    }
+    return SkinnedClusterSphere(inst, clusterIndex, cluster.CullSphere, usePrevPose);
+}
+
 float ProjectGroupErrorPixels(VirtualGroup grp, VirtualInstance inst)
 {
     vec3 worldCenter = (inst.Transform * vec4(grp.LODSphere.xyz, 1.0)).xyz;
-    float worldRadius = grp.LODSphere.w * inst.MaxScale;
+    // ONE instance-wide padding on every group radius, never a per-group
+    // deformed sphere (issue #1150), and this is the load-bearing half of the
+    // skinned bounds story rather than a cheaper approximation of it.
+    //
+    // The DAG cut is not a rejection — it is a CHOICE between levels, and its
+    // watertightness rests on two builder invariants: group errors are monotone
+    // along every DAG edge, and group LOD spheres are NESTED. Deform each group
+    // independently and both are gone, the projected error stops being monotone,
+    // neighbouring clusters pick different levels, and the surface cracks along
+    // the seam. Adding the SAME scalar to every radius preserves containment
+    // exactly — if |c_p - c_c| + r_c <= r_p then |c_p - c_c| + (r_c + D) <= r_p + D
+    // — so the cut stays watertight for every pose.
+    //
+    // Zero for a rigid instance, so this line is the rigid behaviour unchanged.
+    // The matching ERROR scale is not here: it is folded into
+    // inst.ErrorThresholdPixels on the CPU, which is exactly equivalent and
+    // costs this loop nothing (see VirtualMeshRegistry's staging).
+    float worldRadius = (grp.LODSphere.w + inst.SkinBoundsPadding) * inst.MaxScale;
     // FLT_MAX * scale may overflow to +inf — both compare > threshold, which is
     // exactly the terminal-group semantic (never refined away).
     float worldError = grp.Error * inst.MaxScale;
@@ -479,7 +578,16 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
     DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 1, vec3(0.2, 1.0, 0.3));
 
     bool alphaMasked = (inst.Flags & 2u) != 0u;
-    if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked)
+    // SKINNED clusters never software-rasterize (issue #1150). The compute
+    // rasterizer and the visibility resolve each fetch and transform the vertex
+    // themselves, so posing there means a SECOND and a THIRD implementation of
+    // the skin, and all three would have to agree bit for bit or the depth a
+    // fragment won with stops matching the surface it is then shaded from. The
+    // hardware arms share one SkinVirtualVertex; these two would not. Recorded
+    // as a decision, with the cost measured, in
+    // docs/adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md.
+    bool skinnedInstance = (inst.Flags & 8u) != 0u;
+    if (u_SwRasterThresholdPixels > 0.0 && u_OrthoMode == 0 && !alphaMasked && !skinnedInstance)
     {
         float dist = length(worldCenter - CullCameraPosition());
         float denom = max(dist - worldRadius, NearPlane());
@@ -503,8 +611,8 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
                 VisibleCluster swRecord;
                 swRecord.InstanceIndex = instanceIndex;
                 swRecord.ClusterIndex = clusterIndex;
-                swRecord._p0 = 0u;
-                swRecord._p1 = 0u;
+                swRecord._Pad0 = 0u;
+                swRecord._Pad1 = 0u;
                 swList.Records[swSlot] = swRecord;
                 atomicAdd(args[argsIndex].SwCount, 1);
                 return;
@@ -533,8 +641,8 @@ void EmitSurvivor(uint instanceIndex, uint clusterIndex, VirtualInstance inst, V
     VisibleCluster record;
     record.InstanceIndex = instanceIndex;
     record.ClusterIndex = clusterIndex;
-    record._p0 = 0u;
-    record._p1 = 0u;
+    record._Pad0 = 0u;
+    record._Pad1 = 0u;
     visible[globalSlot] = record;
 }
 
@@ -558,8 +666,9 @@ void Phase2()
     VirtualInstance inst = instances[rejected.InstanceIndex];
     VirtualCluster cluster = clusters[rejected.ClusterIndex];
 
-    vec3 worldCenter = (inst.Transform * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
-    float worldRadius = cluster.CullSphere.w * inst.MaxScale;
+    vec4 objectSphere = ClusterObjectSphere(inst, rejected.ClusterIndex, cluster, false);
+    vec3 worldCenter = (inst.Transform * vec4(objectSphere.xyz, 1.0)).xyz;
+    float worldRadius = objectSphere.w * inst.MaxScale;
 
     // u_OcclusionEnabled == 0 here means the current-frame pyramid could not be
     // built — then EVERY reject is emitted, because a phase-1 reject that is
@@ -625,8 +734,11 @@ void main()
     atomicAdd(args[u_InstanceIndex].CutSelected, 1);
 
     // ── Frustum cull (world-space cull sphere vs. the 6 VP planes) ──
-    vec3 worldCenter = (inst.Transform * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
-    float worldRadius = cluster.CullSphere.w * inst.MaxScale;
+    // Deformed for a skinned instance (issue #1150) — a rest-pose sphere would
+    // reject a cluster an animation has moved into view.
+    vec4 objectSphere = ClusterObjectSphere(inst, clusterIndex, cluster, false);
+    vec3 worldCenter = (inst.Transform * vec4(objectSphere.xyz, 1.0)).xyz;
+    float worldRadius = objectSphere.w * inst.MaxScale;
 
     vec4 planes[6];
     planes[0] = extractPlane(0,  1.0); // Left
@@ -675,8 +787,15 @@ void main()
     // behind) ──
     // meshoptimizer sphere-based form: reject when
     //   dot(center - camera, axis) >= cutoff * |center - camera| + radius.
+    // ...and never for a SKINNED instance (issue #1150): the cone was fitted to
+    // the REST pose, and a deformation rotates the very normals it summarises.
+    // "Every triangle in this cluster faces away" is then a statement about
+    // geometry that no longer exists, and acting on it drops clusters that are
+    // facing the camera. Dropping a cull is always safe; keeping a stale one is
+    // not.
     bool twoSided = (inst.Flags & 4u) != 0u;
-    if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && !twoSided && cluster.Cone.w < 1.0)
+    bool skinned = (inst.Flags & 8u) != 0u;
+    if (u_OrthoMode == 0 && (inst.Flags & 1u) != 0u && !twoSided && !skinned && cluster.Cone.w < 1.0)
     {
         vec3 worldAxis = normalize(mat3(inst.Transform) * cluster.Cone.xyz);
         vec3 toCluster = worldCenter - CullCameraPosition();
@@ -705,9 +824,14 @@ void main()
     if (u_OcclusionEnabled != 0 && u_OrthoMode == 0 && u_HZBMipCount > 0)
     {
         mat4 prev = inst.PrevTransform;
-        vec3 occCenter = (prev * vec4(cluster.CullSphere.xyz, 1.0)).xyz;
+        // The previous POSE as well as the previous transform for a skinned
+        // instance (issue #1150) — the palette carries both, so there is no
+        // reason to reproject last frame's screen position from this frame's
+        // pose.
+        vec4 prevObjectSphere = ClusterObjectSphere(inst, clusterIndex, cluster, true);
+        vec3 occCenter = (prev * vec4(prevObjectSphere.xyz, 1.0)).xyz;
         float occScale = max(max(length(prev[0].xyz), length(prev[1].xyz)), length(prev[2].xyz));
-        float occRadius = cluster.CullSphere.w * occScale;
+        float occRadius = prevObjectSphere.w * occScale;
         if (IsOccluded(occCenter, occRadius))
         {
             DebugEmitCluster(clusterIndex, worldCenter, worldRadius, 8, vec3(1.0, 0.9, 0.15));
@@ -720,8 +844,8 @@ void main()
                 VisibleCluster rejected;
                 rejected.InstanceIndex = u_InstanceIndex;
                 rejected.ClusterIndex = clusterIndex;
-                rejected._p0 = 0u;
-                rejected._p1 = 0u;
+                rejected._Pad0 = 0u;
+                rejected._Pad1 = 0u;
                 rejectList.Records[slot] = rejected;
                 return; // handed to phase 2
             }

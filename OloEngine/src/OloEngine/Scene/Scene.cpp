@@ -161,6 +161,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <ranges>
+#include <span>
 
 // Box2D
 #include <box2d/box2d.h>
@@ -7177,10 +7178,18 @@ namespace OloEngine
     // fallback is a second, separately-maintained transcription of this loop. Every bug this
     // subsystem has produced came from two paths that were supposed to agree and quietly did
     // not (issue #629); this one is not going to be the next.
+    //
+    // `boneMatrices` makes the submission SKINNED (issue #1150), which matters
+    // here for exactly the reason the paragraph above gives: a skinned
+    // VirtualMeshComponent falling back to a RIGID classic draw would show the
+    // character in its rest pose the moment the toggle is flipped, and an A/B
+    // where one arm is not animated answers a question nobody asked.
     static void SubmitMeshSourceClassic(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
                                         const Material* overrideMaterial, i32 entityID, u64 stableEntityId,
                                         const LODGroup* lodGroup, bool meshHasActiveShadows,
-                                        const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f))
+                                        const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
+                                        std::span<const glm::mat4> boneMatrices = {},
+                                        std::span<const glm::mat4> prevBoneMatrices = {})
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
@@ -7192,6 +7201,44 @@ namespace OloEngine
             auto submesh = Ref<Mesh>::Create(meshSource, i);
             const Material* importedMaterial = meshSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i));
             const Material& material = ResolveSubmeshMaterial(overrideMaterial, importedMaterial, GetDefaultMaterial());
+
+            // The skinned arm (issue #1150). Deliberately a BRANCH inside this
+            // loop rather than a second loop: material resolution, the shadow
+            // rule and the DDGI caster below are the parts that have drifted
+            // between paths before, and they stay written once.
+            if (!boneMatrices.empty())
+            {
+                // A skinned entity is not representable in GPU Scene (the
+                // canonical record holds one rigid transform), so no staging and
+                // no draw link — the same exclusion the animated-mesh loop and
+                // RayTracingScene already apply.
+                const std::vector<glm::mat4> bones(boneMatrices.begin(), boneMatrices.end());
+                const std::vector<glm::mat4> prevBones(
+                    prevBoneMatrices.size() == boneMatrices.size()
+                        ? std::vector<glm::mat4>(prevBoneMatrices.begin(), prevBoneMatrices.end())
+                        : bones);
+                auto* skinnedPacket =
+                    Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, bones, prevBones, false, entityID);
+                if (skinnedPacket)
+                {
+                    Renderer3D::SubmitPacket(skinnedPacket);
+                    if (meshHasActiveShadows && MaterialCastsShadows(material))
+                    {
+                        if (auto skinnedVa = submesh->GetVertexArray(); skinnedVa)
+                        {
+                            if (const auto* cmd = skinnedPacket->GetCommandData<DrawMeshCommand>(); cmd)
+                            {
+                                Renderer3D::AddSkinnedShadowCaster(
+                                    skinnedVa->GetRHIHandle(), submesh->GetIndexCount(), submesh->GetBaseIndex(),
+                                    worldTransform, cmd->boneBufferOffset, cmd->boneCount,
+                                    submesh->GetTransformedBoundingBox(worldTransform));
+                            }
+                        }
+                    }
+                }
+                SubmitDDGICasterIfCollecting(submesh, worldTransform, material);
+                continue;
+            }
             // Canonical material record (issue #992), visited once per key per
             // frame, plus the migrated raster path (issue #994): the submesh is
             // staged as a canonical instance and the draw carries the LINK to
@@ -10765,6 +10812,24 @@ namespace OloEngine
                     lightmapScaleOffset = m_LightmapRuntime->GetScaleOffset(m_Registry.get<IDComponent>(entity).ID);
                 }
 
+                // A VirtualMeshComponent alongside a SkeletonComponent is a
+                // SKINNED virtual mesh (issue #1150). The palette is the very
+                // one the classic animated-mesh loop hands to DrawAnimatedMesh
+                // — read from the same skeleton, never re-posed here, because
+                // two evaluations of one animation are two different poses the
+                // moment either changes.
+                //
+                // Read BEFORE the master-switch fallback below so both arms of
+                // the A/B pose the character identically.
+                std::span<const glm::mat4> boneMatrices;
+                std::span<const glm::mat4> prevBoneMatrices;
+                if (const auto* skeletonComponent = m_Registry.try_get<SkeletonComponent>(entity);
+                    skeletonComponent != nullptr && skeletonComponent->m_Skeleton)
+                {
+                    boneMatrices = skeletonComponent->m_Skeleton->m_FinalBoneMatrices;
+                    prevBoneMatrices = skeletonComponent->m_Skeleton->m_PrevFinalBoneMatrices;
+                }
+
                 // Master switch off (RendererSettings::VirtualGeometryEnabled): draw the very
                 // same MeshSource through the classic mesh path instead of dropping it. Same
                 // geometry, same material-resolution rule, same shadow-caster rule, same baked
@@ -10775,7 +10840,7 @@ namespace OloEngine
                     SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID, stableEntityId,
                                             /*lodGroup*/ nullptr,
                                             meshHasActiveShadows && virtualMesh.m_CastShadows,
-                                            lightmapScaleOffset);
+                                            lightmapScaleOffset, boneMatrices, prevBoneMatrices);
                     continue;
                 }
 
@@ -10804,7 +10869,7 @@ namespace OloEngine
                 const bool queued = Renderer3D::SubmitVirtualMesh(
                     virtualMesh.m_MeshSource, meshSource, worldTransform, overrideMaterial,
                     GetDefaultMaterial(), entityID, stableEntityId, virtualMesh.m_ErrorThresholdPixels,
-                    castsShadow, lightmapScaleOffset);
+                    castsShadow, lightmapScaleOffset, boneMatrices, prevBoneMatrices);
                 if (queued)
                 {
                     ++vgDiagnostics.Submitted;

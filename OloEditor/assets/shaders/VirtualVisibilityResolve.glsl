@@ -62,54 +62,15 @@ void main()
 #include "include/PBRCommon.glsl"
 #include "include/VirtualDebugViz.glsl"
 
-// Mirrors OloEngine::VirtualClusterGpuRecord (64 B std430)
-struct VirtualCluster {
-    vec4 CullSphere;
-    vec4 Cone;
-    uint VertexBase;
-    uint IndexBase;
-    uint IndexCount;
-    uint GroupIndex;
-    uint RefinedGroup;
-    uint Lod;
-    // Was `_p1` here until issue #1058. It has been a real field since #813 (see
-    // VirtualClusterGpuRecord); this pass needs it to bound the cluster-local
-    // vertex indices it pulls, so it is spelled out rather than left as padding.
-    uint VertexCount;
-    uint _p2;
-};
-
-// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
-struct VirtualInstance {
-    mat4 Transform;
-    mat4 PrevTransform;
-    mat4 NormalMatrix;
-    uint ClusterBase;
-    uint ClusterCount;
-    uint GroupBase;
-    int  EntityID;
-    float MaxScale;
-    float ErrorThresholdPixels;
-    uint CommandBase;
-    uint Flags;
-    // Baked lightmap atlas region (issue #867). Declared even where unused: the
-    // std430 array stride IS the struct size, so omitting it makes every
-    // instance after the first read the previous one's transform.
-    vec4 LightmapScaleOffset;
-};
-
-// Mirrors OloEngine::VirtualGpuVertex (32 B std430)
-struct VirtualGpuVertex {
-    vec4 PositionU;
-    vec4 NormalV;
-};
-
-// Mirrors OloEngine::VirtualVisibleCluster (16 B std430)
-struct VisibleCluster {
-    uint InstanceIndex;
-    uint ClusterIndex;
-    uint _p0; uint _p1;
-};
+// STRUCT MIRRORS — one spelling, in include/VirtualGeometryGpuStructs.glsl.
+//
+// This file carried its own copies until issue #1150, which grew
+// VirtualInstance from 240 to 256 bytes. FIVE hand-written copies had to move
+// together, and a std430 stride mismatch does not error: every instance past
+// the first reads the previous one's transform. The copies were already
+// recorded as follow-up work by the shared header; a change that has to touch
+// all of them is when that debt comes due.
+#include "include/VirtualGeometryGpuStructs.glsl"
 
 layout(std430, binding = 33) readonly buffer VirtualClusters { VirtualCluster clusters[]; };
 layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };

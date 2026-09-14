@@ -92,7 +92,12 @@ namespace OloEngine
     {
         // Builds the DAG for ONE submesh's triangle range. Returns an empty mesh
         // (IsValid() == false) for unsupported input: no geometry, a degenerate range, or a
-        // skinned/morph-target source.
+        // MORPH-TARGET source.
+        //
+        // A SKINNED source builds (issue #1150): its per-vertex bone bindings ride the same
+        // compaction the vertices do, and the finished DAG carries the per-bone rest spheres
+        // and per-cluster bone sets the runtime needs to keep its bounds conservative under
+        // animation (VirtualSkinningBounds.h). Morph targets remain rejected and say so.
         [[nodiscard]] VirtualMesh BuildSubmesh(const MeshSource& meshSource, u32 submeshIndex,
                                                const VirtualMeshBuildConfig& config = {});
 
@@ -102,8 +107,8 @@ namespace OloEngine
         // and is drawn as its own instance with its own material.
         //
         // Submeshes the builder cannot handle are skipped, not fatal — the set is valid as
-        // long as at least one part built. Still rejects skinned / morph-target sources
-        // outright: those deform at runtime, so a static cluster DAG would be wrong.
+        // long as at least one part built. Still rejects MORPH-TARGET sources outright:
+        // an arbitrary per-vertex displacement field has no bone set to bound it with.
         [[nodiscard]] VirtualMeshSet BuildSet(const MeshSource& meshSource, const VirtualMeshBuildConfig& config = {});
 
         // Single-DAG convenience for a single-submesh source (and the CPU unit tests).

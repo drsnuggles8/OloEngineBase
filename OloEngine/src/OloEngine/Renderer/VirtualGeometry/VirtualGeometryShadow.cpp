@@ -105,6 +105,14 @@ namespace OloEngine::VirtualGeometryShadow
         // view. No recording item uploads this shared object. The cull barrier
         // below orders its GPU accesses before the next view's cull.
         registry.GetGroupStatesBuffer()->Bind();
+        // The cluster VERTEX ARENA (SSBO 39). The CULL reads it since issue
+        // #1150 — the per-cluster bone sets ride its tail — and the depth stage
+        // reads it for the vertices themselves, so it is bound for the whole
+        // route rather than left to whichever pass happened to bind it last.
+        if (registry.GetVertexBuffer())
+        {
+            registry.GetVertexBuffer()->Bind();
+        }
 
         // Ortho pixels-per-world-unit from the light VP rows.
         f32 const orthoErrorScale = OrthoErrorScale(lightVPRel, shadowResolution);
@@ -147,6 +155,9 @@ namespace OloEngine::VirtualGeometryShadow
             VirtualDrawInfoGpu drawInfo{};
             drawInfo.InstanceIndex = static_cast<u32>(i);
             drawInfo.CommandBase = instances[i].Gpu.CommandBase;
+            // A shadow must be cast by the pose the G-Buffer draws (issue
+            // #1150); leaving this 0 rasterizes the REST pose into the cascade.
+            drawInfo.SkinningBase = registry.GetSkinningBaseElement();
             resources.DrawInfo->SetData(&drawInfo, sizeof(drawInfo));
             RenderCommand::MultiDrawElementsIndirectCountRaw(
                 registry.GetVao(), commandBuffer,
@@ -242,6 +253,14 @@ namespace OloEngine::VirtualGeometryShadow
             resources.Visible->Bind();
             registry.GetSwListBuffer()->Bind(); // OrthoMode disables all SW writes.
             registry.GetGroupStatesBuffer()->Bind();
+            // The cluster VERTEX ARENA (SSBO 39). The CULL reads it since issue
+            // #1150 — the per-cluster bone sets ride its tail — and the depth stage
+            // reads it for the vertices themselves, so it is bound for the whole
+            // route rather than left to whichever pass happened to bind it last.
+            if (registry.GetVertexBuffer())
+            {
+                registry.GetVertexBuffer()->Bind();
+            }
 
             s_CullShader->Bind();
             UBOStructures::VirtualClusterCullUBO cullParams{};
@@ -291,6 +310,11 @@ namespace OloEngine::VirtualGeometryShadow
                 VirtualDrawInfoGpu drawInfo{};
                 drawInfo.InstanceIndex = static_cast<u32>(i);
                 drawInfo.CommandBase = instances[i].Gpu.CommandBase;
+                // Same contract as the cascade route above, and the consequence
+                // of missing it is worse here: a VSM page is CACHED, so a
+                // rest-pose silhouette rasterized into one survives until
+                // something invalidates that page.
+                drawInfo.SkinningBase = registry.GetSkinningBaseElement();
                 resources.DrawInfo->SetData(&drawInfo, sizeof(drawInfo));
                 RenderCommand::MultiDrawElementsIndirectCountRaw(
                     registry.GetVao(), commandBuffer,
