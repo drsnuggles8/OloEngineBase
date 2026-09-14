@@ -238,6 +238,17 @@ namespace OloEngine::Tests
         EXPECT_TRUE(read->GetParameters() == written->GetParameters())
             << "a field did not survive the YAML round-trip — the .oloskin on disk and the "
                "profile in memory describe different skin";
+
+        // The transport version needs its own assertion while it has only ONE
+        // enumerator: the sentinel above cannot make it non-default, so a
+        // serializer that never wrote the key — or never read it — would
+        // round-trip "correctly" through the default and this test would pass.
+        // Asserting on the emitted text is what covers the field until a second
+        // version exists to set it to.
+        EXPECT_NE(yaml.find("EvaluationModel"), std::string::npos)
+            << "the serializer did not emit the EvaluationModel key, so a profile authored "
+               "against a later skin transport would silently load as version 0:\n"
+            << yaml;
     }
 
     // The serializer is the second half of the validation gate: a hand-edited
@@ -400,6 +411,59 @@ namespace OloEngine::Tests
         EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::AssetMissing), 1u);
         EXPECT_EQ(table.GetAssignedSlotCount(), 0u)
             << "a profile that could not be loaded still consumed a slot";
+    }
+
+    // The negative cache must not flatten the reason. A cache that remembered
+    // only "this handle failed" would report every repeat as AssetMissing and
+    // increment that counter instead of the real one — which turns the countable
+    // half of the no-silent-fallbacks rule into a number that lies.
+    TEST_F(SkinProfileTableTest, TheNegativeCacheReportsTheOriginalReasonOnEveryRepeat)
+    {
+        SkinProfileTable table;
+        const SkinProfileResolution first = table.Resolve(0xDEADBEEFull);
+        const SkinProfileResolution second = table.Resolve(0xDEADBEEFull);
+        const SkinProfileResolution third = table.Resolve(0xDEADBEEFull);
+
+        EXPECT_EQ(first.Reason, SkinProfileFallbackReason::AssetMissing);
+        EXPECT_EQ(second.Reason, first.Reason) << "the cached repeat reported a different reason than the first resolve";
+        EXPECT_EQ(third.Reason, first.Reason);
+
+        // Counted every time, not once — the log is deduplicated, the counter is
+        // not, so "how often did this happen?" stays answerable.
+        EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::AssetMissing), 3u);
+        EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::WrongAssetType), 0u);
+        EXPECT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::NoHandle), 0u);
+    }
+
+    // A profile the author has just fixed and saved must stop shading with the
+    // fallback on the next frame. Without this the negative cache would hold it
+    // until a scene load, with the inspector showing the corrected values while
+    // the frame ignored them.
+    TEST_F(SkinProfileTableTest, ForgettingAFailedHandleMakesTheNextResolveConsultTheAssetAgain)
+    {
+        SkinProfileTable table;
+        const AssetHandle handle = MakeProfile("Reloaded");
+        ASSERT_NE(static_cast<u64>(handle), 0ULL);
+
+        // Poison the handle as if its file had been missing, then prove the
+        // cache is what is answering.
+        (void)table.Resolve(0xBADF00Dull);
+        ASSERT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::AssetMissing), 1u);
+        (void)table.Resolve(0xBADF00Dull);
+        ASSERT_EQ(table.GetFallbackCount(SkinProfileFallbackReason::AssetMissing), 2u);
+
+        table.ForgetFailedHandle(0xBADF00Dull);
+
+        // Still missing, so it fails again — the point is that it was RE-ASKED
+        // rather than answered from the cache, and a handle that now resolves
+        // takes the same door.
+        const SkinProfileResolution afterForget = table.Resolve(0xBADF00Dull);
+        EXPECT_EQ(afterForget.Reason, SkinProfileFallbackReason::AssetMissing);
+
+        // And a healthy handle resolves normally throughout.
+        const SkinProfileResolution good = table.Resolve(handle);
+        EXPECT_FALSE(good.IsFallback()) << "forgetting one handle disturbed another";
+        EXPECT_LT(good.Slot, kSkinProfileSlotNone);
     }
 
     TEST_F(SkinProfileTableTest, RunningOutOfSlotsIsReportedRatherThanAliasing)

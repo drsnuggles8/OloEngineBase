@@ -323,6 +323,14 @@ namespace OloEngine::Tests
 
         void TearDown() override
         {
+            // BEFORE anything that can fail, and in TearDown rather than at the
+            // end of the test body: an ASSERT_* returns from the test function,
+            // so a reset written after it never runs and leaves this
+            // renderer-wide switch ARMED — every later fixture in the process
+            // then renders a debug view instead of its own frame
+            // (cross-test-renderer-state.md).
+            Renderer3D::GetPostProcessSettings().MaterialDebug = MaterialDebugView::None;
+
             // The slot table is sticky by design (SkinProfileTable.h), so a
             // memory-only handle from this test must not outlive it and hold a
             // slot the next test's profile could have used.
@@ -564,12 +572,6 @@ namespace OloEngine::Tests
                                                static_cast<int>(capture.Width) * 4);
             EXPECT_NE(wrote, 0) << "failed to write " << out.string();
         }
-        // Leave the setting off for whatever runs next in this process: it is a
-        // renderer-wide switch, and a test that armed it and walked away would
-        // replace the next fixture's frame with a debug view (see
-        // cross-test-renderer-state.md).
-        Renderer3D::GetPostProcessSettings().MaterialDebug = MaterialDebugView::None;
-
         const Capture& composite = captures[0];
         const Capture& diffuse = captures[1];
         const Capture& specular = captures[2];

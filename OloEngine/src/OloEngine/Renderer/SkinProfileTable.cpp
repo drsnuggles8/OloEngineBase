@@ -30,9 +30,12 @@ namespace OloEngine
         // unusable short-circuits, and only to keep it off the file system.
         {
             std::scoped_lock lock(m_Mutex);
-            if (m_FailedHandles.contains(key))
+            if (auto it = m_FailedHandles.find(key); it != m_FailedHandles.end())
             {
-                result.Reason = SkinProfileFallbackReason::AssetMissing;
+                // The ORIGINAL reason, not a generic one — see the member's
+                // comment for why re-reporting it as AssetMissing would be worse
+                // than not caching at all.
+                result.Reason = it->second;
                 ++m_FallbackCounts[static_cast<sizet>(result.Reason)];
                 result.Parameters = SkinProfile::DefaultParameters();
                 return result;
@@ -79,9 +82,10 @@ namespace OloEngine
         if (reason != SkinProfileFallbackReason::None)
         {
             ++m_FallbackCounts[static_cast<sizet>(reason)];
-            // Remembered so the next draw does not re-open a file that is not
-            // there; still counted above, and cleared by Reset().
-            m_FailedHandles.insert(key);
+            // Remembered WITH its reason so the next draw does not re-open a
+            // file that is not there and does not misreport why; still counted
+            // above, and cleared by Reset() or ForgetFailedHandle().
+            m_FailedHandles.emplace(key, reason);
             if (m_LoggedHandles.insert(key).second)
             {
                 OLO_CORE_ERROR("SkinProfileTable - SkinProfile {} could not be used ({}); shading with the default profile.",
@@ -149,6 +153,30 @@ namespace OloEngine
         if (index >= m_FallbackCounts.size())
             return 0;
         return m_FallbackCounts[index];
+    }
+
+    void SkinProfileTable::ReportFallback(SkinProfileFallbackReason reason, AssetHandle handle)
+    {
+        const u64 key = static_cast<u64>(handle);
+        std::scoped_lock lock(m_Mutex);
+        ++m_FallbackCounts[static_cast<sizet>(reason)];
+        if (m_LoggedHandles.insert(key).second)
+        {
+            OLO_CORE_ERROR("SkinProfileTable - skin material with profile {} falls back ({}); "
+                           "shading it as a generic material.",
+                           key, ToString(reason));
+        }
+    }
+
+    void SkinProfileTable::ForgetFailedHandle(AssetHandle handle)
+    {
+        const u64 key = static_cast<u64>(handle);
+        std::scoped_lock lock(m_Mutex);
+        // The log dedup key goes with it, so the failure is reported again if
+        // the reloaded asset is still broken. A silent second failure would be
+        // worse than a repeated line.
+        m_FailedHandles.erase(key);
+        m_LoggedHandles.erase(key);
     }
 
     void SkinProfileTable::Reset()

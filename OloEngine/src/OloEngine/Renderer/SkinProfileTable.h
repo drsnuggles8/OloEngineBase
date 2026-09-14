@@ -88,6 +88,19 @@ namespace OloEngine
         // Drop every assignment. Called on scene load and renderer shutdown.
         void Reset();
 
+        // Count and log a fallback the CALLER detected, for the cases that are
+        // decided before a handle is worth resolving at all. Same contract as
+        // the reasons Resolve() raises itself: counted every time, logged once
+        // per handle.
+        void ReportFallback(SkinProfileFallbackReason reason, AssetHandle handle);
+
+        // Forget that `handle` failed, so the next resolve consults the asset
+        // manager again. Called from Renderer3D::OnAssetReloaded: a profile the
+        // author has just fixed and saved must stop shading with the fallback
+        // on the next frame, and the negative cache below would otherwise hold
+        // it until a scene load.
+        void ForgetFailedHandle(AssetHandle handle);
+
       private:
         mutable std::mutex m_Mutex;
         std::unordered_map<u64, u32> m_SlotByHandle;
@@ -96,14 +109,21 @@ namespace OloEngine
         // Handles already logged, so a missing profile on 40 000 submissions
         // produces one line rather than 40 000.
         std::unordered_set<u64> m_LoggedHandles;
-        // Handles whose asset could not be used. Consulted BEFORE the asset
-        // manager so a registered-but-deleted .oloskin is not re-opened once per
-        // skin draw per frame — the log is deduplicated, and without this the
-        // file IO would not be. The fallback is still COUNTED every time, so
-        // "how often did this happen?" stays answerable. Cleared by Reset(),
-        // which a scene load calls, so replacing the missing file and reloading
-        // recovers without a restart.
-        std::unordered_set<u64> m_FailedHandles;
+        // Handles whose asset could not be used, and WHY. Consulted BEFORE the
+        // asset manager so a registered-but-deleted .oloskin is not re-opened
+        // once per skin draw per frame — the log is deduplicated, and without
+        // this the file IO would not be. The fallback is still COUNTED every
+        // time, so "how often did this happen?" stays answerable.
+        //
+        // The reason is stored rather than just the handle: a cache that
+        // remembered only "this failed" would report the SECOND occurrence of a
+        // WrongAssetType as AssetMissing and increment the wrong counter, which
+        // turns the countable half of the house rule into a lie.
+        //
+        // Cleared by Reset() (a scene load) and per-handle by
+        // ForgetFailedHandle() (a hot reload), so a fixed profile recovers
+        // without a restart either way.
+        std::unordered_map<u64, SkinProfileFallbackReason> m_FailedHandles;
         u32 m_NextSlot = 0;
     };
 

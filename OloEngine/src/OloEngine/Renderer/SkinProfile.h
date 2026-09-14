@@ -151,7 +151,15 @@ namespace OloEngine
     {
       public:
         SkinProfile() = default;
-        explicit SkinProfile(const SkinProfileParameters& parameters) : m_Parameters(parameters) {}
+        // Sanitizes, exactly as SetParameters does. Assigning m_Parameters
+        // directly here would have been the one way into this class that skips
+        // the validation gate — and SkinProfileTable::Resolve copies whatever it
+        // finds without re-checking, so a non-finite value constructed this way
+        // would reach the material UBO.
+        explicit SkinProfile(const SkinProfileParameters& parameters)
+        {
+            (void)SetParameters(parameters);
+        }
         ~SkinProfile() override = default;
 
         static AssetType GetStaticType()
@@ -220,6 +228,7 @@ namespace OloEngine
         AssetMissing,   ///< The handle names an asset the manager cannot load.
         WrongAssetType, ///< The handle resolves to something that is not a SkinProfile.
         SlotBudgetFull, ///< More distinct profiles in one frame than the G-Buffer lane can name.
+        MaterialNotPBR, ///< MaterialKind::Skin on a legacy (Phong) material, which has no skin transport.
 
         Count
     };
@@ -238,6 +247,8 @@ namespace OloEngine
                 return "WrongAssetType";
             case SkinProfileFallbackReason::SlotBudgetFull:
                 return "SlotBudgetFull";
+            case SkinProfileFallbackReason::MaterialNotPBR:
+                return "MaterialNotPBR";
             case SkinProfileFallbackReason::Count:
                 break;
         }

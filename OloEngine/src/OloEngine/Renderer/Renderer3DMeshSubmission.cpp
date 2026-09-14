@@ -420,10 +420,27 @@ namespace OloEngine
         data.materialKind = std::to_underlying(material.GetMaterialKind());
         if (material.GetMaterialKind() == MaterialKind::Skin)
         {
-            const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(material.GetSkinProfileHandle());
-            data.skinProfileSlot = profile.Slot;
-            data.skinSpecularTint = profile.Parameters.SpecularTint;
-            data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+            // A LEGACY (Phong) material has no skin transport to reach: the skin
+            // lanes live in PBRMaterialUBO, and CommandDispatch only uploads
+            // that block when enablePBR is set, so a legacy skin material would
+            // take the legacy UBO and lose the kind, the profile and the tint
+            // with nothing to show for it. Reported, counted, and DOWNGRADED to
+            // Generic here so the kind this struct carries is the kind that will
+            // actually be transported — a silent Skin that shades generic is
+            // exactly the failure this whole file argues against.
+            if (!data.enablePBR)
+            {
+                Renderer3D::GetSkinProfileTable().ReportFallback(SkinProfileFallbackReason::MaterialNotPBR,
+                                                                 material.GetSkinProfileHandle());
+                data.materialKind = std::to_underlying(MaterialKind::Generic);
+            }
+            else
+            {
+                const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(material.GetSkinProfileHandle());
+                data.skinProfileSlot = profile.Slot;
+                data.skinSpecularTint = profile.Parameters.SpecularTint;
+                data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+            }
         }
 
         // Physical transmission / IOR / volume (issue #970). GetAttenuationSigma

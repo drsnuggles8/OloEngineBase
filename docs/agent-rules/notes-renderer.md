@@ -1188,7 +1188,9 @@ Two things make this survivable:
   that forgot to update the expectation, but it cannot see GLSL — so the assert tells you the size
   moved, and the eight-file edit is still yours.
 
-`grep -l PBRMaterialProperties OloEditor/assets/shaders` is the checklist. Note the two
+`grep -rl PBRMaterialProperties OloEditor/assets/shaders` is the checklist (`-r`: without it
+grep is handed a directory, prints `Is a directory` and matches nothing, which reads as "the
+block is declared nowhere"). Note the two
 `DepthPrepass_Mask*` shaders read only `u_AlphaCutoff` from the block and still have to declare the
 whole thing.
 

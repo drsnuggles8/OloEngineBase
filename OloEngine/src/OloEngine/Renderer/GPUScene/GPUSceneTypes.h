@@ -855,7 +855,14 @@ namespace OloEngine
                                                                const GPUSceneMaterial& next)
     {
         constexpr u32 classification = GPUSceneMaterialFlagPBR;
+        // MaterialKind and SkinProfileSlot are here for the reason ClosureVersion
+        // is (issue #1231): they change what the surface IS, not merely how
+        // bright it is, so an edit that flips one has to advance the slot
+        // generation and invalidate the histories keyed on it. Left out, a
+        // material re-authored from Generic to Skin — or repointed at another
+        // profile — would keep a generation that says nothing changed.
         return previous.ClosureVersion == next.ClosureVersion && previous.AlphaMode == next.AlphaMode &&
+               previous.MaterialKind == next.MaterialKind && previous.SkinProfileSlot == next.SkinProfileSlot &&
                (previous.Flags & classification) == (next.Flags & classification) &&
                GPUSceneMaterialTextureIdentity(previous) == GPUSceneMaterialTextureIdentity(next);
     }
