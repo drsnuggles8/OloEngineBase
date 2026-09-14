@@ -60,6 +60,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <deque>
 #include <filesystem>
 #include <iostream>
@@ -1203,6 +1205,11 @@ TEST(WaterGeometryLodProfile, ProjectedGridSpacingIsContinuousAndGrowsWithDistan
     // patch, because two patches share every edge vertex: derived per patch,
     // the two sides disagreed about the octave weights and the surface tore
     // along every edge — sixteen pinholes of seabed per frame from overhead.
+    //
+    // Walked through MapProjectedGridUV rather than over the rectangle, so the
+    // rows are the ones the engine actually places (issue #1217): the compressed
+    // skirt makes those two different things, and a v the engine never evaluates
+    // is not a vertex whose spacing means anything.
     const EditorCamera camera = MakeCamera(kLowGrazing);
     const glm::mat4 viewProj = camera.GetViewProjection();
     const glm::mat4 invViewProj = glm::inverse(viewProj);
@@ -1215,38 +1222,67 @@ TEST(WaterGeometryLodProfile, ProjectedGridSpacingIsContinuousAndGrowsWithDistan
     const f32 perMetre = WaterSurfaceLod::SpacingPerMetre(bounds, camera.GetProjection(), 256u, 144u);
     ASSERT_GT(perMetre, 0.0f);
 
-    // Walk one column from the near skirt toward the horizon. Spacing must grow
-    // monotonically with distance and stay finite, and the near rows must be
-    // sampled far finer than the world grid's 1.95 m ever was.
+    // Walk one column from the near edge toward the horizon. v = 1 is the near
+    // edge, so this counts DOWN. Over the part of the rectangle that is ON
+    // SCREEN, spacing must grow monotonically with distance and stay finite,
+    // and the nearest on-screen row must still be sampled far finer than the
+    // world grid's 1.95 m ever was.
+    //
+    // The monotonic claim is scoped to the on-screen band on purpose, and the
+    // scoping is the statement rather than a weakening of it: inside the
+    // compressed skirt (issue #1217) spacing tracks the LATTICE, not the
+    // distance. Those rows are nearer the camera than the screen edge AND
+    // further apart from each other, so walking inward from the outermost one
+    // the ray distance rises while the step ratio falls faster, and the spacing
+    // comes down with it. That is the band-limit doing its job -- a skirt row
+    // must be sampled as coarsely as its own neighbours are spaced -- and
+    // ProjectedGridBandLimitFollowsTheCompressedSkirtStep is where it is
+    // checked against the real gaps.
     f32 previousSpacing = -1.0f;
     f32 previousT = -1.0f;
     i32 rowsChecked = 0;
+    i32 onScreenRowsChecked = 0;
+    bool checkedNearestOnScreenRow = false;
     for (i32 i = 0; i < 64; ++i)
     {
-        const f32 v = 0.9f * static_cast<f32>(i) / 63.0f;
-        const glm::vec2 ndc(0.0f, glm::mix(bounds.m_Min.y, bounds.m_Max.y, v));
-        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, ndc,
+        const f32 v = 1.0f - 0.9f * static_cast<f32>(i) / 63.0f;
+        const WaterSurfaceLod::ProjectedGridSample sample =
+            WaterSurfaceLod::MapProjectedGridUV({ 0.5f, v }, bounds);
+        const glm::vec3 hit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, sample.m_Ndc,
                                                                  kPlanePoint, kPlaneNormal, kRimRadius);
         const glm::vec3 toHit = hit - kLowGrazing.m_Eye;
         const f32 t = glm::length(toHit);
         if (!(t > 0.0f) || std::abs(hit.y - kPlanePoint.y) > 1e-2f)
             continue; // a missed row, which the rim handles
         const f32 dirDotNormal = glm::dot(toHit / t, kPlaneNormal);
-        const f32 spacing = WaterSurfaceLod::ProjectedGridSpacing(perMetre, t, dirDotNormal);
+        const f32 spacing =
+            WaterSurfaceLod::ProjectedGridSpacing(perMetre * sample.m_StepRatio, t, dirDotNormal);
         ASSERT_TRUE(std::isfinite(spacing)) << "row " << i;
-        if (previousSpacing >= 0.0f && t > previousT)
+        const bool onScreen = std::abs(sample.m_Ndc.y) <= 1.0f;
+        if (onScreen)
         {
-            EXPECT_GE(spacing, previousSpacing) << "row " << i << ": spacing shrank with distance";
+            if (previousSpacing >= 0.0f && t > previousT)
+            {
+                EXPECT_GE(spacing, previousSpacing) << "row " << i << ": spacing shrank with distance";
+            }
+            previousSpacing = spacing;
+            previousT = t;
+            ++onScreenRowsChecked;
         }
-        previousSpacing = spacing;
-        previousT = t;
         ++rowsChecked;
-        if (i == 0)
+        // The first row of the walk that is actually in frame. Not v = 1: that
+        // is the outermost SKIRT row, which is off screen by construction and
+        // is deliberately sampled coarsely — asserting a fine spacing there
+        // would be asserting the opposite of what #1217 did.
+        if (!checkedNearestOnScreenRow && onScreen)
         {
-            EXPECT_LT(spacing, 0.5f) << "the nearest row is sampled at " << spacing << " m";
+            checkedNearestOnScreenRow = true;
+            EXPECT_LT(spacing, 0.5f) << "the nearest on-screen row is sampled at " << spacing << " m";
         }
     }
+    EXPECT_TRUE(checkedNearestOnScreenRow) << "the walk never reached an on-screen row";
     EXPECT_GT(rowsChecked, 40);
+    EXPECT_GT(onScreenRowsChecked, 40) << "too few on-screen rows to call the growth monotonic";
 }
 
 // =============================================================================
@@ -1486,6 +1522,26 @@ TEST(WaterGeometryLodProfile, ProjectedGridBandLimitFollowsTheCompressedSkirtSte
               << skirtMin << ", " << skirtMax << "]" << std::endl;
 
     ASSERT_GT(skirtRows, 4) << "no compressed skirt rows were reached, so this proved nothing";
+
+    // The JOIN row specifically, because it is the one place the per-vertex
+    // form is weakest and it is worth a number rather than an assumption. The
+    // step ratio is the map's DERIVATIVE at a vertex, so the last on-screen row
+    // reports 1 while its neighbour across the join is already further away
+    // than one on-screen step: the quadratic is accelerating between them.
+    // Bounded, and bounded by the ROW COUNT -- a coarser grid straddles more of
+    // the curve with one step -- so it is measured here at the resolution
+    // WaterShowcase ships rather than left to reasoning.
+    const Row* join = nullptr;
+    for (sizet i = 1; i < rows.size(); ++i)
+    {
+        if (rows[i].m_Skirt && !rows[i - 1].m_Skirt)
+            join = &rows[i - 1];
+    }
+    ASSERT_NE(join, nullptr) << "no on-screen row adjoins the skirt";
+    std::cout << "[  PROFILE ] the join row (last on screen) reads " << join->m_Ratio
+              << " against a grid median of " << medianRatio << std::endl;
+    EXPECT_GT(join->m_Ratio, medianRatio * 0.4f)
+        << "the row at the skirt join under-states its own gap by more than the grid's own spread";
     // The number that matters. Without the per-vertex widening a skirt row is
     // band-limited at the on-screen step while its neighbours are up to ~28x
     // further away, so this lower bound fails by more than an order of
@@ -1730,6 +1786,36 @@ TEST(WaterGeometryLodProfile, WaterParamsBlockIsIdenticalInEveryWaterShader)
     }
     EXPECT_NE(reference.find("u_ProjectedGridParams;"), std::string::npos)
         << "the projected-grid params are missing from the shared block";
+}
+
+TEST(WaterGeometryLodProfile, SkirtShareIsTheSameConstantOnBothSidesOfTheSeam)
+{
+    // kSkirtParamShare decides how many rows the skirt gets, and the GPU is
+    // what places them -- but SpacingPerMetre is computed on the CPU from the
+    // SAME constant, and the shader scales it by a ratio derived from its own
+    // copy. Tune one and not the other and nothing fails to compile, nothing
+    // fails to link, and every projected vertex is band-limited against a step
+    // the grid does not have. There is no link-time guard for a #define, so
+    // this is the guard.
+    const std::string source = ReadShader("include/WaterVertexStage.glsl");
+    ASSERT_FALSE(source.empty()) << "could not read the vertex stage from " << fs::current_path();
+
+    constexpr const char* kDefine = "#define WATER_PROJGRID_SKIRT_SHARE";
+    const sizet at = source.find(kDefine);
+    ASSERT_NE(at, std::string::npos) << "the vertex stage no longer defines " << kDefine;
+    const sizet eol = source.find('\n', at);
+    std::string value = source.substr(at + std::strlen(kDefine), eol - at - std::strlen(kDefine));
+    // Strip the trailing `// == WaterSurfaceLod::kSkirtParamShare` note.
+    const sizet comment = value.find("//");
+    if (comment != std::string::npos)
+        value = value.substr(0, comment);
+
+    f32 shaderShare = 0.0f;
+    ASSERT_EQ(std::sscanf(value.c_str(), "%f", &shaderShare), 1)
+        << "could not parse '" << value << "' as a float";
+    EXPECT_FLOAT_EQ(shaderShare, WaterSurfaceLod::kSkirtParamShare)
+        << "include/WaterVertexStage.glsl says " << shaderShare << ", WaterSurfaceLod.h says "
+        << WaterSurfaceLod::kSkirtParamShare;
 }
 
 TEST(WaterGeometryLodProfile, DepthCaptureReplaysTheSameDisplacementChain)
