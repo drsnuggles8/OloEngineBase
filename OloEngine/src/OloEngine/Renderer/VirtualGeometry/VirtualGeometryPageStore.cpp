@@ -12,9 +12,13 @@
 
 #ifdef OLO_PLATFORM_WINDOWS
 #include <Windows.h>
+#include <fcntl.h>
+#include <io.h>
 #include <process.h>
 #else
+#include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -51,6 +55,72 @@ namespace OloEngine
             return ::_wfopen(path.c_str(), wideMode.c_str());
 #else
             return std::fopen(path.c_str(), mode);
+#endif
+        }
+
+        // Creates the spill file, failing if anything already exists at that path and
+        // refusing to follow a symlink there (issue #1151 / CWE-377).
+        //
+        // The plain fopen("w+b") this replaces TRUNCATES whatever it opens and follows
+        // symlinks, and the name is guessable (pid + serial) in a directory that is
+        // world-writable on POSIX — so any local process could pre-place a symlink and have
+        // the engine truncate a file of its choosing. Exclusive creation removes the race, and
+        // 0600 keeps the geometry readable only by this user.
+        std::FILE* CreateExclusive(const std::filesystem::path& path)
+        {
+#ifdef OLO_PLATFORM_WINDOWS
+            HANDLE const handle =
+                ::CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                return nullptr;
+            }
+            int const fd = ::_open_osfhandle(reinterpret_cast<intptr_t>(handle), _O_BINARY | _O_RDWR);
+            if (fd == -1)
+            {
+                ::CloseHandle(handle);
+                return nullptr;
+            }
+            std::FILE* stream = ::_fdopen(fd, "w+b");
+            if (stream == nullptr)
+            {
+                ::_close(fd); // owns the HANDLE now
+            }
+            return stream;
+#else
+            int const fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+            if (fd == -1)
+            {
+                return nullptr;
+            }
+            std::FILE* stream = ::fdopen(fd, "w+b");
+            if (stream == nullptr)
+            {
+                ::close(fd);
+            }
+            return stream;
+#endif
+        }
+
+        // Opens an EXISTING spill for reading, without following a symlink at that path.
+        std::FILE* OpenForRead(const std::filesystem::path& path)
+        {
+#ifndef OLO_PLATFORM_WINDOWS
+            int const fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW);
+            if (fd == -1)
+            {
+                return nullptr;
+            }
+            std::FILE* stream = ::fdopen(fd, "rb");
+            if (stream == nullptr)
+            {
+                ::close(fd);
+            }
+            return stream;
+#else
+            return OpenFile(path, "rb");
 #endif
         }
 
@@ -220,30 +290,61 @@ namespace OloEngine
             m_OpenFailed = true;
             return false;
         }
+#ifndef OLO_PLATFORM_WINDOWS
+        // Owner-only. The default umask would leave cooked geometry world-readable in a
+        // shared /tmp, and it also narrows who can plant a file in the way of the exclusive
+        // create below.
+        std::filesystem::permissions(directory, std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::replace, ec);
+#endif
+
+        // Collect dead sessions' spills BEFORE claiming a name, so a recycled pid does not
+        // collide with its own predecessor's leftovers.
+        SweepOrphanedSpills(directory, {});
 
         // Process id AND a per-store counter in the name. The pid alone is not enough: this
         // box runs several worktrees and several editor instances at once, and a store that
         // silently reopened a sibling's file would feed one process another's vertices.
+        //
+        // Creation is EXCLUSIVE, so the name is a claim rather than a guess: a collision (a
+        // live sibling, a stale file, or something planted there) fails the create and costs a
+        // retry rather than truncating whatever was in the way.
         static std::atomic<u32> s_StoreSerial{ 0 };
-        auto const serial = s_StoreSerial.fetch_add(1, std::memory_order_relaxed);
-        m_Path = directory / fmt::format("vgpages_{}_{}.ovgp", CurrentProcessId(), serial);
-
-        // w+b: truncate-create, then read and write through the same handle. Every access
-        // seeks first, so the read/write interleave the standard requires is satisfied.
-        m_File = OpenFile(m_Path, "w+b");
+        constexpr u32 kNameAttempts = 64;
+        for (u32 attempt = 0; attempt < kNameAttempts && m_File == nullptr; ++attempt)
+        {
+            auto const serial = s_StoreSerial.fetch_add(1, std::memory_order_relaxed);
+            m_Path = directory / fmt::format("vgpages_{}_{}.ovgp", CurrentProcessId(), serial);
+            m_File = CreateExclusive(m_Path);
+        }
         if (m_File == nullptr)
         {
-            OLO_CORE_ERROR("VirtualGeometryPageStore: cannot create spill file '{}' — on-disk page streaming "
-                           "is unavailable",
-                           m_Path.string());
+            OLO_CORE_ERROR("VirtualGeometryPageStore: could not create a spill file in '{}' after {} attempts "
+                           "— on-disk page streaming is unavailable",
+                           directory.string(), kNameAttempts);
+            m_Path.clear();
             m_OpenFailed = true;
             return false;
         }
+
+        // Open the IO workers' read handles now, while the file we just created is still the
+        // one at that path. Deferring them to the first AddMesh would leave a window in which
+        // the name could be swapped for something else between the create and the open.
+        for (u32 i = 0; i < kWorkerCount; ++i)
+        {
+            std::FILE* stream = OpenForRead(m_Path);
+            if (stream == nullptr)
+            {
+                OLO_CORE_WARN("VirtualGeometryPageStore: could not open read handle {} for '{}' — running "
+                              "with {} IO worker(s)",
+                              i, m_Path.string(), m_WorkerFiles.size());
+                continue;
+            }
+            m_WorkerFiles.push_back(stream);
+        }
+
         m_WriteCursor = 0;
         OLO_CORE_INFO("VirtualGeometryPageStore: spilling virtual-geometry pages to '{}'", m_Path.string());
-        // Now that our own file exists and is excluded by name, collect anything a killed
-        // predecessor left behind.
-        SweepOrphanedSpills(directory, m_Path);
         return true;
     }
 
@@ -254,19 +355,11 @@ namespace OloEngine
             return;
         }
         m_Stop.store(false, std::memory_order_relaxed);
-        for (u32 i = 0; i < kWorkerCount; ++i)
+        // One read handle per worker so two concurrent page reads never fight over one
+        // stream's file position. The handles were opened by EnsureOpen, against the file it
+        // had just created; this only spawns the threads that own them.
+        for (std::FILE* stream : m_WorkerFiles)
         {
-            // One read handle per worker so two concurrent page reads never fight over one
-            // stream's file position. A handle that fails to open just costs a worker.
-            std::FILE* stream = OpenFile(m_Path, "rb");
-            if (stream == nullptr)
-            {
-                OLO_CORE_WARN("VirtualGeometryPageStore: worker {} could not open '{}' for reading — running "
-                              "with {} IO worker(s)",
-                              i, m_Path.string(), m_Workers.size());
-                continue;
-            }
-            m_WorkerFiles.push_back(stream);
             m_Workers.emplace_back([this, stream]()
                                    { WorkerMain(stream); });
         }
@@ -575,25 +668,43 @@ namespace OloEngine
             return it == m_Ready.end() || it->second.Seq != entry.second;
         };
 
-        for (;;)
+        // Entries naming a page that was released, or an EARLIER staging of a page that has
+        // since been staged again, are stale; drop them so the queue only holds live payloads.
+        while (!m_ReadyOrder.empty() && isStale(m_ReadyOrder.front()))
         {
-            // Entries naming a page that was released, or an EARLIER staging of a page that
-            // has since been staged again, are stale; drop them so `front()` is always the
-            // genuinely oldest live payload.
-            while (!m_ReadyOrder.empty() && isStale(m_ReadyOrder.front()))
-            {
-                m_ReadyOrder.pop_front();
-            }
-            if (m_Ready.size() <= m_MaxStagedPages || m_ReadyOrder.empty())
-            {
-                break;
-            }
-            auto const [oldest, seq] = m_ReadyOrder.front();
             m_ReadyOrder.pop_front();
-            auto it = m_Ready.find(oldest);
+        }
+
+        // Oldest-first, but never a LEASED payload: a caller is holding a pointer into it
+        // until its Release, and erasing it would hand that caller freed storage. Leases last
+        // one LoadPage call, so a skipped entry is collectable again almost immediately —
+        // which is why this scans past them rather than giving up at the front.
+        //
+        // `skipped` holds the leased entries passed over, in order, and they go back on the
+        // front afterwards so the queue stays an arrival-ordered list rather than losing them.
+        std::deque<std::pair<u32, u64>> skipped;
+        while (m_Ready.size() > m_MaxStagedPages && !m_ReadyOrder.empty())
+        {
+            auto const entry = m_ReadyOrder.front();
+            m_ReadyOrder.pop_front();
+            if (isStale(entry))
+            {
+                continue;
+            }
+            auto it = m_Ready.find(entry.first);
+            if (it->second.Leased)
+            {
+                skipped.push_back(entry);
+                continue;
+            }
             NoteStagingBytesLocked(-static_cast<i64>(it->second.Payload.ByteSize()));
             m_Ready.erase(it);
             ++m_Stats.StagedDiscards;
+        }
+        while (!skipped.empty())
+        {
+            m_ReadyOrder.push_front(skipped.back());
+            skipped.pop_back();
         }
 
         // Stale entries in the MIDDLE of the deque are not reachable by the front scan above
@@ -631,6 +742,22 @@ namespace OloEngine
         // why; ReadPageBlocking counts the cost.
         if (m_Workers.empty())
         {
+            {
+                // Answer from what is already staged first. Without this the degraded path
+                // re-reads the same page from disk on every Fetch — on the render thread, and
+                // residency asks for the same pages every frame.
+                std::lock_guard lock(m_Mutex);
+                if (m_Failed.contains(page))
+                {
+                    return FetchState::Failed;
+                }
+                if (auto it = m_Ready.find(page); it != m_Ready.end())
+                {
+                    it->second.Leased = true;
+                    outPayload = &it->second.Payload;
+                    return FetchState::Ready;
+                }
+            }
             VirtualPagePayload payload;
             if (!ReadPageBlocking(meshBase, pageIndex, payload))
             {
@@ -644,6 +771,7 @@ namespace OloEngine
             {
                 return FetchState::Deferred; // capped out by a cap of 0-ish; retry next frame
             }
+            it->second.Leased = true;
             outPayload = &it->second.Payload;
             m_Stats.PagesReady = static_cast<u32>(m_Ready.size());
             return FetchState::Ready;
@@ -658,6 +786,7 @@ namespace OloEngine
         }
         if (auto it = m_Ready.find(page); it != m_Ready.end())
         {
+            it->second.Leased = true;
             outPayload = &it->second.Payload;
             return FetchState::Ready;
         }
@@ -682,7 +811,7 @@ namespace OloEngine
         return FetchState::Pending;
     }
 
-    void VirtualGeometryPageStore::Release(u32 meshBase, u32 pageIndex)
+    void VirtualGeometryPageStore::Release(u32 meshBase, u32 pageIndex, bool keepStaged)
     {
         if (meshBase == kInvalidMesh)
         {
@@ -690,12 +819,23 @@ namespace OloEngine
         }
         auto const page = meshBase + pageIndex;
         std::lock_guard lock(m_Mutex);
-        if (auto it = m_Ready.find(page); it != m_Ready.end())
+        auto it = m_Ready.find(page);
+        if (it == m_Ready.end())
         {
-            NoteStagingBytesLocked(-static_cast<i64>(it->second.Payload.ByteSize()));
-            m_Ready.erase(it);
-            m_Stats.PagesReady = static_cast<u32>(m_Ready.size());
+            return;
         }
+        it->second.Leased = false;
+        if (keepStaged)
+        {
+            // The bytes stay for a later attempt, but the entry is trimmable again, so this
+            // cannot pin memory: the staged cap governs it exactly like any other payload.
+            TrimStagedLocked();
+            m_Stats.PagesReady = static_cast<u32>(m_Ready.size());
+            return;
+        }
+        NoteStagingBytesLocked(-static_cast<i64>(it->second.Payload.ByteSize()));
+        m_Ready.erase(it);
+        m_Stats.PagesReady = static_cast<u32>(m_Ready.size());
     }
 
     void VirtualGeometryPageStore::Poll()

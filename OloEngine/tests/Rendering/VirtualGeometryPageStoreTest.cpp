@@ -108,9 +108,11 @@ namespace
         }
     }
 
-    // Drives Fetch until it leaves Pending. The store's workers are real threads doing real
-    // file IO, so the only honest wait is a bounded poll; a timeout here is a genuine failure
-    // (a wedged queue), not flakiness, which is why it is generous rather than tight.
+    // Drives Fetch until it settles on Ready or Failed. BOTH Pending and Deferred mean "ask
+    // again later" — Pending has a read outstanding, Deferred has not started one because the
+    // in-flight cap is full — so both keep the loop going. The store's workers are real
+    // threads doing real file IO, so the only honest wait is a bounded poll; a timeout here is
+    // a genuine failure (a wedged queue), not flakiness, which is why it is generous.
     VirtualGeometryPageStore::FetchState FetchUntilSettled(VirtualGeometryPageStore& store, u32 base, u32 page,
                                                            const VirtualPagePayload*& payload)
     {
@@ -119,7 +121,8 @@ namespace
         for (;;)
         {
             auto const state = store.Fetch(base, page, payload);
-            if (state != VirtualGeometryPageStore::FetchState::Pending)
+            if (state != VirtualGeometryPageStore::FetchState::Pending &&
+                state != VirtualGeometryPageStore::FetchState::Deferred)
             {
                 return state;
             }
@@ -359,6 +362,7 @@ TEST_F(VirtualGeometryPageStoreTest, ReStagingAPageDoesNotMakeTheTrimEvictTheNew
     }
     const VirtualPagePayload* zero = nullptr;
     ASSERT_EQ(FetchUntilSettled(store, base, 0, zero), VirtualGeometryPageStore::FetchState::Ready);
+    store.Release(base, 0, /*keepStaged=*/true);
 
     // Now push three more pages through so the cap has to discard. Page 0 is the OLDEST live
     // staging, so it is the one that must go; the newly staged pages must survive.
@@ -367,6 +371,9 @@ TEST_F(VirtualGeometryPageStoreTest, ReStagingAPageDoesNotMakeTheTrimEvictTheNew
         const VirtualPagePayload* payload = nullptr;
         ASSERT_EQ(FetchUntilSettled(store, base, page, payload), VirtualGeometryPageStore::FetchState::Ready)
             << "page " << page << " never arrived";
+        // keepStaged: the payload stays in the staged set (so the cap has something to act on)
+        // but its lease ends, which is what makes it a legal eviction candidate.
+        store.Release(base, page, /*keepStaged=*/true);
     }
 
     const VirtualPagePayload* newest = nullptr;
@@ -374,6 +381,86 @@ TEST_F(VirtualGeometryPageStoreTest, ReStagingAPageDoesNotMakeTheTrimEvictTheNew
         << "the most recently staged page was discarded while older ones survived — the trim is "
            "evicting newest-first";
     EXPECT_LE(store.GetStats().PagesReady, 3u);
+}
+
+// A payload handed out by Fetch must survive until its Release, even while the cap is being
+// enforced around it. TrimStagedLocked is reachable from Fetch, Poll and SetMaxStagedPages, so
+// without a lease the header's "points at them until the matching Release" promise holds only
+// by accident of which call happens next — and the failure would be a read of freed storage.
+TEST_F(VirtualGeometryPageStoreTest, ALeasedPayloadSurvivesTheStagedCap)
+{
+    constexpr u32 kPages = 24;
+    constexpr u32 kVertices = 16;
+    const VirtualMeshGpuData source = MakePackedMesh(kPages, kVertices, 24, /*withLightmapUVs=*/false);
+
+    VirtualGeometryPageStore store;
+    store.SetMaxStagedPages(2);
+    u32 const base = store.AddMesh(source);
+    ASSERT_NE(base, VirtualGeometryPageStore::kInvalidMesh);
+
+    // Hold a lease on page 0...
+    const VirtualPagePayload* leased = nullptr;
+    ASSERT_EQ(FetchUntilSettled(store, base, 0, leased), VirtualGeometryPageStore::FetchState::Ready);
+    ASSERT_NE(leased, nullptr);
+
+    // ...then push far more pages through than the cap allows, so the trim runs repeatedly.
+    //
+    // FetchUntilSettled rather than a bare Fetch: whether any given Fetch happens to find its
+    // page Ready depends on worker timing, and a loop built on that would only SOMETIMES push
+    // the staged set over the cap — making the "the trim actually ran" assertion below a
+    // coin flip in CI. Waiting for each page makes the overflow certain.
+    for (u32 round = 0; round < 3; ++round)
+    {
+        for (u32 page = 1; page < kPages; ++page)
+        {
+            const VirtualPagePayload* other = nullptr;
+            ASSERT_EQ(FetchUntilSettled(store, base, page, other),
+                      VirtualGeometryPageStore::FetchState::Ready)
+                << "page " << page << " never arrived in round " << round;
+            // keepStaged, so these pile up in the staged set as UNLEASED entries — the only
+            // kind the trim may evict. Releasing them outright would keep the set under the
+            // cap and the trim would never run.
+            store.Release(base, page, /*keepStaged=*/true);
+        }
+        store.Poll();
+        store.SetMaxStagedPages(2); // also reaches the trim
+    }
+
+    // The lease is still valid and still holds page 0's bytes, not somebody else's.
+    ExpectPageMatches(*leased, source, 0, /*withLightmapUVs=*/false);
+    EXPECT_GT(store.GetStats().StagedDiscards, 0u)
+        << "the trim never ran, so this test never exercised the case it exists for";
+    store.Release(base, 0);
+}
+
+// Releasing with keepStaged leaves the bytes for the next attempt rather than re-reading them,
+// but must still end the lease — a payload nobody released could never be trimmed, which would
+// turn the "keep it for later" optimisation into an unbounded pin.
+TEST_F(VirtualGeometryPageStoreTest, KeepStagedReleaseEndsTheLeaseAndAvoidsAReRead)
+{
+    const VirtualMeshGpuData source = MakePackedMesh(6, 12, 18, /*withLightmapUVs=*/false);
+
+    VirtualGeometryPageStore store;
+    u32 const base = store.AddMesh(source);
+    ASSERT_NE(base, VirtualGeometryPageStore::kInvalidMesh);
+
+    const VirtualPagePayload* payload = nullptr;
+    ASSERT_EQ(FetchUntilSettled(store, base, 0, payload), VirtualGeometryPageStore::FetchState::Ready);
+    u64 const readsAfterFirst = store.GetStats().ReadsIssued;
+    store.Release(base, 0, /*keepStaged=*/true);
+
+    // Still staged: the next Fetch is Ready immediately and costs no new read.
+    const VirtualPagePayload* again = nullptr;
+    EXPECT_EQ(store.Fetch(base, 0, again), VirtualGeometryPageStore::FetchState::Ready)
+        << "keepStaged dropped the payload, so the page has to be read off disk again";
+    EXPECT_EQ(store.GetStats().ReadsIssued, readsAfterFirst) << "the page was re-read despite being staged";
+    ASSERT_NE(again, nullptr);
+    ExpectPageMatches(*again, source, 0, /*withLightmapUVs=*/false);
+
+    // And the lease really ended — a kept payload is trimmable like any other.
+    store.Release(base, 0, /*keepStaged=*/true);
+    store.SetMaxStagedPages(1);
+    EXPECT_LE(store.GetStats().PagesReady, 1u);
 }
 
 // An out-of-range request is Failed, not Pending and not a zero-filled page. Pending would

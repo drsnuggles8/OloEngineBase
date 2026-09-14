@@ -1357,13 +1357,25 @@ namespace OloEngine::Tests
                 << stats.FailedPages << " page(s) are permanently unavailable — their clusters are stuck at "
                                         "a coarser DAG cut";
             EXPECT_GT(stats.PageBytesRead, 0ull) << "pages were requested but no bytes were ever read back";
-            // Staging RAM is the streaming path's own footprint and the thing that would make
-            // "stream from disk" pointless if it grew with the scene. It is capped by the
-            // in-flight read count, so it must stay a small multiple of one page.
-            EXPECT_GT(peakStaging, 0ull);
-            EXPECT_LT(peakStaging, stats.PageBytesSpilled + 1ull)
-                << "the store staged more bytes at once than the whole spilled payload — the in-flight cap "
-                   "is not holding";
+            // Staging RAM is the streaming path's own footprint, and the thing that would
+            // make "stream from disk" pointless if it grew with the scene.
+            //
+            // Only the "it is non-zero" half is asserted here, on purpose. This fixture's
+            // sphere has far fewer pages than the registry's 128-page staged cap, so NO upper
+            // bound expressible at this scale can tell a working cap from a removed one — a
+            // bound against the whole spilled payload would pass either way, which is worse
+            // than no assertion because it reads like coverage. The cap itself is pinned
+            // where it can actually be discriminated, by
+            // VirtualGeometryPageStoreTest.StagedPayloadsNobodyConsumesAreCappedAndCounted,
+            // which sets a cap of 4 against 48 pages and asserts the exact byte bound.
+            EXPECT_GT(peakStaging, 0ull) << "nothing was ever staged, so no page came off disk";
+            // What this scale CAN discriminate: pages read and then thrown away unused. A
+            // non-zero count here means the request loop is outrunning what the frame absorbs
+            // (issue #1151) — the defect that had 413,042 of 413,158 reads discarded.
+            EXPECT_EQ(stats.PageStagedDiscards, 0ull)
+                << stats.PageStagedDiscards
+                << " staged page(s) were discarded before anyone uploaded them — reads are being issued "
+                   "faster than the frame consumes them";
         }
 
         // The picture, which is what the CPU counters cannot tell you: the sphere never

@@ -155,9 +155,16 @@ namespace OloEngine
         // session with all three read counters reading zero.
         [[nodiscard]] FetchState Fetch(u32 meshBase, u32 pageIndex, const VirtualPagePayload*& outPayload);
 
-        // Hands a Ready payload back so its staging memory is reclaimed. Safe to call for a
-        // page that is not ready.
-        void Release(u32 meshBase, u32 pageIndex);
+        // Ends the lease Fetch handed out, so the pointer must not be used afterwards.
+        //
+        // keepStaged = false drops the payload and reclaims its staging memory. true keeps the
+        // bytes for a later attempt, which is what a caller wants when it got the page but
+        // could not use it yet (no cache slot free this frame) — re-reading the identical page
+        // off disk every frame is pure read amplification. Either way the entry becomes
+        // trimmable again; a kept payload is subject to the staged cap like any other.
+        //
+        // Safe to call for a page that is not staged.
+        void Release(u32 meshBase, u32 pageIndex, bool keepStaged = false);
 
         // Collects finished reads and re-applies the staged cap without asking for anything.
         // Needed because every other path into the completion queue runs only while pages are
@@ -282,6 +289,13 @@ namespace OloEngine
         {
             VirtualPagePayload Payload;
             u64 Seq = 0;
+            // A Fetch handed a pointer to this payload out and the caller has not Released it
+            // yet. The trim must not erase it: Fetch's contract is that the pointer stays
+            // valid until Release, and TrimStagedLocked is reachable from Fetch, Poll and
+            // SetMaxStagedPages, so without this the promise is only true by accident of who
+            // happens to call what. Leases are short — the registry finishes with a payload
+            // inside the same LoadPage call — so this pins at most a handful of pages.
+            bool Leased = false;
         };
 
         // Completed reads, and the pages whose read failed. A payload handed out by Fetch

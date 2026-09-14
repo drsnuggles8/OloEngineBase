@@ -528,11 +528,16 @@ namespace OloEngine
         SlotCache::ObjectAllocation slotAlloc;
         if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
         {
-            // Deliberately NOT released: the bytes are already read, the staged set is capped
-            // so holding them costs a bounded amount, and the next frame's retry finds them
-            // Ready instead of re-reading the identical page off disk. Releasing here turned
-            // a full slot arena into unbounded read amplification — BytesRead climbing with
-            // PageUploads flat.
+            if (consumedFromStore)
+            {
+                // End the lease but KEEP the bytes: they are already read, the staged cap
+                // bounds how many such payloads can accumulate, and the next frame's retry
+                // finds them Ready instead of re-reading the identical page off disk.
+                // Dropping them here turned a full slot arena into read amplification —
+                // BytesRead climbing with PageUploads flat. Ending the lease matters as much
+                // as keeping the bytes: a payload nobody released can never be trimmed.
+                m_PageStore.Release(entry.StorePageBase, storePage, /*keepStaged=*/true);
+            }
             return PageLoadResult::NotLoaded;
         }
         u32 const slot = slotAlloc.m_StartPage;
