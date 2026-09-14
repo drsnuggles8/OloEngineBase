@@ -358,6 +358,84 @@ vec3 waterProjectGridVertex(vec2 ndc, vec3 planePoint, vec3 planeNormal, float r
     return camOnPlane + horizontal * inversesqrt(lenSq) * rimRadius;
 }
 
+// ---- the layout rectangle's (u, v) -> NDC map (issue #1217) -----------------
+//
+// The rectangle reaches PAST the screen so a crest can lift near water into
+// frame, and at a low eye that skirt is most of it: mapped uniformly, 61% of
+// WaterShowcase's rows landed below the screen at a 3 m grazing pose and only
+// 25% of its vertices ever reached the raster. The skirt rows only have to
+// EXIST — what the viewer sees of them is the displaced surface, not the
+// resting lattice — so each END of each axis is capped at
+// WATER_PROJGRID_SKIRT_SHARE of that axis' rows and the rest go to the part of
+// the rectangle that is on screen, where the map stays exactly uniform.
+//
+// Mirror of WaterSurfaceLod::MapProjectedGridUV; the contract is in
+// Renderer/Water/WaterSurfaceLod.h and the CPU side is pinned by
+// WaterGeometryLodProfileTest.
+#define WATER_PROJGRID_SKIRT_SHARE 0.1 // == WaterSurfaceLod::kSkirtParamShare
+
+// A skirt advances as `a*w + (1-a)*w^2` in its own parameter (0 at the screen
+// edge, 1 at the outer edge). Monotone for any a in [0, 1], and a is picked so
+// the slope MATCHES the on-screen one at w = 0: the mesh band-limit reads this
+// step, and a step that jumps between two adjacent rows changes the octave
+// ladder across one edge of the mesh.
+float waterProjGridSkirtCurve(float a, float w)
+{
+    return a * w + (1.0 - a) * w * w;
+}
+
+// ...and the same curve's slope at w, over its slope at the join — i.e. this
+// row's NDC step over the on-screen one, which is what the band-limit spacing
+// has to be widened by out here.
+float waterProjGridSkirtStepRatio(float a, float w)
+{
+    float sa = max(a, 1e-4);
+    return (sa + 2.0 * (1.0 - sa) * w) / sa;
+}
+
+float waterProjGridAxis(float s, float lo, float hi, out float stepRatio)
+{
+    stepRatio = 1.0;
+    s = clamp(s, 0.0, 1.0);
+    float total = hi - lo;
+    float screenLo = max(lo, -1.0);
+    float screenHi = min(hi, 1.0);
+    float window = screenHi - screenLo;
+    // Nothing of this axis is on screen (or the rectangle collapsed): there is
+    // no window to move the rows into, so the uniform map stands.
+    if (!(total > 1e-6) || !(window > 1e-4))
+        return mix(lo, hi, s);
+
+    float low = screenLo - lo;
+    float high = hi - screenHi;
+    float paramLow = (low > 0.0) ? min(WATER_PROJGRID_SKIRT_SHARE, low / total) : 0.0;
+    float paramHigh = (high > 0.0) ? min(WATER_PROJGRID_SKIRT_SHARE, high / total) : 0.0;
+    float paramWindow = 1.0 - paramLow - paramHigh;
+    if (!(paramWindow > 1e-4))
+        return mix(lo, hi, s);
+
+    float screenSlope = window / paramWindow;
+    if (s < paramLow)
+    {
+        // Outward from the screen edge: w = 0 at the join, 1 at `lo`.
+        float w = 1.0 - s / paramLow;
+        // Exactly 1 when the skirt already took no more than its share, which
+        // is what leaves an overhead pose bit-for-bit on the uniform map.
+        float a = clamp(screenSlope * paramLow / low, 0.0, 1.0);
+        stepRatio = waterProjGridSkirtStepRatio(a, w);
+        return screenLo - low * waterProjGridSkirtCurve(a, w);
+    }
+    float paramWindowEnd = paramLow + paramWindow;
+    if (s > paramWindowEnd)
+    {
+        float w = (s - paramWindowEnd) / max(1.0 - paramWindowEnd, 1e-6);
+        float a = clamp(screenSlope * paramHigh / high, 0.0, 1.0);
+        stepRatio = waterProjGridSkirtStepRatio(a, w);
+        return screenHi + high * waterProjGridSkirtCurve(a, w);
+    }
+    return screenLo + (s - paramLow) * screenSlope;
+}
+
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
@@ -411,8 +489,26 @@ void main()
         // them reproduces the same missing surface on the other — which is
         // exactly how this was first written. The CPU decides by geometry and
         // uploads near in .z and far in .w.
-        vec2 ndc = mix(vec2(u_ProjectedGridParams.y, u_ProjectedGridParams2.w),
-                       vec2(u_ProjectedGridParams2.z, u_ProjectedGridParams.z), gridUV);
+        // Issue #1217: the map is uniform over the part of the rectangle that
+        // is ON SCREEN — unchanged, and the property the whole design rests on
+        // — and compressed over each end that is not. The warp is a statement
+        // about the RECTANGLE, not about the parameter, so the y axis is always
+        // walked min -> max and v is flipped instead when the near edge is the
+        // minimum.
+        float nearEdgeY = u_ProjectedGridParams.z;
+        float farEdgeY = u_ProjectedGridParams2.w;
+        float sy = (nearEdgeY > farEdgeY) ? gridUV.y : (1.0 - gridUV.y);
+        float stepRatioX = 1.0;
+        float stepRatioY = 1.0;
+        vec2 ndc;
+        ndc.x = waterProjGridAxis(gridUV.x, u_ProjectedGridParams.y, u_ProjectedGridParams2.z,
+                                  stepRatioX);
+        ndc.y = waterProjGridAxis(sy, min(nearEdgeY, farEdgeY), max(nearEdgeY, farEdgeY),
+                                  stepRatioY);
+        // u_ProjectedGridParams.w describes the ON-SCREEN step; a compressed
+        // skirt row's neighbours are further apart than that, and sampling it
+        // as if they were not is what would alias.
+        float localSpacingPerMetre = u_ProjectedGridParams.w * max(stepRatioX, stepRatioY);
 
         // How far a missed ray is pushed before the rect clamp catches it: past
         // the surface's world-space half-diagonal, doubled. Derived here rather
@@ -421,7 +517,7 @@ void main()
                                             u_ProjectedGridParams2.y * length(u_Model[2].xyz)));
         float projSpacing = 0.0;
         vec3 hit = waterProjectGridVertex(ndc, planePoint, planeNormal, rimRadius,
-                                          u_ProjectedGridParams.w, projSpacing);
+                                          localSpacingPerMetre, projSpacing);
         v_ProjSpacing = projSpacing;
 
         // Back into surface-local space and clamp into the authored rect. This

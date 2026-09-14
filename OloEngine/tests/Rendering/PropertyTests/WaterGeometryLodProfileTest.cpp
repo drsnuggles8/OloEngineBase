@@ -479,6 +479,16 @@ namespace
         u32 m_OnScreenTriangles = 0;
         f32 m_MedianOnScreenAreaPx = 0.0f;
         f32 m_SubPixelShare = 0.0f;
+        /// Share of grid ROWS whose NDC y lands past the near edge of the
+        /// screen — the skirt, laid out below the frame so a crest can lift it
+        /// in. #1217's cost metric.
+        f32 m_RowsBelowScreenShare = 0.0f;
+        /// Share of grid VERTICES that reproject inside [-1, 1]^2 after the
+        /// rect clamp. The acceptance number: everything else is paid for and
+        /// never rasterised.
+        f32 m_OnScreenVertexShare = 0.0f;
+        /// The rectangle the rows were laid out over, so the report says WHY.
+        WaterSurfaceLod::NdcBounds m_Bounds;
     };
 
     [[nodiscard]] ProjectedGridMeasurement MeasureProjectedGrid(const SurfaceConfig& cfg,
@@ -499,15 +509,21 @@ namespace
         // Place every grid vertex, exactly as WaterVertexStage.glsl does.
         std::vector<glm::vec3> positions;
         positions.reserve(static_cast<sizet>(gridX + 1) * (gridY + 1));
+        u32 rowsBelowScreen = 0;
         for (u32 j = 0; j <= gridY; ++j)
         {
             const f32 v = static_cast<f32>(j) / static_cast<f32>(gridY);
+            // Is this row laid out past the near edge of the SCREEN? Which sign
+            // that is depends on the backend's NDC convention, so ask the
+            // geometry-decided edge rather than assuming -1.
+            const f32 rowNdcY = WaterSurfaceLod::MapProjectedGridUV({ 0.0f, v }, bounds).m_Ndc.y;
+            if (std::abs(rowNdcY) > 1.0f && ((rowNdcY > 0.0f) == (bounds.m_NearEdgeY > bounds.m_FarEdgeY)))
+                ++rowsBelowScreen;
             for (u32 i = 0; i <= gridX; ++i)
             {
                 const f32 u = static_cast<f32>(i) / static_cast<f32>(gridX);
                 // v = 1 on the near edge, exactly as the vertex stage maps it.
-                const glm::vec2 ndc(glm::mix(bounds.m_Min.x, bounds.m_Max.x, u),
-                                    glm::mix(bounds.m_FarEdgeY, bounds.m_NearEdgeY, v));
+                const glm::vec2 ndc = WaterSurfaceLod::MapProjectedGridUV({ u, v }, bounds).m_Ndc;
                 const glm::vec3 hit =
                     WaterSurfaceLod::ProjectGridVertex(invViewProj, pose.m_Eye, ndc, planePoint, planeNormal, rimRadius);
                 const glm::vec2 clamped = WaterSurfaceLod::ClampToRect({ hit.x, hit.z }, half, half);
@@ -555,6 +571,19 @@ namespace
         }
 
         ProjectedGridMeasurement out;
+        out.m_Bounds = bounds;
+        out.m_RowsBelowScreenShare =
+            static_cast<f32>(rowsBelowScreen) / static_cast<f32>(gridY + 1);
+        {
+            u32 visible = 0;
+            for (const glm::vec3& p : positions)
+            {
+                if (onScreen(p))
+                    ++visible;
+            }
+            out.m_OnScreenVertexShare =
+                static_cast<f32>(visible) / static_cast<f32>(positions.size());
+        }
         if (areas.empty())
             return out;
         std::sort(areas.begin(), areas.end());
@@ -695,7 +724,12 @@ TEST(WaterGeometryLodProfile, ProjectedGridCostsFarLessThanTheWorldGridItReplace
                   << projectedPatchVertexInputs << " patch-vertex inputs, " << projectedUniqueVertices
                   << " unique vertices, " << m.m_OnScreenTriangles << " triangles on screen at "
                   << m.m_MedianOnScreenAreaPx << " px each (median), " << (100.0f * m.m_SubPixelShare)
-                  << "% sub-pixel" << std::endl;
+                  << "% sub-pixel, " << (100.0f * m.m_RowsBelowScreenShare)
+                  << "% of rows below the screen, " << (100.0f * m.m_OnScreenVertexShare)
+                  << "% of vertices on screen" << std::endl;
+        std::cout << "[  PROFILE ]   layout rectangle x [" << m.m_Bounds.m_Min.x << ", "
+                  << m.m_Bounds.m_Max.x << "], y near " << m.m_Bounds.m_NearEdgeY << " far "
+                  << m.m_Bounds.m_FarEdgeY << std::endl;
 
         EXPECT_GT(m.m_OnScreenTriangles, 0u) << pose.m_Label;
         // The whole point: no sub-pixel geometry at either pose, where the world
@@ -1213,6 +1247,255 @@ TEST(WaterGeometryLodProfile, ProjectedGridSpacingIsContinuousAndGrowsWithDistan
         }
     }
     EXPECT_GT(rowsChecked, 40);
+}
+
+// =============================================================================
+// The skirt's share of the grid (issue #1217)
+// =============================================================================
+
+TEST(WaterGeometryLodProfile, ProjectedGridSkirtTakesAFixedShareOfTheRows)
+{
+    // #1217's acceptance criterion, on the pose the feature exists for. The
+    // rectangle still reaches past the bottom of the frame by the displacement
+    // bound — NdcBoundsExtendPastTheNearEdgeToCoverDisplacement pins that and
+    // nothing here touches it — but the ROWS spent out there are capped,
+    // because a skirt row only has to EXIST: what the viewer sees of it is the
+    // displaced surface, not the resting lattice.
+    //
+    // WaterShowcase.olo's own resolution, so this is the grid the engine draws.
+    constexpr u32 kProjectedX = 256;
+    constexpr u32 kProjectedY = 144;
+
+    const ProjectedGridMeasurement grazing =
+        MeasureProjectedGrid(kWaterShowcase, kLowGrazing, kProjectedX, kProjectedY);
+
+    // The cap is per axis END; one row of slack for the discrete lattice.
+    EXPECT_LE(grazing.m_RowsBelowScreenShare,
+              WaterSurfaceLod::kSkirtParamShare + 1.0f / static_cast<f32>(kProjectedY))
+        << "the skirt took " << (100.0f * grazing.m_RowsBelowScreenShare) << "% of the rows";
+    EXPECT_GT(grazing.m_OnScreenVertexShare, 0.60f)
+        << "only " << (100.0f * grazing.m_OnScreenVertexShare)
+        << "% of the grid's vertices reach the screen";
+    // And the recovered rows land ON the water rather than being thrown away:
+    // a denser on-screen grid means SMALLER triangles, never coarser ones.
+    EXPECT_LT(grazing.m_MedianOnScreenAreaPx, 61.6f)
+        << "on-screen triangles got coarser, not finer";
+    EXPECT_LT(grazing.m_SubPixelShare, 0.01f)
+        << "the recovered rows went sub-pixel, which is the cost this feature exists to avoid";
+}
+
+TEST(WaterGeometryLodProfile, ProjectedGridMapIsUniformOnScreenAndMonotoneThroughTheSkirt)
+{
+    // The coupling the whole change turns on. Compressing the skirt must not
+    // disturb the on-screen part: equal steps in (u, v) are still equal steps on
+    // screen there, and the per-vertex band-limit step is exactly 1 over the
+    // whole window — the value SpacingPerMetre describes.
+    const glm::mat4 viewProj = MakeViewProj(kLowGrazing);
+    const WaterSurfaceLod::NdcBounds bounds = WaterSurfaceLod::ComputeNdcBounds(
+        viewProj, kLowGrazing.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(bounds.m_Visible);
+    ASSERT_LT(bounds.m_Min.y, -1.0f) << "this pose is supposed to have a skirt to compress";
+
+    // The corners are untouched: the rectangle is what ComputeNdcBounds says it
+    // is, and v = 1 still lands on the near edge. Both are load-bearing — the
+    // outer edge is the displacement cover, the orientation is the mesh winding.
+    EXPECT_NEAR(WaterSurfaceLod::MapProjectedGridUV({ 0.0f, 1.0f }, bounds).m_Ndc.y, bounds.m_NearEdgeY, 1e-4f);
+    EXPECT_NEAR(WaterSurfaceLod::MapProjectedGridUV({ 0.0f, 0.0f }, bounds).m_Ndc.y, bounds.m_FarEdgeY, 1e-4f);
+    EXPECT_NEAR(WaterSurfaceLod::MapProjectedGridUV({ 0.0f, 0.0f }, bounds).m_Ndc.x, bounds.m_Min.x, 1e-4f);
+    EXPECT_NEAR(WaterSurfaceLod::MapProjectedGridUV({ 1.0f, 0.0f }, bounds).m_Ndc.x, bounds.m_Max.x, 1e-4f);
+
+    constexpr i32 kSamples = 513;
+    const bool nearIsMax = bounds.m_NearEdgeY > bounds.m_FarEdgeY;
+    f32 previousY = bounds.m_FarEdgeY;
+    f32 previousSkirtRatio = 0.0f;
+    f32 minScreenGap = std::numeric_limits<f32>::max();
+    f32 maxScreenGap = 0.0f;
+    for (i32 i = 0; i < kSamples; ++i)
+    {
+        const f32 v = static_cast<f32>(i) / static_cast<f32>(kSamples - 1);
+        const WaterSurfaceLod::ProjectedGridSample sample =
+            WaterSurfaceLod::MapProjectedGridUV({ 0.5f, v }, bounds);
+        // Monotone toward the near edge, whichever sign that is: a fold would
+        // put two rows out of order and invert a strip of the mesh.
+        if (i > 0)
+        {
+            if (nearIsMax)
+                EXPECT_GE(sample.m_Ndc.y, previousY - 1e-5f) << "row " << i << " folded back";
+            else
+                EXPECT_LE(sample.m_Ndc.y, previousY + 1e-5f) << "row " << i << " folded back";
+        }
+        // Never finer than the on-screen step: a skirt row sampled as if its
+        // neighbours were as close as the on-screen ones is a row that aliases.
+        EXPECT_GE(sample.m_StepRatio, 1.0f - 1e-4f) << "row " << i;
+
+        if (std::abs(sample.m_Ndc.y) < 1.0f)
+        {
+            // Uniform where it counts, in BOTH senses: the same NDC gap between
+            // consecutive rows, and a band-limit step of exactly one.
+            EXPECT_NEAR(sample.m_StepRatio, 1.0f, 1e-4f) << "row " << i << " is on screen";
+            if (i > 0 && std::abs(previousY) < 1.0f)
+            {
+                const f32 gap = std::abs(sample.m_Ndc.y - previousY);
+                minScreenGap = std::min(minScreenGap, gap);
+                maxScreenGap = std::max(maxScreenGap, gap);
+            }
+            previousSkirtRatio = 0.0f;
+        }
+        else
+        {
+            // ...and it GROWS smoothly outward from the join rather than
+            // jumping there: the mesh band-limit reads this step, and a step
+            // that jumps between two adjacent rows changes the octave ladder
+            // across one edge of the surface.
+            EXPECT_GE(sample.m_StepRatio, previousSkirtRatio - 1e-4f) << "row " << i;
+            previousSkirtRatio = sample.m_StepRatio;
+        }
+        previousY = sample.m_Ndc.y;
+    }
+    ASSERT_LT(minScreenGap, std::numeric_limits<f32>::max()) << "no on-screen rows to measure";
+    EXPECT_LT(maxScreenGap / minScreenGap, 1.001f)
+        << "on-screen row spacing is no longer uniform: min " << minScreenGap << " max " << maxScreenGap;
+}
+
+TEST(WaterGeometryLodProfile, ProjectedGridMapIsExactlyTheUniformOneWhenTheSkirtIsAlreadySmall)
+{
+    // The other half of "only the skirt moved". From overhead the rectangle
+    // barely overhangs the screen, the compression has nothing to do, and the
+    // map has to come out as the uniform one TO THE BIT — otherwise every water
+    // pixel of a pose this issue is not about moves, and the visual goldens for
+    // it move with them.
+    const glm::mat4 viewProj = MakeViewProj(kHighOverhead);
+    const WaterSurfaceLod::NdcBounds bounds = WaterSurfaceLod::ComputeNdcBounds(
+        viewProj, kHighOverhead.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(bounds.m_Visible);
+
+    for (i32 j = 0; j <= 64; ++j)
+    {
+        const f32 v = static_cast<f32>(j) / 64.0f;
+        for (i32 i = 0; i <= 64; ++i)
+        {
+            const f32 u = static_cast<f32>(i) / 64.0f;
+            const WaterSurfaceLod::ProjectedGridSample sample =
+                WaterSurfaceLod::MapProjectedGridUV({ u, v }, bounds);
+            EXPECT_NEAR(sample.m_Ndc.x, glm::mix(bounds.m_Min.x, bounds.m_Max.x, u), 1e-5f) << "u " << u;
+            EXPECT_NEAR(sample.m_Ndc.y, glm::mix(bounds.m_FarEdgeY, bounds.m_NearEdgeY, v), 1e-5f) << "v " << v;
+            EXPECT_NEAR(sample.m_StepRatio, 1.0f, 1e-5f) << "u " << u << " v " << v;
+        }
+    }
+}
+
+TEST(WaterGeometryLodProfile, ProjectedGridBandLimitFollowsTheCompressedSkirtStep)
+{
+    // The subtle half of #1217: SpacingPerMetre now describes the ON-SCREEN
+    // step, so a skirt row -- whose neighbours are tens of times further apart
+    // -- must carry its own widening, or it is band-limited as if they were not
+    // and the octave ladder puts detail on it that its own lattice cannot
+    // sample. Measured against the real distance to the next row rather than
+    // against the formula that produced it.
+    //
+    // Stated RELATIVE to the rest of the grid rather than as an absolute bound,
+    // because an absolute one would be a claim about something else. `spacing`
+    // is the DERIVATIVE at a row and the gap to the next row is a SECANT, and
+    // approaching the horizon the ray distance grows faster than linearly, so
+    // the secant outruns the derivative there. That is a property of the
+    // per-vertex spacing form #1035 chose -- continuity across a shared vertex
+    // beats exactness, since a vertex given two octave weights tears the
+    // surface -- and the uniform mapping has it identically: compressing the
+    // skirt scaled the on-screen step and SpacingPerMetre by the same factor.
+    // What this test is about is whether the SKIRT rows are treated like every
+    // other row, so the rest of the grid is the reference.
+    const EditorCamera camera = MakeCamera(kLowGrazing);
+    const glm::mat4 viewProj = camera.GetViewProjection();
+    const glm::mat4 invViewProj = glm::inverse(viewProj);
+    const WaterSurfaceLod::NdcBounds bounds = WaterSurfaceLod::ComputeNdcBounds(
+        viewProj, kLowGrazing.m_Eye, kPlanePoint, kPlaneNormal, kDisplacementMargin);
+    ASSERT_TRUE(bounds.m_Visible);
+
+    constexpr u32 kGridX = 256;
+    constexpr u32 kGridZ = 144;
+    // GL is identity for the backend adjustment, so the camera's own projection
+    // is what the vertex stage sees.
+    const f32 perMetre = WaterSurfaceLod::SpacingPerMetre(bounds, camera.GetProjection(), kGridX, kGridZ);
+    ASSERT_GT(perMetre, 0.0f);
+    const bool nearIsMax = bounds.m_NearEdgeY > bounds.m_FarEdgeY;
+
+    struct Row
+    {
+        u32 m_Index = 0;
+        f32 m_Ratio = 0.0f; ///< band-limit spacing over the real gap to the next row
+        bool m_Skirt = false;
+    };
+    std::vector<Row> rows;
+
+    const auto rowSample = [&](u32 row, glm::vec3& outHit)
+    {
+        const f32 v = static_cast<f32>(row) / static_cast<f32>(kGridZ);
+        const WaterSurfaceLod::ProjectedGridSample sample =
+            WaterSurfaceLod::MapProjectedGridUV({ 0.5f, v }, bounds);
+        outHit = WaterSurfaceLod::ProjectGridVertex(invViewProj, kLowGrazing.m_Eye, sample.m_Ndc,
+                                                    kPlanePoint, kPlaneNormal, kRimRadius);
+        return sample;
+    };
+
+    for (u32 row = 0; row < kGridZ; ++row)
+    {
+        glm::vec3 hit(0.0f);
+        glm::vec3 nextHit(0.0f);
+        const WaterSurfaceLod::ProjectedGridSample sample = rowSample(row, hit);
+        rowSample(row + 1, nextHit);
+        // Rows above the horizon land on the rim by design; so do rows the rect
+        // clamp catches. Neither is a spacing to measure.
+        if (std::abs(hit.y - kPlanePoint.y) > 1e-2f || std::abs(nextHit.y - kPlanePoint.y) > 1e-2f)
+            continue;
+        const glm::vec3 toHit = hit - kLowGrazing.m_Eye;
+        const f32 t = glm::length(toHit);
+        const f32 rowGap = glm::distance(hit, nextHit);
+        if (!(t > 0.0f) || !(rowGap > 1e-4f))
+            continue;
+        const f32 spacing = WaterSurfaceLod::ProjectedGridSpacing(perMetre * sample.m_StepRatio, t,
+                                                                  glm::dot(toHit / t, kPlaneNormal));
+        ASSERT_TRUE(std::isfinite(spacing)) << "row " << row;
+        // A skirt row is one laid out past the NEAR edge of the screen, which
+        // is the end this issue compressed; which sign that is comes from the
+        // geometry-decided edge, never from assuming -1.
+        const bool skirt = std::abs(sample.m_Ndc.y) > 1.0f && ((sample.m_Ndc.y > 0.0f) == nearIsMax);
+        rows.push_back({ row, spacing / rowGap, skirt });
+    }
+    ASSERT_GT(rows.size(), 100u) << "not enough rows reached the plane to measure";
+
+    std::vector<f32> ratios;
+    ratios.reserve(rows.size());
+    for (const Row& r : rows)
+        ratios.push_back(r.m_Ratio);
+    std::sort(ratios.begin(), ratios.end());
+    const f32 medianRatio = ratios[ratios.size() / 2];
+
+    f32 skirtMin = std::numeric_limits<f32>::max();
+    f32 skirtMax = 0.0f;
+    i32 skirtRows = 0;
+    for (const Row& r : rows)
+    {
+        if (!r.m_Skirt)
+            continue;
+        ++skirtRows;
+        skirtMin = std::min(skirtMin, r.m_Ratio);
+        skirtMax = std::max(skirtMax, r.m_Ratio);
+    }
+    std::cout << "[  PROFILE ] band-limit spacing / real row gap: median over the grid "
+              << medianRatio << ", over the " << skirtRows << " compressed skirt rows ["
+              << skirtMin << ", " << skirtMax << "]" << std::endl;
+
+    ASSERT_GT(skirtRows, 4) << "no compressed skirt rows were reached, so this proved nothing";
+    // The number that matters. Without the per-vertex widening a skirt row is
+    // band-limited at the on-screen step while its neighbours are up to ~28x
+    // further away, so this lower bound fails by more than an order of
+    // magnitude rather than marginally.
+    EXPECT_GT(skirtMin, medianRatio * 0.5f)
+        << "the compressed skirt is band-limited far finer than its own lattice: skirt ratio "
+        << skirtMin << " against a grid median of " << medianRatio;
+    EXPECT_LT(skirtMax, medianRatio * 4.0f)
+        << "the compressed skirt is over-smoothed relative to the rest of the grid: skirt ratio "
+        << skirtMax << " against a grid median of " << medianRatio;
 }
 
 TEST(WaterGeometryLodProfile, PackProjectedGridRefusesADegenerateTransform)

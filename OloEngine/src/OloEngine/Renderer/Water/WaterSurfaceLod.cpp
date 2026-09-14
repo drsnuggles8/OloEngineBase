@@ -16,6 +16,111 @@ namespace OloEngine::WaterSurfaceLod
         // intersection distance grows without bound as it does.
         constexpr f32 kParallelEpsilon = 1e-6f;
 
+        /// One axis of the layout rectangle, split into its on-screen window and
+        /// the two skirts that may overhang it (issue #1217). Mirrored by
+        /// `waterProjGridAxis()` in include/WaterVertexStage.glsl.
+        struct AxisWarp
+        {
+            f32 m_Lo = -1.0f;         ///< the rectangle's NDC minimum on this axis
+            f32 m_Hi = 1.0f;          ///< its NDC maximum
+            f32 m_ScreenLo = -1.0f;   ///< max(m_Lo, -1)
+            f32 m_ScreenHi = 1.0f;    ///< min(m_Hi, +1)
+            f32 m_ParamLo = 0.0f;     ///< parameter where the on-screen window starts
+            f32 m_ParamHi = 1.0f;     ///< ...and where it ends
+            f32 m_ScreenSlope = 2.0f; ///< d(NDC) / d(parameter) over that window
+            /// The quadratic's slope at the join, per skirt, in (0, 1]. 1 means
+            /// the skirt was not compressed and the axis is the uniform map.
+            f32 m_JoinSlopeLo = 1.0f;
+            f32 m_JoinSlopeHi = 1.0f;
+            /// False when the rectangle misses the screen entirely on this axis
+            /// (or is degenerate), in which case the map stays uniform: there is
+            /// no on-screen window to give the rows to.
+            bool m_Warped = false;
+        };
+
+        /// A skirt's NDC-per-parameter curve: `a*w + (1-a)*w^2`, monotone for
+        /// any `a` in [0, 1], with `g(0) = 0`, `g(1) = 1` and `g'(0) = a`.
+        [[nodiscard]] f32 SkirtCurve(f32 a, f32 w)
+        {
+            return a * w + (1.0f - a) * w * w;
+        }
+
+        /// ...and its derivative, divided by `a` — i.e. the step at `w`
+        /// relative to the step at the join, which is the on-screen step.
+        [[nodiscard]] f32 SkirtStepRatio(f32 a, f32 w)
+        {
+            const f32 safeA = std::max(a, 1e-4f);
+            return (safeA + 2.0f * (1.0f - safeA) * w) / safeA;
+        }
+
+        [[nodiscard]] AxisWarp MakeAxisWarp(f32 lo, f32 hi)
+        {
+            AxisWarp warp;
+            warp.m_Lo = lo;
+            warp.m_Hi = hi;
+            warp.m_ScreenLo = lo;
+            warp.m_ScreenHi = hi;
+            warp.m_ScreenSlope = hi - lo;
+
+            const f32 total = hi - lo;
+            const f32 screenLo = std::max(lo, -1.0f);
+            const f32 screenHi = std::min(hi, 1.0f);
+            const f32 window = screenHi - screenLo;
+            // Nothing of this axis is on screen (or the rectangle collapsed):
+            // there is no window to move rows into, so leave the uniform map.
+            if (!std::isfinite(total) || total <= 1e-6f || window <= 1e-4f)
+                return warp;
+
+            const f32 low = screenLo - lo;
+            const f32 high = hi - screenHi;
+            const f32 paramLow = (low > 0.0f) ? std::min(kSkirtParamShare, low / total) : 0.0f;
+            const f32 paramHigh = (high > 0.0f) ? std::min(kSkirtParamShare, high / total) : 0.0f;
+            const f32 paramWindow = 1.0f - paramLow - paramHigh;
+            if (!(paramWindow > 1e-4f))
+                return warp;
+
+            warp.m_ScreenLo = screenLo;
+            warp.m_ScreenHi = screenHi;
+            warp.m_ParamLo = paramLow;
+            warp.m_ParamHi = paramLow + paramWindow;
+            warp.m_ScreenSlope = window / paramWindow;
+            // g'(0) that makes the skirt leave the join at the on-screen step.
+            // It is exactly 1 when the skirt was not compressed (paramLow ==
+            // low / total), so an axis that needs no compression comes out as
+            // the uniform map to the last bit.
+            warp.m_JoinSlopeLo =
+                (paramLow > 0.0f) ? std::clamp(warp.m_ScreenSlope * paramLow / low, 0.0f, 1.0f) : 1.0f;
+            warp.m_JoinSlopeHi =
+                (paramHigh > 0.0f) ? std::clamp(warp.m_ScreenSlope * paramHigh / high, 0.0f, 1.0f) : 1.0f;
+            warp.m_Warped = true;
+            return warp;
+        }
+
+        /// Evaluate one axis. `outStepRatio` is the local NDC step over the
+        /// on-screen one, which is 1 across the whole window.
+        [[nodiscard]] f32 EvalAxisWarp(const AxisWarp& warp, f32 s, f32& outStepRatio)
+        {
+            outStepRatio = 1.0f;
+            const f32 t = std::clamp(s, 0.0f, 1.0f);
+            if (!warp.m_Warped)
+                return glm::mix(warp.m_Lo, warp.m_Hi, t);
+
+            if (t < warp.m_ParamLo)
+            {
+                // Outward from the screen edge: w = 0 at the join, 1 at m_Lo.
+                const f32 w = 1.0f - t / warp.m_ParamLo;
+                outStepRatio = SkirtStepRatio(warp.m_JoinSlopeLo, w);
+                return warp.m_ScreenLo - (warp.m_ScreenLo - warp.m_Lo) * SkirtCurve(warp.m_JoinSlopeLo, w);
+            }
+            if (t > warp.m_ParamHi)
+            {
+                const f32 w = (t - warp.m_ParamHi) / std::max(1.0f - warp.m_ParamHi, 1e-6f);
+                outStepRatio = SkirtStepRatio(warp.m_JoinSlopeHi, w);
+                return warp.m_ScreenHi + (warp.m_Hi - warp.m_ScreenHi) * SkirtCurve(warp.m_JoinSlopeHi, w);
+            }
+            return warp.m_ScreenLo + (t - warp.m_ParamLo) * warp.m_ScreenSlope;
+        }
+
         /// Cast the view ray through one NDC coordinate and intersect it with the
         /// plane. `outOrigin` is the camera, `outDir` a UNIT direction and
         /// `outT` a distance in METRES, so the only validity test is "in front
@@ -351,6 +456,27 @@ namespace OloEngine::WaterSurfaceLod
         return bounds;
     }
 
+    ProjectedGridSample MapProjectedGridUV(const glm::vec2& uv, const NdcBounds& bounds)
+    {
+        const AxisWarp warpX = MakeAxisWarp(bounds.m_Min.x, bounds.m_Max.x);
+        const AxisWarp warpY = MakeAxisWarp(bounds.m_Min.y, bounds.m_Max.y);
+
+        // v = 1 lands on the NEAR edge, and which of min/max that is depends on
+        // the backend's NDC convention (NdcBounds decides it by geometry). The
+        // warp is a statement about the RECTANGLE, not about the parameter, so
+        // the axis is always walked min -> max and v is flipped instead.
+        const bool nearIsMax = bounds.m_NearEdgeY > bounds.m_FarEdgeY;
+        const f32 sy = nearIsMax ? uv.y : (1.0f - uv.y);
+
+        ProjectedGridSample sample;
+        f32 ratioX = 1.0f;
+        f32 ratioY = 1.0f;
+        sample.m_Ndc.x = EvalAxisWarp(warpX, uv.x, ratioX);
+        sample.m_Ndc.y = EvalAxisWarp(warpY, sy, ratioY);
+        sample.m_StepRatio = std::max(ratioX, ratioY);
+        return sample;
+    }
+
     glm::vec3 ProjectGridVertex(const glm::mat4& invViewProj, const glm::vec3& cameraPos,
                                 const glm::vec2& ndc, const glm::vec3& planePoint,
                                 const glm::vec3& planeNormal, f32 rimRadius)
@@ -461,8 +587,12 @@ namespace OloEngine::WaterSurfaceLod
         // angle between neighbouring vertices; that angle times the distance is
         // the world spacing. The coarser axis is the one the band-limit is
         // about.
-        const f32 stepX = (bounds.m_Max.x - bounds.m_Min.x) / static_cast<f32>(std::max(gridResolutionX, 1u));
-        const f32 stepY = (bounds.m_Max.y - bounds.m_Min.y) / static_cast<f32>(std::max(gridResolutionZ, 1u));
+        // The ON-SCREEN step, not the rectangle's average one (#1217): the
+        // skirt rows are compressed into a fixed share of the axis, so the
+        // average describes no row on the surface. A skirt row carries its own
+        // widening in ProjectedGridSample::m_StepRatio.
+        const f32 stepX = MakeAxisWarp(bounds.m_Min.x, bounds.m_Max.x).m_ScreenSlope / static_cast<f32>(std::max(gridResolutionX, 1u));
+        const f32 stepY = MakeAxisWarp(bounds.m_Min.y, bounds.m_Max.y).m_ScreenSlope / static_cast<f32>(std::max(gridResolutionZ, 1u));
         const f32 perMetre = std::max(stepX / p00, stepY / p11);
         return std::isfinite(perMetre) ? std::max(perMetre, 0.0f) : 0.0f;
     }
