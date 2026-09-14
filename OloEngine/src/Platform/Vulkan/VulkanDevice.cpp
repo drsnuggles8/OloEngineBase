@@ -86,6 +86,15 @@ namespace OloEngine
         std::vector<AddressBindingRecord> s_AddressBindings;
         u64 s_AddressBindingSerial = 0;
 
+        // A fault on a new device must not resolve to a range from the previous
+        // one: the history is per device generation, cleared at Init.
+        void ResetAddressBindingHistory()
+        {
+            const std::lock_guard lock(s_AddressBindingMutex);
+            s_AddressBindings.clear();
+            s_AddressBindingSerial = 0;
+        }
+
         // Bounded so a long session cannot grow it without limit; the tail is
         // what a fault needs, and dropping the oldest entries only loses
         // history for ranges that have long since been rebound.
@@ -300,6 +309,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(s_ActiveDevice == nullptr, "VulkanDevice::Init: another VulkanDevice is already live");
         OLO_CORE_ASSERT(m_Instance == VK_NULL_HANDLE, "VulkanDevice::Init called twice");
+#ifdef OLO_DEBUG
+        ResetAddressBindingHistory();
+#endif
 
         // --- Loader ---------------------------------------------------------
         // Safe to run twice: VulkanContext also runs it (before this call) so
@@ -682,6 +694,11 @@ namespace OloEngine
         // gate row.
         VkPhysicalDeviceFaultFeaturesEXT supportedFault{};
         supportedFault.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        // Probed, not assumed: the extension name being listed does not make the
+        // feature supported, and enabling an unsupported feature fails
+        // vkCreateDevice (VUID-VkDeviceCreateInfo-pNext).
+        VkPhysicalDeviceAddressBindingReportFeaturesEXT supportedAddressBinding{};
+        supportedAddressBinding.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
         bool hasDeviceFaultExtension = false;
         // VK_EXT_mesh_shader (issue #813): OPTIONAL, same when-supported rule
         // as EDS3 / device-fault — never an ADR 0010 gate row (requiring it
@@ -733,7 +750,7 @@ namespace OloEngine
             hasRayQueryExtension = listed(VK_KHR_RAY_QUERY_EXTENSION_NAME);
             hasRayPipelineExtension = listed(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension || hasAccelStructExtension ||
-                hasRayQueryExtension || hasRayPipelineExtension)
+                hasRayQueryExtension || hasRayPipelineExtension || hasAddressBindingExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -742,6 +759,11 @@ namespace OloEngine
                 {
                     supportedFault.pNext = probe.pNext;
                     probe.pNext = &supportedFault;
+                }
+                if (hasAddressBindingExtension)
+                {
+                    supportedAddressBinding.pNext = probe.pNext;
+                    probe.pNext = &supportedAddressBinding;
                 }
                 if (hasMeshShaderExtension)
                 {
@@ -768,6 +790,7 @@ namespace OloEngine
                 }
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
                 supportedFault.pNext = nullptr;
+                supportedAddressBinding.pNext = nullptr;
                 supportedMeshShader.pNext = nullptr;
                 // Scrub every reused struct: these are probe results now and
                 // request structs later, and a stale pNext would splice the
@@ -974,7 +997,18 @@ namespace OloEngine
 #ifdef OLO_DEBUG
         if (AddressBindingReportRequested())
         {
-            if (hasAddressBindingExtension)
+            // Three prerequisites, each checked rather than assumed: the
+            // extension, the FEATURE it advertises, and a live debug-utils
+            // messenger — the reports arrive through the messenger, so without
+            // one the feature is enabled for nothing. Never a silent no-op: a
+            // session that asked for this and did not get it must be told which
+            // leg failed, or a fault report's missing owner line reads as
+            // "nothing owned that address".
+            const char* missing = !hasAddressBindingExtension                               ? "VK_EXT_device_address_binding_report is not available"
+                                  : supportedAddressBinding.reportAddressBinding != VK_TRUE ? "the reportAddressBinding feature is unsupported"
+                                  : m_DebugMessenger == VK_NULL_HANDLE                      ? "no debug-utils messenger is active (validation layer absent)"
+                                                                                            : nullptr;
+            if (missing == nullptr)
             {
                 deviceExtensions.push_back(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
                 addressBindingFeatures.reportAddressBinding = VK_TRUE;
@@ -983,12 +1017,9 @@ namespace OloEngine
             }
             else
             {
-                // Never a silent no-op: a session that asked for this and did
-                // not get it must be told, or a fault report's missing owner
-                // line reads as "nothing owned that address".
-                OLO_CORE_WARN("[Vulkan] address-binding reporting requested but "
-                              "VK_EXT_device_address_binding_report is not available — fault addresses will not "
-                              "resolve to objects");
+                OLO_CORE_WARN("[Vulkan] address-binding reporting requested but {} — fault addresses will not "
+                              "resolve to objects",
+                              missing);
             }
         }
 #else

@@ -38,6 +38,10 @@ namespace OloEngine::VulkanAftermath
 
         // Shader-binary hash -> our own name for it. Written while shaders are
         // created (any thread), read once from the crash-dump callback.
+        // Aftermath invokes its callbacks from driver threads and does not
+        // serialize them; two concurrent dumps would race the same filename and
+        // interleave their decode output.
+        std::mutex s_CrashDumpMutex;
         std::mutex s_ShaderNameMutex;
         std::unordered_map<u64, std::string> s_ShaderNames;
 
@@ -173,6 +177,7 @@ namespace OloEngine::VulkanAftermath
 
         void GFSDK_AFTERMATH_CALL OnCrashDump(const void* dump, const u32 dumpSize, void* /*userData*/)
         {
+            const std::lock_guard lock(s_CrashDumpMutex);
             s_DumpReceived.store(true, std::memory_order_release);
             OLO_CORE_ERROR("[Aftermath] GPU crash dump received ({} bytes)", dumpSize);
 

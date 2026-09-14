@@ -70,8 +70,10 @@ run:
 [Aftermath]   active shader: hash=0x3dc4a10b8749b9db type=5 internal=false
 ```
 
-`destroyed=true` plus the Vulkan-only `MemoryFreed` residency is the whole point: it says the GPU
-read a resource the CPU had already destroyed, which is a bug in this engine and not in the driver.
+`destroyed=true` plus the Vulkan-only `MemoryFreed` residency says the GPU read a resource the CPU
+had already destroyed. That is the fact; it is **not yet blame**. Whether the stale reference is the
+engine's or the driver's needs the audit in the next section — on #1198 the same signal turned out
+to be a driver-side read once every engine-side reference had been shown absent.
 `type=5` is `GFSDK_Aftermath_ShaderType_Fragment` and `client=4` is `GraphicsProcessingCluster`, so
 the read is a texture fetch in a fragment shader rather than a depth-test or copy.
 

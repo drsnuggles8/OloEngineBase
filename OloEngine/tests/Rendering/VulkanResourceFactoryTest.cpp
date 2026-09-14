@@ -909,6 +909,14 @@ TEST_F(VulkanResourceFactory, DepthStencilImagesAreHeldOneGenerationLongerThanCo
     ASSERT_GE(enqueued, sizet{ 2 });
 
     CompleteFrames(static_cast<u32>(VulkanDeferredReclaim::kFramesInFlight));
+    if (Levers::VulkanNoDepthReclaimHold())
+    {
+        // The lever is a supported configuration (it exists to re-test the
+        // workaround against a new driver): with it on, depth is ordinary.
+        EXPECT_EQ(reclaim.GetPendingCount(), baseline)
+            << "with OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD set, depth must reclaim with everything else";
+        return;
+    }
     // The colour image is gone; the depth image is still held.
     EXPECT_EQ(reclaim.GetPendingCount() - baseline, enqueued - 1)
         << "after kFramesInFlight generations exactly the colour image should have been destroyed";
