@@ -9835,6 +9835,159 @@ TEST_F(VulkanPassSuite, ShadowCascadesRenderIntoTheirOwnDepthArrayLayers)
 }
 
 // =============================================================================
+// The INSTANCED skinned draw (#1031).
+//
+// Until #1031, DrawMeshInstancedCommand::isAnimatedMesh could never be true:
+// CommandBucket::BatchCommands skipped every animated draw, and the only other
+// writer (ConvertToInstanced, via the callerless TryMergeCommands) is dead
+// code. So "a skinned mesh drawn with instanceCount > 1" had never executed on
+// ANY backend, and #1031 is what lights it up. It is verified on GL by
+// SkinnedCrowdBatchingVisualEvidenceTest; this is its Vulkan half, and Vulkan
+// is where the combination is least obviously safe, because the skinned
+// shaders do not read vertex attributes there at all.
+//
+// The two things that have to hold at once are pulled from DIFFERENT indices,
+// which is the whole point:
+//
+//   * the BONE stream on pull binding 63 is per-VERTEX (gl_VertexIndex), unlike
+//     foliage's stream 1 which is per-instance — so FoliageInstancePullDraws-
+//     ThreeTintedCards does not cover this shape;
+//   * the per-instance transform comes from SSBO 15 by gl_InstanceIndex.
+//
+// One quad spanning x in [-0.25, 0.25] is skinned by BONE 1 (a -0.5 x
+// translation) and drawn with instanceCount 2: instance 0 at identity, instance
+// 1 translated +1.0 in x. Correct output puts depth at NDC -0.5 and +0.5 and
+// leaves NDC 0 clear, and each failure mode lands somewhere else:
+//
+//   * an ignored instanceCount, or every instance reading instances[0], leaves
+//     the RIGHT sample at the clear value;
+//   * a dropped bone stream reads bone id 0 (identity), which leaves instance 0
+//     straddling the CENTRE sample and moves instance 1 off the right sample.
+// =============================================================================
+TEST_F(VulkanPassSuite, SkinnedInstancedDrawPlacesEveryInstanceWithItsOwnTransform)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    auto skinnedShader = Shader::Create("assets/shaders/ShadowDepthSkinned.glsl");
+    ASSERT_TRUE(skinnedShader);
+    ASSERT_EQ(skinnedShader->GetCompilationStatus(), ShaderCompilationStatus::Ready)
+        << "ShadowDepthSkinned.glsl must compile through shaderc (V1 + V2 two-stream pull)";
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = glm::mat4(1.0f);
+    cameraData.View = glm::mat4(1.0f);
+    cameraData.Projection = glm::mat4(1.0f);
+    cameraData.PrevViewProjection = glm::mat4(1.0f);
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+
+    // TWO instances, the batched shape. Identity and a +1.0 x translation, so
+    // the two land in different halves and reading the wrong entry is visible
+    // rather than merely suspicious.
+    std::array<InstanceData, 2> instances{};
+    instances[0].Transform = glm::mat4(1.0f);
+    instances[0].Normal = glm::mat4(1.0f);
+    instances[0].PrevTransform = glm::mat4(1.0f);
+    instances[1].Transform = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    instances[1].Normal = glm::mat4(1.0f);
+    instances[1].PrevTransform = instances[1].Transform;
+    auto instanceSSBO = StorageBuffer::Create(static_cast<u32>(sizeof(instances)),
+                                              ShaderBindingLayout::SSBO_INSTANCE_DATA);
+    instanceSSBO->SetData(instances.data(), static_cast<u32>(sizeof(instances)));
+    instanceSSBO->Bind();
+
+    // One palette for BOTH instances — which is exactly what a batched skinned
+    // draw uploads, and why #1031 only groups draws whose palettes are
+    // byte-identical. Entry 0 is identity (what a dropped bone stream selects);
+    // entry 1 shifts the quad half a screen left.
+    std::vector<glm::mat4> bonePalette(ShaderBindingLayout::AnimationUBO::MAX_BONES, glm::mat4(1.0f));
+    bonePalette[1] = glm::translate(glm::mat4(1.0f), glm::vec3(-0.5f, 0.0f, 0.0f));
+    auto boneUbo = UniformBuffer::Create(static_cast<u32>(bonePalette.size() * sizeof(glm::mat4)),
+                                         ShaderBindingLayout::UBO_ANIMATION);
+    boneUbo->SetData(bonePalette.data(), static_cast<u32>(bonePalette.size() * sizeof(glm::mat4)));
+
+    constexpr f32 kQuadDepth = 0.5f;
+    auto skinnedQuad = MakeV1Quad(-0.25f, 0.25f, -1.0f, 1.0f, kQuadDepth);
+    ASSERT_TRUE(skinnedQuad);
+    AddBoneStream(skinnedQuad, 4u, 1u);
+
+    Texture2DArraySpecification arraySpec;
+    arraySpec.Width = kSize;
+    arraySpec.Height = kSize;
+    arraySpec.Layers = 1;
+    arraySpec.Format = Texture2DArrayFormat::DEPTH_COMPONENT32F;
+    arraySpec.DepthComparisonMode = true;
+    auto target = Texture2DArray::Create(arraySpec);
+    ASSERT_TRUE(target);
+
+    FramebufferSpecification shadowSpec;
+    shadowSpec.Width = kSize;
+    shadowSpec.Height = kSize;
+    shadowSpec.Attachments = { FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> shadowFramebuffer = Framebuffer::Create(shadowSpec);
+    ASSERT_TRUE(shadowFramebuffer);
+
+    SubmitFrame(
+        [&]()
+        {
+            shadowFramebuffer->Bind();
+            RenderCommand::SetViewport(0, 0, kSize, kSize);
+            RenderCommand::SetBlendState(false);
+            // Raw clip-space quads with no projection seam applied — same
+            // reason the cascade tenant above disables culling.
+            RenderCommand::DisableCulling();
+            RenderCommand::SetDepthTest(true);
+            RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+            RenderCommand::SetDepthMask(true);
+
+            shadowFramebuffer->AttachDepthTextureArrayLayer(target->GetRHIHandle(), 0u);
+            RenderCommand::ClearDepthOnly();
+            skinnedShader->Bind();
+            skinnedQuad->Bind();
+            RenderCommand::DrawIndexedInstanced(skinnedQuad, 6, 2);
+
+            RHI::Barrier toSampled{};
+            toSampled.Resource = target->GetRHIHandle();
+            toSampled.Range.BaseMip = 0u;
+            toSampled.Range.MipCount = 1u;
+            toSampled.Range.BaseLayer = 0u;
+            toSampled.Range.LayerCount = 1u;
+            toSampled.Before = RHI::Access::DepthStencilAttachmentWrite;
+            toSampled.After = RHI::Access::ShaderSampleRead;
+            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toSampled, 1 });
+        });
+
+    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "ONE instanced draw, not one per instance";
+    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "the instanced skinned draw was dropped silently";
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore) << "the instanced skinned draw hit a stub";
+
+    std::vector<f32> depth;
+    ASSERT_TRUE(ReadDepthArrayLayer(target, 0u, depth)) << "depth readback failed";
+    ASSERT_EQ(depth.size(), static_cast<sizet>(kSize) * kSize);
+
+    const auto sample = [&](u32 x, u32 y)
+    { return depth[static_cast<sizet>(y) * kSize + x]; };
+    constexpr u32 kRow = kSize / 2;
+    constexpr u32 kLeftX = kSize / 4;      // NDC -0.5: instance 0, skinned left
+    constexpr u32 kRightX = 3 * kSize / 4; // NDC +0.5: instance 1, skinned left then moved right
+    constexpr u32 kCentreX = kSize / 2;    // NDC  0.0: the gap the bone translation opens
+
+    EXPECT_NEAR(sample(kLeftX, kRow), kQuadDepth, 1e-4f)
+        << "instance 0 is missing from its own half — the first instance of a skinned instanced draw did "
+           "not render";
+    EXPECT_NEAR(sample(kRightX, kRow), kQuadDepth, 1e-4f)
+        << "instance 1 is missing — either instanceCount never reached vkCmdDrawIndexed, or every "
+           "instance read instances[0] instead of instances[gl_InstanceIndex]";
+    EXPECT_NEAR(sample(kCentreX, kRow), 1.0f, 1e-4f)
+        << "the centre must stay at the clear value — bone 1's -0.5 x translation opens this gap, so a "
+           "bone stream that never arrived on pull binding 63 (bone id 0, identity) paints exactly here";
+}
+
+// =============================================================================
 // PLANAR REFLECTION: the mirror camera through the Y-flip seam
 // =============================================================================
 //

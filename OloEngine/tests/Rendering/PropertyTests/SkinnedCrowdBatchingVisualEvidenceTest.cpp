@@ -34,11 +34,24 @@
 // inside the tick, after the history advance, so prev and current genuinely
 // differ and the comparison has something to compare.
 //
+// Both raster paths are run, because they are not the same test: Deferred
+// binds PBR_GBuffer_Skinned and writes velocity to G-Buffer RT3, Forward binds
+// PBR_MultiLight_Skinned and reconstructs velocity into the scene
+// framebuffer's RT3. The batching decision and the palette upload are shared,
+// the shaders consuming them are not.
+//
 // PNGs land in OloEditor/assets/tests/visual/SkinnedCrowd_*.png as evidence for
 // a human to look at. Like the SkeletalDeform_* captures they are deliberately
 // not in the RMSE golden set: the contract worth regressing on is the
 // batched == unbatched relationship asserted here, not the exact pixels of a
 // procedural cube.
+//
+// The Vulkan half of this verification is a separate tenant, because the
+// backends need different scaffolding for the same question:
+// VulkanPassSuite.SkinnedInstancedDrawPlacesEveryInstanceWithItsOwnTransform
+// pins the instanced skinned draw against a real Vulkan device, where the
+// bone stream is pulled per-VERTEX off SSBO 63 and the per-instance transform
+// comes from SSBO 15 by gl_InstanceIndex.
 //
 // Classification: L8 / integration (full GL pipeline + readback + PNG).
 //
@@ -60,6 +73,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
@@ -104,6 +118,10 @@ namespace OloEngine::Tests
         // history has advanced past the deliberate reset and every skeleton is
         // in steady motion when the last frame is captured.
         constexpr u32 kSettleFrames = 4;
+
+        // Scene-framebuffer slot the forward paths write velocity into: RT0
+        // colour, RT1 entity ID, RT2 view normals, RT3 velocity.
+        constexpr u32 kForwardVelocityAttachment = 3;
 
         // A rotation clip on the animated cube's upper bone. Built inline
         // rather than taken from Functional/Helpers/AnimationFixtures.h: that
@@ -300,7 +318,7 @@ namespace OloEngine::Tests
         /// same number of frames at the harness's fixed timestep, so the three
         /// arms end on the same clip time and any difference between them is
         /// the batcher's doing and nothing else.
-        void RenderArm(bool enableBatching, ArmResult& out)
+        void RenderArm(RenderingPath path, bool enableBatching, ArmResult& out)
         {
             SceneRenderPass* geometry = GeometryPass();
             ASSERT_TRUE(geometry) << "no geometry render-stream node";
@@ -323,11 +341,36 @@ namespace OloEngine::Tests
             ASSERT_TRUE(ReadbackComposite(out.m_Color, width, height)) << "ReadbackComposite failed";
             ASSERT_EQ(out.m_Color.size(), static_cast<std::size_t>(width) * height * 4u);
 
-            const Ref<GBuffer>& gbuffer = geometry->GetGBuffer();
-            ASSERT_TRUE(gbuffer) << "the deferred G-Buffer is absent; velocity cannot be inspected";
-            const u32 velocityID = gbuffer->GetColorAttachmentID(GBuffer::Velocity);
-            ASSERT_NE(velocityID, 0u) << "the G-Buffer carries no velocity attachment";
+            u32 velocityID = 0;
+            ASSERT_NO_FATAL_FAILURE(ResolveVelocityTexture(path, velocityID));
             ReadbackRgbaFloat(velocityID, width, height, out.m_Velocity);
+        }
+
+        /// Where this path writes per-pixel motion. The two paths put velocity
+        /// in different places and get there through different shaders --
+        /// PBR_GBuffer_Skinned writes G-Buffer RT3, PBR_MultiLight_Skinned
+        /// reconstructs into the scene framebuffer's RT3 -- which is the whole
+        /// reason this test runs on both rather than trusting one.
+        void ResolveVelocityTexture(RenderingPath path, u32& outTextureID)
+        {
+            outTextureID = 0;
+            if (path == RenderingPath::Deferred)
+            {
+                SceneRenderPass* geometry = GeometryPass();
+                ASSERT_TRUE(geometry) << "no geometry render-stream node";
+                const Ref<GBuffer>& gbuffer = geometry->GetGBuffer();
+                ASSERT_TRUE(gbuffer) << "the deferred G-Buffer is absent; velocity cannot be inspected";
+                outTextureID = gbuffer->GetColorAttachmentID(GBuffer::Velocity);
+                ASSERT_NE(outTextureID, 0u) << "the G-Buffer carries no velocity attachment";
+                return;
+            }
+
+            const auto sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            ASSERT_TRUE(sceneFB) << "no scene framebuffer on the forward path";
+            // RT0 colour, RT1 entity ID, RT2 view normals, RT3 velocity -- the
+            // slot SceneRenderPass::SetupFramebuffer restores for TAA.
+            outTextureID = sceneFB->GetColorAttachmentRendererID(kForwardVelocityAttachment);
+            ASSERT_NE(outTextureID, 0u) << "the scene framebuffer carries no velocity attachment";
         }
 
         void WritePng(const std::string& tag, const std::vector<u8>& pixels) const
@@ -339,6 +382,85 @@ namespace OloEngine::Tests
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight),
                                                4, pixels.data(), static_cast<int>(kWidth) * 4);
             EXPECT_NE(wrote, 0) << "stbi_write_png failed for '" << path << "'";
+        }
+
+        /// Render the crowd three times on `path` -- unbatched reference,
+        /// unbatched control, batched -- and require the batched frame to differ
+        /// from the reference by no more than the control does, in colour and in
+        /// motion vectors. The control is what makes the tolerance the
+        /// pipeline's own run-to-run noise rather than a number picked by hand.
+        void ExpectBatchedMatchesUnbatched(RenderingPath path, const char* pathName)
+        {
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+
+            ArmResult reference;
+            ASSERT_NO_FATAL_FAILURE(RenderArm(path, /*enableBatching=*/false, reference)) << pathName;
+
+            ArmResult control;
+            ASSERT_NO_FATAL_FAILURE(RenderArm(path, /*enableBatching=*/false, control)) << pathName;
+
+            ArmResult batched;
+            ASSERT_NO_FATAL_FAILURE(RenderArm(path, /*enableBatching=*/true, batched)) << pathName;
+
+            WritePng(std::string(pathName) + "_Unbatched", reference.m_Color);
+            WritePng(std::string(pathName) + "_Batched", batched.m_Color);
+
+            // The measurement, printed rather than only asserted: this is the
+            // number the issue's "collapse identical-pose actors into one draw"
+            // criterion is about. The bucket's statistics are per-batching-pass,
+            // so these are single-frame figures.
+            std::cout << "[ SKINNED  ] " << pathName << ": crowd of " << kActorCount
+                      << " in 2 poses - geometry-bucket draw calls: "
+                      << reference.m_BucketStats.DrawCalls << " unbatched vs "
+                      << batched.m_BucketStats.DrawCalls << " batched; "
+                      << batched.m_BucketStats.SkinnedBatchGroups << " pose group(s), "
+                      << batched.m_BucketStats.SkinnedBatchedCommands << " source draw(s) collapsed"
+                      << std::endl;
+
+            EXPECT_LT(batched.m_BucketStats.DrawCalls, reference.m_BucketStats.DrawCalls)
+                << pathName << ": batching the crowd did not reduce the geometry bucket's draw calls";
+
+            // 1. The crowd actually batched, and into TWO groups -- one per
+            //    pose. The unbatched arm must show none, or the toggle did
+            //    nothing and every comparison below is vacuous.
+            EXPECT_EQ(reference.m_BucketStats.SkinnedBatchedCommands, 0u)
+                << pathName << ": the batcher was disabled yet skinned draws still collapsed";
+            EXPECT_GE(batched.m_BucketStats.SkinnedBatchGroups, 2u)
+                << pathName << ": the two pose groups did not each form a batch";
+            EXPECT_GE(batched.m_BucketStats.SkinnedBatchedCommands, kActorCount - 2u)
+                << pathName << ": fewer skinned draws collapsed than the crowd has duplicates";
+            EXPECT_EQ(batched.m_BucketStats.SkinnedBatchUnremapped, 0u)
+                << pathName << ": a skinned draw reached the batcher with worker-local bone offsets";
+
+            // 2. Non-vacuity: something rendered, and it was moving.
+            const f32 referenceVelocityPeak = PeakVelocity(reference.m_Velocity);
+            const f32 batchedVelocityPeak = PeakVelocity(batched.m_Velocity);
+            ASSERT_GT(referenceVelocityPeak, 0.0f)
+                << pathName << ": the unbatched reference emitted no motion at all; the capture is not "
+                               "mid-motion and the ghosting check below would pass on two empty buffers";
+
+            // 3. The images agree, to within what this pipeline does to itself
+            //    between two identical runs.
+            const f64 controlColorDelta = MeanAbsDifference(reference.m_Color, control.m_Color);
+            const f64 batchedColorDelta = MeanAbsDifference(reference.m_Color, batched.m_Color);
+            EXPECT_LE(batchedColorDelta, controlColorDelta + 1.0)
+                << pathName << ": batched crowd renders differently from the one-draw-per-actor path "
+                << "(batched delta " << batchedColorDelta << " vs control " << controlColorDelta
+                << "); compare SkinnedCrowd_" << pathName << "_Batched.png against the _Unbatched twin";
+
+            // 4. And so do the motion vectors. This is the ghosting guard: a
+            //    batch that lost its previous-pose palette emits zero velocity.
+            const f64 controlVelocityDelta = MeanAbsVelocityDifference(reference.m_Velocity, control.m_Velocity);
+            const f64 batchedVelocityDelta = MeanAbsVelocityDifference(reference.m_Velocity, batched.m_Velocity);
+            EXPECT_LE(batchedVelocityDelta, controlVelocityDelta + 1e-4)
+                << pathName << ": batched skinned draws emit different motion vectors from unbatched ones "
+                << "(batched delta " << batchedVelocityDelta << " vs control " << controlVelocityDelta
+                << ", reference peak " << referenceVelocityPeak << ", batched peak " << batchedVelocityPeak
+                << ") -- this is what ghosting under TAA looks like before it reaches the screen";
+            EXPECT_GT(batchedVelocityPeak, 0.0f)
+                << pathName << ": the batched crowd emitted no motion at all: the previous-pose palette "
+                               "was dropped";
         }
 
         void TearDown() override
@@ -363,81 +485,15 @@ namespace OloEngine::Tests
         std::vector<Entity> m_Animations;
     };
 
-    TEST_F(SkinnedCrowdBatchingScene, SamePoseCrowdCollapsesAndRendersIdentically)
+    TEST_F(SkinnedCrowdBatchingScene, SamePoseCrowdCollapsesAndRendersIdenticallyOnBothRasterPaths)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        // Deferred, because the velocity target this test reads is the
-        // G-Buffer's RT3. The fixture restores RendererSettings in TearDown.
-        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
-        Renderer3D::ApplyRendererSettings();
-
-        ArmResult reference;
-        ASSERT_NO_FATAL_FAILURE(RenderArm(/*enableBatching=*/false, reference));
-
-        ArmResult control;
-        ASSERT_NO_FATAL_FAILURE(RenderArm(/*enableBatching=*/false, control));
-
-        ArmResult batched;
-        ASSERT_NO_FATAL_FAILURE(RenderArm(/*enableBatching=*/true, batched));
-
-        WritePng("Unbatched", reference.m_Color);
-        WritePng("Batched", batched.m_Color);
-
-        // The measurement, printed rather than only asserted: this is the
-        // number the issue's "collapse identical-pose actors into one draw"
-        // criterion is about, and a reader of the test log should be able to
-        // see it without re-deriving it from the assertions. The bucket's
-        // statistics are per-batching-pass, so these are single-frame figures.
-        std::cout << "[ SKINNED  ] crowd of " << kActorCount << " in 2 poses - geometry-bucket draw calls: "
-                  << reference.m_BucketStats.DrawCalls << " unbatched vs "
-                  << batched.m_BucketStats.DrawCalls << " batched; "
-                  << batched.m_BucketStats.SkinnedBatchGroups << " pose group(s), "
-                  << batched.m_BucketStats.SkinnedBatchedCommands << " source draw(s) collapsed" << std::endl;
-
-        EXPECT_LT(batched.m_BucketStats.DrawCalls, reference.m_BucketStats.DrawCalls)
-            << "batching the crowd did not reduce the geometry bucket's draw calls";
-
-        // 1. The crowd actually batched, and into TWO groups — one per pose.
-        //    The unbatched arm must show none, or the toggle did nothing and
-        //    every comparison below is vacuous.
-        EXPECT_EQ(reference.m_BucketStats.SkinnedBatchedCommands, 0u)
-            << "the batcher was disabled yet skinned draws still collapsed";
-        EXPECT_GE(batched.m_BucketStats.SkinnedBatchGroups, 2u)
-            << "the two pose groups did not each form a batch";
-        EXPECT_GE(batched.m_BucketStats.SkinnedBatchedCommands, kActorCount - 2u)
-            << "fewer skinned draws collapsed than the crowd has duplicates";
-        EXPECT_EQ(batched.m_BucketStats.SkinnedBatchUnremapped, 0u)
-            << "a skinned draw reached the batcher with worker-local bone offsets";
-
-        // 2. Non-vacuity: something rendered, and it was moving.
-        const f32 referenceVelocityPeak = PeakVelocity(reference.m_Velocity);
-        const f32 batchedVelocityPeak = PeakVelocity(batched.m_Velocity);
-        ASSERT_GT(referenceVelocityPeak, 0.0f)
-            << "the unbatched reference emitted no motion at all; the capture is not mid-motion "
-               "and the ghosting check below would pass on two empty buffers";
-
-        // 3. The images agree, to within what this pipeline does to itself
-        //    between two identical runs.
-        const f64 controlColorDelta = MeanAbsDifference(reference.m_Color, control.m_Color);
-        const f64 batchedColorDelta = MeanAbsDifference(reference.m_Color, batched.m_Color);
-        EXPECT_LE(batchedColorDelta, controlColorDelta + 1.0)
-            << "batched crowd renders differently from the one-draw-per-actor path "
-            << "(batched delta " << batchedColorDelta << " vs control " << controlColorDelta
-            << "); compare SkinnedCrowd_Batched.png against SkinnedCrowd_Unbatched.png";
-
-        // 4. And so do the motion vectors. This is the ghosting guard: a batch
-        //    that lost its previous-pose palette emits zero velocity, which
-        //    shows up here as a delta near the reference's own peak while the
-        //    control stays near zero.
-        const f64 controlVelocityDelta = MeanAbsVelocityDifference(reference.m_Velocity, control.m_Velocity);
-        const f64 batchedVelocityDelta = MeanAbsVelocityDifference(reference.m_Velocity, batched.m_Velocity);
-        EXPECT_LE(batchedVelocityDelta, controlVelocityDelta + 1e-4)
-            << "batched skinned draws emit different motion vectors from unbatched ones "
-            << "(batched delta " << batchedVelocityDelta << " vs control " << controlVelocityDelta
-            << ", reference peak " << referenceVelocityPeak << ", batched peak " << batchedVelocityPeak
-            << ") — this is what ghosting under TAA looks like before it reaches the screen";
-        EXPECT_GT(batchedVelocityPeak, 0.0f)
-            << "the batched crowd emitted no motion at all: the previous-pose palette was dropped";
+        // Both raster paths, because they bind DIFFERENT skinned shaders and
+        // write velocity to different targets, while the batching decision and
+        // the palette upload are shared. Deferred first, then Forward; the
+        // fixture's TearDown restores RendererSettings either way.
+        ExpectBatchedMatchesUnbatched(RenderingPath::Deferred, "Deferred");
+        ExpectBatchedMatchesUnbatched(RenderingPath::Forward, "Forward");
     }
 } // namespace OloEngine::Tests
