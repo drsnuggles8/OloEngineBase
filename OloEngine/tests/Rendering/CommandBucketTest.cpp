@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Math/Math.h"
 
 #include <algorithm>
 #include <numeric>
@@ -555,43 +556,286 @@ TEST_F(CommandBucketBatchTest, BatchRejectsDifferentMaterialDataIndex)
 }
 
 // =============================================================================
-// Batching — Animation Field Preservation
+// Batching — Skinned draws (issue #1031)
 // =============================================================================
+//
+// A batched draw uploads ONE bone palette for all its instances, so skinned
+// draws may only collapse together when they are in the same pose — current
+// AND previous. These tests pin both halves of that, because each has its own
+// failure mode and neither is visible in a still frame:
+//
+//   * batching draws in DIFFERENT poses renders the whole group in the first
+//     actor's pose;
+//   * batching draws that agree on the current pose but not the previous one
+//     gives the whole group one actor's skeletal velocity, which appears as
+//     ghosting under TAA and motion blur rather than as a batching bug.
 
-TEST_F(CommandBucketBatchTest, AnimatedMeshesAreNotBatched)
+namespace
+{
+    // Fill a bone palette identified by `poseSeed`. Two calls with the same seed
+    // produce byte-identical palettes at DIFFERENT offsets, which is the case
+    // skinned auto-batching exists to collapse — and the case an offset-equality
+    // check would miss.
+    [[nodiscard]] u32 WriteSyntheticPose(FrameDataBuffer& frameBuffer, u32 boneCount, f32 poseSeed)
+    {
+        std::vector<glm::mat4> palette(boneCount);
+        for (u32 bone = 0; bone < boneCount; ++bone)
+        {
+            palette[bone] = glm::translate(glm::mat4(1.0f),
+                                           glm::vec3(poseSeed, static_cast<f32>(bone), 0.0f));
+        }
+
+        const u32 offset = frameBuffer.AllocateBoneMatrices(boneCount);
+        if (offset != UINT32_MAX)
+            frameBuffer.WriteBoneMatrices(offset, palette.data(), boneCount);
+        return offset;
+    }
+
+    constexpr u32 kTestBoneCount = 8;
+} // namespace
+
+TEST_F(CommandBucketBatchTest, SkinnedMeshesSharingAPoseCollapseIntoOneDraw)
 {
     CommandBucketConfig config;
     config.EnableSorting = true;
     config.EnableBatching = true;
     CommandBucket bucket(config);
 
-    // Submit two identical animated DrawMesh commands
-    for (u32 i = 0; i < 2; ++i)
+    FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+    constexpr u32 kCount = 4;
+    for (u32 i = 0; i < kCount; ++i)
     {
-        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i) * 0.1f, static_cast<i32>(i));
+        // A separate allocation per actor, holding identical bytes — exactly
+        // what four characters on the same clip at the same phase produce.
+        const u32 boneOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, 1.0f);
+        const u32 prevOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, 0.5f);
+        ASSERT_NE(boneOffset, UINT32_MAX);
+        ASSERT_NE(prevOffset, UINT32_MAX);
+
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
         cmd.vertexArrayID = TestHandle(100u);
         cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
         cmd.isAnimatedMesh = true;
-        cmd.boneBufferOffset = 42;
-        cmd.boneCount = 64;
+        cmd.boneBufferOffset = boneOffset;
+        cmd.prevBoneBufferOffset = prevOffset;
+        cmd.boneCount = kTestBoneCount;
+        cmd.transform = glm::translate(glm::mat4(1.0f), glm::vec3(static_cast<f32>(i), 0.0f, 0.0f));
         PacketMetadata meta;
         meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
         bucket.Submit(cmd, meta, m_Allocator.get());
     }
 
-    bucket.SortCommands();
-    EXPECT_EQ(bucket.GetSortedCommands().size(), 2u);
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u)
+        << "Four same-pose skinned draws must collapse into one instanced draw";
+    const auto* packet = bucket.GetSortedCommands()[0];
+    ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+
+    auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+    EXPECT_TRUE(icmd->isAnimatedMesh);
+    EXPECT_EQ(icmd->instanceCount, kCount);
+    EXPECT_EQ(icmd->boneCountPerInstance, kTestBoneCount);
+
+    // The previous palette must travel with the current one. Without it the
+    // dispatcher aliases prev to current and the batch emits zero skeletal
+    // velocity — the ghosting failure this feature has to avoid.
+    ASSERT_NE(icmd->prevBoneBufferOffset, UINT32_MAX)
+        << "Batched skinned draw dropped its previous-pose palette";
+
+    const glm::mat4* current = frameBuffer.GetBoneMatrixRange(icmd->boneBufferOffset, kTestBoneCount);
+    const glm::mat4* previous = frameBuffer.GetBoneMatrixRange(icmd->prevBoneBufferOffset, kTestBoneCount);
+    ASSERT_NE(current, nullptr);
+    ASSERT_NE(previous, nullptr);
+    for (u32 bone = 0; bone < kTestBoneCount; ++bone)
+    {
+        // Bitwise, not ==: CLAUDE.md forbids == on glm types, and byte identity
+        // is the exact question here — it is what the batcher itself decided on.
+        EXPECT_TRUE(Math::BitwiseEqual(current[bone],
+                                       glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, static_cast<f32>(bone), 0.0f))))
+            << "current palette bone " << bone << " is not the pose that was written";
+        EXPECT_TRUE(Math::BitwiseEqual(previous[bone],
+                                       glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, static_cast<f32>(bone), 0.0f))))
+            << "previous palette bone " << bone << " is not the pose that was written";
+    }
+
+    const auto stats = bucket.GetStatistics();
+    EXPECT_EQ(stats.SkinnedBatchGroups, 1u);
+    EXPECT_EQ(stats.SkinnedBatchedCommands, kCount - 1u);
+    EXPECT_EQ(stats.SkinnedBatchUnremapped, 0u);
+}
+
+TEST_F(CommandBucketBatchTest, SkinnedMeshesInDifferentPosesAreNotBatched)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+    constexpr u32 kCount = 4;
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        // A distinct pose each — independently phased actors.
+        const u32 boneOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, static_cast<f32>(i) + 1.0f);
+        ASSERT_NE(boneOffset, UINT32_MAX);
+
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.isAnimatedMesh = true;
+        cmd.boneBufferOffset = boneOffset;
+        cmd.boneCount = kTestBoneCount;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
 
     bucket.BatchCommands(*m_Allocator);
 
-    // Animated meshes have per-instance bone data and must not be merged
     const auto& sorted = bucket.GetSortedCommands();
+    EXPECT_EQ(sorted.size(), kCount) << "Differently posed skinned draws must each keep their own draw";
     for (const auto* packet : sorted)
     {
         EXPECT_NE(packet->GetCommandType(), CommandType::DrawMeshInstanced)
-            << "Animated meshes should not be batched into instanced commands";
+            << "A skinned draw may only batch with one in the identical pose";
     }
-    EXPECT_EQ(sorted.size(), 2u) << "Both original commands should remain";
+    EXPECT_EQ(bucket.GetStatistics().SkinnedBatchedCommands, 0u);
+}
+
+TEST_F(CommandBucketBatchTest, SkinnedMeshesSharingCurrentButNotPreviousPoseAreNotBatched)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+    // Two actors that have arrived at the same pose from different ones: one
+    // mid-motion, one that has just settled. Identical current palettes,
+    // different previous palettes. Collapsing them would hand both the first
+    // one's skeletal velocity.
+    for (u32 i = 0; i < 2; ++i)
+    {
+        const u32 boneOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, 1.0f);
+        const u32 prevOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, static_cast<f32>(i) + 10.0f);
+        ASSERT_NE(boneOffset, UINT32_MAX);
+        ASSERT_NE(prevOffset, UINT32_MAX);
+
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.isAnimatedMesh = true;
+        cmd.boneBufferOffset = boneOffset;
+        cmd.prevBoneBufferOffset = prevOffset;
+        cmd.boneCount = kTestBoneCount;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    const auto& sorted = bucket.GetSortedCommands();
+    EXPECT_EQ(sorted.size(), 2u);
+    for (const auto* packet : sorted)
+    {
+        EXPECT_NE(packet->GetCommandType(), CommandType::DrawMeshInstanced)
+            << "Same current pose is not enough — the previous pose drives motion vectors";
+    }
+}
+
+TEST_F(CommandBucketBatchTest, SkinnedMeshWithNoBonesIsLeftAlone)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    // boneCount 0 makes CommandDispatch::UploadBoneMatrices a no-op, so a
+    // batched draw would render against whatever palette happened to be bound.
+    for (u32 i = 0; i < 3; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.isAnimatedMesh = true;
+        cmd.boneBufferOffset = 0;
+        cmd.boneCount = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    const auto& sorted = bucket.GetSortedCommands();
+    EXPECT_EQ(sorted.size(), 3u);
+    for (const auto* packet : sorted)
+        EXPECT_NE(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+}
+
+TEST_F(CommandBucketBatchTest, StaticAndSkinnedDrawsNeverShareABatch)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+    // Same geometry and material for both kinds. A static draw carries no
+    // palette at all, so merging it into a skinned batch would run it through
+    // the skinned shader against somebody else's bones.
+    for (u32 i = 0; i < 2; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+    for (u32 i = 0; i < 2; ++i)
+    {
+        const u32 boneOffset = WriteSyntheticPose(frameBuffer, kTestBoneCount, 3.0f);
+        ASSERT_NE(boneOffset, UINT32_MAX);
+
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, 0.0f, static_cast<i32>(i + 2));
+        cmd.vertexArrayID = TestHandle(100u);
+        cmd.renderStateIndex = 0;
+        cmd.materialDataIndex = 0;
+        cmd.isAnimatedMesh = true;
+        cmd.boneBufferOffset = boneOffset;
+        cmd.boneCount = kTestBoneCount;
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, (i + 2) * 10);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.BatchCommands(*m_Allocator);
+
+    // Two instanced draws: one static pair, one skinned pair — never one of four.
+    const auto& sorted = bucket.GetSortedCommands();
+    ASSERT_EQ(sorted.size(), 2u);
+    u32 animatedBatches = 0;
+    for (const auto* packet : sorted)
+    {
+        ASSERT_EQ(packet->GetCommandType(), CommandType::DrawMeshInstanced);
+        auto const* icmd = static_cast<const DrawMeshInstancedCommand*>(packet->GetRawCommandData());
+        EXPECT_EQ(icmd->instanceCount, 2u);
+        if (icmd->isAnimatedMesh)
+            ++animatedBatches;
+    }
+    EXPECT_EQ(animatedBatches, 1u);
 }
 
 // =============================================================================

@@ -14,6 +14,78 @@
 
 namespace OloEngine
 {
+    // ── Skinned auto-batching (issue #1031) ──────────────────────────────
+    //
+    // A batched draw uploads exactly ONE bone palette for all N instances
+    // (CommandDispatch::UploadBoneMatrices), so skinned draws may only group
+    // when their palettes are identical. That is the whole reason animated
+    // draws were excluded from batching until now.
+    //
+    // Identity is decided on CONTENT, not on an authored archetype id: two
+    // actors playing the same clip at the same phase produce byte-identical
+    // palettes without anyone declaring that they should, and actors that drift
+    // apart stop sharing the moment they do. Both the current and the previous
+    // pose must match — sharing on the current pose alone would give the whole
+    // group one actor's skeletal velocity, which reads as ghosting under TAA
+    // rather than as a batching bug.
+    //
+    // Hash first, then memcmp. The hash only chooses who is worth comparing;
+    // the memcmp decides. A hash used as the decision would render one actor in
+    // another's pose on a collision, and there is no test that notices that.
+    namespace
+    {
+        namespace SkinnedBatching
+        {
+            // The palette pair a single skinned draw would upload, resolved to
+            // pointers into this frame's FrameDataBuffer.
+            struct PalettePair
+            {
+                sizet m_PacketIndex = 0;
+                const glm::mat4* m_Current = nullptr;
+                const glm::mat4* m_Prev = nullptr;
+                u32 m_BoneCount = 0;
+            };
+
+            [[nodiscard]] u64 HashPalettes(const PalettePair& pair)
+            {
+                // FNV-1a over both palettes, seeded with the bone count so two
+                // poses that share a prefix but differ in length never collide.
+                constexpr u64 kOffsetBasis = 14695981039346656037ull;
+                constexpr u64 kPrime = 1099511628211ull;
+
+                // Consumed a WORD at a time rather than a byte: a palette is
+                // 6.4 KB at the 100-bone cap and a crowd hashes two of them per
+                // actor per frame, so the eightfold difference is the difference
+                // between a rounding error and a visible cost. A mat4 is 16 floats,
+                // so the byte count is always a multiple of 8 and there is no tail.
+                static_assert(sizeof(glm::mat4) % sizeof(u64) == 0, "bone palette is not word-sized");
+
+                u64 hash = kOffsetBasis ^ static_cast<u64>(pair.m_BoneCount);
+                const sizet words = static_cast<sizet>(pair.m_BoneCount) * (sizeof(glm::mat4) / sizeof(u64));
+                for (const glm::mat4* palette : { pair.m_Current, pair.m_Prev })
+                {
+                    for (sizet w = 0; w < words; ++w)
+                    {
+                        u64 word = 0;
+                        std::memcpy(&word, reinterpret_cast<const u8*>(palette) + w * sizeof(u64), sizeof(u64));
+                        hash ^= word;
+                        hash *= kPrime;
+                    }
+                }
+                return hash;
+            }
+
+            [[nodiscard]] bool SamePose(const PalettePair& lhs, const PalettePair& rhs)
+            {
+                if (lhs.m_BoneCount != rhs.m_BoneCount)
+                    return false;
+                const sizet bytes = static_cast<sizet>(lhs.m_BoneCount) * sizeof(glm::mat4);
+                return std::memcmp(lhs.m_Current, rhs.m_Current, bytes) == 0 &&
+                       std::memcmp(lhs.m_Prev, rhs.m_Prev, bytes) == 0;
+            }
+        } // namespace SkinnedBatching
+    } // namespace
+
     // LSB Radix Sort for 64-bit keys using 8-bit digits (8 passes)
     // This is a stable sort, preserving relative order of equal keys.
     // Input: array of command packets and their sort keys
@@ -434,6 +506,7 @@ namespace OloEngine
         instancedCmd->isAnimatedMesh = meshCmd->isAnimatedMesh;
         instancedCmd->boneBufferOffset = meshCmd->boneBufferOffset;
         instancedCmd->boneCountPerInstance = meshCmd->boneCount;
+        instancedCmd->prevBoneBufferOffset = meshCmd->prevBoneBufferOffset;
 
         // Set command type and dispatch function (via runtime resolver)
         instancedPacket->SetCommandType(instancedCmd->header.type);
@@ -570,6 +643,11 @@ namespace OloEngine
         // O(n) scan — groups ALL matching DrawMesh commands, not just adjacent.
         std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> groups;
 
+        // Skinned draws are collected separately and partitioned by pose
+        // (issue #1031) before they join `groups` — see PartitionSkinnedGroups.
+        const u32 unremappedBefore = m_Stats.SkinnedBatchUnremapped;
+        std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash> skinnedCandidates;
+
         // Collect predecessors of dependency-constrained packets so they are
         // not merged/nulled during instancing — their dependent follower
         // relies on them staying in place.
@@ -596,12 +674,48 @@ namespace OloEngine
                 continue;
 
             auto const* cmd = m_Packets[i]->GetCommandData<DrawMeshCommand>();
-            // Skip animated/skinned meshes — they have per-instance bone data
-            if (cmd->isAnimatedMesh)
-                continue;
             InstanceGroupKey key{ cmd->vertexArrayID, cmd->indexCount, cmd->baseIndex,
-                                  cmd->materialDataIndex, cmd->renderStateIndex };
+                                  cmd->materialDataIndex, cmd->renderStateIndex, 0 };
+            if (cmd->isAnimatedMesh)
+            {
+                // Skinned draws carry a bone palette each and the batched draw
+                // uploads one. Park them here; PartitionSkinnedGroups below
+                // splits them by pose and feeds the same-pose subsets back into
+                // `groups`. Parking rather than grouping directly is what keeps
+                // a single-character scene from ever hashing a palette.
+                if (cmd->boneCount == 0)
+                {
+                    // UploadBoneMatrices no-ops on a zero count, so a batched
+                    // draw would render against whatever palette the previous
+                    // draw left bound. Leave it as its own DrawMesh.
+                    continue;
+                }
+                if (cmd->needsBoneOffsetRemap)
+                {
+                    // The offset is still worker-local, so GetBoneMatrixPtr
+                    // would read some other worker's palette. RemapBoneOffsets
+                    // runs in EndParallelSubmission, before any pass executes,
+                    // so this is a plumbing error rather than a pose result —
+                    // counted, and reported once per frame below.
+                    ++m_Stats.SkinnedBatchUnremapped;
+                    continue;
+                }
+                skinnedCandidates[key].push_back(i);
+                continue;
+            }
             groups[key].push_back(i);
+        }
+
+        PartitionSkinnedGroups(skinnedCandidates, groups);
+
+        // The counter is cumulative for the bucket's lifetime, like
+        // BatchedCommands; warn on what THIS pass found so a scene that hits it
+        // once does not log every frame afterwards.
+        if (const u32 unremappedThisPass = m_Stats.SkinnedBatchUnremapped - unremappedBefore; unremappedThisPass > 0)
+        {
+            OLO_CORE_WARN("CommandBucket::BatchCommands: {} skinned draw(s) still carried worker-local bone "
+                          "offsets and were excluded from batching. RemapBoneOffsets must run before the pass.",
+                          unremappedThisPass);
         }
 
         // ── Phase 2: Merge groups with count > 1 ──────────────────────
@@ -798,6 +912,10 @@ namespace OloEngine
             icmd->isAnimatedMesh = firstCmd->isAnimatedMesh;
             icmd->boneBufferOffset = firstCmd->boneBufferOffset;
             icmd->boneCountPerInstance = firstCmd->boneCount;
+            // Every member of a skinned group was proved byte-identical to
+            // this one in BOTH palettes (PartitionSkinnedGroups), so taking the
+            // first command's offsets uploads the pose the whole group is in.
+            icmd->prevBoneBufferOffset = firstCmd->prevBoneBufferOffset;
 
             instancedPacket->SetCommandType(icmd->header.type);
 
@@ -809,6 +927,15 @@ namespace OloEngine
             {
                 m_Packets[indices[t]] = nullptr;
                 ++m_Stats.BatchedCommands;
+            }
+
+            // Counted here rather than in PartitionSkinnedGroups so the figure
+            // reflects what actually collapsed, after the MaxMeshInstances
+            // truncation above.
+            if (key.bonePaletteID != 0)
+            {
+                ++m_Stats.SkinnedBatchGroups;
+                m_Stats.SkinnedBatchedCommands += totalInstances - 1;
             }
         }
 
@@ -1225,6 +1352,113 @@ namespace OloEngine
         // Invalidate sorting and batching since we have new commands
         m_IsSorted = false;
         m_IsBatched = false;
+    }
+
+    void CommandBucket::PartitionSkinnedGroups(const InstanceGroupMap& candidates, InstanceGroupMap& groups)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (candidates.empty())
+            return;
+
+        const FrameDataBuffer& frameBuffer = FrameDataBufferManager::Get();
+
+        // Partition ordinals start at 1 so they never collide with the 0 every
+        // static group carries.
+        u64 nextPaletteID = 1;
+
+        std::vector<SkinnedBatching::PalettePair> pairs;
+        std::unordered_map<u64, std::vector<sizet>> byHash; // palette hash -> indices into `pairs`
+        std::vector<std::vector<sizet>> partitions;         // exact-match partitions, indices into `pairs`
+
+        for (auto const& [geometryKey, indices] : candidates)
+        {
+            // One actor of this mesh and material has nobody to share a pose
+            // with. Leaving early here is what makes the single-character case
+            // free: no palette is ever read, let alone hashed.
+            if (indices.size() <= 1)
+                continue;
+
+            pairs.clear();
+            pairs.reserve(indices.size());
+            for (sizet packetIndex : indices)
+            {
+                auto const* cmd = m_Packets[packetIndex]->GetCommandData<DrawMeshCommand>();
+                const glm::mat4* current = frameBuffer.GetBoneMatrixRange(cmd->boneBufferOffset, cmd->boneCount);
+                if (!current)
+                    continue; // no palette to compare; the draw stays its own DrawMesh
+
+                // UINT32_MAX is UploadBoneMatrices' alias-current sentinel.
+                // Resolving it to the current palette here is deliberate: a
+                // first-frame actor and a settled one whose previous pose
+                // equals its current upload the same bytes, so they may share
+                // a draw. Every other case compares the real previous pose,
+                // which is what keeps skeletal velocity per-group correct.
+                const glm::mat4* prev = cmd->prevBoneBufferOffset == UINT32_MAX
+                                            ? current
+                                            : frameBuffer.GetBoneMatrixRange(cmd->prevBoneBufferOffset, cmd->boneCount);
+                if (!prev)
+                    prev = current;
+
+                pairs.push_back({ packetIndex, current, prev, cmd->boneCount });
+            }
+
+            if (pairs.size() <= 1)
+                continue;
+
+            byHash.clear();
+            for (sizet p = 0; p < pairs.size(); ++p)
+                byHash[SkinnedBatching::HashPalettes(pairs[p])].push_back(p);
+
+            for (auto const& [hash, bucket] : byHash)
+            {
+                if (bucket.size() <= 1)
+                    continue;
+
+                // Inside one hash bucket, confirm by comparison. Collisions are
+                // rare enough that this is normally a single partition, but it
+                // is the comparison and not the hash that decides.
+                partitions.clear();
+                for (sizet p : bucket)
+                {
+                    bool placed = false;
+                    for (auto& partition : partitions)
+                    {
+                        if (SkinnedBatching::SamePose(pairs[partition.front()], pairs[p]))
+                        {
+                            partition.push_back(p);
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed)
+                        partitions.push_back({ p });
+                }
+
+                for (auto const& partition : partitions)
+                {
+                    if (partition.size() <= 1)
+                        continue;
+
+                    InstanceGroupKey poseKey = geometryKey;
+                    poseKey.bonePaletteID = nextPaletteID++;
+
+                    std::vector<sizet>& target = groups[poseKey];
+                    target.reserve(partition.size());
+                    for (sizet p : partition)
+                        target.push_back(pairs[p].m_PacketIndex);
+
+                    // Merge phase 2 walks `indices` in order and keeps the
+                    // first as the surviving packet. Submission order is the
+                    // order the scene produced, and the hash/partition walk
+                    // above does not preserve it, so restore it — a batch that
+                    // reorders its own instances would move per-instance entity
+                    // IDs relative to the transforms they belong to across
+                    // frames for no reason, and makes any capture diff noise.
+                    std::sort(target.begin(), target.end());
+                }
+            }
+        }
     }
 
     void CommandBucket::RemapBoneOffsets(FrameDataBuffer& frameDataBuffer)

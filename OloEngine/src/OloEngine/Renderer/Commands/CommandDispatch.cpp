@@ -2440,7 +2440,8 @@ namespace OloEngine
                 BindShadowTextures(api);
 
             // Bone matrices (no-op for non-animated GPU-cull submissions)
-            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance,
+                               cmd->prevBoneBufferOffset);
 
             if (cmd->indexCount == 0)
             {
@@ -2586,7 +2587,8 @@ namespace OloEngine
             BindShadowTextures(api);
 
         // Bone matrices
-        UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+        UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance,
+                           cmd->prevBoneBufferOffset);
 
         if (cmd->indexCount == 0)
         {
