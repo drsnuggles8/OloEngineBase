@@ -384,7 +384,7 @@ tess level is a constant 1 and the grid resolution is the only knob.
 WaterShowcase.olo opts in at 256x144.
 
 Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h)
-(28 tests in `WaterGeometryLodProfileTest`, built against the real
+(33 tests in `WaterGeometryLodProfileTest`, built against the real
 `EditorCamera` matrix). Evaluator: `waterProjectGridVertex()` in
 [`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
 Visual evidence, both grids at both acceptance-criterion angles:
