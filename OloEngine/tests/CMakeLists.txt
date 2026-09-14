@@ -272,6 +272,7 @@ add_executable(OloEngine-Tests
 		Rendering/Splat/GaussianSplatGpuOrderingParityTest.cpp
 		Rendering/PropertyTests/UniformBufferBindingOwnershipTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
+		Rendering/DDGI/DDGIRelocateBatchingPerfProbe.cpp
 		Rendering/GPUHashMapTest.cpp
 		Rendering/GPUPagedCacheTest.cpp
 		Rendering/GPUCacheShaderResolveTest.cpp

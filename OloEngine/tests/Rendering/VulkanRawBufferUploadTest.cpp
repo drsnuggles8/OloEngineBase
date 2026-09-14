@@ -46,6 +46,7 @@ TEST(VulkanRawBufferUpload, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RendererAPI.h"
@@ -248,6 +249,101 @@ namespace OloEngine::Tests
 
         RenderCommand::DeleteBuffer(indices);
         RenderCommand::DeleteVertexArray(vao);
+    }
+
+    // ISSUE #846: the staged readback outside a frame, which is the only shape
+    // it is ever used in.
+    //
+    // StagedBufferReadback exists so a GPU-written buffer is never read by the
+    // CPU directly (a direct read migrates it VIDEO -> HOST on NVIDIA and taxes
+    // every later frame's atomics). It stages a GPU copy into a DeviceToHost
+    // buffer and reads that. Every consumer is a human-or-test diagnostic
+    // called BETWEEN frames -- DDGIProbeUpdatePass::ReadbackProbeDiagnostics
+    // behind olo_ddgi_probe_stats, the editor's probe panel -- so ctx.Cmd is
+    // null and there is no recording bracket to land the copy in.
+    //
+    // CopyBufferSubData used to answer that with an "outside recording bracket"
+    // no-op. Nothing failed: the copy simply did not happen, the caller read a
+    // staging buffer nothing had ever written, and the diagnostic published the
+    // result as a measurement. On the DDGI probe counters that read as a
+    // plausible all-zero "no probes captured" while the frame on screen was
+    // correct -- and once, as 0xFFFFFFFF, which is what gave it away.
+    //
+    // This fixture has no frame bracket by construction, so it is exactly that
+    // situation. Two distinct payloads, because a single one cannot tell a real
+    // copy apart from a staging buffer that happened to hold the right bytes.
+    TEST_F(VulkanRawBufferUpload, StagedReadbackOutsideAFrameCopiesRatherThanNoOps)
+    {
+        ScopedVulkanRenderCommandSelection vulkan;
+
+        const RHI::ResourceHandle source = RenderCommand::CreateBufferHandle();
+        ASSERT_TRUE(source.IsValid());
+        RenderCommand::AllocateBufferStorage(source, kTargetBytes, RHI::MemoryResidency::DeviceToHost);
+
+        const auto fill = [](u8 seed)
+        {
+            std::vector<u8> bytes(kTargetBytes);
+            for (sizet i = 0; i < bytes.size(); ++i)
+                bytes[i] = static_cast<u8>((i * 31u + seed) & 0xFFu);
+            return bytes;
+        };
+
+        StagedBufferReadback readback;
+        for (const u8 seed : { u8{ 0x5Au }, u8{ 0xC3u } })
+        {
+            const std::vector<u8> payload = fill(seed);
+            RenderCommand::UploadBufferSubData(source, 0, payload.size(), payload.data());
+
+            readback.Stage(source, 0, kTargetBytes);
+            ASSERT_TRUE(readback.HasPendingStage())
+                << "Stage() gave up before recording a copy (seed " << static_cast<int>(seed) << ")";
+
+            std::vector<u8> got(kTargetBytes, 0u);
+            ASSERT_TRUE(readback.Read(got.data(), got.size()));
+            EXPECT_EQ(got, payload)
+                << "the staged copy did not reach the staging buffer, so the caller read whatever it held "
+                   "(issue #846: this is how the DDGI probe counters reported all-zero on Vulkan while the "
+                   "frame rendered correctly)";
+        }
+
+        // The stub count is asserted around the COPY ALONE, not around Stage().
+        //
+        // Stage() issues RenderCommand::MemoryBarrier first, and outside a
+        // recording bracket that IS still a counted no-op -- correctly so:
+        // there is no command buffer for a barrier to order anything in. It is
+        // harmless here and must not be "fixed" by making the one-shot path
+        // swallow it. The one-shot records its own ALL_COMMANDS -> COPY
+        // availability barrier around the transfer, and being a separate
+        // submission it is ordered after every frame already submitted, so the
+        // writes the facade barrier was meant to cover are available anyway.
+        const u64 stubsBefore = Api().GetUnimplementedStubHitCount();
+        const RHI::ResourceHandle destination = RenderCommand::CreateBufferHandle();
+        ASSERT_TRUE(destination.IsValid());
+        RenderCommand::AllocateBufferStorage(destination, kTargetBytes, RHI::MemoryResidency::DeviceToHost);
+
+        const std::vector<u8> direct = fill(0x17u);
+        RenderCommand::UploadBufferSubData(source, 0, direct.size(), direct.data());
+        RenderCommand::CopyBufferSubData(source, destination, 0, 0, kTargetBytes);
+        EXPECT_EQ(Api().GetUnimplementedStubHitCount(), stubsBefore)
+            << "CopyBufferSubData between frames must ride a real implementation; the outside-the-bracket "
+               "no-op is what this test exists to keep out";
+
+        std::vector<u8> copied(kTargetBytes, 0u);
+        RenderCommand::ReadBufferSubData(destination, 0, copied.size(), copied.data());
+        EXPECT_EQ(copied, direct) << "the between-frames copy did not land in the destination";
+
+        // A source the backend never minted is still a caller bug: refused and
+        // counted, never a silent success. The sibling upload/read tests draw
+        // the same line and it must not be lost to the one-shot path.
+        const u64 stubsBeforeStray = Api().GetUnimplementedStubHitCount();
+        const RHI::ResourceHandle strayBuffer{ 0xFFFFu, 0xFFFFu };
+        RenderCommand::CopyBufferSubData(strayBuffer, destination, 0, 0, kTargetBytes);
+        EXPECT_GT(Api().GetUnimplementedStubHitCount(), stubsBeforeStray)
+            << "an unresolvable copy source must be refused loudly and counted";
+
+        readback.Release();
+        RenderCommand::DeleteBuffer(destination);
+        RenderCommand::DeleteBuffer(source);
     }
 } // namespace OloEngine::Tests
 

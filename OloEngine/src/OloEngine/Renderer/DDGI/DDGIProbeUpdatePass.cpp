@@ -78,10 +78,14 @@ namespace OloEngine
         // Bit flags mirroring DDGI_PASS_FLAG_* in include/DDGIPassData.glsl.
         constexpr i32 kPassFlagCascadeShifted = 1;
         constexpr i32 kPassFlagDepthValid = 2;
-        // This capture is a periodic refresh of an already-placed probe. The
-        // relocation compute keeps the existing offset when it is set — see
-        // DDGI_Relocate.comp for why re-placing a settled probe is a limit cycle.
-        constexpr i32 kPassFlagRefreshCapture = 4;
+        // The "this capture is a periodic refresh" flag is PER PROBE and lives in
+        // DDGIPassDataUBO::CaptureSet[i].y (DDGI_RELOCATE_ENTRY_REFRESH), not here:
+        // since #846 one dispatch relocates a whole capture set, and such a set
+        // mixes settled probes with probes still converging. Bit 4 of the
+        // pass-flag word is therefore retired rather than reused.
+        //
+        // Mirrors DDGI_RELOCATE_ENTRY_REFRESH in include/DDGIPassData.glsl.
+        constexpr i32 kRelocateEntryRefresh = 1;
 
         // The DDGI pass-local per-draw / per-dispatch block now lives in
         // UBOStructures (ShaderBindingLayout.h) rather than here, so
@@ -90,6 +94,7 @@ namespace OloEngine
         // SKIPPED by that test, not failed, and this one is read by five
         // shaders.
         using DDGIPassDataUBO = UBOStructures::DDGIPassDataUBO;
+        using DDGIRelocateParamsUBO = UBOStructures::DDGIRelocateParamsUBO;
 
         // One record per probe in the TAIL of SSBO_DDGI_PROBE_AUX, behind the
         // kProbeAuxHeaderBytes stats header. Mirrors DDGIProbeAuxRecord in
@@ -205,6 +210,10 @@ namespace OloEngine
                                           ShaderBindingLayout::UBO_DDGI);
         m_PassDataUBO = UniformBuffer::Create(sizeof(DDGIPassDataUBO),
                                               ShaderBindingLayout::UBO_USER_0);
+        // Shares UBO_USER_0 with the block above — the slot is pass-local and
+        // whichever of the two is about to be read rebinds itself first.
+        m_RelocateParamsUBO = UniformBuffer::Create(sizeof(DDGIRelocateParamsUBO),
+                                                    ShaderBindingLayout::UBO_USER_0);
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_CAMERA);
 
@@ -883,7 +892,7 @@ namespace OloEngine
         m_DDGIUBO->Bind();
     }
 
-    void DDGIProbeUpdatePass::UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target)
+    DDGIPassDataUBO DDGIProbeUpdatePass::MakePassData(i32 probeIndexOrTotal, i32 flags) const
     {
         DDGIPassDataUBO data{};
         data.Model = glm::mat4(1.0f);
@@ -901,6 +910,12 @@ namespace OloEngine
         {
             data.PrevLattice[level] = glm::ivec4(m_PrevLattice[static_cast<sizet>(level)], 0);
         }
+        return data;
+    }
+
+    void DDGIProbeUpdatePass::UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target)
+    {
+        const DDGIPassDataUBO data = MakePassData(probeIndexOrTotal, flags);
         UniformBuffer* output = target ? target : m_PassDataUBO.Raw();
         output->SetData(&data, sizeof(data));
         output->Bind();
@@ -1421,26 +1436,68 @@ namespace OloEngine
         RenderCommand::DrawIndexed(va);
     }
 
-    void DDGIProbeUpdatePass::RelocateProbeGPU(i32 probeIdx, bool refreshCapture, UniformBuffer* params)
+    void DDGIProbeUpdatePass::RelocateProbesGPU(const std::vector<i32>& captureSet)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!m_RelocateCompute || !m_HitFB)
+        if (!m_RelocateCompute || !m_HitFB || captureSet.empty())
         {
             return;
         }
 
+        // ONE DISPATCH FOR THE WHOLE CAPTURE SET (issue #846). This was a loop
+        // of DispatchCompute(1, 1, 1) with a uniform-buffer write between each,
+        // and the issue that recorded it named the write-after-read hazard on
+        // that buffer as the suspected cost. Measured, the hazard costs nothing
+        // and the DISPATCH BOUNDARY costs everything: the one-group dispatches
+        // did not overlap, so relocation was linear in the capture set at
+        // ~11 us per probe, while the batched form is flat. Both numbers, and
+        // the control that separates them, are in
+        // OloEngine/tests/Rendering/DDGI/DDGIRelocateBatchingPerfProbe.cpp.
+        //
+        // Bindings are hoisted out of the loop below because they do not vary
+        // per chunk; only the capture-set array does.
         m_RelocateCompute->Bind();
         BindProbeBuffers();
-        UploadComputeParams(probeIdx, refreshCapture ? kPassFlagRefreshCapture : 0, params);
         HeapBinding::BindImageOrOffset(0, m_ProbeDataTexture, 0, false, 0, RHI::Access::StorageReadWrite,
                                        RHI::Format::RGBA16Float, RHI::HeapSlotLifetime::Persistent);
         HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
-        HeapBinding::FlushOffsets();
 
-        // One work group, cooperatively reducing the whole hit tile.
         static_assert(kRelocateGroupSize == 64u, "kRelocateGroupSize must match DDGI_RELOCATE_GROUP");
-        RenderCommand::DispatchCompute(1, 1, 1);
+        constexpr sizet kBatch = static_cast<sizet>(DDGIRelocateParamsUBO::MaxRelocationBatch);
+
+        // CHUNKED, NOT TRUNCATED. The capture budget is authored (the editor
+        // slider, the scene YAML clamp and the Lua setter all stop at 64) but it
+        // is then multiplied by RendererSettings::DDGIBudgetScale, which Ultra
+        // sets to 2 — so a capture set CAN exceed the UBO array. Dropping the
+        // tail would leave those probes permanently unrelocated and unclassified
+        // with nothing in the log, which is the exact silent-degradation shape
+        // this renderer keeps postmortems about.
+        for (sizet begin = 0; begin < captureSet.size(); begin += kBatch)
+        {
+            const sizet count = std::min(kBatch, captureSet.size() - begin);
+
+            DDGIRelocateParamsUBO params{};
+            for (sizet i = 0; i < count; ++i)
+            {
+                const i32 probeIdx = captureSet[begin + i];
+                const ProbeRecord& rec = m_Records[static_cast<sizet>(probeIdx)];
+                // A probe that has exhausted its placement refinements is
+                // SETTLED; this capture is a geometry refresh, so the spring
+                // must leave its position alone. Per probe, because one capture
+                // set mixes settled probes with probes still converging.
+                const bool refreshCapture = rec.Captured && rec.RelocationIteration >= kMaxRelocationIterations;
+                params.CaptureSet[i] = glm::ivec4(probeIdx, refreshCapture ? kRelocateEntryRefresh : 0, 0, 0);
+            }
+
+            // Its OWN buffer on the pass-local slot, not m_PassDataUBO: see
+            // DDGIRelocateParamsUBO for why 1 KB must not ride along in the
+            // block CaptureProbe re-uploads per caster.
+            m_RelocateParamsUBO->SetData(&params, sizeof(params));
+            m_RelocateParamsUBO->Bind();
+            HeapBinding::FlushOffsets();
+            RenderCommand::DispatchCompute(static_cast<u32>(count), 1, 1);
+        }
     }
 
     void DDGIProbeUpdatePass::BlendVisibility(const std::vector<i32>& capturedProbes)
@@ -1706,17 +1763,19 @@ namespace OloEngine
             // then writes is not, so the barrier after the dispatches below is
             // the one that matters.
             m_HitFB->Unbind();
-            HeapBinding::BindImageOrOffset(0, m_ProbeDataTexture, 0, false, 0, RHI::Access::StorageReadWrite,
-                                           RHI::Format::RGBA16Float, RHI::HeapSlotLifetime::Persistent);
-            HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
-            RecordProbeRanges(captureSet, 32u, [&](i32 probeIdx, CaptureResources& resources)
-                              {
+            // ONE dispatch over the whole capture set (issue #846). The GPU work
+            // is unchanged — still one 64-thread work group per probe — but the
+            // groups now launch together instead of one dispatch at a time.
+            //
+            // The relocation flag each probe gets is derived from its record, so
+            // this must run BEFORE the bookkeeping loop below sets Captured for
+            // this frame: a probe's FIRST capture must run the spring, and it is
+            // exactly `rec.Captured` that says whether this is that capture.
+            RelocateProbesGPU(captureSet);
+
+            for (const i32 probeIdx : captureSet)
+            {
                 ProbeRecord& rec = m_Records[static_cast<sizet>(probeIdx)];
-                // A probe that has exhausted its placement refinements is
-                // SETTLED; this capture is a geometry refresh, so the spring
-                // must leave its position alone.
-                const bool refreshCapture = rec.Captured && rec.RelocationIteration >= kMaxRelocationIterations;
-                RelocateProbeGPU(probeIdx, refreshCapture, resources.PassData.Raw());
                 rec.Captured = true;
                 rec.LastCaptureFrame = m_FrameIndex;
                 // The spring needs a few iterations, and the CPU cannot see
@@ -1730,7 +1789,8 @@ namespace OloEngine
                 else
                 {
                     rec.PendingRelocationRecapture = false;
-                } });
+                }
+            }
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch |
                                          MemoryBarrierFlags::ShaderStorage);
 

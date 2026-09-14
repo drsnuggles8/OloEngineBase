@@ -66,11 +66,11 @@ namespace OloEngine::Tests
         // ColorBlindParams (#458), plus PrefixSumParams (#713),
         // TerrainCullParams (#714), the two DDGI blocks (#707),
         // ShadingRateParams (#683), WaterDisturbanceParams (#967),
-        // the two VSM blocks (#715), TerrainBrushParams (#716) and the two
-        // shared-deformation blocks (#1226).
+        // the two VSM blocks (#715), TerrainBrushParams (#716), the two
+        // shared-deformation blocks (#1226) and DDGIRelocateParams (#846).
         // Keep this arithmetic in step with the array size — it drifted once
         // already, reading 44 while the array held 45.
-        const std::array<KnownBlock, 48> kKnownBlocks = { {
+        const std::array<KnownBlock, 49> kKnownBlocks = { {
             { "CameraMatrices", sizeof(UBOStructures::CameraUBO) },
             { "Camera", sizeof(UBOStructures::CameraUBO) },
             { "MultiLightBuffer", sizeof(UBOStructures::MultiLightUBO) },
@@ -150,6 +150,12 @@ namespace OloEngine::Tests
             // is the drift shape this table exists for.
             { "DDGIVolume", sizeof(UBOStructures::DDGIVolumeUBO) },
             { "DDGIPassData", sizeof(UBOStructures::DDGIPassDataUBO) },
+            // Issue #846 split the batched relocation capture set out of
+            // DDGIPassData into its own block on the same pass-local binding.
+            // Listed for the reason every entry here is listed: unlisted means
+            // SKIPPED, and this block is a fixed-size array whose C++ and GLSL
+            // lengths a mismatch would silently desynchronise.
+            { "DDGIRelocateParams", sizeof(UBOStructures::DDGIRelocateParamsUBO) },
             // Boat / actor wake foam field (issue #967). Listed for the reason
             // the comment at the top of this block gives, and with an extra one
             // of its own: the block ends in a fixed-size array of structs, which

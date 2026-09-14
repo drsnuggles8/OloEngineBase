@@ -10,12 +10,13 @@
 // after the draw that produced the data it reads — i.e. a full pipeline drain,
 // once per captured probe, every frame. Removing it is acceptance criterion 3.
 //
-// ONE WORK GROUP PER CAPTURED PROBE. The group cooperatively reduces the
-// probe's t x t hit tile into DDGIProbeHitAggregates, then invocation 0 applies
-// the SPRING relocation (see ddgiRelocateProbeSpring / DDGI::RelocateProbeSpring
-// for why it is a force balance rather than RTXGI's closest-face rule),
-// classifies, and writes both the probe-data image the gather samples and the
-// aux record the CPU reads only through the explicit diagnostics path.
+// ONE WORK GROUP PER CAPTURED PROBE, ONE DISPATCH PER CAPTURE SET. The group
+// cooperatively reduces the probe's t x t hit tile into DDGIProbeHitAggregates,
+// then invocation 0 applies the SPRING relocation (see ddgiRelocateProbeSpring
+// / DDGI::RelocateProbeSpring for why it is a force balance rather than RTXGI's
+// closest-face rule), classifies, and writes both the probe-data image the
+// gather samples and the aux record the CPU reads only through the explicit
+// diagnostics path.
 //
 // The reduction is 64-way parallel followed by a SERIAL combine over the 64
 // partials in invocation 0. A tree reduction would be faster and is not worth
@@ -28,7 +29,7 @@
 layout(local_size_x = DDGI_RELOCATE_GROUP) in;
 
 #include "../include/DDGICommon.glsl"
-#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIRelocateParams.glsl"
 #include "../include/DDGIProbeBuffers.glsl"
 
 #include "../include/BindlessHeap.glsl"
@@ -56,11 +57,19 @@ void main()
     OLO_HEAP_IMAGE(rgba16f, OLO_HEAP_IMAGE_RW, image2D, u_ProbeDataImage, 0);
 #endif
 
-    // The probe index arrives per dispatch (one dispatch per captured probe):
-    // the capture stage already issues per-probe work, so there is nothing to
-    // gain from batching and a per-dispatch uniform keeps the CPU side honest
-    // about which probes it captured.
-    int probeIndex = int(u_DDGIProbePosition.w + 0.5);
+    // The probe index comes from the capture set, indexed by work-group id, so
+    // the whole set is ONE dispatch (issue #846). It arrived as a per-dispatch
+    // uniform until then, which cost a measured 11 us of GPU time per probe:
+    // the dispatches did not overlap, so the relocation loop was linear in the
+    // capture set and launch-bound rather than work-bound. Batched it is flat —
+    // 0.35 ms to 0.011 ms at 32 probes on an RTX 4090. What did NOT cost
+    // anything is the write-after-read hazard on the uniform buffer that
+    // motivated the issue; see DDGIRelocateBatchingPerfProbe for both numbers.
+    //
+    // Entries at or past gl_NumWorkGroups.x are never written by the CPU, and
+    // nothing reads them: the dispatch is sized to the capture set.
+    ivec4 captureEntry = u_DDGICaptureSet[gl_WorkGroupID.x];
+    int probeIndex = captureEntry.x;
     int level = ddgiCascadeOfProbeIndex(probeIndex);
     ivec3 storage = ddgiStorageCoordOfProbeIndex(probeIndex);
     ivec2 tile = ddgiCascadedProbeTileCoord(level, storage);
@@ -225,7 +234,7 @@ void main()
     // geometry, staying put is actively harmful, and re-placing it is the whole
     // point of relocation. A cascade shift resets the probe's record entirely,
     // so a probe that moves to a new lattice point re-places itself normally.
-    if ((u_DDGIComputeParams.w & DDGI_PASS_FLAG_REFRESH_CAPTURE) != 0 && newState == DDGI_PROBE_STATE_ACTIVE)
+    if ((captureEntry.y & DDGI_RELOCATE_ENTRY_REFRESH) != 0 && newState == DDGI_PROBE_STATE_ACTIVE)
     {
         newOffset = pdataPrev.xyz;
     }
