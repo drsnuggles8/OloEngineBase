@@ -402,6 +402,10 @@ namespace OloEngine
         // consistency check rather than `!Skinning.empty()`: a part whose
         // streams fell out of step must not be treated as skinned at all, or the
         // upload addresses one vertex's bones with another's binding.
+        // Cook-time predicate: valid only while the packed payload is whole. It compares
+        // against Vertices, which VirtualMeshRegistry's on-disk spill (#1151) releases, so
+        // a spilled skinned mesh answers false here. Anything running after registration
+        // must read the recorded MeshEntry::IsSkinned instead.
         [[nodiscard]] bool IsSkinned() const
         {
             return !Skinning.empty() && Skinning.size() == Vertices.size() && !BoneBounds.empty() &&

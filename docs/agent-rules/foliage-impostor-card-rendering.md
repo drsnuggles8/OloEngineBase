@@ -74,6 +74,30 @@ source mesh is authored:
 vec3 cardCenter = instWorld + vec3(0.0, radius /*world*/, 0.0);
 ```
 
+## 4. No foliage layer draws mesh geometry — `MeshPath` only feeds the bake
+
+`FoliageRenderer::BuildQuadGeometry` builds a 4-vertex camera-facing card for
+**every** layer, impostor or not. A layer's `MeshPath` is consumed by
+`UpdateImpostorAtlas`, and only to bake the atlas: it guards the bake
+(`!layer.UseImpostor || layer.MeshPath.empty()` drops any stale atlas), it is
+compared against `ImpostorBakedMeshPath` in the freshness check that decides
+whether a rebake is needed, and on a rebake it constructs the `Model` whose
+mesh 0 goes to `ImpostorBaker::Bake`. It never reaches a draw call. What
+`FoliageImpostorSampling.glsl` cross-fades across `ImpostorStartDistance` is
+therefore not mesh-to-card — it is one flat atlas frame near the camera against
+the full parallax octahedral impostor beyond it. Same card on both sides.
+
+Believe otherwise and you will mis-scope a whole issue. Issue #1267 was filed as
+"mesh/impostor layers do not render on Vulkan, and skip the G-Buffer on
+OpenGL", and the woodland fixture's manifest header, its scene header and the
+baseline guide all described a near-field of real mesh. The actual split was
+`UseImpostor`: impostor layers had no deferred program and fell back to the
+forward `FoliagePass`, while billboard layers already routed through the
+G-Buffer. Reading `MeshPath` in the scene YAML and assuming a mesh draw is the
+trap; grep `BuildQuadGeometry` before believing it.
+
+Real plant meshes are issue #1233, and are not implemented as of `5acc47238`.
+
 ## Meta-lesson
 
 Every one of these produced "the impostors are mostly missing" and each looked

@@ -60,6 +60,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <map>
 #include <set>
@@ -1582,6 +1583,305 @@ namespace OloEngine::Tests
         // Restore the defaults for later tests in this process
         registry.SetPageBudgetSlots(0);
         registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+    }
+
+    // The same tight-budget sweep, but with the page payloads on DISK instead of in RAM
+    // (issue #1151). Everything above this test streams from an in-memory copy of the whole
+    // cooked payload; this is the first one where a page fault is a real file read.
+    //
+    // The property that matters is that NOTHING ELSE CHANGES. Asynchronous IO under a
+    // residency cache has exactly one interesting failure mode, and it is quiet: a page whose
+    // bytes have not arrived gets treated as an empty page, the cut holds at an ancestor that
+    // was itself evicted, and the mesh thins out or holes over — while every CPU-side
+    // assertion in the suite still passes because the residency bookkeeping is self-
+    // consistent. So the assertions here are deliberately about the PICTURE (the sphere keeps
+    // its pixels) and about the store's own counters (faults were really issued, none failed,
+    // and staging RAM stayed bounded), not about the residency counters the memory-backed
+    // test already covers.
+    TEST_F(VirtualGeometryVisualEvidence, StreamingFromDiskKeepsTheGeometryAndBoundsItsMemory)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Disabled);
+
+        m_SphereEntity.GetComponent<VirtualMeshComponent>().m_ErrorThresholdPixels = 1.0f;
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f);
+
+        // ---- Arm A: the in-memory backing, which is the control ------------------------
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(4);
+        RunEditorFrames(camera, 3);
+
+        std::vector<u8> frame;
+        u32 w = 0;
+        u32 h = 0;
+        u32 memoryRed = 0;
+        for (int frameIndex = 0; frameIndex < 12; ++frameIndex)
+        {
+            RunEditorFrames(camera, 1);
+            ASSERT_TRUE(ReadbackComposite(frame, w, h));
+            memoryRed = std::max(memoryRed, CountRedDominantPixels(frame));
+        }
+        WriteEvidencePng("VirtualGeometry_Streaming_MemoryBacked.png", frame, w, h);
+        ASSERT_GE(memoryRed, 800u)
+            << "the control arm drew no sphere — this probe measures nothing, so the disk arm below "
+               "would pass vacuously";
+        EXPECT_EQ(registry.GetResidencyStats().PageFaultsIssued, 0ull)
+            << "the in-memory backing issued a disk read — the backing switch is not actually gating the "
+               "store";
+
+        // ---- Arm B: the same scene, faulting its pages in from the store ----------------
+        registry.SetPageBacking(VirtualPageBacking::Disk);
+        // The backing change marks the pools dirty; the rebuild (and therefore the spill plus
+        // the synchronous pinned-page loads) happens on the next PrepareFrame.
+        RunEditorFrames(camera, 3);
+
+        {
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            EXPECT_TRUE(stats.StreamingFromDisk) << "the page store never opened — nothing was spilled";
+            EXPECT_GT(stats.PageBytesSpilled, 0ull)
+                << "no payload reached the store, so the RAM ceiling did not move";
+            EXPECT_GT(stats.TotalPages, stats.BudgetSlots)
+                << "test setup: the budget must be tighter than the page count to force fault-ins";
+        }
+
+        u32 minRed = std::numeric_limits<u32>::max();
+        u32 maxRed = 0;
+        u64 peakStaging = 0;
+        for (int frameIndex = 0; frameIndex < 20; ++frameIndex)
+        {
+            RunEditorFrames(camera, 1);
+            ASSERT_TRUE(ReadbackComposite(frame, w, h));
+            u32 const red = CountRedDominantPixels(frame);
+            minRed = std::min(minRed, red);
+            maxRed = std::max(maxRed, red);
+
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            peakStaging = std::max(peakStaging, stats.PageStagingPeakBytes);
+            EXPECT_LE(stats.ResidentPages, stats.BudgetSlots)
+                << "disk-backed streaming exceeded the fixed page budget at frame " << frameIndex;
+        }
+        WriteEvidencePng("VirtualGeometry_Streaming_DiskBacked.png", frame, w, h);
+
+        {
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            EXPECT_GT(stats.PageFaultsIssued, 0ull)
+                << "not one page faulted in from disk over 20 frames — the request path never reached the "
+                   "store, so this test is measuring the in-memory path under a different name";
+            // The load-bearing one. A failed read is real geometry loss, and the only reason
+            // the frame still looks reasonable is the resident-ancestor fallback.
+            EXPECT_EQ(stats.PageReadFailures, 0ull)
+                << stats.PageReadFailures << " page read(s) failed against the backing store";
+            EXPECT_EQ(stats.FailedPages, 0u)
+                << stats.FailedPages << " page(s) are permanently unavailable — their clusters are stuck at "
+                                        "a coarser DAG cut";
+            EXPECT_GT(stats.PageBytesRead, 0ull) << "pages were requested but no bytes were ever read back";
+            // Staging RAM is the streaming path's own footprint, and the thing that would
+            // make "stream from disk" pointless if it grew with the scene.
+            //
+            // Only the "it is non-zero" half is asserted here, on purpose. This fixture's
+            // sphere has far fewer pages than the registry's 128-page staged cap, so NO upper
+            // bound expressible at this scale can tell a working cap from a removed one — a
+            // bound against the whole spilled payload would pass either way, which is worse
+            // than no assertion because it reads like coverage. The cap itself is pinned
+            // where it can actually be discriminated, by
+            // VirtualGeometryPageStoreTest.StagedPayloadsNobodyConsumesAreCappedAndCounted,
+            // which sets a cap of 4 against 48 pages and asserts the exact byte bound.
+            EXPECT_GT(peakStaging, 0ull) << "nothing was ever staged, so no page came off disk";
+            // What this scale CAN discriminate: pages read and then thrown away unused. A
+            // non-zero count here means the request loop is outrunning what the frame absorbs
+            // (issue #1151) — the defect that had 413,042 of 413,158 reads discarded.
+            EXPECT_EQ(stats.PageStagedDiscards, 0ull)
+                << stats.PageStagedDiscards
+                << " staged page(s) were discarded before anyone uploaded them — reads are being issued "
+                   "faster than the frame consumes them";
+        }
+
+        // The picture, which is what the CPU counters cannot tell you: the sphere never
+        // thinned out while pages were in flight. Compared against the in-memory arm rather
+        // than an absolute, so this tracks the control if the scene or the camera changes.
+        EXPECT_GE(minRed, memoryRed / 2)
+            << "the sphere lost more than half its pixels (" << minRed << " vs " << memoryRed
+            << ") while pages were faulting in from disk — an outstanding read is being treated as an "
+               "empty page instead of holding the cut at a resident ancestor";
+        EXPECT_GE(maxRed, static_cast<u32>(static_cast<f64>(memoryRed) * 0.9))
+            << "disk-backed streaming never converged to the in-memory arm's coverage (" << maxRed << " vs "
+            << memoryRed << ") — pages are arriving but not becoming resident";
+
+        // Restore the defaults for later tests in this process. Memory backing cannot
+        // un-spill what is already on disk (by design), so the rebuild below is what puts the
+        // pools back to eager residency.
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(0);
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+        RunEditorFrames(camera, 2);
+    }
+
+    // Skinning x on-disk page streaming (issues #1150 x #1151), which are two features that
+    // never met until they were merged onto the same branch.
+    //
+    // The spill releases Packed.Vertices, and VirtualMeshGpuData::IsSkinned() is
+    // `Skinning.size() == Vertices.size()`. Read after a spill it answers false for a mesh
+    // that is very much still skinned, and everything downstream agrees with it: the arena
+    // allocates no skin tail, the per-cluster bone sets are never uploaded, and the instance
+    // is not flagged as deforming. The character is then drawn in its rest pose while the
+    // cull keeps expanding its bounds by the deformation padding, with no error anywhere --
+    // exactly the silent degrade both features were written to avoid.
+    //
+    // So the assertions here are deliberately on the registry values that fail FIRST, and
+    // only then on pixels. That order is not a preference: reverting the fix and running
+    // this test made every counter below fail (kFlagSkinned 0, SkinBoneCount 0 against 6,
+    // SkinClusterBoneBase 0, SkinBoundsPadding 0) while the red centroid stayed INSIDE its
+    // tolerance -- at this camera a rest-pose icosphere and a bent one put their red mass in
+    // nearly the same column. The picture is kept as corroboration and as evidence on disk;
+    // the counters are what actually discriminate.
+    TEST_F(VirtualGeometryVisualEvidence, ASkinnedVirtualMeshStillDeformsWhenItsPagesSpillToDisk)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        Scene& scene = GetScene();
+
+        // Same reason as the multi-angle skinned test: two red subjects average into a
+        // centroid that measures neither of them.
+        m_SphereEntity.GetComponent<TransformComponent>().Translation = { 0.0f, 500.0f, 0.0f };
+
+        Ref<MeshSource> const skinnedSource = MakeSkinnedIcosphereMeshSource(4);
+        AssetHandle const skinnedHandle = AssetManager::AddMemoryOnlyAsset(skinnedSource);
+        Ref<Skeleton> skeleton = Ref<Skeleton>::Create(static_cast<sizet>(kSkinnedBoneCount));
+
+        Entity character = scene.CreateEntity("SpilledSkinnedVirtualSphere");
+        {
+            auto& vm = character.AddComponent<VirtualMeshComponent>();
+            vm.m_MeshSource = skinnedHandle;
+            vm.m_ErrorThresholdPixels = 1.0f;
+            character.AddComponent<SkeletonComponent>(skeleton);
+            auto& mat = character.AddComponent<MaterialComponent>();
+            mat.m_Material.SetBaseColorFactor(glm::vec4(0.9f, 0.05f, 0.05f, 1.0f));
+            mat.m_Material.SetRoughnessFactor(0.6f);
+        }
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Disabled);
+
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f);
+
+        // The one pose both arms are measured in. Bent hard enough that rest and posed are
+        // unmistakably different pictures -- the same 0.7 the multi-angle test's last step uses.
+        constexpr f32 kBentPose = 0.7f;
+
+        // The id Scene's submission loop stamps onto the record: the raw entt handle.
+        i32 const characterId = static_cast<i32>(std::to_underlying(static_cast<entt::entity>(character)));
+
+        auto findCharacterInstance = [&](VirtualInstanceGpuRecord& out) -> bool
+        {
+            for (const auto& frameInstance : registry.GetFrameInstances())
+            {
+                if (frameInstance.Gpu.EntityID == characterId)
+                {
+                    out = frameInstance.Gpu;
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // ---- Arm A: in-memory backing, the control -------------------------------------
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(0);
+        PoseSkeleton(*skeleton, kBentPose);
+        RunEditorFrames(camera, 4);
+
+        std::vector<u8> frame;
+        u32 w = 0;
+        u32 h = 0;
+        ASSERT_TRUE(ReadbackComposite(frame, w, h));
+        u32 const memoryPixels = CountRedDominantPixels(frame);
+        f32 const memoryCentroid = RedCentroidX(frame, w);
+
+        ASSERT_GE(memoryPixels, 800u)
+            << "the control arm drew no character, so the disk arm below would pass vacuously";
+        ASSERT_TRUE(registry.MeshIsSkinned(skinnedHandle))
+            << "the cooked DAG carries no skinning even in memory -- this test measures nothing";
+        ASSERT_GT(registry.GetSkinningBaseElement(), 0u) << "no skin tail in the control arm";
+
+        VirtualInstanceGpuRecord memoryInstance{};
+        ASSERT_TRUE(findCharacterInstance(memoryInstance))
+            << "the skinned entity never reached a frame instance in the control arm";
+
+        // ---- Arm B: the same mesh, the same pose, faulted in from the store -------------
+        registry.SetPageBacking(VirtualPageBacking::Disk);
+        // The backing change marks the pools dirty; the spill happens in the rebuild that the
+        // next PrepareFrame runs.
+        RunEditorFrames(camera, 4);
+
+        {
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            ASSERT_TRUE(stats.StreamingFromDisk) << "the page store never opened -- nothing was spilled";
+            ASSERT_GT(stats.PageBytesSpilled, 0ull)
+                << "no payload reached the store, so this arm is still the in-memory path and cannot "
+                   "detect the defect it exists for";
+            EXPECT_EQ(stats.PageReadFailures, 0ull)
+                << stats.PageReadFailures << " page read(s) failed -- a coarser cut would confound the "
+                                             "pixel comparison below";
+        }
+
+        // The values that go wrong FIRST, in the order the rest-pose failure propagates.
+        EXPECT_TRUE(registry.MeshIsSkinned(skinnedHandle))
+            << "a spilled skinned mesh reads as rigid -- MeshEntry::IsSkinned is being re-derived from "
+               "Packed, whose Vertices the spill released";
+        EXPECT_GT(registry.GetSkinningBaseElement(), 0u)
+            << "the vertex arena allocated no skin-binding tail after the spill, so every shader reads "
+               "'rigid' regardless of the palette";
+
+        VirtualInstanceGpuRecord diskInstance{};
+        ASSERT_TRUE(findCharacterInstance(diskInstance))
+            << "the skinned entity stopped reaching a frame instance once its pages spilled";
+        EXPECT_NE(diskInstance.Flags & VirtualInstanceGpuRecord::kFlagSkinned, 0u)
+            << "the spilled instance is not flagged as deforming, so the cull and the vertex stage both "
+               "take the rigid path";
+        EXPECT_EQ(diskInstance.SkinBoneCount, memoryInstance.SkinBoneCount)
+            << "the bone palette stopped reaching the instance record after the spill";
+        EXPECT_GT(diskInstance.SkinClusterBoneBase, 0u)
+            << "no per-cluster bone sets after the spill -- the cull falls back to the instance-wide "
+               "bound, which is where clusters start popping";
+        EXPECT_GT(diskInstance.SkinBoundsPadding, 0.0f)
+            << "the conservative displacement bound collapsed to zero, so a bent pose is culled against "
+               "its rest-pose extent";
+
+        ASSERT_TRUE(ReadbackComposite(frame, w, h));
+        WriteEvidencePng("VirtualGeometry_Skinned_DiskBacked.png", frame, w, h);
+        u32 const diskPixels = CountRedDominantPixels(frame);
+        f32 const diskCentroid = RedCentroidX(frame, w);
+
+        ASSERT_GE(diskPixels, 800u) << "the character vanished entirely once its pages came off disk";
+
+        // The picture the counters cannot give you. Both arms hold the SAME bent pose, so the
+        // red mass must sit in the same place; a rest-pose regression moves it by far more
+        // than this. Compared against the control rather than an absolute so the bound
+        // survives a change of camera or of subject.
+        EXPECT_NEAR(diskCentroid, memoryCentroid, 6.0f)
+            << "the disk-backed character's red mass sits at x=" << diskCentroid << " against the "
+            << "in-memory arm's x=" << memoryCentroid
+            << " for the SAME pose -- the spilled mesh is being drawn in a different shape, which is "
+               "what a silently rigid skinned mesh looks like";
+
+        // Restore the defaults for whatever runs next in this process.
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(0);
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+        scene.DestroyEntity(character);
+        RunEditorFrames(camera, 2);
     }
 
     // Slice-6 acceptance: virtual meshes rasterize into the CSM shadow map

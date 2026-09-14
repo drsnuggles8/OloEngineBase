@@ -1730,4 +1730,190 @@ TEST_F(VulkanDrawPath, AMappedClearOutsideTheBracketStillAllowsALaterSnapshot)
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
 }
 
+// =============================================================================
+// #1200: the index bind's `addressFlags` are a TWO-DIRECTIONAL obligation, and
+// the engine's two index-buffer families sit on OPPOSITE sides of it.
+//
+//   VUID-VkBindIndexBuffer3InfoKHR-addressRange-13122 REQUIRES
+//     STORAGE_BUFFER_USAGE (or UNKNOWN_) when the backing buffer was created
+//     with VK_BUFFER_USAGE_STORAGE_BUFFER_BIT — the raw dual-role
+//     element/SSBO arena behind SetVertexArrayIndexBuffer.
+//   VUID-...-13123 FORBIDS it when the buffer was created without the bit —
+//     a VulkanIndexBuffer, which is INDEX|TRANSFER|ADDRESS only.
+//
+// So there is no value that is safe for both, and "silence the layer" is not a
+// direction of travel: moving either family toward the other's answer trades
+// one violation for the other. That is exactly the mistake issue #1200
+// proposed (give the object-backed family STORAGE_BUFFER_USAGE), which is why
+// the DECISION is asserted here and not just the drawing.
+//
+// The draws matter too: with a validation layer attached, the fixture's
+// zero-errors TearDown is the layer adjudicating both VUIDs on real binds.
+// =============================================================================
+TEST_F(VulkanDrawPath, IndexBindAddressFlagsFollowEachFamilysCreateTimeStorageUsage)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    VulkanRendererAPI api;
+
+    // --- the object-backed family ------------------------------------------
+    const f32 vertices[] = { -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f };
+    auto vertexBuffer = VertexBuffer::Create(vertices, sizeof(vertices));
+    u32 indices[] = { 0u, 1u, 2u };
+    auto indexBuffer = IndexBuffer::Create(indices, 3);
+    auto objectVao = VertexArray::Create();
+    objectVao->AddVertexBuffer(vertexBuffer);
+    objectVao->SetIndexBuffer(indexBuffer);
+    const auto* vkObjectVao = static_cast<const VulkanVertexArray*>(objectVao.Raw());
+
+    EXPECT_EQ(VulkanRendererAPI::IndexBindAddressFlagsFor(vkObjectVao), VkAddressCommandFlagsKHR{ 0 })
+        << "VulkanIndexBuffer is created without STORAGE_BUFFER_BIT, so VUID-13123 FORBIDS "
+           "VK_ADDRESS_COMMAND_STORAGE_BUFFER_USAGE_BIT_KHR on its bind";
+
+    // --- the raw dual-role family ------------------------------------------
+    // Built the way VirtualMeshRegistry builds it, not substituted for an
+    // object-backed spelling: the raw arena is the one that carries
+    // STORAGE_BUFFER_BIT, and substituting the object form here would test the
+    // buffer that cannot fail (substituted-seams-compound.md).
+    const RHI::ResourceHandle rawIndices = api.CreateBufferHandle();
+    ASSERT_TRUE(rawIndices.IsValid());
+    api.AllocateBufferStorage(rawIndices, sizeof(indices), RHI::MemoryResidency::DeviceLocal);
+    api.UploadBufferSubData(rawIndices, 0, sizeof(indices), indices);
+    const RHI::ResourceHandle rawVaoHandle = api.CreateVertexArrayHandle();
+    ASSERT_TRUE(rawVaoHandle.IsValid());
+    api.SetVertexArrayIndexBuffer(rawVaoHandle, rawIndices);
+
+    // Released on EVERY exit, not just the last line: the ASSERT_* macros
+    // below return early, and the raw registry is process-global — a handle
+    // that survives this test keeps its VMA allocation alive into the
+    // fixture's vmaDestroyAllocator (VulkanRawBufferRegistry's own header
+    // documents that abort).
+    struct RawHandleGuard
+    {
+        VulkanRendererAPI& Api;
+        RHI::ResourceHandle Vao;
+        RHI::ResourceHandle Buffer;
+        ~RawHandleGuard()
+        {
+            Api.DeleteVertexArray(Vao);
+            Api.DeleteBuffer(Buffer);
+        }
+    } rawHandleGuard{ api, rawVaoHandle, rawIndices };
+
+    const auto* rawEntry = VulkanRootObjectRegistry::Get().Lookup(rawVaoHandle);
+    ASSERT_NE(rawEntry, nullptr);
+    ASSERT_EQ(rawEntry->Kind, VulkanRootObjectKind::VertexArray);
+    const auto* vkRawVao = static_cast<const VulkanVertexArray*>(rawEntry->Object);
+
+    EXPECT_EQ(VulkanRendererAPI::IndexBindAddressFlagsFor(vkRawVao),
+              VkAddressCommandFlagsKHR{ VK_ADDRESS_COMMAND_STORAGE_BUFFER_USAGE_BIT_KHR })
+        << "the raw family's usage set includes STORAGE_BUFFER_BIT, so VUID-13122 REQUIRES the flag";
+
+    // --- and both actually draw, with the layer watching --------------------
+    // gl_VertexIndex only: a raw VAO has no VulkanVertexBuffer, so a shader
+    // declaring the pull SSBO would read the zero address.
+    //
+    // The tint UBO is not decoration. A shader that declares NO root data at
+    // all has an empty root-data layout, and the frame arena refuses a
+    // zero-byte push — so every draw is dropped before it reaches
+    // BindIndexBufferFor and this test would assert against a layer that
+    // adjudicated nothing. One binding is the cheapest way to keep the draws
+    // real; see the empty-layout drop this test's sibling commit made loud.
+    constexpr const char* kIndexOnlyVertexSrc = R"(
+#version 460 core
+void main()
+{
+    vec2 corners[3] = vec2[3](vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+    gl_Position = vec4(corners[gl_VertexIndex], 0.0, 1.0);
+}
+)";
+    constexpr const char* kSolidFragmentSrc = R"(
+#version 460 core
+layout(location = 0) out vec4 o_Color;
+layout(std140, binding = 3) uniform TintBlock
+{
+    vec4 u_Tint;
+};
+void main()
+{
+    o_Color = u_Tint;
+}
+)";
+    auto shader = Ref<VulkanShader>::Create("IndexBindAddressFlags", kIndexOnlyVertexSrc, kSolidFragmentSrc);
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    auto tintUbo = UniformBuffer::Create(16, 3);
+    const f32 green[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+    tintUbo->SetData(green, sizeof(green));
+
+    FramebufferSpecification fbSpec;
+    fbSpec.Width = 32;
+    fbSpec.Height = 32;
+    fbSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    auto framebuffer = Framebuffer::Create(fbSpec);
+    ASSERT_NE(framebuffer, nullptr);
+    const auto colorHandle = framebuffer->GetColorAttachmentHandle(0);
+    ASSERT_TRUE(colorHandle.IsValid());
+
+    SubmitFrame(api,
+                [&]()
+                {
+                    RHI::Barrier toColor{};
+                    toColor.Resource = colorHandle;
+                    toColor.Before = RHI::Access::Undefined;
+                    toColor.After = RHI::Access::ColorAttachmentWrite;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toColor, 1 });
+
+                    framebuffer->Bind();
+                    api.SetViewport(0, 0, 32, 32);
+                    api.SetClearColor({ 1.0f, 0.0f, 0.0f, 1.0f });
+                    api.Clear();
+                    shader->Bind();
+                    tintUbo->Bind();
+
+                    // Object-backed bind, then the raw one. Two different
+                    // addresses AND two different addressFlags in one command
+                    // buffer, which is the pairing the redundant-bind cache
+                    // could otherwise hide.
+                    api.DrawIndexed(objectVao, 3);
+                    api.BindVertexArrayRaw(rawVaoHandle);
+                    api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 3, RHI::IndexType::UInt32, 0);
+
+                    framebuffer->Unbind();
+
+                    RHI::Barrier toSampled{};
+                    toSampled.Resource = colorHandle;
+                    toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                    toSampled.After = RHI::Access::ShaderSampleRead;
+                    api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+                });
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u) << "neither family may fall through to a stub";
+
+    // The CENSUS, not GetPreparedDrawsThisRecording(): that counter moves
+    // inside PrepareDraw, BEFORE the index bind, so a raw-family draw refused
+    // by BindIndexBufferFor would leave it at 2 and leave the layer with
+    // nothing to adjudicate — while the target still reads green from the
+    // object-backed draw. The census entry is incremented at the vkCmdDraw*
+    // itself, so 2 here means BOTH binds were issued.
+    const auto census = api.GetDrawCensus();
+    const auto entry = census.find("IndexBindAddressFlags");
+    ASSERT_NE(entry, census.end()) << "no draw reached a vkCmdDraw* at all";
+    EXPECT_EQ(entry->second.Prepared, 2u) << "both families must have ISSUED a draw, index bind included";
+    EXPECT_EQ(entry->second.Dropped, 0u) << "a dropped draw would make the layer's silence vacuous";
+
+    // The draws really rasterised — otherwise nothing was bound and the
+    // zero-validation-errors assertion below proves nothing.
+    auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+    const auto attachment = vkFramebuffer->GetColorAttachmentImage(0);
+    ASSERT_NE(attachment, nullptr);
+    std::vector<u8> pixels;
+    ASSERT_TRUE(attachment->GetData(pixels, 0));
+    ASSERT_EQ(pixels.size(), sizet{ 32 * 32 * 4 });
+    EXPECT_EQ(pixels[0], 0x00);
+    EXPECT_EQ(pixels[1], 0xFF) << "the indexed draws must have covered the target, not left the red clear";
+    EXPECT_EQ(pixels[2], 0x00);
+}
+
 #endif // OLO_WITH_VULKAN

@@ -965,6 +965,8 @@
 		"OloEngine/Renderer/VirtualGeometry/VirtualSkinningPacking.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualSkinningBounds.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualSkinningBounds.cpp"
+		"OloEngine/Renderer/VirtualGeometry/VirtualGeometryPageStore.h"
+		"OloEngine/Renderer/VirtualGeometry/VirtualGeometryPageStore.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.cpp"
 		"OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
