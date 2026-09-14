@@ -29,6 +29,7 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -2881,7 +2882,7 @@ namespace OloEngine
                      // VulkanIndexBuffer is created INDEX|TRANSFER_DST|
                      // TRANSFER_SRC|SHADER_DEVICE_ADDRESS (+ AS build input) —
                      // no STORAGE_BUFFER_BIT, so VUID-13123 forbids the flag.
-                     VulkanAddressCommands::StorageUsage::Absent };
+                     VulkanAddressCommands::StorageUsage::Absent, indexBuffer->GetVkBuffer() };
         }
         // The raw element buffer (SetVertexArrayIndexBuffer, #1052). Resolved
         // here rather than cached on the VAO so a re-allocate under the same
@@ -2895,9 +2896,23 @@ namespace OloEngine
                      // The raw family's one conservative usage set includes
                      // STORAGE_BUFFER_BIT (it is the dual-role element/SSBO
                      // arena), so VUID-13122 REQUIRES the flag here.
-                     VulkanAddressCommands::StorageUsage::Present };
+                     VulkanAddressCommands::StorageUsage::Present, raw->Buffer };
         }
         return {};
+    }
+
+    VkAddressCommandFlagsKHR VulkanRendererAPI::IndexBindAddressFlagsFor(const VulkanVertexArray* vao)
+    {
+        const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
+        // The SAME refusal BindIndexBufferFor applies, extent included: a raw
+        // arena allocated at 0 bytes still has a valid address, and reporting
+        // STORAGE_BUFFER_USAGE for a bind that will never be recorded would
+        // make this accessor disagree with the command it describes.
+        if (indexBuffer.Address == 0 || indexBuffer.SizeBytes == 0)
+        {
+            return 0;
+        }
+        return VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
     }
 
     bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
@@ -2952,6 +2967,12 @@ namespace OloEngine
             bindInfo.addressRange = VulkanAddressCommands::MakeRange(indexBuffer.Address, indexBuffer.SizeBytes);
             bindInfo.addressFlags = VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
             bindInfo.indexType = VK_INDEX_TYPE_UINT32;
+            if (Levers::VulkanTraceBuffers())
+            {
+                OLO_CORE_TRACE("[RHI/Vulkan] index bind {:#x}..{:#x} ({} bytes, VkBuffer {:#x}, flags {:#x})",
+                               indexBuffer.Address, indexBuffer.Address + indexBuffer.SizeBytes,
+                               indexBuffer.SizeBytes, VulkanUpload::VkHandleToU64(indexBuffer.Buffer), bindInfo.addressFlags);
+            }
             vkCmdBindIndexBuffer3KHR(ctx.Cmd, &bindInfo);
             ctx.BoundIndexBufferAddress = indexBuffer.Address;
             ctx.BoundIndexBufferSize = indexBuffer.SizeBytes;
