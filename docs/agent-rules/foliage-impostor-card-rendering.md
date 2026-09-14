@@ -77,8 +77,12 @@ vec3 cardCenter = instWorld + vec3(0.0, radius /*world*/, 0.0);
 ## 4. No foliage layer draws mesh geometry — `MeshPath` only feeds the bake
 
 `FoliageRenderer::BuildQuadGeometry` builds a 4-vertex camera-facing card for
-**every** layer, impostor or not. A layer's `MeshPath` is read exactly once, by
-`UpdateImpostorAtlas`, to bake the atlas; it never reaches a draw call. What
+**every** layer, impostor or not. A layer's `MeshPath` is consumed by
+`UpdateImpostorAtlas`, and only to bake the atlas: it guards the bake
+(`!layer.UseImpostor || layer.MeshPath.empty()` drops any stale atlas), it is
+compared against `ImpostorBakedMeshPath` in the freshness check that decides
+whether a rebake is needed, and on a rebake it constructs the `Model` whose
+mesh 0 goes to `ImpostorBaker::Bake`. It never reaches a draw call. What
 `FoliageImpostorSampling.glsl` cross-fades across `ImpostorStartDistance` is
 therefore not mesh-to-card — it is one flat atlas frame near the camera against
 the full parallax octahedral impostor beyond it. Same card on both sides.

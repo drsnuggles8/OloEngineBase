@@ -211,8 +211,9 @@ by the fixtures. **Let the editor settle before the first capture.**
    feeds the impostor bake. Real plant meshes are #1233.
 
    Re-verified 2026-09-14 on master `5acc47238` for issue #1267: the canopy is present in
-   `Albedo`, `Normals` and `AOBuffer` on both cameras, and `FoliagePass` no longer appears in
-   `result.json`'s `passTimingsMs` at all, in 5 of 5 runs — the whole canopy moved to
+   `Albedo`, `Normals` and `AOBuffer` on the `frontal` and `grazing` cameras — the two the
+   original report named, and the only two re-read at AOV level. `FoliagePass` no longer appears
+   in `result.json`'s `passTimingsMs` at all, in 5 of 5 runs — the whole canopy moved to
    `ScenePass`.
 2. **The editor capture front door drew the grid and world axis into its captures.** It disabled
    the viewport helpers on the `Scene`, but `EditorLayer` re-pushes them from `RendererSettings`
