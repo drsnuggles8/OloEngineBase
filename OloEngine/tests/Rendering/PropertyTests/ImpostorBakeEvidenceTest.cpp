@@ -327,6 +327,45 @@ namespace OloEngine::Tests
             return n;
         }
 
+        // Same orbit, but read the G-Buffer ALBEDO (RT0 of the deferred root)
+        // rather than the lit composite. In Deferred the impostor card is drawn
+        // into the G-Buffer (#1225); its albedo is the layer tint, so the same
+        // magenta detector counts canopy pixels that SSAO / SSGI / SSR will see.
+        int CaptureGBufferAlbedoAzimuth(const std::string& pngName, f32 yaw)
+        {
+            EditorCamera camera(60.0f, static_cast<f32>(kSceneW) / static_cast<f32>(kSceneH), 0.5f, 2000.0f);
+            camera.SetViewportSize(static_cast<f32>(kSceneW), static_cast<f32>(kSceneH));
+            const glm::vec3 centre(128.0f, 14.0f, 128.0f);
+            camera.Focus(centre, /*distance=*/70.0f, yaw, /*pitch=*/0.32f);
+
+            RunEditorFrames(camera, 6);
+
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::GBufferResolved);
+            if (!fb)
+                return -1;
+            std::vector<u8> px;
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kSceneW, kSceneH, px);
+            if (px.size() != static_cast<std::size_t>(kSceneW) * kSceneH * 4u)
+                return -1;
+
+            if (GoldenRebaseRequested())
+            {
+                // RT0's alpha is METALLIC (0 for foliage and terrain), which a
+                // PNG viewer reads as transparency and composites away. Force it
+                // opaque for the evidence file; the count below reads raw RGB.
+                std::vector<u8> opaque(px);
+                for (std::size_t i = 3; i < opaque.size(); i += 4)
+                    opaque[i] = 255;
+                WriteScenePng(pngName, opaque, kSceneW, kSceneH);
+            }
+
+            int n = 0;
+            for (std::size_t i = 0; i + 3 < px.size(); i += 4)
+                if (IsImpostorMagenta(px[i + 0], px[i + 1], px[i + 2]))
+                    ++n;
+            return n;
+        }
+
         Entity m_Terrain;
     };
 
@@ -370,5 +409,57 @@ namespace OloEngine::Tests
         EXPECT_GT(a0, minCoverage) << "azimuth 0 shows almost no impostor foliage";
         EXPECT_GT(a1, minCoverage) << "azimuth 120 shows almost no impostor foliage";
         EXPECT_GT(a2, minCoverage) << "azimuth 240 shows almost no impostor foliage";
+    }
+
+    // The #1225 contract, pinned where it failed: the impostor canopy must
+    // reach the G-BUFFER on the deferred path, not just the lit composite. The
+    // forward card drew after DeferredLightingPass into SceneColor only, so
+    // GBufferAlbedo / GBufferNormal were empty above the horizon and every
+    // G-Buffer-derived term (SSAO, SSGI, SSR) treated the canopy as sky. A
+    // beauty capture cannot see that — the canopy rendered, in the wrong pass —
+    // which is why this reads the albedo attachment itself.
+    TEST_F(ImpostorCardRenderEvidenceTest, ScatteredImpostorCardsReachTheGBufferInDeferred)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(3.0f);
+
+        // Leave the renderer as we found it (cross-test-renderer-state.md).
+        struct ScopedRenderingPath
+        {
+            RenderingPath m_Previous = Renderer3D::GetRendererSettings().Path;
+            explicit ScopedRenderingPath(RenderingPath path)
+            {
+                Renderer3D::GetRendererSettings().Path = path;
+                Renderer3D::ApplyRendererSettings();
+            }
+            ~ScopedRenderingPath()
+            {
+                Renderer3D::GetRendererSettings().Path = m_Previous;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } scopedPath(RenderingPath::Deferred);
+
+        const int a0 = CaptureGBufferAlbedoAzimuth("Impostor_field_gbuffer_az0.png", 0.0f);
+        const int a1 = CaptureGBufferAlbedoAzimuth("Impostor_field_gbuffer_az120.png", glm::radians(120.0f));
+        const int a2 = CaptureGBufferAlbedoAzimuth("Impostor_field_gbuffer_az240.png", glm::radians(240.0f));
+
+        ASSERT_GE(a0, 0) << "GBufferResolved did not resolve — is the deferred path active?";
+        ASSERT_GE(a1, 0);
+        ASSERT_GE(a2, 0);
+        const int minCoverage = static_cast<int>(kSceneW * kSceneH) / 2000; // ~460 px
+        EXPECT_GT(a0, minCoverage) << "azimuth 0: the impostor canopy is absent from GBufferAlbedo";
+        EXPECT_GT(a1, minCoverage) << "azimuth 120: the impostor canopy is absent from GBufferAlbedo";
+        EXPECT_GT(a2, minCoverage) << "azimuth 240: the impostor canopy is absent from GBufferAlbedo";
     }
 } // namespace OloEngine::Tests
