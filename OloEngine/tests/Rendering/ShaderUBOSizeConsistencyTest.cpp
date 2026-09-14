@@ -667,7 +667,7 @@ namespace OloEngine::Tests
             { "u_DDGICascadeLattice", offsetof(DDGIVolumeUBO, CascadeLattice), DDGIVolumeUBO::MaxCascades },
         } };
 
-        static constexpr std::array<MemberPin, 9> kPassDataPins{ {
+        static constexpr std::array<MemberPin, 10> kPassDataPins{ {
             { "u_DDGIModel", offsetof(DDGIPassDataUBO, Model), 0 },
             { "u_DDGINormalMatrix", offsetof(DDGIPassDataUBO, NormalMatrix), 0 },
             { "u_DDGIBaseColor", offsetof(DDGIPassDataUBO, BaseColor), 0 },
@@ -677,6 +677,7 @@ namespace OloEngine::Tests
             { "u_DDGICameraPosRel", offsetof(DDGIPassDataUBO, CameraPosRel), 0 },
             { "u_DDGIComputeParams", offsetof(DDGIPassDataUBO, ComputeParams), 0 },
             { "u_DDGIPrevLattice", offsetof(DDGIPassDataUBO, PrevLattice), DDGIVolumeUBO::MaxCascades },
+            { "u_DDGICaptureSet", offsetof(DDGIPassDataUBO, CaptureSet), DDGIPassDataUBO::MaxRelocationBatch },
         } };
 
         const fs::path root = SH::ResolveShaderRoot();
