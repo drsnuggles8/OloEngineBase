@@ -1514,6 +1514,7 @@ olo_copy_ffmpeg_runtime(OloEngine-Tests)
 # Windows resolves at process load — without the DLL the whole suite fails to start, long before
 # any Steam test would have skipped. No-op unless OLO_WITH_STEAM is on with the real SDK.
 olo_copy_steam_runtime(OloEngine-Tests)
+olo_copy_aftermath_runtime(OloEngine-Tests)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 

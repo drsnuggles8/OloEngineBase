@@ -3,6 +3,8 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanComputeShader.h"
+
+#include "Platform/Vulkan/VulkanAftermath.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -221,6 +223,10 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanComputeShader '{}': vkCreateShaderModule failed", m_Name);
             return false;
         }
+        // Name this module for a device-fault report (issue #1198); no-op
+        // unless Aftermath crash dumps are armed.
+        VulkanAftermath::RegisterShaderBinary((m_Name + ":compute").c_str(), moduleInfo.pCode,
+                                              moduleInfo.codeSize);
 
         std::vector<VulkanShaderBinding> newBindings;
         try

@@ -4,6 +4,8 @@
 
 #include "Platform/Vulkan/VulkanShader.h"
 
+#include "Platform/Vulkan/VulkanAftermath.h"
+
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
@@ -516,6 +518,10 @@ namespace OloEngine
                 return false;
             }
             newModules[stage] = module;
+            // So a device fault can name this shader instead of a bare hash
+            // (issue #1198). No-op unless Aftermath crash dumps are armed.
+            VulkanAftermath::RegisterShaderBinary((m_Name + ":" + StageName(stage)).c_str(), data.data(),
+                                                  data.size() * sizeof(u32));
         }
 
         // Reflection (spirv_cross can throw on a corrupt cached blob — that

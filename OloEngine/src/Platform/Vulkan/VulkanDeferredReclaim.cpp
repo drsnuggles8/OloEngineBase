@@ -4,6 +4,8 @@
 
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 
+#include "OloEngine/Core/DebugLevers.h"
+
 #include "Platform/Vulkan/VulkanDescriptorSlotCache.h"
 #include "Platform/Vulkan/VulkanFramebuffer.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
@@ -43,7 +45,37 @@ namespace OloEngine
         {
             return;
         }
-        Push({ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation });
+        Entry entry{ .Image = image, .Allocation = allocation, .EnqueuedAtGeneration = m_Generation };
+        // Issue #1198: a depth-stencil surface's memory must outlive its last use
+        // by one more generation than the frame fence proves — see
+        // kDepthStencilHoldGenerations for the evidence. The registry still
+        // knows the image here (it is unregistered at actual-destroy time).
+        if (image != VK_NULL_HANDLE && !Levers::VulkanNoDepthReclaimHold())
+        {
+            if (const auto* info = VulkanImageInfoRegistry::Get().Lookup(image);
+                info != nullptr && IsDepthStencilFormat(info->Format))
+            {
+                entry.HoldGenerations = kDepthStencilHoldGenerations;
+            }
+        }
+        Push(entry);
+    }
+
+    bool VulkanDeferredReclaim::IsDepthStencilFormat(const VkFormat format) noexcept
+    {
+        switch (format)
+        {
+            case VK_FORMAT_D16_UNORM:
+            case VK_FORMAT_X8_D24_UNORM_PACK32:
+            case VK_FORMAT_D32_SFLOAT:
+            case VK_FORMAT_S8_UINT:
+            case VK_FORMAT_D16_UNORM_S8_UINT:
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                return true;
+            default:
+                return false;
+        }
     }
 
     void VulkanDeferredReclaim::Enqueue(VkBuffer buffer, VmaAllocation allocation) noexcept
@@ -197,7 +229,7 @@ namespace OloEngine
 
         std::erase_if(m_Entries, [this](const Entry& entry)
                       {
-            if (m_Generation - entry.EnqueuedAtGeneration < kFramesInFlight)
+            if (m_Generation - entry.EnqueuedAtGeneration < entry.HoldGenerations)
             {
                 return false;
             }

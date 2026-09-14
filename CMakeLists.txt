@@ -361,6 +361,11 @@ include(cmake/CommonProperties.cmake)
 # file's header comment carries the full story. It touches no targets, so it has no ordering
 # requirement of its own and can sit here with the other pure-configuration includes.
 include(cmake/Steamworks.cmake)
+
+# Nsight Aftermath (#1198). Same placement rule as Steamworks above and for the same reason:
+# OLO_AFTERMATH_RUNTIME_DLL is read from four app directories, so it must be resolved before any
+# add_subdirectory() below. See the header of cmake/Aftermath.cmake.
+include(cmake/Aftermath.cmake)
 include(cmake/Sanitizers.cmake)
 # Defines olo_verify_shader_toolchain_floor(); OloEngine/CMakeLists.txt calls it once
 # the shaderc it is going to link has been resolved (issue #1139, amendment (97)).
