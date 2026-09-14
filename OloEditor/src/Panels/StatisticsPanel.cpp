@@ -313,6 +313,35 @@ namespace OloEngine
                     ImGui::Text("Page uploads: %llu", static_cast<unsigned long long>(residency.PageUploads));
                     ImGui::Text("Page evictions: %llu", static_cast<unsigned long long>(residency.PageEvictions));
 
+                    // On-disk page streaming (issue #1151). Only shown when a backing store
+                    // exists: on the default in-memory backing every number here is zero and a
+                    // row of zeroes would read as "streaming is broken" rather than "off".
+                    if (residency.StreamingFromDisk)
+                    {
+                        constexpr f64 kMiB = 1024.0 * 1024.0;
+                        ImGui::Text("Backing: disk (%.1f MiB spilled)",
+                                    static_cast<f64>(residency.PageBytesSpilled) / kMiB);
+                        ImGui::Text("Page faults: %llu issued, %u in flight, %u staged",
+                                    static_cast<unsigned long long>(residency.PageFaultsIssued),
+                                    residency.PageFaultsInFlight, residency.PagesStaged);
+                        ImGui::Text("Read back: %.1f MiB  ·  staging %.1f MiB (peak %.1f MiB)",
+                                    static_cast<f64>(residency.PageBytesRead) / kMiB,
+                                    static_cast<f64>(residency.PageStagingBytes) / kMiB,
+                                    static_cast<f64>(residency.PageStagingPeakBytes) / kMiB);
+                        ImGui::Text("Staged but dropped: %llu",
+                                    static_cast<unsigned long long>(residency.PageStagedDiscards));
+                        if (residency.PageReadFailures > 0 || residency.FailedPages > 0)
+                        {
+                            // A read that failed means that geometry is permanently stuck at a
+                            // coarser DAG cut. That is a visible quality loss, so it gets the
+                            // same red treatment as a shader error rather than a grey stat.
+                            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f),
+                                               "Failed reads: %llu (%u page(s) permanently coarse)",
+                                               static_cast<unsigned long long>(residency.PageReadFailures),
+                                               residency.FailedPages);
+                        }
+                    }
+
                     // Cluster-cull stats need a small blocking GPU readback of the
                     // args buffer; only fetched here, inside the open header, so a
                     // collapsed section (or a scene without virtual meshes) pays

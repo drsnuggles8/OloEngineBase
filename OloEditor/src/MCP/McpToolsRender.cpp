@@ -4924,6 +4924,11 @@ namespace OloEngine::MCP
             j["meshShadersSupported"] = RenderCommand::SupportsMeshShaders();
             j["meshRasterAvailable"] = registry.GetMeshRasterAvailable();
             j["debugTargetAvailable"] = registry.GetDebugColorTexture().IsValid();
+            // Streaming residency configuration (issues #629 / #1151). Both knobs are echoed
+            // here so a measurement run can state the configuration it measured instead of
+            // assuming the defaults.
+            j["pageBudgetSlots"] = registry.GetPageBudgetSlots();
+            j["pageBacking"] = registry.GetPageBacking() == VirtualPageBacking::Disk ? "disk" : "memory";
             return j;
         }
 
@@ -4941,7 +4946,9 @@ namespace OloEngine::MCP
                 .Prop("hwRasterMode", Schema::String().Enum({ "auto", "forcemdi" }).Desc("How hardware-routed clusters draw: 'auto' = mesh-shader pipeline where supported, 'forcemdi' = classic MDI (the A/B lever)."))
                 .Prop("meshShadersSupported", Schema::Bool().Desc("Device/backend exposes VK_EXT_mesh_shader (task+mesh). False on OpenGL."))
                 .Prop("meshRasterAvailable", Schema::Bool().Desc("The pass's EFFECTIVE mesh-raster availability: device capability AND the meshlet shader compiled. Key any mesh-vs-MDI A/B on THIS, not on meshShadersSupported."))
-                .Prop("debugTargetAvailable", Schema::Bool().Desc("True when the 'VirtualGeometryDebug' target has GPU backing this frame."));
+                .Prop("debugTargetAvailable", Schema::Bool().Desc("True when the 'VirtualGeometryDebug' target has GPU backing this frame."))
+                .Prop("pageBudgetSlots", Schema::Int().Min(0).Desc("Resident page slots. 0 = fit everything (eager, no streaming pressure)."))
+                .Prop("pageBacking", Schema::String().Enum({ "memory", "disk" }).Desc("Where a page faults in FROM: 'memory' = the cooked payload stays in RAM (default), 'disk' = it is spilled to a page store and read back on demand (issue #1151)."));
         }
 
         ToolResult Handle_VirtualGeometrySet(IAutomationHost& host, const Json& args)
@@ -4953,6 +4960,8 @@ namespace OloEngine::MCP
             const bool hasForcePortable = args.contains("forcePortableSwRaster") && args["forcePortableSwRaster"].is_boolean();
             const bool hasEnabled = args.contains("enabled") && args["enabled"].is_boolean();
             const bool hasDebugToViewport = args.contains("debugToViewport") && args["debugToViewport"].is_boolean();
+            const bool hasPageBudget = args.contains("pageBudgetSlots") && args["pageBudgetSlots"].is_number_unsigned();
+            const bool hasPageBacking = args.contains("pageBacking") && args["pageBacking"].is_string();
 
             VirtualDebugMode debugMode{};
             if (hasDebugMode && !ParseVirtualDebugMode(args["debugMode"].get<std::string>(), debugMode))
@@ -4974,15 +4983,35 @@ namespace OloEngine::MCP
                     return ToolResult::Error("Invalid 'swRasterThresholdPixels': expected a finite number in [0, 4096].");
             }
 
+            u32 pageBudgetSlots = 0;
+            if (hasPageBudget)
+            {
+                auto const requested = args["pageBudgetSlots"].get<u64>();
+                if (requested > std::numeric_limits<u32>::max())
+                    return ToolResult::Error("Invalid 'pageBudgetSlots': expected a non-negative integer (0 = eager).");
+                pageBudgetSlots = static_cast<u32>(requested);
+            }
+
+            VirtualPageBacking pageBacking = VirtualPageBacking::Memory;
+            if (hasPageBacking)
+            {
+                const auto token = args["pageBacking"].get<std::string>();
+                if (token == "disk")
+                    pageBacking = VirtualPageBacking::Disk;
+                else if (token != "memory")
+                    return ToolResult::Error("Unknown 'pageBacking'. Valid: memory, disk.");
+            }
+
             const bool anyChange =
-                hasDebugMode || hasSwRasterMode || hasHwRasterMode || hasThreshold || hasForcePortable || hasEnabled || hasDebugToViewport;
+                hasDebugMode || hasSwRasterMode || hasHwRasterMode || hasThreshold || hasForcePortable ||
+                hasEnabled || hasDebugToViewport || hasPageBudget || hasPageBacking;
             const bool forcePortable = hasForcePortable && args["forcePortableSwRaster"].get<bool>();
             const bool enabled = hasEnabled && args["enabled"].get<bool>();
             const bool debugToViewport = hasDebugToViewport && args["debugToViewport"].get<bool>();
 
             const Json applied = host.MarshalRead(
                 [hasDebugMode, debugMode, hasSwRasterMode, swRasterMode, hasHwRasterMode, hwRasterMode,
-                 hasThreshold, threshold,
+                 hasThreshold, threshold, hasPageBudget, pageBudgetSlots, hasPageBacking, pageBacking,
                  hasForcePortable, forcePortable, hasEnabled, enabled, hasDebugToViewport, debugToViewport]() -> Json
                 {
                     auto& registry = VirtualMeshRegistry::Get();
@@ -4997,6 +5026,13 @@ namespace OloEngine::MCP
                         registry.SetSwRasterThresholdPixels(threshold);
                     if (hasForcePortable)
                         registry.SetForcePortableSwRaster(forcePortable);
+                    // Backing before budget: both mark the pools dirty, and setting the
+                    // backing first means the single rebuild the next frame does already
+                    // spills, rather than rebuilding once in memory and again on disk.
+                    if (hasPageBacking)
+                        registry.SetPageBacking(pageBacking);
+                    if (hasPageBudget)
+                        registry.SetPageBudgetSlots(pageBudgetSlots);
 
                     // The master switch and the viewport-overlay toggle live on RendererSettings,
                     // not the registry — `enabled` changes which SUBMISSION path Scene.cpp takes
@@ -5421,6 +5457,20 @@ namespace OloEngine::MCP
                 residencyJson["budget"] = residency.BudgetSlots == 0 ? "unbounded (eager)" : "budgeted";
                 residencyJson["pageUploads"] = residency.PageUploads;
                 residencyJson["pageEvictions"] = residency.PageEvictions;
+                // On-disk page streaming (issue #1151). Always emitted, including on the
+                // in-memory backing, so an A/B can read `backing` rather than infer it from
+                // whether the other keys happen to be present.
+                residencyJson["backing"] = residency.StreamingFromDisk ? "disk" : "memory";
+                residencyJson["pageFaultsIssued"] = residency.PageFaultsIssued;
+                residencyJson["pageFaultsInFlight"] = residency.PageFaultsInFlight;
+                residencyJson["pagesStaged"] = residency.PagesStaged;
+                residencyJson["pageReadFailures"] = residency.PageReadFailures;
+                residencyJson["failedPages"] = residency.FailedPages;
+                residencyJson["pageBytesRead"] = residency.PageBytesRead;
+                residencyJson["pageBytesSpilled"] = residency.PageBytesSpilled;
+                residencyJson["pageStagingBytes"] = residency.PageStagingBytes;
+                residencyJson["pageStagingPeakBytes"] = residency.PageStagingPeakBytes;
+                residencyJson["pageStagedDiscards"] = residency.PageStagedDiscards;
 
                 Json j;
                 j["renderingPath"] = RenderingPathName(Renderer3D::GetRendererSettings().Path);
@@ -8248,6 +8298,8 @@ namespace OloEngine::MCP
                                    .Prop("debugToViewport", Schema::Bool().Desc("Composite the active debugMode over the lit viewport image, not just into the 'VirtualGeometryDebug' capture target."))
                                    .Prop("debugMode", Schema::String().Enum({ "off", "clusterid", "lod", "overdraw" }).Desc("Per-pixel debug visualization written to the 'VirtualGeometryDebug' capture target. 'off' disables it (no cost)."))
                                    .Prop("swRasterMode", Schema::String().Enum({ "auto", "forcesoftware", "disabled" }).Desc("Software-rasterizer routing: 'auto' (coverage-based, default), 'forcesoftware' (every near-plane-safe cluster), 'disabled' (hardware MDI only)."))
+                                   .Prop("pageBudgetSlots", Schema::Int().Min(0).Desc("Resident geometry page slots. 0 = fit everything (eager, the default: no streaming pressure and no pop-in). A value below pinned+2 is clamped up."))
+                                   .Prop("pageBacking", Schema::String().Enum({ "memory", "disk" }).Desc("Where a page faults in FROM (issue #1151). 'memory' (default) keeps every cooked payload in RAM; 'disk' spills it to a session page store and reads it back on demand, which is what lets a scene exceed RAM. Switching to 'disk' rebuilds the pools; switching back affects only meshes registered afterwards, since a spilled mesh has no RAM copy left."))
                                    .Prop("swRasterThresholdPixels", Schema::Number().Min(0).Max(4096).Desc("Auto-mode cutoff: a cluster whose projected screen radius is below this many pixels is software-rasterized (default 24)."))
                                    .Prop("forcePortableSwRaster", Schema::Bool().Desc("Force the portable two-pass 2x32 SW visibility path even where 64-bit atomics exist (exercises both rasterizers on capable hardware)."))
                                    .Prop("hwRasterMode", Schema::String().Enum({ "auto", "forcemdi" }).Desc("Hardware-raster routing (#813): 'auto' = mesh-shader pipeline where the device supports it (Vulkan only), 'forcemdi' = classic vertex-pipeline MDI. The mesh-shader-vs-MDI A/B lever."))
@@ -8410,7 +8462,18 @@ namespace OloEngine::MCP
                                                            .Prop("budgetSlots", Schema::Int().Min(0))
                                                            .Prop("budget", Schema::String().Enum({ "unbounded (eager)", "budgeted" }))
                                                            .Prop("pageUploads", Schema::Int().Min(0))
-                                                           .Prop("pageEvictions", Schema::Int().Min(0)))
+                                                           .Prop("pageEvictions", Schema::Int().Min(0))
+                                                           .Prop("backing", Schema::String().Enum({ "memory", "disk" }).Desc("Where pages fault in from (issue #1151). Everything below is 0 on 'memory'."))
+                                                           .Prop("pageFaultsIssued", Schema::Int().Min(0).Desc("Asynchronous disk reads started for a requested page."))
+                                                           .Prop("pageFaultsInFlight", Schema::Int().Min(0).Desc("...still queued or being served. A page counted here is NOT missing geometry: its clusters hold at a resident coarser ancestor until it lands."))
+                                                           .Prop("pagesStaged", Schema::Int().Min(0).Desc("Read back and waiting for the next residency pass to upload them."))
+                                                           .Prop("pageReadFailures", Schema::Int().Min(0).Desc("Reads that came back short or could not be served. Non-zero means real geometry loss — see failedPages."))
+                                                           .Prop("failedPages", Schema::Int().Min(0).Desc("Pages permanently unavailable this session. Their clusters stay at a coarser DAG cut; the frame is not wrong, it is less detailed, and this is how much."))
+                                                           .Prop("pageBytesRead", Schema::Int().Min(0))
+                                                           .Prop("pageBytesSpilled", Schema::Int().Min(0).Desc("Bytes written to the page store, i.e. the payload RAM the spill gave back."))
+                                                           .Prop("pageStagingBytes", Schema::Int().Min(0).Desc("RAM the store currently holds for in-flight + staged pages — the streaming path's own footprint."))
+                                                           .Prop("pageStagingPeakBytes", Schema::Int().Min(0))
+                                                           .Prop("pageStagedDiscards", Schema::Int().Min(0).Desc("Pages read back that were dropped before anyone uploaded them (the staged-set cap). A cost signal, not an error: they are re-read when requested again.")))
                                     .Prop("settings", VirtualGeometrySettingsSchema().Desc("Live knob state (same shape as olo_virtual_geometry_set's previous/current)."))
                                     .Prop("diagnostics", Schema::Object()
                                                              .Desc("Why the counters read what they do (issue #864). Tells a real zero apart from a broken scene.")

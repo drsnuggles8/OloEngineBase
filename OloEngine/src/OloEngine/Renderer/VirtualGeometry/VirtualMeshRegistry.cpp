@@ -114,6 +114,10 @@ namespace OloEngine
                 // packed data is incompatible by IsMeshletCompatible's own
                 // IsValid() guard — no external pre-check needed.)
                 entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
+                // Recorded now because the on-disk spill (#1151) releases both arrays this
+                // test reads, and "spilled" must not read as "no uv2".
+                entry.HasLightmapUVs = !entry.Packed.LightmapUVs.empty() &&
+                                       entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size();
                 // Ray-tracing proxy (issue #1144). Built here because this is
                 // the last place that holds the DAG — PackVirtualMeshForGpu
                 // keeps only the pooled cluster records, and the coarsest cut
@@ -253,6 +257,11 @@ namespace OloEngine
             entry.Proxy = {};
             entry.ProxyVertexBuffer = nullptr;
             entry.ProxyIndexBuffer = nullptr;
+            // The spilled pages in the store belong to the OLD cook. Unbind them; the file's
+            // bytes are simply never read again (the store is append-only and session-scoped,
+            // so there is nothing to reclaim before Shutdown deletes the whole file).
+            entry.StorePageBase = VirtualGeometryPageStore::kInvalidMesh;
+            entry.HasLightmapUVs = false;
         }
         m_EntryLookup.erase(it);
         m_BlendRejectionWarned.erase(static_cast<u64>(handle));
@@ -275,8 +284,10 @@ namespace OloEngine
         }
         for (u32 i = 0; i < parts.Count; ++i)
         {
-            const auto& packed = GetEntry(parts.FirstEntry + i).Packed;
-            if (packed.LightmapUVs.empty() || packed.LightmapUVs.size() != packed.Vertices.size())
+            // HasLightmapUVs rather than the two arrays it was derived from: the on-disk
+            // backing store (#1151) releases them, and a spilled mesh must not read as a mesh
+            // whose cook predates its unwrap.
+            if (!GetEntry(parts.FirstEntry + i).HasLightmapUVs)
             {
                 return false;
             }
@@ -318,6 +329,79 @@ namespace OloEngine
         }
     }
 
+    void VirtualMeshRegistry::SetPageBacking(VirtualPageBacking backing)
+    {
+        if (m_PageBacking == backing)
+        {
+            return;
+        }
+        m_PageBacking = backing;
+        if (backing == VirtualPageBacking::Memory && m_PageStore.IsOpen())
+        {
+            // Not a silent no-op: the meshes already spilled have no in-memory copy left, so
+            // they keep reading from the store. Only meshes registered from here on keep their
+            // payload in RAM.
+            OLO_CORE_WARN("VirtualMeshRegistry: page backing set back to Memory, but {} page(s) are already "
+                          "spilled to '{}' — those keep faulting in from disk (their RAM copy is gone). "
+                          "Only meshes registered from now on stay in memory.",
+                          m_PageStore.GetStats().PagesWritten, m_PageStore.GetPath().string());
+        }
+        m_PoolsDirty = true; // the spill happens in RebuildPools
+    }
+
+    void VirtualMeshRegistry::SpillPagesToStore()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_PageBacking != VirtualPageBacking::Disk)
+        {
+            return;
+        }
+        for (MeshEntry& entry : m_Entries)
+        {
+            if (!entry.Valid || entry.StorePageBase != VirtualGeometryPageStore::kInvalidMesh ||
+                entry.Packed.Pages.empty())
+            {
+                continue;
+            }
+            u32 const base = m_PageStore.AddMesh(entry.Packed);
+            if (base == VirtualGeometryPageStore::kInvalidMesh)
+            {
+                // AddMesh already said why. Keeping the payload in RAM is the only correct
+                // response — there is no other source for those bytes — so this mesh simply
+                // does not participate in on-disk streaming.
+                continue;
+            }
+            entry.StorePageBase = base;
+            // Release the geometry, not the metadata: Clusters/Groups/Pages are read on every
+            // pool rebuild and are what the resident buffers are sized from.
+            entry.Packed.Vertices = {};
+            entry.Packed.LightmapUVs = {};
+            entry.Packed.Indices = {};
+        }
+    }
+
+    void VirtualMeshRegistry::PublishPageStoreStats()
+    {
+        // Collect finished reads first. Every other path into the completion queue runs only
+        // while pages are being requested, so a settled camera (or a fully-resident early
+        // return in ProcessResidency) would otherwise freeze PageFaultsInFlight at its last
+        // value and leave those payloads staged.
+        m_PageStore.Poll();
+        const VirtualPageStoreStats& store = m_PageStore.GetStats();
+        m_ResidencyStats.StreamingFromDisk = m_PageStore.IsOpen();
+        m_ResidencyStats.PageFaultsInFlight = store.ReadsInFlight;
+        m_ResidencyStats.PagesStaged = store.PagesReady;
+        m_ResidencyStats.PageFaultsIssued = store.ReadsIssued;
+        m_ResidencyStats.PageReadFailures = store.ReadsFailed;
+        m_ResidencyStats.PageBytesRead = store.BytesRead;
+        m_ResidencyStats.PageBytesSpilled = store.BytesWritten;
+        m_ResidencyStats.PageStagingBytes = store.StagingBytes;
+        m_ResidencyStats.PageStagingPeakBytes = store.PeakStagingBytes;
+        m_ResidencyStats.PageStagedDiscards = store.StagedDiscards;
+        m_ResidencyStats.FailedPages = m_FailedPages;
+    }
+
     void VirtualMeshRegistry::CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
                                               const void* payload, u64 bytes)
     {
@@ -344,39 +428,122 @@ namespace OloEngine
         m_UploadRing.Commit(bytes);
     }
 
-    bool VirtualMeshRegistry::LoadPage(u32 pageIndex)
+    VirtualMeshRegistry::PageLoadResult VirtualMeshRegistry::LoadPage(u32 pageIndex, bool allowAsync)
     {
         PageRuntime& page = m_Pages[pageIndex];
         if (page.Resident)
         {
-            return true;
+            return PageLoadResult::Loaded;
         }
-
-        // Allocate a slot through the shared paged-cache substrate (#704):
-        // free slot first, else the policy delegates back to
-        // SelectResidencyVictim (the exact pre-#704 LRU scan) and the victim's
-        // slot transfers to this page — OnResidencyEvicted does the victim's
-        // bookkeeping via the eviction listener. Failure means the budget is
-        // exhausted by pinned/in-use pages; the coarser cut keeps rendering.
-        SlotCache::ObjectAllocation slotAlloc;
-        if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
+        if (page.LoadFailed)
         {
-            return false;
+            return PageLoadResult::NotLoaded;
         }
-        u32 const slot = slotAlloc.m_StartPage;
 
         const MeshEntry& entry = m_Entries[page.MeshEntryIndex];
         const VirtualMeshGpuData& packed = entry.Packed;
+
+        // ---- 1. Get the bytes BEFORE touching the slot cache (issue #1151) --------------
+        //
+        // Order matters and is the whole reason the fault-in is a separate step: allocating a
+        // slot first would evict a live page (LRU) to make room for geometry that has not
+        // arrived, so a camera sweep under a tight budget would trade resident pages for empty
+        // slots and the cut would get COARSER the harder it streamed.
+        //
+        // These point either into the mesh's still-resident packed arrays or into the store's
+        // staged payload. The store's payload is PAGE-LOCAL (index 0 = the page's first
+        // vertex), so the source offset differs between the two — everything after this reads
+        // the three pointers and never the offsets again.
+        const VirtualGpuVertex* vertexSource = nullptr;
+        const glm::vec2* lightmapSource = nullptr;
+        const u32* indexSource = nullptr;
+        VirtualPagePayload blockingPayload;
+        bool consumedFromStore = false;
+        u32 const storePage = page.EntryPageIndex;
+
+        if (entry.StorePageBase != VirtualGeometryPageStore::kInvalidMesh)
+        {
+            const VirtualPagePayload* payload = nullptr;
+            bool ok = false;
+            if (allowAsync)
+            {
+                switch (m_PageStore.Fetch(entry.StorePageBase, storePage, payload))
+                {
+                    case VirtualGeometryPageStore::FetchState::Ready:
+                        ok = true;
+                        consumedFromStore = true;
+                        break;
+                    case VirtualGeometryPageStore::FetchState::Pending:
+                        // The honest answer: not yet. The page stays non-resident, its group's
+                        // request bit stays set, and the cut holds at a resident ancestor
+                        // until a later frame finds it Ready. Counted in
+                        // VirtualResidencyStats::PageFaultsInFlight, never silent.
+                        return PageLoadResult::Pending;
+                    case VirtualGeometryPageStore::FetchState::Deferred:
+                        // The store had no room to start a read. Nothing was begun for this
+                        // page, so it must NOT spend the caller's per-frame budget — otherwise
+                        // a frame whose in-flight cap is already full burns its whole budget
+                        // on refusals and never reaches the pages that are already Ready.
+                        return PageLoadResult::NotLoaded;
+                    case VirtualGeometryPageStore::FetchState::Failed:
+                        break;
+                }
+            }
+            else if (m_PageStore.ReadPageBlocking(entry.StorePageBase, storePage, blockingPayload))
+            {
+                payload = &blockingPayload;
+                ok = true;
+            }
+
+            if (!ok)
+            {
+                // The store already logged which page and why. Mark it so the request path
+                // stops asking, and count it — a page that can never load leaves its clusters
+                // permanently at a coarser ancestor, which is a visible quality loss and must
+                // not be invisible in the stats.
+                page.LoadFailed = true;
+                ++m_FailedPages;
+                return PageLoadResult::NotLoaded;
+            }
+            vertexSource = payload->Vertices.data();
+            lightmapSource = payload->LightmapUVs.empty() ? nullptr : payload->LightmapUVs.data();
+            indexSource = payload->Indices.data();
+        }
+        else
+        {
+            // Empty-guarded: `data()` may be null on an empty vector and null + n is undefined
+            // even where nothing is read through it. A page with no vertices or no indices is
+            // degenerate rather than impossible, and CopyThroughRing already no-ops on 0 bytes.
+            vertexSource = packed.Vertices.empty() ? nullptr : packed.Vertices.data() + page.Info.VertexOffset;
+            lightmapSource = entry.HasLightmapUVs ? packed.LightmapUVs.data() + page.Info.VertexOffset : nullptr;
+            indexSource = packed.Indices.empty() ? nullptr : packed.Indices.data() + page.Info.IndexOffset;
+        }
+
+        // ---- 2. Allocate a slot through the shared paged-cache substrate (#704) ---------
+        // Free slot first, else the policy delegates back to SelectResidencyVictim (the exact
+        // pre-#704 LRU scan) and the victim's slot transfers to this page —
+        // OnResidencyEvicted does the victim's bookkeeping via the eviction listener. Failure
+        // means the budget is exhausted by pinned/in-use pages; the coarser cut keeps
+        // rendering.
+        SlotCache::ObjectAllocation slotAlloc;
+        if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
+        {
+            // Deliberately NOT released: the bytes are already read, the staged set is capped
+            // so holding them costs a bounded amount, and the next frame's retry finds them
+            // Ready instead of re-reading the identical page off disk. Releasing here turned
+            // a full slot arena into unbounded read amplification — BytesRead climbing with
+            // PageUploads flat.
+            return PageLoadResult::NotLoaded;
+        }
+        u32 const slot = slotAlloc.m_StartPage;
 
         // Geometry payloads into the arena slot
         u64 const slotVertexBase = static_cast<u64>(slot) * m_SlotVertexCapacity;
         u64 const slotIndexBase = static_cast<u64>(slot) * m_SlotIndexCapacity;
         CopyThroughRing(m_VertexBuffer->GetRHIHandle(), slotVertexBase * sizeof(VirtualGpuVertex),
-                        packed.Vertices.data() + page.Info.VertexOffset,
-                        static_cast<u64>(page.Info.VertexCount) * sizeof(VirtualGpuVertex));
+                        vertexSource, static_cast<u64>(page.Info.VertexCount) * sizeof(VirtualGpuVertex));
         CopyThroughRing(m_IndexBuffer, slotIndexBase * sizeof(u32),
-                        packed.Indices.data() + page.Info.IndexOffset,
-                        static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
+                        indexSource, static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
 
         // The page's baked lightmap uv2, packed four pairs to a 32-byte element
         // (issue #867). A page's vertices always start at slot-local index 0,
@@ -384,8 +551,7 @@ namespace OloEngine
         // exactly `uvBase + slotVertexBase / 4` and the lane of slot-local
         // vertex i is `i & 3` — no per-page offset math, which is the whole
         // reason the capacity is rounded.
-        if (m_LightmapUVBaseElement != 0 && packed.LightmapUVs.size() == packed.Vertices.size() &&
-            !packed.LightmapUVs.empty())
+        if (m_LightmapUVBaseElement != 0 && lightmapSource != nullptr)
         {
             // Packed slot-locally from 0, which is legal only because a page's
             // vertices start at slot-local 0 AND m_SlotVertexCapacity is
@@ -396,8 +562,7 @@ namespace OloEngine
             std::vector<VirtualGpuVertex> uvStaging(packedElements);
             for (u32 v = 0; v < page.Info.VertexCount; ++v)
             {
-                PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v,
-                                      packed.LightmapUVs[page.Info.VertexOffset + v]);
+                PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v, lightmapSource[v]);
             }
             CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
                             (static_cast<u64>(m_LightmapUVBaseElement) +
@@ -421,6 +586,11 @@ namespace OloEngine
                                  static_cast<u32>(rebased.size() * sizeof(VirtualClusterGpuRecord)),
                                  page.PooledFirstCluster * static_cast<u32>(sizeof(VirtualClusterGpuRecord)));
 
+        if (consumedFromStore)
+        {
+            m_PageStore.Release(entry.StorePageBase, storePage);
+        }
+
         page.SlotIndex = slot;
         page.Resident = true;
         page.LastUsedFrame = m_FrameCounter;
@@ -428,7 +598,7 @@ namespace OloEngine
         m_DirtyResidencyGroups.push_back(page.PooledGroup);
         ++m_ResidencyStats.PageUploads;
         ++m_ResidencyStats.ResidentPages;
-        return true;
+        return PageLoadResult::Loaded;
     }
 
     void VirtualMeshRegistry::OnResidencyEvicted(u32 pageIndex)
@@ -486,6 +656,20 @@ namespace OloEngine
         m_SlotCache.Destroy();
         m_ResidencyStats = {};
 
+        // Spill first (issue #1151): the pinned and eager loads below read through the store
+        // for any mesh that has one, and doing it here means a mesh registered after the last
+        // rebuild joins the store on this pass rather than the next.
+        //
+        // The store's two caps are derived from the per-frame page budget rather than set
+        // independently, because they are the same quantity seen from three sides: a frame
+        // attends to at most m_MaxPageUploadsPerFrame pages, so at most that many reads can be
+        // outstanding, and a staged payload only has to survive until the next frame reaches
+        // it — doubled to leave headroom for a poll that applies two snapshots at once.
+        m_PageStore.SetMaxReadsInFlight(m_MaxPageUploadsPerFrame);
+        m_PageStore.SetMaxStagedPages(m_MaxPageUploadsPerFrame * 2u);
+        SpillPagesToStore();
+        m_FailedPages = 0;
+
         u32 maxPageVertices = 0;
         u32 maxPageIndices = 0;
         u32 pinnedPages = 0;
@@ -513,11 +697,14 @@ namespace OloEngine
             }
             groups.insert(groups.end(), entry.Packed.Groups.begin(), entry.Packed.Groups.end());
 
-            for (const VirtualPageInfo& info : entry.Packed.Pages)
+            auto const entryPageCount = static_cast<u32>(entry.Packed.Pages.size());
+            for (u32 entryPage = 0; entryPage < entryPageCount; ++entryPage)
             {
+                const VirtualPageInfo& info = entry.Packed.Pages[entryPage];
                 PageRuntime page;
                 page.Info = info;
                 page.MeshEntryIndex = entryIndex;
+                page.EntryPageIndex = entryPage;
                 page.PooledGroup = entry.GroupBase + info.GroupIndex;
                 page.PooledFirstCluster = entry.ClusterBase + info.FirstCluster;
                 page.Pinned = info.Pinned;
@@ -611,10 +798,8 @@ namespace OloEngine
         // the header for why it lives inside this buffer rather than getting a
         // binding. Allocated only when some registered mesh carries UV2, so an
         // unbaked scene's arena is byte-for-byte what it was before.
-        const bool anyLightmapUVs =
-            std::ranges::any_of(m_Entries, [](const MeshEntry& entry)
-                                { return entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size() &&
-                                         !entry.Packed.LightmapUVs.empty(); });
+        const bool anyLightmapUVs = std::ranges::any_of(
+            m_Entries, [](const MeshEntry& entry) { return entry.Valid && entry.HasLightmapUVs; });
         u64 const lightmapElements =
             anyLightmapUVs ? VirtualLightmapUVElementCount(static_cast<u32>(vertexElements)) : 0u;
         m_LightmapUVBaseElement = anyLightmapUVs ? static_cast<u32>(vertexElements) : 0u;
@@ -655,15 +840,20 @@ namespace OloEngine
             page.Resident = false;
             page.SlotIndex = kNoSlot;
             page.LastUsedFrame = 0;
+            page.LoadFailed = false;
         }
         bool const eager = (slotCount >= totalPages);
         for (u32 p = 0; p < m_Pages.size(); ++p)
         {
             if (m_Pages[p].Pinned || eager)
             {
-                LoadPage(p);
+                // Synchronous, not async: a pinned page IS the fallback the asynchronous path
+                // falls back to, and an eager configuration promises no pop-in. Neither has
+                // anything coarser to render while a read is outstanding.
+                (void)LoadPage(p, false);
             }
         }
+        PublishPageStoreStats();
 
         auto const statesBytes = static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32));
         if (!m_GroupStatesBuffer || m_GroupStatesBuffer->GetSize() < statesBytes)
@@ -685,9 +875,17 @@ namespace OloEngine
         m_PoolsDirty = false;
 
         OLO_CORE_TRACE("VirtualMeshRegistry: pools rebuilt — {} clusters, {} groups, {} pages ({} pinned), "
-                       "{} slots x ({} verts / {} indices), {} resident",
+                       "{} slots x ({} verts / {} indices), {} resident, backing {}",
                        m_PooledClusters.size(), groups.size(), totalPages, pinnedPages,
-                       slotCount, m_SlotVertexCapacity, m_SlotIndexCapacity, m_ResidencyStats.ResidentPages);
+                       slotCount, m_SlotVertexCapacity, m_SlotIndexCapacity, m_ResidencyStats.ResidentPages,
+                       m_PageStore.IsOpen() ? "disk" : "memory");
+        if (m_FailedPages > 0)
+        {
+            OLO_CORE_ERROR("VirtualMeshRegistry: {} of {} page(s) could not be read from the backing store "
+                           "during the rebuild — that geometry stays at a coarser DAG cut for the rest of "
+                           "the session (see VirtualResidencyStats::FailedPages)",
+                           m_FailedPages, totalPages);
+        }
     }
 
     void VirtualMeshRegistry::ProcessResidency()
@@ -700,6 +898,7 @@ namespace OloEngine
         }
         m_ResidencyProcessed = true;
         ++m_FrameCounter;
+        PublishPageStoreStats();
 
         // Fully-resident configurations skip the readback entirely.
         if (m_ResidencyStats.ResidentPages == m_ResidencyStats.TotalPages)
@@ -715,6 +914,7 @@ namespace OloEngine
         CaptureResidencyStates();
         PollResidencyReadback();
         m_ResidencyStats.RequestReadbackSlotsInFlight = m_ResidencyReadbackSlotsInFlight;
+        PublishPageStoreStats();
     }
 
     bool VirtualMeshRegistry::EnsureResidencyReadbackSlots()
@@ -823,7 +1023,7 @@ namespace OloEngine
         // kResidencyReadbackSlots * m_MaxPageUploadsPerFrame pages — the exact
         // per-frame spike this cap exists to prevent, since each load stages
         // through the finite CopyThroughRing upload ring.
-        u32 uploadBudget = m_MaxPageUploadsPerFrame;
+        u32 workBudget = m_MaxPageUploadsPerFrame;
         // OLDEST FIRST, not array order. m_NextResidencyReadbackSlot is the
         // slot the NEXT capture will use, so it is also the oldest one still
         // in flight; walking from there wraps the ring in ISSUE order. Array
@@ -854,12 +1054,12 @@ namespace OloEngine
             slot.m_Fence = 0;
             slot.m_Pending = false;
 
-            ApplyResidencySnapshot(gpuStates, uploadBudget);
+            ApplyResidencySnapshot(gpuStates, workBudget);
         }
         m_ResidencyReadbackSlotsInFlight = inFlight;
     }
 
-    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget)
+    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& workBudget)
     {
         // LRU touches first so this snapshot's loads cannot evict just-used pages.
         for (u32 g = 0; g < gpuStates.size(); ++g)
@@ -874,20 +1074,33 @@ namespace OloEngine
             }
         }
 
-        for (u32 g = 0; g < gpuStates.size() && uploadBudget > 0; ++g)
+        for (u32 g = 0; g < gpuStates.size() && workBudget > 0; ++g)
         {
             if ((gpuStates[g] & kStateRequested) == 0u)
             {
                 continue;
             }
             u32 const pageIndex = m_PageOfPooledGroup[g];
-            if (pageIndex == kNoSlot || m_Pages[pageIndex].Resident)
+            if (pageIndex == kNoSlot || m_Pages[pageIndex].Resident || m_Pages[pageIndex].LoadFailed)
             {
                 continue;
             }
-            if (LoadPage(pageIndex))
+            // Asynchronous (issue #1151). Loaded and Pending both spend budget; only a page
+            // the cache had no slot for (or that can never load) does not, which is exactly
+            // the pre-#1151 behaviour on the in-memory backing, where Pending cannot happen.
+            //
+            // Spending budget on Pending is the point: it bounds outstanding reads by what a
+            // frame can absorb. Skipping on instead would walk the whole group array issuing
+            // reads at loop speed, and the results would be discarded unread — see the comment
+            // on this function's declaration for the measured numbers.
+            switch (LoadPage(pageIndex, true))
             {
-                --uploadBudget;
+                case PageLoadResult::Loaded:
+                case PageLoadResult::Pending:
+                    --workBudget;
+                    break;
+                case PageLoadResult::NotLoaded:
+                    break;
             }
         }
 
@@ -1357,6 +1570,11 @@ namespace OloEngine
         m_PooledClusters.clear();
         m_GroupStatesCpu.clear();
         m_SlotCache.Destroy();
+        // Joins the IO workers and deletes the spill file. Must happen while the entries that
+        // reference it are being torn down, not later: a worker still reading would otherwise
+        // outlive the registry that owns the store.
+        m_PageStore.Close();
+        m_FailedPages = 0;
         m_ResidencyStats = {};
         m_FrameCounter = 0;
         m_PoolsDirty = false;

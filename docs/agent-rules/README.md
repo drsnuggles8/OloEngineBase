@@ -108,6 +108,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md): every writer of mip 0 owes the rest of the chain.
 - [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md): crack-freedom is a vertex-set property; picking must not inherit the tessellation gate.
 - [terrain-virtual-texturing.md](terrain-virtual-texturing.md): every VT defect is a wrong address; touch LRU in reverse priority; an eviction is an entry, not an absence.
+- [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md): obtain the payload before you claim the slot, or the cache evicts a live entry for bytes that have not arrived.
 - [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md): measure a tile's outermost ring, and never key an auto-material rock rule below the shoreline mask's slope.
 - [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md): the packed-quad encoding is mirrored in GLSL, and a merged quad can render plausibly and wrong six ways.
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
@@ -370,6 +371,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame; a perspective face cannot be culled like an ortho level (§8). |
 | [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md) | A whole caster family loses its shadow when a second technique is switched on and nobody routed it there; a shared parameter block's zero value must not mean "on". |
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5); coarse-to-fine fill is one dispatch per level with barriers (§3a). |
+| [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md) | Allocating the slot before the asynchronous read completes evicts a resident entry to hold nothing; every counter stays correct and only the picture gets coarser. |
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
 | [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md) | A lazily-created registry is destroyed BEFORE the namespace-scope statics whose destructors unregister from it. |
 | [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it (§1); an `isfinite` test accepts the `FLT_MAX` terminal marker and silently selects an empty cut (§5b). |

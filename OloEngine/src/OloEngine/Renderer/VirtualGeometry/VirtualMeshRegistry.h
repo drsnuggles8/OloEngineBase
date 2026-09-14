@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/GPUCache/GPUPagedCache.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryPageStore.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
@@ -99,6 +100,26 @@ namespace OloEngine
         Overdraw = 3   // per-pixel cluster fragment count as a heat ramp
     };
 
+    // Where a streamable page's geometry is faulted in FROM (issue #1151).
+    //
+    // Memory is what every release before #1151 did and stays the default: the whole cooked
+    // payload of every registered mesh lives in RAM and the residency system pages it into
+    // the GPU arenas. The VRAM budget is honoured; the RAM ceiling is the scene.
+    //
+    // Disk hands the payload to VirtualGeometryPageStore at pool-rebuild time and drops the
+    // in-memory copy, so a page fault is a real file read. That is what makes a scene larger
+    // than RAM possible, and it is opt-in because it trades the read latency (counted, and
+    // absorbed by the residency-clamped cut) for the ceiling.
+    //
+    // The switch is not symmetric, and deliberately so: a mesh whose payload has already been
+    // spilled has no in-memory copy to go back to, so switching to Memory only affects meshes
+    // registered afterwards. SetPageBacking says so out loud rather than pretending otherwise.
+    enum class VirtualPageBacking : u8
+    {
+        Memory = 0,
+        Disk = 1
+    };
+
     // Streaming residency statistics (page pools, issue #629).
     struct VirtualResidencyStats
     {
@@ -113,6 +134,28 @@ namespace OloEngine
         // means a request snapshot is being skipped rather than applied late —
         // surfaced so that state is visible instead of just "requests are slow".
         u32 RequestReadbackSlotsInFlight = 0;
+
+        // On-disk page streaming (issue #1151). The whole point of these is that an
+        // asynchronous fault-in must never be able to look like "the geometry is just not
+        // there": a page waiting on the disk is a NUMBER here, and a page that could not be
+        // read is an error in the log plus a non-zero PageReadFailures forever after.
+        bool StreamingFromDisk = false;
+        u32 PageFaultsInFlight = 0; // reads queued or being served right now
+        u32 PagesStaged = 0;        // read, waiting for a LoadPage to consume them
+        u64 PageFaultsIssued = 0;
+        u64 PageReadFailures = 0;
+        // Pages whose read failed and which are therefore permanently non-resident. Their
+        // clusters stay at a resident ancestor in the cut; the geometry is not silently gone,
+        // it is coarser, and this says how much of it.
+        u32 FailedPages = 0;
+        u64 PageBytesRead = 0;
+        u64 PageBytesSpilled = 0;
+        u64 PageStagingBytes = 0;     // RAM the store currently holds for in-flight/ready pages
+        u64 PageStagingPeakBytes = 0; // ...and the high-water mark, which is what bounds it
+        // Pages read back that nobody consumed before the staged set hit its cap — the price
+        // of a camera moving faster than the disk. They are simply re-read when requested
+        // again, so this is a cost signal, not an error.
+        u64 PageStagedDiscards = 0;
     };
 
     // Aggregate per-frame cluster-cull statistics, summed over every instance's
@@ -232,6 +275,22 @@ namespace OloEngine
             VirtualProxyMesh Proxy;
             Ref<VertexBuffer> ProxyVertexBuffer;
             Ref<IndexBuffer> ProxyIndexBuffer;
+
+            // On-disk backing store (issue #1151). kInvalidMesh = this part's page geometry
+            // still lives in Packed; anything else is the store-local base index of its first
+            // page, and Packed's Vertices/LightmapUVs/Indices have been released.
+            //
+            // Note what is NOT spilled: Clusters, Groups and Pages. Those are the pooled
+            // metadata every resident buffer is sized and addressed from, they are read on
+            // every pool rebuild, and together they are a rounding error against the vertex
+            // and index streams.
+            u32 StorePageBase = VirtualGeometryPageStore::kInvalidMesh;
+            // Whether the cook carried a full baked uv2 stream. Recorded at registration
+            // because the test it replaces — LightmapUVs.size() == Vertices.size() — reads two
+            // arrays that the spill releases, and "no uv2" and "spilled" would then be
+            // indistinguishable (which would publish a lightmap region over an arena tail
+            // nothing wrote).
+            bool HasLightmapUVs = false;
         };
 
         // The contiguous run of MeshEntry parts belonging to one mesh asset.
@@ -531,6 +590,22 @@ namespace OloEngine
         // budgetSlots == 0 means "fit everything" (eager residency — the
         // default, no pop-in). Changing the budget rebuilds the pools.
         void SetPageBudgetSlots(u32 budgetSlots);
+        [[nodiscard]] u32 GetPageBudgetSlots() const
+        {
+            return m_BudgetSlotsSetting;
+        }
+        // Selects the page backing store (issue #1151). Switching rebuilds the pools, which
+        // is where the spill happens. See VirtualPageBacking for why switching back to Memory
+        // cannot un-spill a mesh that has already been written out.
+        void SetPageBacking(VirtualPageBacking backing);
+        [[nodiscard]] VirtualPageBacking GetPageBacking() const
+        {
+            return m_PageBacking;
+        }
+        [[nodiscard]] const VirtualPageStoreStats& GetPageStoreStats() const
+        {
+            return m_PageStore.GetStats();
+        }
         [[nodiscard]] const VirtualResidencyStats& GetResidencyStats() const
         {
             return m_ResidencyStats;
@@ -684,17 +759,48 @@ namespace OloEngine
         {
             VirtualPageInfo Info;   // mesh-local ranges
             u32 MeshEntryIndex = 0; // owning MeshEntry (for CPU payload access)
+            // This page's index WITHIN its MeshEntry's page list. The pooled page numbering
+            // is rebuilt from scratch on every RebuildPools, so it cannot address the backing
+            // store (issue #1151), whose per-mesh base is stamped once at spill time and must
+            // survive later rebuilds.
+            u32 EntryPageIndex = 0;
             u32 PooledGroup = 0;    // group index in the pooled buffers
             u32 PooledFirstCluster = 0;
             u32 SlotIndex = kNoSlot;
             u64 LastUsedFrame = 0;
             bool Pinned = false;
             bool Resident = false;
+            // The backing store could not produce this page's bytes (issue #1151). Sticky:
+            // the request path skips it rather than re-reading a file that already failed
+            // once per frame forever, and VirtualResidencyStats::FailedPages counts it.
+            bool LoadFailed = false;
+        };
+
+        // What one LoadPage attempt did. The distinction only matters for the asynchronous
+        // path, and it is what stops the request loop from racing ahead of the disk: a Pending
+        // page has a read outstanding, so the loop must SPEND its per-frame budget on it and
+        // come back for it, not walk on and start thousands more reads it will never collect.
+        enum class PageLoadResult : u8
+        {
+            Loaded = 0,      // resident now; an upload was staged
+            Pending = 1,     // a read is outstanding — try again in a later frame
+            NotLoaded = 2    // no slot free this frame, or the page is permanently unavailable
         };
 
         void RebuildPools();
         void EnsureFrameBuffers();
-        bool LoadPage(u32 pageIndex);
+        // allowAsync = true is the per-frame request path: a page whose bytes are not in yet
+        // returns false and stays non-resident, and the DAG cut holds at a resident ancestor
+        // until a later frame finds it Ready. false is the no-fallback path — pinned pages and
+        // eager residency — where the read is done synchronously because there is nothing to
+        // fall back to.
+        PageLoadResult LoadPage(u32 pageIndex, bool allowAsync);
+        // Spills every not-yet-spilled valid entry into the page store and releases its
+        // in-memory geometry. No-op unless the backing is Disk.
+        void SpillPagesToStore();
+        // Copies the store's counters into m_ResidencyStats so one struct answers for the
+        // whole residency path.
+        void PublishPageStoreStats();
         // Bookkeeping when the slot cache's policy reclaims a page's slot under
         // budget pressure (the GPUPagedCache eviction listener — issue #704).
         void OnResidencyEvicted(u32 pageIndex);
@@ -741,11 +847,19 @@ namespace OloEngine
         // request/touch bits the GPU wrote for LATER frames than the snapshot
         // being applied.
         void PollResidencyReadback();
-        // uploadBudget is SHARED across every snapshot one PollResidencyReadback
-        // call applies (several ring slots can signal in the same frame) and is
-        // decremented in place, so the per-frame page-load cap holds across the
-        // whole poll, not per snapshot.
-        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget);
+        // workBudget is SHARED across every snapshot one PollResidencyReadback call applies
+        // (several ring slots can signal in the same frame) and is decremented in place, so
+        // the per-frame cap holds across the whole poll, not per snapshot.
+        //
+        // It counts pages ATTENDED TO, not pages uploaded, and the difference is load-bearing
+        // for the on-disk backing (#1151): a page whose read is still outstanding has already
+        // cost a disk read and a staging buffer, so spending budget on it is what keeps the
+        // number of outstanding reads proportional to what a frame can actually absorb. Not
+        // spending it — walking on to the next requested group — issues reads at the speed of
+        // the loop rather than the speed of the consumer, and the staged payloads are then
+        // discarded unused before anyone uploads them. Measured on VirtualGeometryStress:
+        // 413,158 reads issued, 413,042 discarded, 21 pages actually resident.
+        void ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& workBudget);
 
         std::unordered_map<AssetHandle, MeshParts> m_EntryLookup;
         std::vector<MeshEntry> m_Entries; // stable order => deterministic pool layout
@@ -791,6 +905,13 @@ namespace OloEngine
         u32 m_MaxPageUploadsPerFrame = 64;
         u64 m_FrameCounter = 0;
         VirtualResidencyStats m_ResidencyStats;
+
+        // On-disk page backing (issue #1151). The store is created lazily by the first spill
+        // and lives until Shutdown; m_PageBacking only decides whether new meshes are spilled,
+        // never how an already-spilled one is read (MeshEntry::StorePageBase decides that).
+        VirtualPageBacking m_PageBacking = VirtualPageBacking::Memory;
+        VirtualGeometryPageStore m_PageStore;
+        u32 m_FailedPages = 0;
 
         // Residency-request readback ring (issue #719) — see ProcessResidency.
         std::array<ResidencyReadbackSlot, kResidencyReadbackSlots> m_ResidencyReadbackSlots{};

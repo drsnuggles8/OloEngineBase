@@ -58,6 +58,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <fstream>
 #include <map>
 #include <set>
@@ -1257,6 +1258,132 @@ namespace OloEngine::Tests
         // Restore the defaults for later tests in this process
         registry.SetPageBudgetSlots(0);
         registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+    }
+
+    // The same tight-budget sweep, but with the page payloads on DISK instead of in RAM
+    // (issue #1151). Everything above this test streams from an in-memory copy of the whole
+    // cooked payload; this is the first one where a page fault is a real file read.
+    //
+    // The property that matters is that NOTHING ELSE CHANGES. Asynchronous IO under a
+    // residency cache has exactly one interesting failure mode, and it is quiet: a page whose
+    // bytes have not arrived gets treated as an empty page, the cut holds at an ancestor that
+    // was itself evicted, and the mesh thins out or holes over — while every CPU-side
+    // assertion in the suite still passes because the residency bookkeeping is self-
+    // consistent. So the assertions here are deliberately about the PICTURE (the sphere keeps
+    // its pixels) and about the store's own counters (faults were really issued, none failed,
+    // and staging RAM stayed bounded), not about the residency counters the memory-backed
+    // test already covers.
+    TEST_F(VirtualGeometryVisualEvidence, StreamingFromDiskKeepsTheGeometryAndBoundsItsMemory)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        auto& registry = VirtualMeshRegistry::Get();
+        registry.SetSwRasterMode(VirtualSwRasterMode::Disabled);
+
+        m_SphereEntity.GetComponent<VirtualMeshComponent>().m_ErrorThresholdPixels = 1.0f;
+        EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.1f, 500.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f);
+
+        // ---- Arm A: the in-memory backing, which is the control ------------------------
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(4);
+        RunEditorFrames(camera, 3);
+
+        std::vector<u8> frame;
+        u32 w = 0;
+        u32 h = 0;
+        u32 memoryRed = 0;
+        for (int frameIndex = 0; frameIndex < 12; ++frameIndex)
+        {
+            RunEditorFrames(camera, 1);
+            ASSERT_TRUE(ReadbackComposite(frame, w, h));
+            memoryRed = std::max(memoryRed, CountRedDominantPixels(frame));
+        }
+        WriteEvidencePng("VirtualGeometry_Streaming_MemoryBacked.png", frame, w, h);
+        ASSERT_GE(memoryRed, 800u)
+            << "the control arm drew no sphere — this probe measures nothing, so the disk arm below "
+               "would pass vacuously";
+        EXPECT_EQ(registry.GetResidencyStats().PageFaultsIssued, 0ull)
+            << "the in-memory backing issued a disk read — the backing switch is not actually gating the "
+               "store";
+
+        // ---- Arm B: the same scene, faulting its pages in from the store ----------------
+        registry.SetPageBacking(VirtualPageBacking::Disk);
+        // The backing change marks the pools dirty; the rebuild (and therefore the spill plus
+        // the synchronous pinned-page loads) happens on the next PrepareFrame.
+        RunEditorFrames(camera, 3);
+
+        {
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            EXPECT_TRUE(stats.StreamingFromDisk) << "the page store never opened — nothing was spilled";
+            EXPECT_GT(stats.PageBytesSpilled, 0ull)
+                << "no payload reached the store, so the RAM ceiling did not move";
+            EXPECT_GT(stats.TotalPages, stats.BudgetSlots)
+                << "test setup: the budget must be tighter than the page count to force fault-ins";
+        }
+
+        u32 minRed = std::numeric_limits<u32>::max();
+        u32 maxRed = 0;
+        u64 peakStaging = 0;
+        for (int frameIndex = 0; frameIndex < 20; ++frameIndex)
+        {
+            RunEditorFrames(camera, 1);
+            ASSERT_TRUE(ReadbackComposite(frame, w, h));
+            u32 const red = CountRedDominantPixels(frame);
+            minRed = std::min(minRed, red);
+            maxRed = std::max(maxRed, red);
+
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            peakStaging = std::max(peakStaging, stats.PageStagingPeakBytes);
+            EXPECT_LE(stats.ResidentPages, stats.BudgetSlots)
+                << "disk-backed streaming exceeded the fixed page budget at frame " << frameIndex;
+        }
+        WriteEvidencePng("VirtualGeometry_Streaming_DiskBacked.png", frame, w, h);
+
+        {
+            const VirtualResidencyStats& stats = registry.GetResidencyStats();
+            EXPECT_GT(stats.PageFaultsIssued, 0ull)
+                << "not one page faulted in from disk over 20 frames — the request path never reached the "
+                   "store, so this test is measuring the in-memory path under a different name";
+            // The load-bearing one. A failed read is real geometry loss, and the only reason
+            // the frame still looks reasonable is the resident-ancestor fallback.
+            EXPECT_EQ(stats.PageReadFailures, 0ull)
+                << stats.PageReadFailures << " page read(s) failed against the backing store";
+            EXPECT_EQ(stats.FailedPages, 0u)
+                << stats.FailedPages << " page(s) are permanently unavailable — their clusters are stuck at "
+                                       "a coarser DAG cut";
+            EXPECT_GT(stats.PageBytesRead, 0ull) << "pages were requested but no bytes were ever read back";
+            // Staging RAM is the streaming path's own footprint and the thing that would make
+            // "stream from disk" pointless if it grew with the scene. It is capped by the
+            // in-flight read count, so it must stay a small multiple of one page.
+            EXPECT_GT(peakStaging, 0ull);
+            EXPECT_LT(peakStaging, stats.PageBytesSpilled + 1ull)
+                << "the store staged more bytes at once than the whole spilled payload — the in-flight cap "
+                   "is not holding";
+        }
+
+        // The picture, which is what the CPU counters cannot tell you: the sphere never
+        // thinned out while pages were in flight. Compared against the in-memory arm rather
+        // than an absolute, so this tracks the control if the scene or the camera changes.
+        EXPECT_GE(minRed, memoryRed / 2)
+            << "the sphere lost more than half its pixels (" << minRed << " vs " << memoryRed
+            << ") while pages were faulting in from disk — an outstanding read is being treated as an "
+               "empty page instead of holding the cut at a resident ancestor";
+        EXPECT_GE(maxRed, static_cast<u32>(static_cast<f64>(memoryRed) * 0.9))
+            << "disk-backed streaming never converged to the in-memory arm's coverage (" << maxRed << " vs "
+            << memoryRed << ") — pages are arriving but not becoming resident";
+
+        // Restore the defaults for later tests in this process. Memory backing cannot
+        // un-spill what is already on disk (by design), so the rebuild below is what puts the
+        // pools back to eager residency.
+        registry.SetPageBacking(VirtualPageBacking::Memory);
+        registry.SetPageBudgetSlots(0);
+        registry.SetSwRasterMode(VirtualSwRasterMode::Auto);
+        RunEditorFrames(camera, 2);
     }
 
     // Slice-6 acceptance: virtual meshes rasterize into the CSM shadow map
