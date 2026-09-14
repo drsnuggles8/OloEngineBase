@@ -29,7 +29,7 @@
 layout(local_size_x = DDGI_RELOCATE_GROUP) in;
 
 #include "../include/DDGICommon.glsl"
-#include "../include/DDGIPassData.glsl"
+#include "../include/DDGIRelocateParams.glsl"
 #include "../include/DDGIProbeBuffers.glsl"
 
 #include "../include/BindlessHeap.glsl"

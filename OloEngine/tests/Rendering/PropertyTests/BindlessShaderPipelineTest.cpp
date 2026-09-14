@@ -721,9 +721,9 @@ void main()
             // one is an out-of-bounds read on a work group the CPU legitimately
             // dispatched, and a larger one silently grows the block past its
             // C++ twin.
-            { "include/DDGIPassData.glsl", R"(#define\s+DDGI_RELOCATE_BATCH\s+(\d+))",
-              UBOStructures::DDGIPassDataUBO::MaxRelocationBatch,
-              "UBOStructures::DDGIPassDataUBO::MaxRelocationBatch" },
+            { "include/DDGIRelocateParams.glsl", R"(#define\s+DDGI_RELOCATE_BATCH\s+(\d+))",
+              UBOStructures::DDGIRelocateParamsUBO::MaxRelocationBatch,
+              "UBOStructures::DDGIRelocateParamsUBO::MaxRelocationBatch" },
         } };
 
         for (const Mirror& mirror : kMirrors)

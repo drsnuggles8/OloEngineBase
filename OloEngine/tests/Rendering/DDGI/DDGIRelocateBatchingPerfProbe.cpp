@@ -36,6 +36,11 @@
 // an N-entry one is the batched form. There is no probe-only shader to drift
 // from the engine's.
 //
+// The buffer the arms cycle is therefore DDGIRelocateParams (1 KB), which is
+// what the shipping pass writes too. That it is a block of its OWN rather than
+// part of DDGIPassData is a separate decision, made for upload volume during
+// capture rather than for anything this probe measures — see the struct.
+//
 // Arm B is the control the issue asked for ("the same loop with the UBO write
 // hoisted"), fixed so it is not also a different measurement: hoisting the
 // write outright would have pointed every dispatch at the SAME probe, turning
@@ -238,28 +243,19 @@ namespace OloEngine::Tests
             return ubo;
         }
 
-        // One DDGIPassData for every arm: the capture-set span is what differs.
-        // The relocation shader reads nothing else that varies per arm.
-        UBOStructures::DDGIPassDataUBO MakePassData(std::span<const i32> probes, i32 totalProbes)
+        // The only per-arm input: which probes this dispatch relocates. Every
+        // other thing DDGI_Relocate.comp reads lives in the volume UBO and is
+        // identical across the arms.
+        UBOStructures::DDGIRelocateParamsUBO MakeRelocateParams(std::span<const i32> probes)
         {
-            UBOStructures::DDGIPassDataUBO data{};
-            data.Model = glm::mat4(1.0f);
-            data.NormalMatrix = glm::mat4(1.0f);
-            data.BaseColor = glm::vec4(1.0f);
-            data.ProbePosition = glm::vec4(0.0f);
-            data.InvViewProjection = glm::mat4(1.0f);
-            data.RenderOrigin = glm::vec4(0.0f);
-            data.CameraPosRel = glm::vec4(0.0f);
-            data.ComputeParams = glm::ivec4(totalProbes, 1920, 1080, 0);
-            for (i32 level = 0; level < DDGI::kMaxCascades; ++level)
-                data.PrevLattice[level] = glm::ivec4(0);
+            UBOStructures::DDGIRelocateParamsUBO params{};
             // Never a silent truncation: the engine chunks a capture set longer
             // than the array, and a probe that quietly measured a shorter one
             // would report the batched arm as faster than it is.
-            EXPECT_LE(probes.size(), sizet{ UBOStructures::DDGIPassDataUBO::MaxRelocationBatch });
+            EXPECT_LE(probes.size(), sizet{ UBOStructures::DDGIRelocateParamsUBO::MaxRelocationBatch });
             for (sizet i = 0; i < probes.size(); ++i)
-                data.CaptureSet[i] = glm::ivec4(probes[i], 0, 0, 0);
-            return data;
+                params.CaptureSet[i] = glm::ivec4(probes[i], 0, 0, 0);
+            return params;
         }
 
         // The capture set the scheduler would hand the relocation loop: a linear
@@ -335,16 +331,16 @@ namespace OloEngine::Tests
         std::vector<Ref<UniformBuffer>> pool;
         pool.reserve(kMaxProbes);
         for (u32 i = 0; i < kMaxProbes; ++i)
-            pool.push_back(UniformBuffer::Create(UBOStructures::DDGIPassDataUBO::GetSize(),
+            pool.push_back(UniformBuffer::Create(UBOStructures::DDGIRelocateParamsUBO::GetSize(),
                                                  ShaderBindingLayout::UBO_USER_0));
-        Ref<UniformBuffer> single = UniformBuffer::Create(UBOStructures::DDGIPassDataUBO::GetSize(),
-                                                         ShaderBindingLayout::UBO_USER_0);
+        Ref<UniformBuffer> single = UniformBuffer::Create(UBOStructures::DDGIRelocateParamsUBO::GetSize(),
+                                                          ShaderBindingLayout::UBO_USER_0);
 
         // The three arms, parameterised by capture-set size. Declared here so the
         // equivalence check below and the sweep drive byte-identical code.
         const auto dispatchOne = [&](i32 probeIdx, UniformBuffer* params)
         {
-            const UBOStructures::DDGIPassDataUBO data = MakePassData({ &probeIdx, 1 }, totalProbes);
+            const UBOStructures::DDGIRelocateParamsUBO data = MakeRelocateParams({ &probeIdx, 1 });
             params->SetData(&data, sizeof(data));
             params->Bind();
             HeapBinding::BindImageOrOffset(0, probeData, 0, false, 0, RHI::Access::StorageReadWrite,
@@ -361,8 +357,13 @@ namespace OloEngine::Tests
             auxSSBO->Bind();
             for (const i32 probeIdx : captureSet)
                 dispatchOne(probeIdx, single.Raw());
+            // TextureUpdate as well as ShaderImageAccess: glFinish orders the
+            // COMMANDS, it does not make an imageStore visible to
+            // glGetTextureImage. Without it the equivalence readback below can
+            // compare two stale buffers and agree for the wrong reason.
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess |
-                                         MemoryBarrierFlags::ShaderStorage);
+                                         MemoryBarrierFlags::ShaderStorage |
+                                         MemoryBarrierFlags::TextureUpdate);
         };
 
         // B: identical calls, identical bytes, identical probes — but each
@@ -374,8 +375,13 @@ namespace OloEngine::Tests
             auxSSBO->Bind();
             for (sizet i = 0; i < captureSet.size(); ++i)
                 dispatchOne(captureSet[i], pool[i].Raw());
+            // TextureUpdate as well as ShaderImageAccess: glFinish orders the
+            // COMMANDS, it does not make an imageStore visible to
+            // glGetTextureImage. Without it the equivalence readback below can
+            // compare two stale buffers and agree for the wrong reason.
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess |
-                                         MemoryBarrierFlags::ShaderStorage);
+                                         MemoryBarrierFlags::ShaderStorage |
+                                         MemoryBarrierFlags::TextureUpdate);
         };
 
         // C: one write, one dispatch, N work groups.
@@ -383,7 +389,7 @@ namespace OloEngine::Tests
         {
             relocate->Bind();
             auxSSBO->Bind();
-            const UBOStructures::DDGIPassDataUBO data = MakePassData(captureSet, totalProbes);
+            const UBOStructures::DDGIRelocateParamsUBO data = MakeRelocateParams(captureSet);
             single->SetData(&data, sizeof(data));
             single->Bind();
             HeapBinding::BindImageOrOffset(0, probeData, 0, false, 0, RHI::Access::StorageReadWrite,
@@ -391,8 +397,13 @@ namespace OloEngine::Tests
             HeapBinding::BindTextureOrOffset(1, hitGeo, RHI::HeapSlotLifetime::Persistent);
             HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(static_cast<u32>(captureSet.size()), 1, 1);
+            // TextureUpdate as well as ShaderImageAccess: glFinish orders the
+            // COMMANDS, it does not make an imageStore visible to
+            // glGetTextureImage. Without it the equivalence readback below can
+            // compare two stale buffers and agree for the wrong reason.
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess |
-                                         MemoryBarrierFlags::ShaderStorage);
+                                         MemoryBarrierFlags::ShaderStorage |
+                                         MemoryBarrierFlags::TextureUpdate);
         };
 
         // Equivalence: arm C must relocate the SAME probes to the SAME places.
@@ -466,9 +477,12 @@ namespace OloEngine::Tests
             std::vector<f64> aGpu, bGpu, cGpu, aSubmit, cSubmit, aTotal, cTotal;
             for (u32 i = 0; i < kSamples; ++i)
             {
-                const Sample a = TimeArm([&]() { runSerialOne(captureSet); });
-                const Sample b = TimeArm([&]() { runSerialMany(captureSet); });
-                const Sample c = TimeArm([&]() { runBatched(captureSet); });
+                const Sample a = TimeArm([&]()
+                                         { runSerialOne(captureSet); });
+                const Sample b = TimeArm([&]()
+                                         { runSerialMany(captureSet); });
+                const Sample c = TimeArm([&]()
+                                         { runBatched(captureSet); });
                 aGpu.push_back(a.GpuMs);
                 bGpu.push_back(b.GpuMs);
                 cGpu.push_back(c.GpuMs);

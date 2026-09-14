@@ -19,20 +19,11 @@
 #define DDGI_PASS_FLAG_CASCADE_SHIFTED 1
 #define DDGI_PASS_FLAG_DEPTH_VALID 2
 
-// Capture-set array length (issue #846). C++ mirror:
-// UBOStructures::DDGIPassDataUBO::MaxRelocationBatch, pinned against it by
-// BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors.
-#define DDGI_RELOCATE_BATCH 64
-
-// Per-entry flag in u_DDGICaptureSet[i].y: this capture is a periodic REFRESH
-// of an already-placed probe, not a first placement. See DDGI_Relocate.comp
-// for why that must not re-run the relocation spring.
-//
-// It is PER PROBE, not per dispatch. It was DDGI_PASS_FLAG_REFRESH_CAPTURE in
-// u_DDGIComputeParams.w while relocation ran one dispatch per probe; batching
-// the dispatch made a whole-dispatch flag wrong, because a single capture set
-// mixes settled probes with probes still converging.
-#define DDGI_RELOCATE_ENTRY_REFRESH 1
+// The "this capture is a periodic refresh" flag is NOT here. It is per probe
+// and lives in include/DDGIRelocateParams.glsl's capture set, because since
+// issue #846 one dispatch relocates a whole capture set and such a set mixes
+// settled probes with probes still converging. Bit 4 of this flag word is
+// retired rather than reused.
 
 layout(std140, binding = 7) uniform DDGIPassData
 {
@@ -45,10 +36,6 @@ layout(std140, binding = 7) uniform DDGIPassData
     vec4 u_DDGICameraPosRel;        // 240 — xyz = render-relative camera position
     ivec4 u_DDGIComputeParams;      // 256 — x = total probes, y = screen width, z = screen height, w = flags
     ivec4 u_DDGIPrevLattice[8];     // 272 — previous frame's per-cascade lattice min (xyz)
-    // Relocation capture set, one entry per work group of the batched
-    // relocation dispatch: x = global probe index, y = DDGI_RELOCATE_ENTRY_*
-    // flags. Entries at or past the dispatch's group count are never read.
-    ivec4 u_DDGICaptureSet[DDGI_RELOCATE_BATCH]; // 400
-};                                  // 1424 bytes total
+};                                  // 400 bytes total
 
 #endif // DDGI_PASS_DATA_GLSL

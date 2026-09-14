@@ -376,9 +376,10 @@ namespace OloEngine
         Ref<ComputeShader> m_RelocateCompute;
 
         // UBOs
-        Ref<UniformBuffer> m_DDGIUBO;          // binding 51 (UBO_DDGI)
-        Ref<UniformBuffer> m_PassDataUBO;      // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
-        Ref<UniformBuffer> m_CaptureCameraUBO; // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
+        Ref<UniformBuffer> m_DDGIUBO;           // binding 51 (UBO_DDGI)
+        Ref<UniformBuffer> m_PassDataUBO;       // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
+        Ref<UniformBuffer> m_RelocateParamsUBO; // binding 7 too — the batched relocation capture set (#846)
+        Ref<UniformBuffer> m_CaptureCameraUBO;  // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
         std::vector<CaptureResources> m_CaptureItems;
 
         // SSBO (issue #707; one buffer since #1015)

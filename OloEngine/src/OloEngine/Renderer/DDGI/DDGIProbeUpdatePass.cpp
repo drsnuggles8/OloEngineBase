@@ -94,6 +94,7 @@ namespace OloEngine
         // SKIPPED by that test, not failed, and this one is read by five
         // shaders.
         using DDGIPassDataUBO = UBOStructures::DDGIPassDataUBO;
+        using DDGIRelocateParamsUBO = UBOStructures::DDGIRelocateParamsUBO;
 
         // One record per probe in the TAIL of SSBO_DDGI_PROBE_AUX, behind the
         // kProbeAuxHeaderBytes stats header. Mirrors DDGIProbeAuxRecord in
@@ -209,6 +210,10 @@ namespace OloEngine
                                           ShaderBindingLayout::UBO_DDGI);
         m_PassDataUBO = UniformBuffer::Create(sizeof(DDGIPassDataUBO),
                                               ShaderBindingLayout::UBO_USER_0);
+        // Shares UBO_USER_0 with the block above — the slot is pass-local and
+        // whichever of the two is about to be read rebinds itself first.
+        m_RelocateParamsUBO = UniformBuffer::Create(sizeof(DDGIRelocateParamsUBO),
+                                                    ShaderBindingLayout::UBO_USER_0);
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
                                                    ShaderBindingLayout::UBO_CAMERA);
 
@@ -905,8 +910,6 @@ namespace OloEngine
         {
             data.PrevLattice[level] = glm::ivec4(m_PrevLattice[static_cast<sizet>(level)], 0);
         }
-        // CaptureSet is left zeroed: only the relocation dispatch reads it, and
-        // it fills the entries it is about to dispatch over.
         return data;
     }
 
@@ -1461,7 +1464,7 @@ namespace OloEngine
         HeapBinding::BindTextureOrOffset(1, m_HitFB->GetColorAttachmentHandle(1), RHI::HeapSlotLifetime::Persistent);
 
         static_assert(kRelocateGroupSize == 64u, "kRelocateGroupSize must match DDGI_RELOCATE_GROUP");
-        constexpr sizet kBatch = static_cast<sizet>(DDGIPassDataUBO::MaxRelocationBatch);
+        constexpr sizet kBatch = static_cast<sizet>(DDGIRelocateParamsUBO::MaxRelocationBatch);
 
         // CHUNKED, NOT TRUNCATED. The capture budget is authored (the editor
         // slider, the scene YAML clamp and the Lua setter all stop at 64) but it
@@ -1474,7 +1477,7 @@ namespace OloEngine
         {
             const sizet count = std::min(kBatch, captureSet.size() - begin);
 
-            DDGIPassDataUBO data = MakePassData(m_TotalProbes, 0);
+            DDGIRelocateParamsUBO params{};
             for (sizet i = 0; i < count; ++i)
             {
                 const i32 probeIdx = captureSet[begin + i];
@@ -1484,11 +1487,14 @@ namespace OloEngine
                 // must leave its position alone. Per probe, because one capture
                 // set mixes settled probes with probes still converging.
                 const bool refreshCapture = rec.Captured && rec.RelocationIteration >= kMaxRelocationIterations;
-                data.CaptureSet[i] = glm::ivec4(probeIdx, refreshCapture ? kRelocateEntryRefresh : 0, 0, 0);
+                params.CaptureSet[i] = glm::ivec4(probeIdx, refreshCapture ? kRelocateEntryRefresh : 0, 0, 0);
             }
 
-            m_PassDataUBO->SetData(&data, sizeof(data));
-            m_PassDataUBO->Bind();
+            // Its OWN buffer on the pass-local slot, not m_PassDataUBO: see
+            // DDGIRelocateParamsUBO for why 1 KB must not ride along in the
+            // block CaptureProbe re-uploads per caster.
+            m_RelocateParamsUBO->SetData(&params, sizeof(params));
+            m_RelocateParamsUBO->Bind();
             HeapBinding::FlushOffsets();
             RenderCommand::DispatchCompute(static_cast<u32>(count), 1, 1);
         }
