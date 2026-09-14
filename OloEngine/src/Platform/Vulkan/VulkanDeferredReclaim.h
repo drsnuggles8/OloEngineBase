@@ -55,6 +55,35 @@ namespace OloEngine
         // transient ring is sized by it too (one sub-ring per frame in flight, #1198).
         static constexpr u64 kFramesInFlight = 2;
 
+        // How long a DEPTH-STENCIL image's memory outlives its last use (issue
+        // #1198): one generation more than everything else.
+        //
+        // This is a driver workaround, and the evidence that it is not an engine
+        // reference is what justifies it. On a live forward -> forward+ switch
+        // the scene target's depth attachment is destroyed and replaced by a
+        // same-spec image; two generations later, the moment its memory is
+        // freed, the GPU page-faults reading the OLD surface's base address
+        // (Nsight Aftermath: AddressTranslationError, graphics engine, the
+        // scene fragment shader active, resource destroyed=true). Every
+        // reference the engine can make was audited on faulting runs and found
+        // absent: no heap descriptor was ever written for the image, no
+        // rendering scope, copy, blit, clear or barrier named it after the
+        // switch (every image-bearing Vulkan command was interposed), no
+        // command buffer submitted after the switch was recorded before it,
+        // and a vkDeviceWaitIdle immediately before the free changed nothing.
+        // A read that no submitted command asks for is the driver's own
+        // per-surface bookkeeping for a depth target (its hierarchical-Z /
+        // compression metadata is keyed by the surface base, which is exactly
+        // where every fault lands), consulted for the first rendering frame
+        // after the surface is replaced. Holding the memory one more
+        // generation covers that frame.
+        //
+        // Colour attachments never faulted in any capture, so only depth-
+        // stencil formats pay the extra frame of memory. Levers::
+        // VulkanNoDepthReclaimHold() disables it so the workaround can be
+        // re-tested against a new driver rather than kept on faith.
+        static constexpr u64 kDepthStencilHoldGenerations = kFramesInFlight + 1;
+
         // Process-wide instance, deliberately leaked (see
         // VulkanImageInfoRegistry::Get for the rationale).
         [[nodiscard]] static VulkanDeferredReclaim& Get();
@@ -108,6 +137,9 @@ namespace OloEngine
         // (vkDeviceWaitIdle already done — shutdown, swapchain teardown).
         void FlushAll() noexcept;
 
+        // The formats that take kDepthStencilHoldGenerations.
+        [[nodiscard]] static bool IsDepthStencilFormat(VkFormat format) noexcept;
+
         // Diagnostic/test affordance.
         [[nodiscard]] sizet GetPendingCount() const
         {
@@ -128,6 +160,9 @@ namespace OloEngine
             VkAccelerationStructureKHR AccelerationStructure = VK_NULL_HANDLE;
             VmaAllocation Allocation = VK_NULL_HANDLE; // set only for Image/Buffer entries
             u64 EnqueuedAtGeneration = 0;
+            /// Generations this entry is held; kFramesInFlight for everything but a
+            /// depth-stencil image (see kDepthStencilHoldGenerations).
+            u64 HoldGenerations = kFramesInFlight;
         };
 
         // Destroys one entry through the live device's allocator. When the

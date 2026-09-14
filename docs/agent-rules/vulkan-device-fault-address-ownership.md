@@ -86,6 +86,36 @@ handle whenever validation is on. Matching them by handle silently finds nothing
 correlate on the address range, or run the capture with `VK_LOADER_LAYERS_DISABLE=*` so the two
 namespaces coincide.
 
+## When every reference is absent: audit by interposition, then treat it as the driver's
+
+#1198's fault survived every engine-side fix because the read was not the engine's. The way to
+establish that — rather than assert it — is to interpose the API and audit the *data*, in this
+order, each on a faulting run:
+
+1. **Was a descriptor ever written for the image?** Shadow every `vkWriteResourceDescriptorsEXT`
+   at its single funnel. If the answer is never, no stale-descriptor theory can be right, cached or
+   not.
+2. **Does any command submitted after the destroy reference it?** Interpose the volk pointers for
+   every image-bearing command (barriers, copies, blits, clears, resolves, `vkCmdBeginRendering`
+   through a view→image map built from `vkCreateImageView`) and log from the trigger onward.
+3. **Was any command buffer submitted after the trigger recorded before it?** Hook
+   `vkBeginCommandBuffer` / `vkQueueSubmit2` / `vkCmdExecuteCommands` and compare frames — a stale
+   secondary or parked primary carries the old address inside its command data.
+4. **Is the reader in flight at the free?** `vkDeviceWaitIdle` immediately before the free. If the
+   fault survives that, the reader is submitted afterwards.
+
+On #1198 all four came back empty on faulting runs, with Aftermath reporting an address-translation
+fault at the destroyed depth attachment's exact base address, the scene fragment shader active. A
+read that no submitted command asks for is the driver's per-surface bookkeeping for a depth target
+(hierarchical-Z / compression metadata is keyed by the surface base), consulted for the first
+rendering frame after a same-spec replacement. The engine-side response is
+`VulkanDeferredReclaim::kDepthStencilHoldGenerations`: depth-stencil images outlive their last use
+by one generation more than everything else, behind `OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD` so it can be
+re-tested against a new driver. Two traps on the way: a `WasDestroyed` set keyed on raw driver
+handles false-positives the moment the driver recycles a handle value (it does, immediately), and
+an audit that runs *after* the destroy pass's own cleanup measures the tidied-up state and reports
+zero — run it at the top of `DestroyEntry`, or at enqueue.
+
 One more discipline the same issue paid for: a fault that reproduces roughly 1 run in 3 makes a
 single clean run worthless as evidence. Replay every arm N>=8 before believing it, and interleave
 the arms rather than running them in blocks. Three consecutive clean runs on #1198's own base

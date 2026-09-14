@@ -76,6 +76,13 @@ OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "
                  "upload happens relative to the queue, so this is the A/B for attributing a frame or "
                  "validation difference to it without rebuilding the backend.")
+OLO_LEVER_TOGGLE(VulkanNoDepthReclaimHold, "OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD",
+                 "Disable the extra generation a depth-stencil image's memory is held after its last use "
+                 "(VulkanDeferredReclaim::kDepthStencilHoldGenerations, #1198). That hold is a workaround for a "
+                 "driver-side read of a destroyed depth target's base address on the first frame after it is "
+                 "replaced; this lever exists so it can be re-tested against a new driver rather than trusted "
+                 "forever. Turning it on restores the device fault on a live forward -> forward+ switch on the "
+                 "driver it was measured on.")
 OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
                  "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
                  "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
