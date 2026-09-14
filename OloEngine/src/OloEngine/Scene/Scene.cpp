@@ -2205,6 +2205,26 @@ namespace OloEngine
         return true;
     }
 
+    // Write the cached rest surface back to the mesh it was taken from, then drop
+    // the cache. THE ONLY correct way to invalidate it.
+    //
+    // InvalidateBaseCache alone clears BasePositions and WasMorphActive, which
+    // leaves the mesh deformed with its only rest copy gone — and the next
+    // activation re-caches those deformed vertices as the base surface, so the
+    // expression compounds on itself, permanently, on an asset every entity using
+    // that mesh shares. Restoring through BaseCacheSource rather than through
+    // whatever mesh is current is what makes this safe across a mesh swap: after
+    // one, the current handle is the NEW surface, and two meshes of equal vertex
+    // count would quietly take each other's rest data.
+    static void RestoreAndInvalidateBaseCache(MorphTargetComponent& morphComp)
+    {
+        if (morphComp.WasMorphActive && morphComp.BaseCacheSource)
+        {
+            (void)RestoreBaseSurface(*morphComp.BaseCacheSource, morphComp);
+        }
+        morphComp.InvalidateBaseCache();
+    }
+
     // Per-entity CPU morph-target deformation: deform the mesh by the component's
     // active weights (or restore the base mesh when they go inactive) and re-upload
     // the vertex buffer. Shared by the runtime (OnUpdateRuntime) and editor-preview
@@ -2242,15 +2262,17 @@ namespace OloEngine
         // ends up deforming a new mesh with the old mesh's deltas.
         if (meshSource->HasMorphTargets())
         {
+            const bool stillRefused = morphComp.RefusedSet == meshSource->GetMorphTargets() &&
+                                      morphComp.RefusedSetVertexCount == meshVertexCount;
             if (const Ref<MorphTargetSet>& sourceSet = meshSource->GetMorphTargets();
-                sourceSet && morphComp.MorphTargets != sourceSet && morphComp.RefusedSet != sourceSet)
+                sourceSet && morphComp.MorphTargets != sourceSet && !stillRefused)
             {
                 if (morphComp.HasCachedBaseSurface())
                 {
                     Animation::SkeletalDeformationSystem::NoteMorphBaseCacheInvalidated();
                 }
                 morphComp.MorphTargets = sourceSet;
-                morphComp.InvalidateBaseCache();
+                RestoreAndInvalidateBaseCache(morphComp);
             }
         }
 
@@ -2269,10 +2291,12 @@ namespace OloEngine
                               "the mesh is drawn undeformed rather than deformed at the wrong vertices",
                               meshVertexCount, MorphTargetSet::ToString(compatibility));
                 // Remembered, so the refusal is counted and logged once per set and
-                // not once per frame for as long as the mesh keeps offering it.
+                // not once per frame for as long as the mesh keeps offering it. Keyed
+                // on the vertex count too: the same set may span a different surface.
                 morphComp.RefusedSet = morphComp.MorphTargets;
+                morphComp.RefusedSetVertexCount = meshVertexCount;
                 morphComp.MorphTargets = nullptr;
-                morphComp.InvalidateBaseCache();
+                RestoreAndInvalidateBaseCache(morphComp);
             }
         }
 
@@ -2288,7 +2312,7 @@ namespace OloEngine
             {
                 Animation::SkeletalDeformationSystem::NoteMorphBaseCacheInvalidated();
             }
-            morphComp.InvalidateBaseCache();
+            RestoreAndInvalidateBaseCache(morphComp);
         }
 
         const auto ordered = morphComp.GetOrderedWeightsChecked();
@@ -2351,6 +2375,7 @@ namespace OloEngine
             }
             morphComp.BaseCacheKey = morphComp.MorphTargets.Raw();
             morphComp.BaseCacheVertexCount = meshVertexCount;
+            morphComp.BaseCacheSource = meshSource;
         }
 
         if (morphComp.BasePositions.empty())
@@ -4306,9 +4331,7 @@ namespace OloEngine
 
             // What the surface WAS, so a change can be detected however it happens -
             // a level switch, a disabled group, a mesh that went away.
-            // Non-const: if this entity leaves a level mid-expression, that level has
-            // to be restored through this handle, and Ref<T> propagates constness.
-            Ref<MeshSource> previousSource = AnimatedSurfaceSource(&lodComp, meshComp);
+            const Ref<MeshSource> previousSource = AnimatedSurfaceSource(&lodComp, meshComp);
 
             Ref<Mesh> selectedMesh;
             i32 selectedIndex = -1;
@@ -4375,21 +4398,17 @@ namespace OloEngine
                                                     Animation::DeformationHistoryResetCause::MeshTopologyChanged);
                 if (morphComp != nullptr)
                 {
-                    // FIRST, put the level we are LEAVING back the way we found it.
-                    // The morph pass deforms a MeshSource's vertex buffer in place
-                    // and a MeshSource is a shared asset: a level abandoned while
-                    // deformed keeps those vertices, and the next time it is
-                    // selected its base surface is re-cached FROM the deformed
-                    // state — so the expression is applied on top of itself once
-                    // more every time the entity crosses the threshold.
-                    if (previousSource && morphComp->WasMorphActive)
-                    {
-                        (void)RestoreBaseSurface(*previousSource, *morphComp);
-                    }
+                    // Put the level we are LEAVING back the way we found it, then
+                    // drop its cache — RestoreAndInvalidateBaseCache targets
+                    // BaseCacheSource, which IS that level, so this stays correct
+                    // even though `previousSource` is also to hand here.
+                    // EvaluateEntityMorphTargets re-derives the cache for the level
+                    // now being drawn.
+                    RestoreAndInvalidateBaseCache(*morphComp);
 
-                    // The base surface cached from the old level is not this level's
-                    // base surface; EvaluateEntityMorphTargets re-derives it.
-                    morphComp->InvalidateBaseCache();
+                    // A set refused for the level we are leaving may span this one.
+                    morphComp->RefusedSet = nullptr;
+                    morphComp->RefusedSetVertexCount = 0;
                 }
             }
         }

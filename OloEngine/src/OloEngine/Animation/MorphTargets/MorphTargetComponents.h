@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MorphTargetSet.h"
+#include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/Ref.h"
@@ -77,6 +78,22 @@ namespace OloEngine
         OLO_SERIALIZE(Skip)
         u32 BaseCacheVertexCount = 0;
 
+        /// The surface the cache was taken FROM, held strongly.
+        ///
+        /// The morph pass deforms a MeshSource's vertex buffer in place, so the
+        /// cached rest surface and the mesh it belongs to are one fact: dropping
+        /// the cache without first writing it back leaves that mesh deformed
+        /// forever, and a later activation then re-caches the deformed vertices as
+        /// the base surface and compounds the expression on itself.
+        ///
+        /// Restoring through whatever mesh happens to be current at the time is not
+        /// good enough — after a mesh swap that handle is the NEW surface, and two
+        /// meshes of equal vertex count would silently take each other's rest data.
+        /// Holding the source makes the restore always target the right mesh, and
+        /// (being strong) also makes BaseCacheKey's address non-recyclable.
+        OLO_SERIALIZE(Skip)
+        Ref<MeshSource> BaseCacheSource;
+
         /// Weights refused because they were not finite, cumulative for the session.
         OLO_SERIALIZE(Skip)
         u32 RejectedWeightCount = 0;
@@ -98,6 +115,14 @@ namespace OloEngine
         /// of a stale identity.
         OLO_SERIALIZE(Skip)
         Ref<MorphTargetSet> RefusedSet;
+        /// The vertex count the refusal was decided at. A set is only still refused
+        /// for a surface of the SAME size: a MorphTargetSet can be shared between
+        /// meshes (MeshSource::SetMorphTargets takes any set, and an authored LOD
+        /// group can point at arbitrary meshes), so one that does not span surface A
+        /// may span surface B perfectly well. Keying the refusal on the set alone
+        /// would blacklist it everywhere, permanently, after one bad pairing.
+        OLO_SERIALIZE(Skip)
+        u32 RefusedSetVertexCount = 0;
 
         MorphTargetComponent() = default;
         MorphTargetComponent(const MorphTargetComponent&) = default;
@@ -197,6 +222,7 @@ namespace OloEngine
             BaseNormals.clear();
             BaseCacheKey = nullptr;
             BaseCacheVertexCount = 0;
+            BaseCacheSource = nullptr;
             WasMorphActive = false;
             // The unknown-target report was about the set that is going away.
             ReportedUnknownTargets = 0;

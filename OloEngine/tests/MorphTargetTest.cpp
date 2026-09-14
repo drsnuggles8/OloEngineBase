@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 
 using namespace OloEngine;
 
@@ -687,4 +688,51 @@ TEST(MorphTargetEvaluatorTest, NonFiniteWeightsCannotReachTheSurface)
                "triangle fan it belongs to from the raster, with nothing logged";
     }
     EXPECT_FLOAT_EQ(outPos[0].x, basePos[0].x) << "the vertex must stay at its base position";
+}
+
+TEST(MorphTargetSetTest, ANonFiniteDeltaIsRefusedRatherThanBoundedAtZero)
+{
+    auto set = Ref<MorphTargetSet>::Create();
+    MorphTarget broken("Broken", 4);
+    broken.Vertices[1].DeltaPosition = glm::vec3(std::numeric_limits<f32>::quiet_NaN(), 0.0f, 0.0f);
+    set->AddTarget(broken);
+
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::NonFiniteDelta)
+        << "a set carrying a non-finite position delta was accepted; applying it puts NaN into the "
+           "surface, which removes every triangle the vertex belongs to from the raster";
+
+    // And the displacement bound must not quietly report "this cannot move".
+    // Zero is only the honest answer BECAUSE the set is refused upstream and the
+    // mesh is therefore never displaced by it.
+    EXPECT_FLOAT_EQ(set->GetMaxDisplacement(), 0.0f);
+}
+
+TEST(MorphTargetSetTest, AnOverflowingDisplacementSumIsRefused)
+{
+    // Each delta is finite on its own; the SUM of the per-target maxima is not.
+    // A bound that silently became zero here would claim a wildly displaced mesh
+    // cannot move at all, which is the worst possible input to a cull expansion.
+    auto set = Ref<MorphTargetSet>::Create();
+    for (int i = 0; i < 4; ++i)
+    {
+        MorphTarget huge("Huge" + std::to_string(i), 2);
+        huge.Vertices[0].DeltaPosition = glm::vec3(std::numeric_limits<f32>::max(), 0.0f, 0.0f);
+        set->AddTarget(huge);
+    }
+
+    EXPECT_EQ(set->CheckCompatibility(2), MorphTargetSet::ECompatibility::NonFiniteDelta);
+}
+
+TEST(MorphTargetSetTest, CompatibilityIsRecheckedPerVertexCount)
+{
+    // The cache is keyed on the vertex count it was asked about. A set shared
+    // between two meshes must not inherit the first mesh's verdict.
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(MorphTarget("Smile", 8));
+
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::DenseVertexCountMismatch);
+    EXPECT_EQ(set->CheckCompatibility(8), MorphTargetSet::ECompatibility::Compatible)
+        << "the cached verdict for a different vertex count leaked onto this one";
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::DenseVertexCountMismatch)
+        << "...and back again";
 }

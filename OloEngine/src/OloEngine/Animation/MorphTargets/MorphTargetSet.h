@@ -90,6 +90,10 @@ namespace OloEngine
             DenseVertexCountMismatch,
             /// A sparse target addresses a vertex the mesh does not have.
             SparseIndexOutOfRange,
+            /// A position delta is not finite, or the per-target maxima sum to
+            /// something that is not finite. Either way the set has no usable
+            /// displacement bound, and applying it puts NaN/Inf into the surface.
+            NonFiniteDelta,
         };
 
         [[nodiscard("compatibility result decides whether the mesh may be morphed")]] static std::string_view
@@ -105,6 +109,8 @@ namespace OloEngine
                     return "DenseVertexCountMismatch";
                 case ECompatibility::SparseIndexOutOfRange:
                     return "SparseIndexOutOfRange";
+                case ECompatibility::NonFiniteDelta:
+                    return "NonFiniteDelta";
             }
             return "Unknown";
         }
@@ -146,20 +152,67 @@ namespace OloEngine
       private:
         [[nodiscard]] ECompatibility CheckCompatibilityUncached(u32 meshVertexCount) const
         {
+            // One walk decides BOTH questions, because they have the same answer
+            // source: a set is usable only if every delta it will apply is finite
+            // AND the bound those deltas imply is finite. Splitting them let a
+            // malformed set pass the span check, deform the surface with NaN, and
+            // separately cache a displacement bound of zero — the most dangerous
+            // possible answer for a culling expansion, since it claims the mesh
+            // cannot move at all.
+            f32 totalDisplacement = 0.0f;
+            bool sawNonFinite = false;
+
+            const auto accumulate = [&sawNonFinite](const glm::vec3& delta, f32& targetMax)
+            {
+                // Components first, then the length: finite components can still
+                // square-and-sum into an infinite length.
+                if (!std::isfinite(delta.x) || !std::isfinite(delta.y) || !std::isfinite(delta.z))
+                {
+                    sawNonFinite = true;
+                    return;
+                }
+                const f32 length = glm::length(delta);
+                if (!std::isfinite(length))
+                {
+                    sawNonFinite = true;
+                    return;
+                }
+                targetMax = std::max(targetMax, length);
+            };
+
             for (const auto& target : Targets)
             {
+                f32 targetMax = 0.0f;
                 if (target.IsSparse)
                 {
                     for (const auto& entry : target.SparseVertices)
                     {
                         if (entry.VertexIndex >= meshVertexCount)
                             return ECompatibility::SparseIndexOutOfRange;
+                        accumulate(entry.Delta.DeltaPosition, targetMax);
                     }
                 }
-                else if (target.Vertices.size() != static_cast<sizet>(meshVertexCount))
+                else
                 {
-                    return ECompatibility::DenseVertexCountMismatch;
+                    if (target.Vertices.size() != static_cast<sizet>(meshVertexCount))
+                        return ECompatibility::DenseVertexCountMismatch;
+                    for (const auto& vertex : target.Vertices)
+                        accumulate(vertex.DeltaPosition, targetMax);
                 }
+
+                if (sawNonFinite)
+                    return ECompatibility::NonFiniteDelta;
+
+                totalDisplacement += targetMax;
+                if (!std::isfinite(totalDisplacement))
+                    return ECompatibility::NonFiniteDelta;
+            }
+
+            {
+                // The walk already produced the bound; keep it rather than making
+                // GetMaxDisplacement repeat an identical sweep over the same data.
+                TUniqueLock lock(m_CacheMutex);
+                m_MaxDisplacement = totalDisplacement;
             }
             return ECompatibility::Compatible;
         }
@@ -179,36 +232,51 @@ namespace OloEngine
          */
         [[nodiscard("the displacement bound must reach the culling expansion")]] f32 GetMaxDisplacement() const
         {
-            TUniqueLock lock(m_CacheMutex);
-            if (!m_MaxDisplacement.has_value())
             {
-                f32 total = 0.0f;
-                for (const auto& target : Targets)
-                {
-                    f32 targetMax = 0.0f;
-                    const auto accumulate = [&targetMax](const glm::vec3& delta)
-                    {
-                        const f32 length = glm::length(delta);
-                        if (std::isfinite(length))
-                            targetMax = std::max(targetMax, length);
-                    };
-                    if (target.IsSparse)
-                    {
-                        for (const auto& entry : target.SparseVertices)
-                            accumulate(entry.Delta.DeltaPosition);
-                    }
-                    else
-                    {
-                        for (const auto& vertex : target.Vertices)
-                            accumulate(vertex.DeltaPosition);
-                    }
-                    total += targetMax;
-                }
-                m_MaxDisplacement = std::isfinite(total) ? total : 0.0f;
+                TUniqueLock lock(m_CacheMutex);
+                if (m_MaxDisplacement.has_value())
+                    return *m_MaxDisplacement;
             }
-            return *m_MaxDisplacement;
+
+            // Derived by the same walk that decides usability, so the bound and the
+            // verdict can never disagree. A set whose deltas are not finite has NO
+            // meaningful bound; CheckCompatibility refuses it and Scene's morph pass
+            // then never applies it, so the mesh is not displaced and zero is the
+            // honest answer for culling rather than a fallback.
+            if (CheckCompatibilityUncached(GetVertexCountForBound()) == ECompatibility::NonFiniteDelta)
+            {
+                TUniqueLock lock(m_CacheMutex);
+                m_MaxDisplacement = 0.0f;
+                return 0.0f;
+            }
+
+            TUniqueLock lock(m_CacheMutex);
+            return m_MaxDisplacement.value_or(0.0f);
         }
 
+      private:
+        /// Vertex count to validate against when the bound is asked for on its own
+        /// (the culling path has a mesh, but not this set's own idea of one). Dense
+        /// targets define it; a sparse-only set is bounded by its largest index.
+        [[nodiscard]] u32 GetVertexCountForBound() const
+        {
+            u32 count = 0;
+            for (const auto& target : Targets)
+            {
+                if (target.IsSparse)
+                {
+                    for (const auto& entry : target.SparseVertices)
+                        count = std::max(count, entry.VertexIndex + 1u);
+                }
+                else
+                {
+                    count = std::max(count, static_cast<u32>(target.Vertices.size()));
+                }
+            }
+            return count;
+        }
+
+      public:
         // O(1) name-to-index lookup via cached map
         [[nodiscard("cached target index needed for weight mapping")]] i32 FindTargetCached(const std::string& name) const
         {

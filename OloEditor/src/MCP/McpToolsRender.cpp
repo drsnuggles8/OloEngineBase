@@ -8714,7 +8714,14 @@ namespace OloEngine::MCP
                 "by the next frame's advance before anything could read it. skeletonsWithoutHistory is the number "
                 "emitting zero bone motion because their previous pose was dropped rather than because nothing moved; "
                 "a persistently non-zero value means something is dropping history every frame, which reads on screen "
-                "as animation that never contributes to motion vectors.";
+                "as animation that never contributes to motion vectors. The `morph` block is the other half of the "
+                "same surface (issue #1227): surfacesAdvanced/surfacesWithHistory/surfacesRejected describe the LAST "
+                "FRAME, and unknownTargets/incompatibleSets/baseCacheInvalidations are SESSION TOTALS of morph input "
+                "the engine refused. surfacesRejected is the one to watch -- a morphing surface that MOVED this frame "
+                "cannot be reprojected at all, because the shaders build the previous position from THIS frame's rest "
+                "surface, so its history is dropped deliberately rather than turned into a velocity measured between "
+                "two different surfaces. It staying at zero while a face is visibly expressing means the rejection is "
+                "not reaching the entity that is deforming.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("availability", Schema::Object()
@@ -8737,7 +8744,21 @@ namespace OloEngine::MCP
                                                                .Prop("firstUse", Schema::Int().Min(0))
                                                                .Prop("boneCountChanged", Schema::Int().Min(0))
                                                                .Prop("explicit", Schema::Int().Min(0))
+                                                               .Prop("morphSurfaceChanged", Schema::Int().Min(0))
+                                                               .Prop("morphSetChanged", Schema::Int().Min(0))
+                                                               .Prop("meshTopologyChanged", Schema::Int().Min(0))
                                                                .Prop("lastCause", Schema::String()))
+                                    // The morph half (issue #1227). Declared, not merely emitted:
+                                    // output schemas here are open, so an undeclared field validates
+                                    // fine and is simply undiscoverable to a client reading the
+                                    // contract before it calls.
+                                    .Prop("morph", Schema::Object()
+                                                       .Prop("surfacesAdvanced", Schema::Int().Min(0))
+                                                       .Prop("surfacesWithHistory", Schema::Int().Min(0))
+                                                       .Prop("surfacesRejected", Schema::Int().Min(0))
+                                                       .Prop("unknownTargets", Schema::Int().Min(0))
+                                                       .Prop("incompatibleSets", Schema::Int().Min(0))
+                                                       .Prop("baseCacheInvalidations", Schema::Int().Min(0)))
                                     .Required({ "availability", "freshness" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SkeletalDeformationStats;

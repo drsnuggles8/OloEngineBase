@@ -140,6 +140,23 @@ namespace OloEngine::Tests
         {
             return OloEngine::Tests::Options().GoldenRebase;
         }
+
+        /// Pixels carrying a subject's warm albedo, i.e. clearly red-dominant over
+        /// blue. The editor clear and the grid are neutral (R == B), so this counts
+        /// the subject and nothing else.
+        [[nodiscard]] u32 CountSubjectPixels(const std::vector<u8>& rgba)
+        {
+            constexpr int kRedOverBlue = 40;
+            u32 count = 0;
+            for (std::size_t i = 0; i + 3 < rgba.size(); i += 4)
+            {
+                const int red = static_cast<int>(rgba[i]);
+                const int blue = static_cast<int>(rgba[i + 2]);
+                if (red - blue > kRedOverBlue)
+                    ++count;
+            }
+            return count;
+        }
     } // namespace
 
     class MorphDeformationVisualEvidenceTest : public RendererAttachedTest
@@ -568,10 +585,19 @@ namespace OloEngine::Tests
             << "the coarse level rendered the same image as the fine one — the selected level is not "
                "reaching the draw, so the whole chain is decorative";
 
-        const bool coarseHasSubject = std::ranges::any_of(
-            coarse, [](u8 channel)
-            { return channel > 0u; });
-        EXPECT_TRUE(coarseHasSubject) << "the coarse frame is empty — the level drew nothing at all";
+        // The subject is warm (0.75, 0.55, 0.3); the editor clear is neutral grey
+        // and the grid is white-ish, both with R == B. Counting strongly
+        // red-over-blue pixels therefore isolates the subject from the background --
+        // the same idiom SkeletalDeformationVisualEvidenceTest uses for its centroid.
+        //
+        // NOT "any channel > 0": SceneColor clears to (0.1, 0.1, 0.1, 1.0) and the
+        // composite writes alpha 1.0, so a completely EMPTY frame satisfies that
+        // predicate at every pixel and the check asserts nothing whatsoever.
+        EXPECT_GT(CountSubjectPixels(coarse), 500u)
+            << "the coarse frame contains almost none of the subject's own colour -- the level "
+               "drew nothing, or drew it off screen";
+        EXPECT_GT(CountSubjectPixels(fine), 500u)
+            << "sanity: the fine frame must contain the subject too";
     }
 
 } // namespace OloEngine::Tests
