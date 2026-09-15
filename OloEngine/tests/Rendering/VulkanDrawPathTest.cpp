@@ -1928,16 +1928,36 @@ TEST_F(VulkanDrawPath, GBufferGpuSelectsTexturesInSingleIndirectDraw)
 {
     ScopedOloEditorWorkingDirectory directory;
     ASSERT_TRUE(directory.IsValid());
+    // Restore after the facade selector has restored the previous API too.
+    auto& engineHeap = RHI::DescriptorHeap::Get();
+    const bool hadOpenGLContext = glfwGetCurrentContext() != nullptr;
+    struct RestoreHeap
+    {
+        RHI::IDescriptorHeapBackend* Backend;
+        RHI::HeapDesc Desc;
+        bool Enabled;
+        bool UseRestoredBackend;
+        ~RestoreHeap()
+        {
+            auto& heap = RHI::DescriptorHeap::Get();
+            // The old GL facade owned its backend and was destroyed by the
+            // selector. Its replacement has a new backend: never reuse the
+            // pointer captured before that facade switch.
+            if (UseRestoredBackend)
+                Backend = heap.GetBackend();
+            if (Backend)
+            {
+                heap.Initialize(Desc, Backend);
+                heap.SetEnabled(Enabled);
+            }
+            else
+                heap.Shutdown();
+        }
+    } restoreHeap{ hadOpenGLContext ? nullptr : engineHeap.GetBackend(), engineHeap.GetDesc(),
+                   engineHeap.IsEnabled(), hadOpenGLContext && engineHeap.GetBackend() != nullptr };
     ScopedVulkanRenderCommandSelection selection;
     auto& api = selection.Get();
     VulkanFrameArena::Get().BeginFrame(0);
-    struct HeapShutdown
-    {
-        ~HeapShutdown()
-        {
-            RHI::DescriptorHeap::Get().Shutdown();
-        }
-    } heapShutdown;
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
     ASSERT_TRUE(HeapBinding::ShaderHeapIndexingSupported());
 
@@ -2087,7 +2107,7 @@ void main() {
         return material;
     };
     using Images = std::array<std::vector<u8>, 6>;
-    const auto capture = [&](bool merged, u32 phase, u32 invalidMode, Images& images)
+    const auto capture = [&](bool merged, u32 phase, u32 invalidMode, Images& images, bool fallbackOnly = false)
     {
         culler->BeginFrame();
         std::array<glm::uvec4, 3> selectParams{};
@@ -2137,11 +2157,14 @@ void main() {
                 for (u32 i = 0; i < 2u; ++i)
                 {
                     auto material = fallbackMaterial();
-                    material.BaseColorFactor = glm::vec4(1.0f);
-                    material.UseAlbedoMap = material.UseMetallicRoughnessMap = material.UseNormalMap = material.UseAOMap = material.UseEmissiveMap = 1;
-                    const u32 first = ((i + phase) & 1u) * 5u;
-                    material.HeapOffsets[0] = { offsets[first], offsets[first + 1u], offsets[first + 2u], offsets[first + 3u] };
-                    material.HeapOffsets[1].x = offsets[first + 4u];
+                    if (!fallbackOnly)
+                    {
+                        material.BaseColorFactor = glm::vec4(1.0f);
+                        material.UseAlbedoMap = material.UseMetallicRoughnessMap = material.UseNormalMap = material.UseAOMap = material.UseEmissiveMap = 1;
+                        const u32 first = ((i + phase) & 1u) * 5u;
+                        material.HeapOffsets[0] = { offsets[first], offsets[first + 1u], offsets[first + 2u], offsets[first + 3u] };
+                        material.HeapOffsets[1].x = offsets[first + 4u];
+                    }
                     materialUBO->SetData(&material, sizeof(material)); materialUBO->Bind();
                     input->Upload(std::span{ &instances[i], 1 }); input->Bind();
                     api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 6u, RHI::IndexType::UInt32, 0u);
@@ -2156,7 +2179,7 @@ void main() {
             ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(attachment)->GetData(images[attachment], 0u));
     };
 
-    Images reference, merged, switchedReference, switched, stale, outOfRange;
+    Images reference, merged, switchedReference, switched, fallbackReference, stale, outOfRange;
     capture(false, 0u, 0u, reference);
     capture(true, 0u, 0u, merged);
     for (u32 attachment = 0; attachment < 6u; ++attachment)
@@ -2166,9 +2189,14 @@ void main() {
     for (u32 attachment = 0; attachment < 6u; ++attachment)
         EXPECT_EQ(switched[attachment], switchedReference[attachment]) << "swapped MRT " << attachment;
     EXPECT_NE(merged[0], switched[0]) << "selection control must visibly change the texture";
+    capture(false, 0u, 0u, fallbackReference, true);
     capture(true, 0u, 1u, stale);
     capture(true, 0u, 2u, outOfRange);
-    EXPECT_EQ(stale[0], outOfRange[0]);
+    for (u32 attachment = 0; attachment < 6u; ++attachment)
+    {
+        EXPECT_EQ(stale[attachment], fallbackReference[attachment]) << "stale MRT " << attachment;
+        EXPECT_EQ(outOfRange[attachment], fallbackReference[attachment]) << "out-of-range MRT " << attachment;
+    }
     const auto pixel = [](const std::vector<u8>& rgba, u32 x)
     {
         const sizet offset = (kSize / 2u * kSize + x) * 4u;

@@ -106,3 +106,10 @@ observed values; the DI check passed. Totals: **1 passed, 0 skipped, 2 failed;
 exit 1**, in 115.479 seconds. The passing DI recheck alone does not diagnose its
 one-pixel full-suite failure. No tolerances or tests were changed to hide any of
 these failures.
+
+After review, the GPU test restores the prior heap description/enabled state
+against the live replacement backend, and compares both invalid-reference paths
+against an explicit per-draw fallback across all six attachments. Two shuffled
+iterations passed **29 tests, 1 skipped, 0 failed; exit 0**. The existing culler
+fixture skipped once because an earlier OpenGL renderer test had initialized
+process-wide UBOs; the new material-selection test passed in both iterations.
