@@ -159,7 +159,8 @@ namespace OloEngine
                                                                    const StagedGeometry& geometry,
                                                                    const glm::mat4& worldTransform,
                                                                    const GPUSceneMaterialKey& materialKey,
-                                                                   u32 visibilityMask)
+                                                                   u32 visibilityMask,
+                                                                   const GPUSceneAnimatedSurface& animated)
         {
             const GPUSceneGeometryKey geometryKey{
                 .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
@@ -184,11 +185,24 @@ namespace OloEngine
                 .m_Geometry = geometryKey,
                 .m_InstanceId = stableInstanceId,
             };
-            scene.ExtractInstance(instanceKey, GPUSceneInstanceInput{
-                                                   .m_WorldTransform = worldTransform,
-                                                   .m_Material = materialKey,
-                                                   .m_VisibilityMask = visibilityMask,
-                                               });
+            scene.ExtractInstance(
+                instanceKey,
+                GPUSceneInstanceInput{
+                    .m_WorldTransform = worldTransform,
+                    .m_Material = materialKey,
+                    .m_VisibilityMask = visibilityMask,
+                    // The Animated bit is set HERE, from the caller's own
+                    // statement, and never inferred from the revisions being
+                    // non-zero (issue #1228). A rigid instance and an animated
+                    // one on its very first frame both carry 0/0, so inference
+                    // would classify every newly spawned character as rigid for
+                    // one frame — and the flag is what a consumer tests before
+                    // trusting the lanes at all.
+                    .m_Flags = animated.m_IsAnimated ? GPUSceneInstanceFlagAnimated : 0u,
+                    .m_DeformationRevision = animated.m_DeformationRevision,
+                    .m_PrevDeformationRevision = animated.m_PrevDeformationRevision,
+                    .m_DeformationResetCause = animated.m_ResetCause,
+                });
             return instanceKey;
         }
     } // namespace
@@ -298,7 +312,8 @@ namespace OloEngine
     u32 Renderer3D::ExtractGPUSceneMesh(u64 stableEntityId, u64 stableInstanceId,
                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
-                                        GPUSceneDrawLinkRequest linkRequest)
+                                        GPUSceneDrawLinkRequest linkRequest,
+                                        const GPUSceneAnimatedSurface& animatedSurface)
     {
         if (!s_Data.GPUSceneExtractionActive)
         {
@@ -346,7 +361,8 @@ namespace OloEngine
                                          .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
                                          .m_VertexCount = submesh.m_VertexCount,
                                      },
-                                     worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask);
+                                     worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask,
+                                     animatedSurface);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
@@ -395,6 +411,13 @@ namespace OloEngine
                                               .m_Generation = record->MaterialGeneration };
             link.m_CurrentTransform = DecodeGPUSceneTransform(record->CurrentTransform);
             link.m_PreviousTransform = DecodeGPUSceneTransform(record->PreviousTransform);
+            // Issue #1228: the deformation verdict travels with the record, so
+            // a raster consumer and a debug view read one answer instead of
+            // each re-deriving it from the skeleton they happen to hold.
+            link.m_Animated = (record->Flags & GPUSceneInstanceFlagAnimated) != 0u;
+            link.m_DeformationRevision = record->DeformationRevision;
+            link.m_PreviousDeformationRevision = record->PreviousDeformationRevision;
+            link.m_DeformationResetCause = record->DeformationResetCause;
             ++s_Data.GPUSceneLinkedDraws;
         }
         s_Data.GPUSceneDrawLinksResolved = true;
@@ -481,7 +504,12 @@ namespace OloEngine
             },
             worldTransform, materialKey,
             castsShadow ? GPUSceneInstanceInput{}.m_VisibilityMask
-                        : RayTracing::kVisibilityMaskNoShadowCast));
+                        : RayTracing::kVisibilityMaskNoShadowCast,
+            // A ray-tracing proxy is the coarsest DAG cut: a rigid snapshot with
+            // no palette. A SKINNED virtual part is refused a proxy upstream
+            // (Renderer3DMeshSubmission.cpp), so this is never an animated
+            // surface pretending to be rigid — it is a rigid one (issue #1228).
+            GPUSceneAnimatedSurface{}));
         // No PathTracerEmissive::QueueSubmesh, and that is a real limitation
         // rather than an oversight: the emissive table walks a MeshSource
         // submesh's triangles, and the emitters it gathers must be the SAME
@@ -539,6 +567,14 @@ namespace OloEngine
         if (s_Data.GPUSceneExtractionActive && count > 0)
         {
             s_Data.SceneGPU.ReportUnsupported(category, count);
+        }
+    }
+
+    void Renderer3D::ReportAnimatedCensusGPUScene(const GPUSceneAnimatedStats& census)
+    {
+        if (s_Data.GPUSceneExtractionActive)
+        {
+            s_Data.SceneGPU.ReportAnimatedCensus(census);
         }
     }
 

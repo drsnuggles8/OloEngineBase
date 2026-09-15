@@ -27,6 +27,19 @@ struct GPUSceneInstance
     uint Flags;
     uint Generation;
     uint MaterialGeneration;
+    // Issue #1228 — mirrors GPUSceneInstance's tail in GPUSceneTypes.h, which
+    // static_asserts the 144-byte size this completes. The pad is a real member
+    // on both sides rather than implicit padding, so neither compiler has to
+    // agree with the other about something it was not told.
+    //
+    // Continuity is (DeformationRevision == PreviousDeformationRevision + 1) in
+    // uint wraparound arithmetic; equal values mean the deformation history was
+    // dropped and no velocity may be derived from this surface. Both are 0 on a
+    // rigid instance, so test OLO_GPU_SCENE_INSTANCE_ANIMATED first.
+    uint DeformationRevision;
+    uint PreviousDeformationRevision;
+    uint DeformationResetCause;
+    uint DeformationPad0;
 };
 
 struct GPUSceneGeometry
@@ -54,6 +67,7 @@ struct GPUSceneGeometry
 // slot keeps its generation when the generation counter saturates, so a
 // generation compare alone can accept a dead record (GPUSceneTypes.h's rule).
 #define OLO_GPU_SCENE_INSTANCE_ACTIVE (1u << 0)
+#define OLO_GPU_SCENE_INSTANCE_ANIMATED (1u << 1)
 #define OLO_GPU_SCENE_GEOMETRY_ACTIVE (1u << 0)
 
 #define OLO_GPU_SCENE_MATERIAL_ACTIVE (1u << 0)

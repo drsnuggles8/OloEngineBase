@@ -61,6 +61,26 @@ namespace OloEngine
         glm::mat4 m_CurrentTransform{ 1.0f };
         glm::mat4 m_PreviousTransform{ 1.0f };
 
+        // The deformation half of the resolved record (issue #1228). Zero on a
+        // rigid draw and on an unresolved link alike, so m_Animated is what
+        // separates them — the same rule the record itself states through
+        // GPUSceneInstanceFlagAnimated.
+        bool m_Animated = false;
+        u32 m_DeformationRevision = 0;
+        u32 m_PreviousDeformationRevision = 0;
+        u32 m_DeformationResetCause = 0;
+
+        // True only for an animated surface whose previous pose is one this
+        // surface was actually in, i.e. a surface a velocity may be measured
+        // across. This is the record-side spelling of
+        // SkeletonData::HasContinuousDeformation(), and the two are pinned
+        // against each other rather than left to agree by inspection.
+        [[nodiscard]] bool HasContinuousDeformation() const
+        {
+            return m_Resolved && m_Animated &&
+                   m_DeformationRevision == static_cast<u32>(m_PreviousDeformationRevision + 1u);
+        }
+
         // The value InstanceData::GPUSceneRef carries to the shader:
         // (instance slot, instance generation, material slot, material
         // generation). Both generation lanes are zero while unresolved, which

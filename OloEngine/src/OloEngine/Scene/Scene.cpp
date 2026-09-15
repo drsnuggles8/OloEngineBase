@@ -7579,18 +7579,45 @@ namespace OloEngine
     // GPUSceneDrawLinkNone when no link was requested or the source was not
     // extractable. The second case is never a silent drop: ExtractGPUSceneMesh
     // counts it as GPUSceneUnsupportedCategory::NotExtractable.
+    // The deformation half of an animated surface's canonical identity
+    // (issue #1228), read from the ONE producer that owns it. Never re-derived:
+    // a second place that decided what "has history" means would be free to
+    // disagree with the palettes the shaders actually read, and the symptom is
+    // a smear in the temporal filter two subsystems away.
+    //
+    // A null skeleton is a rigid surface, not an animated one with no history:
+    // the default-constructed value carries m_IsAnimated = false, which is what
+    // stops a rigid instance from claiming a dropped deformation history.
+    [[nodiscard]] static GPUSceneAnimatedSurface MakeGPUSceneAnimatedSurface(const Skeleton* skeleton)
+    {
+        if (skeleton == nullptr)
+        {
+            return GPUSceneAnimatedSurface{};
+        }
+        return GPUSceneAnimatedSurface{
+            .m_IsAnimated = true,
+            .m_DeformationRevision = skeleton->m_DeformationRevision,
+            .m_PrevDeformationRevision = skeleton->m_PrevDeformationRevision,
+            // SkeletonData clears the cause on the continuous branch, so this
+            // is already "no live discontinuity" for a surface with history -
+            // it is read, not re-decided, because the producer owns the rule.
+            .m_ResetCause = static_cast<u32>(skeleton->m_DeformationResetCause),
+        };
+    }
+
     [[nodiscard]] static u32 StageGPUSceneSubmesh(u64 stableEntityId, const Ref<MeshSource>& meshSource,
                                                   u32 submeshIndex, const glm::mat4& worldTransform,
                                                   const Material* overrideMaterial,
                                                   const Material* importedMaterial, u32 importedSlot,
                                                   const Material& resolvedMaterial,
-                                                  GPUSceneDrawLinkRequest linkRequest)
+                                                  GPUSceneDrawLinkRequest linkRequest,
+                                                  const GPUSceneAnimatedSurface& animatedSurface = {})
     {
         const GPUSceneMaterialKey materialKey = Renderer3D::ResolveGPUSceneMaterialKey(
             overrideMaterial, stableEntityId, meshSource, importedMaterial, importedSlot);
         Renderer3D::ExtractGPUSceneMaterial(materialKey, resolvedMaterial);
         return Renderer3D::ExtractGPUSceneMesh(stableEntityId, 0, meshSource, submeshIndex, worldTransform,
-                                               materialKey, linkRequest);
+                                               materialKey, linkRequest, animatedSurface);
     }
 
     // Called from TWO places, and deliberately shared rather than copied: the MeshComponent
@@ -7611,12 +7638,26 @@ namespace OloEngine
                                         const LODGroup* lodGroup, bool meshHasActiveShadows,
                                         const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
                                         std::span<const glm::mat4> boneMatrices = {},
-                                        std::span<const glm::mat4> prevBoneMatrices = {})
+                                        std::span<const glm::mat4> prevBoneMatrices = {},
+                                        // Issue #1228: the skeleton whose revisions this surface's
+                                        // records carry. Null on a rigid submission, and null on a
+                                        // skinned one whose caller has not been migrated - which is
+                                        // why the skinned arm below ticks Skinned for it rather
+                                        // than staging a record with an invented identity.
+                                        const Skeleton* skeleton = nullptr,
+                                        GPUSceneAnimatedStats* animatedCensus = nullptr)
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
             return;
         }
+
+        // One entity contributes one m_CanonicalEntities tick and one
+        // m_CanonicalInstances tick per submesh (issue #1228), so the entity
+        // half is latched across this per-submesh loop rather than counted
+        // inside it. Without the latch this path reported canonical INSTANCES
+        // with zero ENTITIES, which breaks the census's own stated invariant.
+        bool countedCanonicalEntity = false;
 
         for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
         {
@@ -7630,17 +7671,59 @@ namespace OloEngine
             // between paths before, and they stay written once.
             if (!boneMatrices.empty())
             {
-                // A skinned entity is not representable in GPU Scene (the
-                // canonical record holds one rigid transform), so no staging and
-                // no draw link — the same exclusion the animated-mesh loop and
-                // RayTracingScene already apply.
+                // Issue #1228: a skinned submesh IS representable now. The
+                // record's geometry key is (vertex buffer, index buffer,
+                // submesh) and skinning happens in the vertex stage, so the
+                // buffer identity is stable across the animation - what moves
+                // is the palette, and that is what the deformation revisions
+                // carry. The one rigid thing the record holds, the world
+                // transform, is as true for a skinned entity as for any other.
+                const GPUSceneAnimatedSurface animatedSurface = MakeGPUSceneAnimatedSurface(skeleton);
+                const u32 skinnedLink =
+                    animatedSurface.m_IsAnimated
+                        ? StageGPUSceneSubmesh(stableEntityId, meshSource, static_cast<u32>(i), worldTransform,
+                                               overrideMaterial, importedMaterial,
+                                               meshSource->GetSubmeshes()[i].m_MaterialIndex, material,
+                                               GPUSceneDrawLinkRequest::Link, animatedSurface)
+                        : GPUSceneDrawLinkNone;
+                if (animatedCensus != nullptr)
+                {
+                    if (!animatedSurface.m_IsAnimated)
+                    {
+                        // A skinned draw whose caller handed no skeleton. Not
+                        // staged, and said so: the alternative is a record with
+                        // revisions nobody produced.
+                        Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Skinned);
+                    }
+                    else if (skinnedLink == GPUSceneDrawLinkNone)
+                    {
+                        // ExtractGPUSceneMesh already ticked NotExtractable for
+                        // the refusal itself; this is the animated-census half
+                        // of the same event.
+                        ++animatedCensus->m_UnsupportedInstances;
+                    }
+                    else
+                    {
+                        ++animatedCensus->m_CanonicalInstances;
+                        if (!countedCanonicalEntity)
+                        {
+                            ++animatedCensus->m_CanonicalEntities;
+                            countedCanonicalEntity = true;
+                        }
+                        if (animatedSurface.HasContinuousDeformation())
+                            ++animatedCensus->m_SurfacesWithHistory;
+                        else
+                            ++animatedCensus->m_SurfacesWithoutHistory;
+                    }
+                }
+
                 const std::vector<glm::mat4> bones(boneMatrices.begin(), boneMatrices.end());
                 const std::vector<glm::mat4> prevBones(
                     prevBoneMatrices.size() == boneMatrices.size()
                         ? std::vector<glm::mat4>(prevBoneMatrices.begin(), prevBoneMatrices.end())
                         : bones);
-                auto* skinnedPacket =
-                    Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, bones, prevBones, false, entityID);
+                auto* skinnedPacket = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, bones,
+                                                                   prevBones, false, entityID, skinnedLink);
                 if (skinnedPacket)
                 {
                     Renderer3D::SubmitPacket(skinnedPacket);
@@ -7793,12 +7876,24 @@ namespace OloEngine
         // These systems keep their current renderer paths; none disappear
         // silently from GPU-scene diagnostics while their record formats are
         // designed in follow-up work.
-        u32 skinnedCount = 0;
-        for ([[maybe_unused]] const auto entity : m_Registry.view<MeshComponent, SkeletonComponent>())
-        {
-            ++skinnedCount;
-        }
-        Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Skinned, skinnedCount);
+        // Skinned is NO LONGER a blanket count of every skinned entity
+        // (issue #1228). Animated surfaces now reach canonical instance
+        // records, so counting them all as unsupported here would be the
+        // inverse of the old lie: a category reporting geometry the records
+        // took.
+        //
+        // What Skinned means now: an animated entity that reached a submission
+        // path and produced NO canonical instance. That is reported per entity
+        // at the submission sites below, where the refusal is actually known,
+        // for the same reason Tiles and LegacySubmesh are reported there. The
+        // count is therefore 0 in a healthy scene and non-zero the moment a
+        // skinned entity stops being representable -- which is the signal, and
+        // it is the one this placeholder never carried.
+        //
+        // What the records DID take is m_Animated below, a census in the shape
+        // GPUSceneFoliageStats established (#1230): "the records take
+        // everything" and "nothing was ever offered" must not read alike.
+        GPUSceneAnimatedStats animatedCensus{};
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Terrain,
             static_cast<u32>(m_Registry.view<TerrainComponent>().size()));
@@ -11292,10 +11387,22 @@ namespace OloEngine
                 // toggle a usable A/B.
                 if (!virtualGeometryEnabled)
                 {
+                    // The skeleton travels with the palette (#1228) so the
+                    // fallback arm stages the same canonical records the
+                    // dedicated animated loop does. Without it the A/B this
+                    // toggle exists to be would differ in a second way --
+                    // renderer AND record coverage -- rather than one.
+                    const Skeleton* fallbackSkeleton = nullptr;
+                    if (const auto* skeletonComponent = m_Registry.try_get<SkeletonComponent>(entity);
+                        skeletonComponent != nullptr && skeletonComponent->m_Skeleton)
+                    {
+                        fallbackSkeleton = skeletonComponent->m_Skeleton.Raw();
+                    }
                     SubmitMeshSourceClassic(meshSource, worldTransform, overrideMaterial, entityID, stableEntityId,
                                             /*lodGroup*/ nullptr,
                                             meshHasActiveShadows && virtualMesh.m_CastShadows,
-                                            lightmapScaleOffset, boneMatrices, prevBoneMatrices);
+                                            lightmapScaleOffset, boneMatrices, prevBoneMatrices,
+                                            fallbackSkeleton, &animatedCensus);
                     continue;
                 }
 
@@ -11964,6 +12071,29 @@ namespace OloEngine
                         vm.m_Enabled && static_cast<u64>(vm.m_MeshSource) != 0 &&
                         AssetManager::GetAsset<MeshSource>(vm.m_MeshSource))
                     {
+                        // An animated VARIANT the canonical path does not
+                        // attempt (issue #1228): this entity is drawn by the
+                        // cluster-LOD DAG, which has no per-submesh triangle
+                        // identity in the records at all and is already counted
+                        // under Virtualized. Counted here too, as a variant
+                        // rather than an instance, so a scene whose characters
+                        // are all virtual reads as "0 canonical, N variants
+                        // elsewhere" instead of as an empty animated census
+                        // that looks like nothing was ever offered.
+                        //
+                        // ...but ONLY when the virtual path really drew it.
+                        // virtualPathOwnsMeshEntities is gated on Deferred
+                        // alone, so with virtual geometry switched OFF that
+                        // loop takes its classic fallback, which stages
+                        // canonical records through SubmitMeshSourceClassic and
+                        // counts this entity as a canonical instance. Ticking a
+                        // variant here as well would count one entity twice,
+                        // under two contradictory headings, in the census whose
+                        // whole job is to say which of the two happened.
+                        if (Renderer3D::GetRendererSettings().VirtualGeometryEnabled)
+                        {
+                            ++animatedCensus.m_UnsupportedVariants;
+                        }
                         continue;
                     }
                 }
@@ -11977,6 +12107,13 @@ namespace OloEngine
                     AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(entity), mesh);
                 if (!surfaceSource)
                 {
+                    // An animated entity that reached submission and produced
+                    // nothing at all -- no surface to stage and no draw either.
+                    // This is what GPUSceneUnsupportedCategory::Skinned counts
+                    // now (issue #1228), and it is per ENTITY, so it never
+                    // double-counts NotExtractable, which ExtractGPUSceneMesh
+                    // ticks per refused SUBMESH.
+                    Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Skinned);
                     continue;
                 }
 
@@ -12011,9 +12148,25 @@ namespace OloEngine
                 // Convert entt entity to int for entity ID picking
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
+                // The deformation revisions this entity's records carry, read
+                // once per entity because they are a property of the skeleton,
+                // not of the submesh: every submesh of one character is deformed
+                // by one palette and therefore shares one revision pair
+                // (issue #1228). The geometry and material identities below stay
+                // per submesh, which is the whole point of the split -- an
+                // entity has one pose and N surfaces.
+                const GPUSceneAnimatedSurface animatedSurface =
+                    MakeGPUSceneAnimatedSurface(skeleton.m_Skeleton.Raw());
+                // The same canonical entity identity the rigid path uses
+                // (IDComponent UUID, falling back to the entt handle), so an
+                // entity that is skinned today and rigid tomorrow keeps one
+                // identity rather than acquiring a second set of records.
+                const u64 stableEntityId = GetStableGPUSceneEntityId(m_Registry, entity);
+
                 // Draw each submesh as an animated mesh
                 if (!surfaceSource->GetSubmeshes().IsEmpty())
                 {
+                    ++animatedCensus.m_CanonicalEntities;
                     for (i32 i = 0; i < surfaceSource->GetSubmeshes().Num(); ++i)
                     {
                         auto submesh = Ref<Mesh>::Create(surfaceSource, i);
@@ -12024,7 +12177,31 @@ namespace OloEngine
                         // branch comment above for the underlying shader limitation).
                         const bool castsShadow = meshHasActiveShadows && MaterialCastsShadows(material);
 
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, boneMatrices, prevBoneMatrices, false, entityID);
+                        // Stage the canonical record and take its draw link
+                        // (issue #1228). Same helper, same material-key rule and
+                        // same link contract the rigid path has used since #994 --
+                        // the ONLY thing this path adds is the deformation half,
+                        // because everything else about a skinned submesh's
+                        // identity was already expressible.
+                        const u32 gpuSceneDrawLink = StageGPUSceneSubmesh(
+                            stableEntityId, surfaceSource, static_cast<u32>(i), worldTransform, overrideMaterial,
+                            surfaceSource->GetImportedMaterialPtrForSubmesh(static_cast<u32>(i)),
+                            surfaceSource->GetSubmeshes()[i].m_MaterialIndex, material,
+                            GPUSceneDrawLinkRequest::Link, animatedSurface);
+                        if (gpuSceneDrawLink == GPUSceneDrawLinkNone)
+                        {
+                            ++animatedCensus.m_UnsupportedInstances;
+                        }
+                        else
+                        {
+                            ++animatedCensus.m_CanonicalInstances;
+                            if (animatedSurface.HasContinuousDeformation())
+                                ++animatedCensus.m_SurfacesWithHistory;
+                            else
+                                ++animatedCensus.m_SurfacesWithoutHistory;
+                        }
+
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, boneMatrices, prevBoneMatrices, false, entityID, gpuSceneDrawLink);
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);
@@ -12127,6 +12304,13 @@ namespace OloEngine
                 }
             }
         }
+
+        // The animated-surface census, after every submission loop that
+        // contributes to it has run (issue #1228). Reported once, additively,
+        // because more than one loop feeds it — the dedicated animated loop and
+        // the virtual-mesh path's classic fallback — and a setter would let
+        // whichever ran last erase the other's count.
+        Renderer3D::ReportAnimatedCensusGPUScene(animatedCensus);
     }
 
     void Scene::RenderScene3D(EditorCamera const& camera)

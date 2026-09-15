@@ -142,6 +142,26 @@ namespace OloEngine::MCP::RayTracingStats
                 { "unsupportedVariants", foliage.m_UnsupportedVariants },
                 { "spatialGroups", foliage.m_SpatialGroups },
             };
+
+            // Animated surfaces (issue #1228). "Skinned" in notStagedByCategory
+            // above no longer means "every skinned entity" — it means an
+            // animated entity that reached submission and produced no record at
+            // all. This block is the positive half: what the records DID take,
+            // and how many of those carry a previous pose a velocity may
+            // legitimately be measured against.
+            //
+            // canonicalInstances == surfacesWithHistory + surfacesWithoutHistory
+            // by construction; a reader seeing that fail is looking at a
+            // producer bug, not at a scene.
+            const auto& animated = snapshot.GPUScene.m_Animated;
+            out["gpuScene"]["animated"] = Json{
+                { "canonicalEntities", animated.m_CanonicalEntities },
+                { "canonicalInstances", animated.m_CanonicalInstances },
+                { "surfacesWithHistory", animated.m_SurfacesWithHistory },
+                { "surfacesWithoutHistory", animated.m_SurfacesWithoutHistory },
+                { "unsupportedInstances", animated.m_UnsupportedInstances },
+                { "unsupportedVariants", animated.m_UnsupportedVariants },
+            };
         }
 
         if (StatsSnapshot::Status(snapshot.State) != "ready")
