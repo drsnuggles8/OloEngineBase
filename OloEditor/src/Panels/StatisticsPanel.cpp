@@ -446,11 +446,19 @@ namespace OloEngine
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::RigidDynamic)],
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Deformed)],
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
-                    // Unsupported is a real, expected population — skinned,
-                    // cloth, virtualized and particle geometry never reach the
-                    // canonical GPU Scene — so it is labelled rather than left
-                    // to read as an error count.
+                    // Unsupported is a real, expected population — cloth and
+                    // particle geometry never reach the canonical GPU Scene —
+                    // so it is labelled rather than left to read as an error
+                    // count.
                     ImGui::Text("Unsupported instances (raster only): %u", rt.Resident.UnsupportedInstances);
+                    // The animated share, shown separately because it is the
+                    // one row here that means "this should have been
+                    // traceable". These surfaces are kept OUT of the TLAS
+                    // rather than traced at their rest pose, which is what a
+                    // reader needs to know before concluding a character is
+                    // missing from a reflection by accident.
+                    ImGui::Text("  of which animated (no deformed stream): %u",
+                                rt.Resident.AnimatedInstancesRefused);
                     ImGui::Text("TLAS instances: %u", rt.Resident.TlasInstances);
 
                     ImGui::Separator();

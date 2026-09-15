@@ -187,10 +187,17 @@ namespace OloEngine::MCP::RayTracingStats
                   { "unsupported", resident.BlasByClass[static_cast<sizet>(RT::GeometryClass::Unsupported)] },
               } },
             { "tlasInstances", resident.TlasInstances },
-            // A real, expected population — skinned, cloth, virtualized and
-            // particle geometry never reach the canonical GPU Scene — not an
-            // error count.
+            // A real, expected population — cloth and particle geometry never
+            // reach the canonical GPU Scene — not an error count. Virtualized
+            // geometry left this number at #1144 (it arrives as a fixed rigid
+            // proxy) and ANIMATED geometry joined it at #1228.
             { "unsupportedInstances", resident.UnsupportedInstances },
+            // The animated share of the number above, broken out because it is
+            // the one part that means "this should have been traceable". A
+            // non-zero value with characters on screen says their deformed
+            // vertices are not reaching the RT scene, and they are being kept
+            // OUT of the TLAS rather than traced at their rest pose.
+            { "animatedInstancesRefused", resident.AnimatedInstancesRefused },
             { "accelerationStructureBytes", resident.AccelerationStructureBytes },
             { "scratchBytes", resident.ScratchBytes },
             { "compactionSavedBytes", resident.CompactionSavedBytes },

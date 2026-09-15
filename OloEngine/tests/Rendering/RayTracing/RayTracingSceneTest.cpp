@@ -392,6 +392,28 @@ namespace OloEngine::Tests
             m_GPUScene.ExtractInstance(MakeInstanceKey(entity, geometryKey), instance);
         }
 
+        // The same, but the instance declares itself ANIMATED — the record a
+        // skinned submesh has produced since issue #1228. The geometry is
+        // identical to the rigid case on purpose: what makes this surface
+        // untraceable is not its geometry record, which is perfectly
+        // well-formed, but the fact that the record describes a REST surface
+        // while the pose only ever exists inside a vertex shader.
+        void StageAnimatedInstance(u64 entity, const GPUSceneGeometryKey& geometryKey,
+                                   const GPUSceneGeometryInput& geometry, const GPUSceneMaterialInput& material,
+                                   u32 deformationRevision = 2, u32 previousDeformationRevision = 1)
+        {
+            const GPUSceneMaterialKey materialKey = MakeMaterialKey(entity);
+            m_GPUScene.ExtractGeometry(geometryKey, geometry);
+            m_GPUScene.ExtractMaterial(materialKey, material);
+            GPUSceneInstanceInput instance{};
+            instance.m_Material = materialKey;
+            instance.m_VisibilityMask = std::numeric_limits<u32>::max();
+            instance.m_Flags = GPUSceneInstanceFlagAnimated;
+            instance.m_DeformationRevision = deformationRevision;
+            instance.m_PrevDeformationRevision = previousDeformationRevision;
+            m_GPUScene.ExtractInstance(MakeInstanceKey(entity, geometryKey), instance);
+        }
+
         GPUScene m_GPUScene;
         RT::RayTracingScene m_Scene;
         FakeRayTracingBackend* m_Backend = nullptr;
@@ -499,6 +521,113 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Scene.GetStats().Frame.InstancesSkipped, 1u);
         EXPECT_EQ(m_Scene.GetStats().Resident.UnsupportedInstances, 1u);
         EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 0u);
+    }
+
+    // =========================================================================
+    // Animated surfaces: refused, not traced at rest
+    //
+    // Issue #1228 gave skinned meshes canonical GPU Scene records. It did not
+    // give them deformed VERTICES — skinning happens in the vertex stage and is
+    // never written to memory — so from that merge until this guard existed,
+    // every skinned character's rest-pose buffer was built into a compacted,
+    // build-once BLAS and put in the TLAS. The character then cast ray-traced
+    // shadows and appeared in reflections T-posed while raster drew it
+    // mid-stride, with nothing anywhere reporting it: the record is
+    // well-formed, the build succeeds, the API usage is legal and every counter
+    // reads healthy.
+    //
+    // These four cases are deliberately about what does NOT happen, because the
+    // defect's whole character was that everything that normally signals a
+    // problem kept saying there wasn't one.
+    // =========================================================================
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedInstanceIsRefusedRatherThanTracedAtItsRestPose)
+    {
+        BeginFrame();
+        StageAnimatedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_TRUE(m_Backend->Builds.empty())
+            << "an animated surface has no deformed vertices in memory, so a BLAS built from its record would hold "
+               "the rest pose — wrong geometry in the TLAS is worse than none";
+        EXPECT_TRUE(m_Backend->LastInstances.empty());
+        EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedRefusalIsCountedUnderItsOwnName)
+    {
+        // The refusal has to be VISIBLE, or it is the same silence wearing a
+        // different shape. UnsupportedInstances alone cannot carry it: a cloth
+        // instance in that count is a permanent property of the engine, an
+        // animated one is a surface that should be traceable and is not.
+        BeginFrame();
+        StageAnimatedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesSkipped, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.UnsupportedInstances, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 1u);
+    }
+
+    TEST_F(RayTracingSceneFixture, ARigidInstanceIsUntouchedByTheAnimatedGuard)
+    {
+        // The control, and it is not optional. A guard that refused EVERY
+        // instance would pass both tests above and take the whole TLAS with it;
+        // only this case fails on that. The geometry is byte-identical to the
+        // animated one, so the flag is the only difference between them.
+        BeginFrame();
+        StageInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedInstanceDoesNotTakeARigidSiblingSharingItsMeshOutOfTheTlas)
+    {
+        // Classification is per INSTANCE and the BLAS demand map is per
+        // GEOMETRY, so a refusal that leaked from one to the other would delete
+        // a perfectly traceable rigid instance because something else animated
+        // the same mesh. That is a plausible way to write this guard and it is
+        // wrong: two entities share a mesh routinely, and only one of them may
+        // be skinned.
+        const GPUSceneGeometryKey shared = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageAnimatedInstance(1, shared, MakeTraceableGeometry(), MakeMaterial());
+        StageInstance(2, shared, MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 1u);
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u)
+            << "the rigid instance sharing the mesh must still trace";
+        EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 1u);
+
+        // ...and it must be the RIGID one. Asserting only the count would pass
+        // just as well if the guard had kept the animated instance and dropped
+        // the rigid one, which is the same bug with the survivors swapped.
+        const u32 tracedSlot = m_Backend->LastInstances[0].CustomIndex;
+        bool foundTracedRecord = false;
+        for (u32 slot = 0; slot < m_GPUScene.GetInstanceSlotCount(); ++slot)
+        {
+            const GPUSceneInstance* record = m_GPUScene.GetLiveInstanceRecordBySlot(slot);
+            if (record == nullptr || record->StableIndex != tracedSlot)
+            {
+                continue;
+            }
+            foundTracedRecord = true;
+            EXPECT_EQ(record->Flags & GPUSceneInstanceFlagAnimated, 0u)
+                << "the surviving TLAS instance is the animated one — the refusal dropped the wrong sibling";
+        }
+        EXPECT_TRUE(foundTracedRecord) << "the traced instance's custom index names no live GPU Scene record";
     }
 
     TEST_F(RayTracingSceneFixture, AMovedInstanceRebuildsNoBlas)

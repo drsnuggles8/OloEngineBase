@@ -446,9 +446,13 @@ namespace OloEngine
                 // because none is counted and this would not be.
                 //
                 // It leaves skinned virtual geometry outside the TLAS, which is
-                // where every other skinned mesh already is (RayTracingScene
-                // excludes skinned entities outright). #1144 is the issue that
-                // owns closing that.
+                // where every other skinned mesh already is — though for a
+                // different reason since #1228. A classic skinned mesh now DOES
+                // reach the canonical GPU Scene; RayTracingScene::Classify
+                // refuses it there, on this same argument, because its record
+                // describes a rest surface and no deformed one exists yet.
+                // #1144 is the issue that owns closing this for virtual
+                // geometry; #1229 owns it for classic meshes.
                 if (material->GetAlphaMode() == AlphaMode::Blend || submission.IsSkinned())
                 {
                     ++vgDiagnostics.ProxylessParts;

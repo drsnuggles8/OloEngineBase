@@ -32,6 +32,10 @@ namespace
         snapshot.Stats.Resident.BlasByClass[static_cast<sizet>(RT::GeometryClass::Static)] = 12u;
         snapshot.Stats.Resident.BlasByClass[static_cast<sizet>(RT::GeometryClass::Masked)] = 3u;
         snapshot.Stats.Resident.UnsupportedInstances = 5u;
+        // Distinct from UnsupportedInstances on purpose: the animated count is
+        // a SHARE of it, so equal values here would let a report that emitted
+        // the blanket number under both keys pass.
+        snapshot.Stats.Resident.AnimatedInstancesRefused = 2u;
         snapshot.Stats.Resident.TlasInstances = 15u;
         snapshot.Stats.Resident.AccelerationStructureBytes = 4096u;
         snapshot.Stats.Resident.ScratchBytes = 1024u;
@@ -53,6 +57,10 @@ namespace
         EXPECT_EQ(report.at("resident").at("scratchBytes").get<u64>(), 1024u);
         EXPECT_EQ(report.at("resident").at("compactionSavedBytes").get<u64>(), 512u);
         EXPECT_EQ(report.at("resident").at("unsupportedInstances").get<u32>(), 5u);
+        // The animated share, which is what tells a reader whether characters
+        // are missing from the TLAS on purpose (#1229's refusal) or by
+        // accident.
+        EXPECT_EQ(report.at("resident").at("animatedInstancesRefused").get<u32>(), 2u);
         EXPECT_EQ(report.at("resident").at("blasByClass").at("masked").get<u32>(), 3u);
         // Distinct values per key on purpose: "static" and "masked" carry 12 and
         // 3, so a mapping that crossed the two class slots reads wrong here

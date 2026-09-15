@@ -75,12 +75,33 @@ namespace OloEngine::RayTracing
         // verdict (a dead material slot rejects one instance of a mesh whose
         // other instances still trace). This is the issue's
         // "unsupported/missing geometry count", and it is a real, expected
-        // population: skinned, cloth and particle entities never reach the
-        // canonical GPU Scene at all. Virtualized-cluster entities DO since
-        // issue #1144 — they arrive as a fixed proxy mesh (ADR 0023), so a
-        // scene full of Nanite content no longer reads as one big number
-        // here.
+        // population: cloth and particle entities never reach the canonical
+        // GPU Scene at all. Virtualized-cluster entities DO since issue #1144 —
+        // they arrive as a fixed proxy mesh (ADR 0023), so a scene full of
+        // Nanite content no longer reads as one big number here. ANIMATED
+        // entities reach it too, since issue #1228; what happens to them is the
+        // counter below.
         u32 UnsupportedInstances = 0;
+
+        // The animated share of UnsupportedInstances: live instances carrying
+        // GPUSceneInstanceFlagAnimated that the RT scene refused because no
+        // deformed vertex stream was available for them.
+        //
+        // It is broken out rather than left inside the blanket count because
+        // the two have different meanings to a reader. A cloth instance in
+        // UnsupportedInstances is a permanent property of this engine; an
+        // animated one is a surface that SHOULD be traceable and is not, so a
+        // non-zero value here while characters are on screen is the signal that
+        // the deformation producer is not reaching them.
+        //
+        // The counter exists because the alternative is silence. An animated
+        // instance traced from its rest-pose buffer produces a well-formed
+        // record, a successful build, legal API usage and healthy counters —
+        // the only evidence is a T-posed character in a shadow or a reflection,
+        // in a pass most scenes do not enable. Refusing it is correct; refusing
+        // it without saying so would be the same defect wearing a different
+        // shape (no-silent-fallbacks.md).
+        u32 AnimatedInstancesRefused = 0;
 
         // Memory, bytes. AccelerationStructureBytes is what the BLAS/TLAS
         // backing buffers currently hold; ScratchBytes is the pooled build

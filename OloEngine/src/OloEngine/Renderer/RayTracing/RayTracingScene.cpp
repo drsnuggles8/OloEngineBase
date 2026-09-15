@@ -164,11 +164,45 @@ namespace OloEngine::RayTracing
             return GeometryClass::Unsupported;
         }
 
-        // Deformed geometry does not reach GPU Scene today: skinned, cloth and
-        // particle entities are excluded upstream and counted in
-        // GPUSceneUnsupportedCategory instead. The class and its refit policy
-        // exist and are tested, so the day a deformed-vertex stream lands in
-        // GPU Scene this is the one line that changes.
+        // AN ANIMATED SURFACE WITH NO DEFORMED VERTEX STREAM IS NOT TRACEABLE,
+        // and this refusal is the whole of it.
+        //
+        // The comment that used to sit here said skinned entities never reach
+        // GPU Scene at all, which was true when #978 wrote it and stopped being
+        // true when #1228 gave animated meshes canonical records. Nothing else
+        // changed — so from that merge until this line existed, every skinned
+        // character passed the checks above and took the RIGID path below,
+        // earning a compacted, build-once BLAS holding its REST pose. It then
+        // cast ray-traced shadows and appeared in reflections T-posed while the
+        // raster path drew it mid-stride.
+        //
+        // Nothing announced it. The record is well-formed, the addresses are
+        // real, the build succeeds, the validation layers see legal usage and
+        // the counters all read healthy — the only evidence is the picture, in
+        // a pass most scenes do not enable. That is precisely the shape
+        // Renderer3DMeshSubmission.cpp already refuses for a skinned VIRTUAL
+        // mesh, in a comment that names this exact failure: "Wrong geometry in
+        // the TLAS is worse than none, because none is counted and this would
+        // not be."
+        //
+        // So an animated instance is counted and dropped rather than traced at
+        // rest. There is no deformed-vertex producer in this engine yet — every
+        // skinned consumer deforms inside its own vertex stage and keeps
+        // nothing (skeletal-deformation-shared-output.md) — so there is no pose
+        // in memory to trace, and the raster path remains the only correct view
+        // of an animated surface. Issue #1229 builds that producer and turns
+        // this arm into a Deformed classification; until it does, the honest
+        // answer is a counted refusal.
+        //
+        // The flag is tested, never inferred from the deformation revisions:
+        // both lanes are 0 on a rigid instance and 0 == 0 is the DISCONTINUOUS
+        // reading, so inference would classify every rigid mesh as a deforming
+        // one (animated-surface-records.md §3).
+        if ((instance.Flags & GPUSceneInstanceFlagAnimated) != 0u)
+        {
+            return GeometryClass::Unsupported;
+        }
+
         //
         // Virtualized-cluster entities USED to be on that list and no longer
         // are (issue #1144, ADR 0023). Nothing here knows about them: each
@@ -341,6 +375,15 @@ namespace OloEngine::RayTracing
                 // rejects one instance of a mesh other instances still trace).
                 ++resident.UnsupportedInstances;
                 ++m_Stats.Frame.InstancesSkipped;
+                // ...and an ANIMATED refusal is broken out, because it is the
+                // one row here that means "this should have been traceable".
+                // Ticked from the instance's own flag rather than from the
+                // class, since Unsupported is the one class that does not say
+                // why it was reached.
+                if ((instance->Flags & GPUSceneInstanceFlagAnimated) != 0u)
+                {
+                    ++resident.AnimatedInstancesRefused;
+                }
                 continue;
             }
 

@@ -179,10 +179,27 @@ ray-query dispatch has no per-draw scope to bind arbitrary materials into. The f
 caller-supplied macro. Closing that needs the shader-visible sampler heap ADR 0011 §1.2a already
 records — it is not an acceleration-structure problem.
 
-Deformed geometry has a class, a refit heuristic and tests, but **no live producer**: skinned,
-cloth and particle entities never reach the canonical GPU Scene at all (`Scene.cpp` skips them and
-counts them in `GPUSceneUnsupportedCategory`). The policy is exercised by tests, not by a scene, and
-that is stated rather than hidden.
+Deformed geometry has a class, a refit heuristic and tests, but **no live producer**: nothing in this
+engine writes a deformed vertex to memory, because every skinned consumer deforms inside its own
+vertex stage and keeps nothing ([skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md)).
+The policy is exercised by tests, not by a scene, and that is stated rather than hidden.
+
+**A corollary that cost a merge to learn.** Cloth and particle entities are skipped upstream and
+counted in `GPUSceneUnsupportedCategory`, so they can never reach a build. **Skinned entities used to
+be on that list and are not since #1228** — and nothing else changed, so `Classify` accepted their
+rest-pose records and gave every character a compacted, build-once BLAS holding its T-pose. It cast
+ray-traced shadows and appeared in reflections at rest while raster drew it mid-stride.
+
+Nothing announced it, and that is the part worth keeping: the record is well-formed, the addresses
+are real, the build succeeds, the validation layers see legal usage, and every counter reads healthy.
+The only evidence is the picture, in passes most scenes do not enable.
+
+So the rule is: **when a class exists for geometry the scene "cannot produce", the exclusion that
+makes that true lives somewhere else, and it will not tell you when it moves.** Test the property you
+depend on (`GPUSceneInstanceFlagAnimated` is set → refuse) at the point you depend on it, rather than
+relying on an upstream filter you did not write. `RayTracingScene::Classify` does that now, and
+`ResidentCounters::AnimatedInstancesRefused` makes the refusal visible — a refusal nobody can see is
+the same silence in a different shape.
 
 Virtualized-cluster (Nanite-style) entities were on that list until issue #1144 and are not any
 more, but they did **not** become a producer for the deformed class. Each virtual-mesh part is
