@@ -60,7 +60,11 @@ race:JPH::UVec4::sLoadInt4
 # ── Mesa's own driver threads (libgallium), not engine code ───────────────────
 # Needed by the GPU-under-sanitizer nightly (gpu-sanitizers-amd.yml), which is
 # the only job that runs TSan with a REAL GL context; the routed TSan job passes
-# --olo-gl-backend=none and never loads a driver.
+# --olo-gl-backend=none and so loads no GL driver.
+#
+# That is a statement about the GL driver ONLY, and it used to read here as
+# "never loads a driver" — true when written, not true now. See the
+# libvulkan_radeon block below: the routed job DOES load a Vulkan driver.
 #
 # radeonsi spawns its own worker threads ('OloEngin:gdrv0' and friends) and
 # synchronises them internally. TSan cannot see that synchronisation, because
@@ -74,3 +78,38 @@ race:JPH::UVec4::sLoadInt4
 # interceptors (free/calloc) and carry no symbol of their own. Scoped to the one
 # library, so a genuine engine-side race still reports normally.
 called_from_lib:libgallium
+
+# ── RADV's own driver threads (libvulkan_radeon), not engine code ─────────────
+# Same family as libgallium above, different driver — and it reaches the job the
+# note above used to call driver-free. ShaderCompileBudgetTest builds every
+# compute shader on a **RADV null device** (the compile-budget guard added
+# 2026-09-12), which loads libvulkan_radeon regardless of
+# --olo-gl-backend=none. So the routed TSan job has run driver code ever since
+# that test landed; this suppression is the gap that opened then.
+#
+# RADV spawns its own shader-disk-cache workers ('OloEngi:disk$1', 'disk$2') and
+# tears them down through a pthread_barrier it owns. TSan reports
+# pthread_barrier_destroy on one of those threads racing pthread_barrier_wait on
+# another:
+#
+#   Write of size 1 by thread T6:    #0 pthread_barrier_destroy
+#                                    #1 (libvulkan_radeon.so+0x2a3860)
+#   Previous read of size 1 by T57:  #0 pthread_barrier_wait
+#                                    #1 (libvulkan_radeon.so+0x2a479c)
+#
+# BOTH racing accesses are inside the driver. The engine appears in neither —
+# only as the caller that created the null device
+# (ShaderCompileBudgetTest.cpp:508). It is the driver's barrier, on the driver's
+# threads, during the driver's teardown, and the driver is not instrumented, so
+# TSan cannot see whatever orders those two. Timing-dependent, hence
+# intermittent: master is green on this same shard, and it surfaced on a PR that
+# changed only the shard's composition (66 added test cases reshuffle ctest
+# sharding). First seen: PR #1292, Sanitizers run 34984922536,
+# 'TSan (Linux) tests 1/4', ShaderCompileBudget.*.
+#
+# called_from_lib for the same reason as libgallium: the racing frames ARE the
+# pthread interceptors and carry no symbol of their own, so there is no
+# race:<symbol> to scope this to. Scoped to the one library, so a genuine
+# engine-side race still reports normally — including one merely *guarded* by a
+# driver barrier, whose racing accesses would be in engine code.
+called_from_lib:libvulkan_radeon
