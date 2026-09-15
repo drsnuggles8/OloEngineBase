@@ -17,16 +17,19 @@
 // Varying contract every consumer must declare:
 //   location 0  vec3  v_CardWorld       location 5  float v_Rotation
 //   location 1  vec3  v_PivotWorld      location 6  vec3  v_PrevCardWorld
-//   location 4  float v_AlphaCutoff     location 7  float v_Radius
-// (locations 2/3 were an unread uv and tint; retired — the atlas albedo has
-// the tint baked in, and re-applying it was the double-tint bug the sampling
-// include's comment warns about.)
+//   location 2  float v_MeshCoverage    location 7  float v_Radius
+//   location 4  float v_AlphaCutoff
+// (location 3 was an unread tint; retired — the atlas albedo has the tint
+// baked in, and re-applying it was the double-tint bug the sampling include's
+// comment warns about. Location 2 was an unread uv and now carries the
+// authored-mesh hand-over share, issue #1233.)
 //
 // Sibling includes resolve inside include/.
 
 #ifdef OLO_VULKAN
 // #691 (ADR 0011 §5): V8 foliage two-stream pull — stream 0 = the
-// 20-byte card quad on the engine-wide binding 57, stream 1 = FoliageRenderer's
+// 32-byte {vec3 position, vec3 normal, vec2 uv} geometry vertex on the
+// engine-wide binding 57, stream 1 = FoliageRenderer's
 // 48-byte per-instance VB {PositionScale, RotationHeight, ColorAlpha} on the
 // reserved stream-1 binding 63, indexed by gl_InstanceIndex. Pulled locals
 // under the attribute names in main() keep the body shared (Foliage_Instance
@@ -42,11 +45,12 @@ layout(std430, binding = 63) readonly buffer OloBonePull
 #define OLO_PULLED_VERTEX 1
 #else
 layout(location = 0) in vec3 a_Position;
-layout(location = 1) in vec2 a_TexCoord;
+layout(location = 1) in vec3 a_Normal;   // unread here — the card builds its own basis
+layout(location = 2) in vec2 a_TexCoord;
 
-layout(location = 2) in vec4 a_PositionScale;  // xyz = world pos, w = scale
-layout(location = 3) in vec4 a_RotationHeight; // x = Y rotation (rad), y = height, z = fade, w = unused
-layout(location = 4) in vec4 a_ColorAlpha;     // rgb = tint, a = alpha cutoff
+layout(location = 3) in vec4 a_PositionScale;  // xyz = terrain-local pos, w = scale
+layout(location = 4) in vec4 a_RotationHeight; // x = Y rotation (rad), y = height, z = fade, w = unused
+layout(location = 5) in vec4 a_ColorAlpha;     // rgb = tint, a = alpha cutoff
 #endif
 
 layout(std140, binding = 0) uniform CameraMatrices
@@ -83,7 +87,14 @@ layout(std140, binding = 12) uniform FoliageParams
     float _foliagePad2;
     vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
     vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
+    // x = this draw is the authored mesh (1) or the card (0) — always 0 here,
+    // because the impostor IS the far-field card; yz = the layer's
+    // mesh-to-card hand-over band (issue #1233).
+    vec4 u_MeshParams;
+    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO
 };
+
+#include "FoliageInstanceGeometry.glsl"
 
 layout(location = 0) out vec3 v_CardWorld;  // this fragment's card world position
 layout(location = 1) out vec3 v_PivotWorld; // card centre (world)
@@ -91,13 +102,16 @@ layout(location = 4) out float v_AlphaCutoff;
 layout(location = 5) out float v_Rotation;  // instance Y rotation
 layout(location = 6) out vec3 v_PrevCardWorld;
 layout(location = 7) out float v_Radius;    // WORLD-space card radius (object radius * scale)
+// This plant's authored-mesh share (issue #1233). The impostor is the FAR side
+// of the hand-over, so it keeps the pixels the near mesh does not.
+layout(location = 2) out float v_MeshCoverage;
 
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
-    int vertBase = gl_VertexIndex * 5;
+    int vertBase = gl_VertexIndex * 8;
     vec3 a_Position = vec3(b_Vertices.v[vertBase + 0], b_Vertices.v[vertBase + 1], b_Vertices.v[vertBase + 2]);
-    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 3], b_Vertices.v[vertBase + 4]);
+    vec2 a_TexCoord = vec2(b_Vertices.v[vertBase + 6], b_Vertices.v[vertBase + 7]);
     int instBase = gl_InstanceIndex * 12;
     vec4 a_PositionScale = vec4(b_Instances.v[instBase + 0], b_Instances.v[instBase + 1],
                                 b_Instances.v[instBase + 2], b_Instances.v[instBase + 3]);
@@ -146,6 +160,13 @@ void main()
     // which is the out-of-bounds hazard the old comment was really about (issue
     // #433). The two got conflated, and the transform was dropped with them.
     vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+
+    // Authored-mesh hand-over (issue #1233), decided per INSTANCE from the
+    // render-relative pivot exactly as the flat card and the shadow pass decide
+    // it. Without this a layer that has BOTH an authored mesh and an impostor
+    // draws the pine and a card of that pine on top of each other up close.
+    v_MeshCoverage = foliageMeshCoverage(distance(instWorld, u_MeshViewPos.xyz),
+                                         u_MeshParams.y, u_MeshParams.z);
     // Anchor the card on the MESH CENTRE, because that is what the bake framed:
     // ImpostorBaker centres each tile on the source mesh's bounding-box centre
     // and spans +-u_ImpostorParams1.y around it, so the card's centre has to

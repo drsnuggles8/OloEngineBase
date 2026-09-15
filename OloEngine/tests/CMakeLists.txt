@@ -234,6 +234,7 @@ add_executable(OloEngine-Tests
 		Asset/LightmapAssetSerializationTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
+		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageImpostorShaderInterfaceTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
@@ -607,6 +608,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushParityTest.cpp
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp

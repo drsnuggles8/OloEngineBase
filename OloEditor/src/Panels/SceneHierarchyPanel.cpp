@@ -6634,17 +6634,22 @@ namespace OloEngine
                     const auto& census = component.m_Renderer->GetInstanceRegistry().GetCensus();
                     ImGui::Text("Instances: %u in %u spatial groups",
                                 census.m_CanonicalInstances, census.m_SpatialGroups);
-                    ImGui::Text("  cards %u | impostors %u | undrawable %u",
-                                census.m_MeshCardInstances, census.m_ImpostorInstances,
-                                census.m_UnsupportedInstances);
+                    ImGui::Text("  cards %u | meshes %u | impostors %u | undrawable %u",
+                                census.m_MeshCardInstances, census.m_AuthoredMeshInstances,
+                                census.m_ImpostorInstances, census.m_UnsupportedInstances);
+                    ImGui::SetItemTooltip(
+                        "How each plant is represented UP CLOSE. A layer counted under 'meshes' "
+                        "still hands over to its card or impostor beyond Mesh View Distance.");
                     if (census.m_UnsupportedVariants > 0)
                     {
                         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-                                           "  %u layer(s) asked for an impostor and did not get one",
+                                           "  %u layer(s) did not get the representation they asked for",
                                            census.m_UnsupportedVariants);
                         ImGui::SetItemTooltip(
-                            "The atlas failed to bake (usually a missing or unreadable Mesh Path), "
-                            "so the layer falls back to a flat billboard card. See OloEngine.log.");
+                            "Either the impostor atlas failed to bake, or the authored plant mesh "
+                            "would not load — usually a missing or unreadable Mesh Path. The layer "
+                            "falls back to its flat billboard card. See OloEngine.log for which, "
+                            "per layer, by name.");
                     }
                 }
 
@@ -6719,6 +6724,13 @@ namespace OloEngine
                             layer.MeshPath = meshBuf;
                             component.m_NeedsRebuild = true;
                         }
+                        ImGui::SetItemTooltip(
+                            "The authored plant mesh. Rendered as real geometry up close (issue "
+                            "#1233) and baked into the octahedral impostor atlas for distance. "
+                            "Author it base-at-origin and one unit tall: both paths scale it by "
+                            "the instance's height, and a mesh at any other size is drawn at the "
+                            "wrong size in both. A path that will not load is reported in "
+                            "OloEngine.log and the layer draws its flat card everywhere.");
 
                         char albedoBuf[256];
                         std::strncpy(albedoBuf, layer.AlbedoPath.c_str(), sizeof(albedoBuf) - 1);
@@ -6727,6 +6739,38 @@ namespace OloEngine
                         {
                             layer.AlbedoPath = albedoBuf;
                             component.m_NeedsRebuild = true;
+                        }
+
+                        // Authored-mesh near field (issue #1233). Kept beside the
+                        // Mesh Path it depends on rather than down with the LOD
+                        // distances: with no mesh assigned these do nothing, and
+                        // an author reading them out of context would take them
+                        // for the card's own fade.
+                        if (!layer.MeshPath.empty())
+                        {
+                            if (ImGui::Checkbox("Render Authored Mesh", &layer.UseAuthoredMesh))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "Draw the Mesh Path's real geometry up close. Off leaves the layer "
+                                "on its flat card at every distance, which is the cheaper look for "
+                                "ground cover; the impostor bake is unaffected either way.");
+
+                            if (layer.UseAuthoredMesh)
+                            {
+                                if (ImGui::DragFloat("Mesh View Distance", &layer.MeshViewDistance, 0.5f, 0.0f, 500.0f))
+                                {
+                                    layer.MeshFadeStartDistance =
+                                        std::min(layer.MeshFadeStartDistance, layer.MeshViewDistance);
+                                    component.m_NeedsRebuild = true;
+                                }
+                                ImGui::SetItemTooltip("Beyond this the mesh has fully handed over to the card / impostor.");
+                                if (ImGui::DragFloat("Mesh Fade Start", &layer.MeshFadeStartDistance, 0.5f, 0.0f,
+                                                     layer.MeshViewDistance))
+                                    component.m_NeedsRebuild = true;
+                                ImGui::SetItemTooltip(
+                                    "Where the hand-over begins. The mesh and the card share this band and "
+                                    "split the pixels between them across it, so neither pops.");
+                            }
                         }
 
                         ImGui::Separator();

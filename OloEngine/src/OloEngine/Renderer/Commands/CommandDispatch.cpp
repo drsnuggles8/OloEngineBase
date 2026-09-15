@@ -3276,6 +3276,14 @@ namespace OloEngine
             // Octahedral impostor params (issue #433) — zero on the billboard path.
             foliageData.ImpostorParams0 = glm::vec4(cmd->impostorFramesPerAxis, cmd->impostorHemi, cmd->impostorStartDistance, cmd->impostorBand);
             foliageData.ImpostorParams1 = glm::vec4(cmd->impostorEnabled, cmd->impostorRadius, cmd->impostorParallaxScale, 0.0f);
+            // Authored plant mesh near field (issue #1233). The view position
+            // rides the foliage UBO rather than being read from the camera one,
+            // because the shadow pass's camera is the LIGHT — see
+            // ShaderBindingLayout::FoliageUBO::MeshViewPos. Same expression the
+            // camera UBO uses for its own Position, so the two agree exactly.
+            foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
+            foliageData.MeshViewPos =
+                glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRHIHandle());
         }
@@ -3302,7 +3310,7 @@ namespace OloEngine
         BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
         api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
-                                      RHI::IndexType::UInt32, 0, cmd->instanceCount);
+                                      RHI::IndexType::UInt32, cmd->baseIndex, cmd->instanceCount);
         ++Data().Stats.DrawCalls;
     }
     void CommandDispatch::DrawWater(const void* data, RendererAPI& api)

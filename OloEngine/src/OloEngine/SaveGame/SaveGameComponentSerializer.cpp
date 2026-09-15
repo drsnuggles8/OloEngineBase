@@ -572,6 +572,27 @@ namespace OloEngine
                 l.ImpostorTransitionBand = std::max(l.ImpostorTransitionBand, 0.0f);
             }
         }
+        // Authored plant mesh near field appended in save-format v32 (issue
+        // #1233). MeshPath itself has round-tripped since v11 — only the near
+        // field's switch and hand-over band are new.
+        if (HasFieldsSince(ar, 32))
+        {
+            ar << l.UseAuthoredMesh;
+            ar << l.MeshViewDistance << l.MeshFadeStartDistance;
+
+            if (ar.IsLoading())
+            {
+                // Same guard as the impostor band above: these reach a
+                // smoothstep in the vertex and fragment stages, where a NaN or
+                // an inverted band silently drops the layer's geometry.
+                if (!std::isfinite(l.MeshViewDistance))
+                    l.MeshViewDistance = 30.0f;
+                l.MeshViewDistance = std::max(l.MeshViewDistance, 0.0f);
+                if (!std::isfinite(l.MeshFadeStartDistance))
+                    l.MeshFadeStartDistance = 22.0f;
+                l.MeshFadeStartDistance = std::clamp(l.MeshFadeStartDistance, 0.0f, l.MeshViewDistance);
+            }
+        }
         // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
     }
 

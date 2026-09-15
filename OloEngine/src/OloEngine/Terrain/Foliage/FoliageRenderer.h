@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
 #include <string>
@@ -31,12 +32,32 @@ namespace OloEngine
         // survives command submission (issue #1230): a consumer holding a
         // draw can reach the layer's canonical records and spatial groups via
         // FoliageRenderer::GetInstanceRegistry(). Not the index of this entry
-        // in the returned vector — inactive layers are skipped.
+        // in the returned vector — inactive layers are skipped, and since
+        // #1233 ONE layer can contribute SEVERAL entries (one per authored-mesh
+        // submesh plus the card), so this is not a one-to-one index either.
         u32 LayerIndex = 0;
         RHI::ResourceHandle VertexArrayID{};
+        // Index range within VertexArrayID's index buffer. The card is the
+        // whole buffer; an authored mesh's submeshes are consecutive ranges of
+        // one shared buffer, each with its own material (issue #1233).
+        u32 BaseIndex = 0;
         u32 IndexCount = 0;
         u32 InstanceCount = 0;
         RHI::ResourceHandle AlbedoTextureID{};
+        // This entry draws the layer's authored plant mesh rather than the flat
+        // card. The vertex stage needs it: a card is scaled anisotropically
+        // (x/z by scale, y by height * scale) and a mesh UNIFORMLY by
+        // height * scale, matching the impostor so the silhouette does not jump
+        // at the hand-over.
+        bool IsAuthoredMesh = false;
+        // The mesh-to-card hand-over band, IDENTICAL on both of a layer's
+        // entries — that is what lets the two draws partition the pixels
+        // exactly (see the FoliageMeshLod.glsl include) instead of each running
+        // its own fade and leaving a stretch where a pine and its card are both
+        // opaque. Zero end means the layer has no authored mesh and the card
+        // covers everything, which is the pre-#1233 behaviour exactly.
+        f32 MeshHandoverStartDistance = 0.0f;
+        f32 MeshHandoverEndDistance = 0.0f;
         f32 ViewDistance = 100.0f;
         f32 FadeStartDistance = 80.0f;
         f32 WindStrength = 0.3f;
@@ -158,6 +179,19 @@ namespace OloEngine
         }
 
       private:
+        // One drawable index range of a layer's geometry, with the material it
+        // is drawn with (issue #1233). The card is a single part; an authored
+        // mesh contributes one part per submesh so a plant whose trunk and
+        // leaves use different textures renders as authored.
+        struct LayerDrawPart
+        {
+            u32 BaseIndex = 0;
+            u32 IndexCount = 0;
+            // The submesh's own albedo. Null falls through to the layer's
+            // AlbedoTexture, which is what a mesh with no imported texture gets.
+            Ref<Texture2D> Albedo;
+        };
+
         // Internal per-layer GPU data
         struct LayerRenderData
         {
@@ -165,6 +199,27 @@ namespace OloEngine
             Ref<VertexBuffer> QuadVBO;     // Geometry (unit quad)
             Ref<VertexBuffer> InstanceVBO; // Per-instance data
             Ref<IndexBuffer> IBO;
+
+            // Authored plant mesh (issue #1233), drawn up close. A SEPARATE
+            // vertex array over a PRIVATE copy of the source geometry rather
+            // than the MeshSource's own: the instance stream has to be bound
+            // into the vertex array, and doing that to a shared mesh asset
+            // would leak this layer's instancing into every other user of it.
+            Ref<VertexArray> MeshVAO;
+            Ref<VertexBuffer> MeshVBO;
+            Ref<IndexBuffer> MeshIBO;
+            std::vector<LayerDrawPart> MeshParts;
+            // Keeps the imported materials' textures alive for as long as the
+            // parts reference them.
+            Ref<Model> MeshModel;
+            std::string MeshGeometryPath; // What MeshVBO/MeshIBO were built from
+            bool MeshRequested = false;   // UseAuthoredMesh && !MeshPath.empty()
+            u32 MeshVertexCount = 0;
+            u32 MeshIndexCount = 0;
+            FoliageBoundsProfile BoundsProfile{};
+            f32 MeshViewDistance = 0.0f;
+            f32 MeshFadeStartDistance = 0.0f;
+
             u32 InstanceCount = 0;
             u32 InstanceCapacity = 0;
             u32 IndexCount = 0;
@@ -193,7 +248,45 @@ namespace OloEngine
             bool ImpostorBakedHemi = true;
         };
 
+        // ONE draw this layer contributes: an index range of one of its vertex
+        // arrays, the material it is drawn with, and the distance band it owns.
+        //
+        // THE list, walked by all three consumers — the beauty/G-Buffer
+        // submission path (GetActiveLayerDrawInfo), the shadow pass
+        // (RenderShadows) and the direct Render() path. That is what makes
+        // issue #1233's fourth criterion structural rather than reviewable: a
+        // pass cannot draw a quad where another drew a pine, because none of
+        // them decides what to draw.
+        struct LayerDraw
+        {
+            Ref<VertexArray> VAO;
+            u32 BaseIndex = 0;
+            u32 IndexCount = 0;
+            Ref<Texture2D> Albedo;
+            bool IsAuthoredMesh = false;
+            // The layer's mesh-to-card hand-over band, the SAME values on every
+            // draw of the layer. Each draw derives the mesh's coverage fraction
+            // from it and keeps the pixels the other one does not, so the two
+            // partition the screen rather than overlap. Zero end = no mesh.
+            f32 HandoverStart = 0.0f;
+            f32 HandoverEnd = 0.0f;
+            // The layer's own distance fade-out, unchanged by #1233.
+            f32 FadeStart = 80.0f;
+            f32 ViewDistance = 100.0f;
+        };
+        void EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const;
+
         void BuildQuadGeometry(LayerRenderData& data) const;
+        // Builds (or rebuilds) the layer's private copy of the authored mesh.
+        // Returns false and logs loudly when the mesh will not load — the layer
+        // then draws its card everywhere, which is the pre-#1233 look, and the
+        // registry counts the variant as unavailable. Never a silent fallback.
+        bool BuildMeshGeometry(LayerRenderData& data, const FoliageLayer& layer) const;
+        // (Re)creates the vertex arrays over whatever geometry and instance
+        // buffers the layer currently holds. Split out because the instance VBO
+        // has to be bound into EVERY vertex array the layer draws from, and a
+        // capacity grow replaces it.
+        void RebuildVertexArrays(LayerRenderData& data) const;
         void UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances);
 
         // Bakes (or re-bakes) the layer's octahedral impostor atlas if UseImpostor

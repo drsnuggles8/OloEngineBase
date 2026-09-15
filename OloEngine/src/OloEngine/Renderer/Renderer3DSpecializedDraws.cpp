@@ -191,7 +191,7 @@ namespace OloEngine
     }
 
     void Renderer3D::DrawFoliageLayer(
-        RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
+        RHI::ResourceHandle vertexArrayID, u32 baseIndex, u32 indexCount, u32 instanceCount,
         RHI::ResourceHandle albedoTextureID,
         const glm::mat4& modelTransform,
         f32 time,
@@ -201,7 +201,10 @@ namespace OloEngine
         const glm::vec4& baseColor,
         const BoundingBox& layerBounds,
         i32 entityID,
-        const FoliageImpostorParams& impostor)
+        const FoliageImpostorParams& impostor,
+        bool isAuthoredMesh,
+        f32 meshHandoverStart,
+        f32 meshHandoverEnd)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -219,7 +222,12 @@ namespace OloEngine
         // Octahedral impostor card (issue #433) vs the flat billboard. A DATA
         // decision — the layer asked for an impostor and the atlas baked — not
         // a shader-availability one; a missing program is handled below, loudly.
-        bool useImpostor = impostor.Enabled && impostor.AlbedoAtlasID.IsValid();
+        // The authored-mesh near draw is never an impostor card: the impostor
+        // IS the far-field representation, and routing the mesh through it
+        // would replace exactly the geometry this draw exists to render
+        // (issue #1233). FoliageRenderer already only tags the card draw, so
+        // this is a second lock rather than the decision.
+        bool useImpostor = !isAuthoredMesh && impostor.Enabled && impostor.AlbedoAtlasID.IsValid();
 
         // Each card has a forward and a deferred program; pick the pair once.
         const Ref<Shader>& forwardShader = useImpostor ? s_Data.FoliageImpostorShader : s_Data.FoliageShader;
@@ -282,6 +290,7 @@ namespace OloEngine
         cmd->header.type = CommandType::DrawFoliageLayer;
 
         cmd->vertexArrayID = vertexArrayID;
+        cmd->baseIndex = baseIndex;
         cmd->indexCount = indexCount;
         cmd->instanceCount = instanceCount;
         cmd->shaderRendererID = activeShader->GetRHIHandle();
@@ -297,6 +306,9 @@ namespace OloEngine
         cmd->baseColor = baseColor;
         cmd->albedoTextureID = useImpostor ? impostor.AlbedoAtlasID : albedoTextureID;
         cmd->entityID = entityID;
+        cmd->isAuthoredMesh = isAuthoredMesh ? 1.0f : 0.0f;
+        cmd->meshHandoverStart = meshHandoverStart;
+        cmd->meshHandoverEnd = meshHandoverEnd;
 
         // Octahedral impostor payload (issue #433).
         if (useImpostor)
@@ -321,7 +333,11 @@ namespace OloEngine
             // The impostor card is a camera-facing quad — draw it double-sided so
             // it never culls to nothing on either winding (matches the two-sided
             // foliage lighting); the flat billboard keeps back-face culling.
-            foliageState.cullingEnabled = !useImpostor;
+            //
+            // The authored plant mesh is two-sided too: foliage meshes are
+            // built from single-sided leaf cards, and back-face culling shows
+            // half of every leaf as a hole from the wrong side.
+            foliageState.cullingEnabled = !useImpostor && !isAuthoredMesh;
             foliageState.cullFace = RHI::CullMode::Back;
             cmd->renderStateIndex = FrameDataBufferManager::Get().AllocateRenderState(foliageState);
         }

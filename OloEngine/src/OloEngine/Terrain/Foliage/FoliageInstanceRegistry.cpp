@@ -49,15 +49,6 @@ namespace OloEngine
             return h;
         }
 
-        [[nodiscard]] BoundingBox InstanceBounds(const glm::vec3& position, f32 scale, f32 height)
-        {
-            // Matches the extent FoliageRenderer already uses for its per-layer AABB:
-            // the card stands ON the sampled ground point and spans h*s upward,
-            // with ~0.5*s of horizontal half-extent either side.
-            const glm::vec3 lo = position - glm::vec3(0.5f * scale, 0.0f, 0.5f * scale);
-            const glm::vec3 hi = position + glm::vec3(0.5f * scale, height * scale, 0.5f * scale);
-            return BoundingBox(lo, hi);
-        }
     } // namespace
 
     void FoliageInstanceRegistry::BeginGeneration(const std::vector<FoliageLayer>& layers)
@@ -138,7 +129,8 @@ namespace OloEngine
 
     void FoliageInstanceRegistry::BeginLayer(u32 layerIndex, const FoliageLayer& layer,
                                              u32 placementSeed, f32 spacing, f32 worldSizeX, f32 worldSizeZ,
-                                             FoliageRepresentation representation, bool impostorUnavailable)
+                                             FoliageRepresentation representation, bool variantUnavailable,
+                                             const FoliageBoundsProfile& boundsProfile)
     {
         OLO_CORE_ASSERT(m_Generating, "FoliageInstanceRegistry: BeginLayer outside a generation");
         OLO_CORE_ASSERT(!m_InLayer, "FoliageInstanceRegistry: BeginLayer without EndLayer");
@@ -146,6 +138,7 @@ namespace OloEngine
         m_InLayer = true;
         m_CurrentLayerIndex = layerIndex;
         m_CurrentRepresentation = representation;
+        m_CurrentBoundsProfile = boundsProfile;
         m_CurrentMaterialKey = InternMaterial(layer);
         // The material's CONTENT, not its intern index — the table is rebuilt
         // every generation, so an index can move while the material did not.
@@ -181,7 +174,7 @@ namespace OloEngine
             .m_CellZ = 0,
         };
 
-        if (impostorUnavailable)
+        if (variantUnavailable)
         {
             ++m_PendingUnsupportedVariants;
         }
@@ -210,7 +203,8 @@ namespace OloEngine
         record.m_Scale = row.PositionScale.w;
         record.m_Rotation = row.RotationHeight.x;
         record.m_Height = row.RotationHeight.y;
-        record.m_LocalBounds = InstanceBounds(record.m_Position, record.m_Scale, record.m_Height);
+        record.m_LocalBounds = FoliageInstanceBounds(record.m_Position, record.m_Scale, record.m_Height,
+                                                     m_CurrentBoundsProfile);
         record.m_StateHash = StateHash(record, m_CurrentMaterialHash);
 
         // Survival: this placement existed last generation, so it keeps its id
@@ -294,6 +288,9 @@ namespace OloEngine
                     break;
                 case FoliageRepresentation::Impostor:
                     ++m_Census.m_ImpostorInstances;
+                    break;
+                case FoliageRepresentation::AuthoredMesh:
+                    ++m_Census.m_AuthoredMeshInstances;
                     break;
                 case FoliageRepresentation::Unsupported:
                     ++m_Census.m_UnsupportedInstances;

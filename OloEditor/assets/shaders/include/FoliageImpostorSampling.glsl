@@ -3,7 +3,7 @@
 // Foliage_Impostor_GBuffer.glsl (deferred, #1225). Included by the FRAGMENT
 // stage after it has declared: the CameraMatrices and FoliageParams UBO blocks
 // and the varyings v_CardWorld, v_PivotWorld, v_AlphaCutoff, v_Rotation,
-// v_Radius. Declares the two atlas samplers itself.
+// v_Radius, v_MeshCoverage. Declares the two atlas samplers itself.
 //
 // SampleImpostorCard() also owns the DISCARD RULE, on purpose. The two paths
 // used to disagree: forward discarded on `coverage < cutoff` and past
@@ -31,6 +31,7 @@ layout(binding = 10) uniform sampler2D u_NormalDepthAtlas; // rgb=obj normal, a=
 #endif
 
 #include "OctahedralImpostor.glsl"
+#include "FoliageInstanceGeometry.glsl"
 
 // Rotate a vector about +Y by angle.
 vec3 rotateY(vec3 v, float angle)
@@ -151,6 +152,14 @@ ImpostorSample SampleImpostorCard()
     // is applied twice and the card reads far too dark.
     vec3 albedo = accAlbedo;
     float coverage = accCoverage;
+
+    // Authored-mesh hand-over (issue #1233). Part of the SHARED discard rule
+    // for the same reason the rest of it is: the impostor is the far side of a
+    // partition whose near side is the plant's real geometry, and a forward
+    // copy and a deferred copy of that test would drift exactly as the coverage
+    // test once did. `false` = this draw is the card side.
+    if (!foliageLodKeep(false, v_MeshCoverage, gl_FragCoord.xy))
+        discard;
 
     // Alpha test against the baked coverage.
     if (coverage < v_AlphaCutoff)

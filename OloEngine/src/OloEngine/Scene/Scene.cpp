@@ -9281,6 +9281,7 @@ namespace OloEngine
                         .m_CanonicalInstances = census.m_CanonicalInstances,
                         .m_MeshCardInstances = census.m_MeshCardInstances,
                         .m_ImpostorInstances = census.m_ImpostorInstances,
+                        .m_AuthoredMeshInstances = census.m_AuthoredMeshInstances,
                         .m_UnsupportedInstances = census.m_UnsupportedInstances,
                         .m_UnsupportedVariants = census.m_UnsupportedVariants,
                         .m_SpatialGroups = census.m_SpatialGroups,
@@ -9801,7 +9802,7 @@ namespace OloEngine
                         }
 
                         Renderer3D::DrawFoliageLayer(
-                            layer.VertexArrayID, layer.IndexCount, layer.InstanceCount,
+                            layer.VertexArrayID, layer.BaseIndex, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
                             modelMat,
                             animationTime,
@@ -9811,7 +9812,9 @@ namespace OloEngine
                             glm::vec4(layer.BaseColor, 0.0f),
                             layer.Bounds,
                             entityID,
-                            impostor);
+                            impostor,
+                            layer.IsAuthoredMesh,
+                            layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance);
                     }
                 }
             }

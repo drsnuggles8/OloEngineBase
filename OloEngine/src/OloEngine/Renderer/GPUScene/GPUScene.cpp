@@ -578,6 +578,7 @@ namespace OloEngine
         total.m_CanonicalInstances += census.m_CanonicalInstances;
         total.m_MeshCardInstances += census.m_MeshCardInstances;
         total.m_ImpostorInstances += census.m_ImpostorInstances;
+        total.m_AuthoredMeshInstances += census.m_AuthoredMeshInstances;
         total.m_UnsupportedInstances += census.m_UnsupportedInstances;
         total.m_UnsupportedVariants += census.m_UnsupportedVariants;
         total.m_SpatialGroups += census.m_SpatialGroups;
