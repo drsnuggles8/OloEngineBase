@@ -1154,6 +1154,22 @@ namespace OloEngine
                     .GetStats()
                     .Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
         }
+        if (PostProcessPasses.SkinDiffusion)
+        {
+            PostProcessPasses.SkinDiffusion->SetSettings(data.SkinDiffusion);
+            // P[1][1] and the clip planes, straight off the frame's projection.
+            // Taken from the matrix rather than from a stored field of view so a
+            // custom or orthographic projection reaches the pass as what it
+            // actually is -- the diffusion radius is a projected length, and a
+            // field of view is only one way to produce one.
+            const glm::mat4& projection = data.ProjectionMatrix;
+            const f32 projectionScaleY = std::isfinite(projection[1][1]) ? std::abs(projection[1][1]) : 1.0f;
+            // P[2][2] / P[3][2], the same depth-linearisation pair GTAO uses,
+            // rather than near/far: it is what the camera's actual projection
+            // says, and the two shaders must agree about what a depth texel is.
+            PostProcessPasses.SkinDiffusion->SetCameraParameters(projectionScaleY, projection[2][2],
+                                                                 projection[3][2]);
+        }
         if (PostProcessPasses.SSS)
         {
             PostProcessPasses.SSS->SetSettings(data.Snow);
@@ -3181,6 +3197,13 @@ namespace OloEngine
         // data.PostProcess.OverdrawDebugView is above).
         HashBool(h, data.Settings.ShaderDebugDrawEnabled);
         HashPassState(h, RenderStreamPasses.ShaderDebugDraw);
+        // The skin diffusion's enable and tier: the tier changes the tap COUNT,
+        // which changes the uploaded block and the pass's cost, and the enable
+        // decides whether its scratch target is declared at all -- both are
+        // topology, not just state.
+        HashPassState(h, PostProcessPasses.SkinDiffusion);
+        HashBool(h, data.SkinDiffusion.Enabled);
+        HashU32(h, static_cast<u32>(std::to_underlying(data.SkinDiffusion.Quality)));
         HashPassState(h, PostProcessPasses.SSS);
         HashPassState(h, PostProcessPasses.AOApply);
         HashPassState(h, PostProcessPasses.SSGI);
@@ -3347,11 +3370,17 @@ namespace OloEngine
                 sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
                 sceneDesc.Width = sceneSpec.Width;
                 sceneDesc.Height = sceneSpec.Height;
+                // MUST mirror SceneRenderPass::SceneMRTAttachments(), which is
+                // what the non-graph framebuffer is built from -- the transient
+                // pool's aliasing key is the attachment list, so a disagreement
+                // hands a pass a framebuffer with the wrong layout.
                 sceneDesc.Attachments = {
                     RGResourceFormat::RGBA16Float,
                     RGResourceFormat::R32Int,
                     RGResourceFormat::RG16Float,
                     RGResourceFormat::RG16Float,
+                    // [4] the skin diffusion hand-off (issue #1241).
+                    RGResourceFormat::RGBA16Float,
                     RGResourceFormat::Depth24Stencil8,
                 };
                 sceneDesc.DebugName = std::string(ResourceNames::SceneColor);
@@ -3359,6 +3388,7 @@ namespace OloEngine
                 board.Scene.SceneColorTexture = graph.CreateFramebufferAttachmentView(ResourceNames::SceneColorTexture, board.Scene.SceneColor, 0u);
                 board.Scene.SceneEntityID = graph.CreateFramebufferAttachmentView(ResourceNames::SceneEntityID, board.Scene.SceneColor, 1u);
                 board.Scene.SceneViewNormals = graph.CreateFramebufferAttachmentView(ResourceNames::SceneViewNormals, board.Scene.SceneColor, 2u);
+                board.Scene.SkinDiffuse = graph.CreateFramebufferAttachmentView(ResourceNames::SceneSkinDiffuse, board.Scene.SceneColor, 4u);
                 board.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView(ResourceNames::SceneDepthAttachment, board.Scene.SceneColor);
             }
 
@@ -4036,6 +4066,29 @@ namespace OloEngine
                 RGResourceFormat::RGBA16Float);
             board.Post.SSSColor = sssOutput.Framebuffer;
             board.Post.SSSColorTexture = sssOutput.Texture;
+        }
+
+        // The skin diffusion scratch (issue #1241) — the horizontal half of the
+        // separable blur. Declared only when the pass can actually run, so a
+        // scene with no skin pays nothing for it; the pass itself skips both
+        // draws when no authored profile in the frame asks to be diffused, which
+        // is the second gate and the one a scene WITH skin but no version-1
+        // profile hits.
+        //
+        // No matching scene-band OUTPUT: the diffusion ADDS into scene colour in
+        // place rather than producing a new image, so the post-process chain is
+        // not rewired and the result needs no handle of its own.
+        if (pipeline.PostProcessPasses.SkinDiffusion &&
+            data.SkinDiffusion.Enabled &&
+            board.Scene.SkinDiffuse.IsValid() &&
+            pipeline.PostProcessPasses.SkinDiffusion->IsReadyForExecution())
+        {
+            const auto scratch = declareSceneBandOutput(
+                ResourceNames::SkinDiffusionScratch,
+                ResourceNames::SkinDiffusionScratchTexture,
+                RGResourceFormat::RGBA16Float);
+            board.Post.SkinDiffusionScratch = scratch.Framebuffer;
+            board.Post.SkinDiffusionScratchTexture = scratch.Texture;
         }
 
         // AOApplyColor exists only when AO apply is actually executable for
@@ -5689,6 +5742,7 @@ namespace OloEngine
         inputs.Passes.Particle = SceneCompositePasses.Particle.Raw();
         inputs.Passes.OITPrepare = SceneCompositePasses.OITPrepare.Raw();
         inputs.Passes.OITResolve = SceneCompositePasses.OITResolve.Raw();
+        inputs.Passes.SkinDiffusion = PostProcessPasses.SkinDiffusion.Raw();
         inputs.Passes.SSS = PostProcessPasses.SSS.Raw();
         inputs.Passes.AOApply = PostProcessPasses.AOApply.Raw();
         inputs.Passes.SSGI = PostProcessPasses.SSGI.Raw();
@@ -5914,6 +5968,10 @@ namespace OloEngine
         SceneCompositePasses.OITPrepare = Ref<OITPrepareRenderPass>::Create();
         SceneCompositePasses.OITPrepare->SetName("OITPreparePass");
         SceneCompositePasses.OITPrepare->Init(finalPassSpec);
+
+        PostProcessPasses.SkinDiffusion = Ref<SkinDiffusionPass>::Create();
+        PostProcessPasses.SkinDiffusion->SetName("SkinDiffusionPass");
+        PostProcessPasses.SkinDiffusion->Init(scenePassSpec);
 
         PostProcessPasses.SSS = Ref<SSSRenderPass>::Create();
         PostProcessPasses.SSS->SetName("SSSPass");

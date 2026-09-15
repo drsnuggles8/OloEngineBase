@@ -44,6 +44,7 @@
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SkinDiffusionPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
@@ -67,6 +68,9 @@ namespace OloEngine
 
     struct Renderer3D::PostProcessPassChain
     {
+        // Screen-space skin diffusion (issue #1241). Before SSS in the
+        // chain and unrelated to it -- that one is snow's wrap-lighting blur.
+        Ref<SkinDiffusionPass> SkinDiffusion;
         Ref<SSSRenderPass> SSS;
         Ref<AOApplyRenderPass> AOApply;
         Ref<SSGIRenderPass> SSGI;
@@ -106,6 +110,15 @@ namespace OloEngine
 
         void Reset()
         {
+            // Every pass in this struct, and the list is exhaustive on purpose:
+            // Renderer3D::Shutdown() calls this while the GL context and the
+            // RendererAPI are still alive, and a pass that survives it releases
+            // its shader / UBO / framebuffer afterwards, when the services that
+            // own those are gone. A pass added to the struct and forgotten here
+            // is an exit-time crash that nothing else catches --
+            // DebugLiveGpuOwningStatics and RendererShutdownTest both inspect
+            // only the members they explicitly name.
+            SkinDiffusion.Reset();
             SSS.Reset();
             AOApply.Reset();
             SSGI.Reset();

@@ -245,11 +245,23 @@ vec3 ApplyCascadeDebug(vec3 color, vec3 worldPos)
 // path hands evaluateAmbientLadder(), and it enters the ladder at the same
 // (top) rung, so the two paths pick the same ambient source for the same pixel.
 // vec4(0.0) means "no baked GI here" and drops straight through to probes/IBL.
-vec3 ComputeDeferredLit(
+// The `skinDiffuse` out-parameter is the DIFFUSION HAND-OFF (issue #1241): the
+// diffuse half of a skin pixel's lighting plus the identity of the profile that
+// should blur it, for SkinDiffusion.glsl. See include/PBRCommon.glsl for the
+// encoding and for why scene colour still carries the whole composite.
+//
+// It is cleared FIRST, so every early return below -- the unlit pass-through and
+// the four material debug views -- leaves it at "no diffusion here". That is the
+// intended answer in each case: an unlit pixel has no skin transport, and the
+// debug views show what the CLOSURE produced, which is the thing being
+// inspected. A blurred debug view would be a different question.
+vec3 ComputeDeferredLitSplit(
     vec3 albedo, float metallic,
     vec3 N, float roughness, float ao,
-    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
+    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI,
+    out vec4 skinDiffuse)
 {
+    skinDiffuse = vec4(0.0);
     vec3 emissive = emissiveFlags.rgb;
     int gbFlags = oloDecodeGBufferFlags(emissiveFlags.a);
     if (oloGBufferFlagsAreUnlit(gbFlags))
@@ -589,6 +601,13 @@ vec3 ComputeDeferredLit(
     // neutral tint, so this is a multiply by one.
     lighting = oloApplySkinProfile(lighting, materialKind, skinEvaluationModel, skinSpecularTint);
 
+    // The diffusion hand-off, at the same seam and in the same order as
+    // PBR_MultiLight.glsl -- which is what keeps the forward and deferred paths
+    // handing the diffusion pass the same number for the same pixel.
+    skinDiffuse = oloSkinDiffusionOutput(lighting, materialKind, skinEvaluationModel,
+                                         skinProfileSlot,
+                                         oloSkinScatteringMask(materialKind, metallic));
+
     // The four separated outputs, exposed (issue #1231). Returned BEFORE the
     // debug tints below because those composite over a finished frame and would
     // otherwise paint over the thing being inspected.
@@ -633,6 +652,19 @@ vec3 ComputeDeferredLit(
         color = mix(color, vsmDebugTint(worldPos, N), 0.85);
 
     return color;
+}
+
+// The summing spelling, for callers with no aux target to write -- the same
+// wrapper-over-the-split shape every term in PBRCommon.glsl uses, so the two can
+// never disagree.
+vec3 ComputeDeferredLit(
+    vec3 albedo, float metallic,
+    vec3 N, float roughness, float ao,
+    vec4 emissiveFlags, vec3 worldPos, vec4 bakedGI)
+{
+    vec4 ignoredSkinDiffuse;
+    return ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissiveFlags,
+                                   worldPos, bakedGI, ignoredSkinDiffuse);
 }
 
 #endif // DEFERRED_LIGHTING_SHARED_GLSL

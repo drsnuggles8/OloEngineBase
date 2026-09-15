@@ -63,6 +63,13 @@ layout(location = 2) out vec2 o_ViewNormal;
 // re-evaluated at `u_NormalMapSpeed.z * u_WaveParams.y` (prev time * speed)
 // in the vertex / tessellation stage, so TAA resolves moving waves cleanly.
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
+// diffusion pass (issue #1241). Water never shades skin, so it writes the "no
+// diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
+// alone is undefined, not zero, and SkinDiffusion.glsl would blur the garbage
+// into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 // Octahedral encode: unit normal -> RG16F [-1,1]^2
 vec2 octEncode(vec3 n)
@@ -699,6 +706,7 @@ void main()
         vec4 clipCurrU = u_ViewProjection     * vec4(v_WorldPos,     1.0);
         vec4 clipPrevU = u_PrevViewProjection * vec4(v_PrevWorldPos, 1.0);
         o_Velocity = (clipCurrU.xy / clipCurrU.w - clipPrevU.xy / clipPrevU.w) * 0.5;
+        o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
         return;
     }
 
@@ -1042,4 +1050,5 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

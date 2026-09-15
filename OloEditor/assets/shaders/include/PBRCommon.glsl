@@ -71,6 +71,11 @@
 // Version 0 splits diffuse and specular and sums them, which is numerically the
 // combined term the engine always shaded; #1241's diffusion becomes version 1.
 #define OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT 0
+// Version 1 (issue #1241): everything version 0 does, plus the DIFFUSE half is
+// handed to the screen-space diffusion pass (SkinDiffusion.glsl) instead of
+// being composited sharp. The SPECULAR half is untouched by that pass, which is
+// the whole point of the split and of this file's version branch.
+#define OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION 1
 
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
@@ -2308,10 +2313,64 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
 {
     if (materialKind != OLO_MATERIAL_KIND_SKIN)
         return lighting;
-    if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT)
+    // Both shipped transports tint the specular, and they tint it identically --
+    // #1241 ADDS diffusion, it does not restate what version 0 did to the
+    // surface lobe. Spelling both arms out rather than testing `<= 1` keeps the
+    // property this branch exists for: a version this shader has no arm for
+    // applies NOTHING rather than guessing.
+    if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT &&
+        evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
+
+// =============================================================================
+// THE DIFFUSION HAND-OFF (issue #1241)
+// =============================================================================
+//
+// Every lit pass that can shade skin writes a second render target beside scene
+// colour: the DIFFUSE half of a skin pixel's lighting, plus the identity of the
+// profile that should blur it. SkinDiffusion.glsl reads that target, blurs it
+// with the profile's kernel, and adds the DIFFERENCE back into scene colour.
+//
+// SCENE COLOUR STILL GETS THE WHOLE COMPOSITE. That is deliberate and it is what
+// makes the feature fail safe: with the diffusion pass culled, disabled, or not
+// yet run, the frame is exactly the #1231 frame rather than a head missing its
+// diffuse lighting. The pass adds `blur(aux) - aux`, which is zero when the blur
+// is an identity and needs no cooperation from any of the twenty-odd shaders
+// that write this target.
+//
+// THE ALPHA LANE IS AN IDENTITY, NOT A WEIGHT. 0 means "no diffusion here" --
+// which is what every non-skin surface writes, and what a skin surface whose
+// profile is authored against version 0 writes too. A slot s in [0, 6] encodes
+// as (s + 1) / 8: exact in a half float, and never 0 for a real slot, so a
+// cleared target and slot 0 cannot be confused.
+// The encoding itself lives in its own tiny file, because SkinDiffusion.glsl --
+// the pass that CONSUMES this target -- needs it and wants none of the two
+// thousand lines around it.
+#include "SkinDiffusionCommon.glsl"
+
+// The aux value for a pixel that HAS been shaded.
+//
+// `scatteringMask` is oloSkinScatteringMask's [0,1]: the fraction of this
+// pixel's diffuse that goes through the surface at all. Only that fraction is
+// handed over, and the remainder stays sharp in scene colour -- which is what
+// makes a metallic or masked-out region of a skin material stop scattering
+// without a second branch anywhere downstream.
+vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int evaluationModel,
+                            int skinProfileSlot, float scatteringMask)
+{
+    if (materialKind != OLO_MATERIAL_KIND_SKIN)
+        return vec4(0.0);
+    if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION)
+        return vec4(0.0);
+    if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
+        return vec4(0.0);
+
+    return vec4(lighting.Diffuse * clamp(scatteringMask, 0.0, 1.0),
+                oloSkinDiffusionEncodeSlot(skinProfileSlot));
+}
+
 
 // =============================================================================
 // SHADER-SPECIFIC LIGHT CALCULATIONS

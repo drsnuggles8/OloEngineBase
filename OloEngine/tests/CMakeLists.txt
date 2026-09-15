@@ -88,6 +88,7 @@ add_executable(OloEngine-Tests
 		${_olo_component_round_trip_src}
 		TilemapTest.cpp
 		TilesetSerializerTest.cpp
+		SkinDiffusionTest.cpp
 		SkinProfileTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
@@ -521,6 +522,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SphereAreaLightVisualTest.cpp
 		Rendering/PropertyTests/MaterialLabVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClosureV2DeferredParityEvidenceTest.cpp
+		Rendering/PropertyTests/SkinDiffusionEvidenceTest.cpp
 		Rendering/PropertyTests/SkinProfileParityEvidenceTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp

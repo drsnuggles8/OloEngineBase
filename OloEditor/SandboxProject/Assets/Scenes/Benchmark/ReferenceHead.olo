@@ -9,10 +9,15 @@ Scene: ReferenceHead.olo
 #   * DamagedHelmet (CC-BY 4.0) — 2K albedo/normal/metal-rough/AO/emissive.
 #     Measures the same rig's response to real PBR texture detail.
 #
-# CURRENT LIMITATION THIS FIXTURE RECORDS: there is no subsurface
-# scattering, no eye shader and no groom in the engine today, so neither
-# subject is a photoreal human head. A scanned AAA head is a genuine
-# external dependency — see docs/guides/benchmark-reference-fixtures.md.
+# Suzanne is declared MaterialKind::Skin and names ReferenceHead.oloskin
+# (issues #1231, #1241), which is authored at transport version 1 — so it is
+# diffused and the helmet beside it, under the identical rig, is not.
+#
+# CURRENT LIMITATION THIS FIXTURE RECORDS: there is no eye shader and no
+# groom in the engine today, and Suzanne has no skin albedo or normal map,
+# so neither subject is a photoreal human head. Subsurface scattering itself
+# is no longer on that list — #1241 added it. A scanned AAA head remains a
+# genuine external dependency — see docs/guides/benchmark-reference-fixtures.md.
 # The rig is built so that dropping a licensed head in its place changes
 # the subject and nothing else.
 #
@@ -181,7 +186,7 @@ Entities:
       CastShadows: false
       ShadowBias: 0.005
       ShadowNormalBias: 0.01
-  # ── Subject A: organic head geometry (Suzanne, CC0) ──
+  # ── Subject A: organic head geometry (Suzanne, CC0), declared SKIN ──
   - Entity: 1239000001000005
     TagComponent:
       Tag: Suzanne
@@ -192,6 +197,12 @@ Entities:
     ModelComponent:
       FilePath: assets/models/Suzanne/glTF/Suzanne.gltf
       Visible: true
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.46, 0.4]
+      Metallic: 0
+      Roughness: 0.42
+      MaterialKind: 2
+      SkinProfile: 15952688685437936278
   # ── Subject B: textured PBR detail (DamagedHelmet, CC-BY 4.0) ──
   - Entity: 1239000001000006
     TagComponent:

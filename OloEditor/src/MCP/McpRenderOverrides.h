@@ -84,6 +84,7 @@ namespace OloEngine::MCP::RenderOverrides
         FogScattering,
         FogVolumetric,
         GodRays,
+        SkinDiffusion,
     };
 
     // Canonical token + human description for each toggleable pass. The token is
@@ -97,7 +98,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<PassInfo, 17> kPasses = { {
+    inline constexpr std::array<PassInfo, 18> kPasses = { {
         { "bloom", Pass::Bloom, "Bloom (HDR bright-pass glow)" },
         { "ssao", Pass::SSAO, "Screen-space ambient occlusion (also selects the SSAO AO technique)" },
         { "gtao", Pass::GTAO, "Ground-truth ambient occlusion (also selects the GTAO AO technique)" },
@@ -115,6 +116,9 @@ namespace OloEngine::MCP::RenderOverrides
         { "fogscattering", Pass::FogScattering, "Atmospheric scattering (alias: scattering); needs fog enabled" },
         { "fogvolumetric", Pass::FogVolumetric, "Volumetric fog ray-marching (alias: volumetric); needs fog enabled" },
         { "godrays", Pass::GodRays, "Volumetric light shafts / god rays (alias: lightshafts); needs fog enabled" },
+        { "skindiffusion", Pass::SkinDiffusion,
+          "Screen-space skin scattering (issue #1241, alias: sss); only diffuses materials whose "
+          ".oloskin profile is authored at transport version 1" },
     } };
 
     // Short aliases that resolve to a canonical pass. Separators (space / underscore
@@ -126,7 +130,7 @@ namespace OloEngine::MCP::RenderOverrides
         Pass Id;
     };
 
-    inline constexpr std::array<PassAlias, 8> kPassAliases = { {
+    inline constexpr std::array<PassAlias, 10> kPassAliases = { {
         { "ca", Pass::ChromaticAberration },
         { "dof", Pass::DepthOfField },
         { "colourgrading", Pass::ColorGrading },
@@ -135,6 +139,8 @@ namespace OloEngine::MCP::RenderOverrides
         { "volumetric", Pass::FogVolumetric },
         { "lightshafts", Pass::GodRays },
         { "godray", Pass::GodRays },
+        { "sss", Pass::SkinDiffusion },
+        { "skin", Pass::SkinDiffusion },
     } };
 
     // Lowercase a string and drop every non-alphanumeric character so

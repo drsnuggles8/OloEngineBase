@@ -69,6 +69,10 @@
 #include "OloEngine/Renderer/TransientPool.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+// For SkinProfileTable::GetAssignedSlotCount, which is how the skindiffusion
+// toggle can say "nothing in this scene uses a skin profile" rather than leave
+// that to be rediscovered (issue #1241).
+#include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Renderer/Passes/GpuPathTracerPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRDIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
@@ -1558,6 +1562,12 @@ namespace OloEngine::MCP
                     return &fog.EnableVolumetric;
                 case Pass::GodRays:
                     return &fog.EnableLightShafts;
+                case Pass::SkinDiffusion:
+                    // NOT on PostProcessSettings or FogSettings: skin scattering is
+                    // a renderer-level pass with its own settings block, a sibling
+                    // of the snow settings rather than a post-process stage (see
+                    // Renderer3D::GetSkinDiffusionSettings).
+                    return &Renderer3D::GetSkinDiffusionSettings().Enabled;
             }
             return nullptr;
         }
@@ -1657,6 +1667,48 @@ namespace OloEngine::MCP
                         case Pass::GodRays:
                             if (!fog.Enabled)
                                 r.Note = "Fog is disabled; enable the 'fog' pass for this to take effect.";
+                            break;
+                        case Pass::SkinDiffusion:
+                            // The single most likely reason toggling this changes
+                            // nothing on screen, said here rather than left to be
+                            // rediscovered: the switch decides whether the PASS
+                            // RUNS, and which materials it touches is each
+                            // .oloskin profile's own transport version (ADR 0024).
+                            // A scene with no version-1 profile in it looks
+                            // identical either way, and that is correct.
+                            //
+                            // COUNTING ASSIGNED SLOTS IS NOT THE TEST. A scene
+                            // whose heads all name a version-0 profile assigns
+                            // slots -- so a slot count would report "fine" for
+                            // exactly the case that confuses people most, where
+                            // the profile is present, the material is skin, and
+                            // the toggle still does nothing. Ask what the slots
+                            // actually CONTAIN.
+                            {
+                                const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+                                const u32 assigned = profiles.GetAssignedSlotCount();
+                                u32 diffusing = 0;
+                                for (u32 slot = 0; slot < assigned; ++slot)
+                                {
+                                    if (profiles.GetParametersForSlot(slot).EvaluationModel ==
+                                        SkinEvaluationModel::ScreenSpaceDiffusion)
+                                        ++diffusing;
+                                }
+                                if (assigned == 0u)
+                                {
+                                    r.Note = "No skin profile is in use in this scene, so this toggle changes "
+                                             "nothing. A material must have MaterialKind::Skin and name a .oloskin "
+                                             "authored at EvaluationModel 1 (ScreenSpaceDiffusion).";
+                                }
+                                else if (diffusing == 0u)
+                                {
+                                    r.Note = "This scene uses " + std::to_string(assigned) +
+                                             " skin profile(s), but none is authored at EvaluationModel 1 "
+                                             "(ScreenSpaceDiffusion), so this toggle changes nothing. That is "
+                                             "correct: the transport version is an authoring decision per .oloskin "
+                                             "and no renderer switch overrides it (ADR 0024).";
+                                }
+                            }
                             break;
                         default:
                             break;
@@ -7391,7 +7443,8 @@ namespace OloEngine::MCP
                 "Flip a post-process / fog feature on or off — the rendering A/B loop: toggle off, "
                 "olo_screenshot, toggle on, olo_screenshot, compare. 'name' is one of bloom, ssao, gtao, "
                 "ssr, ssgi, fxaa, taa, vignette, chromaticaberration (ca), depthoffield (dof), motionblur, "
-                "colorgrading, autoexposure, fog, fogscattering, fogvolumetric, godrays. 'enabled' sets the "
+                "colorgrading, autoexposure, fog, fogscattering, fogvolumetric, godrays, skindiffusion. "
+                "'enabled' sets the "
                 "state explicitly; omit it to flip the current value. Returns the affected pass and its "
                 "new/previous state. Enabling ssao/gtao also selects that AO technique (they share one "
                 "slot); ssr/ssgi render only in the Deferred path and the fog sub-features need fog enabled "

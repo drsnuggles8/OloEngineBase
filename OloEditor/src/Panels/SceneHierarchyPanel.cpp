@@ -38,6 +38,7 @@
 #include "OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
+#include "OloEngine/Renderer/SkinDiffusion.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -3641,6 +3642,21 @@ namespace OloEngine
                                     static_cast<f64>(parameters.ScatterRadiusMM.g),
                                     static_cast<f64>(parameters.ScatterRadiusMM.b));
                         ImGui::Text("Thickness scale (m -> mm): %.1f", static_cast<f64>(parameters.ThicknessScale));
+                        // The DERIVED number, not an authored one (issue #1241).
+                        // The radii above are a mean free path; what the blur
+                        // actually reaches is the Burley profile's 99.5% support
+                        // built from them, and it is roughly eight times larger.
+                        // Showing only the input is how "1.5 mm" becomes a
+                        // surprise at 12 mm of visible bleed.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion)
+                        {
+                            ImGui::Text("Diffusion reach (mm, derived): %.2f",
+                                        static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("Not diffused — this profile is authored at transport version 0.");
+                        }
                         ImGui::Text("Specular tint (linear Rec.709): %.3f %.3f %.3f",
                                     static_cast<f64>(parameters.SpecularTint.r),
                                     static_cast<f64>(parameters.SpecularTint.g),

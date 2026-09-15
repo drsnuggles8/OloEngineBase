@@ -12,9 +12,14 @@
 // is the length of the UBO's fixed proxy array, so a literal here could admit
 // more proxies than the block can carry.
 #include "OloEngine/Renderer/SphereProxyAO.h"
+// For SkinDiffusionQuality and kMaxSkinDiffusionTaps (SkinDiffusionUBOData's
+// tap array is kMaxSkinProfileSlots * kMaxSkinDiffusionTaps long, and both
+// bounds belong to the maths, not to this header).
+#include "OloEngine/Renderer/SkinDiffusion.h"
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 
@@ -1184,6 +1189,91 @@ namespace OloEngine
             return sizeof(SSSUBOData);
         }
     };
+
+    // -------------------------------------------------------------------------
+    // Skin diffusion (issue #1241)
+    // -------------------------------------------------------------------------
+
+    // The renderer's side of skin scattering. It decides whether the PASS RUNS;
+    // whether a given profile is diffused at all is the profile's own
+    // `EvaluationModel`, and no setting here overrides that. The two are
+    // separate for the reason ADR 0024 gives — turning a renderer switch on must
+    // not restate every authored head.
+    //
+    // NOT in SSSUBOData and not in SnowSettings: the existing SSS blur is snow's
+    // wrap-lighting mask (SSS_Blur.glsl, MaterialKind.h), it blurs the COMBINED
+    // scene colour, and sharing a settings block with it is how "make skin less
+    // waxy" ends up changing snow.
+    struct SkinDiffusionSettings
+    {
+        // Master switch. Off costs nothing: the pass is culled out of the graph
+        // and the aux target is never allocated.
+        bool Enabled = true;
+
+        // Taps per axis. See SkinDiffusionQuality in Renderer/SkinDiffusion.h
+        // for the measured quality of each tier.
+        SkinDiffusionQuality Quality = SkinDiffusionQuality::Medium;
+
+        // How hard a depth discontinuity has to be before a tap is rejected,
+        // as a MULTIPLE of the kernel's own world-space support. Unitless.
+        //
+        // Scaled by the support rather than fixed in metres so the test means
+        // the same thing on a close-up and at conversational distance: a tap two
+        // scattering radii deeper than the centre is on another surface, whatever
+        // the camera is doing. Below about 0.5 the filter starts rejecting the
+        // curvature of the cheek itself.
+        f32 DepthRejectionScale = 2.0f;
+
+        // Global multiplier on the screen-space radius, for art direction. 1 is
+        // the physical answer; the slider exists because "physically correct and
+        // slightly too much" is a real note to get on a face.
+        f32 RadiusScale = 1.0f;
+    };
+
+    // GPU-side UBO layout for the skin diffusion pass (std140, binding 14 —
+    // shared with SSSUBOData, see UBO_SSS in ShaderBindingLayout.h). Mirrors the
+    // `SkinDiffusionParams` block in SkinDiffusion.glsl.
+    struct SkinDiffusionUBOData
+    {
+        // x = tap count (float, exact small integer)
+        // y = blur axis: 0 = horizontal, 1 = vertical
+        // z = viewport width in pixels of the target being blurred
+        // w = viewport height in pixels of the target being blurred
+        glm::vec4 PassParams = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+
+        // x = projection scale Y, P[1][1] of the projection matrix
+        // y = P[2][2], z = P[3][2] — the depth-linearisation pair, the same two
+        //     coefficients GTAO's u_DepthLinearize{A,B} carry. The projection
+        //     matrix rather than near/far, because that form works for any
+        //     projection the camera actually has, including an infinite far
+        //     plane, and because two shaders disagreeing about what a depth
+        //     texel means is a bug that gets chased in the wrong file.
+        // w = depth rejection scale, unitless (SkinDiffusionSettings)
+        glm::vec4 ProjectionParams = glm::vec4(1.0f, -1.0f, -0.2f, 2.0f);
+
+        // Per slot: x = support radius MILLIMETRES (0 disables the slot),
+        // y = radius scale, z/w reserved. Indexed by the three-bit profile slot
+        // the aux target's alpha names.
+        std::array<glm::vec4, kMaxSkinProfileSlots> SlotParams{};
+
+        // Per slot, per tap, row-major [slot * kMaxSkinDiffusionTaps + tap]:
+        // x = normalised offset in [-1, 1], yzw = per-channel weight.
+        std::array<glm::vec4, kMaxSkinProfileSlots * kMaxSkinDiffusionTaps> Taps{};
+
+        static constexpr u32 GetSize()
+        {
+            return sizeof(SkinDiffusionUBOData);
+        }
+    };
+    static_assert(sizeof(SkinDiffusionUBOData) % 16 == 0,
+                  "SkinDiffusionUBOData must be 16-byte aligned for std140");
+    static_assert(sizeof(SkinDiffusionUBOData) == 32 + (kMaxSkinProfileSlots * 16) +
+                                                      (kMaxSkinProfileSlots * kMaxSkinDiffusionTaps * 16),
+                  "SkinDiffusionUBOData no longer matches the SkinDiffusionParams block in SkinDiffusion.glsl");
+    // GL 4.6 guarantees 16 KB for a uniform block; this is the one number that
+    // would break the feature on a conforming driver rather than in a test.
+    static_assert(sizeof(SkinDiffusionUBOData) <= 16384,
+                  "SkinDiffusionUBOData exceeds the GL 4.6 guaranteed uniform block size");
 
     // Snow accumulation & deformation settings (scene-level)
     struct SnowAccumulationSettings
