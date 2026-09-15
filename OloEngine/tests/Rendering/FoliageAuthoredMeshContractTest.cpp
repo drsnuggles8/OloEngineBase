@@ -108,9 +108,9 @@ namespace OloEngine::Tests
         // there is no single term that covers both, because `height` is per
         // instance.
         FoliageBoundsProfile profile;
-        profile.m_HalfExtentXZ = 0.5f;               // the card, unchanged
-        profile.m_HalfExtentXZHeightScaled = 0.35f;  // a canopy, in unit-mesh units
-        profile.m_MinY = -0.1f;                      // roots below the origin
+        profile.m_HalfExtentXZ = 0.5f;              // the card, unchanged
+        profile.m_HalfExtentXZHeightScaled = 0.35f; // a canopy, in unit-mesh units
+        profile.m_MinY = -0.1f;                     // roots below the origin
         profile.m_MaxY = 1.0f;
 
         const glm::vec3 pos(0.0f);
