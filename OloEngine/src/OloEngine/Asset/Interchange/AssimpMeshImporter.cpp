@@ -8,6 +8,7 @@
 
 #include <exception>
 #include <filesystem>
+#include <optional>
 #include <system_error>
 
 namespace OloEngine
@@ -33,6 +34,41 @@ namespace OloEngine
 
             return MeshImportResult::Ok(std::move(meshSource));
         }
+
+        // The whole animated route in one place, so the warm-cache branch and the
+        // just-discovered-a-rig branch cannot drift apart in what they warn about or what
+        // they do when the import fails.
+        //
+        // Returns nullopt for "fall back to the static import" -- always after saying why at
+        // ERROR level. Failing outright would make a file that used to load stop loading,
+        // which is worse than loading it unskinned; saying nothing would reproduce exactly
+        // the bug #1272 is about.
+        std::optional<MeshImportResult> TryImportAnimated(const std::filesystem::path& path,
+                                                          const MeshImportOptions& options)
+        {
+            if (options.FlipUV)
+            {
+                // AnimatedModel has no flipUV switch: its import flags are fixed (and
+                // deliberately exclude aiProcess_FlipUVs, because Assimp's glTF2 reader
+                // already flips V). Say so rather than silently importing with the opposite
+                // UV origin from the one that was asked for.
+                OLO_CORE_WARN("AssimpMeshImporter: '{}' is rigged and routes to AnimatedModel, which does "
+                              "not support FlipUV — importing with the format's default UV origin",
+                              path.string());
+            }
+
+            MeshImportResult animated = ImportAnimated(path);
+            if (animated.Succeeded())
+            {
+                return animated;
+            }
+
+            OLO_CORE_ERROR("AssimpMeshImporter: '{}' has bones but the animated import failed ({}). "
+                           "Falling back to the STATIC import — the mesh will load with NO bone "
+                           "influences and will render in its bind pose.",
+                           path.string(), animated.Error);
+            return std::nullopt;
+        }
     } // namespace
 
     MeshImportResult AssimpMeshImporter::Import(const std::filesystem::path& path, const MeshImportOptions& options)
@@ -47,16 +83,24 @@ namespace OloEngine
         // exception into a Failure result so Import stays no-throw for its callers.
         try
         {
-            // A rigged file already imported once has a warm ANIMATED cache, and its header
-            // says whether the source really had bones. Both halves matter: validity alone
-            // would send a STATIC mesh that someone loaded through AnimationStateComponent
-            // down the animated path and cost it its cooked DAG and its cached materials.
-            // This branch is what keeps the steady state at ONE import — see the re-route
-            // below for the cold case.
-            if (MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix) &&
-                MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix))
+            // A rigged file already imported once has a warm ANIMATED cache whose header
+            // says the source really had bones. Asking that (rather than mere cache
+            // validity) is what stops a STATIC mesh someone loaded through an
+            // AnimationStateComponent from being dragged down the animated path and losing
+            // its cooked DAG and its cached materials. This branch is what keeps the steady
+            // state at ONE import — see the re-route below for the cold case.
+            //
+            // A failure here falls through to the static import below rather than failing
+            // the load, exactly as the cold branch does; the flag then stops it retrying the
+            // same animated import a second time.
+            bool animatedImportFailed = false;
+            if (MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix))
             {
-                return ImportAnimated(path);
+                if (auto animated = TryImportAnimated(path, options))
+                {
+                    return *animated;
+                }
+                animatedImportFailed = true;
             }
 
             // Otherwise import as a static mesh, which is what this function always did:
@@ -83,33 +127,12 @@ namespace OloEngine
             // on. The static .omesh Model just wrote is left in place on purpose — it is
             // keyed by a different prefix, it records FlagSourceRigged, and deleting it
             // would only cost a re-parse if the anim cache is ever invalidated.
-            if (model.IsSourceRigged())
+            if (model.IsSourceRigged() && !animatedImportFailed)
             {
-                if (options.FlipUV)
+                if (auto animated = TryImportAnimated(path, options))
                 {
-                    // AnimatedModel has no flipUV switch: its import flags are fixed (and
-                    // deliberately exclude aiProcess_FlipUVs, because Assimp's glTF2 reader
-                    // already flips V). Say so rather than silently importing with the
-                    // opposite UV origin from the one that was asked for.
-                    OLO_CORE_WARN("AssimpMeshImporter: '{}' is rigged and routes to AnimatedModel, which does "
-                                  "not support FlipUV — importing with the format's default UV origin",
-                                  path.string());
+                    return *animated;
                 }
-
-                MeshImportResult animated = ImportAnimated(path);
-                if (animated.Succeeded())
-                {
-                    return animated;
-                }
-
-                // Loud, and NOT silent: the static result below is geometrically correct but
-                // unskinnable, so a character loaded through here stands in its bind pose.
-                // Failing outright would make a file that used to load stop loading, which
-                // is worse; saying nothing would reproduce exactly the bug #1272 is about.
-                OLO_CORE_ERROR("AssimpMeshImporter: '{}' has bones but the animated import failed ({}). "
-                               "Falling back to the STATIC import — the mesh will load with NO bone "
-                               "influences and will render in its bind pose.",
-                               path.string(), animated.Error);
             }
 
             auto meshSource = model.CreateCombinedMeshSource();

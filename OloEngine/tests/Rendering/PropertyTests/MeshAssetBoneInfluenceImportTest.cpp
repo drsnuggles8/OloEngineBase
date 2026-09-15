@@ -55,6 +55,7 @@
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -318,7 +319,7 @@ namespace OloEngine::Tests
     // influences in the editor and drops them in the pack moves the bug rather than fixing
     // it — and the failure would show up nowhere but in a shipped build, where the
     // character is bind-posed and there is no importer left to blame.
-    class MeshAssetBoneInfluencePackTest : public ::testing::Test
+    class MeshAssetBoneInfluenceProjectTest : public ::testing::Test
     {
       protected:
         void SetUp() override
@@ -334,7 +335,7 @@ namespace OloEngine::Tests
             {
                 std::ofstream proj(projectFile);
                 proj << "Project:\n"
-                        "  Name: MeshAssetBoneInfluencePackTest\n"
+                        "  Name: MeshAssetBoneInfluenceProject\n"
                         "  StartScene: \"\"\n"
                         "  AssetDirectory: \"Assets\"\n"
                         "  ScriptModulePath: \"\"\n";
@@ -348,6 +349,12 @@ namespace OloEngine::Tests
 
         void TearDown() override
         {
+            // Project::Load and Project::SetAssetManager both write process-wide statics, so
+            // resetting the local Ref leaves the ACTIVE project pointing at the directory
+            // removed below. MeshCache resolves its cache directory through that project, so
+            // a later case in the same process (a local full-suite run — ctest gives each
+            // case its own) would address a deleted tree.
+            Project::Unload();
             m_AssetManager.Reset();
             std::error_code ec;
             std::filesystem::remove_all(m_TempDir, ec);
@@ -380,7 +387,7 @@ namespace OloEngine::Tests
         Ref<EditorAssetManager> m_AssetManager;
     };
 
-    TEST_F(MeshAssetBoneInfluencePackTest, ARiggedAssetRoundTripsItsInfluencesThroughTheAssetPack)
+    TEST_F(MeshAssetBoneInfluenceProjectTest, ARiggedAssetRoundTripsItsInfluencesThroughTheAssetPack)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -416,5 +423,46 @@ namespace OloEngine::Tests
         {
             EXPECT_TRUE(submeshes[i].m_IsRigged) << "packed submesh " << i << " lost its rigged flag";
         }
+    }
+
+    // ── The routing predicate must not answer for a file that has since changed ─────────
+    TEST_F(MeshAssetBoneInfluenceProjectTest, TheCachedRiggedBitStopsAnsweringOnceTheSourceChanges)
+    {
+        // IsCachedSourceRigged is read BEFORE any importer runs, so it is the one place that
+        // decides a rigged file's fate. Its flag word describes the source as it was when the
+        // cache was written; answering from a stale entry means a mesh re-exported WITHOUT
+        // its rig keeps being routed to AnimatedModel, on the strength of a cache that the
+        // routing then never reads. No GPU needed — this is a cache-header question.
+        const std::filesystem::path source = m_TempDir / "Assets" / "rigged_source.gltf";
+        {
+            std::ofstream f(source);
+            f << "not really a glTF — only its timestamp is read here\n";
+        }
+        ASSERT_TRUE(std::filesystem::exists(source));
+
+        auto meshSource = Ref<MeshSource>::Create();
+        meshSource->GetVertices().Add(Vertex{});
+        meshSource->GetVertices().Add(Vertex{});
+        meshSource->GetVertices().Add(Vertex{});
+        meshSource->GetIndices().Add(0);
+        meshSource->GetIndices().Add(1);
+        meshSource->GetIndices().Add(2);
+        meshSource->SetSourceIsRigged(true);
+
+        ASSERT_TRUE(MeshCache::SaveMeshToCache(source, *meshSource, AnimatedModel::kCachePrefix));
+        ASSERT_TRUE(MeshCache::IsCachedSourceRigged(source, AnimatedModel::kCachePrefix))
+            << "a freshly written cache does not report the rigged bit — the warm route cannot work";
+
+        // Re-export the source. The cache file is untouched and still says "rigged".
+        std::error_code ec;
+        const auto bumped = std::filesystem::last_write_time(source, ec) + std::chrono::seconds(120);
+        ASSERT_FALSE(ec);
+        std::filesystem::last_write_time(source, bumped, ec);
+        ASSERT_FALSE(ec);
+
+        EXPECT_FALSE(MeshCache::IsCachedSourceRigged(source, AnimatedModel::kCachePrefix))
+            << "a STALE cache still answers the routing question. A mesh re-exported without its rig "
+               "would keep being handed to AnimatedModel because a cache entry that no longer matches "
+               "the file says it has bones.";
     }
 } // namespace OloEngine::Tests

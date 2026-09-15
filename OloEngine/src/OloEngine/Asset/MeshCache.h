@@ -47,12 +47,16 @@ namespace OloEngine
 
         // Did the SOURCE FILE behind this cache entry contain bones (issue #1272)?
         //
-        // Reads the .omesh HEADER only -- no payload, no decompression, no Assimp -- so a
-        // warm load can pick its importer without paying for a second parse of the source.
+        // Validity is checked first (IsMeshCacheValid), then the .omesh HEADER only -- no
+        // payload, no decompression, no Assimp -- so a warm load can pick its importer
+        // without paying for a second parse of the source.
+        //
         // Returns false when there is no cache entry, when it is stale or of an older
-        // version, or when the source genuinely has no bones; callers must therefore treat
-        // a false as "not known to be rigged", not as proof of a static mesh, and pair it
-        // with IsMeshCacheValid when the distinction matters.
+        // version, or when the source genuinely has no bones. Callers must therefore read a
+        // false as "not known to be rigged" rather than as proof of a static mesh -- but
+        // they do NOT have to pair it with IsMeshCacheValid, because a true already implies
+        // one: the staleness check is here precisely so that a source edited to REMOVE its
+        // rig stops routing through the animated importer.
         bool IsCachedSourceRigged(const std::filesystem::path& sourcePath, const std::string& prefix = {});
         bool IsAnimationCacheValid(const std::filesystem::path& sourcePath);
 

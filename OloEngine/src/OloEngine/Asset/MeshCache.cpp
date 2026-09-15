@@ -157,12 +157,17 @@ namespace OloEngine
 
         bool IsCachedSourceRigged(const std::filesystem::path& sourcePath, const std::string& prefix)
         {
-            auto cachePath = GetMeshCachePath(sourcePath, prefix);
-
-            if (std::error_code ec; !std::filesystem::exists(cachePath, ec))
+            // Staleness first. The flag word describes the file as it was WHEN THE CACHE WAS
+            // WRITTEN, so reading it out of an entry whose source has since changed answers a
+            // question about the old file: a mesh re-exported without its rig would keep
+            // routing through the animated importer, on the strength of a cache the routing
+            // then never reads. This also subsumes the existence check.
+            if (!IsMeshCacheValid(sourcePath, prefix))
             {
                 return false;
             }
+
+            auto cachePath = GetMeshCachePath(sourcePath, prefix);
 
             u32 flags = 0;
             if (!MeshBinarySerializer::ReadHeaderFlags(cachePath, flags))
