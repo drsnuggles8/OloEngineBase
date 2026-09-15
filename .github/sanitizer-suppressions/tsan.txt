@@ -109,7 +109,17 @@ called_from_lib:libgallium
 #
 # called_from_lib for the same reason as libgallium: the racing frames ARE the
 # pthread interceptors and carry no symbol of their own, so there is no
-# race:<symbol> to scope this to. Scoped to the one library, so a genuine
-# engine-side race still reports normally — including one merely *guarded* by a
-# driver barrier, whose racing accesses would be in engine code.
+# race:<symbol> to scope this to.
+#
+# Know what this DOES cost, because the rule is blunter than the report that
+# motivated it. called_from_lib suppresses EVERY interceptor call originating
+# in the named library — not just this barrier pair. So a real race that the
+# engine reaches only by calling into libvulkan_radeon is suppressed too. What
+# it does NOT suppress is a race whose accesses the engine makes itself: those
+# do not originate in the driver, so they still report. That is the trade being
+# made, and it is the same one the libgallium rule above already makes.
+#
+# Narrow this to race:/race_top: if a Vulkan-path engine race is ever suspected
+# of hiding behind it. It stays library-scoped for now because the driver's
+# barrier frames carry no symbol to match on.
 called_from_lib:libvulkan_radeon

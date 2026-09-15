@@ -104,6 +104,34 @@ namespace OloEngine
             return true;
         }
 
+        // Validates the section frame FIRST, then sizes the destination, then
+        // reads. The ORDER is the point: ExpectSection is what bounds the count
+        // against the bytes actually present, so resizing before it let a
+        // CRC-valid file whose Info section declared PointCount = 256'000'000
+        // allocate ~3 GiB before the truncation was ever detected — and
+        // std::bad_alloc is not something any caller of DecodeFromBytes
+        // catches. Six sections shared that shape; one helper makes the wrong
+        // order impossible to write rather than something to re-check.
+        template<typename T>
+        [[nodiscard]] bool ReadArraySection(BufferReader& reader, OloGroomFormat::SectionType section,
+                                            std::vector<T>& out, sizet count, std::string_view label,
+                                            std::string& outReason)
+        {
+            const u64 byteCount = static_cast<u64>(count) * sizeof(T);
+            if (!ExpectSection(reader, section, byteCount, outReason))
+            {
+                outReason = std::string(label) + " section is missing or malformed: " + outReason;
+                return false;
+            }
+            out.resize(count);
+            if (count != 0 && !reader.Read(out.data(), static_cast<sizet>(byteCount)))
+            {
+                outReason = std::string(label) + " section is truncated";
+                return false;
+            }
+            return true;
+        }
+
         // Reads a u32-length-prefixed string, bounded by both the format's
         // string cap and the bytes actually left in the payload.
         [[nodiscard]] bool ReadString(BufferReader& reader, std::string& out, std::string& outReason,
@@ -386,57 +414,21 @@ namespace OloEngine
         groom->m_Basis = static_cast<GroomCurveBasis>(info.Basis);
 
         // ── Sections 1-6: the flat curve arrays ──
-        const u64 offsetBytes = static_cast<u64>(info.CurveCount + 1) * sizeof(u32);
-        groom->m_CurveOffsets.resize(static_cast<sizet>(info.CurveCount) + 1);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::CurveOffsets, offsetBytes, outReason) ||
-            !reader.Read(groom->m_CurveOffsets.data(), static_cast<sizet>(offsetBytes)))
+        // glm::vec3/vec2 are tightly packed (static_assert'ed in EncodeToBytes),
+        // so sizeof(T) * count is exactly the on-disk byte count for each.
+        if (!ReadArraySection(reader, OloGroomFormat::SectionType::CurveOffsets, groom->m_CurveOffsets,
+                              static_cast<sizet>(info.CurveCount) + 1u, "CurveOffsets", outReason) ||
+            !ReadArraySection(reader, OloGroomFormat::SectionType::Points, groom->m_Points,
+                              info.PointCount, "Points", outReason) ||
+            !ReadArraySection(reader, OloGroomFormat::SectionType::Widths, groom->m_PointWidths,
+                              info.PointCount, "Widths", outReason) ||
+            !ReadArraySection(reader, OloGroomFormat::SectionType::RootUVs, groom->m_RootUVs,
+                              info.CurveCount, "RootUVs", outReason) ||
+            !ReadArraySection(reader, OloGroomFormat::SectionType::CurveGroups, groom->m_CurveGroupIds,
+                              info.CurveCount, "CurveGroups", outReason) ||
+            !ReadArraySection(reader, OloGroomFormat::SectionType::CurveFlags, groom->m_CurveFlags,
+                              info.CurveCount, "CurveFlags", outReason))
         {
-            outReason = "CurveOffsets section is missing or malformed: " + outReason;
-            return false;
-        }
-
-        const u64 pointBytes = static_cast<u64>(info.PointCount) * sizeof(f32) * 3u;
-        groom->m_Points.resize(info.PointCount);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::Points, pointBytes, outReason) ||
-            !reader.Read(groom->m_Points.data(), static_cast<sizet>(pointBytes)))
-        {
-            outReason = "Points section is missing or malformed: " + outReason;
-            return false;
-        }
-
-        const u64 widthBytes = static_cast<u64>(info.PointCount) * sizeof(f32);
-        groom->m_PointWidths.resize(info.PointCount);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::Widths, widthBytes, outReason) ||
-            !reader.Read(groom->m_PointWidths.data(), static_cast<sizet>(widthBytes)))
-        {
-            outReason = "Widths section is missing or malformed: " + outReason;
-            return false;
-        }
-
-        const u64 rootUVBytes = static_cast<u64>(info.CurveCount) * sizeof(f32) * 2u;
-        groom->m_RootUVs.resize(info.CurveCount);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::RootUVs, rootUVBytes, outReason) ||
-            !reader.Read(groom->m_RootUVs.data(), static_cast<sizet>(rootUVBytes)))
-        {
-            outReason = "RootUVs section is missing or malformed: " + outReason;
-            return false;
-        }
-
-        const u64 groupIdBytes = static_cast<u64>(info.CurveCount) * sizeof(u16);
-        groom->m_CurveGroupIds.resize(info.CurveCount);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::CurveGroups, groupIdBytes, outReason) ||
-            !reader.Read(groom->m_CurveGroupIds.data(), static_cast<sizet>(groupIdBytes)))
-        {
-            outReason = "CurveGroups section is missing or malformed: " + outReason;
-            return false;
-        }
-
-        const u64 flagBytes = static_cast<u64>(info.CurveCount) * sizeof(u8);
-        groom->m_CurveFlags.resize(info.CurveCount);
-        if (!ExpectSection(reader, OloGroomFormat::SectionType::CurveFlags, flagBytes, outReason) ||
-            !reader.Read(groom->m_CurveFlags.data(), static_cast<sizet>(flagBytes)))
-        {
-            outReason = "CurveFlags section is missing or malformed: " + outReason;
             return false;
         }
 

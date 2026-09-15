@@ -73,6 +73,91 @@ namespace
         }
         return groom;
     }
+
+    // One group, `count` curves, where every `longEvery`'th curve has
+    // `longPoints` control points and the rest have two. The planner's
+    // lines-per-strand is an AVERAGE, so a layout whose long strands land on
+    // stride-aligned indices makes that average understate the real cost of the
+    // curves actually selected — which is the only thing the exact submission
+    // guard is there to catch.
+    Ref<GroomAsset> MakeGroomWithVaryingLengths(u32 count, u32 longEvery, u32 longPoints)
+    {
+        GroomBuilder builder;
+        std::string reason;
+        u16 group = 0;
+        EXPECT_TRUE(builder.AddGroup("varying", group, reason)) << reason;
+
+        for (u32 c = 0; c < count; ++c)
+        {
+            const u32 points = ((c % longEvery) == 0) ? longPoints : 2u;
+            std::vector<glm::vec3> positions;
+            std::vector<f32> widths;
+            positions.reserve(points);
+            widths.reserve(points);
+            for (u32 i = 0; i < points; ++i)
+            {
+                positions.emplace_back(static_cast<f32>(c) * 0.01f, static_cast<f32>(i) * 0.01f, 0.0f);
+                widths.push_back(0.001f);
+            }
+
+            GroomCurveInput input;
+            input.Points = positions;
+            input.Widths = widths;
+            input.GroupId = group;
+            EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+        }
+
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        if (groom)
+        {
+            EXPECT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+        }
+        return groom;
+    }
+
+    // Groups of EXPLICIT, unequal sizes. MakeGroom above splits curves evenly
+    // (c % groupCount), and an even split is exactly the case where a global
+    // modulo stride happens to hit every group — so it cannot show the bug
+    // per-group phasing fixes.
+    Ref<GroomAsset> MakeGroomWithGroupSizes(const std::vector<u32>& groupSizes)
+    {
+        GroomBuilder builder;
+        std::string reason;
+
+        std::vector<u16> groupIds(groupSizes.size());
+        for (sizet g = 0; g < groupSizes.size(); ++g)
+        {
+            EXPECT_TRUE(builder.AddGroup("group" + std::to_string(g), groupIds[g], reason)) << reason;
+        }
+
+        u32 curve = 0;
+        for (sizet g = 0; g < groupSizes.size(); ++g)
+        {
+            for (u32 i = 0; i < groupSizes[g]; ++i, ++curve)
+            {
+                const std::vector<glm::vec3> points = { { static_cast<f32>(curve) * 0.01f, 0.0f, 0.0f },
+                                                        { static_cast<f32>(curve) * 0.01f, 0.1f, 0.0f },
+                                                        { static_cast<f32>(curve) * 0.01f, 0.2f, 0.0f } };
+                const std::vector<f32> widths = { 0.001f, 0.0008f, 0.0005f };
+
+                GroomCurveInput input;
+                input.Points = points;
+                input.Widths = widths;
+                input.RootUV = { 0.0f, 0.0f };
+                input.GroupId = groupIds[g];
+                EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;
+            }
+        }
+
+        Ref<GroomAsset> groom = builder.Build(reason);
+        EXPECT_TRUE(groom) << reason;
+        if (groom)
+        {
+            EXPECT_TRUE(GroomCooker::Canonicalize(*groom, reason)) << reason;
+        }
+        return groom;
+    }
 } // namespace
 
 TEST(GroomPreview, GroupColorsAreDistinctAndStable)
@@ -100,9 +185,19 @@ TEST(GroomPreview, GroupColorsAreDistinctAndStable)
     }
 
     // Stable: the inspector swatch and the viewport must agree, so the colour
-    // cannot depend on the groom it came from or on call order.
-    EXPECT_EQ(GroomGroupColor(3), GroomGroupColor(3));
-    EXPECT_NE(GroomGroupColor(3), GroomGroupColor(4));
+    // cannot depend on the groom it came from or on call order. Per component
+    // rather than EXPECT_EQ on the vector — this repo forbids == / != on glm
+    // types, and the per-component form also names which channel drifted.
+    const glm::vec3 a = GroomGroupColor(3);
+    const glm::vec3 again = GroomGroupColor(3);
+    EXPECT_FLOAT_EQ(a.r, again.r);
+    EXPECT_FLOAT_EQ(a.g, again.g);
+    EXPECT_FLOAT_EQ(a.b, again.b);
+
+    // And a different group is a different colour by a margin that survives
+    // 8-bit quantisation, which is what "distinguishable on screen" means.
+    const glm::vec3 other = GroomGroupColor(4);
+    EXPECT_GT(glm::length(a - other), 1.0f / 255.0f);
 }
 
 TEST(GroomPreview, SubsamplingSpansEveryGroupRatherThanTruncating)
@@ -122,20 +217,19 @@ TEST(GroomPreview, SubsamplingSpansEveryGroupRatherThanTruncating)
     ASSERT_GT(plan.Stride, 1u) << "the cap must actually bite or this test proves nothing";
     EXPECT_FALSE(plan.SegmentBudgetLimited);
 
-    // Walk the same selection the draw loop performs.
+    // The REAL selection, not a re-derivation of it: a test that reimplements
+    // the rule keeps passing while the implementation drifts away from it.
+    GroomPreviewStats stats = plan;
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, settings, stats, selected);
+
     std::set<u16> groupsTouched;
-    u32 drawn = 0;
-    for (u32 c = 0; c < kCurves; ++c)
+    for (const u32 c : selected)
     {
-        if ((c % plan.Stride) != 0)
-        {
-            continue;
-        }
         groupsTouched.insert(groom->GetCurveGroupIds()[c]);
-        ++drawn;
     }
 
-    EXPECT_LE(drawn, settings.MaxStrands) << "the cap was exceeded";
+    EXPECT_LE(selected.size(), settings.MaxStrands) << "the cap was exceeded";
     EXPECT_EQ(groupsTouched.size(), kGroups)
         << "the subsample missed a group entirely; a truncating preview would look correct while showing one group";
 }
@@ -226,11 +320,16 @@ TEST(GroomPreview, TurningRootsOffLowersTheSegmentCostPerStrand)
 
 TEST(GroomPreview, GuidesOnlySubsamplesTheGuidesNotTheWholeGroom)
 {
-    // 3000 strands, every 50th a guide -> 60 guides. Under a cap of 30, the
-    // stride must be computed from 60, not from 3000: a stride of 100 over
+    // 3000 strands, every 25th a guide -> 120 guides. Under a cap of 30, the
+    // stride must be computed from 120, not from 3000: a stride of 100 over
     // 3000 would hit almost no guides at all.
     constexpr u32 kCurves = 3000;
-    constexpr u32 kGuideStride = 50;
+    // ODD on purpose. MakeGroom splits the two groups by parity (c % 2) and
+    // marks every kGuideStride'th curve a guide, so an EVEN stride puts every
+    // guide in group 0 and leaves group 1 with none — which made the
+    // "guides span every group" assertion below unsatisfiable for a reason
+    // that had nothing to do with the code under test.
+    constexpr u32 kGuideStride = 25;
     constexpr u32 kMaxStrands = 30;
     Ref<GroomAsset> groom = MakeGroom(kCurves, /*groupCount*/ 2, kGuideStride);
     ASSERT_TRUE(groom);
@@ -250,24 +349,22 @@ TEST(GroomPreview, GuidesOnlySubsamplesTheGuidesNotTheWholeGroom)
     EXPECT_LT(strideOverGuides, strideOverAllCurves)
         << "guides-only must stride over the guide subset, or the mode shows almost nothing";
 
-    // Walk the candidate selection the preview performs.
-    u32 candidate = 0;
-    u32 drawnGuides = 0;
-    for (u32 c = 0; c < groom->GetCurveCount(); ++c)
+    // The real selection. Every selected curve must be a guide, the cap must
+    // hold, and — since the stride is phased per group on a cooked groom — both
+    // groups must be represented among the guides.
+    GroomPreviewStats stats = plan;
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, guidesOnly, stats, selected);
+
+    EXPECT_GT(selected.size(), 0u);
+    EXPECT_LE(selected.size(), kMaxStrands);
+    std::set<u16> groupsTouched;
+    for (const u32 c : selected)
     {
-        if (!groom->IsGuide(c))
-        {
-            continue;
-        }
-        if ((candidate++ % strideOverGuides) == 0)
-        {
-            ++drawnGuides;
-        }
+        EXPECT_TRUE(groom->IsGuide(c)) << "guides-only selected a non-guide curve " << c;
+        groupsTouched.insert(groom->GetCurveGroupIds()[c]);
     }
-    EXPECT_GT(drawnGuides, 0u);
-    EXPECT_LE(drawnGuides, kMaxStrands);
-    // With 60 guides and a cap of 30 the stride is 2, so exactly half are drawn.
-    EXPECT_EQ(drawnGuides, 30u);
+    EXPECT_EQ(groupsTouched.size(), 2u) << "guides-only must still span every group that has guides";
 }
 
 TEST(GroomPreview, DirectionRampRunsDarkAtTheRootToBrightAtTheTip)
@@ -312,4 +409,140 @@ TEST(GroomPreview, AGroomWithNoGuidesDrawsNothingInGuidesOnlyMode)
     const GroomPreviewStats stats = DrawGroomPreview(*groom, glm::mat4(1.0f), settings);
     EXPECT_EQ(stats.StrandsAvailable, 0u);
     EXPECT_EQ(stats.StrandsDrawn, 0u) << "guides-only on a groom with no guides must draw nothing, not everything";
+}
+
+TEST(GroomPreview, EveryRepresentedGroupContributesAtLeastOneStrand)
+{
+    // The bug: a GLOBAL modulo stride skips a group outright when none of its
+    // curve indices happen to be divisible by the stride. A five-curve group
+    // sitting after 500 curves of another group is exactly that case, and the
+    // result looks perfectly fine on screen — it just silently hides a group,
+    // which is the failure the subsampling is supposed to prevent.
+    //
+    // The even-split fixture used by the test above cannot show this: with
+    // equal groups the global stride happens to land in all of them.
+    Ref<GroomAsset> groom = MakeGroomWithGroupSizes({ 500u, 5u, 500u });
+    ASSERT_TRUE(groom);
+    ASSERT_EQ(groom->GetGroupCount(), 3u);
+
+    GroomPreviewSettings settings;
+    settings.MaxStrands = 20;       // stride ~51 over 1005 curves
+    settings.MaxSegments = 1000000; // let the strand cap bind
+
+    GroomPreviewStats stats = PlanGroomPreview(*groom, settings);
+    ASSERT_GT(stats.Stride, 5u) << "the stride must exceed the small group's size or this proves nothing";
+    ASSERT_TRUE(stats.GroupPhasedSelection) << "a canonicalised groom must use per-group phasing";
+
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, settings, stats, selected);
+
+    std::set<u16> groupsTouched;
+    for (const u32 c : selected)
+    {
+        groupsTouched.insert(groom->GetCurveGroupIds()[c]);
+    }
+    EXPECT_EQ(groupsTouched.size(), 3u)
+        << "a represented group was skipped entirely; that hides authored data and looks correct doing it";
+}
+
+TEST(GroomPreview, AnUncanonicalisedGroomFallsBackToAGlobalStride)
+{
+    // Per-group phasing needs the cook's contiguous ranges. On interleaved ids
+    // the per-group counter would reset on nearly every curve and select
+    // everything, so such a groom must keep the global stride — and say so,
+    // rather than quietly drawing 100x what was asked for.
+    GroomBuilder builder;
+    std::string reason;
+    std::vector<u16> ids(2);
+    ASSERT_TRUE(builder.AddGroup("a", ids[0], reason)) << reason;
+    ASSERT_TRUE(builder.AddGroup("b", ids[1], reason)) << reason;
+    for (u32 c = 0; c < 200; ++c)
+    {
+        const std::vector<glm::vec3> points = { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.1f, 0.0f } };
+        const std::vector<f32> widths = { 0.001f, 0.001f };
+        GroomCurveInput input;
+        input.Points = points;
+        input.Widths = widths;
+        input.GroupId = ids[c % 2]; // interleaved, and deliberately NOT cooked
+        ASSERT_TRUE(builder.AddCurve(input, reason)) << reason;
+    }
+    Ref<GroomAsset> groom = builder.Build(reason);
+    ASSERT_TRUE(groom) << reason;
+
+    GroomPreviewSettings settings;
+    settings.MaxStrands = 10;
+    settings.MaxSegments = 1000000;
+
+    GroomPreviewStats stats = PlanGroomPreview(*groom, settings);
+    EXPECT_FALSE(stats.GroupPhasedSelection) << "interleaved group ids must not be treated as contiguous";
+
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, settings, stats, selected);
+    EXPECT_LE(selected.size(), settings.MaxStrands)
+        << "the global-stride fallback still has to honour the strand cap";
+}
+
+TEST(GroomPreview, TheExactLineBudgetStopsSubmissionAndSaysSo)
+{
+    // The stride is derived from the AVERAGE strand length, which on a uniform
+    // groom is exact — so the guard rightly never fires there, and an earlier
+    // version of this test asserted it would.
+    //
+    // This is the layout the average cannot see: 200 curves where every 10th has
+    // 200 control points and the rest have two. The average lines-per-strand
+    // lands near 24, which yields a stride of 10 — and every stride-aligned
+    // index is one of the LONG curves, at 202 lines each. The estimate says 20
+    // curves fit in 500 lines; the reality is 4040. Without the exact check at
+    // submission the frame's shared transform buffer overflows.
+    Ref<GroomAsset> groom = MakeGroomWithVaryingLengths(/*count*/ 200, /*longEvery*/ 10, /*longPoints*/ 200);
+    ASSERT_TRUE(groom);
+
+    GroomPreviewSettings settings;
+    settings.MaxStrands = 200; // ask for all of them
+    settings.MaxSegments = 500;
+    settings.ShowStrands = true;
+    settings.ShowRoots = true;
+
+    GroomPreviewStats stats = PlanGroomPreview(*groom, settings);
+    ASSERT_EQ(stats.Stride, 10u) << "the fixture depends on the stride aligning with the long curves";
+
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, settings, stats, selected);
+
+    EXPECT_TRUE(stats.SegmentBudgetExhausted)
+        << "the exact budget was not enforced, so the frame's transform buffer would overflow silently";
+    EXPECT_LE(stats.SegmentsDrawn, settings.MaxSegments) << "submitted more lines than the cap allows";
+    EXPECT_EQ(selected.size(), stats.StrandsDrawn);
+    EXPECT_GT(selected.size(), 0u) << "the guard stopped everything, which is not a preview";
+    // Every selected curve is one of the long ones, which is what makes the
+    // average-based estimate wrong here.
+    for (const u32 c : selected)
+    {
+        EXPECT_EQ(groom->GetCurvePointCount(c), 200u);
+    }
+}
+
+TEST(GroomPreview, TheReportedCountsMatchTheSelection)
+{
+    // StrandsDrawn / SegmentsDrawn are what the editor shows. They have to be
+    // the selection's own numbers, not an estimate alongside it.
+    Ref<GroomAsset> groom = MakeGroomWithGroupSizes({ 60u, 40u });
+    ASSERT_TRUE(groom);
+
+    GroomPreviewSettings settings;
+    settings.MaxStrands = 25;
+    settings.MaxSegments = 1000000;
+
+    GroomPreviewStats stats = PlanGroomPreview(*groom, settings);
+    std::vector<u32> selected;
+    SelectGroomPreviewCurves(*groom, settings, stats, selected);
+
+    EXPECT_EQ(stats.StrandsDrawn, selected.size());
+    u32 expectedLines = 0;
+    for (const u32 c : selected)
+    {
+        expectedLines += (groom->GetCurvePointCount(c) - 1u) + 3u;
+    }
+    EXPECT_EQ(stats.SegmentsDrawn, expectedLines);
+    EXPECT_FALSE(stats.SegmentBudgetExhausted);
 }

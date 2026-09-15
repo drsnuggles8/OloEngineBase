@@ -28,6 +28,15 @@ namespace OloEngine
         namespace AbcG = Alembic::AbcGeom;
         namespace AbcF = Alembic::AbcCoreFactory;
 
+        // Object-hierarchy nesting is a property of the INPUT archive, and both
+        // traversals below recurse once per level. A deeply nested archive would
+        // exhaust the stack, and a stack overflow is not something the try/catch
+        // in Import can turn into a rejection — the process just dies. So depth
+        // is bounded and reported like every other malformed-input case. 256 is
+        // far past any DCC's export nesting (a groom is typically xform/curves,
+        // two levels).
+        constexpr u32 kMaxTraversalDepth = 256;
+
         constexpr const char* kGuideParamName = "groom_guide";
         constexpr const char* kGroupParamName = "groom_group";
         constexpr const char* kGroomParamPrefix = "groom_";
@@ -46,6 +55,12 @@ namespace OloEngine
             bool WarnedMissingUVs = false;
             bool Failed = false;
             std::string Diagnostic;
+            std::vector<std::string> Warnings;
+
+            void Warn(std::string warning)
+            {
+                Warnings.push_back(std::move(warning));
+            }
 
             void Fail(std::string diagnostic)
             {
@@ -308,9 +323,10 @@ namespace OloEngine
             else if (!state.WarnedMissingWidths)
             {
                 state.WarnedMissingWidths = true;
-                OLO_CORE_WARN("AlembicGroomImporter: '{}' carries no `widths`; substituting {} source units for every "
-                              "control point. The groom will import, but its strand thickness is NOT authored data.",
-                              primPath, AlembicGroomImporter::kDefaultWidth);
+                state.Warn(std::format("'{}' carries no `widths`; substituted {} source units for every control "
+                                       "point. The groom imports, but its strand thickness is NOT authored data.",
+                                       primPath, AlembicGroomImporter::kDefaultWidth));
+                OLO_CORE_WARN("AlembicGroomImporter: {}", state.Warnings.back());
             }
 
             // ── Root UVs ──
@@ -360,9 +376,10 @@ namespace OloEngine
             else if (!state.WarnedMissingUVs)
             {
                 state.WarnedMissingUVs = true;
-                OLO_CORE_WARN("AlembicGroomImporter: '{}' carries no `uvs`; every root UV is (0,0). Root UVs are what "
-                              "bind a groom to its surface parameterisation — this groom has none.",
-                              primPath);
+                state.Warn(std::format("'{}' carries no `uvs`; every root UV is (0,0). Root UVs are what bind a "
+                                       "groom to its surface parameterisation — this groom has none.",
+                                       primPath));
+                OLO_CORE_WARN("AlembicGroomImporter: {}", state.Warnings.back());
             }
 
             // ── Arbitrary geometry parameters ──
@@ -490,10 +507,18 @@ namespace OloEngine
             ++state.PrimsRead;
         }
 
-        void Visit(const Abc::IObject& obj, const Imath::M44d& parentXf, GroomTraversalState& state)
+        void Visit(const Abc::IObject& obj, const Imath::M44d& parentXf, GroomTraversalState& state, u32 depth)
         {
             if (state.Failed)
             {
+                return;
+            }
+            if (depth > kMaxTraversalDepth)
+            {
+                state.Fail(std::format("object hierarchy is nested deeper than {} levels at '{}'; refusing to "
+                                       "recurse further (a deeper archive would exhaust the stack, which cannot be "
+                                       "reported as a rejection)",
+                                       kMaxTraversalDepth, obj.getFullName()));
                 return;
             }
 
@@ -519,7 +544,7 @@ namespace OloEngine
 
             for (sizet i = 0; i < obj.getNumChildren(); ++i)
             {
-                Visit(obj.getChild(i), worldXf, state);
+                Visit(obj.getChild(i), worldXf, state, depth + 1u);
                 if (state.Failed)
                 {
                     return;
@@ -527,15 +552,23 @@ namespace OloEngine
             }
         }
 
-        [[nodiscard]] bool AnyCurvesUnder(const Abc::IObject& obj)
+        // Same depth bound as Visit, for the same reason. This one answers a
+        // yes/no routing question, so hitting the bound answers "no" rather than
+        // failing — an archive that deep is not one this build will import
+        // anyway, and Import's own Visit reports the depth by name.
+        [[nodiscard]] bool AnyCurvesUnder(const Abc::IObject& obj, u32 depth = 0)
         {
+            if (depth > kMaxTraversalDepth)
+            {
+                return false;
+            }
             if (AbcG::ICurves::matches(obj.getHeader()))
             {
                 return true;
             }
             for (sizet i = 0; i < obj.getNumChildren(); ++i)
             {
-                if (AnyCurvesUnder(obj.getChild(i)))
+                if (AnyCurvesUnder(obj.getChild(i), depth + 1u))
                 {
                     return true;
                 }
@@ -592,6 +625,72 @@ namespace OloEngine
         }
     }
 
+    AlembicGroomImporter::SidecarCookResult AlembicGroomImporter::ImportAndCookToSidecar(
+        const std::filesystem::path& abcPath, const Options& options, const std::filesystem::path& outputPath)
+    {
+        SidecarCookResult cooked;
+        cooked.OutputPath = outputPath.empty() ? std::filesystem::path(abcPath).replace_extension(".ologroom")
+                                               : outputPath;
+
+        // The distinction the whole feature rests on, said plainly: a polygon
+        // archive is not a groom, and importing it as one would produce nothing.
+        if (!ArchiveContainsCurves(abcPath))
+        {
+            cooked.Diagnostic = std::format("'{}' holds no ICurves prims, so it is not a groom. Polygon Alembic "
+                                            "import is a separate path (AlembicMeshImporter, via MeshSource).",
+                                            abcPath.string());
+            return cooked;
+        }
+
+        const Result imported = Import(abcPath, options);
+        cooked.Warnings = imported.Warnings;
+        if (!imported.Succeeded())
+        {
+            cooked.Diagnostic = imported.Diagnostic;
+            return cooked;
+        }
+
+        std::vector<u8> bytes;
+        std::string reason;
+        if (!GroomCooker::CookToBytes(*imported.Groom, bytes, reason))
+        {
+            cooked.Diagnostic = std::format("failed to cook '{}': {}", abcPath.string(), reason);
+            return cooked;
+        }
+
+        if (const std::filesystem::path parent = cooked.OutputPath.parent_path(); !parent.empty())
+        {
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec)
+            {
+                cooked.Diagnostic = std::format("could not create '{}': {}", parent.string(), ec.message());
+                return cooked;
+            }
+        }
+
+        std::ofstream out(cooked.OutputPath, std::ios::binary | std::ios::trunc);
+        if (!out.is_open())
+        {
+            cooked.Diagnostic = std::format("could not open '{}' for writing", cooked.OutputPath.string());
+            return cooked;
+        }
+        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        if (!out)
+        {
+            cooked.Diagnostic = std::format("failed while writing '{}'", cooked.OutputPath.string());
+            return cooked;
+        }
+        out.close();
+
+        cooked.Ok = true;
+        cooked.CurveCount = imported.Groom->GetCurveCount();
+        cooked.GroupCount = imported.Groom->GetGroupCount();
+        cooked.GuideCount = imported.Groom->GetGuideCount();
+        cooked.CookedBytes = bytes.size();
+        return cooked;
+    }
+
     AlembicGroomImporter::Result AlembicGroomImporter::Import(const std::filesystem::path& path, const Options& options)
     {
         Abc::IArchive archive;
@@ -635,7 +734,7 @@ namespace OloEngine
         GroomTraversalState state;
         try
         {
-            Visit(archive.getTop(), Imath::M44d(), state);
+            Visit(archive.getTop(), Imath::M44d(), state, 0u);
         }
         catch (const std::exception& e)
         {
@@ -691,6 +790,7 @@ namespace OloEngine
 
         Result result;
         result.Groom = groom;
+        result.Warnings = std::move(state.Warnings);
         result.CurvesRead = state.CurvesRead;
         result.PrimsRead = state.PrimsRead;
         return result;

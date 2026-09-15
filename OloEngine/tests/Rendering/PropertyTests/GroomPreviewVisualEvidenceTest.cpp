@@ -152,24 +152,29 @@ namespace OloEngine::Tests
             {
                 return -1; // near-black or near-grey: no usable hue
             }
-            const f32 fr = static_cast<f32>(r) / 255.0f;
-            const f32 fg = static_cast<f32>(g) / 255.0f;
-            const f32 fb = static_cast<f32>(b) / 255.0f;
-            const f32 fmax = static_cast<f32>(maxC) / 255.0f;
-            const f32 delta = static_cast<f32>(maxC - minC) / 255.0f;
+            // Sector chosen from the INTEGER channels. The previous form tested
+            // `fmax == fr` on floats — exact only because both sides divided the
+            // same integer by the same constant, so any later refactor of either
+            // expression would have broken it silently. This repo also forbids
+            // == on floating-point values outright.
+            const int ir = static_cast<int>(r);
+            const int ig = static_cast<int>(g);
+            const int ib = static_cast<int>(b);
+            // Non-zero: the early return above required maxC - minC >= 25.
+            const f32 delta = static_cast<f32>(maxC - minC);
 
             f32 hue = 0.0f;
-            if (fmax == fr)
+            if (maxC == ir)
             {
-                hue = std::fmod(((fg - fb) / delta) + 6.0f, 6.0f);
+                hue = std::fmod((static_cast<f32>(ig - ib) / delta) + 6.0f, 6.0f);
             }
-            else if (fmax == fg)
+            else if (maxC == ig)
             {
-                hue = ((fb - fr) / delta) + 2.0f;
+                hue = (static_cast<f32>(ib - ir) / delta) + 2.0f;
             }
             else
             {
-                hue = ((fr - fg) / delta) + 4.0f;
+                hue = (static_cast<f32>(ir - ig) / delta) + 4.0f;
             }
             // 12 buckets of 30 degrees each.
             return static_cast<int>(hue * 2.0f) % 12;

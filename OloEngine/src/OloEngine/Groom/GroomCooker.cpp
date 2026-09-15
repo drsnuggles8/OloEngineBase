@@ -24,23 +24,25 @@ namespace OloEngine
 
             const u32 curveCount = groom.GetCurveCount();
 
-            // The permutation: curve indices ordered by group, stable within a
-            // group. std::stable_sort, not sort — an unstable sort would make
-            // the cooked bytes depend on the implementation's pivot choices,
-            // which is exactly the determinism leak this file exists to close.
-            std::vector<u32> order(curveCount);
-            std::iota(order.begin(), order.end(), 0u);
-            const auto& groupIds = groom.m_CurveGroupIds;
-            std::stable_sort(order.begin(), order.end(),
-                             [&groupIds](u32 lhs, u32 rhs)
-                             { return groupIds[lhs] < groupIds[rhs]; });
-
             // Already canonical is the common case (one group, or a DCC that
-            // exported group by group) — skip the whole rebuild rather than
-            // shuffling a multi-million-point buffer through itself.
-            const bool alreadyOrdered = std::is_sorted(groupIds.begin(), groupIds.end());
-            if (!alreadyOrdered)
+            // exported group by group). Test that FIRST: building the
+            // permutation and sorting it before checking cost a CurveCount
+            // allocation plus an O(n log n) pass on every cook, including the
+            // many that then discarded both.
+            const auto& groupIds = groom.m_CurveGroupIds;
+            if (!std::is_sorted(groupIds.begin(), groupIds.end()))
             {
+                // The permutation: curve indices ordered by group, stable within
+                // a group. std::stable_sort, not sort — an unstable sort would
+                // make the cooked bytes depend on the implementation's pivot
+                // choices, which is exactly the determinism leak this file
+                // exists to close.
+                std::vector<u32> order(curveCount);
+                std::iota(order.begin(), order.end(), 0u);
+                std::stable_sort(order.begin(), order.end(),
+                                 [&groupIds](u32 lhs, u32 rhs)
+                                 { return groupIds[lhs] < groupIds[rhs]; });
+
                 std::vector<u32> newOffsets;
                 std::vector<glm::vec3> newPoints;
                 std::vector<f32> newWidths;

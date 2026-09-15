@@ -14,6 +14,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace OloEngine
 {
@@ -100,6 +101,14 @@ namespace OloEngine
         {
             Ref<GroomAsset> Groom;  // null on failure
             std::string Diagnostic; // why it failed, or "" on success
+            // Announced SUBSTITUTIONS and lossy accommodations made on a
+            // SUCCESSFUL import: a missing `widths` or `uvs` param, a
+            // non-uniform transform, per-vertex uvs collapsed to the root.
+            // These are logged too, but a log line is not something a caller
+            // (or a test) can assert on, and Diagnostic is empty on success —
+            // so "the import announced what it substituted" had no
+            // machine-readable form until this existed.
+            std::vector<std::string> Warnings;
             u32 CurvesRead = 0;
             u32 PrimsRead = 0;
 
@@ -129,6 +138,34 @@ namespace OloEngine
         // problem on any rejection — there is no partial import and no silent
         // degradation (issue #1232, AC 3).
         [[nodiscard]] static Result Import(const std::filesystem::path& path, const Options& options = {});
+
+        // What the editor's "Import as Groom" action does, minus the UI:
+        // check the archive holds curves, import it, cook it, and write the
+        // sibling `<stem>.ologroom` the asset system can then register.
+        //
+        // It lives HERE rather than inline in the content-browser handler so it
+        // is testable. The first version of this feature put the whole sequence
+        // nowhere at all — the importer had no production caller, so a groom
+        // .abc could not be imported in the editor and nothing noticed, because
+        // every test called Import() directly.
+        struct SidecarCookResult
+        {
+            bool Ok = false;
+            std::filesystem::path OutputPath;
+            std::string Diagnostic;            // why it failed, or "" on success
+            std::vector<std::string> Warnings; // announced substitutions, as above
+            u32 CurveCount = 0;
+            u32 GroupCount = 0;
+            u32 GuideCount = 0;
+            u64 CookedBytes = 0;
+        };
+
+        // `outputPath` empty means "next to the source, with the .ologroom
+        // extension". A non-curve archive is a NAMED failure, not a silent
+        // no-op: polygon Alembic is a different import path entirely.
+        [[nodiscard]] static SidecarCookResult ImportAndCookToSidecar(const std::filesystem::path& abcPath,
+                                                                      const Options& options = {},
+                                                                      const std::filesystem::path& outputPath = {});
 
         // True when the archive at `path` contains at least one ICurves prim.
         // The editor uses it to route an .abc to this importer rather than to

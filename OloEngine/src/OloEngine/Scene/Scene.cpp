@@ -12328,7 +12328,12 @@ namespace OloEngine
                 // wondering "why is my groom thinned out?" is actually looking
                 // — PlanGroomPreview is pure and cheap enough for the panel to
                 // recompute them.
-                (void)DrawGroomPreview(*groom, tc.GetTransform(), settings);
+                // GetWorldTransform, not tc.GetTransform(): the latter is the
+                // entity's LOCAL TRS only, so a groom parented to anything drew
+                // at the parent-relative offset — wrong position, rotation and
+                // scale, with nothing on screen to say why. Every other
+                // transform consumer in this file uses the composed matrix.
+                (void)DrawGroomPreview(*groom, GetWorldTransform(entity), settings);
             }
         }
 

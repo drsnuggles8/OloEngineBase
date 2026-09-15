@@ -33,7 +33,11 @@ namespace OloEngine
         CharacterClass,
         ExperienceCurve,
         VisualScript,
-        Volume // OpenVDB source (.vdb) or cooked native (.olovol) — issue #724
+        Volume, // OpenVDB source (.vdb) or cooked native (.olovol) — issue #724
+        Groom   // Cooked native groom curves (.ologroom) — issue #1232. The
+                // SOURCE .abc is deliberately NOT classified here: one .abc
+                // carries both IPolyMesh/ISubD and ICurves, so a curve archive
+                // is told from a polygon one by CONTENT, not by extension.
     };
 
     // Bitflag actions returned by ContentBrowserItem::Render()
@@ -58,6 +62,13 @@ namespace OloEngine
         // has no notion of the .vdb extension (see the OLO_WITH_OPENVDB
         // option comment in the root CMakeLists.txt).
         ImportVolume = 1 << 13,
+        // Import an Alembic ICurves archive as a groom: cook a sibling
+        // .ologroom and register it (issue #1232). Separate from Reimport
+        // because `.abc` maps to AssetType::MeshSource — the generic import
+        // path sends it to AlembicMeshImporter, which rejects a curve-only
+        // archive. Same shape as ImportVolume above, and for the same reason:
+        // the engine's extension map cannot express this one.
+        ImportGroom = 1 << 14,
     };
 
     using CBActionResult = u16;

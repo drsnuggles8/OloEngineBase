@@ -27,6 +27,8 @@
 
 #include <glm/glm.hpp>
 
+#include <vector>
+
 namespace OloEngine
 {
     struct GroomPreviewSettings
@@ -82,6 +84,19 @@ namespace OloEngine
         // Surfaced so the editor can say why a groom is being thinned out;
         // without it, raising "Max Strands" and seeing no change looks broken.
         bool SegmentBudgetLimited = false;
+        // True when the stride is applied PER GROUP rather than globally, which
+        // is what guarantees every represented group contributes at least one
+        // drawn strand. It requires the cook's contiguous group ranges; an
+        // un-canonicalised groom with interleaved group ids falls back to a
+        // global stride, because per-group phasing on interleaved ids would
+        // reset the counter on nearly every curve and select everything.
+        bool GroupPhasedSelection = false;
+        // True when MaxSegments was hit DURING submission and the remaining
+        // curves were dropped. The stride is an estimate from the average
+        // strand length; on a variable-length groom it can overshoot, and the
+        // cap is enforced exactly at submission. Reported rather than silent,
+        // because the visible result is a partially drawn groom.
+        bool SegmentBudgetExhausted = false;
     };
 
     // Decides WHICH curves the preview will draw, without drawing anything.
@@ -95,6 +110,17 @@ namespace OloEngine
     // The returned stats carry StrandsAvailable, Stride and
     // SegmentBudgetLimited; the two "Drawn" counters are filled in by the draw.
     [[nodiscard]] GroomPreviewStats PlanGroomPreview(const GroomAsset& groom, const GroomPreviewSettings& settings);
+
+    // The exact set of curve indices DrawGroomPreview will draw, in draw order.
+    // Pure, and the single source of the selection rule: the stride, the
+    // per-group phasing and the exact line budget all live here, so a test can
+    // assert on the real selection instead of re-deriving it (a re-derivation
+    // passes happily while the implementation drifts).
+    //
+    // `plan` must come from PlanGroomPreview for the same groom and settings.
+    // Updates `plan`'s SegmentBudgetExhausted and the drawn counters.
+    void SelectGroomPreviewCurves(const GroomAsset& groom, const GroomPreviewSettings& settings,
+                                  GroomPreviewStats& plan, std::vector<u32>& outCurves);
 
     // Draws `groom` through Renderer3D's debug-line path. `transform` is the
     // entity's world matrix; the groom's points are in its own object space.

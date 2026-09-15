@@ -36,6 +36,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -72,14 +73,19 @@ namespace
 
     void RecordMeasurement(const char* label, const ReferenceMeasurement& m)
     {
-        ::testing::Test::RecordProperty(std::string(label) + "_curves", static_cast<int>(m.CurveCount));
-        ::testing::Test::RecordProperty(std::string(label) + "_points", static_cast<int>(m.PointCount));
-        ::testing::Test::RecordProperty(std::string(label) + "_groups", static_cast<int>(m.GroupCount));
-        ::testing::Test::RecordProperty(std::string(label) + "_guides", static_cast<int>(m.GuideCount));
-        ::testing::Test::RecordProperty(std::string(label) + "_cpu_bytes", static_cast<int>(m.CpuBytes));
-        ::testing::Test::RecordProperty(std::string(label) + "_cooked_bytes", static_cast<int>(m.CookedBytes));
-        ::testing::Test::RecordProperty(std::string(label) + "_import_ms", static_cast<int>(m.ImportMilliseconds));
-        ::testing::Test::RecordProperty(std::string(label) + "_cook_ms", static_cast<int>(m.CookMilliseconds));
+        // The std::string overload, not the int one. These properties ARE the
+        // issue's delivery baseline, and static_cast<int> flattened every
+        // sub-millisecond timing to "0" and narrowed any byte count above
+        // INT_MAX — so the recorded numbers did not match the measured ones.
+        const std::string prefix(label);
+        ::testing::Test::RecordProperty(prefix + "_curves", std::to_string(m.CurveCount));
+        ::testing::Test::RecordProperty(prefix + "_points", std::to_string(m.PointCount));
+        ::testing::Test::RecordProperty(prefix + "_groups", std::to_string(m.GroupCount));
+        ::testing::Test::RecordProperty(prefix + "_guides", std::to_string(m.GuideCount));
+        ::testing::Test::RecordProperty(prefix + "_cpu_bytes", std::to_string(m.CpuBytes));
+        ::testing::Test::RecordProperty(prefix + "_cooked_bytes", std::to_string(m.CookedBytes));
+        ::testing::Test::RecordProperty(prefix + "_import_ms", std::format("{:.3f}", m.ImportMilliseconds));
+        ::testing::Test::RecordProperty(prefix + "_cook_ms", std::format("{:.3f}", m.CookMilliseconds));
 
         // Also on stdout: the XML report is not what a person reads when they
         // run one case by hand, and these numbers are the issue's baseline.
@@ -280,6 +286,20 @@ TEST(GroomReferenceAssets, AMissingWidthsParamIsDiagnosedRatherThanGuessed)
         EXPECT_FLOAT_EQ(width, AlembicGroomImporter::kDefaultWidth)
             << "an unauthored width must be the documented placeholder, not an invented taper";
     }
+
+    // The value alone is only half the criterion: the import must SAY it
+    // substituted. Diagnostic is empty on success, so the announcement lives in
+    // Warnings.
+    bool announced = false;
+    for (const std::string& warning : result.Warnings)
+    {
+        if (warning.find("widths") != std::string::npos)
+        {
+            announced = true;
+        }
+    }
+    EXPECT_TRUE(announced) << "the substitution was applied but never announced; Warnings held "
+                           << result.Warnings.size() << " entries";
 }
 
 TEST(GroomReferenceAssets, AMissingUVsParamStillImportsWithZeroRootUVs)
@@ -295,8 +315,106 @@ TEST(GroomReferenceAssets, AMissingUVsParamStillImportsWithZeroRootUVs)
 
     for (const glm::vec2& uv : result.Groom->GetRootUVs())
     {
-        EXPECT_EQ(uv, glm::vec2(0.0f));
+        EXPECT_FLOAT_EQ(uv.x, 0.0f);
+        EXPECT_FLOAT_EQ(uv.y, 0.0f);
     }
+}
+
+// ── The editor's import route, minus the UI ─────────────────────────────────
+// These cover AlembicGroomImporter::ImportAndCookToSidecar, which is what the
+// content browser's "Import as Groom" action runs. It exists as an engine
+// function specifically so it can be tested: the first version of this feature
+// had the importer wired to NOTHING — every test called Import() directly, so
+// nothing noticed that a groom .abc could not actually be imported in the
+// editor at all.
+
+TEST(GroomReferenceAssets, TheSidecarCookWritesALoadableOloGroomNextToTheSource)
+{
+    const auto prim = Tests::GroomFixture::MakeHumanScalpGroom(128, 5, 8, "scalp");
+    const std::filesystem::path abcPath = Tests::TempFile("sidecar-source.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, { prim }));
+
+    AlembicGroomImporter::Options options;
+    options.ProvenancePath = "Grooms/sidecar-source.abc";
+
+    const auto cooked = AlembicGroomImporter::ImportAndCookToSidecar(abcPath, options);
+    ASSERT_TRUE(cooked.Ok) << cooked.Diagnostic;
+
+    // Next to the source, same stem, .ologroom extension — that is the file the
+    // asset system is then asked to register.
+    EXPECT_EQ(cooked.OutputPath.extension(), ".ologroom");
+    EXPECT_EQ(cooked.OutputPath.stem(), abcPath.stem());
+    EXPECT_EQ(cooked.OutputPath.parent_path(), abcPath.parent_path());
+    ASSERT_TRUE(std::filesystem::exists(cooked.OutputPath));
+
+    EXPECT_EQ(cooked.CurveCount, 128u);
+    EXPECT_EQ(cooked.GroupCount, 1u);
+    EXPECT_GT(cooked.CookedBytes, 0u);
+
+    // And the bytes it wrote are a groom the runtime reader accepts, with the
+    // provenance intact — the sidecar is not just a file of the right length.
+    std::vector<u8> bytes;
+    {
+        std::ifstream in(cooked.OutputPath, std::ios::binary | std::ios::ate);
+        ASSERT_TRUE(in.is_open());
+        bytes.resize(static_cast<sizet>(in.tellg()));
+        in.seekg(0, std::ios::beg);
+        in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    }
+    EXPECT_EQ(bytes.size(), cooked.CookedBytes);
+
+    Ref<GroomAsset> loaded;
+    std::string reason;
+    ASSERT_TRUE(GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), loaded, reason)) << reason;
+    EXPECT_EQ(loaded->GetCurveCount(), 128u);
+    EXPECT_EQ(loaded->GetProvenance().SourcePath, "Grooms/sidecar-source.abc");
+    EXPECT_EQ(loaded->GetProvenance().SourceFormat, "AlembicCurves");
+}
+
+TEST(GroomReferenceAssets, TheSidecarCookIsByteIdenticalToImportThenCook)
+{
+    // The route the editor takes must not be a second, subtly different
+    // implementation of the cook.
+    const auto prim = Tests::GroomFixture::MakeAnimalFurGroom(96, 4, 3, "pelt");
+    const std::filesystem::path abcPath = Tests::TempFile("sidecar-parity.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, { prim }));
+
+    AlembicGroomImporter::Options options;
+    options.ProvenancePath = "Grooms/sidecar-parity.abc";
+
+    const auto viaSidecar = AlembicGroomImporter::ImportAndCookToSidecar(abcPath, options);
+    ASSERT_TRUE(viaSidecar.Ok) << viaSidecar.Diagnostic;
+    std::vector<u8> sidecarBytes;
+    {
+        std::ifstream in(viaSidecar.OutputPath, std::ios::binary | std::ios::ate);
+        ASSERT_TRUE(in.is_open());
+        sidecarBytes.resize(static_cast<sizet>(in.tellg()));
+        in.seekg(0, std::ios::beg);
+        in.read(reinterpret_cast<char*>(sidecarBytes.data()), static_cast<std::streamsize>(sidecarBytes.size()));
+    }
+
+    const auto direct = AlembicGroomImporter::Import(abcPath, options);
+    ASSERT_TRUE(direct.Succeeded()) << direct.Diagnostic;
+    std::vector<u8> directBytes;
+    std::string reason;
+    ASSERT_TRUE(GroomCooker::CookToBytes(*direct.Groom, directBytes, reason)) << reason;
+
+    EXPECT_EQ(sidecarBytes, directBytes) << "the editor's route and the direct route produced different bytes";
+}
+
+TEST(GroomReferenceAssets, TheSidecarCookRefusesAPolygonArchiveByName)
+{
+    // The distinction the feature rests on. An archive with no ICurves must be
+    // refused with a diagnostic that says so, not silently produce an empty
+    // groom — and it must NOT leave a sidecar behind.
+    const std::filesystem::path abcPath = Tests::TempFile("no-curves.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, {}));
+
+    const auto cooked = AlembicGroomImporter::ImportAndCookToSidecar(abcPath);
+    EXPECT_FALSE(cooked.Ok);
+    EXPECT_NE(cooked.Diagnostic.find("ICurves"), std::string::npos) << cooked.Diagnostic;
+    EXPECT_FALSE(std::filesystem::exists(cooked.OutputPath))
+        << "a refused import must not leave a sidecar for the asset system to pick up";
 }
 
 TEST(GroomReferenceAssets, ArchiveContainsCurvesDistinguishesAGroomFromAPolygonArchive)

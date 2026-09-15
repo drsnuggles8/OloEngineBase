@@ -30,12 +30,15 @@
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCooker.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Serialization/GroomBinaryFormat.h"
+#include "OloEngine/Serialization/ZlibSection.h"
 
 #if defined(OLO_WITH_ALEMBIC)
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
 #endif
 
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -296,6 +299,65 @@ TEST(GroomRejection, ACorruptPayloadFailsTheChecksumRatherThanDecodingGarbage)
     std::string reason;
     EXPECT_FALSE(GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), groom, reason));
     EXPECT_TRUE(Mentions(reason, "checksum")) << reason;
+}
+
+TEST(GroomRejection, AnInflatedCountIsRejectedWithoutSizingAnAllocationFromIt)
+{
+    // The hardening this pins: every array section used to `resize` its
+    // destination from the Info section's count BEFORE the section frame was
+    // validated. A CRC-valid file declaring PointCount = 256'000'000 therefore
+    // reached m_Points.resize(256'000'000) — about 3 GiB — before the
+    // truncation was detected, and std::bad_alloc is not something any caller
+    // of DecodeFromBytes catches. The count now has to survive validation
+    // first.
+    //
+    // The payload is zlib-compressed and CRC'd, so the count is patched in the
+    // DECOMPRESSED payload and the container is rebuilt around it — otherwise
+    // the checksum would reject the file before the counts were ever read, and
+    // the test would pass for the wrong reason.
+    const std::vector<u8> good = CookASmallGroom();
+    ASSERT_GT(good.size(), sizeof(OloGroomFormat::FileHeader));
+
+    OloGroomFormat::FileHeader header;
+    std::memcpy(&header, good.data(), sizeof(header));
+    ASSERT_NE(header.Flags & OloGroomFormat::FlagCompressed, 0u) << "this test assumes a compressed payload";
+
+    std::vector<u8> payload = ZlibSection::Decompress(
+        good.data() + sizeof(header), good.size() - sizeof(header), header.UncompressedPayloadSize,
+        OloGroomFormat::MaxUncompressedPayloadSize, "GroomRejectionTest");
+    ASSERT_FALSE(payload.empty());
+
+    // Section 0 is Info, immediately after its frame.
+    const sizet infoOffset = sizeof(OloGroomFormat::SectionFrame);
+    ASSERT_GE(payload.size(), infoOffset + sizeof(OloGroomFormat::InfoSection));
+    OloGroomFormat::InfoSection info;
+    std::memcpy(&info, payload.data() + infoOffset, sizeof(info));
+    ASSERT_GT(info.PointCount, 0u);
+
+    // Just under the format cap, so the cap itself is not what rejects it —
+    // the section-frame check has to be.
+    info.PointCount = static_cast<u32>(OloGroomFormat::MaxPointCount - 1u);
+    std::memcpy(payload.data() + infoOffset, &info, sizeof(info));
+
+    std::vector<u8> recompressed = ZlibSection::Compress(payload.data(), payload.size(), "GroomRejectionTest");
+    ASSERT_FALSE(recompressed.empty());
+
+    OloGroomFormat::FileHeader patched;
+    patched.Flags = OloGroomFormat::FlagCompressed;
+    patched.UncompressedPayloadSize = payload.size();
+    patched.Checksum = Hash::CRC32(recompressed.data(), recompressed.size());
+
+    std::vector<u8> bytes(sizeof(patched) + recompressed.size());
+    std::memcpy(bytes.data(), &patched, sizeof(patched));
+    std::memcpy(bytes.data() + sizeof(patched), recompressed.data(), recompressed.size());
+
+    Ref<GroomAsset> groom;
+    std::string reason;
+    EXPECT_FALSE(GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), groom, reason));
+    EXPECT_FALSE(groom) << "a rejected file must not leave a half-populated asset behind";
+    // Named by section, so the diagnostic points at the inconsistency rather
+    // than just saying "corrupt".
+    EXPECT_TRUE(Mentions(reason, "points")) << reason;
 }
 
 TEST(GroomRejection, ATruncatedFileIsRejected)

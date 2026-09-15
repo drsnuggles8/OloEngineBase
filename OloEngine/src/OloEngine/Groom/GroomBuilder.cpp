@@ -155,9 +155,20 @@ namespace OloEngine
 
         // A builder is single-use: reset to the empty-but-valid state so a
         // second Build() produces an empty groom that fails validation loudly,
-        // rather than resurrecting moved-from vectors.
+        // rather than exposing moved-from vectors. EVERY member, not just the
+        // offset table — GetCurveCount() reads m_RootUVs, so a caller that
+        // queried the builder after Build() used to observe an unspecified
+        // moved-from value.
+        m_Name.clear();
         m_CurveOffsets.assign(1, 0u);
+        m_Points.clear();
+        m_PointWidths.clear();
+        m_RootUVs.clear();
+        m_CurveGroupIds.clear();
+        m_CurveFlags.clear();
+        m_GroupNames.clear();
         m_GroupIdsByName.clear();
+        m_Provenance = {};
 
         groom->RecomputeDerivedData();
         if (!groom->Validate(outReason))

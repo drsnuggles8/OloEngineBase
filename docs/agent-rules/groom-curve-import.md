@@ -7,10 +7,24 @@ Read before touching `OloEngine/src/OloEngine/Groom/`,
 ## The rules
 
 1. **Polygon Alembic import is not curve support.** `AlembicMeshImporter` reads `IPolyMesh` /
-   `ISubD`; a groom is `ICurves` and goes through `AlembicGroomImporter`. One `.abc` extension
-   carries both schemas, so routing is by *content* — `AlembicGroomImporter::ArchiveContainsCurves`
-   — never by extension. A groom exported as ribbons is a mesh, and importing it as one loses
-   per-strand identity, root UVs and the guide flag.
+   `ISubD`; a groom is `ICurves` and goes through `AlembicGroomImporter`. A groom exported as
+   ribbons is a mesh, and importing it as one loses per-strand identity, root UVs and the guide
+   flag.
+
+   **Where that routing actually happens, and why it is not in `AssetExtensions`.** `.abc` maps to
+   `AssetType::MeshSource`, so the generic import path always sends it to `AlembicMeshImporter` —
+   one extension cannot express two schemas. The groom route is the content browser's
+   **"Import as Groom"** action (`ContentBrowserAction::ImportGroom`), which calls
+   `ArchiveContainsCurves`, then `AlembicGroomImporter::Import`, then `GroomCooker::CookToBytes`,
+   and registers the sibling `.ologroom` it writes. That is deliberately the same shape as the
+   `.vdb` → `.olovol` cook next to it: a user-initiated action, because deciding by content means
+   reading the file, and `EditorAssetManager::ImportAsset` is metadata-only by design (the watcher
+   calls it on files still being flushed).
+
+   This was missed the first time: the predicate and the importer existed, were tested, and were
+   called by **nothing** — so a groom `.abc` could not be imported in the editor at all, and the
+   only `.ologroom` files in the repo had been written by a test. If you add a second source format,
+   give it an action; do not widen the extension map.
 
 2. **Reject, never clamp.** Malformed curve data and unknown `groom_*` attributes fail the import
    with a diagnostic that names the attribute or the invariant. A clamp is the silent fallback this
@@ -85,9 +99,9 @@ precisely so the rule is testable without a GL context):
   cross. Two reference grooms at `MaxStrands = 2000/2500` submitted ~39,500 lines and the editor
   logged `FrameDataBuffer: Transform buffer overflow!` every frame. The default is 8000 and is
   deliberately well under the raw headroom: it is PER GROOM, a scene may hold several, and the
-  shadow/depth passes re-submit. `GroomPreviewStats::
-  SegmentBudgetLimited` says when this is the binding cap, so "I raised Max Strands and nothing
-  changed" has an answer.
+  shadow/depth passes re-submit. `GroomPreviewStats::SegmentBudgetLimited` says when this is the
+  binding cap, so "I raised Max Strands and nothing changed" has an answer, and
+  `SegmentBudgetExhausted` says when the exact cap stopped submission mid-groom.
 
 `Renderer3D::DrawLine` **builds a packet and returns it — it does not queue it.** Pair it with
 `Renderer3D::SubmitPacket` (see `DrawWorldAxisHelper`). Forgetting is completely silent: the draw

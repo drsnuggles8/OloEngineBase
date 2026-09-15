@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace OloEngine
 {
@@ -94,14 +95,105 @@ namespace OloEngine
         u32 strideFromSegments = 1;
         if (linesPerStrand > 0.0f)
         {
-            const u32 affordableStrands =
+            u32 affordableStrands =
                 std::max(1u, static_cast<u32>(static_cast<f32>(std::max(1u, settings.MaxSegments)) / linesPerStrand));
+            // Per-group phasing guarantees every represented group its first
+            // candidate, which can add up to one strand per group on top of
+            // what the stride alone selects. Price that in, so the exact cap in
+            // DrawGroomPreview is a backstop for variable-length grooms rather
+            // than something that fires on every ordinary multi-group one.
+            // Conservative on purpose: GetGroupCount() counts DECLARED groups,
+            // which is an over-estimate under GuidesOnly.
+            const u32 groupCount = groom.GetGroupCount();
+            affordableStrands = (affordableStrands > groupCount) ? (affordableStrands - groupCount) : 1u;
             strideFromSegments = (candidateCount + affordableStrands - 1u) / affordableStrands;
         }
 
         stats.Stride = std::max(1u, std::max(strideFromStrands, strideFromSegments));
         stats.SegmentBudgetLimited = strideFromSegments > strideFromStrands;
+
+        // Per-group phasing needs the cook's contiguous group ranges. On an
+        // un-canonicalised groom the ids are interleaved, and resetting the
+        // per-group counter at every id change would select nearly every curve;
+        // such a groom keeps the global stride instead. O(curveCount), which the
+        // draw loop below already is.
+        const auto& groupIds = groom.GetCurveGroupIds();
+        stats.GroupPhasedSelection = std::is_sorted(groupIds.begin(), groupIds.end());
         return stats;
+    }
+
+    void SelectGroomPreviewCurves(const GroomAsset& groom, const GroomPreviewSettings& settings,
+                                  GroomPreviewStats& plan, std::vector<u32>& outCurves)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        outCurves.clear();
+        plan.StrandsDrawn = 0;
+        plan.SegmentsDrawn = 0;
+        plan.SegmentBudgetExhausted = false;
+        if (plan.StrandsAvailable == 0 || plan.Stride == 0)
+        {
+            return;
+        }
+
+        const u32 curveCount = groom.GetCurveCount();
+
+        // The stride is phased PER GROUP when the groom is canonicalised: the
+        // cook makes every group a contiguous range, so resetting the counter at
+        // each boundary means index 0 of every represented group is always
+        // selected. A single GLOBAL modulo can skip a small group outright when
+        // none of its indices happen to be divisible by the stride — the "shows
+        // one group and looks fine" failure the subsampling exists to prevent,
+        // and invisible on screen.
+        u32 candidateIndex = 0;
+        u32 currentGroup = std::numeric_limits<u32>::max();
+
+        // MaxSegments is enforced HERE, against each curve's EXACT cost, not
+        // only through the average-derived stride. Every debug line takes one
+        // entry of the frame's shared transform buffer, so a variable-length
+        // groom whose average understated its real cost would otherwise
+        // overflow that buffer. Running out is reported, not silent.
+        const u32 lineBudget = std::max(1u, settings.MaxSegments);
+        u32 plannedLines = 0;
+
+        for (u32 curve = 0; curve < curveCount; ++curve)
+        {
+            if (settings.GuidesOnly && !groom.IsGuide(curve))
+            {
+                continue;
+            }
+
+            if (plan.GroupPhasedSelection)
+            {
+                if (const u32 group = groom.GetCurveGroupIds()[curve]; group != currentGroup)
+                {
+                    currentGroup = group;
+                    candidateIndex = 0;
+                }
+            }
+            if ((candidateIndex++ % plan.Stride) != 0)
+            {
+                continue;
+            }
+
+            const u32 points = groom.GetCurvePointCount(curve);
+            if (points < 2)
+            {
+                continue; // Validate() forbids this; skip rather than assert in a draw path.
+            }
+
+            const u32 curveCost = (settings.ShowStrands ? (points - 1u) : 0u) + (settings.ShowRoots ? 3u : 0u);
+            if (plannedLines + curveCost > lineBudget)
+            {
+                plan.SegmentBudgetExhausted = true;
+                break;
+            }
+            plannedLines += curveCost;
+
+            outCurves.push_back(curve);
+            ++plan.StrandsDrawn;
+            plan.SegmentsDrawn += curveCost;
+        }
     }
 
     GroomPreviewStats DrawGroomPreview(const GroomAsset& groom, const glm::mat4& transform,
@@ -114,7 +206,9 @@ namespace OloEngine
         {
             return stats;
         }
-        const u32 curveCount = groom.GetCurveCount();
+
+        std::vector<u32> selected;
+        SelectGroomPreviewCurves(groom, settings, stats, selected);
 
         const glm::vec3& boundsMin = groom.GetBoundsMin();
         const glm::vec3& boundsMax = groom.GetBoundsMax();
@@ -134,26 +228,14 @@ namespace OloEngine
         // read as markers rather than as a denser patch of hair.
         const f32 rootThickness = strandThickness * 1.8f;
 
-        u32 candidateIndex = 0;
-        for (u32 curve = 0; curve < curveCount; ++curve)
+        // WHICH curves are drawn is decided above, by SelectGroomPreviewCurves.
+        // This loop only draws them: the stride, the per-group phasing and the
+        // exact line budget have one implementation, and it is the one the
+        // tests exercise.
+        for (const u32 curve : selected)
         {
-            const bool isGuide = groom.IsGuide(curve);
-            if (settings.GuidesOnly && !isGuide)
-            {
-                continue;
-            }
-            const u32 thisCandidate = candidateIndex++;
-            if ((thisCandidate % stats.Stride) != 0)
-            {
-                continue;
-            }
-
             const u32 first = groom.GetCurveFirstPoint(curve);
             const u32 points = groom.GetCurvePointCount(curve);
-            if (points < 2)
-            {
-                continue; // Validate() forbids this; skip rather than assert in a draw path.
-            }
 
             glm::vec3 baseColor(0.8f);
             if (settings.ColorByGroup)
@@ -162,7 +244,7 @@ namespace OloEngine
             }
             // A guide is drawn white-hot: guides drive everything downstream,
             // so "which strands are guides" must be answerable at a glance.
-            if (isGuide)
+            if (groom.IsGuide(curve))
             {
                 baseColor = glm::mix(baseColor, glm::vec3(1.0f), 0.6f);
             }
@@ -186,7 +268,6 @@ namespace OloEngine
                         color = baseColor * glm::mix(0.15f, 1.0f, t);
                     }
                     SubmitLine(previous, current, color, strandThickness);
-                    ++stats.SegmentsDrawn;
                     previous = current;
                 }
             }
@@ -202,10 +283,7 @@ namespace OloEngine
                            rootWorld + glm::vec3(0.0f, markerSize, 0.0f), rootColor, rootThickness);
                 SubmitLine(rootWorld - glm::vec3(0.0f, 0.0f, markerSize),
                            rootWorld + glm::vec3(0.0f, 0.0f, markerSize), rootColor, rootThickness);
-                stats.SegmentsDrawn += 3;
             }
-
-            ++stats.StrandsDrawn;
         }
 
         return stats;
