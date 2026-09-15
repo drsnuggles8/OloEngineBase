@@ -28,33 +28,16 @@
 #type vertex
 #version 460 core
 
-// Mirrors OloEngine::VirtualGpuVertex (32 B std430)
-struct VirtualGpuVertex {
-    vec4 PositionU;
-    vec4 NormalV;
-};
-
-// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
-struct VirtualInstance {
-    mat4 Transform;
-    mat4 PrevTransform;
-    mat4 NormalMatrix;
-    uint ClusterBase;
-    uint ClusterCount;
-    uint GroupBase;
-    int  EntityID;
-    float MaxScale;
-    float ErrorThresholdPixels;
-    uint CommandBase;
-    uint Flags;
-    // Declared even though this stage ignores it: the std430 array stride IS the
-    // struct size, so omitting it makes every instance after the first read the
-    // previous one's transform.
-    vec4 LightmapScaleOffset;
-};
-
-layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
-layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
+// STRUCT MIRRORS + THE SHARED POSE, in include/VirtualSkinnedVertexFetch.glsl
+// (which pulls in VirtualGeometryGpuStructs.glsl and declares bindings 39/35).
+//
+// This file carried its own copies until issue #1150, which grew
+// VirtualInstance from 240 to 256 bytes. FIVE hand-written copies had to move
+// together, and a std430 stride mismatch does not error: every instance past
+// the first reads the previous one's transform. The copies were already
+// recorded as follow-up work by the shared header; a change that has to touch
+// all of them is when that debt comes due.
+#include "include/VirtualSkinnedVertexFetch.glsl"
 
 // u_VSMClips (the clip projections) and u_VSMPassParams (the level).
 #include "include/VirtualShadowResources.glsl"
@@ -75,8 +58,14 @@ void main()
     // The RASTERIZER flavour — this is a gl_Position, so it must carry Vulkan's
     // y flip and z remap. The cull, which projects and then interprets the
     // result itself, reads the raw matrix instead (ADR 0011 (59)).
+    // The SAME pose the G-Buffer draws (issue #1150), through the one
+    // SkinVirtualVertex in include/VirtualSkinnedVertexFetch.glsl. A clip level
+    // rasterized from the rest pose while the surface is animated bakes a
+    // rest-pose silhouette into a CACHED page, so it survives until something
+    // invalidates the page — far longer than a wrong frame.
+    vec3 posed = SkinVirtualPosition(inst, uint(gl_VertexIndex), vert.PositionU.xyz);
     gl_Position = u_VSMClips[clipLevel].ViewProjectionRaster *
-                  (inst.Transform * vec4(vert.PositionU.xyz, 1.0));
+                  (inst.Transform * vec4(posed, 1.0));
 }
 
 #type fragment

@@ -32,6 +32,53 @@ namespace OloEngine
     // any blob with LevelCount above this — keeping every buildable mesh loadable.
     inline constexpr u32 kMaxVirtualMeshLevels = 64;
 
+    // ── Skinned virtual geometry (issue #1150) ────────────────────────────────
+    //
+    // The number of DISTINCT bones one cluster's vertices may reference before
+    // the cluster gives up its own deformed bound.
+    //
+    // A cluster is ~128 vertices of one small patch of surface, and a patch that
+    // small is normally influenced by a handful of bones — so eight is generous
+    // rather than tight. What matters is that the list is FIXED-WIDTH: it lets
+    // the cook address a cluster's bone set as `clusterIndex * kMaxClusterBones`
+    // with no base/count pair in VirtualCluster (which has one spare word, not
+    // two) and no second level of indirection in the cull shader.
+    //
+    // A cluster that exceeds it is not an error and not a build failure: its
+    // list is emitted as ALL-SENTINEL, which the cull reads as "I cannot bound
+    // this cluster tightly" and falls back to the instance-wide conservative
+    // bound. Loss of culling precision, never loss of geometry.
+    inline constexpr u32 kMaxClusterBones = 8;
+
+    // Empty slot in a cluster's bone list. Also the whole-list value for a
+    // cluster whose bone set did not fit (see kMaxClusterBones).
+    inline constexpr u32 kNoClusterBone = 0xFFFFFFFFu;
+
+    // Per-vertex skin binding, parallel to VirtualMesh::Vertices. The same four
+    // influences MeshSource::BoneInfluence carries, kept in the cook so the
+    // virtual path never has to reach back into the source mesh.
+    struct VirtualVertexSkinning
+    {
+        u32 BoneIDs[4] = { 0, 0, 0, 0 };
+        f32 Weights[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    };
+
+    // Rest-pose (object-space) bounding sphere of every vertex one bone
+    // influences — the static half of the conservative-bounds contract below.
+    //
+    // Radius < 0 marks a bone no vertex of this mesh binds to; such a bone
+    // contributes nothing to any bound no matter how it moves.
+    struct VirtualBoneBounds
+    {
+        glm::vec3 Center{ 0.0f };
+        f32 Radius = -1.0f;
+
+        [[nodiscard]] bool Influences() const
+        {
+            return Radius >= 0.0f;
+        }
+    };
+
     // Cook identity (issue #629). The blob's own version guards the WIRE FORMAT; this guards
     // the COOK — the geometry the builder produced.
     //
@@ -63,7 +110,15 @@ namespace OloEngine
     // five, float addition is not associative, and a cached DAG that differs from what this
     // builder would now produce is exactly what the cook fingerprint exists to reject. A
     // "probably identical" cache is not a contract.
-    inline constexpr u32 kVirtualMeshBuilderVersion = 3;
+    // v4 (issue #1150): the builder no longer rejects skinned sources, so a mesh
+    // that previously produced NO cook now produces one — and, more to the
+    // point, the vertex compaction now carries a skin binding per vertex and the
+    // emission computes per-cluster bone sets. A v3 blob for a skinned source
+    // cannot exist, but a v3 blob for a RIGID source cooked by a builder that
+    // still had the rejection is indistinguishable from one cooked by this
+    // builder only if the rigid path is byte-identical — and it is not required
+    // to be, so the version moves rather than being argued about.
+    inline constexpr u32 kVirtualMeshBuilderVersion = 4;
 
     // Sphere + object-space error used for view-dependent LOD selection.
     // For groups these are conservative: the sphere of a group contains the spheres of all
@@ -133,7 +188,36 @@ namespace OloEngine
         std::vector<VirtualClusterGroup> Groups;
         std::vector<u32> ClusterVertexRefs; // per-cluster references into Vertices
         std::vector<u8> ClusterTriangles;   // per-cluster local triangle indices (3 per triangle)
-        u32 LevelCount = 0;                 // number of DAG levels (max group Depth + 1)
+
+        // ── Skinning payload (issue #1150), all EMPTY for a rigid cook ────────
+        //
+        // The three arrays are all-or-nothing together: a cook either carries
+        // the whole skinning payload or none of it, and IsSkinned() is the one
+        // predicate every consumer asks. A partial payload would deform some
+        // vertices and not others, which reads as a mesh tearing itself apart
+        // rather than as a load failure — so the deserializer rejects it.
+
+        // One per entry of Vertices. A PARALLEL array for exactly the reason
+        // LightmapUVs is one: Vertex is 32 bytes with three pinned offsets and
+        // the virtual path's packed GPU vertex mirrors it, so only skinned
+        // meshes pay for the extra stream.
+        std::vector<VirtualVertexSkinning> Skinning;
+
+        // One per bone SLOT of the source skeleton (indexed by the same bone id
+        // Skinning::BoneIDs carries), so a slot no vertex binds to is present
+        // and marked non-influencing rather than shifting every later index.
+        std::vector<VirtualBoneBounds> BoneBounds;
+
+        // kMaxClusterBones entries per cluster, cluster-major: cluster k's set
+        // is [k * kMaxClusterBones, (k + 1) * kMaxClusterBones). Unused slots —
+        // and every slot of a cluster whose set overflowed — are kNoClusterBone.
+        std::vector<u32> ClusterBoneRefs;
+
+        [[nodiscard]] bool IsSkinned() const
+        {
+            return !Skinning.empty();
+        }
+        u32 LevelCount = 0; // number of DAG levels (max group Depth + 1)
         u32 SourceTriangleCount = 0;
 
         [[nodiscard]] bool IsValid() const

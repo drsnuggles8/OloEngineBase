@@ -20,7 +20,12 @@
 // uses.
 // =============================================================================
 
-#include "VirtualGeometryGpuStructs.glsl"
+// Struct mirrors, the skin-binding layout, the vertex/instance SSBOs (39/35)
+// and the shared pose function all arrive through this one include, which
+// the SHADOW depth stages include too — that is what makes "the shadow
+// rasterizes the pose the G-Buffer drew" structural rather than a thing to
+// keep checking.
+#include "VirtualSkinnedVertexFetch.glsl"
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
@@ -34,14 +39,6 @@ layout(std140, binding = 8) uniform MotionBlurMatrices {
     mat4 u_InverseViewProjection;
     mat4 u_PrevViewProjection;
 };
-
-layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
-layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
-
-// Per-draw info (binding 49 = UBO_VIRTUAL_DRAW), uploaded identically for both
-// hardware raster routes. One shared spelling — see the include for the field
-// contract and for why it is not declared here.
-#include "VirtualDrawInfo.glsl"
 
 struct VirtualVertexOutputs {
     vec3 WorldPos;
@@ -77,18 +74,29 @@ vec2 FetchVirtualLightmapUV(VirtualInstance inst, uint globalVertexIndex)
                                     globalVertexIndex);
 }
 
-VirtualVertexOutputs TransformVirtualVertex(VirtualInstance inst, VirtualGpuVertex vert)
+// `globalVertexIndex` is the same index the vertex fetch used — it addresses
+// the skin tail, so a caller that has a VirtualGpuVertex but not its index
+// cannot skin it. Both raster routes already have it (gl_VertexIndex on the MDI
+// arm, cluster.VertexBase + local on the mesh arm).
+VirtualVertexOutputs TransformVirtualVertex(VirtualInstance inst, VirtualGpuVertex vert, uint globalVertexIndex)
 {
     VirtualVertexOutputs o;
-    vec3 localPosition = vert.PositionU.xyz;
-    vec3 localNormal = vert.NormalV.xyz;
+    // Skinning happens in OBJECT space, before the instance transform, exactly
+    // as it does on the classic path (PBR_GBuffer_Skinned.glsl) — the palette
+    // is a model-space pose and the instance transform places the posed model
+    // in the world. Doing it the other way round would apply the entity's
+    // scale to the bone translations.
+    VirtualSkinnedVertex skinned = SkinVirtualVertex(inst, globalVertexIndex, vert.PositionU.xyz, vert.NormalV.xyz);
 
-    o.WorldPos = vec3(inst.Transform * vec4(localPosition, 1.0));
-    o.Normal = mat3(inst.NormalMatrix) * localNormal;
+    o.WorldPos = vec3(inst.Transform * vec4(skinned.Position, 1.0));
+    o.Normal = mat3(inst.NormalMatrix) * skinned.Normal;
     o.TexCoord = vec2(vert.PositionU.w, vert.NormalV.w);
 
     o.ClipPosCurr = u_ViewProjection * vec4(o.WorldPos, 1.0);
-    vec4 prevWorldPos = inst.PrevTransform * vec4(localPosition, 1.0);
+    // Per-bone previous pose as well as per-entity: a stationary character
+    // playing an animation has motion the entity transform knows nothing about,
+    // and TAA / motion blur read this to resolve it.
+    vec4 prevWorldPos = inst.PrevTransform * vec4(skinned.PrevPosition, 1.0);
     o.ClipPosPrev = u_PrevViewProjection * prevWorldPos;
     return o;
 }

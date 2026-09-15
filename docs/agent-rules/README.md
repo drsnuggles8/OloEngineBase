@@ -106,6 +106,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
 - [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md): a caster family reaches a shadow technique only if somebody wired it there, and the gap is invisible.
 - [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it, and a terminal group is marked `FLT_MAX`, which is finite.
+- [deforming-geometry-conservative-bounds.md](deforming-geometry-conservative-bounds.md): a bound that only rejects may be tightened per cluster, but a bound a hierarchy's nesting or monotonicity invariants rest on grows by one uniform scalar, derived rather than estimated.
 - [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md): the LOD plane faces the mesh, not the camera, and the error metric must be a ratio.
 - [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md): every writer of mip 0 owes the rest of the chain.
 - [terrain-gpu-lod-quadtree.md](terrain-gpu-lod-quadtree.md): crack-freedom is a vertex-set property; picking must not inherit the tessellation gate.
@@ -382,6 +383,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
 | [registries-must-outlive-their-registrants.md](registries-must-outlive-their-registrants.md) | A lazily-created registry is destroyed BEFORE the namespace-scope statics whose destructors unregister from it. |
 | [cluster-lod-simplification.md](cluster-lod-simplification.md) | A lock must outlive the level that created it (§1); an `isfinite` test accepts the `FLT_MAX` terminal marker and silently selects an empty cut (§5b). |
+| [deforming-geometry-conservative-bounds.md](deforming-geometry-conservative-bounds.md) | A rest-pose bound stops containing geometry that deforms, so the cull drops clusters that are on screen; and per-node deformed LOD spheres stop nesting, so the cut cracks along a seam that opens and closes as the character moves. |
 | [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md) | A read from a pooled resource whose lifetime already ended. |
 | [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) | TOCTOU between a decrement and a re-read. |
 | [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) | A locked scope calling a sibling that locks the same non-recursive mutex; unlock the callee, don't move the caller. |

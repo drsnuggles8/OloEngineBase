@@ -211,6 +211,25 @@ namespace OloEngine
         // addresses its own charts through its own uv2 — exactly what the
         // classic path does across submeshes.
         glm::vec4 LightmapScaleOffset{ 0.0f };
+
+        // This frame's bone palette for a SKINNED instance, empty otherwise
+        // (issue #1150). Indexed by the same bone id the cooked skin bindings
+        // carry — i.e. exactly Skeleton::m_FinalBoneMatrices and its previous-
+        // frame twin, handed over as-is rather than re-derived here.
+        //
+        // The two must be the same length or the previous set is IGNORED and the
+        // current one stands in for it, which reads as zero bone motion — the
+        // same degrade Renderer3D applies to the classic path's PrevBoneMatrices
+        // on a first frame. A mismatched pair would otherwise pair bone i's
+        // current matrix with bone j's previous one and write motion vectors
+        // that smear the character across the screen.
+        std::vector<glm::mat4> BoneMatrices;
+        std::vector<glm::mat4> PrevBoneMatrices;
+
+        [[nodiscard]] bool IsSkinned() const
+        {
+            return !BoneMatrices.empty();
+        }
     };
 
     // @brief GPU residence for every registered virtual mesh (issue #629).
@@ -291,6 +310,14 @@ namespace OloEngine
             // indistinguishable (which would publish a lightmap region over an arena tail
             // nothing wrote).
             bool HasLightmapUVs = false;
+            // Whether the cook carried a skinning payload, recorded at registration for
+            // the same reason (issue #1150 x #1151). VirtualMeshGpuData::IsSkinned() tests
+            // Skinning.size() == Vertices.size(), and the spill releases Vertices � so a
+            // spilled skinned mesh would read as rigid, the arena would allocate no skin
+            // tails, and the character would be drawn in its rest pose while the cull kept
+            // deforming its bounds. Silently. The Skinning, BoneBounds and ClusterBoneRefs
+            // arrays the deformation actually reads are NOT spilled; only the test was.
+            bool IsSkinned = false;
         };
 
         // The contiguous run of MeshEntry parts belonging to one mesh asset.
@@ -690,6 +717,26 @@ namespace OloEngine
         // predates its unwrap: the region would be valid while the arena tail
         // held nothing, and the fetch would read another mesh's charts.
         [[nodiscard]] bool MeshHasLightmapUVs(AssetHandle handle) const;
+
+        // ---- Skinned virtual geometry (issue #1150) -----------------------
+        //
+        // The same "ride an existing block" route, for the same reason, with the
+        // layout and the packing described in VirtualSkinningPacking.h.
+        //
+        // Element index of the first packed skin binding, for
+        // u_VirtualSkinningBase. ZERO means "this arena carries no skinning",
+        // which is also the shader's don't-fetch signal.
+        [[nodiscard]] u32 GetSkinningBaseElement() const
+        {
+            return m_SkinningBaseElement;
+        }
+
+        // Whether the registered mesh's cooked DAG carries a skinning payload.
+        // A submission must NOT publish a bone palette for a mesh whose cook
+        // does not: the vertices would be drawn rigid while the cull deformed
+        // their bounds, which is geometry sliding out of its own culling volume.
+        [[nodiscard]] bool MeshIsSkinned(AssetHandle handle) const;
+
         [[nodiscard]] const Ref<StorageBuffer>& GetInstanceBuffer() const
         {
             return m_InstanceBuffer;
@@ -881,8 +928,19 @@ namespace OloEngine
         Ref<StorageBuffer> m_GroupBuffer;       // SSBO_VIRTUAL_GROUPS
         Ref<StorageBuffer> m_GroupStatesBuffer; // SSBO_VIRTUAL_GROUP_STATES (bit0 resident / bit1 request / bit2 touch)
         // Budgeted geometry slot arenas (page slots of uniform capacity)
-        Ref<StorageBuffer> m_VertexBuffer;   // SSBO_VIRTUAL_VERTICES arena (+ the packed uv2 tail, issue #867)
-        u32 m_LightmapUVBaseElement = 0;     // first uv2 element in that arena; 0 = no uv2 resident
+        Ref<StorageBuffer> m_VertexBuffer; // SSBO_VIRTUAL_VERTICES arena (+ the packed uv2 tail, issue #867)
+        u32 m_LightmapUVBaseElement = 0;   // first uv2 element in that arena; 0 = no uv2 resident
+        // First element of the packed skin-binding tail in the SAME arena, and
+        // of the per-cluster bone-set tail after it (issue #1150). Both 0 when
+        // no registered mesh is skinned, which every shader reads as
+        // don't-fetch — see VirtualSkinningPacking.h.
+        u32 m_SkinningBaseElement = 0;
+        u32 m_ClusterBoneBaseElement = 0;
+        // Bone-palette entries staged into the INSTANCE buffer's tail this
+        // frame, and the element that tail starts at. Per-frame state rebuilt by
+        // the instance staging, exactly like m_FrameInstances itself.
+        u32 m_BonePaletteBaseElement = 0;
+        u32 m_BonePaletteElementCount = 0;
         RHI::ResourceHandle m_IndexBuffer{}; // element-buffer + SSBO_VIRTUAL_INDICES arena
         RHI::ResourceHandle m_Vao{};         // element-buffer-only VAO for the MDI path
 

@@ -171,6 +171,7 @@ add_executable(OloEngine-Tests
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/SubmeshMaterialResolveTest.cpp
+		Rendering/VirtualSkinnedBoundsTest.cpp
 		Rendering/VirtualGeometryPageStoreTest.cpp
 		Rendering/VirtualLightmapUVPackingTest.cpp
 		Rendering/VirtualMeshBuilderTest.cpp

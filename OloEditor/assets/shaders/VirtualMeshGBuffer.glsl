@@ -46,7 +46,7 @@ void main()
     VirtualGpuVertex vert = vertices[gl_VertexIndex];
     v_DbgSlot = uint(gl_BaseInstanceARB);
 
-    VirtualVertexOutputs o = TransformVirtualVertex(inst, vert);
+    VirtualVertexOutputs o = TransformVirtualVertex(inst, vert, uint(gl_VertexIndex));
     v_WorldPos = o.WorldPos;
     v_Normal = o.Normal;
     v_TexCoord = o.TexCoord;

@@ -20,6 +20,8 @@
 #include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <glm/geometric.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/mat4x4.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -164,5 +166,73 @@ namespace OloEngine::Tests::VirtualMeshFixtures
             meshIndices.Add(index);
         }
         return Ref<MeshSource>::Create(MoveTemp(vertices), MoveTemp(meshIndices));
+    }
+
+    // ── Skinned fixtures (issue #1150) ──────────────────────────────────────
+    //
+    // A "bone chain along Y": the icosphere above, rigged to `boneCount` bones
+    // stacked over its vertical extent, each vertex blended between the two
+    // bones its height falls between. That shape is chosen for what it does to
+    // the BOUNDS rather than for realism — adjacent bands share bones, so a
+    // cluster near a band boundary genuinely references several bones, which is
+    // the case a per-cluster bone set has to get right.
+    inline Ref<MeshSource> MakeSkinnedIcosphereMesh(u32 subdivisions, u32 boneCount)
+    {
+        Ref<MeshSource> source = MakeIcosphereMesh(subdivisions);
+        boneCount = std::max(boneCount, 2u);
+
+        TArray<BoneInfluence>& influences = source->GetBoneInfluences();
+        influences.SetNum(source->GetVertices().Num());
+        const auto& vertices = source->GetVertices();
+        for (i32 v = 0; v < vertices.Num(); ++v)
+        {
+            // Height in [0, 1] over the unit sphere, then the band it lands in.
+            f32 const height = std::clamp(vertices[v].Position.y * 0.5f + 0.5f, 0.0f, 1.0f);
+            f32 const scaled = height * static_cast<f32>(boneCount - 1);
+            auto const lower = static_cast<u32>(std::floor(scaled));
+            u32 const upper = std::min(lower + 1u, boneCount - 1u);
+            f32 const t = scaled - static_cast<f32>(lower);
+
+            BoneInfluence influence;
+            influence.SetBoneData(0, lower, 1.0f - t);
+            influence.SetBoneData(1, upper, t);
+            influences[v] = influence;
+        }
+
+        // BoneInfo is what MeshSource::HasSkeleton-adjacent code inspects; the
+        // builder only needs the influences, but a fixture that carries one and
+        // not the other is not a mesh the importer could ever produce.
+        TArray<BoneInfo>& boneInfo = source->GetBoneInfo();
+        boneInfo.Empty();
+        for (u32 b = 0; b < boneCount; ++b)
+        {
+            boneInfo.Add(BoneInfo(glm::mat4(1.0f), b));
+        }
+        return source;
+    }
+
+    // A pose for the fixture above: bone 0 is the root and stays put, every
+    // later bone rotates progressively further about Z. `amount` of 0 is the
+    // rest pose, so a test can sweep an animation RANGE rather than assert
+    // against one arbitrary frame.
+    //
+    // The pivot is the BOTTOM of the sphere, not its centre, and that is worth
+    // stating: a rotation about the model origin maps a centred unit sphere
+    // exactly onto itself — every vertex moves and the shape does not. Bounds
+    // tests survive that (they check containment, not shape), but any test that
+    // looks at the RESULT would be measuring nothing, and pivoting at a joint is
+    // what a real bone chain does anyway.
+    inline std::vector<glm::mat4> MakeBendPose(u32 boneCount, f32 amount)
+    {
+        std::vector<glm::mat4> palette(std::max(boneCount, 1u), glm::mat4(1.0f));
+        const glm::vec3 pivot(0.0f, -1.0f, 0.0f);
+        for (u32 b = 1; b < palette.size(); ++b)
+        {
+            f32 const angle = amount * static_cast<f32>(b) / static_cast<f32>(palette.size() - 1);
+            palette[b] = glm::translate(glm::mat4(1.0f), pivot) *
+                         glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0.0f, 0.0f, 1.0f)) *
+                         glm::translate(glm::mat4(1.0f), -pivot);
+        }
+        return palette;
     }
 } // namespace OloEngine::Tests::VirtualMeshFixtures

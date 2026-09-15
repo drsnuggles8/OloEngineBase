@@ -112,7 +112,7 @@ void main()
     for (uint v = gl_LocalInvocationIndex; v < vertexCount; v += gl_WorkGroupSize.x)
     {
         VirtualGpuVertex vert = vertices[cluster.VertexBase + v];
-        VirtualVertexOutputs o = TransformVirtualVertex(inst, vert);
+        VirtualVertexOutputs o = TransformVirtualVertex(inst, vert, cluster.VertexBase + v);
 
         gl_MeshVerticesEXT[v].gl_Position = o.ClipPosCurr;
         v_WorldPos[v] = o.WorldPos;
