@@ -503,6 +503,21 @@ if (auto node = entity["FootIKComponent"]; node)
     comp.RightHandEnabled = node["RightHandEnabled"].as<bool>(comp.RightHandEnabled);
 }
 
+if (auto node = entity["GroomComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomComponent>();
+    comp.m_Groom = node["Groom"].as<u64>(static_cast<u64>(comp.m_Groom));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RootMarkerSize"], v))
+        comp.m_RootMarkerSize = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    comp.m_MaxPreviewStrands = std::clamp(node["MaxPreviewStrands"].as<u32>(comp.m_MaxPreviewStrands), static_cast<u32>(1), static_cast<u32>(200000));
+    comp.m_ShowPreview = node["ShowPreview"].as<bool>(comp.m_ShowPreview);
+    comp.m_ShowStrands = node["ShowStrands"].as<bool>(comp.m_ShowStrands);
+    comp.m_ShowRoots = node["ShowRoots"].as<bool>(comp.m_ShowRoots);
+    comp.m_ShowDirection = node["ShowDirection"].as<bool>(comp.m_ShowDirection);
+    comp.m_ColorByGroup = node["ColorByGroup"].as<bool>(comp.m_ColorByGroup);
+    comp.m_GuidesOnly = node["GuidesOnly"].as<bool>(comp.m_GuidesOnly);
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

@@ -1,0 +1,85 @@
+Scene: GroomReference.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Groom curve assets — reference grooms and their static debug preview (#1232).
+#
+# Two imported grooms sit side by side at real scale:
+#
+#   HumanScalp   Assets/Grooms/reference-human-scalp.ologroom — 2000 strands of
+#                8 control points on a 9 cm skull, shoulder-length, tapering
+#                root->tip, one group, every 64th strand a guide.
+#   AnimalPelt   Assets/Grooms/reference-animal-pelt.ologroom — 2500 short
+#                strands over a 12 cm-radius body, THREE interleaved sub-groups
+#                (so the per-group colouring has something to show), guides
+#                every 17th strand.
+#
+# Both were produced by GroomReferenceAssets.ExportsTheEditorFixtures — the same
+# code path the round-trip and determinism tests run — so what the editor shows
+# here and what the suite asserts can never drift apart. Regenerate with:
+#
+#   OLO_GROOM_EXPORT_DIR=<repo>/OloEditor/SandboxProject/Assets/Grooms \
+#     OloEngine-Tests.exe --gtest_filter=GroomReferenceAssets.ExportsTheEditorFixtures
+#
+# WHAT YOU SHOULD SEE. Debug lines only — there is no hair shading yet, and that
+# is the point of the issue: the preview is how import correctness is checked
+# BEFORE #1246/#1247 exist. Each strand runs dark at the root to bright at the
+# tip (a groom imported tip-first would read bright at the scalp), roots are
+# marked with a three-axis cross, and each group gets its own hue.
+#
+# The preview draws under Renderer Settings -> Editor Debug Draws ->
+# Component Gizmos. If nothing appears, check that switch first.
+# ─────────────────────────────────────────────────────────────────────────────
+Entities:
+  # -- Sun. The preview lines are emissive, so this lights the scene around
+  #    them rather than the strands themselves. --
+  - Entity: 123200000000001
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 2, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.4, -0.7, -0.55]
+      Color: [1, 0.98, 0.95]
+      Intensity: 2.5
+      CastShadows: false
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 50
+      CascadeSplitLambda: 0.95
+  # -- Human scalp groom, one group, at the origin. --
+  - Entity: 123200000000002
+    TagComponent:
+      Tag: HumanScalp
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 15952688685437936282
+      RootMarkerSize: 0
+      MaxPreviewStrands: 2000
+      ShowPreview: true
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+  # -- Animal pelt groom, three sub-groups, half a metre to the right. --
+  - Entity: 123200000000003
+    TagComponent:
+      Tag: AnimalPelt
+    TransformComponent:
+      Translation: [0.6, 0, 0]
+      Rotation: [1.5708, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 15952688685437936280
+      RootMarkerSize: 0
+      MaxPreviewStrands: 2500
+      ShowPreview: true
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false

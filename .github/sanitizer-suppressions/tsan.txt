@@ -60,7 +60,11 @@ race:JPH::UVec4::sLoadInt4
 # ── Mesa's own driver threads (libgallium), not engine code ───────────────────
 # Needed by the GPU-under-sanitizer nightly (gpu-sanitizers-amd.yml), which is
 # the only job that runs TSan with a REAL GL context; the routed TSan job passes
-# --olo-gl-backend=none and never loads a driver.
+# --olo-gl-backend=none and so loads no GL driver.
+#
+# That is a statement about the GL driver ONLY, and it used to read here as
+# "never loads a driver" — true when written, not true now. See the
+# libvulkan_radeon block below: the routed job DOES load a Vulkan driver.
 #
 # radeonsi spawns its own worker threads ('OloEngin:gdrv0' and friends) and
 # synchronises them internally. TSan cannot see that synchronisation, because
@@ -105,4 +109,17 @@ called_from_lib:libgallium
 # racing frames ARE the interceptors (pthread_barrier_*) and carry no symbol of
 # their own. Scoped to the one library, so a genuine engine-side race still
 # reports normally.
+#
+# Know what this DOES cost, because the rule is blunter than the report that
+# motivated it. called_from_lib suppresses EVERY interceptor call originating
+# in the named library — not just this barrier pair. So a real race that the
+# engine reaches only by calling into libvulkan_radeon is suppressed too. What
+# it does NOT suppress is a race whose accesses the engine makes itself: those
+# do not originate in the driver, so they still report. That is the trade being
+# made, and it is the same one the libgallium rule above already makes.
+#
+# Narrow this to race:/race_top: if a Vulkan-path engine race is ever suspected
+# of hiding behind it. It stays library-scoped for now because the driver's
+# barrier frames carry no symbol to match on. Also seen on PR #1292, Sanitizers
+# run 34984922536, 'TSan (Linux) tests 1/4'.
 called_from_lib:libvulkan_radeon

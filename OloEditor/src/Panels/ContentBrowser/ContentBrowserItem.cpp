@@ -89,6 +89,10 @@ namespace OloEngine
         // always browsable; the OpenVDB source extension is only offered
         // when the editor can actually cook it (OLO_WITH_OPENVDB).
         { ".olovol", ContentFileType::Volume },
+        // Cooked groom (#1232). The SOURCE .abc is intentionally absent: it is
+        // ambiguous between a polygon mesh and a groom, and the "Import as
+        // Groom" action below resolves that from the archive's content.
+        { ".ologroom", ContentFileType::Groom },
 #if defined(OLO_WITH_OPENVDB)
         { ".vdb", ContentFileType::Volume },
 #endif
@@ -431,6 +435,26 @@ namespace OloEngine
                 SetAction(result, ContentBrowserAction::Reimport);
             }
         }
+
+#if defined(OLO_WITH_ALEMBIC)
+        // An Alembic archive can hold polygon meshes (IPolyMesh / ISubD) or
+        // curves (ICurves), and `.abc` maps to AssetType::MeshSource — so the
+        // generic import path always sends it to AlembicMeshImporter, which
+        // rejects a curve-only archive with "no polymesh/subd geometry". This
+        // action is the groom route.
+        //
+        // Offered on the EXTENSION alone, not on the archive's content: the
+        // content check opens and traverses the file, and this runs every frame
+        // the context menu is open. The action itself does the check and says so
+        // when the archive turns out to hold no curves.
+        if (m_Path.extension() == ".abc")
+        {
+            if (ImGui::MenuItem("Import as Groom"))
+            {
+                SetAction(result, ContentBrowserAction::ImportGroom);
+            }
+        }
+#endif
 
 #if defined(OLO_WITH_OPENVDB)
         // OpenVDB is editor/cook-only (never linked into OloEngine — see the

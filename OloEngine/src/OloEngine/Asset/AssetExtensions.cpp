@@ -104,6 +104,14 @@ namespace OloEngine
         s_ExtensionMap["olmap"] = AssetType::Lightmap;
         s_ExtensionMap["olotileset"] = AssetType::Tileset;
         s_ExtensionMap["oloskin"] = AssetType::SkinProfile;
+        // Cooked hair/fur groom (#1232) — the import-time OUTPUT of
+        // AlembicGroomImporter. Registered unconditionally, not behind
+        // OLO_WITH_ALEMBIC: reading a .ologroom needs no Alembic, only
+        // GroomSerializer (binary decode, no GPU resources). The SOURCE .abc
+        // stays mapped to MeshSource below — an .abc is routed to a groom by
+        // the importer detecting ICurves, not by its extension, because one
+        // extension carries both schemas.
+        s_ExtensionMap["ologroom"] = AssetType::Groom;
         // Dense volumetric density grid (#724) — the cook-time OUTPUT of the
         // OpenVDB importer (OloEngine-VolumeCook, editor-only). Registered
         // unconditionally (not behind an OLO_WITH_* gate like the .abc/.usd*

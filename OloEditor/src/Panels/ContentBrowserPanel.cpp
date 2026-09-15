@@ -24,6 +24,13 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Video/VideoDecoder.h"
 
+#if defined(OLO_WITH_ALEMBIC)
+// The groom route for an Alembic ICurves archive (#1232). Gated the same way
+// the OpenVDB cook below is: the importer only exists when its dependency was
+// compiled in.
+#include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#endif
+
 #if defined(OLO_WITH_OPENVDB)
 #include "OpenVDBVolumeCook.h"
 #endif
@@ -486,6 +493,48 @@ namespace OloEngine
                 OLO_CORE_INFO("ContentBrowser: Reimport queued for '{}' - cache invalidated, will re-import on next load",
                               item.GetPath().filename().string());
             }
+
+#if defined(OLO_WITH_ALEMBIC)
+            if (HasAction(actions, ContentBrowserAction::ImportGroom))
+            {
+                const std::filesystem::path& abcPath = item.GetPath();
+
+                AlembicGroomImporter::Options options;
+                // Project-relative, never absolute: an absolute path in the
+                // provenance would make the cooked bytes differ between
+                // machines, and determinism is the format's contract.
+                auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
+                if (assetManager)
+                {
+                    options.ProvenancePath = assetManager->GetRelativePath(abcPath).generic_string();
+                }
+
+                // The whole sequence lives in the engine (and is unit-tested
+                // there); this handler is the UI half only.
+                const auto cooked = AlembicGroomImporter::ImportAndCookToSidecar(abcPath, options);
+                for (const std::string& warning : cooked.Warnings)
+                {
+                    OLO_CORE_WARN("ContentBrowser: {}", warning);
+                }
+
+                if (!cooked.Ok)
+                {
+                    OLO_CORE_ERROR("ContentBrowser: {}", cooked.Diagnostic);
+                }
+                else
+                {
+                    OLO_CORE_INFO("ContentBrowser: cooked '{}' -> '{}' ({} curves, {} groups, {} guides, {} bytes)",
+                                  abcPath.filename().string(), cooked.OutputPath.filename().string(),
+                                  cooked.CurveCount, cooked.GroupCount, cooked.GuideCount, cooked.CookedBytes);
+                    if (assetManager)
+                    {
+                        assetManager->ImportAsset(cooked.OutputPath);
+                    }
+                    SafeRefreshSubtree(m_CurrentDirectory);
+                    RefreshVisibleItems();
+                }
+            }
+#endif
 
 #if defined(OLO_WITH_OPENVDB)
             if (HasAction(actions, ContentBrowserAction::ImportVolume))

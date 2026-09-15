@@ -3064,6 +3064,27 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
+    {
+        ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
+        ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
+        ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other: a non-finite
+            // marker size would reach the preview's line math, and an
+            // unbounded strand cap would submit one command packet per strand
+            // of a million-strand groom on the first frame after the load.
+            if (!std::isfinite(c.m_RootMarkerSize))
+            {
+                c.m_RootMarkerSize = 0.01f;
+            }
+            c.m_RootMarkerSize = std::clamp(c.m_RootMarkerSize, 0.0f, 10.0f);
+            c.m_MaxPreviewStrands = std::clamp(c.m_MaxPreviewStrands, 1u, 200000u);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidComponent& c)
     {
         ar << c.m_Enabled << c.m_Settings;
@@ -5088,6 +5109,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(BuoyancyComponent);
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
+        REGISTER_SAVE_COMPONENT(GroomComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

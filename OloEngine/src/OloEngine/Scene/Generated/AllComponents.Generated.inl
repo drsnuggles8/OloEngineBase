@@ -53,6 +53,7 @@ using AllComponents = ComponentGroup<
     FoliageComponent,
     FootIKComponent,
     GoapAgentComponent,
+    GroomComponent,
     IKTargetComponent,
     InstancePortalComponent,
     InstancedMeshComponent,

@@ -694,6 +694,42 @@ namespace OloEngine
         [[nodiscard]] bool DeserializeFromYAML(const std::string& yamlString, Ref<SkinProfile>& profile) const;
     };
 
+    class GroomAsset; // Forward declaration
+
+    /**
+     * @brief Reads and writes the cooked .ologroom container (issue #1232).
+     *
+     * Pure CPU: a groom carries no GPU resources at this stage (strand
+     * expansion is #1246's), so the whole asset can be deserialized off the
+     * main thread. The encode/decode pair below is the SINGLE source of the
+     * .ologroom layout — the standalone file and the asset-pack record carry
+     * identical bytes, the way VolumeSerializer does for .olovol.
+     */
+    class GroomSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: bytes -> GroomAsset, no GPU resources
+        }
+
+        // The byte-stream layer. Static so the cooker and the tests can reach
+        // it without a project on disk or an asset manager — the determinism
+        // test cooks twice through exactly the code the serializer uses.
+        // Both return false with a named reason rather than a silent empty
+        // result; `sourceName` only labels the diagnostics.
+        [[nodiscard]] static bool EncodeToBytes(const GroomAsset& groom, std::vector<u8>& outBytes,
+                                                std::string& outReason);
+        [[nodiscard]] static bool DecodeFromBytes(const void* data, sizet size, Ref<GroomAsset>& outGroom,
+                                                  std::string& outReason);
+    };
+
     class ShaderGraphAsset; // Forward declaration
 
     class ShaderGraphSerializer : public AssetSerializer

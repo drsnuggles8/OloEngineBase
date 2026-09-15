@@ -53,6 +53,7 @@ TRY_LOAD_COMPONENT(FogVolumeComponent);
 TRY_LOAD_COMPONENT(FoliageComponent);
 TRY_LOAD_COMPONENT(FootIKComponent);
 TRY_LOAD_COMPONENT(GoapAgentComponent);
+TRY_LOAD_COMPONENT(GroomComponent);
 TRY_LOAD_COMPONENT(IDComponent);
 TRY_LOAD_COMPONENT(IKTargetComponent);
 TRY_LOAD_COMPONENT(InstancePortalComponent);

@@ -5621,6 +5621,54 @@ namespace OloEngine
     };
     static_assert(sizeof(VirtualMeshComponent) == 16, "VirtualMeshComponent must have no padding: see BitwiseEqualLayoutTest");
 
+    // ── Groom curve preview (issue #1232) ────────────────────────────────
+    //
+    // Places an imported groom in a scene and draws its STATIC DEBUG PREVIEW —
+    // strands, roots, per-group colour and root-to-tip direction. There is
+    // deliberately no shading here: hair shading is #1246/#1247, and this
+    // component's whole job is making import correctness visible before any of
+    // that exists (see OloEngine/Groom/GroomPreview.h).
+    //
+    // Not annotated OLO_PROPERTY on purpose: these are editor visualisation
+    // levers, not gameplay state, so C# scripts have no business toggling them.
+    // Add the annotations when a groom grows runtime behaviour worth scripting.
+    struct GroomComponent
+    {
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+        AssetHandle m_Groom = 0; // the cooked .ologroom asset
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_RootMarkerSize = 0.01f; // world units; 0 falls back to a bounds-relative size
+
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 200000)
+        u32 m_MaxPreviewStrands = 2000; // a debug line is a command packet — see GroomPreview.h
+
+        bool m_ShowPreview = true;
+        bool m_ShowStrands = true;
+        bool m_ShowRoots = true;
+        bool m_ShowDirection = true;
+        bool m_ColorByGroup = true;
+        bool m_GuidesOnly = false;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomComponent() = default;
+        GroomComponent(const GroomComponent&) = default;
+        GroomComponent& operator=(const GroomComponent&) = default;
+        GroomComponent(GroomComponent&&) noexcept = default;
+        GroomComponent& operator=(GroomComponent&&) noexcept = default;
+
+        auto operator==(const GroomComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomComponent) == 24, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
+
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 
     enum class FluidSolverMode : i32

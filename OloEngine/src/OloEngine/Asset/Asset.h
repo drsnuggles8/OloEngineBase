@@ -154,6 +154,7 @@ namespace OloEngine
         friend class VolumeSerializer;
         friend class TilesetSerializer;
         friend class SkinProfileSerializer;
+        friend class GroomSerializer;
 
         bool IsValid() const
         {
