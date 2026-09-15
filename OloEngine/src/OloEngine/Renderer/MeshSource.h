@@ -554,6 +554,27 @@ namespace OloEngine
             }
         }
 
+        // Did the SOURCE FILE this MeshSource came from contain bones?
+        //
+        // Deliberately NOT the same question as HasBoneInfluences(), which asks whether
+        // THIS object carries skinning data. The two disagree exactly where it matters:
+        // a rigged file imported down the static path yields a MeshSource with no
+        // influences, and nothing in the result says the file had any (issue #1272).
+        //
+        // Recorded at import, persisted through the .omesh cache
+        // (OMeshFormat::FlagSourceRigged) and read back by AssimpMeshImporter to pick the
+        // importer -- so a WARM cache answers "is this rigged?" from a header read instead
+        // of a second full Assimp parse of the source file.
+        [[nodiscard]] bool IsSourceRigged() const
+        {
+            return m_SourceIsRigged;
+        }
+
+        void SetSourceIsRigged(bool rigged)
+        {
+            m_SourceIsRigged = rigged;
+        }
+
         // Cooked virtualized-geometry cluster DAG (OVGM blob, issue #629).
         // Produced at import time and persisted through the .omesh cache's
         // VirtualMesh section; VirtualMeshRegistry deserializes it instead of
@@ -633,6 +654,7 @@ namespace OloEngine
 
         bool m_Built = false;
         bool m_PreOptimized = false;
+        bool m_SourceIsRigged = false; // Source file contained bones (see IsSourceRigged)
         u64 m_Generation = 0;
     };
 } // namespace OloEngine

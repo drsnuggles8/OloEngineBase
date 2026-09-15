@@ -623,6 +623,10 @@ namespace OloEngine
         {
             header.Flags |= OMeshFormat::FlagPreOptimized;
         }
+        if (meshSource.IsSourceRigged())
+        {
+            header.Flags |= OMeshFormat::FlagSourceRigged;
+        }
         header.SourceTimestamp = sourceTimestamp;
         header.UncompressedPayloadSize = uncompressedSize;
         header.Checksum = Hash::CRC32(compressed.data(), compressed.size());
@@ -1577,6 +1581,7 @@ namespace OloEngine
 
         // Restore pre-optimized flag from the stored header flags
         meshSource->SetPreOptimized((header.Flags & OMeshFormat::FlagPreOptimized) != 0);
+        meshSource->SetSourceIsRigged((header.Flags & OMeshFormat::FlagSourceRigged) != 0);
 
         return meshSource;
     }
@@ -1610,6 +1615,36 @@ namespace OloEngine
         }
 
         outSourceTimestamp = header.SourceTimestamp;
+        return true;
+    }
+
+    // ========================================================================
+    // MeshBinarySerializer::ReadHeaderFlags
+    // ========================================================================
+
+    bool MeshBinarySerializer::ReadHeaderFlags(const std::filesystem::path& path, u32& outFlags)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if (!in.is_open())
+        {
+            return false;
+        }
+
+        OMeshFormat::FileHeader header;
+        if (!ReadBytes(in, &header, sizeof(header)))
+        {
+            return false;
+        }
+
+        // Same STRICT version gate as ReadTimestamp, and for the same reason: the only
+        // caller is a cache-routing decision, and a flag word from an older layout would
+        // be answered confidently and wrongly.
+        if (header.Magic != OMeshFormat::MagicNumber || header.Version != OMeshFormat::CurrentVersion)
+        {
+            return false;
+        }
+
+        outFlags = header.Flags;
         return true;
     }
 

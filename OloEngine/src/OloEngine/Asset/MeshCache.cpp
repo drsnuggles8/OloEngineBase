@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "MeshCache.h"
+#include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Animation/AnimationClip.h"
@@ -152,6 +153,24 @@ namespace OloEngine
 
             u64 sourceTimestamp = GetSourceTimestamp(sourcePath);
             return (sourceTimestamp != 0) && (cachedTimestamp == sourceTimestamp);
+        }
+
+        bool IsCachedSourceRigged(const std::filesystem::path& sourcePath, const std::string& prefix)
+        {
+            auto cachePath = GetMeshCachePath(sourcePath, prefix);
+
+            if (std::error_code ec; !std::filesystem::exists(cachePath, ec))
+            {
+                return false;
+            }
+
+            u32 flags = 0;
+            if (!MeshBinarySerializer::ReadHeaderFlags(cachePath, flags))
+            {
+                return false;
+            }
+
+            return (flags & OMeshFormat::FlagSourceRigged) != 0;
         }
 
         bool IsAnimationCacheValid(const std::filesystem::path& sourcePath)

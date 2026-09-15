@@ -738,6 +738,8 @@ namespace OloEngine
 
         m_TextureOverride = textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt;
         m_FlipUV = effectiveFlipUV;
+        // Per-load state: a reused Model must never inherit the previous file's answer.
+        m_SourceIsRigged = false;
 
         if (IsModelImportDiagnosticsEnabled())
         {
@@ -764,6 +766,13 @@ namespace OloEngine
                 // consumer would hand the registry a source with no precooked DAG.
                 m_CookedVirtualMeshBlob = cachedMesh->GetVirtualMeshBlob();
                 m_CachedCombinedSource = cachedMesh;
+                // The cache is the ONLY place a warm load can learn that the source file was
+                // rigged: this path never opens the source (since v4 it does not even
+                // re-import for materials), and a static import writes no influences to
+                // deduce it from. Without this the warm load reports "not rigged" and
+                // AssimpMeshImporter keeps routing a character down the static path forever
+                // (issue #1272).
+                m_SourceIsRigged = cachedMesh->IsSourceRigged();
 
                 // Create individual Mesh objects from submeshes
                 cachedMesh->Build();
@@ -971,16 +980,41 @@ namespace OloEngine
         //     backface culling for every imported asset.
         //   aiProcess_GlobalScale — requires AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY
         //     to be set; scenes carry their own scale via TransformComponent.
-        const aiScene* scene = importer.ReadFile(path,
-                                                 aiProcess_Triangulate |               // Make sure we get triangles
-                                                     aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
-                                                     aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
-                                                     aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
-                                                     aiProcess_ValidateDataStructure | // Validate the imported data structure
-                                                     aiProcess_FindDegenerates |       // Remove zero-area / collinear triangles
-                                                     aiProcess_FindInvalidData |       // Drop NaN/Inf normals, duplicate UVs, etc.
-                                                     aiProcess_PreTransformVertices    // Bake node transforms into vertices (safe for static meshes)
-        );
+        constexpr u32 kStaticImportFlags =
+            aiProcess_Triangulate |           // Make sure we get triangles
+            aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653)
+            aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
+            aiProcess_JoinIdenticalVertices | // Deduplicate identical vertices for smaller buffers
+            aiProcess_ValidateDataStructure | // Validate the imported data structure
+            aiProcess_FindDegenerates |       // Remove zero-area / collinear triangles
+            aiProcess_FindInvalidData |       // Drop NaN/Inf normals, duplicate UVs, etc.
+            aiProcess_PreTransformVertices;   // Bake node transforms into vertices (safe for static meshes)
+
+        // Parse first, post-process second — two calls where there used to be one ReadFile,
+        // and NOT an extra parse: ApplyPostProcessing runs the steps on the scene ReadFile
+        // already built.
+        //
+        // The split exists because aiProcess_PreTransformVertices DISCARDS bones and
+        // animations (that is what makes it safe for static meshes), so by the time the
+        // processed scene reaches ProcessNode there is nothing left to say the file was
+        // rigged. Reading the raw scene here is the only place in this importer where
+        // aiMesh::mNumBones is still populated — and that one bit is what routes the file to
+        // AnimatedModel and what the .omesh cache persists for the next, warm load
+        // (issue #1272). Model still imports no bone DATA; it only records that there was
+        // some.
+        const aiScene* scene = importer.ReadFile(path, 0);
+        if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+        {
+            OLO_CORE_ERROR("ASSIMP Error: {0}", importer.GetErrorString());
+            return;
+        }
+
+        for (u32 i = 0; i < scene->mNumMeshes && !m_SourceIsRigged; ++i)
+        {
+            m_SourceIsRigged = scene->mMeshes[i]->mNumBones > 0;
+        }
+
+        scene = importer.ApplyPostProcessing(kStaticImportFlags);
 
         // Check for errors
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
@@ -2098,6 +2132,7 @@ namespace OloEngine
         if (m_CachedCombinedSource)
         {
             Ref<MeshSource> combined = m_CachedCombinedSource;
+            combined->SetSourceIsRigged(m_SourceIsRigged);
             combined->SetImportedMaterials(m_Materials);
             if (!m_CookedVirtualMeshBlob.empty() && combined->GetVirtualMeshBlob().empty())
             {
@@ -2213,6 +2248,10 @@ namespace OloEngine
         // OptimizeMesh — running it on multi-submesh combined data has been observed to scramble
         // UVs/indices across submeshes (AnimatedModel does the same thing for the same reason).
         combinedMeshSource->SetPreOptimized(true);
+
+        // Carry the "source file had bones" observation onto the result so it reaches both
+        // the .omesh writer (FlagSourceRigged) and AssimpMeshImporter's routing check.
+        combinedMeshSource->SetSourceIsRigged(m_SourceIsRigged);
 
         // Attach the virtualized-geometry cook if LoadModel produced one, so
         // the MeshSource returned to asset loaders matches the cached one.

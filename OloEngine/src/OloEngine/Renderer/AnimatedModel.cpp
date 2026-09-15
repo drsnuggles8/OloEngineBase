@@ -538,7 +538,7 @@ namespace OloEngine
 
         // Try loading from binary cache first (skip Assimp entirely)
         std::filesystem::path sourcePath(path);
-        constexpr auto kAnimCachePrefix = "anim_";
+        constexpr auto kAnimCachePrefix = kCachePrefix;
         if (MeshCache::IsMeshCacheValid(sourcePath, kAnimCachePrefix))
         {
             auto cachedMesh = MeshCache::LoadMeshFromCache(sourcePath, kAnimCachePrefix);
@@ -703,8 +703,11 @@ namespace OloEngine
 
         // Save to binary cache for next load
         {
-            auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
-            MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
+            auto combined = CreateCombinedMeshSource();
+            if (combined)
+            {
+                MeshCache::SaveMeshToCache(sourcePath, *combined, kAnimCachePrefix);
+            }
             // Always write .oanim when skeleton exists (even if empty) so that
             // IsAnimationCacheValid succeeds on re-load.
             if (m_Skeleton || !m_Animations.empty())
@@ -715,6 +718,70 @@ namespace OloEngine
 
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
                       m_Meshes.size(), m_Animations.size());
+    }
+
+    Ref<MeshSource> AnimatedModel::CreateCombinedMeshSource() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_Meshes.empty())
+        {
+            OLO_CORE_WARN("AnimatedModel::CreateCombinedMeshSource: No meshes to combine");
+            return nullptr;
+        }
+
+        auto combined = CombineMeshSourcesForCache(m_Meshes, m_Skeleton);
+        if (!combined)
+        {
+            return nullptr;
+        }
+
+        // Materials. m_Materials is built ONE ENTRY PER MESH, in the same ProcessNode order
+        // m_Meshes is built in (both the cold push_back in ProcessNode and the warm
+        // resize + CollectMaterialIndices walk maintain that), so submesh N's material is
+        // m_Materials[N] -- and the combined submeshes come out of
+        // CombineMeshSourcesForCache in that same order.
+        //
+        // Submesh::m_MaterialIndex, however, holds the ASSIMP SCENE material index that
+        // ProcessMesh copied off aiMesh::mMaterialIndex. Those two index DIFFERENT arrays
+        // and only coincide when every scene material is used by exactly one mesh, in
+        // order. Handing the MeshSource a table indexed one way and submeshes indexed the
+        // other is the #629 failure mode verbatim: a submesh resolves someone else's
+        // material, or indexes off the end into engine-default grey. Renumber to the
+        // ordinal that actually addresses the table we are attaching.
+        {
+            std::vector<Ref<Material>> materials;
+            materials.reserve(m_Materials.size());
+            for (const auto& material : m_Materials)
+            {
+                materials.push_back(Ref<Material>::Create(material));
+            }
+
+            auto& submeshes = combined->GetSubmeshes();
+            for (i32 i = 0; i < submeshes.Num(); ++i)
+            {
+                submeshes[i].m_MaterialIndex = (static_cast<sizet>(i) < materials.size())
+                                                   ? static_cast<u32>(i)
+                                                   : UINT32_MAX;
+            }
+
+            combined->SetImportedMaterials(MoveTemp(materials));
+        }
+
+        // Record that the SOURCE FILE was rigged so the .omesh header carries
+        // FlagSourceRigged and the next, warm load routes here again without re-parsing
+        // the source (issue #1272). Asked of the combined data rather than of a flag so a
+        // file that reached this importer but has no actual skinning -- an unrigged mesh
+        // dragged in through the animated path -- is recorded honestly as static.
+        combined->SetSourceIsRigged(combined->HasBoneInfluences());
+
+        OLO_CORE_INFO("AnimatedModel::CreateCombinedMeshSource: Combined {} meshes into {} vertices, "
+                      "{} indices, {} submeshes (rigged={}, morphTargets={})",
+                      m_Meshes.size(), combined->GetVertices().Num(), combined->GetIndices().Num(),
+                      combined->GetSubmeshes().Num(), combined->HasBoneInfluences(),
+                      combined->HasMorphTargets());
+
+        return combined;
     }
 
     void AnimatedModel::ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform)
