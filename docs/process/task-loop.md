@@ -74,13 +74,18 @@ your task (see `/start-work` step 5a); if it does not, derive them and say so.
 
 The axes, by subsystem — these are the common ones, not a closed list:
 
-| subsystem | axes |
-|---|---|
-| renderer / anything visual | `{OpenGL, Vulkan}` × `{Forward, Forward+, Deferred}`, plus MSAA / upscale / resolution where the change plausibly reaches them |
-| serialization | `{scene YAML, asset pack, save-game}` |
-| scripting | `{C#, Lua}` |
-| physics | `{Box2D 2D, Jolt 3D}` |
-| assets | `{loose, cooked}` |
+| subsystem | always a cell | additionally, when the change reaches it |
+|---|---|---|
+| renderer / anything visual | `{OpenGL, Vulkan}` × `{Forward, Forward+, Deferred}` | MSAA on/off; upscale mode; a non-native resolution |
+| serialization | `{scene YAML, asset pack, save-game}` | a prior on-disk version, if the change is versioned |
+| scripting | `{C#, Lua}` | — |
+| physics | `{Box2D 2D, Jolt 3D}` | — |
+| assets | `{loose, cooked}` | — |
+
+The second column is the part that rots. An axis in it is a cell **only if the change can reach
+it**, and that judgement is made once, in the HANDOVER, with the reason written down — not
+re-litigated while writing the PR, where the incentive runs one way. "MSAA: not a cell, this pass
+runs after the resolve" is a decision; leaving MSAA unmentioned is not.
 
 **Why this exists, stated as the failure it prevents.** #1241 shipped its first PR with OpenGL
 verified and Vulkan not run. The rule was already written in `CLAUDE.md`, in the agent's memory,
@@ -90,21 +95,37 @@ disclosure at reporting time is too late to be a decision. The same correction h
 before, on #708. So the rule is not repeated here as prose: it is attached to two artefacts that
 make an unrun cell **visible**, below.
 
-**Forcing function 1 — the evidence filename IS the cell.**
+**A cell is evidenced in one of exactly two ways, and which one is a property of the cell**, not a
+choice:
+
+- **Artefact-backed** — a headless evidence test captured it, so the proof is a committed file.
+- **Live-only** — no test can produce it, so the proof is a measurement plus a log check from a
+  real editor session. Every **Vulkan** cell is live-only: the headless fixtures need a real GL 4.6
+  context and skip without one, so the suite *cannot* cover Vulkan, ever.
+
+**Forcing function 1 — an artefact-backed cell's filename IS the cell.**
 
 ```
 <Feature>_<Backend>_<Path>[_<Angle>].png        e.g. SkinDiffusion_GL_Deferred_Oblique.png
 <Feature>Off_<Backend>_<Path>[_<Angle>].png     the A/B control
 ```
 
-A cell you did not run is a **file that is not in the diff** — visible in `git status`, visible to
-the reviewer, and needing no tooling to notice. Headless evidence tests can only ever produce the
-`GL` cells (they need a real GL 4.6 context and skip without one), and naming them `_GL_` is the
-point: it says out loud that the Vulkan cells are *not* covered by the test suite and have to come
-from the live editor.
+An artefact-backed cell you did not run is a **file that is not in the diff** — visible in
+`git status`, visible to the reviewer, needing no tooling to notice. Naming the backend even though
+it is always `GL` today is the load-bearing part: it says out loud that the Vulkan cells are not
+covered here, so a reader counting files cannot mistake a full set of GL captures for a full matrix.
 
-**Forcing function 2 — the PR body carries the matrix.** One row per cell, each citing its evidence.
-The Phase 6 exit gate refuses to pass on a blank row. See 2b.
+**This test does not apply to a live-only cell**, and pretending it does is how a Vulkan row gets
+quietly dropped: there is no file to be missing. Forcing function 2 is what covers those.
+
+**Forcing function 2 — the PR body carries the matrix, every cell, both kinds.** One row per cell.
+An artefact-backed row cites its filename; a live-only row cites what was measured and what the log
+said (`0 errors`, `0 VUIDs`, or the pre-existing ones named). The Phase 6 exit gate refuses to pass
+on a blank row. See 2b.
+
+If the table in the PR is an abbreviation of a larger grid — say the change has an MSAA axis and
+you are listing only the cells that differ — **say so above the table**. An abbreviated table that
+does not announce itself is indistinguishable from a complete one that is missing rows.
 
 ### 2b. Live-editor verification, per cell
 
@@ -409,14 +430,21 @@ A matrix row looks like this — the Vulkan/Deferred row is the one that matters
 cell nobody would have noticed was missing:
 
 ```
-| backend | path      | evidence                          | result              |
-|---------|-----------|-----------------------------------|---------------------|
-| GL      | Forward   | SkinDiffusion_GL_Forward.png      | 54 258 px, max 86   |
-| GL      | Deferred  | SkinDiffusion_GL_Deferred.png     | 31 002 px, max 84   |
-| Vulkan  | Forward   | live A/B, log 0 errors            | 52 301 px, max 88   |
-| Vulkan  | Deferred  | live A/B, log 10 pre-existing VUID| 29 856 px, max 41   |
-| Vulkan  | Forward+  | NOT RUN — no reason               | <- gate fails here  |
+Complete matrix — 6 cells from {GL, Vulkan} x {Forward, Forward+, Deferred}.
+
+| backend | path      | kind     | evidence                           | result             |
+|---------|-----------|----------|------------------------------------|--------------------|
+| GL      | Forward   | artefact | SkinDiffusion_GL_Forward.png       | 54 258 px, max 86  |
+| GL      | Forward+  | artefact | SkinDiffusion_GL_ForwardPlus.png   | test passes        |
+| GL      | Deferred  | artefact | SkinDiffusion_GL_Deferred.png      | 31 002 px, max 84  |
+| Vulkan  | Forward   | live     | A/B + log: 0 errors, 0 VUIDs       | 52 301 px, max 88  |
+| Vulkan  | Deferred  | live     | A/B + log: 10 VUIDs, pre-existing  | 29 856 px, max 41  |
+| Vulkan  | Forward+  | live     | NOT RUN — no reason                | <- gate fails here |
 ```
+
+Every declared cell has a row. The `kind` column is not decoration: it is what tells a reviewer
+whether to look for a file or for a number, and it makes a live-only row with no measurement as
+obviously empty as a missing file would be.
 
 "CI green and mergeable" never means done while a thread is open. The one legitimate exception is
 a thread CodeRabbit posted against your final push that hasn't landed yet: name it explicitly and

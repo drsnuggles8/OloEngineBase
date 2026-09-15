@@ -545,6 +545,31 @@ namespace OloEngine::Tests
         // that ran off its guards at a grazing angle introduces edges rather
         // than removing them, which is the artefact this capture exists to
         // catch.
+        // NON-VACUITY FIRST, and this test did not have it until CodeRabbit said
+        // so on #1287. Both assertions below -- the peak does not move, no edge
+        // got harder -- are satisfied by two IDENTICAL captures, so a diffusion
+        // that was dead at an oblique angle passed this test. The head-on tests
+        // require the terminator to soften; so must this one, or it asserts
+        // nothing about the feature and only about the absence of artefacts.
+        const f32 terminatorCx = FindTerminatorX(off);
+        const BoxStats offTerminator = MeasureBox(off, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const BoxStats onTerminator = MeasureBox(on, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        // 0.012, NOT the head-on test's 0.02, and the difference is the physics
+        // rather than a loosened tolerance. At a 25-degree grazing view the N.L
+        // falloff is spread over several times the pixels it covers head-on, so
+        // the same terminator is genuinely a shallower step: measured 0.0193
+        // here against 0.0656 head-on, on the same subject and the same key.
+        // The floor still separates "there is an edge" from "the frame is
+        // blank" (~0), and the assertion that actually discriminates is the
+        // RELATIVE one below, which no threshold choice can weaken.
+        ASSERT_GT(offTerminator.MaxGradient, 0.012f)
+            << "no terminator in the oblique control frame at x=" << terminatorCx << "; see "
+            << VisualOutputPath("SkinDiffusionOff_GL_Deferred_Oblique").string();
+        EXPECT_LT(onTerminator.MaxGradient, offTerminator.MaxGradient * 0.92f)
+            << "the oblique terminator did not soften (" << offTerminator.MaxGradient << " -> "
+            << onTerminator.MaxGradient << ") — the diffusion is inert at this angle; see "
+            << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
+
         const BoxStats offAll = MeasureBox(off, 0.5f, 0.5f, 0.45f, 0.45f);
         const BoxStats onAll = MeasureBox(on, 0.5f, 0.5f, 0.45f, 0.45f);
         ASSERT_GT(offAll.MaxGradient, 0.02f) << "the oblique control frame has no edges in it at all";

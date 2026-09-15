@@ -408,9 +408,19 @@ about this conversation:
     to the list — the implementing session fills a table it was handed, which is a different act
     from deriving one while writing the PR.
 
+    Write **every** dimension the subsystem's row lists, including the conditional ones (MSAA,
+    upscale, resolution, a prior on-disk version) — each either as a cell or with a one-line reason
+    it is not reachable. An axis the HANDOVER does not mention is an axis nobody will notice is
+    missing, and the conditional column is exactly where that happens.
+
     If a cell is known-unreachable up front (no hardware, the backend does not implement the
     feature), say so here with the reason; that is the only kind of "not run" the Phase 6 exit gate
     accepts, and deciding it now stops it being invented later.
+
+    Mark each cell **artefact-backed** or **live-only** — a Vulkan cell is always live-only,
+    because the headless evidence fixtures need a real GL 4.6 context and skip without one. That
+    tells the implementing session which cells a test can ever produce and which ones require an
+    editor session, before it plans the work rather than after.
 
     **A task whose change has exactly one execution path says so explicitly** — one line, one cell.
     Saying "single path: forward only, this is a 2D feature" is the decision; omitting the section

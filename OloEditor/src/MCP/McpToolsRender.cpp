@@ -1676,10 +1676,39 @@ namespace OloEngine::MCP
                             // .oloskin profile's own transport version (ADR 0024).
                             // A scene with no version-1 profile in it looks
                             // identical either way, and that is correct.
-                            if (Renderer3D::GetSkinProfileTable().GetAssignedSlotCount() == 0u)
-                                r.Note = "No skin profile is in use in this scene, so this toggle changes nothing. "
-                                         "A material must have MaterialKind::Skin and name a .oloskin authored at "
-                                         "EvaluationModel 1 (ScreenSpaceDiffusion).";
+                            //
+                            // COUNTING ASSIGNED SLOTS IS NOT THE TEST. A scene
+                            // whose heads all name a version-0 profile assigns
+                            // slots -- so a slot count would report "fine" for
+                            // exactly the case that confuses people most, where
+                            // the profile is present, the material is skin, and
+                            // the toggle still does nothing. Ask what the slots
+                            // actually CONTAIN.
+                            {
+                                const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+                                const u32 assigned = profiles.GetAssignedSlotCount();
+                                u32 diffusing = 0;
+                                for (u32 slot = 0; slot < assigned; ++slot)
+                                {
+                                    if (profiles.GetParametersForSlot(slot).EvaluationModel ==
+                                        SkinEvaluationModel::ScreenSpaceDiffusion)
+                                        ++diffusing;
+                                }
+                                if (assigned == 0u)
+                                {
+                                    r.Note = "No skin profile is in use in this scene, so this toggle changes "
+                                             "nothing. A material must have MaterialKind::Skin and name a .oloskin "
+                                             "authored at EvaluationModel 1 (ScreenSpaceDiffusion).";
+                                }
+                                else if (diffusing == 0u)
+                                {
+                                    r.Note = "This scene uses " + std::to_string(assigned) +
+                                             " skin profile(s), but none is authored at EvaluationModel 1 "
+                                             "(ScreenSpaceDiffusion), so this toggle changes nothing. That is "
+                                             "correct: the transport version is an authoring decision per .oloskin "
+                                             "and no renderer switch overrides it (ADR 0024).";
+                                }
+                            }
                             break;
                         default:
                             break;

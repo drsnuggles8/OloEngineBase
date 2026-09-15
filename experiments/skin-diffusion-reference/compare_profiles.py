@@ -36,6 +36,11 @@ import math
 
 import numpy as np
 
+# `numpy.trapezoid` is the NumPy 2.0 rename of `numpy.trapz`. Bind it once rather
+# than pinning a minimum version: this script is evidence someone should be able
+# to re-run years from now, and it needs nothing else that 2.0 introduced.
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
 # The engine's authored reference head, for reference:
 #   ScatterColor    [0.85, 0.55, 0.45]   transport albedo, linear Rec.709
 #   ScatterRadiusMM [1.55, 0.80, 0.55]   mean free path, millimetres
@@ -297,7 +302,7 @@ def burley_strip_fraction(a: float, d: float, samples: int = 1024, extent: float
     t = np.linspace(0.0, math.log(upper / a), samples)
     r = a * np.exp(t)
     integrand = np.arcsin(np.minimum(a / r, 1.0)) * (np.exp(-r / d) + np.exp(-r / (3.0 * d))) * r
-    wedge = float(np.trapezoid(integrand, t)) / (2.0 * math.pi * d)
+    wedge = float(_trapz(integrand, t)) / (2.0 * math.pi * d)
     return float(np.clip(float(burley_cdf(np.array([a]), d)[0]) + wedge, 0.0, 1.0))
 
 
