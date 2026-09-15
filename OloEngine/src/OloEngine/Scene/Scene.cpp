@@ -1485,6 +1485,13 @@ namespace OloEngine
         WaterWakeSystem::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
+        // Skin profile slots (issue #1231), reset here for the same reason as
+        // the fields above: the table is sticky across frames by design, so
+        // without this a scene switch carries the previous scene's profiles in
+        // the seven slots the G-Buffer can name and the new scene's run out.
+        // A handle that failed to load is forgotten too, so replacing a missing
+        // .oloskin and reloading recovers without restarting the editor.
+        Renderer3D::GetSkinProfileTable().Reset();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -1974,6 +1981,8 @@ namespace OloEngine
         WaterWakeSystem::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
+        // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
+        Renderer3D::GetSkinProfileTable().Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and

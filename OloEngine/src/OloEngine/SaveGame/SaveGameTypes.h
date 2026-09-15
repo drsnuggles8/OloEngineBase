@@ -118,7 +118,15 @@ namespace OloEngine
     //      before it and keep the neutral defaults.
     // v30: WaterComponent gained m_ProjectedGridEnabled (#1035). v29 and older
     //      saves omit it and keep the default false, the world-space grid.
-    static constexpr u32 kSaveGameFormatVersion = 30;
+    // v31: Material gained its KIND and the SkinProfile asset it names (#1231).
+    //      Two fields, at BOTH full-Material save sites (MaterialComponent and
+    //      TileRendererComponent's material array) — missing the second is what
+    //      made a ClosureV2 tile material silently revert to Legacy in #975.
+    //      v30 and older saves stop before them and keep Generic / no profile,
+    //      which is the pre-#1231 behaviour exactly. The kind is a discriminated
+    //      value: an out-of-range one REJECTS to Generic rather than saturating
+    //      onto a valid neighbour.
+    static constexpr u32 kSaveGameFormatVersion = 31;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

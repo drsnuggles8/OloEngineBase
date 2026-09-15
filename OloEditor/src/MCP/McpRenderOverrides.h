@@ -42,6 +42,9 @@
 // OloEngine/Core/Base.h, and the standard library here.
 
 #include "OloEngine/Core/Base.h"
+// For MaterialDebugView (issue #1231): the four material views are ONE enum on
+// PostProcessSettings rather than a bool each, so this header names the type.
+#include "OloEngine/Renderer/PostProcessSettings.h"
 
 #include <nlohmann/json.hpp>
 
@@ -265,6 +268,14 @@ namespace OloEngine::MCP::RenderOverrides
         VGClusterId,
         VGLod,
         VGOverdraw,
+        // The four separated material outputs (issue #1231). Unlike the views
+        // above these live on PostProcessSettings::MaterialDebug — ONE enum
+        // rather than four bools, because they are alternatives by construction
+        // and a set of bools would let two of them be on at once.
+        MaterialDiffuse,
+        MaterialSpecular,
+        SkinProfileId,
+        SkinScatteringMask,
     };
 
     struct DebugViewInfo
@@ -274,7 +285,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 9> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 13> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
@@ -287,7 +298,49 @@ namespace OloEngine::MCP::RenderOverrides
           "Virtual geometry: per-pixel DAG LOD level ramp; capture 'VirtualGeometryDebug'" },
         { "vgoverdraw", DebugView::VGOverdraw,
           "Virtual geometry: per-pixel cluster fragment count heat ramp; capture 'VirtualGeometryDebug'" },
+        { "materialdiffuse", DebugView::MaterialDiffuse,
+          "Diffuse half of the lighting split, linear HDR radiance Rec.709 (Deferred path only)" },
+        { "materialspecular", DebugView::MaterialSpecular,
+          "Specular half of the lighting split, linear HDR radiance Rec.709 (Deferred path only)" },
+        { "skinprofileid", DebugView::SkinProfileId,
+          "Per-pixel skin profile identity as a hue; black = names no profile (Deferred path only)" },
+        { "skinmask", DebugView::SkinScatteringMask,
+          "Per-pixel skin scattering mask, unitless 0..1 greyscale (Deferred path only)" },
     } };
+
+    // The MaterialDebugView a DebugView token maps to. None for every other
+    // view, which is what makes "select a non-material view" also clear this
+    // one — two visualisations fighting over the frame is never what was asked.
+    //
+    // EXHAUSTIVE, with no `default:`. A new DebugView enumerator must be
+    // classified here deliberately; a default arm would silently file it as
+    // "not a material view", which is the failure mode that reads as "my new
+    // view turns the material one off and nothing says why".
+    [[nodiscard]] inline constexpr MaterialDebugView MaterialDebugForDebugView(DebugView view)
+    {
+        switch (view)
+        {
+            case DebugView::MaterialDiffuse:
+                return MaterialDebugView::Diffuse;
+            case DebugView::MaterialSpecular:
+                return MaterialDebugView::Specular;
+            case DebugView::SkinProfileId:
+                return MaterialDebugView::ProfileIdentity;
+            case DebugView::SkinScatteringMask:
+                return MaterialDebugView::ScatteringMask;
+            case DebugView::None:
+            case DebugView::SSAO:
+            case DebugView::GTAO:
+            case DebugView::SSR:
+            case DebugView::SSGI:
+            case DebugView::Overdraw:
+            case DebugView::VGClusterId:
+            case DebugView::VGLod:
+            case DebugView::VGOverdraw:
+                break;
+        }
+        return MaterialDebugView::None;
+    }
 
     // True for the three virtualized-geometry modes, whose state lives on the
     // VirtualMeshRegistry rather than PostProcessSettings.

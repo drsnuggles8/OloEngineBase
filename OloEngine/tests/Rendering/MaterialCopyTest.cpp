@@ -75,6 +75,12 @@ namespace
         m->SetAttenuationColor(glm::vec3(0.9f, 0.4f, 0.2f));
         m->SetAttenuationDistance(2.5f);
 
+        // Material kind + skin profile (issue #1231) — the same hazard class
+        // again: a head copied by value into MeshSubmitDesc::MaterialData that
+        // lost its kind would shade as a generic dielectric on one path only.
+        m->SetMaterialKind(MaterialKind::Skin);
+        m->SetSkinProfileHandle(0x1231'0000'0000'0007ull);
+
         // A representative uniform of each scalar kind, to guard the uniform maps.
         m->Set("u_TestFloat", 12.5f);
         m->Set("u_TestInt", 7);
@@ -121,6 +127,10 @@ namespace
         EXPECT_FLOAT_EQ(m.GetAttenuationColor().g, 0.4f);
         EXPECT_FLOAT_EQ(m.GetAttenuationColor().b, 0.2f);
         EXPECT_FLOAT_EQ(m.GetAttenuationDistance(), 2.5f);
+
+        // Issue #1231's material kind + skin profile.
+        EXPECT_EQ(m.GetMaterialKind(), MaterialKind::Skin);
+        EXPECT_EQ(static_cast<u64>(m.GetSkinProfileHandle()), 0x1231'0000'0000'0007ull);
 
         EXPECT_FLOAT_EQ(m.GetFloat("u_TestFloat"), 12.5f);
         EXPECT_EQ(m.GetInt("u_TestInt"), 7);

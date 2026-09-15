@@ -118,12 +118,22 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_AttenuationSigmaR;
     float u_AttenuationSigmaG;
     float u_AttenuationSigmaB;
-    // Uniquely named: a nameless std140 block may not reuse a name already at
-    // global scope, and plain _padding0 is taken by other blocks in these same
-    // shaders (glslc: "nameless block contains a member that already has a
-    // name at global scope").
-    float _pbrMaterialPad0;
-    float _pbrMaterialPad1;
+    // MATERIAL KIND + SKIN PROFILE (issue #1231). The first two took over the
+    // block's two spare pads; the four after them are an appended vec4. Like the
+    // transmission scalars above they are declared UNCONDITIONALLY and sit
+    // BEFORE u_MaterialHeapOffsets, so those stay last -- omitting them would
+    // relayout the heap offsets by 16 B and every texture would sample the
+    // wrong descriptor.
+    //
+    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
+    // of the closure evaluates it. Two fields because they are two questions --
+    // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
+    int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
+    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (7) == names no profile
+    float u_SkinSpecularTintR;   // LINEAR Rec.709, unitless [0,1]; 1,1,1 is neutral
+    float u_SkinSpecularTintG;
+    float u_SkinSpecularTintB;
+    int u_SkinEvaluationModel;   // OLO_SKIN_MODEL_*, NOT the PBR closure version
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing

@@ -1,8 +1,10 @@
 #pragma once
 
+#include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Containers/Map.h"
 #include "OloEngine/Containers/String.h"
+#include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/RendererResource.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -147,6 +149,37 @@ namespace OloEngine
         PBRModel GetPBRModel() const
         {
             return m_PBRModel;
+        }
+
+        // WHAT this surface is (issue #1231) — orthogonal to GetPBRModel()
+        // above, which is the VERSION of the closure that evaluates it. Generic
+        // by default; every material that predates #1231 deserializes to it and
+        // shades exactly as before. See MaterialKind.h and
+        // docs/adr/0024-material-kind-is-not-the-closure-version.md.
+        void SetMaterialKind(MaterialKind kind)
+        {
+            m_MaterialKind = kind;
+        }
+        MaterialKind GetMaterialKind() const
+        {
+            return m_MaterialKind;
+        }
+
+        // The SkinProfile asset (Renderer/SkinProfile.h) supplying this
+        // material's scattering parameters. Only meaningful when the kind is
+        // Skin; 0 means "none assigned", which the renderer reports and counts
+        // rather than treating as a default (SkinProfileTable::Resolve).
+        //
+        // Stored as a handle rather than a Ref so a material can be copied,
+        // serialized and compared without touching the asset manager — the same
+        // arrangement MaterialAsset uses for its texture maps.
+        void SetSkinProfileHandle(AssetHandle handle)
+        {
+            m_SkinProfileHandle = handle;
+        }
+        AssetHandle GetSkinProfileHandle() const
+        {
+            return m_SkinProfileHandle;
         }
 
         void SetShader(const Ref<Shader>& shader)
@@ -701,6 +734,12 @@ namespace OloEngine
         AlphaMode m_AlphaMode = AlphaMode::Opaque;     // glTF-style alpha mode
         f32 m_AlphaCutoff = 0.5f;                      // Threshold for MASK mode discard
         PBRModel m_PBRModel = PBRModel::Legacy;        // Versioned closure (issue #975)
+        // What the surface IS, as opposed to which closure version evaluates it
+        // (issue #1231). Generic keeps every pre-#1231 material bit-identical.
+        // Both of these must be added to the hand-written copy constructor and
+        // operator= in Material.cpp — see the warning below.
+        MaterialKind m_MaterialKind = MaterialKind::Generic;
+        AssetHandle m_SkinProfileHandle = 0; // SkinProfile asset; 0 = none assigned
 
         // Physical transmission / IOR / volume (issue #970). Neutral defaults --
         // see the accessor block above. Any field added here MUST also be added

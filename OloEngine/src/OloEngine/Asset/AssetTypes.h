@@ -60,13 +60,17 @@ namespace OloEngine
         // Texture atlas + per-tile metadata for the 2D tilemap system (issue
         // #646) — see OloEngine/src/OloEngine/Tilemap/Tileset.h.
         Tileset = 42,
+        // Authored skin scattering parameters (issue #1231) — the asset a
+        // MaterialKind::Skin material names. See
+        // OloEngine/src/OloEngine/Renderer/SkinProfile.h.
+        SkinProfile = 43,
     };
 
-    // If AssetType grows past Tileset, bump kMaxKnownValue in
+    // If AssetType grows past SkinProfile, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::Tileset) == 42,
-                  "AssetType::Tileset moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::SkinProfile) == 43,
+                  "AssetType::SkinProfile moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -218,6 +222,8 @@ namespace OloEngine
                     return "Volume";
                 case AssetType::Tileset:
                     return "Tileset";
+                case AssetType::SkinProfile:
+                    return "SkinProfile";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -319,6 +325,8 @@ namespace OloEngine
                 return AssetType::Volume;
             if (assetType == "Tileset")
                 return AssetType::Tileset;
+            if (assetType == "SkinProfile")
+                return AssetType::SkinProfile;
 
             return AssetType::None;
         }

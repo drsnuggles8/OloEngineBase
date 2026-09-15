@@ -49,52 +49,127 @@
 #define OLO_PBR_MODEL_LEGACY 0
 #define OLO_PBR_MODEL_CLOSURE_V2 1
 
+// =============================================================================
+// MATERIAL KIND (issue #1231)
+// =============================================================================
+// WHAT a surface is, mirroring MaterialKind in Renderer/MaterialKind.h and the
+// u_MaterialKind lane of PBRMaterialProperties (UBO binding 2).
+//
+// DELIBERATELY NOT THE SAME AXIS AS OLO_PBR_MODEL_* ABOVE. That selector is the
+// VERSION of the closure a material shades with, bumped when the maths is
+// corrected; this one is the category of the surface, which does not change
+// when a BRDF is fixed. A Skin material can shade with either closure version,
+// and correcting the GGX denominator must not turn skin into something else.
+// See docs/adr/0024-material-kind-is-not-the-closure-version.md.
+#define OLO_MATERIAL_KIND_GENERIC 0
+#define OLO_MATERIAL_KIND_SNOW 1
+#define OLO_MATERIAL_KIND_SKIN 2
+
+// The versioned SKIN transport, mirroring SkinEvaluationModel in
+// Renderer/SkinProfile.h. A third independent axis, for the third independent
+// question: "which version of the skin maths evaluated this profile?".
+// Version 0 splits diffuse and specular and sums them, which is numerically the
+// combined term the engine always shaded; #1241's diffusion becomes version 1.
+#define OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT 0
+
+// "This pixel names no skin profile." The all-ones pattern of the lane's
+// three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
+#define OLO_SKIN_PROFILE_SLOT_NONE 7
+
+// Which separated output replaces the composite, mirroring MaterialDebugView in
+// Renderer/PostProcessSettings.h. Carried in u_MSAAParams.w of the deferred
+// controls block; 0 is the normal frame. Named rather than compared against
+// literals so the two enumerations drift visibly rather than silently.
+#define OLO_MATERIAL_DEBUG_NONE 0
+#define OLO_MATERIAL_DEBUG_DIFFUSE 1
+#define OLO_MATERIAL_DEBUG_SPECULAR 2
+#define OLO_MATERIAL_DEBUG_PROFILE_ID 3
+#define OLO_MATERIAL_DEBUG_SCATTERING_MASK 4
+
 // The G-Buffer RT2 alpha "MaterialFlags" lane, encoded here so its layout has
 // ONE executable home shared by every G-Buffer writer (PBR_GBuffer{,_Skinned},
 // VirtualGBufferFragment, VirtualVisibilityResolve) and one decode
 // (DeferredLightingShared.glsl):
 //
-//   bit 0      — unlit (the overlay shaders write a literal 1.0; PBR writers 0)
-//   bits 1..n  — PBR closure model, carried as a WHOLE integer shifted left by
-//                one. There is no field width and no mask: PBRModel.h's
-//                numbering is append-only, and the decode is a plain `>> 1`, so
-//                appending a model needs no edit here and can never truncate to
-//                Legacy. The only ceiling is exact integer representation in
-//                RGBA16F (half is exact to 2048, so model <= 1023); PBRModel.h
-//                static_asserts against it, which is where a hypothetical
-//                1024th model is rejected loudly instead of silently remapped.
+//   bit 0      - unlit (the overlay shaders write a literal 1.0; PBR writers 0)
+//   bits 1..2  - MATERIAL KIND (issue #1231), a FIXED-WIDTH two-bit field.
+//                Fixed width because it sits below an open-ended field, and
+//                because MaterialKind.h static_asserts against exactly this
+//                ceiling, so a fifth kind is a deliberate re-encoding rather
+//                than an enumerator that silently aliases onto a fourth.
+//   bits 3..5  - SKIN PROFILE SLOT (issue #1231), three bits, 7 == "names no
+//                profile". Only meaningful when the kind is Skin, and only read
+//                under that test: the G-Buffer writers that do NOT call this
+//                function (Terrain, Foliage, Water) write a literal 0.0 lane,
+//                whose slot field reads as 0, and gating every read on the kind
+//                is what stops that being mistaken for "profile 0".
+//   bits 6..n  - PBR closure model, carried as a WHOLE integer shifted up past
+//                the three fields below it. There is still no field width and
+//                no mask: PBRModel.h's numbering is append-only and the decode
+//                is a plain `>> 6`, so appending a model needs no edit here and
+//                can never truncate to Legacy.
+//
+// THE CEILING MOVED, AND IT MOVED ON PURPOSE (issue #1231). The only limit on
+// the model field is exact integer representation in RGBA16F - half is exact to
+// 2048 - so before #1231 the model index shifted up by one and the ceiling was
+// 1023. Giving the kind and the profile slot five bits below it lowers that to
+// 31 (31 * 64 + 63 == 2047). PBRModel.h static_asserts against the new number,
+// which is where a hypothetical 32nd closure model is rejected loudly instead of
+// silently remapped, and the fix at that point is the one it always was: a wider
+// lane or a dedicated integer attachment, not a constant bump.
+//
+// WHY THE TWO NEW FIELDS SIT BELOW THE MODEL AND NOT ABOVE IT. Above it they
+// would have forced the model field to have a width - and the whole point of the
+// open-ended encoding is that appending a closure model is a one-line change in
+// one file. Below it they cost headroom that is measured and documented; above
+// it they would have cost the property.
 //
 // AVERAGE-SAFETY (issue #996). The lane is a bitfield, so it must never be
 // averaged. In the resolved-MSAA deferred mode (MSAA > 1 with per-sample
 // lighting off) `GBuffer::Resolve()` average-blits every colour attachment and
 // then runs `GBufferFlagsResolve.glsl`, which overwrites RT2's alpha alone with
-// the flags ONE REAL SAMPLE wrote — the first lit sample if the pixel has one,
+// the flags ONE REAL SAMPLE wrote - the first lit sample if the pixel has one,
 // sample 0 otherwise. A `texelFetch` at a fixed sample index is exact and fully
 // defined on both backends and every vendor, unlike an averaged bitfield whose
-// half-way cases (a ClosureV2 2.0 over Legacy 0.0 averaging to the unlit code
-// 1.0; 2.0 over sky 1.0 averaging to 1.5, where GLSL round()'s tie-break is
+// half-way cases (a ClosureV2 over Legacy averaging onto the unlit code; a lit
+// value over sky averaging to a half-way case whose GLSL round() tie-break is
 // implementation-defined) mis-decoded at every silhouette. So every reader of
-// this lane — both deferred lighting variants — sees a value some sample
+// this lane - both deferred lighting variants - sees a value some sample
 // actually wrote, and a pixel a real surface covers is never read as unlit.
+float oloEncodeGBufferPbrFlagsEx(int pbrModel, int materialKind, int skinProfileSlot)
+{
+    // Multiply rather than shift: every field is non-negative by construction
+    // (Material / scene YAML / save-games / Lua all reject out-of-range values,
+    // and the slot comes from SkinProfileTable) and `*N` says "shift up past the
+    // fields below" without inheriting <<'s signed-overflow rules.
+    //
+    // The two new fields ARE clamped on the way in, unlike the model. They are
+    // fixed-width, so a value that overflowed its width would carry into the
+    // model field above it - silently turning a Legacy skin surface into closure
+    // model 1. Clamping here is cheap and makes that impossible.
+    int kind = clamp(materialKind, 0, 3);
+    int slot = clamp(skinProfileSlot, 0, OLO_SKIN_PROFILE_SLOT_NONE);
+    return float(pbrModel * 64 + slot * 8 + kind * 2);
+}
+
+// The generic-material spelling, kept because most G-Buffer writers have no
+// material kind to speak of and should not have to spell out "Generic, no
+// profile" in order to say so.
 float oloEncodeGBufferPbrFlags(int pbrModel)
 {
-    // Multiply rather than shift: the model index is non-negative by
-    // construction (Material / scene YAML / save-games / Lua all reject
-    // out-of-range values to Legacy on the CPU side) and `*2` says "shift up
-    // past the unlit bit" without inheriting <<'s signed-overflow rules.
-    return float(pbrModel * 2);
+    return oloEncodeGBufferPbrFlagsEx(pbrModel, OLO_MATERIAL_KIND_GENERIC, OLO_SKIN_PROFILE_SLOT_NONE);
 }
 
 // The matching DECODE, kept here beside the encode so the layout has one
 // executable home in BOTH directions. `ComputeDeferredLit`
 // (DeferredLightingShared.glsl) is the only production caller; the shader-unit
-// probe calls these same three functions rather than a copy of them, which is
-// what makes the round-trip test a test of the layout instead of a test of a
+// probe calls these same functions rather than a copy of them, which is what
+// makes the round-trip test a test of the layout instead of a test of a
 // transcription.
 int oloDecodeGBufferFlags(float flagsLane)
 {
     // Exact, not a tie-break: the lane is only ever read from a value one
-    // sample wrote (issue #996 — see AVERAGE-SAFETY above), so `round` here is
+    // sample wrote (issue #996 - see AVERAGE-SAFETY above), so `round` here is
     // undoing float storage, never resolving a half-way average.
     return int(round(flagsLane));
 }
@@ -104,12 +179,24 @@ bool oloGBufferFlagsAreUnlit(int gbFlags)
     return (gbFlags & 1) != 0;
 }
 
+int oloGBufferFlagsMaterialKind(int gbFlags)
+{
+    return (gbFlags >> 1) & 3;
+}
+
+// Only meaningful when oloGBufferFlagsMaterialKind() is Skin - see the field
+// list above for why a Generic pixel's slot bits are not "profile 0".
+int oloGBufferFlagsSkinProfileSlot(int gbFlags)
+{
+    return (gbFlags >> 3) & 7;
+}
+
 int oloGBufferFlagsPbrModel(int gbFlags)
 {
     // No mask: the model field is the whole rest of the lane, so a model
     // appended to PBRModel.h arrives un-truncated rather than aliasing to
     // Legacy on the deferred path only.
-    return gbFlags >> 1;
+    return gbFlags >> 6;
 }
 
 // =============================================================================
@@ -367,11 +454,81 @@ float visibilitySmithGGXCorrelated(vec3 N, vec3 V, vec3 L, float roughness)
 }
 
 // =============================================================================
+// SEPARATE DIFFUSE / SPECULAR OUTPUTS (issue #1231)
+// =============================================================================
+// Every lighting term in this file is available in two spellings: a vec3 that
+// returns the sum, and a `...Split` twin that returns the two halves. The vec3
+// spelling is now a WRAPPER over the split one, in every case, so the two can
+// never disagree -- the alternative, two parallel bodies, is the shape that
+// drifts.
+//
+// WHY THE SPLIT EXISTS BEFORE ANYTHING BLURS. Skin scattering (issue #1241)
+// blurs the DIFFUSE irradiance across the surface and must leave the specular
+// highlight sharp. A combined `kD * albedo / PI + specular` cannot be blurred
+// without blurring the highlight with it, and no amount of post-processing can
+// separate them again afterwards. So the seam has to be cut here, in the
+// closure, and #1231 cuts it while the two halves are still summed immediately
+// -- which is why this change moves no pixel.
+//
+// UNITS AND COLOUR SPACE. Both members are LINEAR HDR radiance in Rec.709
+// primaries, the same space and scale the combined term always was: `Diffuse`
+// is the outgoing radiance from the refracted (body) lobe, `Specular` the
+// outgoing radiance from the surface (reflection) lobe. Neither has AO, a
+// shadow term or an exposure applied -- those are the caller's, applied to the
+// sum or to one half deliberately.
+struct OloSurfaceLighting
+{
+    vec3 Diffuse;
+    vec3 Specular;
+};
+
+OloSurfaceLighting oloSurfaceLightingZero()
+{
+    return OloSurfaceLighting(vec3(0.0), vec3(0.0));
+}
+
+OloSurfaceLighting oloSurfaceLightingAdd(OloSurfaceLighting a, OloSurfaceLighting b)
+{
+    return OloSurfaceLighting(a.Diffuse + b.Diffuse, a.Specular + b.Specular);
+}
+
+OloSurfaceLighting oloSurfaceLightingScale(OloSurfaceLighting a, vec3 factor)
+{
+    return OloSurfaceLighting(a.Diffuse * factor, a.Specular * factor);
+}
+
+// The one place the two halves are recombined. Diffuse first, so the sum is the
+// same floating-point expression the combined bodies used to evaluate and the
+// wrappers below are bit-identical to what they replaced.
+vec3 oloSurfaceLightingSum(OloSurfaceLighting lighting)
+{
+    return lighting.Diffuse + lighting.Specular;
+}
+
+// The scattering mask: how much of THIS pixel scatters below the surface.
+// Unitless, [0,1], and identical on the forward, forward+ and deferred paths
+// because all three derive it from the same two numbers.
+//
+// `1 - metallic` rather than an authored map: a metal has no subsurface
+// transport at all, and metallic is already per-pixel on every path (a map on
+// forward, G-Buffer RT0's alpha on deferred), so this costs nothing and is
+// physically the right gate. An AUTHORED mask map is #1241's, together with the
+// diffusion it masks -- this is the term that says where scattering may happen,
+// not how strong it is.
+float oloSkinScatteringMask(int materialKind, float metallic)
+{
+    if (materialKind != OLO_MATERIAL_KIND_SKIN)
+        return 0.0;
+    return clamp(1.0 - metallic, 0.0, 1.0);
+}
+
+// =============================================================================
 // BRDF CALCULATIONS
 // =============================================================================
 
-// Cook-Torrance BRDF implementation
-vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+// Cook-Torrance BRDF implementation, diffuse and specular kept apart
+// (issue #1231). This is the REAL body; cookTorranceBRDF below sums it.
+OloSurfaceLighting cookTorranceBRDFSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     vec3 H = normalize(V + L);
 
@@ -394,7 +551,14 @@ vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float
     vec3 kD = vec3(1.0) - kS; // Remaining energy for refraction
     kD *= 1.0 - metallic; // Metallic materials don't refract light
 
-    return kD * albedo * INV_PI + specular;
+    return OloSurfaceLighting(kD * albedo * INV_PI, specular);
+}
+
+// The combined spelling, unchanged for every caller: the same expression, in
+// the same order, as the body it replaced.
+vec3 cookTorranceBRDF(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    return oloSurfaceLightingSum(cookTorranceBRDFSplit(N, V, L, albedo, metallic, roughness));
 }
 
 // Enhanced BRDF using the height-correlated Smith visibility term.
@@ -931,7 +1095,7 @@ vec3 closureV2MultiScatter(float NdotV, float NdotL, float roughness, vec3 F0)
 
 // v2 Evaluate: f(V, L) WITHOUT the cosine term, matching cookTorranceBRDF's
 // convention — callers multiply by NdotL.
-vec3 closureV2Evaluate(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+OloSurfaceLighting closureV2EvaluateSplit(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     float r = closureV2Roughness(roughness);
     vec3 H = normalize(V + L);
@@ -951,17 +1115,33 @@ vec3 closureV2Evaluate(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, floa
     vec3 specular = D * Vis * F + closureV2MultiScatter(NdotV, NdotL, roughness, F0);
 
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-    return kD * albedo * INV_PI + specular;
+    // Split, not summed (issue #1231). The multiple-scattering compensation is
+    // part of the SPECULAR half (it folds back into the specular lobe the
+    // single-scatter GGX term lost), which is what the line above already
+    // computed -- so this is a regrouping, not a change of maths.
+    return OloSurfaceLighting(kD * albedo * INV_PI, specular);
+}
+
+// The combined spelling. Same expression, same order, as the body it replaced.
+vec3 closureV2Evaluate(vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    return oloSurfaceLightingSum(closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness));
 }
 
 // The versioned dispatch every model-aware call site routes through. Legacy
 // materials take the EXACT cookTorranceBRDF path — the branch is on a
 // per-draw uniform, so existing pixels cannot move.
-vec3 evaluatePBRClosure(int pbrModel, vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+OloSurfaceLighting evaluatePBRClosureSplit(int pbrModel, vec3 N, vec3 V, vec3 L,
+                                           vec3 albedo, float metallic, float roughness)
 {
     if (pbrModel == OLO_PBR_MODEL_CLOSURE_V2)
-        return closureV2Evaluate(N, V, L, albedo, metallic, roughness);
-    return cookTorranceBRDF(N, V, L, albedo, metallic, roughness);
+        return closureV2EvaluateSplit(N, V, L, albedo, metallic, roughness);
+    return cookTorranceBRDFSplit(N, V, L, albedo, metallic, roughness);
+}
+
+vec3 evaluatePBRClosure(int pbrModel, vec3 N, vec3 V, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    return oloSurfaceLightingSum(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness));
 }
 
 // ---------------------------------------------------------------------------
@@ -1242,22 +1422,22 @@ float sphereAreaLightNormalization(float roughness, float distance, float sphere
 
 // Evaluate a sphere area light at the surface.
 // Returns the radiance contribution (radiance * NdotL * BRDF).
-vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
-                                           vec3 lightColor, float lightIntensity, float range,
-                                           vec3 albedo, float metallic, float roughness, vec3 worldPos)
+OloSurfaceLighting calculateSphereAreaLightContributionSplit(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
+                                                             vec3 lightColor, float lightIntensity, float range,
+                                                             vec3 albedo, float metallic, float roughness, vec3 worldPos)
 {
     vec3 toLight = lightPos - worldPos;
     float distance = length(toLight);
 
     // Early-out: outside range. Range is measured from the centre, matching
     // the way light culling treats the bounding sphere.
-    if (distance > range) return vec3(0.0);
+    if (distance > range) return oloSurfaceLightingZero();
 
     // Standard L for diffuse — use the light centre, not the representative
     // point (the diffuse term integrates over the full hemisphere already).
     vec3 Ldiff = toLight / max(distance, EPSILON);
     float NdotL = max(dot(N, Ldiff), 0.0);
-    if (NdotL <= EPSILON) return vec3(0.0);
+    if (NdotL <= EPSILON) return oloSurfaceLightingZero();
 
     // Smooth distance attenuation matching the Forward+ point-light falloff.
     float distRatio = distance / max(range, EPSILON);
@@ -1294,22 +1474,39 @@ vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float s
     vec3 diffuse = kD * albedo * INV_PI;
 
     vec3 radiance = lightColor * lightIntensity * distAtten;
-    // Diffuse term scales by NdotL (Lambertian); specular by NdotLspec.
-    return (diffuse * NdotL + specular * NdotLspec) * radiance;
+    // Diffuse term scales by NdotL (Lambertian); specular by NdotLspec. The two
+    // already travelled separately through this function -- issue #1231 only
+    // stops them being added at the end.
+    return OloSurfaceLighting(diffuse * NdotL * radiance, specular * NdotLspec * radiance);
+}
+
+// The combined spelling. NOTE this is a REGROUPING of the old expression
+// `(diffuse * NdotL + specular * NdotLspec) * radiance`, not the identical
+// float expression: each half now multiplies by `radiance` before the sum.
+// Floating-point addition is not distributive, so a pixel here may move by an
+// ulp. That is deliberate and is the one place in this change where it happens;
+// the alternative was keeping a second copy of a 40-line body.
+vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float sphereRadius,
+                                          vec3 lightColor, float lightIntensity, float range,
+                                          vec3 albedo, float metallic, float roughness, vec3 worldPos)
+{
+    return oloSurfaceLightingSum(calculateSphereAreaLightContributionSplit(
+        N, V, lightPos, sphereRadius, lightColor, lightIntensity, range, albedo, metallic, roughness, worldPos));
 }
 
 // =============================================================================
 // MULTI-LIGHT CALCULATION
 // =============================================================================
 
-// Calculate contribution from a single light. The pbrModel overload is the
-// real body; the trailing selector routes the punctual-light BRDF through
-// evaluatePBRClosure (Legacy pixels are bit-identical — the Legacy branch IS
-// cookTorranceBRDF). Sphere-area lights deliberately keep the Legacy
-// representative-point evaluator for every model — see PBR CLOSURE V2.
-vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
-                               float metallic, float roughness, vec3 worldPos,
-                               int pbrModel)
+// Calculate contribution from a single light. THIS split overload is the real
+// body (issue #1231); the two vec3 spellings below sum it. The trailing selector
+// routes the punctual-light BRDF through evaluatePBRClosureSplit (Legacy pixels
+// are bit-identical — the Legacy branch IS cookTorranceBRDF). Sphere-area lights
+// deliberately keep the Legacy representative-point evaluator for every model —
+// see PBR CLOSURE V2.
+OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3 V, vec3 albedo,
+                                                   float metallic, float roughness, vec3 worldPos,
+                                                   int pbrModel)
 {
     int lightType = int(light.position.w);
     vec3 lightColor = light.color.rgb;
@@ -1322,9 +1519,9 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
     {
         float sphereRadius = light.spotParams.z;       // Packed by Scene::ProcessScene3DSharedLogic
         float range        = light.attenuationParams.w;
-        return calculateSphereAreaLightContribution(N, V, light.position.xyz, sphereRadius,
-                                                    lightColor, lightIntensity, range,
-                                                    albedo, metallic, roughness, worldPos);
+        return calculateSphereAreaLightContributionSplit(N, V, light.position.xyz, sphereRadius,
+                                                        lightColor, lightIntensity, range,
+                                                        albedo, metallic, roughness, worldPos);
     }
 
     vec3 L;
@@ -1350,20 +1547,31 @@ vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
     }
     else
     {
-        return vec3(0.0); // Unknown light type
+        return oloSurfaceLightingZero(); // Unknown light type
     }
 
     // Early exit if light has no contribution
-    if (attenuation <= EPSILON) return vec3(0.0);
+    if (attenuation <= EPSILON) return oloSurfaceLightingZero();
 
     float NdotL = max(dot(N, L), 0.0);
-    if (NdotL <= EPSILON) return vec3(0.0);
+    if (NdotL <= EPSILON) return oloSurfaceLightingZero();
 
     // Calculate BRDF
     vec3 radiance = lightColor * lightIntensity * attenuation;
-    vec3 brdf = evaluatePBRClosure(pbrModel, N, V, L, albedo, metallic, roughness);
+    OloSurfaceLighting brdf = evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness);
 
-    return brdf * radiance * NdotL;
+    return oloSurfaceLightingScale(brdf, radiance * NdotL);
+}
+
+// The combined spelling, for every call site that does not care about the two
+// halves. `brdf * radiance * NdotL` distributed over the split is the same
+// per-component product in the same order, so a Legacy pixel is bit-identical.
+vec3 calculateLightContribution(LightData light, vec3 N, vec3 V, vec3 albedo,
+                                float metallic, float roughness, vec3 worldPos,
+                                int pbrModel)
+{
+    return oloSurfaceLightingSum(
+        calculateLightContributionSplit(light, N, V, albedo, metallic, roughness, worldPos, pbrModel));
 }
 
 // Legacy-model convenience overload: call sites with no material model (the
@@ -1889,8 +2097,8 @@ vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
 // distance-impostor probe blend from include/ReflectionProbes.glsl — issue
 // #705) and this applies the identical BRDF split. Keep the body in lockstep
 // with calculateIBL above.
-vec3 calculateIBLPrefiltered(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
-                             samplerCube irradianceMap, sampler2D brdfLUT, vec3 prefilteredColor)
+OloSurfaceLighting calculateIBLPrefilteredSplit(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                                                samplerCube irradianceMap, sampler2D brdfLUT, vec3 prefilteredColor)
 {
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
@@ -1909,7 +2117,14 @@ vec3 calculateIBLPrefiltered(vec3 N, vec3 V, vec3 albedo, float metallic, float 
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
-    return kD * diffuse + specular;
+    return OloSurfaceLighting(kD * diffuse, specular);
+}
+
+vec3 calculateIBLPrefiltered(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
+                             samplerCube irradianceMap, sampler2D brdfLUT, vec3 prefilteredColor)
+{
+    return oloSurfaceLightingSum(calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
+                                                              irradianceMap, brdfLUT, prefilteredColor));
 }
 
 // Simple ambient lighting fallback when IBL is not available
@@ -1919,6 +2134,14 @@ vec3 calculateSimpleAmbient(vec3 albedo, float metallic, float ao)
 {
     vec3 ambient = vec3(0.03) * albedo;
     return ambient;
+}
+
+// The flat fill is entirely DIFFUSE -- it is a constant times albedo, with no
+// reflection lobe in it at all. Naming that explicitly is the point of the
+// split: a pass that blurs the diffuse half must blur this rung too.
+OloSurfaceLighting calculateSimpleAmbientSplit(vec3 albedo, float metallic, float ao)
+{
+    return OloSurfaceLighting(calculateSimpleAmbient(albedo, metallic, ao), vec3(0.0));
 }
 
 // Enhanced IBL with importance sampling (for real-time global illumination)
@@ -1983,6 +2206,15 @@ vec3 calculateLightProbeAmbient(vec3 probeIrradiance, vec3 albedo, float metalli
     return kD * probeIrradiance * albedo;
 }
 
+// Probe irradiance is a DIFFUSE source with no specular half (the specular
+// ambient comes from the prefilter map, on a different rung of the ladder).
+OloSurfaceLighting calculateLightProbeAmbientSplit(vec3 probeIrradiance, vec3 albedo, float metallic,
+                                                   float roughness, vec3 N, vec3 V)
+{
+    return OloSurfaceLighting(calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V),
+                              vec3(0.0));
+}
+
 // Combine light probe diffuse with IBL specular
 // Probes provide diffuse irradiance; IBL prefilter map provides specular reflections
 vec3 calculateCombinedAmbient(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
@@ -2013,9 +2245,9 @@ vec3 calculateCombinedAmbient(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
 // calculateCombinedAmbient with the specular prefilter fetch hoisted out —
 // same contract as calculateIBLPrefiltered (issue #705). Keep the body in
 // lockstep with calculateCombinedAmbient above.
-vec3 calculateCombinedAmbientPrefiltered(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
-                                         float metallic, float roughness,
-                                         sampler2D brdfLUT, vec3 prefilteredColor)
+OloSurfaceLighting calculateCombinedAmbientPrefilteredSplit(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
+                                                            float metallic, float roughness,
+                                                            sampler2D brdfLUT, vec3 prefilteredColor)
 {
     vec3 F0 = vec3(DEFAULT_DIELECTRIC_F0);
     F0 = mix(F0, albedo, metallic);
@@ -2033,7 +2265,52 @@ vec3 calculateCombinedAmbientPrefiltered(vec3 probeIrradiance, vec3 N, vec3 V, v
     vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
-    return kD * diffuse + specular;
+    return OloSurfaceLighting(kD * diffuse, specular);
+}
+
+vec3 calculateCombinedAmbientPrefiltered(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
+                                         float metallic, float roughness,
+                                         sampler2D brdfLUT, vec3 prefilteredColor)
+{
+    return oloSurfaceLightingSum(calculateCombinedAmbientPrefilteredSplit(
+        probeIrradiance, N, V, albedo, metallic, roughness, brdfLUT, prefilteredColor));
+}
+
+// =============================================================================
+// SKIN PROFILE APPLICATION (issue #1231)
+// =============================================================================
+
+// Apply the authored profile's contribution to an already-evaluated split.
+//
+// TODAY THAT IS THE SPECULAR TINT AND NOTHING ELSE, and that is the honest
+// scope: scattering is #1241. The tint is the one profile parameter whose
+// effect is visible without diffusion, and it is applied to the SPECULAR half
+// alone -- which is the whole argument for the split in one line. A combined
+// term could not be tinted without tinting the scattering with it.
+//
+// THE VERSION BRANCH IS HERE, AND IT IS WHY THE PROFILE CARRIES A VERSION AT
+// ALL. This is to the skin transport what `evaluatePBRClosure` is to the BRDF:
+// #1241 appends OLO_SKIN_MODEL_* version 1 and a second arm, and every profile
+// authored against version 0 keeps shading exactly as it does today.
+//
+// A profile naming a version this shader has no arm for applies NOTHING rather
+// than guessing at version 0's meaning for it -- a tint is not necessarily what
+// a later transport does with `SpecularTint`. That arm is unreachable by
+// construction (SkinProfileParameters::Sanitize and SkinProfileSerializer both
+// reject an out-of-range version to 0 and log it before anything is uploaded),
+// which is the point: the loudness lives on the CPU and the shader does not
+// have to invent a plausible answer.
+//
+// Non-skin materials upload a neutral 1,1,1 tint and never reach the branch, so
+// their result is bit-identical to the pre-#1231 shader.
+OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int materialKind,
+                                       int evaluationModel, vec3 specularTint)
+{
+    if (materialKind != OLO_MATERIAL_KIND_SKIN)
+        return lighting;
+    if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT)
+        return lighting;
+    return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
 
 // =============================================================================

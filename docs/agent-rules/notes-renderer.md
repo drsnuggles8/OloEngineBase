@@ -1164,3 +1164,54 @@ derived system with no dirty flag looks correct until the source changes, which 
 nobody tests.
 
 Found on #1230 (canonical foliage instance identity).
+
+## A material field added to `PBRMaterialUBO` must be declared in all eight GLSL blocks
+
+`PBRMaterialProperties` (std140, binding 2) is declared **eight times** —
+`PBR_MultiLight{,_Skinned}`, `PBR_GBuffer{,_Skinned}`, `DepthPrepass_Mask{,Skinned}`,
+`VirtualVisibilityResolve` and `include/VirtualGBufferFragment`. There is no shared include: a
+nameless std140 block's members are global names, so factoring it out would collide with the other
+blocks these same shaders declare.
+
+The trailing member is `uvec4 u_MaterialHeapOffsets[3]`, and it must STAY trailing —
+`include/BindlessHeap.glsl` and `CommandDispatch::WriteMaterialHeapOffsets` both index it as the
+final block. So a new material field is **inserted before it**, in all eight files. Miss one and
+that shader's heap offsets shift by the size of the field you added: every material texture in it
+samples a neighbouring descriptor. The shader still compiles, still links, and still draws — with
+the wrong albedo, the wrong normal map and the wrong AO, on that pass only.
+
+Two things make this survivable:
+
+- The block carries **two spare `float` pads** for exactly this. Issue #1231 spent them on
+  `u_MaterialKind` and `u_SkinProfileSlot`, so the next field costs a fresh 16-byte group.
+- `ShaderBindingLayout.h` static_asserts `sizeof(PBRMaterialUBO)`. That catches a C++-side change
+  that forgot to update the expectation, but it cannot see GLSL — so the assert tells you the size
+  moved, and the eight-file edit is still yours.
+
+`grep -rl PBRMaterialProperties OloEditor/assets/shaders` is the checklist (`-r`: without it
+grep is handed a directory, prints `Is a directory` and matches nothing, which reads as "the
+block is declared nowhere"). Note the two
+`DepthPrepass_Mask*` shaders read only `u_AlphaCutoff` from the block and still have to declare the
+whole thing.
+
+Found on #1231 (skin material kind + profile).
+
+## A G-Buffer flags lane with an open-ended field cannot absorb a new one for free
+
+RT2's alpha carries the PBR closure model as *the whole rest of the lane* — no width, no mask — so
+appending a closure model is a one-line change in `PBRModel.h`. That property is what makes the
+field open-ended, and it means any NEW field has to go **below** it, which costs headroom: the lane
+is RGBA16F alpha, half is exact only to 2048, and each bit taken below the model halves what the
+model can carry exactly.
+
+#1231 took five bits (2 for the material kind, 3 for the skin profile slot) and
+`kPBRModelGBufferLaneMax` went from 1023 to 31. That is a legitimate trade and the static_assert in
+`PBRModel.h` is where it is enforced — but *notice it before you design the encoding*, because the
+alternative (putting the new fields above the model) silently gives the model a width and turns
+"append a closure model" back into a multi-file edit.
+
+The other half of the rule: every field below the open-ended one is fixed-width and must be
+**clamped on encode**. An out-of-range value in a fixed-width field carries into the field above it,
+so a bad profile slot would not produce a wrong profile — it would produce a wrong closure model.
+
+Found on #1231.

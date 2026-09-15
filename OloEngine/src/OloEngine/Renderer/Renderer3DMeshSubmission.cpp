@@ -494,6 +494,43 @@ namespace OloEngine
         data.alphaCutoff = material.GetAlphaCutoff();
         data.pbrModel = std::to_underlying(material.GetPBRModel());
 
+        // Material kind + skin profile (issue #1231). The KIND is the material's
+        // own field; the PROFILE is RESOLVED here, once per submission, into the
+        // small slot the G-Buffer can name per pixel plus the parameters this
+        // pass needs — so nothing downstream of submission touches the asset
+        // manager, and a missing or unloadable profile is reported and counted
+        // at exactly one site (SkinProfileTable::Resolve) rather than becoming a
+        // silent neutral default in the shader.
+        //
+        // Non-skin materials do not consult the table at all: they keep
+        // kSkinProfileSlotNone and a neutral tint, so their uploaded bytes are
+        // identical to what they were before this feature existed.
+        data.materialKind = std::to_underlying(material.GetMaterialKind());
+        if (material.GetMaterialKind() == MaterialKind::Skin)
+        {
+            // A LEGACY (Phong) material has no skin transport to reach: the skin
+            // lanes live in PBRMaterialUBO, and CommandDispatch only uploads
+            // that block when enablePBR is set, so a legacy skin material would
+            // take the legacy UBO and lose the kind, the profile and the tint
+            // with nothing to show for it. Reported, counted, and DOWNGRADED to
+            // Generic here so the kind this struct carries is the kind that will
+            // actually be transported — a silent Skin that shades generic is
+            // exactly the failure this whole file argues against.
+            if (!data.enablePBR)
+            {
+                Renderer3D::GetSkinProfileTable().ReportFallback(SkinProfileFallbackReason::MaterialNotPBR,
+                                                                 material.GetSkinProfileHandle());
+                data.materialKind = std::to_underlying(MaterialKind::Generic);
+            }
+            else
+            {
+                const SkinProfileResolution profile = Renderer3D::GetSkinProfileTable().Resolve(material.GetSkinProfileHandle());
+                data.skinProfileSlot = profile.Slot;
+                data.skinSpecularTint = profile.Parameters.SpecularTint;
+                data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+            }
+        }
+
         // Physical transmission / IOR / volume (issue #970). GetAttenuationSigma
         // does the -log(colour)/distance derivation here, once per submission,
         // so the +infinity default distance never reaches the UBO or GLSL.

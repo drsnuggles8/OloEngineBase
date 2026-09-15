@@ -2583,6 +2583,26 @@ namespace OloEngine
                     {
                         mat.SetPBRModel(static_cast<PBRModel>(model));
                     }
+                    // Material kind + skin profile (issue #1231). The SECOND
+                    // full-Material site, read here for exactly the reason the
+                    // save-game serializer carries them at its own second site:
+                    // a tile material that kept its kind through a save and lost
+                    // it through a scene load is the #975 defect again, wearing
+                    // the other hat.
+                    if (const int kind = matNode["MaterialKind"].as<int>(0); IsValidMaterialKind(kind))
+                    {
+                        mat.SetMaterialKind(static_cast<MaterialKind>(kind));
+                    }
+                    else
+                    {
+                        OLO_CORE_ERROR("SceneSerializer - tile MaterialKind {} is not one this build knows "
+                                       "(valid range 0..{}); loading the material as Generic.",
+                                       kind, kMaterialKindCount - 1);
+                    }
+                    if (matNode["SkinProfile"])
+                    {
+                        mat.SetSkinProfileHandle(matNode["SkinProfile"].as<u64>(0));
+                    }
                     tileComp.Materials.push_back(std::move(mat));
                 }
             }
@@ -2696,6 +2716,28 @@ namespace OloEngine
             if (const int model = materialComponent["PBRModel"].as<int>(0); model >= 0 && model < kPBRModelCount)
             {
                 matc.m_Material.SetPBRModel(static_cast<PBRModel>(model));
+            }
+            // Material kind + skin profile (issue #1231). A SEPARATE key from
+            // PBRModel above, and read separately, because they answer separate
+            // questions: what the surface is, versus which version of the
+            // closure evaluates it (ADR 0024). Same discriminated-value idiom —
+            // an out-of-range kind REJECTS to Generic rather than saturating
+            // onto a valid neighbour, and says so, because a scene naming a
+            // kind this build does not have is a file from the future, not a
+            // rounding problem.
+            if (const int kind = materialComponent["MaterialKind"].as<int>(0); IsValidMaterialKind(kind))
+            {
+                matc.m_Material.SetMaterialKind(static_cast<MaterialKind>(kind));
+            }
+            else
+            {
+                OLO_CORE_ERROR("SceneSerializer - MaterialKind {} is not one this build knows (valid range 0..{}); "
+                               "loading the material as Generic.",
+                               kind, kMaterialKindCount - 1);
+            }
+            if (materialComponent["SkinProfile"])
+            {
+                matc.m_Material.SetSkinProfileHandle(materialComponent["SkinProfile"].as<u64>(0));
             }
             // Physical glTF material extensions (issue #970). Every setter
             // sanitizes (isfinite + clamp), so a hand-edited scene cannot put a
@@ -4791,6 +4833,12 @@ namespace OloEngine
                 // existing scenes stay byte-identical.
                 if (mat.GetPBRModel() != PBRModel::Legacy)
                     out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(mat.GetPBRModel());
+                // Material kind + skin profile (issue #1231), omitted at their
+                // defaults so existing tile scenes re-serialize byte-identical.
+                if (mat.GetMaterialKind() != MaterialKind::Generic)
+                    out << YAML::Key << "MaterialKind" << YAML::Value << static_cast<int>(mat.GetMaterialKind());
+                if (const AssetHandle skinProfile = mat.GetSkinProfileHandle(); skinProfile != 0)
+                    out << YAML::Key << "SkinProfile" << YAML::Value << static_cast<u64>(skinProfile);
                 out << YAML::EndMap;
             }
             out << YAML::EndSeq;
@@ -4856,6 +4904,15 @@ namespace OloEngine
             // append, never renumber (see PBRModel.h).
             if (matComponent.m_Material.GetPBRModel() != PBRModel::Legacy)
                 out << YAML::Key << "PBRModel" << YAML::Value << static_cast<int>(matComponent.m_Material.GetPBRModel());
+
+            // Material kind + skin profile (issue #1231). Omitted at their
+            // defaults — Generic and "no profile" — for the same reason
+            // PBRModel is: every scene that predates the feature re-serializes
+            // byte-identical.
+            if (matComponent.m_Material.GetMaterialKind() != MaterialKind::Generic)
+                out << YAML::Key << "MaterialKind" << YAML::Value << static_cast<int>(matComponent.m_Material.GetMaterialKind());
+            if (const AssetHandle skinProfile = matComponent.m_Material.GetSkinProfileHandle(); skinProfile != 0)
+                out << YAML::Key << "SkinProfile" << YAML::Value << static_cast<u64>(skinProfile);
 
             // Physical glTF material extensions (issue #970). Each key is
             // OMITTED AT ITS DEFAULT, exactly like Emissive / NormalScale /

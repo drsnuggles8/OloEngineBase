@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -55,6 +56,14 @@
 
 namespace OloEngine
 {
+    // RenderCommand.h spells PODMaterialData::skinProfileSlot's "none" code as a
+    // literal so that hot header keeps its include set. This is where the two
+    // are held together: a widened slot field that forgot the literal would
+    // otherwise make every non-skin pixel name profile 7.
+    static_assert(PODMaterialData{}.skinProfileSlot == kSkinProfileSlotNone,
+                  "PODMaterialData::skinProfileSlot's default no longer matches kSkinProfileSlotNone "
+                  "(Renderer/SkinProfile.h).");
+
     // Frozen for a recording region. Pass setup updates this on the primary;
     // bucket view overrides and every bind/cache/upload live in Data() below.
     struct CommandDispatchFrameData
@@ -1093,6 +1102,17 @@ namespace OloEngine
                 pbrMaterialData.AttenuationSigmaR = mat.attenuationSigma.r;
                 pbrMaterialData.AttenuationSigmaG = mat.attenuationSigma.g;
                 pbrMaterialData.AttenuationSigmaB = mat.attenuationSigma.b;
+                // Material kind + skin profile (issue #1231). Copied straight
+                // through for the same reason as the block above: the kind was
+                // range-checked by Material's setter and the profile was
+                // resolved (and its parameters sanitized) at submission, so
+                // dispatch has nothing left to validate.
+                pbrMaterialData.MaterialKind = mat.materialKind;
+                pbrMaterialData.SkinProfileSlot = static_cast<i32>(mat.skinProfileSlot);
+                pbrMaterialData.SkinSpecularTintR = mat.skinSpecularTint.r;
+                pbrMaterialData.SkinSpecularTintG = mat.skinSpecularTint.g;
+                pbrMaterialData.SkinSpecularTintB = mat.skinSpecularTint.b;
+                pbrMaterialData.SkinEvaluationModel = mat.skinEvaluationModel;
                 // Issue #632: this was a hard-coded 0, which made the forward
                 // path's probe-ambient shader code dead. Wire it to the same
                 // master toggle the deferred path uses so Forward+ scenes get

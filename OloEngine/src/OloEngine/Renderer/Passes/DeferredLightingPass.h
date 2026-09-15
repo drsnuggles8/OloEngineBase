@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 
 #include <array>
@@ -64,6 +65,18 @@ namespace OloEngine
             m_PerSampleLighting = enable;
         }
 
+        // Which of a material's separated lighting outputs replaces the
+        // composite (issue #1231). None is the normal frame. Driven by
+        // PostProcessSettings::MaterialDebug, like the other *DebugView flags.
+        void SetMaterialDebugView(MaterialDebugView view) noexcept
+        {
+            m_MaterialDebugView = view;
+        }
+        [[nodiscard]] MaterialDebugView GetMaterialDebugView() const noexcept
+        {
+            return m_MaterialDebugView;
+        }
+
       private:
         // Composite the virtualized-geometry cluster/LOD/overdraw debug image over the LIT
         // scene colour (issue #629). No-op unless VirtualMeshRegistry's debug mode is active
@@ -114,6 +127,7 @@ namespace OloEngine
         Ref<UniformBuffer> m_ControlsUBO;
         SelectedInputs m_SelectedInputs{};
         u32 m_DebugChannel = 0;
+        MaterialDebugView m_MaterialDebugView = MaterialDebugView::None;
         bool m_PerSampleLighting = true;
         bool m_UseMSAAShading = false;
     };

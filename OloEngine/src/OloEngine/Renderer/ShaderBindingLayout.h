@@ -200,11 +200,34 @@ namespace OloEngine
             f32 AttenuationSigmaR = 0.0f;
             f32 AttenuationSigmaG = 0.0f;
             f32 AttenuationSigmaB = 0.0f;
-            // Two spare lanes keeping the block 16-byte aligned. Named per the
-            // GPU-mirror convention (CLAUDE.md, Conventions); the GLSL side
-            // spells them _padding0/_padding1 on purpose.
-            f32 Pad0 = 0.0f;
-            f32 Pad1 = 0.0f;
+            // SKIN MATERIAL PROFILE (issue #1231). The first two took over the
+            // block's two spare lanes -- which is what spare lanes are for, and
+            // keeps the addition to 16 bytes rather than 32.
+            //
+            // MaterialKind is WHAT the surface is (MaterialKind.h); PBRModel
+            // above is which VERSION of the closure evaluates it. They are
+            // separate fields because they are separate questions -- see
+            // docs/adr/0024-material-kind-is-not-the-closure-version.md. Both
+            // are neutral at 0/none, so a material that never touches the new
+            // setters uploads the bytes it uploaded before.
+            i32 MaterialKind = 0;    // MaterialKind enum: 0=Generic, 1=Snow, 2=Skin
+            i32 SkinProfileSlot = 7; // kSkinProfileSlotNone -- "this material names no profile"
+
+            // The profile's own contribution to THIS pass, resolved on the CPU
+            // by SkinProfileTable so the shader never dereferences an asset.
+            // Bare scalars rather than a vec3 for the same std140 reason as the
+            // attenuation sigma above: a vec3 here would align to 16 B and
+            // insert padding the GLSL side would have to reproduce exactly.
+            //
+            // The tint is LINEAR Rec.709, unitless [0,1]; 1,1,1 is neutral and
+            // is what a non-skin material uploads, so multiplying by it
+            // unconditionally is a no-op rather than a branch.
+            f32 SkinSpecularTintR = 1.0f;
+            f32 SkinSpecularTintG = 1.0f;
+            f32 SkinSpecularTintB = 1.0f;
+            // SkinEvaluationModel (Renderer/SkinProfile.h) -- the versioned skin
+            // transport, NOT the material kind and NOT the PBR closure version.
+            i32 SkinEvaluationModel = 0;
 
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
@@ -235,7 +258,7 @@ namespace OloEngine
                 return sizeof(PBRMaterialUBO);
             }
         };
-        static_assert(sizeof(PBRMaterialUBO) == 176, "PBRMaterialUBO std140 size drifted from GLSL expectation (176 B)");
+        static_assert(sizeof(PBRMaterialUBO) == 192, "PBRMaterialUBO std140 size drifted from GLSL expectation (192 B)");
         static_assert(sizeof(PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO must be 16-byte aligned for std140");
 
         struct ModelUBO
@@ -2364,20 +2387,31 @@ namespace OloEngine
     // 96 -> 144: three uvec4 of per-material heap offsets (issue #691).
     // 144 -> 176: the physical transmission / IOR / volume scalars (issue #970),
     // INSERTED BEFORE those heap-offset lanes so they stay trailing.
+    // 176 -> 192: the material kind + skin profile lanes (issue #1231), which
+    // took the two spare pads and added one vec4 -- again BEFORE the heap
+    // offsets, for the same reason.
     // Every .glsl declaring PBRMaterialUBO must gain the matching eight
     // trailing scalars AND keep `uvec4 u_MaterialHeapOffsets[3];` last — this
     // assert is what stops the C++ and GLSL layouts drifting, which std140
     // would otherwise punish by silently shifting every field after the
     // divergence.
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 176, "PBRMaterialUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 192, "PBRMaterialUBO unexpected size — update GLSL layout");
     // The physical block sits exactly where the shaders expect it: right after
     // the PBRModel selector at 92 and immediately before the heap offsets.
     // offsetof rather than a comment, so a reordering fails the build instead
     // of quietly relayouting every bindless material read.
     static_assert(offsetof(UBOStructures::PBRMaterialUBO, TransmissionFactor) == 96,
                   "PBRMaterialUBO transmission block must start at 96 B — GLSL mirrors assume it");
-    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 128,
-                  "PBRMaterialUBO heap offsets must stay trailing at 128 B (issue #691 lane layout)");
+    // The #1231 material-kind / skin-profile group sits between the physical
+    // block and the heap offsets, for the same reason #970's does: the offsets
+    // stay LAST and everything else is inserted in front of them.
+    // 120, not 128: the first two lanes of the #1231 group TOOK OVER the block's
+    // two spare pads rather than being appended after them, so the group starts
+    // where Pad0 used to sit and only grows the block by one vec4.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, MaterialKind) == 120,
+                  "PBRMaterialUBO material-kind group must start at 120 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 144,
+                  "PBRMaterialUBO heap offsets must stay trailing at 144 B (issue #691 lane layout)");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");

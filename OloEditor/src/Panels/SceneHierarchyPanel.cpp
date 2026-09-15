@@ -38,6 +38,7 @@
 #include "OloEngine/Renderer/PathTracing/ReferenceTextureCapture.h"
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Material.h"
@@ -3561,6 +3562,102 @@ namespace OloEngine
                     ImGui::Combo("PBR Model", &pbrModel, pbrModels, IM_ARRAYSIZE(pbrModels)))
                 {
                     component.m_Material.SetPBRModel(static_cast<PBRModel>(pbrModel));
+                }
+            }
+
+            // Material kind (issue #1231). Deliberately its OWN control, right
+            // beside the PBR Model combo above so the distinction is visible in
+            // the place people are most likely to conflate them: this is what
+            // the surface IS, that is which version of the closure evaluates it.
+            // See docs/adr/0024-material-kind-is-not-the-closure-version.md.
+            {
+                const char* materialKinds[] = { "Generic", "Snow", "Skin" };
+                static_assert(IM_ARRAYSIZE(materialKinds) == kMaterialKindCount,
+                              "the Material Kind combo lost an entry — an unnamed kind would be unselectable "
+                              "in the editor while every other surface still serialized it");
+                if (int materialKind = static_cast<int>(component.m_Material.GetMaterialKind());
+                    ImGui::Combo("Material Kind", &materialKind, materialKinds, IM_ARRAYSIZE(materialKinds)))
+                {
+                    component.m_Material.SetMaterialKind(static_cast<MaterialKind>(materialKind));
+                }
+            }
+
+            // The skin profile slot, shown ONLY for a Skin material. A profile
+            // picker on a generic material would be four pixels of dead UI and
+            // an invitation to assign one that nothing reads.
+            if (component.m_Material.GetMaterialKind() == MaterialKind::Skin)
+            {
+                const AssetHandle profileHandle = component.m_Material.GetSkinProfileHandle();
+                std::string handleLabel = profileHandle != 0
+                                              ? "Skin Profile: " + std::to_string(static_cast<u64>(profileHandle))
+                                              : "Skin Profile: <none — drag a .oloskin here>";
+                ImGui::Button(handleLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    // Generic CONTENT_BROWSER_ITEM + a type filter after import,
+                    // the same arrangement every other asset slot in this panel
+                    // uses: dropping the wrong file warns instead of binding
+                    // something the renderer will later reject.
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                        {
+                            AssetHandle handle = assetManager->ImportAsset(assetPath);
+                            if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::SkinProfile)
+                            {
+                                component.m_Material.SetSkinProfileHandle(handle);
+                            }
+                            else if (handle != 0)
+                            {
+                                OLO_WARN("Drag-dropped asset is not a SkinProfile (type: {0})",
+                                         AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (profileHandle != 0)
+                {
+                    if (ImGui::SmallButton("Clear##SkinProfile"))
+                        component.m_Material.SetSkinProfileHandle(0);
+
+                    // Read-only echo of the authored values, with their UNITS in
+                    // the labels. A profile is a shared asset, so it is edited
+                    // in its own file rather than here; what the inspector owes
+                    // the user is the ability to see WHICH numbers this material
+                    // ended up with, which is the half that goes wrong.
+                    if (auto profile = AssetManager::GetAsset<SkinProfile>(profileHandle))
+                    {
+                        const SkinProfileParameters& parameters = profile->GetParameters();
+                        ImGui::TextUnformatted(("Name: " + profile->GetName()).c_str());
+                        ImGui::Text("Transport version: %s", std::string(ToString(parameters.EvaluationModel)).c_str());
+                        ImGui::Text("Scatter colour (linear Rec.709): %.3f %.3f %.3f",
+                                    static_cast<f64>(parameters.ScatterColor.r),
+                                    static_cast<f64>(parameters.ScatterColor.g),
+                                    static_cast<f64>(parameters.ScatterColor.b));
+                        ImGui::Text("Scatter radius (mm): %.3f %.3f %.3f",
+                                    static_cast<f64>(parameters.ScatterRadiusMM.r),
+                                    static_cast<f64>(parameters.ScatterRadiusMM.g),
+                                    static_cast<f64>(parameters.ScatterRadiusMM.b));
+                        ImGui::Text("Thickness scale (m -> mm): %.1f", static_cast<f64>(parameters.ThicknessScale));
+                        ImGui::Text("Specular tint (linear Rec.709): %.3f %.3f %.3f",
+                                    static_cast<f64>(parameters.SpecularTint.r),
+                                    static_cast<f64>(parameters.SpecularTint.g),
+                                    static_cast<f64>(parameters.SpecularTint.b));
+                    }
+                    else
+                    {
+                        // Loud in the UI too, not only in the log: this is the
+                        // state a head is in after a merge dropped the asset.
+                        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                           "Profile could not be loaded — shading with the default profile.");
+                    }
+                }
+                else
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                       "No profile assigned — shading with the default profile.");
                 }
             }
 

@@ -219,17 +219,30 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_AttenuationSigmaR;
     float u_AttenuationSigmaG;
     float u_AttenuationSigmaB;
-    // Uniquely named: a nameless std140 block may not reuse a name already at
-    // global scope, and plain _padding0 is taken by other blocks in these same
-    // shaders (glslc: "nameless block contains a member that already has a
-    // name at global scope").
-    float _pbrMaterialPad0;
-    float _pbrMaterialPad1;
+    // MATERIAL KIND + SKIN PROFILE (issue #1231). The first two took over the
+    // block's two spare pads; the four after them are an appended vec4. Like the
+    // transmission scalars above they are declared UNCONDITIONALLY and sit
+    // BEFORE u_MaterialHeapOffsets, so those stay last -- omitting them would
+    // relayout the heap offsets by 16 B and every texture would sample the
+    // wrong descriptor.
+    //
+    // u_MaterialKind is WHAT the surface is; u_PBRModel above is which VERSION
+    // of the closure evaluates it. Two fields because they are two questions --
+    // see docs/adr/0024-material-kind-is-not-the-closure-version.md.
+    int u_MaterialKind;          // OLO_MATERIAL_KIND_*: 0=Generic, 1=Snow, 2=Skin
+    int u_SkinProfileSlot;       // OLO_SKIN_PROFILE_SLOT_NONE (7) == names no profile
+    float u_SkinSpecularTintR;   // LINEAR Rec.709, unitless [0,1]; 1,1,1 is neutral
+    float u_SkinSpecularTintG;
+    float u_SkinSpecularTintB;
+    int u_SkinEvaluationModel;   // OLO_SKIN_MODEL_*, NOT the PBR closure version
 #if defined(OLO_BINDLESS) || defined(OLO_MATERIAL_VULKAN_HEAP_READER)
     // The per-material offset lanes, declared on EITHER bindless arm. The
-    // C++ PBRMaterialUBO always uploads them (sizeof == 144); a std140 block may
-    // declare a PREFIX of what the CPU writes, which is why the slot-based build
-    // can stop at u_PBRModel and stay correct. Must be LAST — the lane layout in
+    // C++ PBRMaterialUBO always uploads them (sizeof == 192 since issue #1231);
+    // a std140 block may declare a PREFIX of what the CPU writes, which is why
+    // the slot-based build can stop before these and stay correct. Note the
+    // prefix now has to run through the #1231 lanes, not stop at u_PBRModel:
+    // this arm's u_MaterialHeapOffsets sits after them, so leaving them out
+    // would move the offsets by 16 B. Must be LAST — the lane layout in
     // include/BindlessHeap.glsl and CommandDispatch::WriteMaterialHeapOffsets
     // both assume it.
     uvec4 u_MaterialHeapOffsets[3];
@@ -480,14 +493,19 @@ void main()
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
     // Calculate direct lighting from all lights
-    vec3 Lo = vec3(0.0);
+    // Direct lighting, diffuse and specular kept apart all the way to the
+    // composite (issue #1231). The two halves are summed once, at the end, so a
+    // Generic material's pixel is what it always was; the seam exists so skin
+    // scattering (#1241) can blur one half without touching the other.
+    OloSurfaceLighting Lo = oloSurfaceLightingZero();
 
     // Forward+ path: use per-cluster culled light lists for point/spot lights
     bool fplusActive = (fplus_Params.z != 0u);
     if (fplusActive)
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
-        Lo += fplusEvaluateTileLights(N, V, v_WorldPos, albedo, metallic, roughness, fplusViewDepth, u_PBRModel);
+        Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic,
+                                                                    roughness, fplusViewDepth, u_PBRModel));
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -498,10 +516,11 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        vec3 lightContrib = calculateLightContribution(u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos, u_PBRModel);
+        OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
+                                                                          roughness, v_WorldPos, u_PBRModel);
         if (lightType == DIRECTIONAL_LIGHT)
         {
-            lightContrib *= cloudShadow;
+            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(cloudShadow));
         }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -532,7 +551,7 @@ void main()
                     u_SoftShadowMode
                 );
             }
-            lightContrib *= shadow;
+            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
         }
         // Apply spot light shadows (atlas entry, issue #435)
         else if (lightType == SPOT_LIGHT)
@@ -542,7 +561,7 @@ void main()
             float localShadow;
             if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
@@ -557,7 +576,7 @@ void main()
                     u_SoftShadowMode,
                     u_ShadowParams.z
                 );
-                lightContrib *= shadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
             }
         }
         // Apply point light shadows (6 consecutive atlas cube-face entries)
@@ -570,7 +589,7 @@ void main()
             float localShadow;
             if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
             {
-                lightContrib *= localShadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
@@ -587,11 +606,11 @@ void main()
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z
                 );
-                lightContrib *= shadow;
+                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
             }
         }
 
-        Lo += lightContrib;
+        Lo = oloSurfaceLightingAdd(Lo, lightContrib);
     }
 
     // Specular reflection source (issue #705): global prefilter at the mirror
@@ -615,12 +634,21 @@ void main()
     // The branch signal is the sample's coverage (.a), never its colour — a
     // validly-baked pure-black texel keeps its darkness.
     vec4 lightmapSample = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
-    vec3 ambient = evaluateAmbientLadder(lightmapSample, v_WorldPos, N, V, albedo,
+    OloSurfaceLighting ambient = evaluateAmbientLadderSplit(lightmapSample, v_WorldPos, N, V, albedo,
                                          metallic, roughness, ao,
                                          u_IrradianceMap, u_BRDFLutMap, prefilteredColor);
 
-    // Combine lighting — AO attenuates ambient only
-    vec3 color = ambient * ao + Lo + emissive;
+    // Combine lighting — AO attenuates ambient only.
+    //
+    // The skin profile is applied to the SPECULAR half alone, immediately
+    // before the two are summed (issue #1231). That ordering is the point: it is
+    // the last moment at which the halves are still separable, and it is where
+    // #1241's diffusion of the DIFFUSE half will go. A non-skin material
+    // uploads a neutral tint, so this is a multiply by one.
+    OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ao)), Lo);
+    lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
+                                   vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));
+    vec3 color = oloSurfaceLightingSum(lighting) + emissive;
 
     // Physical transmission / IOR / volume (issue #970).
     //

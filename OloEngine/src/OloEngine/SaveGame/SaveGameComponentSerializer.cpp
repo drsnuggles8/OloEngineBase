@@ -1564,6 +1564,27 @@ namespace OloEngine
                 mat.SetAttenuationDistance(attenuationDistance);
             }
         }
+        // Material kind + skin profile (issue #1231), appended when
+        // kSaveGameFormatVersion went 30 -> 31. A pre-v31 save stops here and
+        // keeps Generic / no profile, so it loads into a material that shades
+        // exactly as it used to.
+        //
+        // The kind is a DISCRIMINATED value like PBRModel above: a corrupt or
+        // future index REJECTS to Generic rather than saturating onto a valid
+        // neighbour, because indexing the shader's kind switch with a number it
+        // has no branch for is not a rounding error.
+        if (HasFieldsSince(ar, 31))
+        {
+            auto kind = mat.GetMaterialKind();
+            u64 skinProfile = static_cast<u64>(mat.GetSkinProfileHandle());
+            ar << kind << skinProfile;
+            if (ar.IsLoading())
+            {
+                mat.SetMaterialKind(IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind
+                                                                                                    : MaterialKind::Generic);
+                mat.SetSkinProfileHandle(skinProfile);
+            }
+        }
         // Texture maps: restored by the scene load, see the function header.
     }
 
@@ -3336,6 +3357,24 @@ namespace OloEngine
                 if (ar.IsLoading())
                     c.Materials[i].SetPBRModel(std::to_underlying(model) < kPBRModelCount ? model
                                                                                           : PBRModel::Legacy);
+            }
+
+            // Material kind + skin profile (issue #1231), v31. The SECOND full-
+            // Material save site, for the same reason the block above exists:
+            // a tile material that kept its kind through the scene file and
+            // lost it through a save/load would be exactly the #975 defect
+            // again.
+            if (HasFieldsSince(ar, 31))
+            {
+                auto kind = c.Materials[i].GetMaterialKind();
+                u64 skinProfile = static_cast<u64>(c.Materials[i].GetSkinProfileHandle());
+                ar << kind << skinProfile;
+                if (ar.IsLoading())
+                {
+                    c.Materials[i].SetMaterialKind(
+                        IsValidMaterialKind(static_cast<i32>(std::to_underlying(kind))) ? kind : MaterialKind::Generic);
+                    c.Materials[i].SetSkinProfileHandle(skinProfile);
+                }
             }
         }
     }

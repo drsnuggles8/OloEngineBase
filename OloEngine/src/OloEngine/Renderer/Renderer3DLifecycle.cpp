@@ -659,6 +659,15 @@ namespace OloEngine
 
         ParticleBatchRenderer::Shutdown();
 
+        // Skin profile slots (issue #1231). Sticky by design and therefore
+        // process-lifetime unless something drops them: a renderer that came
+        // back up with the previous run's seven slots still taken would hand
+        // every new profile SlotBudgetFull, and the deferred path would shade
+        // every head with the neutral fallback while forward kept the authored
+        // one. Scene::OnRuntimeStart / OnSimulationStart reset it for the same
+        // reason a scene switch resets the water fields.
+        s_Data.SkinProfiles.Reset();
+
         // The shared default primitives own GPU buffers (issue #1191). Drop them
         // here, before the memory tracker's teardown census, or each one reads as
         // a Ref that outlived the renderer - and a test that restarts the renderer
@@ -931,6 +940,16 @@ namespace OloEngine
         // have not seen before — so a reloaded MeshSource would otherwise keep rendering the
         // pre-edit geometry for the whole process, self-consistently and with nothing to trip
         // a validation check. Drop it; the next submission re-cooks from the new source.
+        // A skin profile that failed to load is negatively cached so a missing
+        // file is not re-opened once per draw (issue #1231). That cache has to
+        // be dropped when the asset comes back, or fixing a .oloskin and saving
+        // it would leave every head on the fallback profile until a scene load —
+        // the editor showing the corrected values while the frame ignores them.
+        if (type == AssetType::SkinProfile)
+        {
+            s_Data.SkinProfiles.ForgetFailedHandle(handle);
+        }
+
         if (type == AssetType::MeshSource)
         {
             VirtualMeshRegistry::Get().Invalidate(handle);

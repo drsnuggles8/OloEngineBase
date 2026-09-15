@@ -34,12 +34,19 @@
 #ifndef AMBIENT_LADDER_GLSL
 #define AMBIENT_LADDER_GLSL
 
-vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
-                           vec3 albedo, float metallic, float roughness, float ao,
-                           samplerCube irradianceMap, sampler2D brdfLut,
-                           vec3 prefilteredColor)
+// The REAL body (issue #1231): every rung keeps its diffuse and specular halves
+// apart, so a caller that blurs the diffuse ambient for skin can reach them.
+// evaluateAmbientLadder below sums it and is what every existing caller uses.
+//
+// The rung STRUCTURE is untouched -- same order, same gates, same helpers. Only
+// the helper spellings changed, each to its `...Split` twin, which are
+// themselves wrappers' bodies in PBRCommon.glsl rather than second copies.
+OloSurfaceLighting evaluateAmbientLadderSplit(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
+                                              vec3 albedo, float metallic, float roughness, float ao,
+                                              samplerCube irradianceMap, sampler2D brdfLut,
+                                              vec3 prefilteredColor)
 {
-    vec3 ambient;
+    OloSurfaceLighting ambient;
     if (lightmapSample.a > 0.5)
     {
         // Baked lightmap replaces the diffuse ambient term with the same
@@ -51,14 +58,14 @@ vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
         // source, and the scene kill switch lives in u_LightmapEnabled.
         if (u_EnableIBL == 1)
         {
-            ambient = calculateCombinedAmbientPrefiltered(lightmapSample.rgb, N, V, albedo,
-                                                          metallic, roughness,
-                                                          brdfLut, prefilteredColor);
-            ambient *= u_IBLIntensity;
+            ambient = calculateCombinedAmbientPrefilteredSplit(lightmapSample.rgb, N, V, albedo,
+                                                               metallic, roughness,
+                                                               brdfLut, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
         }
         else
         {
-            ambient = calculateLightProbeAmbient(lightmapSample.rgb, albedo, metallic, roughness, N, V);
+            ambient = calculateLightProbeAmbientSplit(lightmapSample.rgb, albedo, metallic, roughness, N, V);
         }
     }
     else if (u_EnableLightProbes == 1 && u_EnableIBL == 1)
@@ -69,17 +76,17 @@ vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
-            ambient = calculateCombinedAmbientPrefiltered(probeIrradiance, N, V, albedo,
-                                                          metallic, roughness,
-                                                          brdfLut, prefilteredColor);
-            ambient *= u_IBLIntensity;
+            ambient = calculateCombinedAmbientPrefilteredSplit(probeIrradiance, N, V, albedo,
+                                                               metallic, roughness,
+                                                               brdfLut, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
         }
         else
         {
             // Outside probe volume — fall back to IBL
-            ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                              irradianceMap, brdfLut, prefilteredColor);
-            ambient *= u_IBLIntensity;
+            ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
+                                                   irradianceMap, brdfLut, prefilteredColor);
+            ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
         }
     }
     else if (u_EnableLightProbes == 1)
@@ -88,24 +95,38 @@ vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
         vec3 probeIrradiance = sampleProbeVolumeIrradiance(worldPos, N, V);
         if (dot(probeIrradiance, probeIrradiance) > 0.0)
         {
-            ambient = calculateLightProbeAmbient(probeIrradiance, albedo, metallic, roughness, N, V);
+            ambient = calculateLightProbeAmbientSplit(probeIrradiance, albedo, metallic, roughness, N, V);
         }
         else
         {
-            ambient = calculateSimpleAmbient(albedo, metallic, ao);
+            ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
         }
     }
     else if (u_EnableIBL == 1)
     {
-        ambient = calculateIBLPrefiltered(N, V, albedo, metallic, roughness,
-                                          irradianceMap, brdfLut, prefilteredColor);
-        ambient *= u_IBLIntensity;
+        ambient = calculateIBLPrefilteredSplit(N, V, albedo, metallic, roughness,
+                                               irradianceMap, brdfLut, prefilteredColor);
+        ambient = oloSurfaceLightingScale(ambient, vec3(u_IBLIntensity));
     }
     else
     {
-        ambient = calculateSimpleAmbient(albedo, metallic, ao);
+        ambient = calculateSimpleAmbientSplit(albedo, metallic, ao);
     }
     return ambient;
+}
+
+// The combined spelling every existing caller uses. Same rungs, same values:
+// each `...Split` helper is the body of the vec3 helper it replaced, and the
+// scale-then-sum here is the same per-component product as the old
+// `ambient *= u_IBLIntensity` followed by the caller's addition.
+vec3 evaluateAmbientLadder(vec4 lightmapSample, vec3 worldPos, vec3 N, vec3 V,
+                           vec3 albedo, float metallic, float roughness, float ao,
+                           samplerCube irradianceMap, sampler2D brdfLut,
+                           vec3 prefilteredColor)
+{
+    return oloSurfaceLightingSum(evaluateAmbientLadderSplit(lightmapSample, worldPos, N, V, albedo,
+                                                            metallic, roughness, ao,
+                                                            irradianceMap, brdfLut, prefilteredColor));
 }
 
 #endif // AMBIENT_LADDER_GLSL
