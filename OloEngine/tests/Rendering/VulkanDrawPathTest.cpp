@@ -37,6 +37,9 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Instancing/GPUFrustumCuller.h"
@@ -67,6 +70,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "VulkanTestSupport.h"
+#include "TestTempDir.h"
 
 #include <volk.h>
 #include <GLFW/glfw3.h>
@@ -77,6 +81,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include <filesystem>
 #include <memory>
 #include <vector>
+#include <stb_image/stb_image_write.h>
 
 namespace
 {
@@ -1914,6 +1919,331 @@ void main()
     EXPECT_EQ(pixels[0], 0x00);
     EXPECT_EQ(pixels[1], 0xFF) << "the indexed draws must have covered the target, not left the red clear";
     EXPECT_EQ(pixels[2], 0x00);
+}
+
+// #805: the production material shader, table builder and frustum-cull/root
+// handoff. Only the material-selection policy is a probe compute shader.
+// CPU readback happens after the draw, never between selection and consumption.
+TEST_F(VulkanDrawPath, GBufferGpuSelectsTexturesInSingleIndirectDraw)
+{
+    ScopedOloEditorWorkingDirectory directory;
+    ASSERT_TRUE(directory.IsValid());
+    // Restore after the facade selector has restored the previous API too.
+    auto& engineHeap = RHI::DescriptorHeap::Get();
+    const bool hadOpenGLContext = glfwGetCurrentContext() != nullptr;
+    struct RestoreHeap
+    {
+        RHI::IDescriptorHeapBackend* Backend;
+        RHI::HeapDesc Desc;
+        bool Enabled;
+        bool UseRestoredBackend;
+        ~RestoreHeap()
+        {
+            auto& heap = RHI::DescriptorHeap::Get();
+            // The old GL facade owned its backend and was destroyed by the
+            // selector. Its replacement has a new backend: never reuse the
+            // pointer captured before that facade switch.
+            if (UseRestoredBackend)
+                Backend = heap.GetBackend();
+            if (Backend)
+            {
+                heap.Initialize(Desc, Backend);
+                heap.SetEnabled(Enabled);
+            }
+            else
+                heap.Shutdown();
+        }
+    } restoreHeap{ hadOpenGLContext ? nullptr : engineHeap.GetBackend(), engineHeap.GetDesc(),
+                   engineHeap.IsEnabled(), hadOpenGLContext && engineHeap.GetBackend() != nullptr };
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    VulkanFrameArena::Get().BeginFrame(0);
+    ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
+    ASSERT_TRUE(HeapBinding::ShaderHeapIndexingSupported());
+
+    constexpr u32 kSize = 96u;
+    FramebufferSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
+                         FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RG16F,
+                         FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::RGBA16F };
+    auto framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+    auto shader = Ref<VulkanShader>::Create("assets/shaders/PBR_GBuffer.glsl");
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    // Two separated quads. A reference draw per material and one indirect draw
+    // with both instances must produce identical MRT bytes.
+    const std::array<f32, 32> vertices{
+        -0.4f, -0.6f, 0.5f, 0, 0, 1, 0, 0,
+        0.4f, -0.6f, 0.5f, 0, 0, 1, 1, 0,
+        0.4f, 0.6f, 0.5f, 0, 0, 1, 1, 1,
+        -0.4f, 0.6f, 0.5f, 0, 0, 1, 0, 1
+    };
+    std::array<u32, 6> indices{ 0, 1, 2, 2, 3, 0 };
+    auto vb = VertexBuffer::Create(vertices.data(), sizeof(vertices));
+    auto ib = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+    auto vao = VertexArray::Create();
+    ASSERT_TRUE(vb && ib && vao);
+    vao->AddVertexBuffer(vb);
+    vao->SetIndexBuffer(ib);
+
+    std::array<std::array<u8, 4>, 10> texels{ { { 255, 0, 0, 255 }, { 0, 128, 255, 255 }, { 128, 128, 255, 255 }, { 64, 64, 64, 255 }, { 0, 0, 255, 255 }, { 0, 255, 0, 255 }, { 0, 64, 128, 255 }, { 192, 128, 238, 255 }, { 192, 192, 192, 255 }, { 255, 0, 0, 255 } } };
+    std::array<Ref<Texture2D>, 10> textures;
+    std::array<u32, 10> offsets{};
+    TextureSpecification textureSpec;
+    textureSpec.Width = textureSpec.Height = 1;
+    textureSpec.Format = ImageFormat::RGBA8;
+    textureSpec.GenerateMips = false;
+    for (sizet i = 0; i < textures.size(); ++i)
+    {
+        textures[i] = Texture2D::Create(textureSpec);
+        ASSERT_TRUE(textures[i]);
+        textures[i]->SetData(texels[i].data(), 4u);
+        const auto offset = HeapBinding::ResolveShaderHeapTexture(textures[i]->GetRHIHandle());
+        ASSERT_TRUE(offset.IsValid());
+        offsets[i] = offset.Value;
+    }
+    const auto sampler = HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler());
+    const auto nullTexture = HeapBinding::ResolveShaderHeapNullTexture();
+    ASSERT_TRUE(sampler.IsValid() && nullTexture.IsValid());
+
+    GPUScene scene;
+    const GPUSceneGeometryKey geometryKey{ .m_VertexBuffer = 1, .m_IndexBuffer = 2 };
+    const std::array<GPUSceneMaterialKey, 2> keys{
+        GPUSceneMaterialKey{ .m_Owner = 1 }, GPUSceneMaterialKey{ .m_Owner = 2 }
+    };
+    scene.BeginExtraction(1, glm::vec3(0.0f));
+    scene.ExtractGeometry(geometryKey, GPUSceneGeometryInput{
+                                           .m_VertexBuffer = vb->GetRHIHandle(), .m_IndexBuffer = ib->GetRHIHandle(), .m_IndexCount = 6, .m_VertexCount = 4 });
+    for (u32 i = 0; i < 2u; ++i)
+    {
+        GPUSceneMaterialInput material;
+        material.m_MetallicFactor = 1.0f;
+        material.m_EmissiveFactor = glm::vec4(1.0f);
+        material.m_Flags = GPUSceneMaterialFlagPBR;
+        material.m_Albedo.m_Handle = textures[i * 5u]->GetRHIHandle();
+        material.m_MetallicRoughness.m_Handle = textures[i * 5u + 1u]->GetRHIHandle();
+        material.m_Normal.m_Handle = textures[i * 5u + 2u]->GetRHIHandle();
+        material.m_Occlusion.m_Handle = textures[i * 5u + 3u]->GetRHIHandle();
+        material.m_Emissive.m_Handle = textures[i * 5u + 4u]->GetRHIHandle();
+        scene.ExtractMaterial(keys[i], material);
+        scene.ExtractInstance({ .m_EntityId = i + 1u, .m_Geometry = geometryKey }, GPUSceneInstanceInput{ .m_Material = keys[i] });
+    }
+    (void)scene.EndExtraction();
+    scene.InitializeGPU();
+    scene.Upload();
+    MaterialShaderHeapTable table;
+    table.Update(scene);
+    auto tableInfo = table.GetAddressAndCount();
+    ASSERT_EQ(tableInfo.z, 2u);
+    ASSERT_EQ(table.GetUnresolvedCount(), 0u);
+    // Steady updates reuse the immutable snapshot.
+    table.Update(scene);
+    EXPECT_EQ(table.GetAddressAndCount().x, tableInfo.x);
+    EXPECT_EQ(table.GetAddressAndCount().y, tableInfo.y);
+
+    UBOStructures::CameraUBO cameraData{};
+    cameraData.ViewProjection = cameraData.View = cameraData.Projection = glm::mat4(1.0f);
+    auto camera = UniformBuffer::Create(sizeof(cameraData), ShaderBindingLayout::UBO_CAMERA);
+    camera->SetData(&cameraData, sizeof(cameraData));
+    const std::array<glm::mat4, 2> motionData{ glm::mat4(1.0f), glm::mat4(1.0f) };
+    auto motion = UniformBuffer::Create(sizeof(motionData), 8u);
+    motion->SetData(motionData.data(), sizeof(motionData));
+    const glm::uvec4 zeros{ 0u };
+    auto lightmap = UniformBuffer::Create(16u, 1u);
+    lightmap->SetData(&zeros, 16u);
+    auto materialUBO = UniformBuffer::Create(sizeof(ShaderBindingLayout::PBRMaterialUBO), ShaderBindingLayout::UBO_MATERIAL);
+    auto params = UniformBuffer::Create(48u, 2u);
+    auto stats = StorageBuffer::Create(144u, ShaderBindingLayout::SSBO_GPU_STATS, StorageBufferUsage::DynamicCopy);
+    const std::array<u32, 36> noStats{};
+    stats->SetData(noStats.data(), sizeof(noStats));
+    auto input = Ref<InstanceBuffer>::Create(2u);
+    auto culler = Ref<GPUFrustumCuller>::Create();
+    GpuDrivenRootDataLayout layout{};
+    ASSERT_TRUE(api.QueryGpuDrivenRootDataLayout(shader->GetRHIHandle(), ShaderBindingLayout::SSBO_INSTANCE_DATA, layout));
+
+    // The probe changes only the policy that chooses a material; the culler,
+    // output InstanceData, indirect command, root layout and draw are production.
+    const auto selector = ComputeShader::CreateFromSource("MaterialSelection805", R"(
+#version 460 core
+layout(local_size_x=1) in;
+layout(std430,binding=15) buffer Instances { uint words[]; };
+layout(std430,binding=17) readonly buffer Indirect { uint count; uint instanceCount; };
+layout(std140,binding=2) uniform SelectParams { uvec4 refs[2]; uvec4 mode; };
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    if (i>=instanceCount) return;
+    uint base=i*64u;
+    uint selected=(words[base+52u]+mode.x)&1u;
+    uvec4 ref=refs[selected];
+    if (mode.y==1u) ref.w+=1u;
+    if (mode.y==2u) ref.z=0xffffffffu;
+    for (uint lane=0u;lane<4u;++lane) words[base+60u+lane]=ref[lane];
+}
+)");
+    ASSERT_TRUE(selector && selector->IsValid());
+    static_assert(sizeof(InstanceData) / sizeof(u32) == 64u);
+    static_assert(offsetof(InstanceData, EntityID) / sizeof(u32) == 52u);
+    static_assert(offsetof(InstanceData, GPUSceneRef) / sizeof(u32) == 60u);
+
+    std::array<InstanceData, 2> instances;
+    for (u32 i = 0; i < 2u; ++i)
+    {
+        instances[i].Transform[3].x = i == 0u ? -0.5f : 0.5f;
+        instances[i].PrevTransform = instances[i].Transform;
+        instances[i].EntityID = static_cast<i32>(i);
+    }
+    const auto fallbackMaterial = [&]()
+    {
+        ShaderBindingLayout::PBRMaterialUBO material{};
+        material.BaseColorFactor = { 1.0f, 0.0f, 1.0f, 1.0f };
+        material.EmissiveFactor = glm::vec4(1.0f);
+        material.MetallicFactor = material.RoughnessFactor = material.NormalScale = material.OcclusionStrength = 1.0f;
+        material.HeapOffsets[0] = glm::uvec4(nullTexture.Value);
+        material.HeapOffsets[1] = { nullTexture.Value, 0u, 0u, 0u };
+        material.HeapOffsets[2] = { nullTexture.Value, nullTexture.Value, nullTexture.Value, sampler.Value };
+        return material;
+    };
+    using Images = std::array<std::vector<u8>, 6>;
+    const auto capture = [&](bool merged, u32 phase, u32 invalidMode, Images& images, bool fallbackOnly = false)
+    {
+        culler->BeginFrame();
+        std::array<glm::uvec4, 3> selectParams{};
+        for (u32 i = 0; i < 2u; ++i)
+        {
+            const auto handle = scene.FindMaterial(keys[i]);
+            selectParams[i] = { 0u, 0u, handle.m_Index, handle.m_Generation };
+        }
+        selectParams[2] = { phase, invalidMode, 0u, 0u };
+        params->SetData(selectParams.data(), sizeof(selectParams));
+        SubmitFrame(api, [&]()
+                    {
+            camera->Bind(); motion->Bind(); lightmap->Bind(); stats->Bind();
+            GPUFrustumCuller::CullResult culled;
+            if (merged)
+            {
+                culled = culler->Cull(instances, 6u, 0u, glm::vec4(0, 0, 0.5f, 0.8f), 1.0f, layout);
+                ASSERT_TRUE(culled.OutputBuffer && culled.IndirectBuffer && culled.RootDataBuffer);
+                params->Bind();
+                culled.OutputBuffer->Bind(); culled.IndirectBuffer->Bind();
+                selector->Bind();
+                api.DispatchCompute(2u, 1u, 1u);
+                api.MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command);
+            }
+            ASSERT_TRUE(scene.BindMaterials()); // slot 17 was the indirect args in compute
+            framebuffer->Bind();
+            api.SetViewport(0, 0, kSize, kSize);
+            api.SetClearColor({ 0, 0, 0, 0 });
+            api.Clear();
+            api.SetDepthTest(false); api.SetDepthMask(false); api.SetBlendState(false); api.DisableCulling();
+            shader->Bind();
+                api.BindVertexArrayRaw(vao->GetRHIHandle());
+            if (merged)
+            {
+                auto material = fallbackMaterial();
+                material.HeapOffsets[1].y = tableInfo.x;
+                material.HeapOffsets[1].z = tableInfo.y;
+                material.HeapOffsets[1].w = tableInfo.z;
+                materialUBO->SetData(&material, sizeof(material)); materialUBO->Bind();
+                culled.OutputBuffer->Bind();
+                ASSERT_TRUE(api.SetNextDrawRootData(culled.RootDataBuffer->GetRHIHandle(), ShaderBindingLayout::SSBO_INSTANCE_DATA,
+                                                    culled.RootDataAddressOffsetBytes));
+                api.DrawBoundElementsIndirect(culled.IndirectBuffer->GetRHIHandle(), RHI::PrimitiveTopology::TriangleList);
+            }
+            else
+            {
+                for (u32 i = 0; i < 2u; ++i)
+                {
+                    auto material = fallbackMaterial();
+                    if (!fallbackOnly)
+                    {
+                        material.BaseColorFactor = glm::vec4(1.0f);
+                        material.UseAlbedoMap = material.UseMetallicRoughnessMap = material.UseNormalMap = material.UseAOMap = material.UseEmissiveMap = 1;
+                        const u32 first = ((i + phase) & 1u) * 5u;
+                        material.HeapOffsets[0] = { offsets[first], offsets[first + 1u], offsets[first + 2u], offsets[first + 3u] };
+                        material.HeapOffsets[1].x = offsets[first + 4u];
+                    }
+                    materialUBO->SetData(&material, sizeof(material)); materialUBO->Bind();
+                    input->Upload(std::span{ &instances[i], 1 }); input->Bind();
+                    api.DrawBoundIndexed(RHI::PrimitiveTopology::TriangleList, 6u, RHI::IndexType::UInt32, 0u);
+                }
+            }
+            framebuffer->Unbind(); });
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), merged ? 1u : 2u);
+        EXPECT_EQ(api.GetGpuWrittenRootDrawsThisRecording(), merged ? 1u : 0u);
+        auto* vkFramebuffer = static_cast<VulkanFramebuffer*>(framebuffer.Raw());
+        for (u32 attachment = 0; attachment < 6u; ++attachment)
+            ASSERT_TRUE(vkFramebuffer->GetColorAttachmentImage(attachment)->GetData(images[attachment], 0u));
+    };
+
+    Images reference, merged, switchedReference, switched, fallbackReference, stale, outOfRange;
+    capture(false, 0u, 0u, reference);
+    capture(true, 0u, 0u, merged);
+    for (u32 attachment = 0; attachment < 6u; ++attachment)
+        EXPECT_EQ(merged[attachment], reference[attachment]) << "MRT " << attachment;
+    capture(false, 1u, 0u, switchedReference);
+    capture(true, 1u, 0u, switched);
+    for (u32 attachment = 0; attachment < 6u; ++attachment)
+        EXPECT_EQ(switched[attachment], switchedReference[attachment]) << "swapped MRT " << attachment;
+    EXPECT_NE(merged[0], switched[0]) << "selection control must visibly change the texture";
+    capture(false, 0u, 0u, fallbackReference, true);
+    capture(true, 0u, 1u, stale);
+    capture(true, 0u, 2u, outOfRange);
+    for (u32 attachment = 0; attachment < 6u; ++attachment)
+    {
+        EXPECT_EQ(stale[attachment], fallbackReference[attachment]) << "stale MRT " << attachment;
+        EXPECT_EQ(outOfRange[attachment], fallbackReference[attachment]) << "out-of-range MRT " << attachment;
+    }
+    const auto pixel = [](const std::vector<u8>& rgba, u32 x)
+    {
+        const sizet offset = (kSize / 2u * kSize + x) * 4u;
+        return std::array<u8, 3>{ rgba.at(offset), rgba.at(offset + 1u), rgba.at(offset + 2u) };
+    };
+    EXPECT_EQ(pixel(merged[0], kSize / 4u), (std::array<u8, 3>{ 255, 0, 0 }));
+    EXPECT_EQ(pixel(merged[0], kSize * 3u / 4u), (std::array<u8, 3>{ 0, 255, 0 }));
+    EXPECT_EQ(pixel(stale[0], kSize / 4u), (std::array<u8, 3>{ 255, 0, 255 }));
+    // OLO_TEMP_DIR_OK: persistent visual evidence, outside cleanup, with a process-unique leaf.
+    const auto evidenceDir = std::filesystem::temp_directory_path() / "olo-805-evidence" / OloEngine::Tests::TempRoot().filename();
+    std::filesystem::create_directories(evidenceDir);
+    for (const auto& [name, images] : std::array<std::pair<const char*, const Images*>, 4>{
+             { { "reference", &reference }, { "merged", &merged }, { "switched", &switched }, { "stale", &stale } } })
+    {
+        const auto path = (evidenceDir / (std::string(name) + ".png")).string();
+        EXPECT_NE(stbi_write_png(path.c_str(), kSize, kSize, 4, (*images)[0].data(), kSize * 4u), 0);
+    }
+    RecordProperty("ReferenceDraws", 2);
+    RecordProperty("IndirectDraws", 1);
+    RecordProperty("MaterialTextureBinds", 0);
+    RecordProperty("EvidenceDirectory", evidenceDir.string());
+
+    // Reload keeps the RHI identity but replaces its VkImage/descriptor. The
+    // table must re-resolve it even when GPU Scene records did not change.
+    const auto identity = textures[0]->GetRHIHandle();
+    const std::array<u8, 4> blue{ 0, 0, 255, 255 };
+    textures[0]->Invalidate("material-selection-805", 1u, 1u, blue.data(), 4u);
+    ASSERT_EQ(textures[0]->GetRHIHandle(), identity);
+    table.Update(scene);
+    tableInfo = table.GetAddressAndCount();
+    ASSERT_EQ(table.GetUnresolvedCount(), 0u);
+    offsets[0] = HeapBinding::ResolveShaderHeapTexture(identity).Value;
+    Images reloadedReference, reloaded;
+    capture(false, 0u, 0u, reloadedReference);
+    capture(true, 0u, 0u, reloaded);
+    EXPECT_EQ(reloaded[0], reloadedReference[0]);
+    EXPECT_EQ(pixel(reloaded[0], kSize / 4u), (std::array<u8, 3>{ 0, 0, 255 }));
+
+    // A dead texture keeps a valid material: clear only its failed-map flag,
+    // so the factor (white) is used instead of sampling the null (black).
+    textures[0].Reset();
+    table.Update(scene);
+    tableInfo = table.GetAddressAndCount();
+    EXPECT_EQ(table.GetUnresolvedCount(), 1u);
+    Images missingMap;
+    capture(true, 0u, 0u, missingMap);
+    EXPECT_EQ(pixel(missingMap[0], kSize / 4u), (std::array<u8, 3>{ 255, 255, 255 }));
 }
 
 #endif // OLO_WITH_VULKAN

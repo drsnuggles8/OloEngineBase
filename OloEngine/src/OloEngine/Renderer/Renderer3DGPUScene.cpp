@@ -414,6 +414,11 @@ namespace OloEngine
         return s_Data.SceneGPU.HasGPUResources() && s_Data.SceneGPU.BindMaterials();
     }
 
+    const MaterialShaderHeapTable& Renderer3D::GetMaterialShaderHeapTable()
+    {
+        return s_Data.RasterMaterialTextures;
+    }
+
     u32 Renderer3D::GetGPUSceneLinkedDrawCount()
     {
         return s_Data.GPUSceneLinkedDraws;

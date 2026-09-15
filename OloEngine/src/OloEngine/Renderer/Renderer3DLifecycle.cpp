@@ -645,6 +645,7 @@ namespace OloEngine
         // The GPU path tracer's by-address tables (#1055).
         note("PathTracerEmissive", s_Data.PathTracerEmissive.HasGPUResources());
         note("PathTracerMaterialTextures", s_Data.PathTracerMaterialTextures.HasGPUResources());
+        note("RasterMaterialTextures", s_Data.RasterMaterialTextures.HasGPUResources());
 
         return live;
     }
@@ -792,6 +793,7 @@ namespace OloEngine
         s_Data.SceneRT.Shutdown();
         s_Data.PathTracerEmissive.Shutdown();
         s_Data.PathTracerMaterialTextures.Shutdown();
+        s_Data.RasterMaterialTextures.Shutdown();
         s_Data.SceneGPU.Shutdown();
         s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.

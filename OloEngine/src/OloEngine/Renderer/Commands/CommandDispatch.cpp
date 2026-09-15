@@ -167,6 +167,7 @@ namespace OloEngine
         // backend's own slot cache reassigning a slot — which a texture reloaded
         // in place does while keeping its RHI handle. Always 0 on OpenGL.
         u64 ShaderHeapGeneration = 0u;
+        glm::uvec3 MaterialTableAddressAndCount{ 0u };
         // Whether the CACHED material UBO was built with live heap offsets.
         //
         // The cache is keyed on the material index, but an offset's validity
@@ -838,12 +839,11 @@ namespace OloEngine
         const u32 emissive = resolve(mat.emissiveMapID, ubo.UseEmissiveMap);
 
         ubo.HeapOffsets[0] = { albedo, metallicRoughness, normal, ao };
-        // Lanes [1].yzw and [2].xyz are the environment / IBL / legacy maps, which
-        // this arm does NOT convert — they keep classic bindings on both backends
-        // (amendment (96)). Given the NULL rather than Invalid for the same reason
-        // as every other lane: no shader reads them here, and if one ever did it
-        // would sample the null instead of indexing out of bounds.
-        ubo.HeapOffsets[1] = { emissive, nullTexture, nullTexture, nullTexture };
+        // Vulkan-only reuse of the unused environment/IBL lanes: a deferred
+        // instance can select all five maps by its GPU Scene material reference.
+        // Forward/skinned/virtual shaders still use only the per-draw lanes.
+        const glm::uvec3 table = armLive ? Renderer3D::GetMaterialShaderHeapTable().GetAddressAndCount() : glm::uvec3(0u);
+        ubo.HeapOffsets[1] = { emissive, table.x, table.y, table.z };
         // [2].w is the sampler lane. It indexes the SAMPLER heap, not the resource
         // heap, so the null above is not a substitute for it — a failure there
         // stands the whole arm down (armLive), which every lane above has already
@@ -1065,6 +1065,13 @@ namespace OloEngine
         }
 
         // Part of the cache key, not an afterthought — see LastMaterialOffsetsLive.
+        const glm::uvec3 table = Renderer3D::GetMaterialShaderHeapTable().GetAddressAndCount();
+        if (table.x != Data().MaterialTableAddressAndCount.x || table.y != Data().MaterialTableAddressAndCount.y ||
+            table.z != Data().MaterialTableAddressAndCount.z)
+        {
+            Data().MaterialTableAddressAndCount = table;
+            Data().LastMaterialDataIndex = INVALID_MATERIAL_DATA_INDEX;
+        }
         const bool offsetsLive = Shader::ReadsMaterialHeapOffsets();
         const bool sameIndex = (materialDataIndex == Data().LastMaterialDataIndex) &&
                                (offsetsLive == Data().LastMaterialOffsetsLive);

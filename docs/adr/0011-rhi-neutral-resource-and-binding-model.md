@@ -1009,6 +1009,7 @@ the headings below are in their original (occasionally out-of-order) sequence.
 | (95) | A shader with no OpenGL twin (one that already needs `GL_EXT_ray_query`) may index the descriptor heap itself with `GL_EXT_descriptor_heap`; every shader with a GL twin keeps classic bindings, and #805's full conversion stays open | live |
 | (96) | Per-backend shader source is accepted for the material families and ONLY for their five material-local 2D maps, which the Vulkan arm reaches by runtime heap index; every other declaration keeps `layout(binding = N)` on both backends. There is no fifth compile route (the Vulkan tier already is one), and a PARTIAL conversion is expressible on Vulkan because a heap array carries no binding decoration (#805) | live |
 | (100) | Optional unified image layouts share GENERAL for sampled/storage access; attachment/transfer state and the layout tracker remain (#1181) | live |
+| (101) | Static deferred material texture offsets follow the per-instance GPU Scene reference through a Vulkan buffer-address table; automatic batching remains separate (#805) | live |
 
 Phase 1 said explicitly that "nothing here is load-bearing until Phase 2
 begins," and that if the sweep discovered a decision was wrong the ADR should be
