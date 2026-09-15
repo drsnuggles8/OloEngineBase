@@ -12,7 +12,7 @@ and the Linux CI jobs in
 | Runner(s) | Labels | Serves |
 |---|---|---|
 | `olo-gpu-amd` | `self-hosted,Linux,X64,gpu-amd` | the nightly GPU conformance run, exclusively |
-| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | **one** Linux sanitizer job on every same-repo PR — ASan + LSan; UBSan and TSan went hosted in [#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) — plus `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job |
+| `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | by default **one** Linux sanitizer job — ASan + LSan, and only on a same-repo PR that trips the `native` paths filter; UBSan and TSan defaulted to hosted in [#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) and return here only via their rollback variable — plus `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job. Fork PRs and `force_hosted` dispatches never route here at all. |
 
 **The Linux sanitizer jobs run here with hosted parity** (#1015): every ctest-launched test
 process gets `--olo-gl-backend=none`, so the GL-gated tests skip exactly as they do on a

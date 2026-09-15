@@ -61,8 +61,9 @@ what. `shader-floor.yml` is the guard: it runs on every PR, on the hosted toolch
 `glslc` one question per declared extension — so an extension that outruns the floor is red on the
 PR rather than on the next nightly. And since
 [#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) the *sanitizer* asymmetry is
-smaller too: UBSan and TSan run hosted on every PR, so two of the three Linux arms now exercise the
-hosted shader toolchain on the PR itself. Neither half replaces raising the floor when a shader
+smaller too: UBSan and TSan default to hosted, so on any PR where the sanitizer jobs run at all —
+they are gated on the `native` paths filter — two of the three Linux arms exercise the hosted
+shader toolchain on the PR itself. Neither half replaces raising the floor when a shader
 genuinely needs a newer extension — they only make the failure arrive early and legible.
 
 **Raising the floor is four literals that must move together**: `setup-vulkan`'s `version`,

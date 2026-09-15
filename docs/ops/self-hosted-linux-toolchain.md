@@ -6,9 +6,12 @@ calls [`setup-linux-build`](../../.github/actions/setup-linux-build/action.yml) 
 runners: the Linux sanitizer jobs, `vulkan-off`, `steam-stub`, and the GPU-under-sanitizer
 nightly. All six take their compiler from that action's outputs, so the pin below moves all six,
 not only the sanitizer arm the issue was filed about. Since
-[#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) only **ASan + LSan** reaches the
-box on a same-repo PR; UBSan and TSan route to GitHub-hosted runners on every event, and reach the
-box only on the nightly or when their `OLO_LINUX_<ARM>_SELF_HOSTED` rollback variable is set. The
+[#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) the default is that **ASan +
+LSan** is the only sanitizer arm reaching the box, and only on a same-repo PR that trips the
+`native` paths filter, with `OLO_LINUX_SELF_HOSTED` on. UBSan and TSan default to GitHub-hosted
+runners on every event — including the nightly, which has always been hosted — so the **only** way
+they reach the box is the `OLO_LINUX_UBSAN_SELF_HOSTED` / `OLO_LINUX_TSAN_SELF_HOSTED` rollback
+variables. The
 pin still has to move all six together — the two arms take the SAME clang from the SAME tarball on
 the hosted side, which is what makes a hosted/self-hosted comparison mean anything. Watch
 [`gpu-sanitizers-amd.yml`](../../.github/workflows/gpu-sanitizers-amd.yml): its baseline is a

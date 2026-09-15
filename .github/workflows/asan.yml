@@ -250,6 +250,12 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
+        # This job now RUNS a script out of the checkout (below), which it did not
+        # before -- it only handed paths to `paths-filter`. A persisted credential
+        # in `.git/config` is a token sitting in the workspace that repo code can
+        # read, so drop it, as the other checkouts in this file already do. Nothing
+        # here pushes.
+        persist-credentials: false
 
     # BEFORE ANYTHING READS THE PLAN (#1219). Each arm's routing predicate is
     # written twice -- once as this job's `<ARM>_SELF_HOSTED` env var, which sizes
