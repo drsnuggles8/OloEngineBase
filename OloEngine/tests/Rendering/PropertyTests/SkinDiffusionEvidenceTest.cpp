@@ -145,7 +145,8 @@ namespace OloEngine::Tests
 
         [[nodiscard]] BoxStats MeasureBox(const Capture& capture, f32 cx, f32 cy, f32 halfW, f32 halfH)
         {
-            const auto span = [](f32 centre, f32 extent, u32 size) {
+            const auto span = [](f32 centre, f32 extent, u32 size)
+            {
                 const auto lo = static_cast<i32>((centre - extent) * static_cast<f32>(size));
                 const auto hi = static_cast<i32>((centre + extent) * static_cast<f32>(size));
                 return std::pair<u32, u32>{ static_cast<u32>(std::clamp(lo, 1, static_cast<i32>(size) - 2)),
@@ -197,24 +198,83 @@ namespace OloEngine::Tests
             return dir / (name + ".png");
         }
 
-        // THE THREE MEASUREMENT BOXES, DERIVED FROM THE SCENE RATHER THAN FITTED
-        // TO A CAPTURE. The camera is at z = 4.0 looking down -Z at a unit sphere
-        // at the origin, so the sphere fills roughly the middle half of the
-        // frame. The key light comes from the LEFT, so:
+        // THE MEASUREMENT BOXES ARE FOUND IN THE CONTROL CAPTURE, NOT ASSUMED.
         //
-        //   * the highlight sits left of centre,
-        //   * the terminator runs roughly vertically right of centre,
-        //   * the shadowed limb is further right again.
+        // Where the terminator lands on screen is a function of the light
+        // direction, the sphere's radius, the camera distance AND the camera's
+        // field of view, and getting any of them wrong by a few degrees puts a
+        // hard-coded box on the lit side of the edge it was meant to straddle. A
+        // test that measures the wrong place does not fail loudly -- it reports
+        // "the terminator did not soften" about a region with no terminator in
+        // it, which is a bug report about the wrong file.
         //
-        // The boxes are tall and narrow so each one samples a band of the
-        // terminator rather than a point, and none of them reaches the
-        // silhouette, where the bilateral guard legitimately stops the blur.
-        constexpr f32 kHighlightCx = 0.375f;
-        constexpr f32 kTerminatorCx = 0.570f;
-        constexpr f32 kShadowedCx = 0.610f;
+        // So the boxes are LOCATED by searching the diffusion-OFF capture, then
+        // applied unchanged to both captures. Same discipline as
+        // SkinProfileParityEvidenceTest's luminance bands: derive from the
+        // control, measure both over the identical region.
         constexpr f32 kBoxCy = 0.500f;
         constexpr f32 kBoxHalfW = 0.030f;
         constexpr f32 kBoxHalfH = 0.110f;
+        // How far past the terminator the "shadowed" box sits, as a fraction of
+        // the frame width: off the lit side, but not so far that the bleed has
+        // fallen to nothing.
+        constexpr f32 kShadowedOffset = 0.055f;
+
+        // The x of the steepest vertical-band luminance edge -- the terminator.
+        // Searched only over the MIDDLE of the frame, so the sphere's silhouette
+        // (a far harder edge than any terminator) cannot win.
+        [[nodiscard]] f32 FindTerminatorX(const Capture& capture)
+        {
+            const u32 x0 = static_cast<u32>(0.30f * static_cast<f32>(capture.Width));
+            const u32 x1 = static_cast<u32>(0.70f * static_cast<f32>(capture.Width));
+            const u32 y0 = static_cast<u32>((kBoxCy - kBoxHalfH) * static_cast<f32>(capture.Height));
+            const u32 y1 = static_cast<u32>((kBoxCy + kBoxHalfH) * static_cast<f32>(capture.Height));
+
+            f32 bestMean = -1.0f;
+            u32 bestX = capture.Width / 2u;
+            for (u32 x = x0; x < x1; ++x)
+            {
+                f64 sum = 0.0;
+                for (u32 y = y0; y <= y1; ++y)
+                {
+                    const f32 left = LumaAt(capture.Pixels, capture.Index(x - 1u, y));
+                    const f32 right = LumaAt(capture.Pixels, capture.Index(x + 1u, y));
+                    sum += static_cast<f64>(std::abs(right - left));
+                }
+                const f32 mean = static_cast<f32>(sum / static_cast<f64>(y1 - y0 + 1u));
+                if (mean > bestMean)
+                {
+                    bestMean = mean;
+                    bestX = x;
+                }
+            }
+            return static_cast<f32>(bestX) / static_cast<f32>(capture.Width);
+        }
+
+        // The x of the brightest vertical band -- the specular highlight.
+        [[nodiscard]] f32 FindHighlightX(const Capture& capture)
+        {
+            const u32 x0 = static_cast<u32>(0.25f * static_cast<f32>(capture.Width));
+            const u32 x1 = static_cast<u32>(0.75f * static_cast<f32>(capture.Width));
+            const u32 y0 = static_cast<u32>((kBoxCy - kBoxHalfH) * static_cast<f32>(capture.Height));
+            const u32 y1 = static_cast<u32>((kBoxCy + kBoxHalfH) * static_cast<f32>(capture.Height));
+
+            f32 bestMean = -1.0f;
+            u32 bestX = capture.Width / 2u;
+            for (u32 x = x0; x < x1; ++x)
+            {
+                f64 sum = 0.0;
+                for (u32 y = y0; y <= y1; ++y)
+                    sum += static_cast<f64>(LumaAt(capture.Pixels, capture.Index(x, y)));
+                const f32 mean = static_cast<f32>(sum / static_cast<f64>(y1 - y0 + 1u));
+                if (mean > bestMean)
+                {
+                    bestMean = mean;
+                    bestX = x;
+                }
+            }
+            return static_cast<f32>(bestX) / static_cast<f32>(capture.Width);
+        }
     } // namespace
 
     class SkinDiffusionScene : public RendererAttachedTest
@@ -364,12 +424,23 @@ namespace OloEngine::Tests
             ASSERT_EQ(off.Width, on.Width);
             ASSERT_EQ(off.Height, on.Height);
 
-            const BoxStats offTerminator = MeasureBox(off, kTerminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            const BoxStats onTerminator = MeasureBox(on, kTerminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            const BoxStats offHighlight = MeasureBox(off, kHighlightCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            const BoxStats onHighlight = MeasureBox(on, kHighlightCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            const BoxStats offShadowed = MeasureBox(off, kShadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-            const BoxStats onShadowed = MeasureBox(on, kShadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            // Located in the CONTROL capture, then applied to both.
+            const f32 terminatorCx = FindTerminatorX(off);
+            const f32 highlightCx = FindHighlightX(off);
+            const f32 shadowedCx = std::min(terminatorCx + kShadowedOffset, 0.78f);
+
+            const BoxStats offTerminator = MeasureBox(off, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats onTerminator = MeasureBox(on, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats offHighlight = MeasureBox(off, highlightCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats onHighlight = MeasureBox(on, highlightCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats offShadowed = MeasureBox(off, shadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            const BoxStats onShadowed = MeasureBox(on, shadowedCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+
+            // Where it measured goes in every failure message below, because
+            // that is the first question a failure of this shape raises.
+            const std::string where = std::string(pathName) + " [highlight x=" + std::to_string(highlightCx) +
+                                      ", terminator x=" + std::to_string(terminatorCx) +
+                                      ", shadowed x=" + std::to_string(shadowedCx) + "]";
 
             // NON-VACUITY FIRST. Every assertion below is a comparison between
             // two captures, and two EMPTY captures compare equal — so the frame
@@ -384,7 +455,7 @@ namespace OloEngine::Tests
 
             // CLAIM 1 — the terminator softens.
             EXPECT_LT(onTerminator.MaxGradient, offTerminator.MaxGradient * 0.92f)
-                << pathName << ": the terminator did not soften (" << offTerminator.MaxGradient << " -> "
+                << where << ": the terminator did not soften (" << offTerminator.MaxGradient << " -> "
                 << onTerminator.MaxGradient << "); see " << VisualOutputPath(onName).string();
 
             // CLAIM 2 — red bleeds into the shadowed side. Red's mean free path
@@ -392,7 +463,7 @@ namespace OloEngine::Tests
             // under the surface is warm. A grey blur would move the luminance
             // and leave this ratio alone.
             EXPECT_GT(onShadowed.MeanRedFraction, offShadowed.MeanRedFraction + 0.002f)
-                << pathName << ": no warm bleed past the terminator (" << offShadowed.MeanRedFraction << " -> "
+                << where << ": no warm bleed past the terminator (" << offShadowed.MeanRedFraction << " -> "
                 << onShadowed.MeanRedFraction << "); see " << VisualOutputPath(onName).string();
 
             // CLAIM 3 — THE TITLE. The specular highlight is untouched: its peak
@@ -405,7 +476,7 @@ namespace OloEngine::Tests
             // pixels. What must not happen is the highlight itself smearing,
             // which would be a change of tens of percent.
             EXPECT_GT(onHighlight.MaxGradient, offHighlight.MaxGradient * 0.95f)
-                << pathName << ": the specular highlight SOFTENED — the composite is being blurred ("
+                << where << ": the specular highlight SOFTENED — the composite is being blurred ("
                 << offHighlight.MaxGradient << " -> " << onHighlight.MaxGradient << "); see "
                 << VisualOutputPath(onName).string();
             EXPECT_NEAR(PeakLuma(on), PeakLuma(off), 0.05f)
@@ -443,7 +514,14 @@ namespace OloEngine::Tests
         // does head-on, and the depth guard is doing most of the work. The
         // measurement is the one claim that survives an unknown framing — the
         // terminator softens and the peak does not move.
-        SetCameraPose({ 3.2f, 0.4f, 2.2f }, { -0.10f, 0.95f, 0.0f });
+        // ROUGHLY 25 DEGREES ROUND, AND THE ANGLE IS THE POINT. Swung far enough
+        // that the terminator is strongly FORESHORTENED -- the surface runs away
+        // from the camera across it, so one screen-space texel covers several
+        // times the surface it covers head-on, which is the case a screen-space
+        // filter gets wrong. Not so far that the frame is all shade: at 55
+        // degrees the subject is essentially unlit and "the blur introduced no
+        // new edge" is true of an image with nothing in it.
+        SetCameraPose({ 1.70f, 0.50f, 3.60f }, { -0.12f, 0.44f, 0.0f });
 
         Capture off;
         Capture on;
@@ -463,6 +541,7 @@ namespace OloEngine::Tests
         // catch.
         const BoxStats offAll = MeasureBox(off, 0.5f, 0.5f, 0.45f, 0.45f);
         const BoxStats onAll = MeasureBox(on, 0.5f, 0.5f, 0.45f, 0.45f);
+        ASSERT_GT(offAll.MaxGradient, 0.02f) << "the oblique control frame has no edges in it at all";
         EXPECT_LE(onAll.MaxGradient, offAll.MaxGradient * 1.02f)
             << "the oblique view got a HARDER edge than it started with (" << offAll.MaxGradient << " -> "
             << onAll.MaxGradient << "); see " << VisualOutputPath("SkinDiffusion_Deferred_Oblique").string();
@@ -488,10 +567,11 @@ namespace OloEngine::Tests
         material.SetSkinProfileHandle(m_DiffusingProfile);
         ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_Deferred_Control", undiffused));
 
-        const BoxStats legacyTerminator = MeasureBox(withLegacyProfile, kTerminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
-        const BoxStats offTerminator = MeasureBox(undiffused, kTerminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const f32 terminatorCx = FindTerminatorX(undiffused);
+        const BoxStats legacyTerminator = MeasureBox(withLegacyProfile, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+        const BoxStats offTerminator = MeasureBox(undiffused, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
         const BoxStats diffusedTerminator =
-            MeasureBox(withDiffusingProfile, kTerminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
+            MeasureBox(withDiffusingProfile, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
 
         ASSERT_GT(offTerminator.MaxGradient, 0.02f) << "no terminator in the control frame";
         // Non-vacuity: the diffusing profile DID do something in this same

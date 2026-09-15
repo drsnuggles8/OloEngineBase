@@ -320,10 +320,10 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view ShadowMapAtlas = "ShadowMapAtlas";
 
     // Scene rendering outputs.
-    inline constexpr std::string_view SceneColor = "SceneColor";                     // HDR scene framebuffer (MRT root)
-    inline constexpr std::string_view SceneColorTexture = "SceneColorTexture";       // Live SceneColor RT0 attachment view
-    inline constexpr std::string_view SceneEntityID = "SceneEntityID";               // Live SceneColor entity-ID attachment view (RT1)
-    inline constexpr std::string_view SceneViewNormals = "SceneViewNormals";         // Live SceneColor view-space normals attachment view (RT2)
+    inline constexpr std::string_view SceneColor = "SceneColor";               // HDR scene framebuffer (MRT root)
+    inline constexpr std::string_view SceneColorTexture = "SceneColorTexture"; // Live SceneColor RT0 attachment view
+    inline constexpr std::string_view SceneEntityID = "SceneEntityID";         // Live SceneColor entity-ID attachment view (RT1)
+    inline constexpr std::string_view SceneViewNormals = "SceneViewNormals";   // Live SceneColor view-space normals attachment view (RT2)
     // Live SceneColor RT4: the skin diffusion hand-off (issue #1241) --
     // the diffuse half of a skin pixel's lighting plus the profile identity
     // that should blur it. See include/SkinDiffusionCommon.glsl.

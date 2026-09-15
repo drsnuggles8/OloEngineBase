@@ -190,7 +190,8 @@ namespace OloEngine
         //
         // The offsets stay SIGNED and symmetric: the blur must not shift the
         // image, and a one-sided table would.
-        const auto offsetAt = [halfCount](i32 i) -> f32 {
+        const auto offsetAt = [halfCount](i32 i) -> f32
+        {
             const f32 t = static_cast<f32>(i) / static_cast<f32>(halfCount);
             return (t < 0.0f ? -1.0f : 1.0f) * t * t;
         };
@@ -220,7 +221,8 @@ namespace OloEngine
         // line spread function at its centre: an integral makes the weights
         // independent of where the taps happen to land, and the pointwise
         // function is singular at the origin anyway.
-        const auto stripEnergy = [&](f32 loNorm, f32 hiNorm, f32 dChannel) -> f32 {
+        const auto stripEnergy = [&](f32 loNorm, f32 hiNorm, f32 dChannel) -> f32
+        {
             const f32 lo = loNorm * supportRadiusMM;
             const f32 hi = hiNorm * supportRadiusMM;
             if (!(hi > lo))

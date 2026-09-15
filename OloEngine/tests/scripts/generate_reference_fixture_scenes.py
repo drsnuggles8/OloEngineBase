@@ -236,6 +236,33 @@ def material(albedo, metallic=0.0, roughness=0.9):
     )
 
 
+# The authored reference skin profile
+# (OloEditor/SandboxProject/Assets/Materials/ReferenceHead.oloskin), as it is
+# registered in the sandbox project's AssetRegistry.oar. Spelled as a literal
+# because a generator cannot read the binary registry, and pinned here rather
+# than in each caller so a re-import of the profile is a one-line fix.
+REFERENCE_SKIN_PROFILE = 15952688685437936278
+
+
+def skin_material(albedo, roughness=0.42, metallic=0.0):
+    """A MaterialComponent declaring MaterialKind::Skin and naming the reference
+    profile (issues #1231, #1241).
+
+    A MaterialComponent on a ModelComponent entity OVERRIDES every submesh
+    (Scene.cpp), which is what lets an imported glTF head be declared skin
+    without editing the asset. Suzanne has one material to begin with, so
+    nothing is flattened by it.
+    """
+    return (
+        "    MaterialComponent:\n"
+        f"      AlbedoColor: {vec(albedo)}\n"
+        f"      Metallic: {f(metallic)}\n"
+        f"      Roughness: {f(roughness)}\n"
+        "      MaterialKind: 2\n"
+        f"      SkinProfile: {REFERENCE_SKIN_PROFILE}\n"
+    )
+
+
 def animated_model(source_path, clip_index=0, playing=True, blend=0.3):
     """Skinned model + skeleton + playback state.
 
@@ -560,10 +587,15 @@ HEAD_NOTE = [
     "  * DamagedHelmet (CC-BY 4.0) — 2K albedo/normal/metal-rough/AO/emissive.",
     "    Measures the same rig's response to real PBR texture detail.",
     "",
-    "CURRENT LIMITATION THIS FIXTURE RECORDS: there is no subsurface",
-    "scattering, no eye shader and no groom in the engine today, so neither",
-    "subject is a photoreal human head. A scanned AAA head is a genuine",
-    "external dependency — see docs/guides/benchmark-reference-fixtures.md.",
+    "Suzanne is declared MaterialKind::Skin and names ReferenceHead.oloskin",
+    "(issues #1231, #1241), which is authored at transport version 1 — so it is",
+    "diffused and the helmet beside it, under the identical rig, is not.",
+    "",
+    "CURRENT LIMITATION THIS FIXTURE RECORDS: there is no eye shader and no",
+    "groom in the engine today, and Suzanne has no skin albedo or normal map,",
+    "so neither subject is a photoreal human head. Subsurface scattering itself",
+    "is no longer on that list — #1241 added it. A scanned AAA head remains a",
+    "genuine external dependency — see docs/guides/benchmark-reference-fixtures.md.",
     "The rig is built so that dropping a licensed head in its place changes",
     "the subject and nothing else.",
 ]
@@ -612,12 +644,26 @@ def build_reference_head():
     # Subjects. Separation and scale are set so BOTH fit the 42-degree frontal
     # frame with margin: Suzanne is ~2.7 units wide before scaling, and the
     # first capture of this fixture clipped its left ear at +-1.15 / 0.55.
+    #
+    # SUBJECT A IS SKIN (issue #1241). Suzanne carries a MaterialComponent
+    # declaring MaterialKind::Skin and naming ReferenceHead.oloskin, which is
+    # authored at transport version 1 — so the head is diffused and the helmet
+    # beside it, under the identical rig, is not. That side-by-side is the whole
+    # value of this fixture for skin: the same key light, the same exposure, one
+    # subject scattering and one not.
+    #
+    # The albedo is a mid-tone dermis and the roughness is skin's oil layer,
+    # not the untextured default: a diffusion over a flat grey reads as a soft
+    # grey, which demonstrates nothing.
     for tag, x, yaw, path in (
         ("Suzanne", -0.95, 0.35, "assets/models/Suzanne/glTF/Suzanne.gltf"),
         ("DamagedHelmet", 0.95, -0.35, "assets/models/DamagedHelmet/glTF/DamagedHelmet.gltf"),
     ):
-        w.entity(tag, (x, 1.05, 0), (0, yaw, 0), (0.5, 0.5, 0.5), model(path),
-                 comment=("── Subject A: organic head geometry (Suzanne, CC0) ──" if x < 0 else
+        components = model(path)
+        if tag == "Suzanne":
+            components += skin_material((0.62, 0.46, 0.40), roughness=0.42)
+        w.entity(tag, (x, 1.05, 0), (0, yaw, 0), (0.5, 0.5, 0.5), components,
+                 comment=("── Subject A: organic head geometry (Suzanne, CC0), declared SKIN ──" if x < 0 else
                           "── Subject B: textured PBR detail (DamagedHelmet, CC-BY 4.0) ──"))
 
     # Plinths + floor: mid-grey, matte, so the subjects own the frame.

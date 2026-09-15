@@ -117,7 +117,7 @@ namespace OloEngine
         const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
         const SkinDiffusionQuality quality =
             IsValidSkinDiffusionQuality(static_cast<i32>(m_Settings.Quality)) ? m_Settings.Quality
-                                                                             : SkinDiffusionQuality::Medium;
+                                                                              : SkinDiffusionQuality::Medium;
         // A tier change invalidates every cached kernel: the tap COUNT changes,
         // so the weights are a different table, not a rescaling of the old one.
         const bool qualityChanged = (quality != m_CachedQuality);
