@@ -1280,10 +1280,19 @@ namespace OloEngine
     }
 
     // Helper: Upload bone matrices from FrameDataBuffer.
-    static void UploadBoneMatrices(RendererAPI& api, bool isAnimated, u32 boneBufferOffset, u32 boneCount, u32 prevBoneBufferOffset = UINT32_MAX)
+    // Returns false ONLY when this draw needed a bone palette and did not get
+    // one. A static draw, or an animated one with no bones, is nothing-to-do
+    // rather than failure and returns true.
+    //
+    // The distinction matters because the caller must not draw on false: the
+    // animation UBO then still holds the PREVIOUS draw's palette, so the mesh
+    // renders in another entity's pose -- a plausible wrong image rather than a
+    // visibly missing one, which is the harder kind to notice.
+    [[nodiscard]] static bool UploadBoneMatrices(RendererAPI& api, bool isAnimated, u32 boneBufferOffset, u32 boneCount,
+                                                 u32 prevBoneBufferOffset = UINT32_MAX)
     {
         if (!isAnimated || !Data().BoneMatricesUBO || boneCount == 0)
-            return;
+            return true;
 
         using namespace UBOStructures;
         constexpr sizet MAX_BONES = AnimationConstants::MAX_BONES;
@@ -1295,12 +1304,16 @@ namespace OloEngine
                           boneCount, MAX_BONES);
         }
 
-        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(boneBufferOffset);
-        if (boneMatrices)
+        // Bounded accessor: this reads `count` matrices from the pointer, and
+        // GetBoneMatrixPtr validates only the first one.
+        const glm::mat4* boneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(boneBufferOffset, static_cast<u32>(count));
+        if (!boneMatrices)
         {
-            Data().BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
-            BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION, Data().BoneMatricesUBO->GetRHIHandle());
+            // GetBoneMatrixRange has already logged the offending range.
+            return false;
         }
+        Data().BoneMatricesUBO->SetData(boneMatrices, static_cast<u32>(count * sizeof(glm::mat4)));
+        BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION, Data().BoneMatricesUBO->GetRHIHandle());
 
         // Previous-frame bone matrices for per-bone velocity. Both the forward
         // PBR_MultiLight_Skinned (scene FB RT3) and deferred PBR_GBuffer_Skinned
@@ -1311,7 +1324,7 @@ namespace OloEngine
         {
             const glm::mat4* prevBoneMatrices = nullptr;
             if (prevBoneBufferOffset != UINT32_MAX)
-                prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixPtr(prevBoneBufferOffset);
+                prevBoneMatrices = FrameDataBufferManager::Get().GetBoneMatrixRange(prevBoneBufferOffset, static_cast<u32>(count));
 
             // Fall back to current bones whenever the prev stream is missing
             // (sentinel offset OR allocator pointer lookup returned null) so
@@ -1325,6 +1338,8 @@ namespace OloEngine
                 BindUBOIfNeeded(api, ShaderBindingLayout::UBO_ANIMATION_PREV, Data().PrevBoneMatricesUBO->GetRHIHandle());
             }
         }
+
+        return true;
     }
 
     // Array of dispatch functions indexed by CommandType
@@ -1403,7 +1418,7 @@ namespace OloEngine
                     return packet.GetCommandData<DrawMeshCommand>()->occlusionQueryIndex == UINT32_MAX ? 1u : 0u;
                 case CommandType::DrawMeshInstanced:
                     return std::clamp(packet.GetCommandData<DrawMeshInstancedCommand>()->transformCount,
-                                      1u, CommandBucketConfig{}.MaxMeshInstances);
+                                      1u, CommandBucketConfig::kMaxDispatchableMeshInstances);
                 case CommandType::DrawDecal:
                     return Renderer3D::IsDecalVisibilityObserved(packet.GetCommandData<DrawDecalCommand>()->entityID) ? 0u : 1u;
                 case CommandType::DrawQuad:
@@ -2240,7 +2255,12 @@ namespace OloEngine
             // prevBoneBufferOffset uses UINT32_MAX as a sentinel meaning "alias current"
             // (static / first-frame / non-Deferred path) — the helper then skips the second
             // upload and the skinned shader reads the same data for both current and prev.
-            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
+            if (!UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset))
+            {
+                // No palette reached the GPU: drawing now would skin this mesh
+                // with the previous draw's bones.
+                return;
+            }
         }
         else
         {
@@ -2293,7 +2313,12 @@ namespace OloEngine
                 BindShadowTextures(api);
 
             // Bone matrices
-            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset);
+            if (!UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCount, cmd->prevBoneBufferOffset))
+            {
+                // No palette reached the GPU: drawing now would skin this mesh
+                // with the previous draw's bones.
+                return;
+            }
         }
 
         if (cmd->indexCount == 0)
@@ -2438,7 +2463,11 @@ namespace OloEngine
                 BindShadowTextures(api);
 
             // Bone matrices (no-op for non-animated GPU-cull submissions)
-            UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+            if (!UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance,
+                                    cmd->prevBoneBufferOffset))
+            {
+                return;
+            }
 
             if (cmd->indexCount == 0)
             {
@@ -2510,7 +2539,7 @@ namespace OloEngine
         // include/InstanceBlock_Vertex.glsl. The legacy `u_ModelMatrices[]`
         // uniform-array path is dead since the migration off ModelMatrices UBO;
         // no production shader declares those uniforms anymore.
-        constexpr sizet maxInstances = CommandBucketConfig{}.MaxMeshInstances;
+        constexpr sizet maxInstances = CommandBucketConfig::kMaxDispatchableMeshInstances;
         sizet instanceCount = static_cast<sizet>(cmd->transformCount);
         if (instanceCount > maxInstances)
         {
@@ -2584,7 +2613,11 @@ namespace OloEngine
             BindShadowTextures(api);
 
         // Bone matrices
-        UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance);
+        if (!UploadBoneMatrices(api, cmd->isAnimatedMesh, cmd->boneBufferOffset, cmd->boneCountPerInstance,
+                                cmd->prevBoneBufferOffset))
+        {
+            return;
+        }
 
         if (cmd->indexCount == 0)
         {

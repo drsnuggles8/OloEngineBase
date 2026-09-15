@@ -2005,7 +2005,6 @@ namespace OloEngine
         // rerouted to ForwardOverlayPass to avoid aliasing its outputs onto
         // G-Buffer slots.
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
-        static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
         static void AdvanceDecalVisibilityFrame();
         static auto ValidateDrawMeshResources(const char* context, RHI::ResourceHandle vertexArray,
                                               RHI::ResourceHandle shader) -> bool;
@@ -2071,6 +2070,14 @@ namespace OloEngine
         // them; GetGPUOcclusionPass stays private (only SubmitGPUCulledInstanced
         // uses it).
       public:
+        // The pass that owns a render stream's CommandBucket. Public since
+        // issue #1031: proving that skinned auto-batching renders the same
+        // pixels as the unbatched path means toggling THE bucket's own
+        // EnableBatching between two frames of one scene, which needs the pass
+        // the batcher runs on. Returns the engine's own pass object — a caller
+        // outside the renderer should read from it, not restructure it.
+        static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
+
         static GPUFrustumCuller::HZBOcclusionInputs BuildCurrentOcclusionHZB(RHI::ResourceHandle depthTexture,
                                                                              u32 width, u32 height);
         static void DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,
