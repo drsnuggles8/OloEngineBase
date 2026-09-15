@@ -324,6 +324,13 @@ namespace OloEngine::ResourceNames
     inline constexpr std::string_view SceneColorTexture = "SceneColorTexture";       // Live SceneColor RT0 attachment view
     inline constexpr std::string_view SceneEntityID = "SceneEntityID";               // Live SceneColor entity-ID attachment view (RT1)
     inline constexpr std::string_view SceneViewNormals = "SceneViewNormals";         // Live SceneColor view-space normals attachment view (RT2)
+    // Live SceneColor RT4: the skin diffusion hand-off (issue #1241) --
+    // the diffuse half of a skin pixel's lighting plus the profile identity
+    // that should blur it. See include/SkinDiffusionCommon.glsl.
+    inline constexpr std::string_view SceneSkinDiffuse = "SceneSkinDiffuse";
+    // Scratch target for the horizontal half of the separable diffusion.
+    inline constexpr std::string_view SkinDiffusionScratch = "SkinDiffusionScratch";
+    inline constexpr std::string_view SkinDiffusionScratchTexture = "SkinDiffusionScratchTexture";
     inline constexpr std::string_view SceneDepthAttachment = "SceneDepthAttachment"; // Live SceneColor depth attachment view
     inline constexpr std::string_view SceneDepth = "SceneDepth";                     // Semantic scene depth (forward snapshot or deferred G-Buffer depth)
     inline constexpr std::string_view SceneNormals = "SceneNormals";                 // Semantic AO/deferred normals input

@@ -1575,6 +1575,14 @@ namespace OloEngine
             return s_Data.Snow;
         }
 
+        // Skin scattering (issue #1241). Whether the PASS RUNS; whether a given
+        // profile is diffused at all is the profile's own EvaluationModel, and
+        // nothing here overrides that.
+        static SkinDiffusionSettings& GetSkinDiffusionSettings()
+        {
+            return s_Data.SkinDiffusion;
+        }
+
         static FogSettings& GetFogSettings()
         {
             return s_Data.Fog;
@@ -2477,6 +2485,11 @@ namespace OloEngine
             // Post-processing
             PostProcessSettings PostProcess;
             SnowSettings Snow;
+            // Skin scattering (issue #1241). A sibling of Snow rather than a
+            // member of it: the two share a UBO BINDING and nothing else — snow
+            // blurs the combined scene colour through its own alpha mask, skin
+            // diffuses the separated diffuse half through an authored profile.
+            SkinDiffusionSettings SkinDiffusion;
             FogSettings Fog;
             u32 FogFrameIndex = 0;
             // Previous Time::GetTime() samples for the mockable per-frame dt

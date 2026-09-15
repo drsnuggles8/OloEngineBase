@@ -4,8 +4,9 @@ What a `.oloskin` file holds, what units it is in, and how to look at the four o
 surface exposes. Issue #1231; the design decision behind the three separate selectors is
 [ADR 0024](../adr/0024-material-kind-is-not-the-closure-version.md).
 
-Scattering itself is **not** here — that is issue #1241. What this ships is the material/profile
-contract it needs and the separated diffuse/specular outputs it will blur.
+The scattering that consumes this profile is [skin diffusion](skin-diffusion.md) (issue #1241).
+What this page describes is the material/profile contract it reads and the separated
+diffuse/specular outputs it blurs.
 
 ## The three selectors, and why they are three
 
@@ -13,11 +14,12 @@ contract it needs and the separated diffuse/specular outputs it will blur.
 |---|---|---|
 | `MaterialKind` | What is this surface? `Generic` / `Snow` / `Skin` | Material inspector → **Material Kind** |
 | `PBRModel` | Which version of the closure evaluates it? `Legacy` / `Closure V2` | Material inspector → **PBR Model** |
-| `SkinEvaluationModel` | Which version of the skin transport was this profile authored against? | The `.oloskin` file's `EvaluationModel` |
+| `SkinEvaluationModel` | Which version of the skin transport was this profile authored against? | The `.oloskin` file's `EvaluationModel` — 0 = split only, 1 = with diffusion |
 
 They are independent. A skin material shades with either closure version; correcting a BRDF does
-not change what a surface is; and #1241 will ship a new transport version without touching a single
-material's kind.
+not change what a surface is; and #1241 shipped its transport version (`ScreenSpaceDiffusion`, 1)
+without touching a single material's kind — a profile stays at 0 until an author moves it, and no
+renderer setting overrides that.
 
 ## Authoring a profile
 

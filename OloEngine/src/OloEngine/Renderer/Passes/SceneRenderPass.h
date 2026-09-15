@@ -52,6 +52,19 @@ namespace OloEngine
                      FramebufferTextureFormat::RG16F,       // [2] view-space normals (octahedral, SSAO input)
                      FramebufferTextureFormat::RG16F,       // [3] screen-space velocity (forward-path TAA input;
                                                             //     unused in Deferred, which reads G-Buffer RT3)
+                     // [4] the DIFFUSION HAND-OFF (issue #1241): the diffuse half
+                     // of a skin pixel's lighting in .rgb, the identity of the
+                     // profile that should blur it in .a. Zero everywhere else,
+                     // and every shader that renders into this framebuffer WRITES
+                     // it -- an MRT output left alone is undefined, not zero. See
+                     // include/SkinDiffusionCommon.glsl.
+                     //
+                     // It costs a full-resolution RGBA16F for every frame, skin
+                     // or no skin, and that is the honest price of the attachment
+                     // being part of the scene framebuffer: the alternative is a
+                     // per-draw draw-buffer switch keyed on material kind, which
+                     // is a state change per draw against 16 MB at 1080p.
+                     FramebufferTextureFormat::RGBA16F,
                      FramebufferTextureFormat::Depth };
         }
 

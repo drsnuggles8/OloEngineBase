@@ -149,17 +149,40 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 
 ## 4. MRT output (forward pass)
 
-All forward-rendered geometry outputs **four render targets**:
+All forward-rendered geometry outputs **five render targets**:
 
 ```glsl
 layout(location = 0) out vec4 o_Color;       // RGBA16F — final shaded color
 layout(location = 1) out int  o_EntityID;    // R32I   — entity ID for editor picking
 layout(location = 2) out vec2 o_ViewNormal;  // RG16F  — octahedral view-space normal (SSAO input)
 layout(location = 3) out vec2 o_Velocity;    // RG16F  — screen-space motion vector (TAA / motion blur)
+layout(location = 4) out vec4 o_SkinDiffuse; // RGBA16F — skin diffusion hand-off (issue #1241)
 ```
 
 Omitting `o_EntityID` breaks editor selection. Omitting `o_ViewNormal` breaks SSAO.
 Omitting `o_Velocity` ghosts moving objects under TAA and drops per-object motion blur.
+
+**Omitting `o_SkinDiffuse` puts GARBAGE on the screen.** An MRT output a shader leaves alone is
+*undefined*, not zero — so a shader that renders into the scene framebuffer and does not write
+location 4 hands `SkinDiffusion.glsl` whatever was in the register, and that gets blurred and added
+into scene colour. Every shader that renders into the scene framebuffer writes it, and one that
+never shades skin writes the "no diffusion here" code:
+
+```glsl
+o_SkinDiffuse = vec4(0.0);
+```
+
+Write it **first in `main()`** if the shader has a `return` before its other outputs are assigned
+(`Decal.glsl` does). A shader that `discard`s needs nothing: a discarded fragment writes no
+attachment at all.
+
+A shader that CAN shade skin fills it through `oloSkinDiffusionOutput` (include/PBRCommon.glsl);
+`PBR_MultiLight{,_Skinned}.glsl` are the worked examples. The encoding is in
+`include/SkinDiffusionCommon.glsl` and the feature is [skin-diffusion.md](../guides/skin-diffusion.md).
+
+The `Renderer2D_*` shaders are the exception, and only because `UICompositeRenderPass` binds them a
+three-attachment draw-buffer list — an output not in the bound list goes nowhere. Do not take that
+as licence: a new shader in the SCENE pass writes all five.
 
 Octahedral encoding for normals:
 

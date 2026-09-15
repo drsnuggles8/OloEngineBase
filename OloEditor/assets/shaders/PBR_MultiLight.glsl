@@ -427,6 +427,14 @@ layout(location = 2) out vec2 o_ViewNormal;
 // PostProcessRenderPass binds it as u_Velocity for TAA in Forward /
 // Forward+ (Deferred reads G-Buffer RT3 instead).
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the DIFFUSE half of a skin pixel's lighting, handed to the
+// screen-space diffusion pass (issue #1241). Zero on every other surface, and on
+// a skin surface whose profile is authored against transport version 0. Scene
+// colour above still carries the whole composite -- the diffusion pass adds
+// `blur(this) - this` -- so a frame with the pass culled is the #1231 frame.
+// See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 // Octahedral encode: unit normal → RG16F [-1,1]²
 vec2 octEncode(vec3 n)
@@ -767,6 +775,19 @@ void main()
     if (snowWeight > 0.001)
         o_Color.a = snowWeight;
     o_EntityID = u_EntityID;
+
+    // The diffusion hand-off (issue #1241). `lighting` is the split from #1231
+    // with the profile's specular tint already applied to the other half, which
+    // is exactly the state the diffusion pass wants: the diffuse half alone,
+    // before it was summed into `color` above.
+    o_SkinDiffuse = oloSkinDiffusionOutput(lighting, u_MaterialKind, u_SkinEvaluationModel,
+                                           u_SkinProfileSlot,
+                                           oloSkinScatteringMask(u_MaterialKind, metallic));
+    // Snow REPLACES the shaded colour rather than adding to it (the mix above),
+    // so a snow-covered skin pixel's diffuse half is no longer in scene colour
+    // and subtracting it would darken the snow. Hand over nothing there.
+    if (snowWeight > 0.001)
+        o_SkinDiffuse = vec4(0.0);
 
     vec3 outputN = N;
     if (snowWeight > 0.001)

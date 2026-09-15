@@ -47,6 +47,19 @@ namespace OloEngine
         // needs, delivered without restating a pixel.
         DiffuseSpecularSplit = 0,
 
+        // What #1241 ships: everything version 0 does, plus the DIFFUSE half is
+        // diffused across the surface in screen space by a Burley normalized
+        // diffusion kernel built from ScatterColor and ScatterRadiusMM, while
+        // the specular half is recombined untouched. See
+        // Renderer/SkinDiffusion.h for the maths and
+        // docs/guides/skin-diffusion.md for its limits.
+        //
+        // A profile stays at version 0 until an author moves it. That is the
+        // whole reason the version exists: turning diffusion on is an authoring
+        // act per profile, not a renderer setting that restates every scene —
+        // the renderer setting only decides whether the pass RUNS.
+        ScreenSpaceDiffusion = 1,
+
         Count
     };
 
@@ -58,6 +71,8 @@ namespace OloEngine
         {
             case SkinEvaluationModel::DiffuseSpecularSplit:
                 return "DiffuseSpecularSplit";
+            case SkinEvaluationModel::ScreenSpaceDiffusion:
+                return "ScreenSpaceDiffusion";
             case SkinEvaluationModel::Count:
                 break;
         }

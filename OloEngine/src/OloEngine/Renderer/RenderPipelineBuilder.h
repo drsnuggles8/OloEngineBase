@@ -48,6 +48,7 @@ namespace OloEngine
         RenderGraphNode* Particle = nullptr;
         RenderGraphNode* OITPrepare = nullptr;
         RenderGraphNode* OITResolve = nullptr;
+        RenderGraphNode* SkinDiffusion = nullptr;
         RenderGraphNode* SSS = nullptr;
         RenderGraphNode* AOApply = nullptr;
         RenderGraphNode* SSGI = nullptr;

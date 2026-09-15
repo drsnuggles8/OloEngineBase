@@ -44,6 +44,7 @@
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSRRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
+#include "OloEngine/Renderer/Passes/SkinDiffusionPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UpscalerRenderPass.h"
@@ -67,6 +68,9 @@ namespace OloEngine
 
     struct Renderer3D::PostProcessPassChain
     {
+        // Screen-space skin diffusion (issue #1241). Before SSS in the
+        // chain and unrelated to it -- that one is snow's wrap-lighting blur.
+        Ref<SkinDiffusionPass> SkinDiffusion;
         Ref<SSSRenderPass> SSS;
         Ref<AOApplyRenderPass> AOApply;
         Ref<SSGIRenderPass> SSGI;

@@ -10,6 +10,26 @@ namespace OloEngine::RenderPipelineBuilderInternal
     {
         OLO_CORE_ASSERT(inputs.Passes, "RegisterTransparencyAndAONodes requires pass inputs");
 
+        // Skin diffusion (issue #1241) runs FIRST in this group, and the
+        // position is load bearing in both directions:
+        //
+        //   * it must be AFTER every opaque scene-colour writer, because it
+        //     diffuses the lit diffuse half of a skin pixel and that half does
+        //     not exist until the lighting has run — forward geometry or the
+        //     deferred lighting pass, both of which are in the earlier group.
+        //   * it must be BEFORE the transparents, so a pane of glass or a
+        //     particle in front of a face composites over the DIFFUSED head
+        //     rather than being smeared into it. Those passes also write the
+        //     scene framebuffer's skin-diffuse attachment (with zero, since
+        //     nothing but skin has a diffusion hand-off), so running after them
+        //     would additionally mean reading an attachment they had already
+        //     cleared.
+        //
+        // It is registered unconditionally and culls itself: the pass claims no
+        // resources when its scratch target was not declared, and skips both
+        // draws when no authored profile in the frame asks to be diffused.
+        graph.AddNode(PrepareGraphNode("SkinDiffusionPass", inputs.Passes->SkinDiffusion));
+
         // OIT pass ordering:
         //   OITPreparePass must run BEFORE any OIT contributor (Particle,
         //   Decal) so the accum/revealage attachments are cleared and the

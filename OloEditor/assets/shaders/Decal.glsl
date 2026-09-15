@@ -56,6 +56,13 @@ layout(location = 1) out int EntityID;
 // inherit a mild ghosting penalty under TAA but that's a rare case and
 // cheaper than per-decal prev-depth tracking).
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
+// diffusion pass (issue #1241). This surface never shades skin, so it writes the
+// "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
+// alone is undefined, not zero, and SkinDiffusion.glsl would blur the garbage
+// into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 #include "include/CameraCommon.glsl"
 
@@ -77,6 +84,11 @@ layout(binding = 19) uniform sampler2D u_SceneDepth;
 
 void main()
 {
+    // Written FIRST, because this main() has a `return` before the other
+    // outputs are assigned (the MCP receiver-intersection query below). An
+    // MRT output a shader leaves alone is undefined, not zero (#1241).
+    o_SkinDiffuse = vec4(0.0);
+
     // Reconstruct screen UV from clip-space position
     vec2 screenUV = (v_ClipPos.xy / v_ClipPos.w) * 0.5 + 0.5;
 
