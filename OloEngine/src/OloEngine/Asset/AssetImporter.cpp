@@ -75,6 +75,7 @@ namespace OloEngine
         serializers[AssetType::Volume] = CreateScope<VolumeSerializer>();
         serializers[AssetType::Tileset] = CreateScope<TilesetSerializer>();
         serializers[AssetType::SkinProfile] = CreateScope<SkinProfileSerializer>();
+        serializers[AssetType::Groom] = CreateScope<GroomSerializer>();
     }
 
     void AssetImporter::Shutdown()

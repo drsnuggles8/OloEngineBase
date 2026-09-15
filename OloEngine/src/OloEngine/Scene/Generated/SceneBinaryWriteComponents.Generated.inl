@@ -368,6 +368,21 @@ if (entity.HasComponent<FootIKComponent>())
     SceneBinIO::Write(out, comp.RightHandEnabled);
 }
 
+if (entity.HasComponent<GroomComponent>())
+{
+    SceneBinIO::WriteU32(out, 2551117928u); // GroomComponent
+    auto const& comp = entity.GetComponent<GroomComponent>();
+    SceneBinIO::Write(out, comp.m_Groom);
+    SceneBinIO::Write(out, comp.m_RootMarkerSize);
+    SceneBinIO::Write(out, comp.m_MaxPreviewStrands);
+    SceneBinIO::Write(out, comp.m_ShowPreview);
+    SceneBinIO::Write(out, comp.m_ShowStrands);
+    SceneBinIO::Write(out, comp.m_ShowRoots);
+    SceneBinIO::Write(out, comp.m_ShowDirection);
+    SceneBinIO::Write(out, comp.m_ColorByGroup);
+    SceneBinIO::Write(out, comp.m_GuidesOnly);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent

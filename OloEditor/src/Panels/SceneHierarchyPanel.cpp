@@ -21,6 +21,8 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/VolumeAsset.h"
+#include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/SoundConfigAsset.h"
@@ -2188,6 +2190,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
+            DisplayAddComponentEntry<GroomComponent>("Groom");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -7756,6 +7759,180 @@ namespace OloEngine
                                   "The cluster DAG must carry UV2, which only exists after the "
                                   "bake's unwrap, so a mesh with a pre-cooked virtual blob has to "
                                   "be re-imported before it can receive baked GI.");
+            } });
+
+        // Groom curve preview (issue #1232). The panel's job here is to make
+        // the STATIC DEBUG PREVIEW steerable and to report what the groom
+        // actually contains — an import that dropped its root UVs or its
+        // guides is invisible unless the counts are on screen.
+        DrawComponent<GroomComponent>("Groom", entity, [](auto& component)
+                                      {
+            const std::string groomLabel = component.m_Groom != 0
+                ? "Groom: " + std::to_string(static_cast<u64>(component.m_Groom))
+                : "Groom: <none - drag a .ologroom here>";
+            ImGui::Button(groomLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::Groom)
+                        {
+                            component.m_Groom = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a Groom (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // What the asset holds, and where it came from. Provenance is an
+            // acceptance criterion of #1232 precisely because a cooked groom
+            // that cannot name its source is unmaintainable.
+            if (component.m_Groom != 0)
+            {
+                if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(component.m_Groom))
+                {
+                    ImGui::SeparatorText("Contents");
+                    ImGui::Text("Curves: %u   Points: %u", groom->GetCurveCount(), groom->GetPointCount());
+                    ImGui::Text("Groups: %u   Guides: %u", groom->GetGroupCount(), groom->GetGuideCount());
+                    ImGui::Text("Basis: %s", std::string(ToString(groom->GetBasis())).c_str());
+                    const glm::vec3& boundsMin = groom->GetBoundsMin();
+                    const glm::vec3& boundsMax = groom->GetBoundsMax();
+                    ImGui::Text("Bounds: (%.3f, %.3f, %.3f) - (%.3f, %.3f, %.3f)",
+                                boundsMin.x, boundsMin.y, boundsMin.z, boundsMax.x, boundsMax.y, boundsMax.z);
+                    ImGui::Text("CPU memory: %.2f MiB",
+                                static_cast<f64>(groom->GetCpuMemoryBytes()) / (1024.0 * 1024.0));
+
+                    const GroomProvenance& provenance = groom->GetProvenance();
+                    ImGui::SeparatorText("Provenance");
+                    ImGui::TextWrapped("Source: %s", provenance.SourcePath.empty() ? "<unrecorded>"
+                                                                                   : provenance.SourcePath.c_str());
+                    ImGui::Text("Format: %s   Importer v%u",
+                                provenance.SourceFormat.empty() ? "<unrecorded>" : provenance.SourceFormat.c_str(),
+                                provenance.ImporterVersion);
+                    ImGui::Text("Source hash: 0x%016llX",
+                                static_cast<unsigned long long>(provenance.SourceContentHash));
+
+                    if (groom->GetGroupCount() > 0)
+                    {
+                        ImGui::SeparatorText("Groups");
+                        for (u32 group = 0; group < groom->GetGroupCount(); ++group)
+                        {
+                            const glm::vec3 color = GroomGroupColor(group);
+                            // The same colour the viewport uses, so a group in
+                            // the list can be found on screen by eye.
+                            ImGui::ColorButton(("##groomGroup" + std::to_string(group)).c_str(),
+                                               ImVec4(color.r, color.g, color.b, 1.0f),
+                                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                                               ImVec2(14.0f, 14.0f));
+                            ImGui::SameLine();
+                            ImGui::Text("%s  (%u curves)", groom->GetGroupNames()[group].c_str(),
+                                        groom->GetGroupRanges()[group].CurveCount);
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("The referenced groom asset did not load - see OloEngine.log for the reason "
+                                       "the .ologroom was rejected.");
+                    ImGui::PopStyleColor();
+                }
+            }
+
+            ImGui::SeparatorText("Debug preview");
+            ImGui::Checkbox("Show Preview", &component.m_ShowPreview);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Static debug visualization only. Hair SHADING is a separate feature (#1246); "
+                                  "this draws debug lines so an import can be checked by eye.");
+            }
+            ImGui::Checkbox("Strands", &component.m_ShowStrands);
+            ImGui::SameLine();
+            ImGui::Checkbox("Roots", &component.m_ShowRoots);
+            ImGui::Checkbox("Direction Ramp", &component.m_ShowDirection);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Draws each strand dark at the ROOT and bright at the TIP. A groom imported "
+                                  "tip-first still looks like hair; this is what makes the reversal visible.");
+            }
+            ImGui::SameLine();
+            ImGui::Checkbox("Color By Group", &component.m_ColorByGroup);
+            ImGui::Checkbox("Guides Only", &component.m_GuidesOnly);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Draw only the curves marked as guides. A production groom is millions of strands "
+                                  "and a few hundred guides, so this is the only way to look at them.");
+            }
+
+            int maxStrands = static_cast<int>(component.m_MaxPreviewStrands);
+            if (ImGui::DragInt("Max Strands", &maxStrands, 16.0f, 1, 200000))
+            {
+                component.m_MaxPreviewStrands = static_cast<u32>(std::clamp(maxStrands, 1, 200000));
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Every drawn segment is one debug-line command packet, and one entry of the "
+                                  "frame's shared 65536-transform buffer. Above this count the preview SUBSAMPLES "
+                                  "with a fixed stride, so the visible subset still spans the whole groom rather "
+                                  "than showing only its first strands. A dense groom can be held below this "
+                                  "number by the segment budget instead (GroomPreviewSettings::MaxSegments), which "
+                                  "is why raising this may change nothing.");
+            }
+
+            // What the preview will ACTUALLY draw with the current settings.
+            // Without this, a groom held back by the segment budget looks like
+            // a broken import: "Max Strands 2000" with 667 strands on screen
+            // and nothing saying why. PlanGroomPreview is pure — it decides the
+            // stride and draws nothing — so recomputing it here costs nothing
+            // and cannot disagree with what the viewport does.
+            if (component.m_Groom != 0)
+            {
+                if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(component.m_Groom))
+                {
+                    GroomPreviewSettings settings;
+                    settings.ShowStrands = component.m_ShowStrands;
+                    settings.ShowRoots = component.m_ShowRoots;
+                    settings.ShowDirection = component.m_ShowDirection;
+                    settings.ColorByGroup = component.m_ColorByGroup;
+                    settings.GuidesOnly = component.m_GuidesOnly;
+                    settings.MaxStrands = component.m_MaxPreviewStrands;
+                    settings.RootMarkerSize = component.m_RootMarkerSize;
+
+                    const GroomPreviewStats plan = PlanGroomPreview(*groom, settings);
+                    const u32 willDraw = (plan.Stride > 0)
+                                             ? ((plan.StrandsAvailable + plan.Stride - 1u) / plan.Stride)
+                                             : 0u;
+                    ImGui::Text("Drawing %u of %u strands (every %u%s)", willDraw, plan.StrandsAvailable,
+                                plan.Stride, plan.Stride == 1u ? "" : "th");
+                    if (plan.SegmentBudgetLimited)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::TextWrapped("Held back by the SEGMENT budget, not by Max Strands: every debug line "
+                                           "takes one entry of the frame's shared transform buffer. Raising Max "
+                                           "Strands will not draw more; turn off Roots, or preview fewer groups.");
+                        ImGui::PopStyleColor();
+                    }
+                }
+            }
+
+            ImGui::DragFloat("Root Marker Size", &component.m_RootMarkerSize, 0.001f, 0.0f, 10.0f, "%.4f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("World units. The preview never goes below a bounds-relative size, so 0 means "
+                                  "scale it to the groom.");
             } });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)

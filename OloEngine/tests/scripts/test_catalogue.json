@@ -59,6 +59,7 @@
     "OloEngine/tests/Rendering/PropertyTests/StarNestSkyBakeTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/StarNestSkyVisualTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp": "L8",
+    "OloEngine/tests/Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/OceanFFTVisualEvidenceTest.cpp": "L8",
     "OloEngine/tests/Rendering/PropertyTests/UnderwaterCausticsVisualTest.cpp": "L8",

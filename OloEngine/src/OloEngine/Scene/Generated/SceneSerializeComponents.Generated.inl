@@ -433,6 +433,23 @@ if (entity.HasComponent<FootIKComponent>())
     out << YAML::EndMap; // FootIKComponent
 }
 
+if (entity.HasComponent<GroomComponent>())
+{
+    out << YAML::Key << "GroomComponent";
+    out << YAML::BeginMap; // GroomComponent
+    auto const& comp = entity.GetComponent<GroomComponent>();
+    out << YAML::Key << "Groom" << YAML::Value << static_cast<u64>(comp.m_Groom);
+    out << YAML::Key << "RootMarkerSize" << YAML::Value << comp.m_RootMarkerSize;
+    out << YAML::Key << "MaxPreviewStrands" << YAML::Value << comp.m_MaxPreviewStrands;
+    out << YAML::Key << "ShowPreview" << YAML::Value << comp.m_ShowPreview;
+    out << YAML::Key << "ShowStrands" << YAML::Value << comp.m_ShowStrands;
+    out << YAML::Key << "ShowRoots" << YAML::Value << comp.m_ShowRoots;
+    out << YAML::Key << "ShowDirection" << YAML::Value << comp.m_ShowDirection;
+    out << YAML::Key << "ColorByGroup" << YAML::Value << comp.m_ColorByGroup;
+    out << YAML::Key << "GuidesOnly" << YAML::Value << comp.m_GuidesOnly;
+    out << YAML::EndMap; // GroomComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";

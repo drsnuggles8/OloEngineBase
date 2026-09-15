@@ -55,9 +55,9 @@ namespace OloEngine::Tests
         };
 
         // Walk every declared enum value via static_cast loop. The
-        // current top is `SkinProfile = 43`; if more get added,
+        // current top is `Groom = 44`; if more get added,
         // bumping this is the only maintenance.
-        constexpr u16 kMaxKnownValue = 43;
+        constexpr u16 kMaxKnownValue = 44;
 
         std::vector<AssetType> uncovered;
         for (u16 raw = 1; raw <= kMaxKnownValue; ++raw)

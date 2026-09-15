@@ -397,6 +397,17 @@ static void BuildRegistryChunk5(std::vector<ComponentFieldEntry>& registry)
 // GoapAgentComponent
 registry.push_back(OLO_VSF_FIELD(GoapAgentComponent, "Enabled", Enabled, Bool));
 
+// GroomComponent
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "Groom", m_Groom, Asset));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "MaxPreviewStrands", m_MaxPreviewStrands, Int, OLO_VSF_BOUND(1), OLO_VSF_BOUND(200000)));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowPreview", m_ShowPreview, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowStrands", m_ShowStrands, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowRoots", m_ShowRoots, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowDirection", m_ShowDirection, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "ColorByGroup", m_ColorByGroup, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "GuidesOnly", m_GuidesOnly, Bool));
+
 // IKTargetComponent
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex, Int));
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimTarget", AimTarget, Vec3));
@@ -447,6 +458,10 @@ registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "IsShop", IsShop, Bool)
 registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "LootTableID", LootTableID, String));
 registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "HasBeenLooted", HasBeenLooted, Bool));
 
+}
+
+static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
+{
 // ItemPickupComponent
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "Item.InstanceID", Item.InstanceID, Entity));
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "Item.ItemDefinitionID", Item.ItemDefinitionID, String));
@@ -457,10 +472,6 @@ registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "PickupRadius", PickupRadi
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup, Bool));
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer, Float));
 
-}
-
-static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
-{
 // LODGroupComponent
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias, Float));
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "Enabled", m_Enabled, Bool));
@@ -518,6 +529,10 @@ registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "Offset", m_Offset, Ve
 registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "Scale", m_Scale, Vec3));
 registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "UseComplexAsSimple", m_UseComplexAsSimple, Bool));
 
+}
+
+static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
+{
 // MeshComponent
 registry.push_back(OLO_VSF_FIELD(MeshComponent, "Primitive", m_Primitive, Int));
 registry.push_back(OLO_VSF_FIELD(MeshComponent, "LightmapStatic", m_LightmapStatic, Bool));
@@ -541,10 +556,6 @@ registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarColor", m_ManaBarCo
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "BarBackgroundColor", m_BarBackgroundColor, Vec4));
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarGap", m_ManaBarGap, Float));
 
-}
-
-static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
-{
 // NavAgentComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Height", m_Height, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));

@@ -89,6 +89,14 @@ add_executable(OloEngine-Tests
 		TilemapTest.cpp
 		TilesetSerializerTest.cpp
 		SkinProfileTest.cpp
+		# Groom curve assets (#1232). The round-trip and determinism cases are the
+		# issue's acceptance criteria; the Alembic-dependent halves self-guard on
+		# OLO_WITH_ALEMBIC so the files compile with the option off.
+		Groom/GroomRoundTripTest.cpp
+		Groom/GroomCookDeterminismTest.cpp
+		Groom/GroomRejectionTest.cpp
+		Groom/GroomReferenceAssetsTest.cpp
+		Groom/GroomPreviewTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -558,6 +566,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClusteredLightingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp

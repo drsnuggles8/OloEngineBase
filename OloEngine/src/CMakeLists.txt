@@ -195,6 +195,8 @@
 		# always in the source list and compiles to an empty TU when its dependency is off.
 		"OloEngine/Asset/Interchange/Alembic/AlembicMeshImporter.h"
 		"OloEngine/Asset/Interchange/Alembic/AlembicMeshImporter.cpp"
+		"OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+		"OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.cpp"
 		"OloEngine/Asset/Interchange/MaterialX/MaterialXMaterialReader.h"
 		"OloEngine/Asset/Interchange/MaterialX/MaterialXMaterialReader.cpp"
 		"OloEngine/Asset/Interchange/USD/UsdMeshImporter.h"
@@ -204,6 +206,18 @@
 		"OloEngine/Asset/VolumeAsset.h"
 		"OloEngine/Asset/Serializers/VolumeSerializer.cpp"
 		"OloEngine/Serialization/VolumeBinaryFormat.h"
+		# Groom curve assets (#1232). The cooked .ologroom reader is here and needs no
+		# Alembic; the ICurves importer above is the only Alembic-gated part.
+		"OloEngine/Groom/GroomAsset.h"
+		"OloEngine/Groom/GroomAsset.cpp"
+		"OloEngine/Groom/GroomBuilder.h"
+		"OloEngine/Groom/GroomBuilder.cpp"
+		"OloEngine/Groom/GroomCooker.h"
+		"OloEngine/Groom/GroomCooker.cpp"
+		"OloEngine/Groom/GroomPreview.h"
+		"OloEngine/Groom/GroomPreview.cpp"
+		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
+		"OloEngine/Serialization/GroomBinaryFormat.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

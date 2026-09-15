@@ -16,6 +16,8 @@
 #include "SceneLightmapGather.h"
 #include "SystemScheduler.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Tilemap/TilemapRenderer.h"
 #include "OloEngine/Tilemap/TilemapColliderBuilder.h"
@@ -12280,6 +12282,53 @@ namespace OloEngine
                         glm::vec3(0.2f, 0.6f, 1.0f) // Blue color for audio
                     );
                 }
+            }
+        }
+
+        // Draw groom curve previews (issue #1232). This is the acceptance
+        // target of that issue, not a convenience gizmo: an imported groom has
+        // no shading yet (#1246/#1247), so the debug lines ARE how import
+        // correctness is checked. Under ShowComponentGizmos like every other
+        // component visualisation, so a capture can turn it off.
+        if (editorDebugEnabled && editorDebug.ShowComponentGizmos)
+        {
+            auto view = m_Registry.view<TransformComponent, GroomComponent>();
+            for (auto entity : view)
+            {
+                const auto& [tc, groomComponent] = view.get<TransformComponent, GroomComponent>(entity);
+                if (!groomComponent.m_ShowPreview || groomComponent.m_Groom == 0)
+                {
+                    continue;
+                }
+
+                // Resolve through GetAsset alone, NOT behind IsAssetHandleValid:
+                // that predicate asks the asset REGISTRY, and a memory-only
+                // groom (one built at runtime, or by a test) is in the manager's
+                // memory-asset map and in no registry at all. Gating on it made
+                // every runtime-created groom silently invisible.
+                auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
+                if (!groom)
+                {
+                    continue; // the asset manager already logged the miss
+                }
+
+                GroomPreviewSettings settings;
+                settings.ShowStrands = groomComponent.m_ShowStrands;
+                settings.ShowRoots = groomComponent.m_ShowRoots;
+                settings.ShowDirection = groomComponent.m_ShowDirection;
+                settings.ColorByGroup = groomComponent.m_ColorByGroup;
+                settings.GuidesOnly = groomComponent.m_GuidesOnly;
+                settings.MaxStrands = groomComponent.m_MaxPreviewStrands;
+                settings.RootMarkerSize = groomComponent.m_RootMarkerSize;
+
+                // Deliberately no per-frame logging here: this runs once per
+                // groom per frame, and a TRACE in a render loop is a log flood
+                // rather than a diagnostic. The same numbers are reported in
+                // the editor's Groom inspector, which is where someone
+                // wondering "why is my groom thinned out?" is actually looking
+                // — PlanGroomPreview is pure and cheap enough for the panel to
+                // recompute them.
+                (void)DrawGroomPreview(*groom, tc.GetTransform(), settings);
             }
         }
 

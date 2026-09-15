@@ -486,6 +486,22 @@ case 1414616508u: // FootIKComponent
     if (!SceneBinIO::Read(reader, comp.RightHandEnabled)) return false;
     break;
 }
+case 2551117928u: // GroomComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Groom)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RootMarkerSize)) return false;
+    comp.m_RootMarkerSize = std::clamp(comp.m_RootMarkerSize, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxPreviewStrands)) return false;
+    comp.m_MaxPreviewStrands = std::clamp(comp.m_MaxPreviewStrands, static_cast<u32>(1), static_cast<u32>(200000));
+    if (!SceneBinIO::Read(reader, comp.m_ShowPreview)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ShowStrands)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ShowRoots)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ShowDirection)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ColorByGroup)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_GuidesOnly)) return false;
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

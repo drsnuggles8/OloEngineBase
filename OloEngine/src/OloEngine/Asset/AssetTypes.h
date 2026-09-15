@@ -64,13 +64,20 @@ namespace OloEngine
         // MaterialKind::Skin material names. See
         // OloEngine/src/OloEngine/Renderer/SkinProfile.h.
         SkinProfile = 43,
+        // Cooked hair/fur groom curves (issue #1232) — the engine-native
+        // .ologroom produced from an Alembic ICurves archive at import time.
+        // See OloEngine/src/OloEngine/Groom/GroomAsset.h. The SOURCE .abc maps
+        // to MeshSource for polygon archives; a curve archive is routed to this
+        // type by AlembicGroomImporter, because polygon Alembic import is not
+        // curve support.
+        Groom = 44,
     };
 
-    // If AssetType grows past SkinProfile, bump kMaxKnownValue in
+    // If AssetType grows past Groom, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::SkinProfile) == 43,
-                  "AssetType::SkinProfile moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::Groom) == 44,
+                  "AssetType::Groom moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -224,6 +231,8 @@ namespace OloEngine
                     return "Tileset";
                 case AssetType::SkinProfile:
                     return "SkinProfile";
+                case AssetType::Groom:
+                    return "Groom";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -327,6 +336,8 @@ namespace OloEngine
                 return AssetType::Tileset;
             if (assetType == "SkinProfile")
                 return AssetType::SkinProfile;
+            if (assetType == "Groom")
+                return AssetType::Groom;
 
             return AssetType::None;
         }

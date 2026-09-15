@@ -50,6 +50,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
 - [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md): keep OpenVDB editor-only; derive the grid transform without hand-transposing; extend every exhaustive `switch`.
+- [groom-curve-import.md](groom-curve-import.md): polygon Alembic import is not curve support; reject malformed curve data instead of clamping it; the cook canonicalises and never resamples.
 - [incremental-build-odr-staleness.md](incremental-build-odr-staleness.md): when a correct fix makes no sense live, suspect a stale incremental object before the code.
 - [pch-masked-missing-includes.md](pch-masked-missing-includes.md): a header must include what it uses even when the build is green; the PCH hides the omission on Windows and only the Linux jobs name it.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not
@@ -323,6 +324,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) | Three of five traps are silent, including a port option that never applied and one that switched on and killed TSan. |
 | [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin. |
 | [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) | A fog volume rendered as a solid box through every non-VDB-aware evaluator. |
+| [groom-curve-import.md](groom-curve-import.md) | Authored groom intent, when an unknown attribute is ignored rather than refused; and byte-identical cooks, to one unstable sort. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Event pushes, when the notification carrier was swapped instead of run beside the old one. |
 | [steamworks-platform-integration.md](steamworks-platform-integration.md) | The whole feature, when the SDK path is one level too high; the build succeeds with Steam off. |
 | [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A DLL copy step for the test executable, on the first configure only. |
