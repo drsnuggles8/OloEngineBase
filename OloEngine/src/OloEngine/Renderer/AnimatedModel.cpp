@@ -883,21 +883,31 @@ namespace OloEngine
 
         OLO_CORE_TRACE("AnimatedModel::ProcessMesh: Set {} bone influences on MeshSource", meshSource->GetBoneInfluences().Num());
 
-        // Copy bone info in correct skeleton order
-        meshSource->GetBoneInfo().SetNum(static_cast<i32>(m_Skeleton->m_BoneNames.size()));
-
-        // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
-        for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
+        // Copy bone info in correct skeleton order.
+        //
+        // Guarded, unlike the three lines that used to dereference m_Skeleton unconditionally
+        // right after the null check above. ProcessSkeleton leaves m_Skeleton null for a
+        // source with no bones, and this importer accepts any file: an unrigged mesh loaded
+        // through it (an AnimationStateComponent pointed at a static .obj, say) crashed here
+        // rather than loading as an unskinned mesh. A source with no skeleton has no bone
+        // info to write, which is what the empty table below says.
+        if (m_Skeleton)
         {
-            meshSource->GetBoneInfo()[static_cast<i32>(i)] = { glm::mat4(1.0f), static_cast<u32>(i) };
-        }
+            meshSource->GetBoneInfo().SetNum(static_cast<i32>(m_Skeleton->m_BoneNames.size()));
 
-        // Overwrite entries with actual bone data from m_BoneInfoMap
-        for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
-        {
-            if (static_cast<i32>(boneInfo.Id) < meshSource->GetBoneInfo().Num())
+            // Initialize all entries with identity transforms and sequential IDs to ensure no uninitialized data
+            for (sizet i = 0; i < m_Skeleton->m_BoneNames.size(); ++i)
             {
-                meshSource->GetBoneInfo()[boneInfo.Id] = { boneInfo.Offset, boneInfo.Id };
+                meshSource->GetBoneInfo()[static_cast<i32>(i)] = { glm::mat4(1.0f), static_cast<u32>(i) };
+            }
+
+            // Overwrite entries with actual bone data from m_BoneInfoMap
+            for (const auto& [boneName, boneInfo] : m_BoneInfoMap)
+            {
+                if (static_cast<i32>(boneInfo.Id) < meshSource->GetBoneInfo().Num())
+                {
+                    meshSource->GetBoneInfo()[boneInfo.Id] = { boneInfo.Offset, boneInfo.Id };
+                }
             }
         }
 
