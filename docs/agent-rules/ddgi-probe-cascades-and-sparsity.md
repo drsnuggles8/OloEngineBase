@@ -129,8 +129,9 @@ Consequences that are easy to undo by accident:
   were never expected to be captured. `UncapturedLive` reaching a non-zero fixed point is the signal;
   `CascadeFieldIsTemporallyStableFromAFixedPose` asserts it before it measures anything else.
 * `ReadbackProbeDiagnostics()` must not mutate scheduling state. It deliberately does **not** copy the
-  GPU's captured flag back into `ProbeRecord::Captured`: a diagnostic that edits the scheduler makes
-  "look at the probe table" change what the next frame does.
+  GPU's captured flag into the CPU-owned `ProbeRecord::CaptureCount` that `Captured()` derives from:
+  a diagnostic that edits the scheduler makes "look at the probe table" change what the next frame
+  does.
 
 ## 6. The spring relocation is a feedback loop, so its step size is a stability parameter
 
