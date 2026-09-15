@@ -36,11 +36,12 @@
 // measure this test takes.
 //
 // Evidence PNGs (written before any assertion):
-//   OloEditor/assets/tests/visual/SkinDiffusion_{Forward,ForwardPlus,Deferred}.png
-//   OloEditor/assets/tests/visual/SkinDiffusionOff_{Forward,ForwardPlus,Deferred}.png
-//   OloEditor/assets/tests/visual/SkinDiffusion_Deferred_Oblique.png
-//   OloEditor/assets/tests/visual/SkinDiffusionOff_Deferred_Oblique.png
-//   OloEditor/assets/tests/visual/SkinDiffusion_VersionZero_Deferred.png
+// Evidence PNGs, named <Feature>_<Backend>_<Path>[_<Angle>].png so an unrun cell
+// is a missing FILE (docs/process/task-loop.md 2a). GL only -- this fixture needs
+// a GL 4.6 context, so the Vulkan cells come from the live editor, not from here:
+//   OloEditor/assets/tests/visual/SkinDiffusion{,Off}_GL_{Forward,ForwardPlus,Deferred}.png
+//   OloEditor/assets/tests/visual/SkinDiffusion{,Off}_GL_Deferred_Oblique.png
+//   OloEditor/assets/tests/visual/SkinDiffusion_GL_Deferred_VersionZero.png
 //
 // Classification: L8 (full Scene pipeline on all three raster paths, RGBA8
 // readback + PNG; SKIPs cleanly without a GL 4.6 context).
@@ -414,8 +415,13 @@ namespace OloEngine::Tests
 
         void ExpectDiffusionOnPath(RenderingPath path, const char* pathName)
         {
-            const std::string offName = std::string("SkinDiffusionOff_") + pathName;
-            const std::string onName = std::string("SkinDiffusion_") + pathName;
+            // <Feature>_<Backend>_<Path>.png (task-loop.md 2a). The backend is
+            // GL and always will be: this fixture needs a real GL 4.6 context and
+            // skips without one, so it can never produce the Vulkan cells. Naming
+            // it says that out loud -- a reviewer counting files sees that Vulkan
+            // is not covered here and has to come from the live editor.
+            const std::string offName = std::string("SkinDiffusionOff_GL_") + pathName;
+            const std::string onName = std::string("SkinDiffusion_GL_") + pathName;
 
             Capture off;
             Capture on;
@@ -525,15 +531,15 @@ namespace OloEngine::Tests
 
         Capture off;
         Capture on;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_Deferred_Oblique", off));
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_Deferred_Oblique", on));
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_GL_Deferred_Oblique", off));
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_GL_Deferred_Oblique", on));
 
         const f32 offPeak = PeakLuma(off);
         ASSERT_GT(offPeak, 0.05f) << "the oblique view shows no lit sphere; see "
-                                  << VisualOutputPath("SkinDiffusionOff_Deferred_Oblique").string();
+                                  << VisualOutputPath("SkinDiffusionOff_GL_Deferred_Oblique").string();
         EXPECT_NEAR(PeakLuma(on), offPeak, 0.06f)
             << "the oblique view's peak moved — the highlight is being spread; see "
-            << VisualOutputPath("SkinDiffusion_Deferred_Oblique").string();
+            << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
 
         // The whole-frame steepest gradient must not RISE: a screen-space filter
         // that ran off its guards at a grazing angle introduces edges rather
@@ -544,7 +550,7 @@ namespace OloEngine::Tests
         ASSERT_GT(offAll.MaxGradient, 0.02f) << "the oblique control frame has no edges in it at all";
         EXPECT_LE(onAll.MaxGradient, offAll.MaxGradient * 1.02f)
             << "the oblique view got a HARDER edge than it started with (" << offAll.MaxGradient << " -> "
-            << onAll.MaxGradient << "); see " << VisualOutputPath("SkinDiffusion_Deferred_Oblique").string();
+            << onAll.MaxGradient << "); see " << VisualOutputPath("SkinDiffusion_GL_Deferred_Oblique").string();
     }
 
     TEST_F(SkinDiffusionScene, AVersionZeroProfileIsNotDiffusedWithTheRendererSwitchOn)
@@ -554,18 +560,18 @@ namespace OloEngine::Tests
         // frame. If a renderer setting could restate an authored head, every
         // scene in the project would change the day this feature shipped.
         Capture withDiffusingProfile;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_Deferred_Control", withDiffusingProfile));
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_GL_Deferred_Control", withDiffusingProfile));
 
         auto& material = m_Sphere.GetComponent<MaterialComponent>().m_Material;
         material.SetSkinProfileHandle(m_LegacyProfile);
 
         Capture withLegacyProfile;
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_VersionZero_Deferred",
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinDiffusion_GL_Deferred_VersionZero",
                                  withLegacyProfile));
 
         Capture undiffused;
         material.SetSkinProfileHandle(m_DiffusingProfile);
-        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_Deferred_Control", undiffused));
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinDiffusionOff_GL_Deferred_Control", undiffused));
 
         const f32 terminatorCx = FindTerminatorX(undiffused);
         const BoxStats legacyTerminator = MeasureBox(withLegacyProfile, terminatorCx, kBoxCy, kBoxHalfW, kBoxHalfH);
@@ -582,6 +588,6 @@ namespace OloEngine::Tests
 
         EXPECT_NEAR(legacyTerminator.MaxGradient, offTerminator.MaxGradient, offTerminator.MaxGradient * 0.03f)
             << "a version-0 profile was diffused by the renderer switch; see "
-            << VisualOutputPath("SkinDiffusion_VersionZero_Deferred").string();
+            << VisualOutputPath("SkinDiffusion_GL_Deferred_VersionZero").string();
     }
 } // namespace OloEngine::Tests

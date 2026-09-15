@@ -66,15 +66,79 @@ bug this section is about.
 Confirm success by the target artifact existing, **and** by a zero exit — neither alone. Never
 attach a truncating filter to a command whose side effects matter.
 
-Then, per `CLAUDE.md`:
+### 2a. The verification matrix — run every cell, or name the one you didn't
 
-- **Rendering / visual change** — CPU or contract tests are *not* sufficient. Capture screenshot
-  evidence from multiple angles and **look at the images**. For live-editor inspection, the
-  `run-oloengine` skill's `attach` action starts the editor with the MCP diagnostics server;
-  `olo_screenshot`, `olo_camera_*`, `olo_render_capture_target` and `olo_shader_errors` let you
-  inspect the real frame and intermediate buffers. Write access needs **both**
-  `OLO_MCP_AUTOSTART=1` and `OLO_MCP_ALLOW_WRITES=1` set *before* launch — the second is read
-  inside the autostart block, so exporting it against a running editor does nothing.
+**A change with more than one execution path is verified on every one of them.** Not the one the
+feature is implemented for; every path a user can reach it through. The HANDOVER names the axes for
+your task (see `/start-work` step 5a); if it does not, derive them and say so.
+
+The axes, by subsystem — these are the common ones, not a closed list:
+
+| subsystem | axes |
+|---|---|
+| renderer / anything visual | `{OpenGL, Vulkan}` × `{Forward, Forward+, Deferred}`, plus MSAA / upscale / resolution where the change plausibly reaches them |
+| serialization | `{scene YAML, asset pack, save-game}` |
+| scripting | `{C#, Lua}` |
+| physics | `{Box2D 2D, Jolt 3D}` |
+| assets | `{loose, cooked}` |
+
+**Why this exists, stated as the failure it prevents.** #1241 shipped its first PR with OpenGL
+verified and Vulkan not run. The rule was already written in `CLAUDE.md`, in the agent's memory,
+*and* in that task's own HANDOVER — three places — and the cell was still skipped, then disclosed in
+the PR body as "not yet verified". Writing the gap down is not the same as closing it, and a
+disclosure at reporting time is too late to be a decision. The same correction had been made once
+before, on #708. So the rule is not repeated here as prose: it is attached to two artefacts that
+make an unrun cell **visible**, below.
+
+**Forcing function 1 — the evidence filename IS the cell.**
+
+```
+<Feature>_<Backend>_<Path>[_<Angle>].png        e.g. SkinDiffusion_GL_Deferred_Oblique.png
+<Feature>Off_<Backend>_<Path>[_<Angle>].png     the A/B control
+```
+
+A cell you did not run is a **file that is not in the diff** — visible in `git status`, visible to
+the reviewer, and needing no tooling to notice. Headless evidence tests can only ever produce the
+`GL` cells (they need a real GL 4.6 context and skip without one), and naming them `_GL_` is the
+point: it says out loud that the Vulkan cells are *not* covered by the test suite and have to come
+from the live editor.
+
+**Forcing function 2 — the PR body carries the matrix.** One row per cell, each citing its evidence.
+The Phase 6 exit gate refuses to pass on a blank row. See 2b.
+
+### 2b. Live-editor verification, per cell
+
+CPU or contract tests are *not* sufficient for a visual change. Capture from multiple angles and
+**look at the images** — an assertion that passes on a frame with nothing in it is the normal
+failure here, not an exotic one.
+
+The `run-oloengine` skill's `attach` action starts the editor with the MCP diagnostics server;
+`olo_screenshot`, `olo_camera_*`, `olo_render_capture_target` and `olo_shader_errors` inspect the
+real frame and intermediate buffers. Write access needs **both** `OLO_MCP_AUTOSTART=1` and
+`OLO_MCP_ALLOW_WRITES=1` set *before* launch — the second is read inside the autostart block, so
+exporting it against a running editor does nothing.
+
+Per-backend mechanics worth knowing before you conclude anything:
+
+- **Vulkan needs `-Rhi vulkan`**, and `[RHI] Backend: Vulkan (source: --rhi flag)` in
+  `OloEditor/OloEngine.log` is the only proof it took. A Vulkan **pass-suite test** passing is not
+  this: the suite drives one pass through a synthetic graph, the editor exercises the real frame
+  graph, resource pooling and backend state transitions.
+- **`attach -Rhi vulkan` can time out and still succeed.** The driver waits 120 s for the MCP
+  discovery file; a cold Vulkan shader cache takes longer. The throw is the *driver* giving up, not
+  the editor — check for a live `OloEditor` process and poll
+  `%TEMP%\oloengine-mcp-<port>.json` before relaunching.
+- **`olo_shader_errors` cannot answer on Vulkan.** `ShaderDebugger::Initialize()` does not run
+  there, and the tool says so (`status: notInitialized`) rather than returning a zero that would be
+  a guess. Grep the log for `[error]` and `VUID` instead.
+- **Prefer a measured A/B to an eyeball.** `olo_render_toggle_pass` flips a feature in place;
+  capture both frames and diff them. "61 000 pixels differ, max delta 89/255" is a result; "it
+  looks about the same" is not, and a few-pixel-wide effect looks about the same either way.
+
+**A failure that names a pass you touched is attributed, not assumed.** Shaders are runtime assets,
+so restoring the base commit's copy of a shared include and re-running costs no rebuild; for C++,
+build a probe with the one suspect line reverted. Byte-identical failure values across that A/B
+exonerate your change in minutes and are worth far more than an argument.
 - **New or renamed test `.cpp`** — classify it (`// OLO_TEST_LAYER:` comment preferred) or
   pre-commit blocks the commit.
 - Before concluding "it drew nothing" or "the change had no effect", check
@@ -327,6 +391,32 @@ You may **not** report the task done while any of these is false:
 
 4. The self-review (Phase 3) covers the **current** head — if you pushed fixes after it, re-review
    the new commits and post an updated summary.
+5. **The verification matrix in the PR body has no blank rows.** Every cell the task's axes
+   (Phase 2a) produce is either
+
+   - **run**, citing the evidence that proves it — an artefact filename for a captured cell, a
+     measurement for a live one; or
+   - **explicitly not run, with a reason that is a fact about the world**: no hardware, the
+     feature is unreachable on that path, the backend does not implement it. "Ran out of time",
+     "assumed equivalent" and "the other path covers it" are not reasons — the first two are the
+     omission restated and the third is a claim about behaviour, which is what the cell was going
+     to test.
+
+   Disclosing an unrun cell in prose does **not** satisfy this. The gap has to be in the table,
+   where it is counted.
+
+A matrix row looks like this — the Vulkan/Deferred row is the one that matters, because it is the
+cell nobody would have noticed was missing:
+
+```
+| backend | path      | evidence                          | result              |
+|---------|-----------|-----------------------------------|---------------------|
+| GL      | Forward   | SkinDiffusion_GL_Forward.png      | 54 258 px, max 86   |
+| GL      | Deferred  | SkinDiffusion_GL_Deferred.png     | 31 002 px, max 84   |
+| Vulkan  | Forward   | live A/B, log 0 errors            | 52 301 px, max 88   |
+| Vulkan  | Deferred  | live A/B, log 10 pre-existing VUID| 29 856 px, max 41   |
+| Vulkan  | Forward+  | NOT RUN — no reason               | <- gate fails here  |
+```
 
 "CI green and mergeable" never means done while a thread is open. The one legitimate exception is
 a thread CodeRabbit posted against your final push that hasn't landed yet: name it explicitly and
