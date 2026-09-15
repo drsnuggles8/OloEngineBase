@@ -76,6 +76,13 @@ layout(location = 1) out int EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 // Scene FB RT3 velocity — grid is world-static, so NDC delta = camera motion.
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
+// diffusion pass (issue #1241). This surface never shades skin, so it writes the
+// "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
+// alone is undefined, not zero, and SkinDiffusion.glsl would blur the garbage
+// into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection;
@@ -139,6 +146,11 @@ float ComputeLinearDepth(vec3 pos) {
 }
 
 void main() {
+    // Written FIRST, because this main() only reaches its other outputs
+    // inside the `t > 0.0` branch below. An MRT output a shader leaves
+    // alone is undefined, not zero (#1241).
+    o_SkinDiffuse = vec4(0.0);
+
     // Calculate t for ray-plane intersection (Y = 0 plane)
     float t = -v_NearPoint.y / (v_FarPoint.y - v_NearPoint.y);
 

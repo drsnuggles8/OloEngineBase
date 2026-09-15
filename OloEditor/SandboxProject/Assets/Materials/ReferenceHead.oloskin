@@ -3,16 +3,20 @@ SkinProfile:
   # The VERSION of the skin transport this profile was authored against — NOT
   # the material's kind, and NOT its PBR closure version. The three are separate
   # selectors on purpose; see docs/adr/0024-material-kind-is-not-the-closure-version.md.
-  # 0 = DiffuseSpecularSplit, which is what the engine evaluates today.
-  EvaluationModel: 0
+  # 0 = DiffuseSpecularSplit (what #1231 shipped), 1 = ScreenSpaceDiffusion
+  # (#1241): the diffuse half is diffused across the surface by the Burley
+  # kernel built from ScatterColor and ScatterRadiusMM below, and the specular
+  # half is recombined untouched. Moving a profile from 0 to 1 is an AUTHORING
+  # act, which is why it is a number in this file and not a renderer switch.
+  EvaluationModel: 1
   Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
   # Transport albedo: the fraction of light entering the surface that leaves it
   # again rather than being absorbed. Red survives, blue does not.
   ScatterColor: [0.85, 0.55, 0.45]
   # Per-channel mean free path in MILLIMETRES. A mid-tone dermis: red travels
-  # roughly 1.5 mm, blue barely leaves the epidermis. Consumed by the diffusion
-  # that issue #1241 adds; carried and validated here so the authored numbers
-  # exist before the maths that reads them.
+  # roughly 1.5 mm, blue barely leaves the epidermis. Read by the diffusion
+  # (Renderer/SkinDiffusion.h): these become the Burley scaling `d` per channel,
+  # and the widest channel's 99.5% support is what becomes a screen-space radius.
   ScatterRadiusMM: [1.55, 0.8, 0.55]
   # Takes the material's authored thickness (metres, per glTF KHR_materials_volume)
   # into the millimetre space of the radii above. 1000 is the identity.

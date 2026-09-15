@@ -210,6 +210,15 @@ layout(binding = 69) uniform sampler2D u_GBufferBakedGI;
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
+// The DIFFUSION HAND-OFF (issue #1241), bound to scene-colour attachment 4.
+//
+// LOCATION 1, NOT 4: a fragment output's location indexes the DRAW BUFFER LIST,
+// not the attachment number, and DeferredLightingPass binds {attachment 0,
+// attachment 4} for this draw -- it writes into the middle of the scene
+// framebuffer and must not touch entity IDs, view normals or velocity, which the
+// G-Buffer pass already filled. The forward shaders, whose pass binds all five
+// in order, spell the same target as location 4.
+layout(location = 1) out vec4 o_SkinDiffuse;
 
 #include "include/DeferredLightingShared.glsl"
 
@@ -219,6 +228,9 @@ void main()
     if (depth >= 0.999999)
     {
         o_Color = vec4(texture(u_GBufferEmissive, v_TexCoord).rgb, 1.0);
+        // Sky. No surface, so no subsurface transport -- but the target still
+        // has to be WRITTEN, because an MRT output left alone is undefined.
+        o_SkinDiffuse = vec4(0.0);
         return;
     }
 
@@ -262,7 +274,8 @@ void main()
     // which the ladder reads as "no baked GI" and falls through to probes/IBL.
     vec4 bakedGI = texture(u_GBufferBakedGI, v_TexCoord);
 
-    vec3 color = ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissive, worldPos, bakedGI);
+    vec3 color = ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissive,
+                                         worldPos, bakedGI, o_SkinDiffuse);
 
     o_Color = vec4(color, 1.0);
 }

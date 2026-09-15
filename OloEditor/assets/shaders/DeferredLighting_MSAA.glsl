@@ -165,6 +165,15 @@ layout(binding = 69) uniform sampler2DMS u_GBufferBakedGI;
 
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 0) out vec4 o_Color;
+// The DIFFUSION HAND-OFF (issue #1241), bound to scene-colour attachment 4.
+//
+// LOCATION 1, NOT 4: a fragment output's location indexes the DRAW BUFFER LIST,
+// not the attachment number, and DeferredLightingPass binds {attachment 0,
+// attachment 4} for this draw -- it writes into the middle of the scene
+// framebuffer and must not touch entity IDs, view normals or velocity, which the
+// G-Buffer pass already filled. The forward shaders, whose pass binds all five
+// in order, spell the same target as location 4.
+layout(location = 1) out vec4 o_SkinDiffuse;
 
 #include "include/DeferredLightingShared.glsl"
 
@@ -191,6 +200,9 @@ void main()
         for (int s = 0; s < sampleCount; ++s)
             emissiveSum += texelFetch(u_GBufferEmissive, pixel, s).rgb;
         o_Color = vec4(emissiveSum / float(sampleCount), 1.0);
+        // All sky. No surface, so no subsurface transport -- but the target
+        // still has to be WRITTEN: an MRT output left alone is undefined.
+        o_SkinDiffuse = vec4(0.0);
         return;
     }
 
@@ -199,6 +211,10 @@ void main()
     // samples fell outside geometry still anti-alias correctly against
     // the sky / background emissive.
     vec3 accum = vec3(0.0);
+    // The diffusion hand-off accumulates per sample exactly as the colour does,
+    // so a silhouette pixel hands over the average of the samples that ARE skin
+    // rather than whichever sample happened to be last (issue #1241).
+    vec4 skinDiffuseAccum = vec4(0.0);
     for (int s = 0; s < sampleCount; ++s)
     {
         float depth = texelFetch(u_GBufferDepth, pixel, s).r;
@@ -232,9 +248,21 @@ void main()
 
         vec4 bakedGI = texelFetch(u_GBufferBakedGI, pixel, s);
 
-        accum += ComputeDeferredLit(albedo, metallic, N, roughness, ao, emissiveFlags, worldPos, bakedGI);
+        vec4 sampleSkinDiffuse;
+        accum += ComputeDeferredLitSplit(albedo, metallic, N, roughness, ao, emissiveFlags,
+                                         worldPos, bakedGI, sampleSkinDiffuse);
+        skinDiffuseAccum += sampleSkinDiffuse;
     }
 
     vec3 color = accum / float(sampleCount);
     o_Color = vec4(color, 1.0);
+    // The RADIANCE averages, but the SLOT lane does not: it is an identity, and
+    // the mean of two slot codes is a third code nobody wrote. Take the code the
+    // accumulated lane rounds to -- that is the slot a majority of the samples
+    // carried, and "no diffusion" when none did.
+    skinDiffuseAccum /= float(sampleCount);
+    int resolvedSlot = oloSkinDiffusionSlot(skinDiffuseAccum.a);
+    o_SkinDiffuse = (resolvedSlot >= OLO_SKIN_DIFFUSE_SLOT_NONE)
+                        ? vec4(0.0)
+                        : vec4(skinDiffuseAccum.rgb, oloSkinDiffusionEncodeSlot(resolvedSlot));
 }

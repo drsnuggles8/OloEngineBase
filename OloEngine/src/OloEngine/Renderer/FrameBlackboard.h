@@ -58,10 +58,14 @@ namespace OloEngine
         // -----------------------------------------------------------------------
         struct SceneSlot
         {
-            RGFramebufferHandle SceneColor;       // HDR scene framebuffer (RGBA16F + editor/depth MRT attachments)
-            RGTextureHandle SceneColorTexture;    // Live SceneColor RT0 attachment view
-            RGTextureHandle SceneEntityID;        // Live SceneColor RT1 entity-ID attachment view
-            RGTextureHandle SceneViewNormals;     // Live SceneColor RT2 view-space normals attachment view
+            RGFramebufferHandle SceneColor;    // HDR scene framebuffer (RGBA16F + editor/depth MRT attachments)
+            RGTextureHandle SceneColorTexture; // Live SceneColor RT0 attachment view
+            RGTextureHandle SceneEntityID;     // Live SceneColor RT1 entity-ID attachment view
+            RGTextureHandle SceneViewNormals;  // Live SceneColor RT2 view-space normals attachment view
+            // Live SceneColor RT4 (issue #1241): the diffuse half of a skin
+            // pixel's lighting plus the identity of the profile that should
+            // blur it. Written by every lit pass, read by SkinDiffusionPass.
+            RGTextureHandle SkinDiffuse;
             RGTextureHandle SceneDepthAttachment; // Live SceneColor depth attachment view
             RGTextureHandle SceneDepth;           // Semantic scene depth (forward snapshot texture, deferred attachment view, or deferred MSAA resolve view)
             RGTextureHandle SceneNormals;         // Semantic AO/deferred normals input (forward snapshot, deferred attachment view, or deferred MSAA resolve view)
@@ -343,8 +347,15 @@ namespace OloEngine
 
         struct PostProcessSlot
         {
-            RGFramebufferHandle SSSColor;        // Full-resolution SSS output when the blur stage is enabled and ready
-            RGTextureHandle SSSColorTexture;     // Color attachment view of SSSColor
+            RGFramebufferHandle SSSColor;    // Full-resolution SSS output when the blur stage is enabled and ready
+            RGTextureHandle SSSColorTexture; // Color attachment view of SSSColor
+            // Scratch target for the HORIZONTAL half of the separable skin
+            // diffusion (issue #1241). Declared only when the pass can
+            // actually run, so a scene with no skin pays no full-resolution
+            // RGBA16F for it. NOT a scene-band OUTPUT: the diffusion adds
+            // into scene colour in place, so nothing downstream rebinds.
+            RGFramebufferHandle SkinDiffusionScratch;
+            RGTextureHandle SkinDiffusionScratchTexture;
             RGFramebufferHandle AOApplyColor;    // After AO apply (only valid when SSAO or GTAO is enabled)
             RGTextureHandle AOApplyColorTexture; // Color attachment view of AOApplyColor
             RGFramebufferHandle SSGIColor;       // After SSGI composite (only valid when SSGI is enabled, deferred path)

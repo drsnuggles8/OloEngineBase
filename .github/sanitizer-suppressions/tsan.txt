@@ -79,37 +79,36 @@ race:JPH::UVec4::sLoadInt4
 # library, so a genuine engine-side race still reports normally.
 called_from_lib:libgallium
 
-# ── RADV's own driver threads (libvulkan_radeon), not engine code ─────────────
-# Same family as libgallium above, different driver — and it reaches the job the
-# note above used to call driver-free. ShaderCompileBudgetTest builds every
-# compute shader on a **RADV null device** (the compile-budget guard added
-# 2026-09-12), which loads libvulkan_radeon regardless of
-# --olo-gl-backend=none. So the routed TSan job has run driver code ever since
-# that test landed; this suppression is the gap that opened then.
+# ── Mesa's RADV Vulkan driver, same category as libgallium above ─────────────
+# The libgallium rule's rationale ends "the routed TSan job passes
+# --olo-gl-backend=none and never loads a driver". That stopped being true on
+# 2026-09-12: ShaderCompileBudget.EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudget
+# (9286bc412) brings up a RADV NULL DEVICE to compile every .comp, so the routed
+# TSan job now does load a Vulkan driver — a different Mesa library from the GL
+# one, so the existing rule does not cover it.
 #
-# RADV spawns its own shader-disk-cache workers ('OloEngi:disk$1', 'disk$2') and
-# tears them down through a pthread_barrier it owns. TSan reports
-# pthread_barrier_destroy on one of those threads racing pthread_barrier_wait on
-# another:
+# RADV spawns its own disk-cache worker threads ('OloEngi:disk$0', 'disk$1') and
+# synchronises them with a pthread_barrier it allocates on the CALLER's stack.
+# libvulkan_radeon is not instrumented, so TSan cannot see that synchronisation
+# and reports the teardown as a race:
 #
-#   Write of size 1 by thread T6:    #0 pthread_barrier_destroy
-#                                    #1 (libvulkan_radeon.so+0x2a3860)
-#   Previous read of size 1 by T57:  #0 pthread_barrier_wait
-#                                    #1 (libvulkan_radeon.so+0x2a479c)
+#   Write of size 1 by thread T62:  pthread_barrier_destroy <- libvulkan_radeon.so+0x2a3860
+#   Previous read      by thread T2: pthread_barrier_wait    <- libvulkan_radeon.so+0x2a479c
+#   Location is stack of main thread.
 #
-# BOTH racing accesses are inside the driver. The engine appears in neither —
-# only as the caller that created the null device
-# (ShaderCompileBudgetTest.cpp:508). It is the driver's barrier, on the driver's
-# threads, during the driver's teardown, and the driver is not instrumented, so
-# TSan cannot see whatever orders those two. Timing-dependent, hence
-# intermittent: master is green on this same shard, and it surfaced on a PR that
-# changed only the shard's composition (66 added test cases reshuffle ctest
-# sharding). First seen: PR #1292, Sanitizers run 34984922536,
-# 'TSan (Linux) tests 1/4', ShaderCompileBudget.*.
+# EVERY frame below the interceptor is <null> inside libvulkan_radeon; no engine
+# frame is a racing access — the test appears only as the caller that brought the
+# device up. Intermittent, because it needs the barrier teardown to overlap a
+# still-waiting worker: PR #1291 hit it on TSan shard 4/4 while PR #1287 passed
+# the same shard on the same test in the same window. With halt_on_error=1 one
+# report aborts the whole ctest case, and it records NO gtest failure — the
+# results XML is clean and only the job's exit code (8) shows it, which is what
+# makes this one expensive to diagnose from the summary alone.
 #
-# called_from_lib for the same reason as libgallium: the racing frames ARE the
-# pthread interceptors and carry no symbol of their own, so there is no
-# race:<symbol> to scope this to.
+# called_from_lib, not a race: rule, for the same reason as libgallium: the
+# racing frames ARE the interceptors (pthread_barrier_*) and carry no symbol of
+# their own. Scoped to the one library, so a genuine engine-side race still
+# reports normally.
 #
 # Know what this DOES cost, because the rule is blunter than the report that
 # motivated it. called_from_lib suppresses EVERY interceptor call originating
@@ -121,5 +120,6 @@ called_from_lib:libgallium
 #
 # Narrow this to race:/race_top: if a Vulkan-path engine race is ever suspected
 # of hiding behind it. It stays library-scoped for now because the driver's
-# barrier frames carry no symbol to match on.
+# barrier frames carry no symbol to match on. Also seen on PR #1292, Sanitizers
+# run 34984922536, 'TSan (Linux) tests 1/4'.
 called_from_lib:libvulkan_radeon

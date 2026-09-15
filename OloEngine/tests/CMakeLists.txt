@@ -88,6 +88,7 @@ add_executable(OloEngine-Tests
 		${_olo_component_round_trip_src}
 		TilemapTest.cpp
 		TilesetSerializerTest.cpp
+		SkinDiffusionTest.cpp
 		SkinProfileTest.cpp
 		# Groom curve assets (#1232). The round-trip and determinism cases are the
 		# issue's acceptance criteria; the Alembic-dependent halves self-guard on
@@ -242,6 +243,7 @@ add_executable(OloEngine-Tests
 		Asset/LightmapAssetSerializationTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
+		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageImpostorShaderInterfaceTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
@@ -261,6 +263,7 @@ add_executable(OloEngine-Tests
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
+		Rendering/PropertyTests/GPUSceneAnimatedRecordPropertyTests.cpp
 		Rendering/PropertyTests/GPUScenePropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneLayoutTest.cpp
 		Rendering/PropertyTests/GPUSceneGpuTest.cpp
@@ -269,6 +272,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GPUSceneEnvironmentAndLifecyclePropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneLightAdapterTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationTest.cpp
+		Rendering/PropertyTests/AnimatedGPUSceneEvidenceTest.cpp
+		Rendering/PropertyTests/AnimatedGPUSceneConcurrentRecordingTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationEvidenceTest.cpp
 		Rendering/PropertyTests/ModelComponentGPUSceneEvidenceTest.cpp
 		Rendering/PropertyTests/GPUSceneAntiDuplicationRatchetTest.cpp
@@ -529,6 +534,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SphereAreaLightVisualTest.cpp
 		Rendering/PropertyTests/MaterialLabVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClosureV2DeferredParityEvidenceTest.cpp
+		Rendering/PropertyTests/SkinDiffusionEvidenceTest.cpp
 		Rendering/PropertyTests/SkinProfileParityEvidenceTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
@@ -547,6 +553,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/VirtualGeometryVisualEvidenceTest.cpp
 		Rendering/PropertyTests/SubmeshMaterialPathParityTest.cpp
 		Rendering/PropertyTests/ModelWarmCacheGeometryIdentityTest.cpp
+		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
@@ -616,6 +623,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushParityTest.cpp
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp

@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 5
+    // .omesh Binary Mesh Format — Version 8
     //
     // Layout:
     //   [FileHeader]
@@ -74,11 +74,25 @@ namespace OloEngine
         // transmissive glTF keeps its warm cache and renders OPAQUE, with no
         // error anywhere. ReadTimestamp gates validity on Version ==
         // CurrentVersion (strict), so moving it forces one cold re-import.
-        constexpr u32 CurrentVersion = 7; // v7: invalidates v6 for the #970 material fields
+        // v8 appends no section either. It adds the FlagSourceRigged header bit below and
+        // exists to INVALIDATE every v7 cache, which cannot carry it. The bit is what lets a
+        // WARM cache answer "was this source file rigged?" without re-parsing the source
+        // (issue #1272); a v7 file reads back with the bit clear, which is
+        // indistinguishable from an honest "not rigged" -- so every rigged mesh already
+        // imported down the static path would stay unskinned forever. ReadTimestamp gates
+        // validity on Version == CurrentVersion (strict), so moving it forces one cold
+        // re-import.
+        constexpr u32 CurrentVersion = 8; // v8: adds FlagSourceRigged, invalidates v7 (#1272)
 
         constexpr u32 MinSupportedVersion = 1;
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
+        // v8+ (issue #1272): the SOURCE FILE this cache was built from contained bones.
+        // Distinct from "this file has a BoneInfluence section" -- a rigged source imported
+        // down the STATIC path writes no influences at all, and without this bit the cache
+        // cannot say so. AssimpMeshImporter reads it from the header alone to route the
+        // next load to the importer that extracts bones.
+        constexpr u32 FlagSourceRigged = 4;
 
         // ── Safety caps for deserialized counts (defence against corrupt files) ──
         constexpr u32 MaxVertexCount = 50'000'000;

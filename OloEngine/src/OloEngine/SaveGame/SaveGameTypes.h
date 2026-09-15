@@ -126,7 +126,14 @@ namespace OloEngine
     //      which is the pre-#1231 behaviour exactly. The kind is a discriminated
     //      value: an out-of-range one REJECTS to Generic rather than saturating
     //      onto a valid neighbour.
-    static constexpr u32 kSaveGameFormatVersion = 31;
+    // v32: FoliageLayer gained its authored-plant-mesh near field (#1233) —
+    //      UseAuthoredMesh plus the MeshViewDistance / MeshFadeStartDistance
+    //      hand-over band. v31 and older saves stop before them and keep the
+    //      defaults, which draw the mesh (MeshPath already round-tripped since
+    //      the impostor work) with the default 22-30 m band. Both distances are
+    //      validated finite and ordered on load: they feed a smoothstep in the
+    //      vertex stage, where a NaN silently drops the layer's geometry.
+    static constexpr u32 kSaveGameFormatVersion = 32;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

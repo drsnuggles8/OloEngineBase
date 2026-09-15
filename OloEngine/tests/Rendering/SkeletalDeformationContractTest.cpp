@@ -27,6 +27,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Animation/SkeletalDeformation.h"
+#include "OloEngine/Animation/SkeletonData.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <gtest/gtest.h>
@@ -40,6 +41,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -496,6 +498,25 @@ namespace OloEngine::Tests
                 << "a deformation history reset cause has no name, so every reset attributed to "
                    "it is indistinguishable from an engine bug in the statistics panel";
         }
+    }
+
+    // SkeletonData.h mirrors three DeformationHistoryResetCause ordinals as
+    // plain u8 constants so that a header every skinned consumer includes does
+    // not pull the Animation history system in behind it (issue #1228). A
+    // mirror is only safe while somebody checks it: reorder the enum and every
+    // record's DeformationResetCause silently starts naming a different cause,
+    // which is a diagnostic that lies rather than one that fails.
+    TEST(SkeletalDeformationContract, SkeletonDataMirrorsTheResetCauseOrdinals)
+    {
+        using Animation::DeformationHistoryResetCause;
+        EXPECT_EQ(kCauseNone, static_cast<u8>(DeformationHistoryResetCause::None));
+        EXPECT_EQ(kCauseFirstUse, static_cast<u8>(DeformationHistoryResetCause::FirstUse));
+        EXPECT_EQ(kCauseBoneCountChanged, static_cast<u8>(DeformationHistoryResetCause::BoneCountChanged));
+
+        // The width, too: SkeletonData stores the cause in a u8 and the record
+        // widens it to u32. An enum that grew past 255 causes would truncate.
+        static_assert(std::is_same_v<std::underlying_type_t<DeformationHistoryResetCause>, u8>,
+                      "SkeletonData::m_DeformationResetCause stores this enum as a u8");
     }
 
 } // namespace OloEngine::Tests

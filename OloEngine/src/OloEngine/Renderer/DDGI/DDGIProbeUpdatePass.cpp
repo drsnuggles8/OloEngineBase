@@ -54,15 +54,16 @@ namespace OloEngine
         // GPU, so the CPU cannot see whether a probe actually moved — it
         // schedules a FIXED number of follow-up captures instead and lets the
         // spring converge. The alternative, reading the offset back to decide,
-        // is precisely the readback this issue removes.
+        // is precisely the readback that issue removes.
         //
-        // TWO, not the 4 the old adaptive rule used as its ceiling. As a FIXED
-        // count every probe pays it, so 4 would triple the warm-up capture cost
-        // for the many probes that need none at all (an unconstrained probe's
-        // spring decays to zero on the first evaluation). The spring's step is
-        // 0.35 of the residual, so two refinements close ~75% of the gap, and
-        // the periodic refresh closes the rest without a dedicated schedule.
-        constexpr u8 kMaxRelocationIterations = 2;
+        // The schedule itself — how many captures, which tier each is in,
+        // and which of them may move the probe — is DDGI::RelocationStepForCapture
+        // in DDGICommon.h, alongside the tier enum it returns and with its own
+        // contract test. It lives there, and not next to either of its two call
+        // sites here, because having the scheduler and the executor each derive
+        // their half of the answer separately is exactly how they came to
+        // disagree (issue #1279).
+        using DDGI::kRelocationWarmupCaptures;
 
         // Work-group sizes, mirroring the local_size declarations in the
         // compute shaders. A mismatch is a silent under-dispatch (probes at
@@ -78,14 +79,15 @@ namespace OloEngine
         // Bit flags mirroring DDGI_PASS_FLAG_* in include/DDGIPassData.glsl.
         constexpr i32 kPassFlagCascadeShifted = 1;
         constexpr i32 kPassFlagDepthValid = 2;
-        // The "this capture is a periodic refresh" flag is PER PROBE and lives in
-        // DDGIPassDataUBO::CaptureSet[i].y (DDGI_RELOCATE_ENTRY_REFRESH), not here:
+        // The "this capture must not move the probe" flag is PER PROBE and lives
+        // in DDGIRelocateParamsUBO::CaptureSet[i].y, not here:
         // since #846 one dispatch relocates a whole capture set, and such a set
         // mixes settled probes with probes still converging. Bit 4 of the
         // pass-flag word is therefore retired rather than reused.
         //
-        // Mirrors DDGI_RELOCATE_ENTRY_REFRESH in include/DDGIPassData.glsl.
-        constexpr i32 kRelocateEntryRefresh = 1;
+        // Mirrors DDGI_RELOCATE_ENTRY_HOLD_POSITION in
+        // include/DDGIRelocateParams.glsl.
+        constexpr i32 kRelocateEntryHoldPosition = 1;
 
         // The DDGI pass-local per-draw / per-dispatch block now lives in
         // UBOStructures (ShaderBindingLayout.h) rather than here, so
@@ -450,7 +452,7 @@ namespace OloEngine
         sizet captured = 0;
         for (const auto& r : m_Records)
         {
-            if (r.Captured)
+            if (r.Captured())
             {
                 ++captured;
             }
@@ -525,7 +527,7 @@ namespace OloEngine
             rec.State = static_cast<DDGI::ProbeState>(std::clamp<i32>(static_cast<i32>(a.State), 0, 2));
             rec.BounceWeightSum = a.BounceWeightSum;
             rec.BounceHitCount = static_cast<i32>(a.BounceHitCount);
-            // `Captured` is CPU-OWNED and deliberately NOT overwritten from
+            // `CaptureCount` is CPU-OWNED and deliberately NOT overwritten from
             // a.Flags here. A diagnostic that edited the capture scheduler's
             // state would make "look at the probe table" change what the next
             // frame does — and the two sides cannot drift anyway: both derive
@@ -1035,16 +1037,16 @@ namespace OloEngine
         //
         //    COVERAGE BEFORE REFINEMENT, and the order matters more since #707:
         //    an uncaptured probe contributes NOTHING to the gather, while a
-        //    probe awaiting a relocation refinement is already contributing —
+        //    probe still in the relocation warm-up is already contributing —
         //    slightly off, but contributing. Putting refinement first let the
         //    first captured batch hold the entire budget for its follow-up
-        //    passes, which multiplies the time to full coverage by
-        //    kMaxRelocationIterations.
+        //    passes, which multiplies the time to full coverage by the
+        //    warm-up length (DDGI::kRelocationWarmupCaptures).
         const i32 scanStart = m_CaptureCursor;
         for (i32 n = 0; n < total && static_cast<i32>(result.size()) < budget; ++n)
         {
             const i32 idx = (scanStart + n) % total;
-            if (picked[idx] == 0u && !m_Records[idx].Captured)
+            if (picked[idx] == 0u && !m_Records[idx].Captured())
             {
                 result.push_back(idx);
                 picked[idx] = 1u;
@@ -1052,11 +1054,15 @@ namespace OloEngine
             }
         }
 
-        // 2) Probes whose relocation may still be settling — recapture from the
-        //    new spot, with whatever budget step 1 left.
+        // 2) Probes still in the relocation warm-up — recapture from the new
+        //    spot, with whatever budget step 1 left. The LAST of those captures
+        //    is the settling one: it re-reads the hit cache and re-classifies
+        //    from the position the spring produced, without moving the probe
+        //    again (issue #1279).
         for (i32 i = 0; i < total && static_cast<i32>(result.size()) < budget; ++i)
         {
-            if (picked[i] == 0u && m_Records[i].PendingRelocationRecapture)
+            if (picked[i] == 0u &&
+                DDGI::RelocationStepForCapture(m_Records[i].CaptureCount).Tier == DDGI::CaptureTier::RelocationFollowUp)
             {
                 result.push_back(i);
                 picked[i] = 1u;
@@ -1082,7 +1088,7 @@ namespace OloEngine
             u32 oldestFrame = std::numeric_limits<u32>::max();
             for (i32 i = 0; i < total; ++i)
             {
-                if (picked[i] == 0u && m_Records[i].Captured && m_Records[i].LastCaptureFrame < oldestFrame)
+                if (picked[i] == 0u && m_Records[i].Captured() && m_Records[i].LastCaptureFrame < oldestFrame)
                 {
                     oldest = i;
                     oldestFrame = m_Records[i].LastCaptureFrame;
@@ -1139,9 +1145,7 @@ namespace OloEngine
             // silently here (everything still gets captured, just far later),
             // so it is a pinned pure function rather than a rule written in a
             // comment next to the code that implements it.
-            const DDGI::CaptureTier tier = !rec.Captured                    ? DDGI::CaptureTier::NeverCaptured
-                                           : rec.PendingRelocationRecapture ? DDGI::CaptureTier::RelocationRefinement
-                                                                            : DDGI::CaptureTier::PeriodicRefresh;
+            const DDGI::CaptureTier tier = DDGI::RelocationStepForCapture(rec.CaptureCount).Tier;
             const u32 age = (m_FrameIndex >= rec.LastCaptureFrame) ? (m_FrameIndex - rec.LastCaptureFrame) : 0u;
             candidates.push_back({ i, DDGI::CaptureScore(tier, distance, level, age) });
         }
@@ -1482,12 +1486,12 @@ namespace OloEngine
             {
                 const i32 probeIdx = captureSet[begin + i];
                 const ProbeRecord& rec = m_Records[static_cast<sizet>(probeIdx)];
-                // A probe that has exhausted its placement refinements is
-                // SETTLED; this capture is a geometry refresh, so the spring
-                // must leave its position alone. Per probe, because one capture
-                // set mixes settled probes with probes still converging.
-                const bool refreshCapture = rec.Captured && rec.RelocationIteration >= kMaxRelocationIterations;
-                params.CaptureSet[i] = glm::ivec4(probeIdx, refreshCapture ? kRelocateEntryRefresh : 0, 0, 0);
+                // Whether this capture may move the probe comes from the same
+                // function the scheduler tiered it with, so the two cannot
+                // disagree. Per probe, because one capture set mixes settled
+                // probes with probes still converging.
+                const bool holdPosition = DDGI::RelocationStepForCapture(rec.CaptureCount).SuppressSpring;
+                params.CaptureSet[i] = glm::ivec4(probeIdx, holdPosition ? kRelocateEntryHoldPosition : 0, 0, 0);
             }
 
             // Its OWN buffer on the pass-local slot, not m_PassDataUBO: see
@@ -1767,28 +1771,26 @@ namespace OloEngine
             // is unchanged — still one 64-thread work group per probe — but the
             // groups now launch together instead of one dispatch at a time.
             //
-            // The relocation flag each probe gets is derived from its record, so
-            // this must run BEFORE the bookkeeping loop below sets Captured for
-            // this frame: a probe's FIRST capture must run the spring, and it is
-            // exactly `rec.Captured` that says whether this is that capture.
+            // The relocation flag each probe gets is derived from its record,
+            // so this must run BEFORE the bookkeeping loop below advances
+            // CaptureCount for this frame: a probe's FIRST capture must run the
+            // spring, and it is exactly `CaptureCount == 0` that says whether
+            // this is that capture.
             RelocateProbesGPU(captureSet);
 
             for (const i32 probeIdx : captureSet)
             {
                 ProbeRecord& rec = m_Records[static_cast<sizet>(probeIdx)];
-                rec.Captured = true;
                 rec.LastCaptureFrame = m_FrameIndex;
                 // The spring needs a few iterations, and the CPU cannot see
                 // whether it converged (that would be a readback), so it
                 // schedules a bounded number of follow-up captures and stops.
-                if (rec.RelocationIteration < kMaxRelocationIterations)
+                // SATURATING: once the warm-up is done every further capture is
+                // a periodic refresh, and the counter must not wrap a u8 back
+                // into the warm-up after 256 refreshes.
+                if (rec.CaptureCount < kRelocationWarmupCaptures)
                 {
-                    ++rec.RelocationIteration;
-                    rec.PendingRelocationRecapture = true;
-                }
-                else
-                {
-                    rec.PendingRelocationRecapture = false;
+                    ++rec.CaptureCount;
                 }
             }
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch |

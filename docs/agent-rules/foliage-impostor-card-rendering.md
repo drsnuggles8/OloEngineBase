@@ -74,29 +74,37 @@ source mesh is authored:
 vec3 cardCenter = instWorld + vec3(0.0, radius /*world*/, 0.0);
 ```
 
-## 4. No foliage layer draws mesh geometry — `MeshPath` only feeds the bake
+## 4. A layer draws TWO shapes now — read `EnumerateLayerDraws`, not the shader
 
-`FoliageRenderer::BuildQuadGeometry` builds a 4-vertex camera-facing card for
-**every** layer, impostor or not. A layer's `MeshPath` is consumed by
-`UpdateImpostorAtlas`, and only to bake the atlas: it guards the bake
-(`!layer.UseImpostor || layer.MeshPath.empty()` drops any stale atlas), it is
-compared against `ImpostorBakedMeshPath` in the freshness check that decides
-whether a rebake is needed, and on a rebake it constructs the `Model` whose
-mesh 0 goes to `ImpostorBaker::Bake`. It never reaches a draw call. What
-`FoliageImpostorSampling.glsl` cross-fades across `ImpostorStartDistance` is
-therefore not mesh-to-card — it is one flat atlas frame near the camera against
-the full parallax octahedral impostor beyond it. Same card on both sides.
+Until issue #1233 a `MeshPath` never reached a draw call: it fed
+`UpdateImpostorAtlas` and nothing else, so what
+`FoliageImpostorSampling.glsl` cross-faded across `ImpostorStartDistance` was
+one flat atlas frame against the full parallax impostor — the same card on both
+sides. **That is no longer true.** A layer with `UseAuthoredMesh` and a loadable
+`MeshPath` emits its real geometry up close *and* its card beyond, over one
+instance stream, and `FoliageRenderer::EnumerateLayerDraws` is the single place
+that decides which draws a layer contributes.
 
-Believe otherwise and you will mis-scope a whole issue. Issue #1267 was filed as
-"mesh/impostor layers do not render on Vulkan, and skip the G-Buffer on
-OpenGL", and the woodland fixture's manifest header, its scene header and the
-baseline guide all described a near-field of real mesh. The actual split was
-`UseImpostor`: impostor layers had no deferred program and fell back to the
-forward `FoliagePass`, while billboard layers already routed through the
-G-Buffer. Reading `MeshPath` in the scene YAML and assuming a mesh draw is the
-trap; grep `BuildQuadGeometry` before believing it.
+Two things follow, and both are easy to get wrong from a shader alone:
 
-Real plant meshes are issue #1233, and are not implemented as of `5acc47238`.
+- **Never read a pass's own shader to learn what a layer draws.** The beauty,
+  G-Buffer and shadow programs all walk the same list; a change made in one of
+  them is a desync, not a fix. Placement lives in
+  `include/FoliageInstanceGeometry.glsl` and is called from every foliage vertex
+  stage, so a stage that computes its own scaling has already forked.
+- **The mesh and the card scale differently on purpose.** The card is
+  anisotropic (x/z by `scale`, y by `height * scale`); the mesh is scaled
+  UNIFORMLY by `height * scale`, matching what
+  `FoliageImpostorVertexStage.glsl` does to the impostor card
+  (`radius = meshRadius * height * scale`). Stretch the mesh to the card's
+  aspect to "match" it and a pine renders as a needle, and the near geometry and
+  the far impostor become different trees.
+
+The related scoping trap is still live in the other direction. Issue #1267 was
+filed as "mesh/impostor layers do not render on Vulkan"; the actual split was
+`UseImpostor` (impostor layers had no deferred program and fell back to the
+forward `FoliagePass`). Reading a name in the scene YAML and assuming a draw is
+the trap either way — grep `EnumerateLayerDraws` before believing either story.
 
 ## Meta-lesson
 

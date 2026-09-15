@@ -1421,15 +1421,16 @@ namespace OloEngine
         return packet;
     }
 
-    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID)
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
     {
         // Delegate to the variant that accepts previous-frame bone matrices; pass an empty
         // vector so the callee treats prev as "same as current" (zero per-bone motion).
         static const std::vector<glm::mat4> s_EmptyPrev;
-        return DrawAnimatedMesh(mesh, modelMatrix, material, boneMatrices, s_EmptyPrev, isStatic, entityID);
+        return DrawAnimatedMesh(mesh, modelMatrix, material, boneMatrices, s_EmptyPrev, isStatic, entityID,
+                                gpuSceneDrawLink);
     }
 
-    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic, i32 entityID)
+    CommandPacket* Renderer3D::DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic, i32 entityID, u32 gpuSceneDrawLink)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1651,6 +1652,10 @@ namespace OloEngine
         cmd->boneBufferOffset = boneBufferOffset;
         cmd->prevBoneBufferOffset = prevBoneBufferOffset;
         cmd->boneCount = boneCount;
+
+        // The canonical record this animated submesh was staged as (#1228).
+        // GPUSceneDrawLinkNone keeps the pre-#1228 behaviour exactly.
+        cmd->gpuSceneDrawLink = gpuSceneDrawLink;
 
         // Entity ID for picking.
         cmd->entityID = entityID;
@@ -2178,7 +2183,8 @@ namespace OloEngine
                                                         const Material& material,
                                                         const std::vector<glm::mat4>& boneMatrices,
                                                         bool isStatic,
-                                                        i32 entityID)
+                                                        i32 entityID,
+                                                        u32 gpuSceneDrawLink)
     {
         // Legacy entry point: no prev-pose information available. Alias current
         // bones and transform into the prev slot so motion-vector shaders see
@@ -2186,7 +2192,7 @@ namespace OloEngine
         static const std::vector<glm::mat4> s_EmptyPrev;
         return DrawAnimatedMeshParallel(ctx, mesh, modelMatrix, material, boneMatrices,
                                         s_EmptyPrev, modelMatrix, /*hasPrevTransform*/ false, isStatic,
-                                        entityID);
+                                        entityID, gpuSceneDrawLink);
     }
 
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
@@ -2198,7 +2204,8 @@ namespace OloEngine
                                                         const glm::mat4& prevModelMatrix,
                                                         bool hasPrevTransform,
                                                         bool isStatic,
-                                                        i32 entityID)
+                                                        i32 entityID,
+                                                        u32 gpuSceneDrawLink)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -2380,6 +2387,11 @@ namespace OloEngine
         // batch was large enough for SubmitMeshesParallel to go parallel.
         cmd->entityID = entityID;
 
+        // Carried, never minted here (#1228): see the declaration. The worker
+        // copies an index the main thread produced; it never touches the link
+        // table, which is what keeps concurrent recording free of a lock.
+        cmd->gpuSceneDrawLink = gpuSceneDrawLink;
+
         packet->SetCommandType(cmd->header.type);
         packet->SetDispatchFunction(CommandDispatch::GetDispatchFunction(cmd->header.type));
 
@@ -2424,16 +2436,24 @@ namespace OloEngine
                     // Route through the prev-aware DrawAnimatedMesh overload
                     // when the caller supplied prev-pose data; otherwise the
                     // legacy entry aliases current->prev (zero motion).
+                    // The link is forwarded on BOTH arms, and on the parallel
+                    // arms below, because which arm runs is decided by batch
+                    // size alone (issue #1228). A descriptor that carried a link
+                    // and lost it here would take the canonical record above the
+                    // threshold and the legacy per-entity history below it --
+                    // one scene rendering two ways depending on how many meshes
+                    // the model happened to have.
                     if (desc.PrevBoneMatrices)
                     {
                         packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
                                                   *desc.BoneMatrices, *desc.PrevBoneMatrices,
-                                                  desc.IsStatic, desc.EntityID);
+                                                  desc.IsStatic, desc.EntityID, desc.GPUSceneDrawLink);
                     }
                     else
                     {
                         packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
-                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID);
+                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID,
+                                                  desc.GPUSceneDrawLink);
                     }
                 }
                 else
@@ -2451,7 +2471,8 @@ namespace OloEngine
                     {
                         s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
                     }
-                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID, desc.LODGroupPtr);
+                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID,
+                                      desc.LODGroupPtr, desc.GPUSceneDrawLink);
                 }
                 if (packet)
                 {
@@ -2522,7 +2543,12 @@ namespace OloEngine
                             desc.PrevTransform,
                             desc.HasPrevTransform,
                             desc.IsStatic,
-                            desc.EntityID);
+                            desc.EntityID,
+                            // Carried from the descriptor, which the MAIN
+                            // thread filled in (issue #1228). The worker
+                            // copies an index; it never appends to the link
+                            // table, so this needs no synchronisation.
+                            desc.GPUSceneDrawLink);
                     }
                     else
                     {
@@ -2533,7 +2559,8 @@ namespace OloEngine
                             desc.MaterialData,
                             *desc.BoneMatrices,
                             desc.IsStatic,
-                            desc.EntityID);
+                            desc.EntityID,
+                            desc.GPUSceneDrawLink);
                     }
                 }
                 else

@@ -28,11 +28,28 @@ namespace OloEngine
     class AnimatedModel : public RefCounted
     {
       public:
+        // .omesh cache namespace for animated imports. Public because the routing decision
+        // in AssimpMeshImporter has to ask "is there already a warm ANIMATED cache for this
+        // file?" before it decides which importer to run (issue #1272).
+        static constexpr const char* kCachePrefix = "anim_";
+
         AnimatedModel() = default;
         AnimatedModel(const std::string& path);
         ~AnimatedModel() = default;
 
         void LoadModel(const std::string& path);
+
+        // Flatten the loaded meshes into ONE MeshSource: geometry, bone influences, bone
+        // info, the skeleton, merged morph targets, and the imported materials, with each
+        // mesh as one submesh. This is the shape the asset pipeline wants -- a MeshSource
+        // asset that a VirtualMeshComponent or MeshComponent can render from a handle alone
+        // (issue #1272).
+        //
+        // Like Model::CreateCombinedMeshSource it deliberately does NOT Build(): the result
+        // is also used for cache-only serialization on the headless path, and the caller
+        // decides. The result is marked pre-optimized, because every input already went
+        // through OptimizeMesh.
+        [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
         // Accessors
         [[nodiscard]] const std::vector<Ref<MeshSource>>& GetMeshes() const

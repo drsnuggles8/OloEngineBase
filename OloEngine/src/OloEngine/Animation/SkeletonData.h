@@ -1,5 +1,7 @@
 #pragma once
 
+#include "OloEngine/Core/Base.h"
+
 #include <algorithm>
 #include <vector>
 #include <string>
@@ -30,6 +32,16 @@ namespace OloEngine
         /// Covering a discontinuity that ResetBoneHistory already declared.
         PendingReset,
     };
+
+    // The three DeformationHistoryResetCause values this header can reach
+    // without including the Animation history system. Mirrored rather than
+    // included, and pinned against the enum by
+    // SkeletalDeformationContract.SkeletonDataMirrorsTheResetCauseOrdinals, so
+    // a reordering of the enum fails a test instead of silently renaming every
+    // cause a record reports.
+    inline constexpr u8 kCauseNone = 0;
+    inline constexpr u8 kCauseFirstUse = 1;
+    inline constexpr u8 kCauseBoneCountChanged = 2;
 
     struct SkeletonData
     {
@@ -70,6 +82,60 @@ namespace OloEngine
         // Renderer3D honours it by uploading the current palette as the previous
         // one, which is what makes the emitted bone motion exactly zero.
         bool m_BoneHistoryValid = false;
+
+        // The deformation REVISION pair (#1228): the canonical, consumer-facing
+        // name for "which deformation of this surface is on screen". Advanced
+        // by exactly one on every history advance, and HELD EQUAL to the
+        // previous value on every discontinuity — so continuity is
+        // `m_DeformationRevision == m_PrevDeformationRevision + 1` and a
+        // discontinuity is `m_DeformationRevision == m_PrevDeformationRevision`,
+        // with no third state and no extra flag to keep in sync.
+        //
+        // This is NOT a second source of truth for m_BoneHistoryValid: both are
+        // written by AdvanceBoneHistory from the same branch, and
+        // SkeletalDeformationHistoryTest pins that HasBoneHistory() and
+        // HasContinuousDeformation() never disagree. The pair exists because a
+        // BOOLEAN cannot answer the question a canonical record has to answer —
+        // "has this surface deformed since the thing I built from it?" — which
+        // is what GPU Scene's instance record carries for the raster consumer
+        // and what #1229's acceleration-structure refit will ask.
+        //
+        // u32 and compared with modular arithmetic on purpose: at 60 fps the
+        // counter wraps after ~2.2 years of continuous runtime, and because
+        // `prev + 1` wraps to 0 in u32 arithmetic exactly when `current` does,
+        // continuity survives the wrap rather than reporting one spurious
+        // discontinuity.
+        u32 m_DeformationRevision = 0;
+        u32 m_PrevDeformationRevision = 0;
+
+        // Why the CURRENT discontinuity happened, as the u8 underlying
+        // Animation::DeformationHistoryResetCause (#1228). A plain u8 rather
+        // than the enum so this header, which every skinned consumer includes,
+        // does not pull the Animation history system in behind it; the enum is
+        // declared `: u8` precisely so the two spellings cannot drift in width.
+        //
+        // Only meaningful while HasContinuousDeformation() is false -- a
+        // continuous surface has no live cause, and reporting the last one
+        // would make a debug view name a discontinuity that is over. The
+        // advance below therefore clears it on the continuous branch rather
+        // than leaving it latched.
+        u8 m_DeformationResetCause = 0;
+
+        /**
+         * @brief Attribute the discontinuity the caller is about to declare.
+         *
+         * Called by the entry points that KNOW the cause -- the scene-wide
+         * reset and the per-entity rejection -- immediately around their
+         * ResetBoneHistory() call. It is separate from ResetBoneHistory()
+         * rather than a parameter on it because the advance path reaches the
+         * same state without any caller holding a cause, and a defaulted
+         * parameter would have quietly attributed those to whatever the default
+         * was.
+         */
+        void NoteDeformationResetCause(u8 cause)
+        {
+            m_DeformationResetCause = cause;
+        }
 
         // A discontinuity has been declared and the frame that must emit zero
         // motion because of it has not been rendered yet.
@@ -194,6 +260,14 @@ namespace OloEngine
             const bool hadHistory = m_BoneHistoryEverValid;
             const bool resized = CopyPoseToHistory();
 
+            // Hold the revision first, bump it only on the Advanced branch
+            // below (#1228). Written here rather than in each of the five
+            // returns because every OTHER outcome of this function is a
+            // discontinuity, and "hold" is what a discontinuity means: a
+            // branch added later is discontinuous unless it says otherwise,
+            // which is the safe default for a velocity.
+            m_PrevDeformationRevision = m_DeformationRevision;
+
             // An empty palette is not history. Treating 0 == 0 as "nothing was
             // resized" would mark a skeleton whose bones have not loaded yet as
             // carrying a genuine previous pose, and the frame its palette
@@ -204,6 +278,8 @@ namespace OloEngine
             {
                 m_BoneHistoryValid = false;
                 m_BoneHistoryResetPending = false;
+                // FirstUse, not a lost history: there was never a pose here.
+                m_DeformationResetCause = static_cast<u8>(kCauseFirstUse);
                 return BoneHistoryAdvance::NoBonesYet;
             }
 
@@ -215,6 +291,7 @@ namespace OloEngine
                 // the same FirstUse twice, which is what a deferred-loaded skeleton
                 // (palette sized after its first tick) used to do.
                 m_BoneHistoryValid = false;
+                m_DeformationResetCause = static_cast<u8>(hadHistory ? kCauseBoneCountChanged : kCauseFirstUse);
                 return hadHistory ? BoneHistoryAdvance::BoneCountChanged : BoneHistoryAdvance::FirstUse;
             }
 
@@ -227,12 +304,24 @@ namespace OloEngine
                 // and is FirstUse.
                 m_BoneHistoryResetPending = false;
                 m_BoneHistoryValid = false;
+                // A PendingReset keeps whatever cause the declaring caller
+                // attributed through NoteDeformationResetCause; only the
+                // never-had-history case is this function's own to name.
+                if (!m_BoneHistoryEverValid)
+                {
+                    m_DeformationResetCause = static_cast<u8>(kCauseFirstUse);
+                }
                 return m_BoneHistoryEverValid ? BoneHistoryAdvance::PendingReset
                                               : BoneHistoryAdvance::FirstUse;
             }
 
             m_BoneHistoryValid = true;
             m_BoneHistoryEverValid = true;
+            // The one continuous outcome, and therefore the one bump. The cause
+            // is cleared here rather than left latched: a surface that has
+            // recovered its history has no live discontinuity to name.
+            ++m_DeformationRevision;
+            m_DeformationResetCause = static_cast<u8>(kCauseNone);
             return BoneHistoryAdvance::Advanced;
         }
 
@@ -252,6 +341,12 @@ namespace OloEngine
             CopyPoseToHistory();
             m_BoneHistoryValid = false;
             m_BoneHistoryResetPending = true;
+            // Hold, do not bump (#1228). A reset that arrives AFTER this
+            // frame's advance — a morph surface that moved, an LOD switch, a
+            // teleport discovered during the tick — must be able to cancel the
+            // continuity that advance just declared, and holding is what
+            // cancels it: current == previous is the discontinuity reading.
+            m_PrevDeformationRevision = m_DeformationRevision;
         }
 
         /**
@@ -264,6 +359,23 @@ namespace OloEngine
         [[nodiscard]] bool HasBoneHistory() const
         {
             return m_BoneHistoryValid;
+        }
+
+        /**
+         * @brief Whether the revision pair describes one continuous deformation.
+         *
+         * The revision-shaped spelling of HasBoneHistory(), and the one a
+         * canonical GPU Scene record carries (#1228). Modular arithmetic, so a
+         * u32 wrap after ~2.2 years of uptime reads as continuous rather than
+         * as one spurious discontinuity.
+         *
+         * The two must never disagree; SkeletalDeformationHistoryTest pins that
+         * over every transition, because a record whose verdict drifted from
+         * the palettes' would emit a velocity the shaders did not compute.
+         */
+        [[nodiscard]] bool HasContinuousDeformation() const
+        {
+            return m_DeformationRevision == static_cast<u32>(m_PrevDeformationRevision + 1u);
         }
     };
 } // namespace OloEngine

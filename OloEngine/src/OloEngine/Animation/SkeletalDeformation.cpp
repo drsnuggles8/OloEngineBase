@@ -148,6 +148,10 @@ namespace OloEngine::Animation
                 continue;
 
             skeletonComponent.m_Skeleton->ResetBoneHistory();
+            // Attribute before the next advance can overwrite it: the record
+            // this skeleton produces carries the cause, not just the fact
+            // (#1228).
+            skeletonComponent.m_Skeleton->NoteDeformationResetCause(static_cast<u8>(cause));
             CountReset(cause);
             ++resetCount;
         }
@@ -263,6 +267,7 @@ namespace OloEngine::Animation
         if (skeleton)
         {
             skeleton->ResetBoneHistory();
+            skeleton->NoteDeformationResetCause(static_cast<u8>(cause));
             rejectedAnything = true;
         }
         if (morph)

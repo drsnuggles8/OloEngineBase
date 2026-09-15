@@ -323,6 +323,7 @@ namespace OloEngine
         DrawSSRSection();
         DrawSSGISection();
         DrawContactShadowSection();
+        DrawSkinDiffusionSection();
         DrawSnowSection();
         DrawWindSection();
         DrawSnowAccumulationSection();
@@ -1615,6 +1616,49 @@ namespace OloEngine
 
             ImGui::Unindent();
         }
+    }
+
+    void PostProcessSettingsPanel::DrawSkinDiffusionSection() const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& settings = Renderer3D::GetSkinDiffusionSettings();
+
+        if (!ImGui::CollapsingHeader("Skin Diffusion"))
+            return;
+
+        // Said plainly, because it is the thing users get wrong about this
+        // feature: the switch below decides whether the PASS RUNS. Which heads
+        // are diffused is decided by each .oloskin's own transport version, and
+        // turning this on cannot restate a profile authored against version 0.
+        ImGui::TextWrapped("Screen-space diffusion of the separated diffuse half (issue #1241). "
+                           "A material is diffused only when its .oloskin profile is authored at "
+                           "transport version 1 (ScreenSpaceDiffusion) — this switch only decides "
+                           "whether the pass runs at all.");
+        ImGui::Separator();
+
+        ImGui::Checkbox("Enable##SkinDiffusion", &settings.Enabled);
+        if (!settings.Enabled)
+            return;
+
+        i32 quality = static_cast<i32>(std::to_underlying(settings.Quality));
+        const char* qualityNames[] = { "Low (9 taps)", "Medium (17 taps)", "High (25 taps)" };
+        if (ImGui::Combo("Quality##SkinDiffusion", &quality, qualityNames, IM_ARRAYSIZE(qualityNames)))
+        {
+            if (IsValidSkinDiffusionQuality(quality))
+                settings.Quality = static_cast<SkinDiffusionQuality>(quality);
+        }
+        ImGui::SetItemTooltip("Taps per axis. The pass is separable, so a tier costs 2N fetches per "
+                              "skin pixel, not N squared.");
+
+        ImGui::DragFloat("Radius Scale##SkinDiffusion", &settings.RadiusScale, 0.01f, 0.0f, 4.0f, "%.2f");
+        ImGui::SetItemTooltip("Art-direction multiplier on the physically derived radius. 1.0 is the "
+                              "profile's own answer.");
+
+        ImGui::DragFloat("Depth Rejection##SkinDiffusion", &settings.DepthRejectionScale, 0.05f, 0.1f, 8.0f, "%.2f");
+        ImGui::SetItemTooltip("How far, in multiples of the kernel's own world-space support, a "
+                              "neighbouring pixel may be before it is treated as another surface. "
+                              "Below ~0.5 the filter starts rejecting the curvature of the cheek itself.");
     }
 
     void PostProcessSettingsPanel::DrawSnowSection() const

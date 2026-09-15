@@ -2883,3 +2883,45 @@ binding. The acceptance measurements are interleaved Release GPU timings on Drif
 and a populated VirtualGeometry scene, plus multi-angle captures and a Debug editor
 run with core/synchronisation validation, including the IBL bake. Record measured
 results in the PR; no speedup is presumed.
+
+## Amendments from issue #805 (2026-09-15) — per-instance material texture selection
+
+### (101) The deferred material's texture indices follow its GPU Scene reference
+
+**Accept a Vulkan-only material texture table for `PBR_GBuffer`, before widening draw
+batching.** Amendment (96) moved five texture indices into a per-draw UBO. It did not
+let two instances in one draw select different textures: the canonical GPU Scene
+record already supplies per-instance factors, but every instance still samples the
+UBO's five maps. The next slice closes that mismatch for the static deferred family.
+Skinned, virtual-geometry and forward families keep their existing paths.
+
+The table contains the five resource-heap byte offsets, a material generation and
+resolved-map flags. It is indexed by the same material slot and generation as the
+factor record. It never changes the meaning of GPU Scene's engine-heap offset fields.
+Resolve every live material each frame; publish changed records into a fresh buffer
+whose lifetime extends through submitted frames. Missing maps use a real null
+descriptor, failed resolutions clear the corresponding map flag, and a table with no
+valid null or sampler is unavailable. An unavailable or stale entry keeps the entire
+material on the per-draw fallback, including factors, flags and texture offsets.
+
+Use buffer device address rather than another binding slot. On Vulkan only, the
+otherwise unused `PBRMaterialUBO::HeapOffsets[1].yzw` lanes carry address low word,
+high word and record count. Zero address/count means unavailable. The five per-draw
+offsets and sampler lane keep their meanings. The OpenGL preprocessed shader and UBO
+payload stay unchanged. A shader-side bounds check precedes the buffer-reference
+read; do not use `.length()`.
+
+**The acceptance measurement is GPU-selected textures in one indirect draw through
+the production G-Buffer shader**, compared with separate material draws. Include a
+selection-change control and stale-generation coverage, and report submitted draw
+counts separately from timings. This establishes the shader/indirect capability;
+it does not establish automatic scene-wide merging or a throughput improvement.
+The existing batcher still groups by material, and instanced submissions currently
+drop canonical material references. A future producer must preserve or generate
+those references and restore the material binding after culling aliases slot 17.
+It also needs a compatibility contract for non-table state, depth and shadow
+consumers before removing the material grouping restriction. Keep #805 open for
+that work and the other shader families.
+
+The [capability measurement](../analysis/vulkan-material-selection-805.md) records
+the draw-count comparison, shader compatibility checks and verification limits.

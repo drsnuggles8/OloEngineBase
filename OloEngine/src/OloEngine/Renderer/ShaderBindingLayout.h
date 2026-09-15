@@ -249,6 +249,10 @@ namespace OloEngine
             //   [0] = .x albedo   .y metallicRoughness .z normal    .w ao
             //   [1] = .x emissive .y environment       .z irradiance .w prefilter
             //   [2] = .x brdfLut  .y diffuse (legacy)  .z specular (legacy) .w unused
+            // Vulkan keeps the five map lanes, uses [2].w for the sampler byte
+            // offset, and [1].yzw for the static deferred material table's
+            // address low/high words and record count (ADR 0011 (101)). Zero
+            // address/count disables that table; these are not texture offsets.
             // A slot holding kNullHeapOffset means "no map"; the shader's existing
             // Use*Map flags already gate whether it samples at all.
             glm::uvec4 HeapOffsets[3]{};
@@ -473,6 +477,32 @@ namespace OloEngine
             // Foliage_Impostor shader; zero/ignored on the flat-billboard path.
             glm::vec4 ImpostorParams0{ 0.0f }; // x=framesPerAxis, y=hemi(0/1), z=startDistance, w=transitionBand
             glm::vec4 ImpostorParams1{ 0.0f }; // x=enabled(0/1), y=meshRadius(object space), z=parallaxScale, w=unused
+
+            // Authored plant mesh near field (issue #1233).
+            //   x = this draw is the authored mesh (1) or the flat card (0) —
+            //       the two are scaled differently (mesh uniformly by
+            //       height * scale, card anisotropically), and one vertex stage
+            //       serves both so the passes cannot drift apart.
+            //   y, z = near fade-in band [start, end]. Below `end` the draw is
+            //       cut; the mesh's far band and the card's near band are the
+            //       same interval, so exactly one of them covers a plant.
+            glm::vec4 MeshParams{ 0.0f };
+
+            // xyz = the view position the hand-over is measured from, in the
+            // SAME render-relative space as the instance pivots (issue #1233).
+            //
+            // Carried explicitly rather than read from the camera UBO because
+            // the shadow pass's camera is the LIGHT: a hand-over keyed on
+            // u_CameraPosition there would shadow the card where the lit frame
+            // drew the mesh. Every writer fills it with the main view's
+            // position, so both passes pick the same shape for a plant.
+            //
+            // Not the render origin either — that is only the camera when
+            // camera-relative rendering is on, and with it off the origin is
+            // world zero, which turns the hand-over into a ring around the
+            // world origin instead of a radius around the camera. That is
+            // exactly what the first attempt did.
+            glm::vec4 MeshViewPos{ 0.0f };
 
             static constexpr u32 GetSize()
             {
@@ -2347,7 +2377,11 @@ namespace OloEngine
     // terrain shaders (see that file for why).
     static_assert(sizeof(UBOStructures::TerrainUBO) == 2256, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 80, "FoliageUBO unexpected size — update GLSL layout");
+    // 48 before issue #433 appended the two impostor vec4s (-> 80); #1233
+    // appended MeshParams and MeshViewPos (-> 112). Every foliage shader declares the block
+    // WHOLE — including the vec4s it does not read — so a field appended for
+    // one of them cannot land at a different offset in another.
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 112, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
@@ -2439,19 +2473,25 @@ namespace OloEngine
         // Binding 1 was freed when the legacy single-light LightUBO was retired
         // (all lighting flows through UBO_MULTI_LIGHTS at binding 5); it now
         // carries the scene lightmap parameters (issue #439).
-        static constexpr u32 UBO_LIGHTMAP = 1;              // Baked lightmap parameters (issue #439)
-        static constexpr u32 UBO_MATERIAL = 2;              // Material properties
-        static constexpr u32 UBO_MODEL = 3;                 // Model/transform matrices
-        static constexpr u32 UBO_ANIMATION = 4;             // Animation/bone matrices
-        static constexpr u32 UBO_MULTI_LIGHTS = 5;          // Multi-light buffer for advanced lighting
-        static constexpr u32 UBO_SHADOW = 6;                // Shadow mapping matrices and parameters
-        static constexpr u32 UBO_USER_0 = 7;                // User-defined buffer 0 (PostProcess)
-        static constexpr u32 UBO_USER_1 = 8;                // User-defined buffer 1 (MotionBlur)
-        static constexpr u32 UBO_SSAO = 9;                  // SSAO parameters
-        static constexpr u32 UBO_TERRAIN = 10;              // Terrain parameters (height scale, world size, etc.)
-        static constexpr u32 UBO_BRUSH_PREVIEW = 11;        // Brush preview overlay for terrain editing
-        static constexpr u32 UBO_FOLIAGE = 12;              // Foliage instance rendering parameters
-        static constexpr u32 UBO_SNOW = 13;                 // Snow rendering parameters
+        static constexpr u32 UBO_LIGHTMAP = 1;       // Baked lightmap parameters (issue #439)
+        static constexpr u32 UBO_MATERIAL = 2;       // Material properties
+        static constexpr u32 UBO_MODEL = 3;          // Model/transform matrices
+        static constexpr u32 UBO_ANIMATION = 4;      // Animation/bone matrices
+        static constexpr u32 UBO_MULTI_LIGHTS = 5;   // Multi-light buffer for advanced lighting
+        static constexpr u32 UBO_SHADOW = 6;         // Shadow mapping matrices and parameters
+        static constexpr u32 UBO_USER_0 = 7;         // User-defined buffer 0 (PostProcess)
+        static constexpr u32 UBO_USER_1 = 8;         // User-defined buffer 1 (MotionBlur)
+        static constexpr u32 UBO_SSAO = 9;           // SSAO parameters
+        static constexpr u32 UBO_TERRAIN = 10;       // Terrain parameters (height scale, world size, etc.)
+        static constexpr u32 UBO_BRUSH_PREVIEW = 11; // Brush preview overlay for terrain editing
+        static constexpr u32 UBO_FOLIAGE = 12;       // Foliage instance rendering parameters
+        static constexpr u32 UBO_SNOW = 13;          // Snow rendering parameters
+        // Subsurface-scattering pass parameters. SHARED by two passes that can
+        // never appear in one shader: SSS_Blur.glsl's `SSSParams` (snow's
+        // wrap-lighting blur) and SkinDiffusion.glsl's `SkinDiffusionParams`
+        // (issue #1241). The uniform-buffer namespace is full at 0..83, so a
+        // new pass-local block has no number of its own left to claim; see the
+        // IsKnownUBO arm for this binding.
         static constexpr u32 UBO_SSS = 14;                  // SSS blur parameters
         static constexpr u32 UBO_WIND = 15;                 // Wind system parameters
         static constexpr u32 UBO_SNOW_ACCUMULATION = 16;    // Snow accumulation clipmap parameters
@@ -3561,7 +3601,19 @@ namespace OloEngine
                 case UBO_SNOW:
                     return name.contains("Snow") || name.contains("snow");
                 case UBO_SSS:
-                    return name.contains("SSS") || name.contains("sss");
+                    // TWO OCCUPANTS, BOTH SUBSURFACE-SCATTERING PASSES, NEVER IN
+                    // THE SAME SHADER. `SSSParams` is snow's wrap-lighting blur
+                    // (SSS_Blur.glsl); `SkinDiffusionParams` is the skin
+                    // diffusion (#1241, SkinDiffusion.glsl). The uniform-buffer
+                    // namespace is FULL -- UBO_TERRAIN_BRUSH (83) is the last
+                    // binding below the GL 4.6 floor of 84 -- so a new pass with
+                    // a block of its own has no number left to claim, and
+                    // sharing a pass-local slot with a pass it cannot coexist
+                    // with in one shader is the arrangement UBO_USER_0 already
+                    // documents. Each pass binds its own buffer before its own
+                    // draw; the rule that has to hold is the within-shader one.
+                    return name.contains("SSS") || name.contains("sss") ||
+                           name == "SkinDiffusionParams";
                 case UBO_WIND:
                     return name.contains("Wind") || name.contains("wind");
                 case UBO_SNOW_ACCUMULATION:
@@ -3778,6 +3830,12 @@ namespace OloEngine
                     return name.contains("Specular") || name.contains("specular") ||
                            name.contains("Metallic") || name.contains("metallic") ||
                            name.contains("Depth") || name.contains("Bloom") ||
+                           // Skin diffusion (issue #1241): the vertical pass
+                           // reads the UNBLURRED hand-off here so it can output
+                           // `blur - original` for the additive blend into scene
+                           // colour. Pass-local fullscreen reuse with no material
+                           // bound, like every entry around it.
+                           name == "u_SkinDiffuseOrigin" ||
                            name == "u_History" || name == "u_FogTexture" ||
                            name == "u_BandTexture" || name == "u_JFAResult" ||
                            name == "u_EntityID" ||

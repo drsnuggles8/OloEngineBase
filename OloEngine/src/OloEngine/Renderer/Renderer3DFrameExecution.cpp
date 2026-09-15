@@ -218,6 +218,10 @@ namespace OloEngine
             ExtractGPUSceneEnvironment();
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
+            if (s_Data.Settings.Path == RenderingPath::Deferred)
+                s_Data.RasterMaterialTextures.Update(s_Data.SceneGPU);
+            else
+                s_Data.RasterMaterialTextures.Shutdown();
             // The path tracer's tables (#1055), committed right after the
             // records they resolve against and before any pass can read them:
             // the material texture table first (the emissive table reads an

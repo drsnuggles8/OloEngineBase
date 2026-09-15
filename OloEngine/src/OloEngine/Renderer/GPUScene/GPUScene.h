@@ -89,6 +89,11 @@ namespace OloEngine
         // Accumulates across FoliageComponents, so a scene with several
         // vegetated terrains reports their sum, like every other counter here.
         void ReportFoliageCensus(const GPUSceneFoliageStats& census);
+        // Issue #1228. Additive like the foliage census: one frame's animated
+        // surfaces are reported from more than one submission loop (the classic
+        // mesh path's skinned arm and the dedicated animated loop), so a setter
+        // would let whichever ran last erase the other's count.
+        void ReportAnimatedCensus(const GPUSceneAnimatedStats& census);
         [[nodiscard]] GPUSceneFrameUpdate EndExtraction();
 
         // GPU resources are explicit so CPU-only tools/tests can use the

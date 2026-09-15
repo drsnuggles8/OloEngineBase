@@ -56,6 +56,16 @@ three Linux jobs for a day and a half, ~4,000 tests into a two-hour build, repor
 `'descriptor_heap' : unrecognized layout identifier` against a line in an include file. Every word of
 that reads like a shader bug.
 
+**That particular blind spot is now closed twice over**, and it is worth knowing which half does
+what. `shader-floor.yml` is the guard: it runs on every PR, on the hosted toolchain, and asks
+`glslc` one question per declared extension — so an extension that outruns the floor is red on the
+PR rather than on the next nightly. And since
+[#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) the *sanitizer* asymmetry is
+smaller too: UBSan and TSan default to hosted, so on any PR where the sanitizer jobs run at all —
+they are gated on the `native` paths filter — two of the three Linux arms exercise the hosted
+shader toolchain on the PR itself. Neither half replaces raising the floor when a shader
+genuinely needs a newer extension — they only make the failure arrive early and legible.
+
 **Raising the floor is four literals that must move together**: `setup-vulkan`'s `version`,
 `setup-shader-toolchain-linux`'s `shaderc-version` and `spirv-cross-version`, and
 `ShaderToolchainFloor.h`'s `kMinimumVulkanSdk` / `kMinimumShadercTag`. Moving one splits the arms
@@ -149,17 +159,40 @@ All UBO blocks use `layout(std140, binding = N)`. Block names and members follow
 
 ## 4. MRT output (forward pass)
 
-All forward-rendered geometry outputs **four render targets**:
+All forward-rendered geometry outputs **five render targets**:
 
 ```glsl
 layout(location = 0) out vec4 o_Color;       // RGBA16F — final shaded color
 layout(location = 1) out int  o_EntityID;    // R32I   — entity ID for editor picking
 layout(location = 2) out vec2 o_ViewNormal;  // RG16F  — octahedral view-space normal (SSAO input)
 layout(location = 3) out vec2 o_Velocity;    // RG16F  — screen-space motion vector (TAA / motion blur)
+layout(location = 4) out vec4 o_SkinDiffuse; // RGBA16F — skin diffusion hand-off (issue #1241)
 ```
 
 Omitting `o_EntityID` breaks editor selection. Omitting `o_ViewNormal` breaks SSAO.
 Omitting `o_Velocity` ghosts moving objects under TAA and drops per-object motion blur.
+
+**Omitting `o_SkinDiffuse` puts GARBAGE on the screen.** An MRT output a shader leaves alone is
+*undefined*, not zero — so a shader that renders into the scene framebuffer and does not write
+location 4 hands `SkinDiffusion.glsl` whatever was in the register, and that gets blurred and added
+into scene colour. Every shader that renders into the scene framebuffer writes it, and one that
+never shades skin writes the "no diffusion here" code:
+
+```glsl
+o_SkinDiffuse = vec4(0.0);
+```
+
+Write it **first in `main()`** if the shader has a `return` before its other outputs are assigned
+(`Decal.glsl` does). A shader that `discard`s needs nothing: a discarded fragment writes no
+attachment at all.
+
+A shader that CAN shade skin fills it through `oloSkinDiffusionOutput` (include/PBRCommon.glsl);
+`PBR_MultiLight{,_Skinned}.glsl` are the worked examples. The encoding is in
+`include/SkinDiffusionCommon.glsl` and the feature is [skin-diffusion.md](../guides/skin-diffusion.md).
+
+The `Renderer2D_*` shaders are the exception, and only because `UICompositeRenderPass` binds them a
+three-attachment draw-buffer list — an output not in the bound list goes nowhere. Do not take that
+as licence: a new shader in the SCENE pass writes all five.
 
 Octahedral encoding for normals:
 

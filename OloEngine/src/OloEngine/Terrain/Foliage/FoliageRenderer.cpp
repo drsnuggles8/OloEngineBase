@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -35,46 +36,233 @@ namespace OloEngine
 
     void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data) const
     {
-        // Billboard quad: 4 vertices, centered at bottom
-        // Positions in local space, billboard rotation handled in shader
-        f32 quadVertices[] = {
-            // x,    y,    z,    u,    v
-            -0.5f,
-            0.0f,
-            0.0f,
-            0.0f,
-            0.0f, // bottom-left
-            0.5f,
-            0.0f,
-            0.0f,
-            1.0f,
-            0.0f, // bottom-right
-            0.5f,
-            1.0f,
-            0.0f,
-            1.0f,
-            1.0f, // top-right
-            -0.5f,
-            1.0f,
-            0.0f,
-            0.0f,
-            1.0f, // top-left
+        // Billboard quad: 4 vertices, centered at bottom.
+        // Positions in local space, billboard rotation handled in shader.
+        //
+        // The layout is the ENGINE's Vertex (position, normal, texcoord) rather
+        // than the old 20-byte {position, texcoord}: since #1233 the same
+        // vertex stage draws this card AND an authored plant mesh, and one
+        // stream layout for both is what keeps the beauty, G-Buffer and shadow
+        // programs from each needing a card variant and a mesh variant to drift
+        // apart. The card's normal is +Y — exactly the constant the vertex
+        // stage used to hard-code — so the card renders bit-identically.
+        const Vertex quadVertices[] = {
+            { { -0.5f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
+            { { 0.5f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },  // bottom-right
+            { { 0.5f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },  // top-right
+            { { -0.5f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } }, // top-left
         };
 
         u32 indices[] = { 0, 1, 2, 2, 3, 0 };
 
-        data.VAO = VertexArray::Create();
-
-        data.QuadVBO = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
-        data.QuadVBO->SetLayout({
-            { ShaderDataType::Float3, "a_Position" },
-            { ShaderDataType::Float2, "a_TexCoord" },
-        });
-        data.VAO->AddVertexBuffer(data.QuadVBO);
+        data.QuadVBO = VertexBuffer::Create(quadVertices, static_cast<u32>(sizeof(quadVertices)));
+        data.QuadVBO->SetLayout(Vertex::GetLayout());
 
         data.IBO = IndexBuffer::Create(indices, 6);
-        data.VAO->SetIndexBuffer(data.IBO);
         data.IndexCount = 6;
+    }
+
+    bool FoliageRenderer::BuildMeshGeometry(LayerRenderData& data, const FoliageLayer& layer) const
+    {
+        OLO_PROFILE_FUNCTION();
+
+        data.MeshVAO = nullptr;
+        data.MeshVBO = nullptr;
+        data.MeshIBO = nullptr;
+        data.MeshParts.clear();
+        data.MeshModel = nullptr;
+        data.MeshVertexCount = 0;
+        data.MeshIndexCount = 0;
+        data.MeshGeometryPath.clear();
+        data.BoundsProfile = FoliageBoundsProfile{};
+
+        auto model = Ref<Model>::Create(layer.MeshPath);
+        if (model->GetMeshCount() == 0)
+        {
+            OLO_CORE_ERROR("FoliageRenderer: layer '{}' asks for the authored mesh '{}' and it did not load. The "
+                           "layer draws its flat card at ALL distances instead; the census counts the variant as "
+                           "unavailable. Fix the path or clear UseAuthoredMesh.",
+                           layer.Name, layer.MeshPath);
+            return false;
+        }
+
+        // Concatenate every submesh into ONE private vertex/index buffer, with
+        // each submesh's base vertex folded into its indices. That makes a
+        // submesh a plain [BaseIndex, IndexCount) range of a single buffer, so
+        // the per-submesh draws differ only in a first-index offset and a
+        // texture — no base-vertex plumbing through the command packet, and one
+        // vertex array for the whole plant.
+        const Ref<MeshSource> source = model->CreateCombinedMeshSource();
+        if (!source || source->GetVertices().Num() == 0 || source->GetIndices().Num() == 0)
+        {
+            OLO_CORE_ERROR("FoliageRenderer: layer '{}' mesh '{}' loaded but carries no geometry "
+                           "({} vertices, {} indices). Drawing the flat card instead.",
+                           layer.Name, layer.MeshPath,
+                           source ? source->GetVertices().Num() : 0,
+                           source ? source->GetIndices().Num() : 0);
+            return false;
+        }
+
+        const auto& srcVertices = source->GetVertices();
+        const auto& srcIndices = source->GetIndices();
+        const auto& submeshes = source->GetSubmeshes();
+
+        std::vector<u32> indices;
+        indices.reserve(static_cast<sizet>(srcIndices.Num()));
+
+        const sizet submeshCount = submeshes.Num() > 0 ? static_cast<sizet>(submeshes.Num()) : 1;
+        for (sizet i = 0; i < submeshCount; ++i)
+        {
+            LayerDrawPart part;
+            part.BaseIndex = static_cast<u32>(indices.size());
+
+            if (submeshes.Num() > 0)
+            {
+                const auto& sub = submeshes[static_cast<i32>(i)];
+                for (u32 k = 0; k < sub.m_IndexCount; ++k)
+                {
+                    const u32 srcSlot = sub.m_BaseIndex + k;
+                    if (srcSlot >= static_cast<u32>(srcIndices.Num()))
+                        break;
+                    indices.push_back(srcIndices[static_cast<i32>(srcSlot)] + sub.m_BaseVertex);
+                }
+                part.IndexCount = static_cast<u32>(indices.size()) - part.BaseIndex;
+                // Per-submesh material assignment, through the submesh's OWN
+                // material index — NOT the loop index.
+                //
+                // Model::m_Materials holds one entry per UNIQUE aiMaterial
+                // (ProcessMesh dedups through m_MaterialIndexMap), while
+                // CreateCombinedMeshSource emits one submesh per mesh. Those two
+                // counts only coincide when every submesh has a distinct
+                // material, so indexing by submesh ordinal silently picks the
+                // wrong material the moment a plant reuses one — e.g. a tree
+                // whose trunk and branches share bark. Model.cpp carries the
+                // same warning from #629, where rebuilding the array per-mesh
+                // made warm and cold loads resolve different materials.
+                //
+                // UINT32_MAX is the "no material resolved" sentinel
+                // (Model.cpp sets it when the lookup misses); the bounds check
+                // covers it the same way every other consumer in Model.cpp does.
+                if (sub.m_MaterialIndex < static_cast<u32>(model->GetMaterialCount()))
+                {
+                    if (const Ref<Material>& material = model->GetMaterial(sub.m_MaterialIndex); material)
+                    {
+                        part.Albedo = material->GetAlbedoMap();
+                        if (!part.Albedo)
+                            part.Albedo = material->GetDiffuseMap();
+                    }
+                }
+            }
+            else
+            {
+                for (i32 k = 0; k < srcIndices.Num(); ++k)
+                    indices.push_back(srcIndices[k]);
+                part.IndexCount = static_cast<u32>(indices.size());
+            }
+
+            if (part.IndexCount > 0)
+                data.MeshParts.push_back(std::move(part));
+        }
+
+        if (data.MeshParts.empty() || indices.empty())
+        {
+            OLO_CORE_ERROR("FoliageRenderer: layer '{}' mesh '{}' produced no drawable submesh range. "
+                           "Drawing the flat card instead.",
+                           layer.Name, layer.MeshPath);
+            data.MeshParts.clear();
+            return false;
+        }
+
+        data.MeshVBO = VertexBuffer::Create(srcVertices.GetData(),
+                                            static_cast<u32>(srcVertices.Num() * sizeof(Vertex)));
+        data.MeshVBO->SetLayout(Vertex::GetLayout());
+        data.MeshIBO = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
+        data.MeshIndexCount = static_cast<u32>(indices.size());
+        data.MeshModel = model;
+        data.MeshGeometryPath = layer.MeshPath;
+
+        // Conservative bounds from the REAL geometry (issue #1233, second
+        // criterion). A quad's box is not a pine's: the canopy is wider than
+        // 0.5 and the trunk can start below the origin, and culling against the
+        // quad's box pops the tree out at the screen edge. The horizontal
+        // half-extent is the largest XZ radius of the source AABB's corners, so
+        // it holds for ANY of the per-instance Y rotations.
+        // Measured from the vertices THIS path copied, not from
+        // MeshSource::GetBoundingBox(): that field is populated on a fresh
+        // assimp import and comes back empty on the warm .omesh cache path, so
+        // reading it made the bound depend on whether the mesh had been
+        // imported before in this process. The failure was invisible — the
+        // plant rendered correctly and only its AABB collapsed to the card's,
+        // which is a culling pop nobody sees until the canopy blinks out at the
+        // screen edge. The vertices are already in hand and a foliage mesh is
+        // small, so measuring is cheaper than trusting.
+        // Braces, not parentheses: `BoundingBox box(glm::vec3(a), glm::vec3(b))`
+        // is a function declaration, not a variable (most vexing parse).
+        BoundingBox box{ glm::vec3(std::numeric_limits<f32>::max()),
+                         glm::vec3(std::numeric_limits<f32>::lowest()) };
+        for (i32 i = 0; i < srcVertices.Num(); ++i)
+        {
+            const glm::vec3& position = srcVertices[i].Position;
+            box.Min = glm::min(box.Min, position);
+            box.Max = glm::max(box.Max, position);
+        }
+
+        const f32 radiusXZ = std::max(std::max(std::abs(box.Min.x), std::abs(box.Max.x)),
+                                      std::max(std::abs(box.Min.z), std::abs(box.Max.z)));
+        // The profile keeps the CARD terms as well, because a layer with a mesh
+        // still draws its card past MeshViewDistance — the bound has to hold
+        // for both shapes, not just the near one.
+        data.BoundsProfile = FoliageBoundsProfile{};
+        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(radiusXZ * glm::root_two<f32>(), 1e-3f);
+        data.BoundsProfile.m_MinY = std::min(box.Min.y, 0.0f);
+        data.BoundsProfile.m_MaxY = std::max(box.Max.y, 1.0f);
+
+        // The authoring convention both this path and the impostor bake assume:
+        // base at the origin, unit height. Neither rescales — a mesh authored at
+        // some other size is drawn at the wrong size in BOTH, consistently — so
+        // say so rather than let the author discover it as "my tree is tiny".
+        constexpr f32 kUnitTolerance = 0.05f;
+        if (std::abs(box.Max.y - 1.0f) > kUnitTolerance || std::abs(box.Min.y) > kUnitTolerance)
+        {
+            OLO_CORE_WARN("FoliageRenderer: layer '{}' mesh '{}' spans y in [{:.3f}, {:.3f}], not the base-at-origin "
+                          "unit height ([0, 1]) foliage authoring assumes. It is scaled by the instance's "
+                          "height * scale as-is, so every plant is drawn {:.2f}x the authored height — near mesh and "
+                          "far impostor alike. Re-author the mesh or compensate with MinHeight/MaxHeight.",
+                          layer.Name, layer.MeshPath, box.Min.y, box.Max.y,
+                          std::max(box.Max.y - std::min(box.Min.y, 0.0f), 1e-3f));
+        }
+
+        OLO_CORE_INFO("FoliageRenderer: layer '{}' authored mesh '{}' ready — {} vertices, {} indices, {} submesh(es), "
+                      "{:.1f} KiB geometry",
+                      layer.Name, layer.MeshPath, data.MeshVertexCount, data.MeshIndexCount, data.MeshParts.size(),
+                      static_cast<f32>(data.MeshVertexCount * sizeof(Vertex) + data.MeshIndexCount * sizeof(u32)) / 1024.0f);
+        return true;
+    }
+
+    void FoliageRenderer::RebuildVertexArrays(LayerRenderData& data) const
+    {
+        // The instance stream has to be bound into EVERY vertex array the layer
+        // draws from, and a capacity grow replaces that buffer — so the arrays
+        // are rebuilt from the surviving geometry buffers rather than each call
+        // site remembering to re-add it to both.
+        if (data.QuadVBO && data.IBO)
+        {
+            data.VAO = VertexArray::Create();
+            data.VAO->AddVertexBuffer(data.QuadVBO);
+            data.VAO->SetIndexBuffer(data.IBO);
+            if (data.InstanceVBO)
+                data.VAO->AddInstanceBuffer(data.InstanceVBO);
+        }
+
+        if (data.MeshVBO && data.MeshIBO)
+        {
+            data.MeshVAO = VertexArray::Create();
+            data.MeshVAO->AddVertexBuffer(data.MeshVBO);
+            data.MeshVAO->SetIndexBuffer(data.MeshIBO);
+            if (data.InstanceVBO)
+                data.MeshVAO->AddInstanceBuffer(data.InstanceVBO);
+        }
     }
 
     void FoliageRenderer::UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances)
@@ -88,11 +276,21 @@ namespace OloEngine
         auto requiredCount = static_cast<u32>(instances.size());
         auto dataSize = static_cast<u32>(instances.size() * sizeof(FoliageInstanceData));
 
-        if (!data.InstanceVBO)
+        const bool grew = data.InstanceVBO && data.InstanceCapacity < requiredCount;
+        if (!data.InstanceVBO || grew)
         {
-            // First creation
-            OLO_CORE_INFO("FoliageRenderer: instance VBO create ({} instances)", requiredCount);
-            data.InstanceCapacity = std::max(requiredCount, 256u);
+            if (grew)
+            {
+                OLO_CORE_INFO("FoliageRenderer: instance VBO GROW {} -> {} instances", data.InstanceCapacity,
+                              requiredCount * 2);
+                data.InstanceCapacity = requiredCount * 2;
+            }
+            else
+            {
+                OLO_CORE_INFO("FoliageRenderer: instance VBO create ({} instances)", requiredCount);
+                data.InstanceCapacity = std::max(requiredCount, 256u);
+            }
+
             u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
             data.InstanceVBO = VertexBuffer::Create(allocSize);
             data.InstanceVBO->SetLayout({
@@ -100,31 +298,66 @@ namespace OloEngine
                 { ShaderDataType::Float4, "a_RotationHeight" },
                 { ShaderDataType::Float4, "a_ColorAlpha" },
             });
-            data.VAO->AddInstanceBuffer(data.InstanceVBO);
-        }
-        else if (data.InstanceCapacity < requiredCount)
-        {
-            // Grow — rebuild VAO to avoid duplicate attribute bindings
-            OLO_CORE_INFO("FoliageRenderer: instance VBO GROW {} -> {} instances", data.InstanceCapacity,
-                          requiredCount * 2);
-            data.InstanceCapacity = requiredCount * 2;
-            BuildQuadGeometry(data);
-            u32 allocSize = data.InstanceCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
-            data.InstanceVBO = VertexBuffer::Create(allocSize);
-            data.InstanceVBO->SetLayout({
-                { ShaderDataType::Float4, "a_PositionScale" },
-                { ShaderDataType::Float4, "a_RotationHeight" },
-                { ShaderDataType::Float4, "a_ColorAlpha" },
-            });
-            data.VAO->AddInstanceBuffer(data.InstanceVBO);
-        }
-        else
-        {
-            // No additional handling required.
+            // A new instance buffer has to reach EVERY vertex array the layer
+            // draws from — the card's and, since #1233, the authored mesh's.
+            // Rebuilding them both also avoids the duplicate attribute bindings
+            // that re-adding an instance buffer to a live array would leave.
+            RebuildVertexArrays(data);
         }
 
         data.InstanceVBO->SetData({ instances.data(), dataSize });
         data.InstanceCount = requiredCount;
+    }
+
+    void FoliageRenderer::EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const
+    {
+        out.clear();
+        if (data.InstanceCount == 0)
+            return;
+
+        const bool meshDrawable = data.MeshVAO && !data.MeshParts.empty() && data.MeshViewDistance > 0.0f;
+        const f32 handoverStart = meshDrawable ? data.MeshFadeStartDistance : 0.0f;
+        const f32 handoverEnd = meshDrawable ? data.MeshViewDistance : 0.0f;
+
+        // Near field: the authored plant mesh, one draw per submesh so a plant
+        // whose bark and leaves are different materials renders as authored
+        // (issue #1233, first criterion).
+        if (meshDrawable)
+        {
+            for (const auto& part : data.MeshParts)
+            {
+                LayerDraw draw;
+                draw.VAO = data.MeshVAO;
+                draw.BaseIndex = part.BaseIndex;
+                draw.IndexCount = part.IndexCount;
+                draw.Albedo = part.Albedo ? part.Albedo : data.AlbedoTexture;
+                draw.IsAuthoredMesh = true;
+                draw.HandoverStart = handoverStart;
+                draw.HandoverEnd = handoverEnd;
+                draw.FadeStart = data.FadeStartDistance;
+                draw.ViewDistance = data.ViewDistance;
+                out.push_back(std::move(draw));
+            }
+        }
+
+        // Far field: the flat card, which the impostor path also rides. It
+        // carries the SAME hand-over band as the mesh draws above, and keeps
+        // exactly the pixels they do not. With no mesh the band is zero-width
+        // and this is the single draw the layer has always emitted.
+        if (data.VAO && data.IndexCount > 0)
+        {
+            LayerDraw draw;
+            draw.VAO = data.VAO;
+            draw.BaseIndex = 0;
+            draw.IndexCount = data.IndexCount;
+            draw.Albedo = data.AlbedoTexture;
+            draw.IsAuthoredMesh = false;
+            draw.HandoverStart = handoverStart;
+            draw.HandoverEnd = handoverEnd;
+            draw.FadeStart = data.FadeStartDistance;
+            draw.ViewDistance = data.ViewDistance;
+            out.push_back(std::move(draw));
+        }
     }
 
     void FoliageRenderer::GenerateInstances(
@@ -174,10 +407,48 @@ namespace OloEngine
                 continue;
             }
 
-            // Build quad geometry on first use
-            if (!renderData.VAO)
+            // Geometry. The card is always built — it is what covers the
+            // distance band and what a layer with no authored mesh draws
+            // everywhere. The authored mesh (issue #1233) is built beside it,
+            // never instead of it, and only re-imported when the path changes.
+            bool geometryChanged = false;
+            if (!renderData.QuadVBO)
             {
                 BuildQuadGeometry(renderData);
+                geometryChanged = true;
+            }
+
+            const bool meshRequested = layer.UseAuthoredMesh && !layer.MeshPath.empty();
+            if (!meshRequested)
+            {
+                if (renderData.MeshVBO || !renderData.MeshGeometryPath.empty())
+                {
+                    renderData.MeshVAO = nullptr;
+                    renderData.MeshVBO = nullptr;
+                    renderData.MeshIBO = nullptr;
+                    renderData.MeshParts.clear();
+                    renderData.MeshModel = nullptr;
+                    renderData.MeshVertexCount = 0;
+                    renderData.MeshIndexCount = 0;
+                    renderData.MeshGeometryPath.clear();
+                    renderData.BoundsProfile = FoliageBoundsProfile{};
+                    geometryChanged = true;
+                }
+            }
+            else if (renderData.MeshGeometryPath != layer.MeshPath)
+            {
+                BuildMeshGeometry(renderData, layer);
+                // Recorded even when the import FAILED, so a broken path is
+                // reported once per edit rather than re-imported and re-logged
+                // on every regeneration.
+                renderData.MeshGeometryPath = layer.MeshPath;
+                geometryChanged = true;
+            }
+            renderData.MeshRequested = meshRequested;
+
+            if (geometryChanged || !renderData.VAO)
+            {
+                RebuildVertexArrays(renderData);
             }
 
             // Store layer render properties
@@ -187,6 +458,27 @@ namespace OloEngine
             renderData.WindSpeed = layer.WindSpeed;
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
+
+            // Near-field hand-over band (issue #1233). Sanitised here rather
+            // than trusted: these reach a smoothstep in the vertex and fragment
+            // stages, where a NaN or an inverted band silently drops the layer.
+            const bool meshDrawable = meshRequested && renderData.MeshVBO && !renderData.MeshParts.empty();
+            if (meshDrawable)
+            {
+                renderData.MeshViewDistance = std::isfinite(layer.MeshViewDistance)
+                                                  ? std::max(layer.MeshViewDistance, 0.0f)
+                                                  : 30.0f;
+                renderData.MeshFadeStartDistance = std::isfinite(layer.MeshFadeStartDistance)
+                                                       ? std::clamp(layer.MeshFadeStartDistance, 0.0f,
+                                                                    renderData.MeshViewDistance)
+                                                       : std::min(22.0f, renderData.MeshViewDistance);
+            }
+            else
+            {
+                // No mesh: the card covers everything, exactly as before #1233.
+                renderData.MeshViewDistance = 0.0f;
+                renderData.MeshFadeStartDistance = 0.0f;
+            }
 
             // Load albedo texture if needed — foliage albedo is authored
             // colour and needs sRGB->linear conversion on sample.
@@ -206,14 +498,23 @@ namespace OloEngine
                                             material, worldSizeX, worldSizeZ, heightScale, placements);
 
             // Explicit representation metadata, not a flag a consumer has to
-            // re-derive. A layer that asked for an impostor and did not get one
-            // still draws as a flat card, so its instances are MeshCard — but
-            // the VARIANT it authored is unavailable, and that is counted
-            // rather than left to the one-off warning in UpdateImpostorAtlas.
+            // re-derive. A layer that asked for an authored mesh or an impostor
+            // and got neither still draws as a flat card, so its instances are
+            // MeshCard — but the VARIANT it authored is unavailable, and that is
+            // counted rather than left to the one-off log line.
             const bool impostorRequested = layer.UseImpostor;
             const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
+            // The NEAR field names the representation, because that is what the
+            // instance's bounds and its material assignment are derived from:
+            // an authored-mesh plant still hands over to a card or an impostor
+            // at distance, and reporting it as a card would hide the geometry
+            // that actually costs and actually bounds (issue #1233).
             FoliageRepresentation representation = FoliageRepresentation::Unsupported;
-            if (impostorAvailable)
+            if (meshDrawable)
+            {
+                representation = FoliageRepresentation::AuthoredMesh;
+            }
+            else if (impostorAvailable)
             {
                 representation = FoliageRepresentation::Impostor;
             }
@@ -222,11 +523,17 @@ namespace OloEngine
                 representation = FoliageRepresentation::MeshCard;
             }
 
+            // Either authored variant asked for and not delivered counts, and
+            // BuildMeshGeometry / UpdateImpostorAtlas have already said which,
+            // loudly, in the log.
+            const bool variantUnavailable = (impostorRequested && !impostorAvailable) ||
+                                            (meshRequested && !meshDrawable);
+
             m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
                                   FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
                                   FoliagePlacement::SpacingForDensity(layer.Density),
                                   worldSizeX, worldSizeZ,
-                                  representation, impostorRequested && !impostorAvailable);
+                                  representation, variantUnavailable, renderData.BoundsProfile);
 
             // The buffer row is assigned here and recorded as a PROJECTION of
             // the record. Identity comes from the placement cell, so a
@@ -249,15 +556,14 @@ namespace OloEngine
                 glm::vec3 bMax(std::numeric_limits<f32>::lowest());
                 for (const auto& inst : instances)
                 {
-                    glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
-                    f32 s = inst.PositionScale.w;
-                    f32 h = inst.RotationHeight.y;
-                    // Instance spans from pos at ground level upward by h*s;
-                    // horizontal extent is ~0.5*s in XZ
-                    glm::vec3 lo = pos - glm::vec3(0.5f * s, 0.0f, 0.5f * s);
-                    glm::vec3 hi = pos + glm::vec3(0.5f * s, h * s, 0.5f * s);
-                    bMin = glm::min(bMin, lo);
-                    bMax = glm::max(bMax, hi);
+                    const glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
+                    // ONE bounds rule for the per-layer AABB and the registry's
+                    // per-instance records — the same function, so a mesh that
+                    // widens one cannot leave the other bounding a quad.
+                    const BoundingBox instanceBox = FoliageInstanceBounds(
+                        pos, inst.PositionScale.w, inst.RotationHeight.y, renderData.BoundsProfile);
+                    bMin = glm::min(bMin, instanceBox.Min);
+                    bMax = glm::max(bMax, instanceBox.Max);
                 }
                 renderData.Bounds = BoundingBox(bMin, bMax);
             }
@@ -324,38 +630,53 @@ namespace OloEngine
             instanceBuffer->Bind();
         }
 
+        // The main view's position, made render-relative exactly as
+        // CommandDispatch makes it for the camera UBO — the hand-over between a
+        // plant's mesh and its card is measured from here in every pass.
+        const glm::vec3 renderRelativeViewPos =
+            MakePositionRelative(CommandDispatch::GetViewPosition(), Renderer3D::GetRenderOrigin());
+
+        std::vector<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
-            if (layer.InstanceCount == 0 || !layer.VAO)
+            if (layer.InstanceCount == 0)
                 continue;
 
-            // Upload per-layer foliage UBO
-            ShaderBindingLayout::FoliageUBO foliageUBOData{};
-            foliageUBOData.Time = m_Time;
-            foliageUBOData.WindStrength = layer.WindStrength;
-            foliageUBOData.WindSpeed = layer.WindSpeed;
-            foliageUBOData.ViewDistance = layer.ViewDistance;
-            foliageUBOData.FadeStart = layer.FadeStartDistance;
-            foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
-            foliageUBOData.PrevTime = m_PrevTime;
-            foliageUBOData.BaseColor = glm::vec4(layer.BaseColor, 0.0f);
-            auto foliageUBO = Renderer3D::GetFoliageUBO();
-            foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
-
-            // Bind albedo texture. THROUGH THE SEAM, not Texture::Bind — a direct
-            // bind is invisible to the heap, so a converted Foliage_Instance would
-            // read an offset nobody staged (issue #691). Persistent: the
-            // atlas is asset-owned and outlives the frame.
-            if (layer.AlbedoTexture)
+            EnumerateLayerDraws(layer, draws);
+            for (const auto& draw : draws)
             {
-                HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
-                                                 layer.AlbedoTexture->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent);
-            }
+                // Upload per-draw foliage UBO
+                ShaderBindingLayout::FoliageUBO foliageUBOData{};
+                foliageUBOData.Time = m_Time;
+                foliageUBOData.WindStrength = layer.WindStrength;
+                foliageUBOData.WindSpeed = layer.WindSpeed;
+                foliageUBOData.ViewDistance = draw.ViewDistance;
+                foliageUBOData.FadeStart = draw.FadeStart;
+                foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
+                foliageUBOData.PrevTime = m_PrevTime;
+                foliageUBOData.BaseColor = glm::vec4(layer.BaseColor, 0.0f);
+                foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
+                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                auto foliageUBO = Renderer3D::GetFoliageUBO();
+                foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
 
-            layer.VAO->Bind();
-            HeapBinding::FlushOffsets();
-            RenderCommand::DrawIndexedInstanced(layer.VAO, layer.IndexCount, layer.InstanceCount);
+                // Bind albedo texture. THROUGH THE SEAM, not Texture::Bind — a direct
+                // bind is invisible to the heap, so a converted Foliage_Instance would
+                // read an offset nobody staged (issue #691). Persistent: the
+                // atlas is asset-owned and outlives the frame.
+                if (draw.Albedo)
+                {
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
+                                                     draw.Albedo->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+                }
+
+                draw.VAO->Bind();
+                HeapBinding::FlushOffsets();
+                RenderCommand::DrawIndexedInstancedRaw(draw.VAO->GetRHIHandle(), draw.IndexCount,
+                                                       draw.BaseIndex, layer.InstanceCount);
+            }
             m_VisibleInstances += layer.InstanceCount;
         }
     }
@@ -388,32 +709,53 @@ namespace OloEngine
             instanceBuffer->Bind();
         }
 
+        // The SAME draw list the beauty pass walks (issue #1233, fourth
+        // criterion): a shadow cast from a quad while the lit plant is a pine
+        // passes every CPU test and reads downstream as a completely different
+        // bug. EnumerateLayerDraws is the one place that decides.
+        // See Render(): the MAIN view, not the shadow camera.
+        const glm::vec3 renderRelativeViewPos =
+            MakePositionRelative(CommandDispatch::GetViewPosition(), Renderer3D::GetRenderOrigin());
+
+        std::vector<LayerDraw> draws;
         for (auto& layer : m_Layers)
         {
-            if (layer.InstanceCount == 0 || !layer.VAO)
+            if (layer.InstanceCount == 0)
                 continue;
 
-            // Upload per-layer foliage UBO for depth pass
-            ShaderBindingLayout::FoliageUBO foliageUBOData{};
-            foliageUBOData.Time = time;
-            foliageUBOData.WindStrength = layer.WindStrength;
-            foliageUBOData.WindSpeed = layer.WindSpeed;
-            foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
-            auto foliageUBO = Renderer3D::GetFoliageUBO();
-            foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
-            foliageUBO->Bind();
-
-            // Bind albedo for alpha test in shadow pass (see the seam note above).
-            if (layer.AlbedoTexture)
+            EnumerateLayerDraws(layer, draws);
+            for (const auto& draw : draws)
             {
-                HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
-                                                 layer.AlbedoTexture->GetRHIHandle(),
-                                                 RHI::HeapSlotLifetime::Persistent);
-            }
+                // Upload per-draw foliage UBO for depth pass
+                ShaderBindingLayout::FoliageUBO foliageUBOData{};
+                foliageUBOData.Time = time;
+                foliageUBOData.WindStrength = layer.WindStrength;
+                foliageUBOData.WindSpeed = layer.WindSpeed;
+                foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
+                foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
+                                                      draw.HandoverStart, draw.HandoverEnd, 0.0f);
+                // The MAIN view's position, not this pass's camera — that one is
+                // the light. Without it the shadow pass would pick the mesh where
+                // the lit frame drew the card and the plant's shadow would be a
+                // different shape than the plant (issue #1233, fourth criterion).
+                foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                auto foliageUBO = Renderer3D::GetFoliageUBO();
+                foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
+                foliageUBO->Bind();
 
-            layer.VAO->Bind();
-            HeapBinding::FlushOffsets();
-            RenderCommand::DrawIndexedInstanced(layer.VAO, layer.IndexCount, layer.InstanceCount);
+                // Bind albedo for alpha test in shadow pass (see the seam note above).
+                if (draw.Albedo)
+                {
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
+                                                     draw.Albedo->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+                }
+
+                draw.VAO->Bind();
+                HeapBinding::FlushOffsets();
+                RenderCommand::DrawIndexedInstancedRaw(draw.VAO->GetRHIHandle(), draw.IndexCount,
+                                                       draw.BaseIndex, layer.InstanceCount);
+            }
         }
     }
 
@@ -451,7 +793,14 @@ namespace OloEngine
         if (upToDate)
             return;
 
-        Model model(layer.MeshPath);
+        // Reuse the copy the authored-mesh path already imported for this exact
+        // path (issue #1233) rather than parsing the file a second time — the
+        // bake and the near geometry are framed from the SAME source, which is
+        // also what keeps the impostor card and the mesh the same tree.
+        Ref<Model> owned;
+        if (!data.MeshModel || data.MeshGeometryPath != layer.MeshPath)
+            owned = Ref<Model>::Create(layer.MeshPath);
+        const Model& model = owned ? *owned : *data.MeshModel;
         if (model.GetMeshCount() == 0)
         {
             OLO_CORE_WARN("FoliageRenderer: impostor layer '{}' mesh '{}' failed to load — impostor disabled for this layer",
@@ -491,42 +840,55 @@ namespace OloEngine
         std::vector<FoliageLayerDrawInfo> result;
         result.reserve(m_Layers.size());
 
+        std::vector<LayerDraw> draws;
         for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.size()); ++layerIndex)
         {
             const auto& layer = m_Layers[layerIndex];
-            if (layer.InstanceCount == 0 || !layer.VAO)
+            if (layer.InstanceCount == 0)
             {
                 continue;
             }
 
-            FoliageLayerDrawInfo info;
-            info.LayerIndex = layerIndex;
-            info.VertexArrayID = layer.VAO->GetRHIHandle();
-            info.IndexCount = layer.IndexCount;
-            info.InstanceCount = layer.InstanceCount;
-            info.AlbedoTextureID = layer.AlbedoTexture ? layer.AlbedoTexture->GetRHIHandle() : RHI::NullResource;
-            info.ViewDistance = layer.ViewDistance;
-            info.FadeStartDistance = layer.FadeStartDistance;
-            info.WindStrength = layer.WindStrength;
-            info.WindSpeed = layer.WindSpeed;
-            info.BaseColor = layer.BaseColor;
-            info.AlphaCutoff = layer.AlphaCutoff;
-            info.Bounds = layer.Bounds;
-
-            // Octahedral impostor (issue #433) — only when the atlas baked OK.
-            if (layer.UseImpostor && layer.Impostor.IsValid())
+            // Same enumeration as Render / RenderShadows — see EnumerateLayerDraws.
+            EnumerateLayerDraws(layer, draws);
+            for (const auto& draw : draws)
             {
-                info.UseImpostor = true;
-                info.ImpostorAlbedoAtlasID = layer.Impostor.Albedo->GetRHIHandle();
-                info.ImpostorNormalDepthAtlasID = layer.Impostor.NormalDepth->GetRHIHandle();
-                info.ImpostorFramesPerAxis = layer.Impostor.FramesPerAxis;
-                info.ImpostorHemi = layer.Impostor.Hemi;
-                info.ImpostorStartDistance = layer.ImpostorStartDistance;
-                info.ImpostorTransitionBand = layer.ImpostorTransitionBand;
-                info.ImpostorRadius = layer.Impostor.Radius;
-            }
+                FoliageLayerDrawInfo info;
+                info.LayerIndex = layerIndex;
+                info.VertexArrayID = draw.VAO->GetRHIHandle();
+                info.BaseIndex = draw.BaseIndex;
+                info.IndexCount = draw.IndexCount;
+                info.InstanceCount = layer.InstanceCount;
+                info.AlbedoTextureID = draw.Albedo ? draw.Albedo->GetRHIHandle() : RHI::NullResource;
+                info.IsAuthoredMesh = draw.IsAuthoredMesh;
+                info.MeshHandoverStartDistance = draw.HandoverStart;
+                info.MeshHandoverEndDistance = draw.HandoverEnd;
+                info.ViewDistance = draw.ViewDistance;
+                info.FadeStartDistance = draw.FadeStart;
+                info.WindStrength = layer.WindStrength;
+                info.WindSpeed = layer.WindSpeed;
+                info.BaseColor = layer.BaseColor;
+                info.AlphaCutoff = layer.AlphaCutoff;
+                info.Bounds = layer.Bounds;
 
-            result.push_back(info);
+                // Octahedral impostor (issue #433) — only when the atlas baked OK,
+                // and only for the CARD draw: the impostor IS the far-field card,
+                // so routing the near mesh through it would replace the geometry
+                // this task exists to draw.
+                if (!draw.IsAuthoredMesh && layer.UseImpostor && layer.Impostor.IsValid())
+                {
+                    info.UseImpostor = true;
+                    info.ImpostorAlbedoAtlasID = layer.Impostor.Albedo->GetRHIHandle();
+                    info.ImpostorNormalDepthAtlasID = layer.Impostor.NormalDepth->GetRHIHandle();
+                    info.ImpostorFramesPerAxis = layer.Impostor.FramesPerAxis;
+                    info.ImpostorHemi = layer.Impostor.Hemi;
+                    info.ImpostorStartDistance = layer.ImpostorStartDistance;
+                    info.ImpostorTransitionBand = layer.ImpostorTransitionBand;
+                    info.ImpostorRadius = layer.Impostor.Radius;
+                }
+
+                result.push_back(info);
+            }
         }
 
         return result;

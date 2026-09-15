@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
@@ -29,6 +30,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -81,6 +83,36 @@ namespace OloEngine::Tests
         constexpr u32 kWidth = 16u;
         constexpr u32 kHeight = 16u;
         constexpr u32 kPixels = kWidth * kHeight;
+
+        // The deferred G-Buffer RT2 flags lane, hand-encoded because this
+        // fixture substitutes synthetic texels for a real geometry pass. The
+        // layout is oloEncodeGBufferPbrFlagsEx in include/PBRCommon.glsl --
+        // `model * 64 + slot * 8 + kind * 2` -- and it is pinned end to end by
+        // GBufferFlagsLaneTest.EveryEncodableModelKindAndProfileRoundTripsUnTruncated.
+        // This is the only hand-written copy of the layout in the tree; every
+        // production writer calls the GLSL helper.
+        [[nodiscard]] constexpr f32 EncodeGBufferPbrFlags(PBRModel model, MaterialKind kind, u32 skinProfileSlot)
+        {
+            return static_cast<f32>(static_cast<i32>(model) * 64 + static_cast<i32>(skinProfileSlot) * 8 +
+                                    static_cast<i32>(kind) * 2);
+        }
+
+        // The lane MUST name ClosureV2. The CPU oracle shades this scene
+        // through ReferenceMaterial::Model and the GPU material table carries
+        // GPUSceneMaterial::ClosureVersion, both v2; a Legacy lane here shades
+        // the PRIMARY receiver with a different closure than every other vertex
+        // on the same path. That is issue #1288, and it hides on a diffuse arm
+        // because the Lambert term is the same expression in both closures:
+        // Legacy's distributionGGX clamps its DENOMINATOR (max(denom, EPSILON))
+        // while its sampling density PtLegacyGGXSamplingDensity does not, so a
+        // near-specular lobe loses almost all of its energy in f/pdf and a
+        // rough one loses none. Before this constant the lane was the literal
+        // 2.0, which DID mean ClosureV2 until the #1231 flags layout gave the
+        // material kind and the skin-profile slot the five bits below the
+        // model; afterwards it decoded as Legacy and the metal furnace arm
+        // returned 1.45% of the reference integral.
+        constexpr f32 kClosureV2GBufferFlagsLane =
+            EncodeGBufferPbrFlags(PBRModel::ClosureV2, MaterialKind::Generic, kSkinProfileSlotNone);
         bool ChangeToOloEditorDir()
         {
             namespace fs = std::filesystem;
@@ -446,7 +478,8 @@ namespace OloEngine::Tests
             // Plane texels exactly match the fixture's primary surface. The
             // optional wall is outside primary frustum but visible to bounce rays.
             const std::array<glm::vec4, 5> texels{ glm::vec4(depth), glm::vec4(material.BaseColor, metallic),
-                                                   glm::vec4(0, 0, roughness, 1), glm::vec4(0, 0, 0, 2), glm::vec4(0) };
+                                                   glm::vec4(0, 0, roughness, 1),
+                                                   glm::vec4(0, 0, 0, kClosureV2GBufferFlagsLane), glm::vec4(0) };
             std::array<std::vector<glm::vec4>, 5> imageData;
             for (sizet i = 0; i < imageData.size(); ++i)
                 imageData[i].assign(kPixels, texels[i]);
@@ -476,7 +509,7 @@ namespace OloEngine::Tests
                         imageData[0][pixel] = glm::vec4((hitClip.z / hitClip.w) * 0.5f + 0.5f);
                         imageData[1][pixel] = glm::vec4(hitMaterial.BaseColor, hitMaterial.Metallic);
                         imageData[2][pixel] = glm::vec4(oct, hitMaterial.Roughness, 1.0f);
-                        imageData[3][pixel] = glm::vec4(hitMaterial.Emissive, 2.0f);
+                        imageData[3][pixel] = glm::vec4(hitMaterial.Emissive, kClosureV2GBufferFlagsLane);
                     }
                 }
             }

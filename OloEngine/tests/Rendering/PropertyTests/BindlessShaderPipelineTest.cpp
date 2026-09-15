@@ -34,10 +34,12 @@
 #include "OloEngine/Renderer/DDGI/DDGICommon.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
+#include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 #include <gtest/gtest.h>
 #include <shaderc/shaderc.hpp>
+#include <spirv_cross/spirv_cross.hpp>
 
 #include <algorithm>
 #include <array>
@@ -1971,6 +1973,52 @@ void main()
                "A shader with no samplers of its own opts in with OLO_BINDLESS_ROUTE_PARITY."
             << split;
     }
+    TEST(BindlessShaderPipeline, MaterialShaderHeapTableMatchesCompiledRecordLayout)
+    {
+        // Device-free ABI check against the production include, not a second
+        // GLSL struct in the test. A lane mismatch swaps plausible descriptors.
+        const auto path = std::filesystem::path(OLO_TEST_EDITOR_ROOT) / "assets/shaders/include/MaterialShaderHeapTable.glsl";
+        const std::string body = ReadWholeFile(path);
+        ASSERT_FALSE(body.empty());
+        const std::string source = R"(#version 460
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+#define OLO_GPU_SCENE_MATERIAL_ACTIVE 1u
+)" + body + R"(
+layout(local_size_x=1) in;
+layout(std140,binding=0) uniform Params { uvec4 ref; uvec4 address; };
+layout(std430,binding=1) buffer Output { uvec4 result; };
+void main() {
+    OloMaterialShaderHeapRecord record;
+    if (oloMaterialShaderHeapRecord(ref,address.xyz,record))
+        result=record.Textures+uvec4(record.Emissive,record.Generation,record.Flags,record._padding0);
+}
+)";
+        shaderc::Compiler compiler;
+        shaderc::CompileOptions options;
+        options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_4);
+        const auto module = compiler.CompileGlslToSpv(source, shaderc_glsl_compute_shader, "material_table_layout", options);
+        ASSERT_EQ(module.GetCompilationStatus(), shaderc_compilation_status_success) << module.GetErrorMessage();
+        spirv_cross::Compiler reflection(std::vector<u32>(module.cbegin(), module.cend()));
+        bool found = false;
+        const std::array<sizet, 5> expected{
+            offsetof(MaterialShaderHeapRecord, Textures), offsetof(MaterialShaderHeapRecord, Emissive),
+            offsetof(MaterialShaderHeapRecord, Generation), offsetof(MaterialShaderHeapRecord, Flags), offsetof(MaterialShaderHeapRecord, Pad0)
+        };
+        reflection.get_ir().for_each_typed_id<spirv_cross::SPIRType>([&](u32 id, const spirv_cross::SPIRType& type)
+                                                                     {
+            if (type.basetype != spirv_cross::SPIRType::Struct || type.pointer || !type.array.empty() ||
+                reflection.get_name(id) != "OloMaterialShaderHeapRecord" ||
+                !reflection.has_member_decoration(id, 0u, spv::DecorationOffset))
+                return;
+            found = true;
+            ASSERT_EQ(type.member_types.size(), expected.size());
+            EXPECT_EQ(reflection.get_declared_struct_size(type), sizeof(MaterialShaderHeapRecord));
+            for (u32 member = 0; member < expected.size(); ++member)
+                EXPECT_EQ(reflection.type_struct_member_offset(type, member), expected[member]); });
+        EXPECT_TRUE(found) << "the production record must survive compilation and be reflected";
+    }
+
     TEST(ShaderSourceScan, OptimizationOptOutDoesNotReadCommentedDirectives)
     {
         constexpr std::string_view directive = "#pragma optimize(off)";

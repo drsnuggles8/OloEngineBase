@@ -264,6 +264,9 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 #define OLO_MATERIAL_NORMAL_OFFSET u_MaterialHeapOffsets[0].z
 #define OLO_MATERIAL_AO_OFFSET u_MaterialHeapOffsets[0].w
 #define OLO_MATERIAL_EMISSIVE_OFFSET u_MaterialHeapOffsets[1].x
+// Environment/IBL/legacy lanes below retain their GL meanings. Vulkan samples
+// those resources through classic bindings; [1].yzw instead carries the static
+// deferred material table's address low/high and count (ADR 0011 (101)).
 #define OLO_MATERIAL_ENVIRONMENT_OFFSET u_MaterialHeapOffsets[1].y
 #define OLO_MATERIAL_IRRADIANCE_OFFSET u_MaterialHeapOffsets[1].z
 #define OLO_MATERIAL_PREFILTER_OFFSET u_MaterialHeapOffsets[1].w

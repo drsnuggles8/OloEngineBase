@@ -24,6 +24,15 @@ namespace OloEngine
     // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
     // scope so the several blit helpers below share one definition.
     static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
+    // The LIGHTING draw's targets: scene colour, plus the skin diffusion
+    // hand-off at attachment 4 (issue #1241). Attachments 1..3 (entity IDs, view
+    // normals, velocity) are deliberately left out -- the G-Buffer pass already
+    // filled them and this fullscreen draw has nothing to say about them.
+    //
+    // A fragment output's `location` indexes THIS LIST, not the attachment
+    // number, which is why DeferredLighting.glsl spells the hand-off as
+    // `location = 1` where the forward shaders spell it as `location = 4`.
+    static constexpr std::array<u32, 2> kLightingAttachments = { 0u, 4u };
 
     namespace
     {
@@ -256,7 +265,7 @@ namespace OloEngine
                 ++sceneColorAttachmentCount;
         }
 
-        RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kAttachment0Only);
+        RenderCommand::SetFramebufferDrawAttachments(sceneFBID, kLightingAttachments);
 
         context.SetDepthTest(false);
         context.SetDepthMask(false);

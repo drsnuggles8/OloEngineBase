@@ -118,6 +118,14 @@ namespace OloEngine
     enum GPUSceneInstanceFlag : u32
     {
         GPUSceneInstanceFlagActive = 1u << 0,
+        // The instance is an ANIMATED surface (issue #1228): its vertex buffer
+        // holds a rest/morphed surface that a bone palette deforms in the
+        // vertex stage, and its DeformationRevision lanes are meaningful.
+        // Without this bit a consumer cannot tell a rigid instance — whose
+        // revisions are legitimately 0 and 0 — from an animated one whose
+        // history was just thrown away, and those are opposite verdicts:
+        // "no motion because it is rigid" versus "no velocity available".
+        GPUSceneInstanceFlagAnimated = 1u << 1,
     };
 
     enum GPUSceneGeometryFlag : u32
@@ -248,6 +256,38 @@ namespace OloEngine
         u32 Flags = 0;
         u32 Generation = 0;
         u32 MaterialGeneration = 0;
+
+        // Issue #1228 — the deformation half of this instance's identity.
+        //
+        // These two are copied VERBATIM from the input; they deliberately do
+        // NOT use the slot-derived rule PreviousTransform uses
+        // (`slot.m_Live ? last frame's value : this frame's`). The two answer
+        // different questions and the difference is not cosmetic:
+        //
+        //   * the transform's previous value is "where this RECORD was last
+        //     frame", so an instance that was not extracted last frame
+        //     correctly starts static;
+        //   * the deformation's previous value is "which pose the PALETTE the
+        //     shaders will read was measured against". SkeletalDeformationSystem
+        //     advances every skinned entity every frame whether or not it was
+        //     drawn, so a surface that was culled for a frame still has a
+        //     genuine, continuous bone history — and the slot-derived rule
+        //     would also be blind to a reset that lands AFTER this frame's
+        //     advance (a morph surface that moved, an LOD switch), which is
+        //     exactly the case the revision exists to catch.
+        //
+        // Continuity is `DeformationRevision == PreviousDeformationRevision + 1`
+        // in u32 modular arithmetic; equal values mean the history was dropped.
+        // Both are 0 on a rigid instance, which is why a consumer must test
+        // GPUSceneInstanceFlagAnimated before reading them.
+        u32 DeformationRevision = 0;
+        u32 PreviousDeformationRevision = 0;
+        // Animation::DeformationHistoryResetCause, widened to u32 for the
+        // std430 mirror. The record carries the REASON as well as the fact so a
+        // debug view and olo_gpu_scene diagnostics can name it without
+        // re-deriving it from CPU state they cannot see.
+        u32 DeformationResetCause = 0;
+        u32 DeformationPad0 = 0;
     };
 
     struct alignas(16) GPUSceneGeometry
@@ -432,7 +472,7 @@ namespace OloEngine
     // again by reflection in GPUSceneLayoutTest.cpp.
     static_assert(sizeof(GPUSceneTransform) == 48);
     static_assert(alignof(GPUSceneTransform) == 16);
-    static_assert(sizeof(GPUSceneInstance) == 128);
+    static_assert(sizeof(GPUSceneInstance) == 144);
     static_assert(alignof(GPUSceneInstance) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneInstance>);
     static_assert(std::is_trivially_copyable_v<GPUSceneInstance>);
@@ -441,6 +481,10 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneInstance, GeometryIndex) == 96);
     static_assert(offsetof(GPUSceneInstance, VisibilityMask) == 112);
     static_assert(offsetof(GPUSceneInstance, MaterialGeneration) == 124);
+    static_assert(offsetof(GPUSceneInstance, DeformationRevision) == 128);
+    static_assert(offsetof(GPUSceneInstance, PreviousDeformationRevision) == 132);
+    static_assert(offsetof(GPUSceneInstance, DeformationResetCause) == 136);
+    static_assert(offsetof(GPUSceneInstance, DeformationPad0) == 140);
     static_assert(sizeof(GPUSceneGeometry) == 64);
     static_assert(alignof(GPUSceneGeometry) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneGeometry>);
@@ -592,18 +636,59 @@ namespace OloEngine
         // Of those, how each is represented.
         u32 m_MeshCardInstances = 0;
         u32 m_ImpostorInstances = 0;
+        // Plants whose near field is the layer's authored plant mesh (#1233).
+        u32 m_AuthoredMeshInstances = 0;
         // Canonical, but the raster path draws nothing for them. With only the
         // billboard card path this is legitimately 0 in a healthy scene — every
         // placed plant is drawable — so read m_UnsupportedVariants below for
         // the signal that actually moves today.
         u32 m_UnsupportedInstances = 0;
-        // Layers whose AUTHORED representation is unavailable — today an
-        // impostor atlas that failed to bake, which silently fell back to a
-        // flat card. The plants still draw; the variant does not.
+        // Layers whose AUTHORED representation is unavailable — an impostor
+        // atlas that failed to bake, or an authored MeshPath that would not
+        // load (#1233). Both fall back to the flat card, loudly. The plants
+        // still draw; the variant does not.
         u32 m_UnsupportedVariants = 0;
         u32 m_SpatialGroups = 0;
 
         [[nodiscard]] auto operator==(const GPUSceneFoliageStats&) const -> bool = default;
+    };
+
+    // Animated-surface census (issue #1228).
+    //
+    // Before this, every skinned entity was one "Skinned" unsupported tick — a
+    // placeholder that said nothing about whether the renderer could represent
+    // the surface, only that somebody had counted it. The category still ticks,
+    // but now it means what it says: an animated entity the canonical records
+    // could NOT take. What the records DID take is here.
+    //
+    // The two unsupported figures are deliberately separate and neither is
+    // derivable from the other. m_UnsupportedInstances counts SUBMESHES that
+    // were offered and produced no record; m_UnsupportedVariants counts
+    // ENTITIES whose animated variant the canonical path does not attempt at
+    // all (a skinned virtual mesh, which rides the cluster-LOD DAG and is
+    // counted under Virtualized). Collapsing them would make "the records take
+    // everything" and "nothing was ever offered" read identically, which is the
+    // failure the foliage census was added to stop (issue #1230).
+    struct GPUSceneAnimatedStats
+    {
+        // Animated submeshes that reached a canonical instance record this frame.
+        u32 m_CanonicalInstances = 0;
+        // Of those, how many carry a continuous deformation revision, i.e. a
+        // previous pose a velocity may legitimately be measured against.
+        u32 m_SurfacesWithHistory = 0;
+        // Of those, how many had their history dropped this frame. Together with
+        // the line above this partitions m_CanonicalInstances, so a third
+        // number that is neither would be a bug in the producer.
+        u32 m_SurfacesWithoutHistory = 0;
+        // Distinct animated ENTITIES that reached the records (an entity
+        // contributes one here and one instance per submesh above).
+        u32 m_CanonicalEntities = 0;
+        // Animated submeshes offered to the records that produced none.
+        u32 m_UnsupportedInstances = 0;
+        // Animated entities whose variant the canonical path does not attempt.
+        u32 m_UnsupportedVariants = 0;
+
+        [[nodiscard]] auto operator==(const GPUSceneAnimatedStats&) const -> bool = default;
     };
 
     struct GPUSceneFrameStats
@@ -620,6 +705,7 @@ namespace OloEngine
         f64 m_ExtractionTimeMs = 0.0;
         std::array<u32, GPUSceneUnsupportedCategoryCount> m_UnsupportedCounts{};
         GPUSceneFoliageStats m_Foliage;
+        GPUSceneAnimatedStats m_Animated;
     };
 
     struct GPUSceneFrameUpdate
@@ -701,6 +787,42 @@ namespace OloEngine
         GPUSceneMaterialKey m_Material;
         u32 m_VisibilityMask = std::numeric_limits<u32>::max();
         u32 m_Flags = 0;
+        // Issue #1228. Left at 0/0 by every rigid producer, which is why the
+        // encoder only sets GPUSceneInstanceFlagAnimated when a caller asked
+        // for it: 0 == 0 reads as "no history", and a rigid instance claiming
+        // a dropped deformation history would be a lie the raster path could
+        // act on. SkeletonData::m_DeformationRevision is the source.
+        u32 m_DeformationRevision = 0;
+        u32 m_PrevDeformationRevision = 0;
+        u32 m_DeformationResetCause = 0;
+    };
+
+    // What an extraction caller knows about the DEFORMATION of the surface it
+    // is staging (issue #1228). Default-constructed means "rigid", which is
+    // what every pre-existing caller means, so the parameter can be added to
+    // the extraction entry point without touching them.
+    //
+    // Deliberately plain integers rather than a reference to Skeleton or
+    // DeformationHistoryResetCause: this header is the renderer's core type
+    // header and must not drag the Animation subsystem into every translation
+    // unit that describes a record. Scene, which holds both, does the
+    // conversion — the same reason GPUSceneFoliageStats carries plain counts.
+    struct GPUSceneAnimatedSurface
+    {
+        bool m_IsAnimated = false;
+        u32 m_DeformationRevision = 0;
+        u32 m_PrevDeformationRevision = 0;
+        // Animation::DeformationHistoryResetCause, widened.
+        u32 m_ResetCause = 0;
+
+        // The verdict the census and the record's consumers share, so
+        // "continuous" has one spelling on this side of the seam too.
+        [[nodiscard]] constexpr bool HasContinuousDeformation() const
+        {
+            return m_IsAnimated && m_DeformationRevision == static_cast<u32>(m_PrevDeformationRevision + 1u);
+        }
+
+        [[nodiscard]] auto operator==(const GPUSceneAnimatedSurface&) const -> bool = default;
     };
 
     // A texture as a record carries it: the RHI identity plus the heap offset

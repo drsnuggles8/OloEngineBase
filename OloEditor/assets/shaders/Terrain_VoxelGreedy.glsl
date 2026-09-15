@@ -185,6 +185,13 @@ layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
 layout(location = 2) out vec2 o_ViewNormal;
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
+// diffusion pass (issue #1241). This surface never shades skin, so it writes the
+// "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
+// alone is undefined, not zero, and SkinDiffusion.glsl would blur the garbage
+// into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 vec2 octEncode(vec3 n)
 {
@@ -377,4 +384,5 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

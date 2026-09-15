@@ -65,12 +65,16 @@ namespace OloEngine::GPUSceneLegacyAdapters
             .m_File = "OloEngine/src/OloEngine/Renderer/Renderer3DMeshSubmission.cpp",
             .m_Name = "Renderer3D submission (skinned, parallel, instanced, quad)",
             .m_UnsupportedCategory = std::nullopt,
-            .m_Exit = "DrawMesh already takes a link. The skinned and parallel-worker variants "
-                      "need the same parameter, and DrawMeshInstanced needs a per-instance link "
-                      "lane in InstanceData before N sources can each name their own record. The "
+            .m_Exit = "DrawMesh, DrawAnimatedMesh and DrawAnimatedMeshParallel all take a link "
+                      "now (issue #1228 added the two animated ones). What is left is "
+                      "DrawMeshInstanced, which needs a per-instance link lane in InstanceData "
+                      "before N sources can each name their own record, and the quad path. The "
                       "same lane is what CommandBucket's auto-batching needs: it collapses N "
                       "linked draws into one instanced call and drops their links today, so a "
-                      "batched draw falls back even though its link resolved.",
+                      "batched draw falls back even though its link resolved — which is now "
+                      "reachable for skinned draws too, because #1031 batches skinned draws that "
+                      "share a pose. The fallback is counted (GPUSceneFallbackDraws), not "
+                      "silent.",
         },
         Adapter{
             .m_File = "OloEngine/src/OloEngine/Renderer/Commands/CommandDispatch.cpp",

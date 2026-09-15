@@ -30,13 +30,21 @@
 
 layout(location = 0) out vec4 FragColor;
 layout(location = 3) out vec2 o_Velocity;
+// Scene FB RT4: the diffuse half of a SKIN pixel's lighting, for the screen-space
+// diffusion pass (issue #1241). This surface never shades skin, so it writes the
+// "no diffusion here" code -- but it must WRITE it: an MRT output a shader leaves
+// alone is undefined, not zero, and SkinDiffusion.glsl would blur the garbage
+// into scene colour. See include/PBRCommon.glsl, "THE DIFFUSION HAND-OFF".
+layout(location = 4) out vec4 o_SkinDiffuse;
+
 
 layout(location = 0) in vec3 v_CardWorld;
 layout(location = 1) in vec3 v_PivotWorld;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
-layout(location = 7) in float v_Radius; // WORLD-space card radius
+layout(location = 7) in float v_Radius;
+layout(location = 2) in float v_MeshCoverage; // WORLD-space card radius
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
@@ -76,7 +84,9 @@ layout(std140, binding = 12) uniform FoliageParams
     vec3 u_FoliageBaseColor;
     float _foliagePad2;
     vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
+    vec4 u_ImpostorParams1;
+    vec4 u_MeshParams; // issue #1233 — see FoliageInstanceGeometry.glsl
+    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO // x=enabled, y=meshRadius, z=parallaxScale, w=unused
 };
 
 #include "include/FoliageImpostorSampling.glsl"
@@ -109,4 +119,5 @@ void main()
     vec2 ndcCurr = clipCurr.xy / clipCurr.w;
     vec2 ndcPrev = clipPrev.xy / clipPrev.w;
     o_Velocity = (ndcCurr - ndcPrev) * 0.5;
+    o_SkinDiffuse = vec4(0.0); // not skin -- see the declaration above (#1241)
 }

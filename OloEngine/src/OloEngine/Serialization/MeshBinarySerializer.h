@@ -26,6 +26,11 @@ namespace OloEngine
         // Read only the header to check version and source timestamp (lightweight).
         // Returns false if the file doesn't exist or has an invalid header.
         bool ReadTimestamp(const std::filesystem::path& path, u64& outSourceTimestamp);
+
+        // Read only the header FLAGS word (OMeshFormat::Flag*). Lightweight -- one small
+        // read, no payload decompression. Returns false if the file doesn't exist or has
+        // an invalid/older-version header.
+        bool ReadHeaderFlags(const std::filesystem::path& path, u32& outFlags);
     } // namespace MeshBinarySerializer
 
     // Reads/writes .oanim binary animation cache files.
