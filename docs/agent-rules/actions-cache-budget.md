@@ -377,8 +377,14 @@ switch is ever flipped, `sccache-windows-2025-release` (1825 MiB) and `sccache-a
 (~660 MiB) leave the store on the PR path, and this table has to be redone** — see
 [ADR 0019](../adr/0019-windows-ci-self-hosted-routing-lands-switched-off.md).
 
-Everything else that runs on a PR is **self-hosted** — `asan.yml`'s three Linux sanitizer
-jobs, `vulkan-off.yml`, `steam-stub.yml / stub-build` — and caches on the box's local disk.
+Everything else that runs on a PR is **self-hosted** — `asan.yml`'s ASan + LSan Linux job,
+`vulkan-off.yml`, `steam-stub.yml / stub-build` — and caches on the box's local disk.
+**`asan.yml`'s UBSan and TSan Linux jobs stopped being in that list in
+[#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219)** and now run hosted on every
+PR. They add nothing to this table: their `Save sccache storage` step is gated
+`github.event_name != 'pull_request'`, so a PR run restores the nightly's entry and writes none
+of its own. That gate is what keeps a routing change out of the cache budget, and it is the
+first thing to re-check if either arm is ever given a PR-ref save.
 Note the trap: a self-hosted runner still talks to the **remote** Actions cache service, so
 an `actions/cache` step there spends the shared cap exactly like a hosted one does. Being
 self-hosted does not make a cache free; using local disk does.

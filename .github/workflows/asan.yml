@@ -39,11 +39,15 @@ on:
   #    the honest state: the exposure is structural (same store, same daily producer,
   #    same drift), the number is not measured.
   #
-  #    ONLY `asan-windows` runs on a push. The three Linux sanitizer jobs are
-  #    self-hosted and cache on the box's local disk, so a warm would buy them
-  #    nothing -- and they are the run's largest wait already (queue p90 128 min,
-  #    max 304), so putting twelve more of them a day into that queue would be a
-  #    straight loss.
+  #    ONLY `asan-windows` runs on a push, and that stayed true through #1219 for
+  #    two different reasons now. ASan + LSan (Linux) is still self-hosted on a
+  #    same-repo PR and caches on the box's local disk, so a warm would buy it
+  #    nothing while holding one of two runner slots. UBSan and TSan ARE hosted
+  #    since #1219 and would take a real cache warm -- but a `push` run of them is
+  #    a second opinion on a tree the PR already tested (item 1 above), and the
+  #    nightly is this workflow's default-branch producer for exactly those two
+  #    entries. If the hosted arms' afternoon hit rate is ever measured and found
+  #    wanting, THAT is the argument for warming them, and it is #1084's to make.
   #
   # The cron therefore has to run to COMPLETION, which is what the
   # `cancel-in-progress` expression below guarantees by excluding non-PR events.
@@ -205,20 +209,60 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.filter.outputs.native }}
-      # THE ONE PLACE THE LINUX ROUTING DECISION IS MADE (#1083 for Linux).
+      # THE ONE PLACE THE LINUX ROUTING DECISION IS MADE (#1083 for Linux; PER ARM
+      # since #1219).
       #
-      # The three Linux sanitizer jobs each carry a byte-identical `runs-on`
-      # expression, with a comment on two of them begging the next editor to keep
-      # them in step. Sharding needs the SAME predicate a fourth and fifth time --
-      # once to size the matrix, once to decide whether to stage an artifact at all --
-      # so it is computed once here and read as an output instead.
-      linux-self-hosted: ${{ steps.linuxplan.outputs.self-hosted }}
-      linux-shards: ${{ steps.linuxplan.outputs.shards }}
-      linux-shard-matrix: ${{ steps.linuxplan.outputs.matrix }}
+      # Each Linux sanitizer job carries a `runs-on` expression, with a comment on
+      # two of them begging the next editor to keep them in step. Sharding needs the
+      # SAME predicate a fourth and fifth time -- once to size the matrix, once to
+      # decide whether to stage an artifact at all -- so it is computed here and read
+      # as an output instead.
+      #
+      # THE THREE ARE DELIBERATELY NO LONGER BYTE-IDENTICAL (#1219), and that is the
+      # whole change. Measured over the three days to 2026-09-15T10:52Z, `olo-ci` was
+      # offered 202.8 min/h against 120 min/h of capacity -- rho 1.69 -- and 152 of
+      # 345 offered jobs (44 %) were cancelled while still queued, obsoleted by a
+      # newer push before a runner ever took them. The three sanitizer arms are 162.9
+      # of those 202.8 min/h. TSan and UBSan now route to GitHub-hosted runners on
+      # every event, which leaves the box at 96.6 min/h, rho 0.80. ASan + LSan stays,
+      # so the box's ccache stays warm and the self-hosted path stays exercised.
+      #
+      # WHAT THIS COSTS. Nothing in money -- this repo is public, so standard hosted
+      # runners are free. The hosted wall is CONCURRENCY, and it was measured for the
+      # first time in #1219: over the same window, hosted offered 352.6 min/h against
+      # a 20-slot ceiling (rho 0.29), peaking at exactly 20 concurrent jobs for 0.4 %
+      # of the window. The two moved arms add ~235 min/h, taking hosted to rho 0.49.
+      # A burst that touches the ceiling costs minutes of hosted queue, against a p90
+      # of 240 min on the box. That is the trade, written down.
+      #
+      # EACH ARM'S PREDICATE IS MIRRORED into an env var on `linuxplan` below. There
+      # are THREE pairs to keep in step now, not one.
+      asan-lsan-self-hosted: ${{ steps.linuxplan.outputs.asan-lsan-self-hosted }}
+      asan-lsan-shards: ${{ steps.linuxplan.outputs.asan-lsan-shards }}
+      asan-lsan-shard-matrix: ${{ steps.linuxplan.outputs.asan-lsan-shard-matrix }}
+      ubsan-self-hosted: ${{ steps.linuxplan.outputs.ubsan-self-hosted }}
+      ubsan-shards: ${{ steps.linuxplan.outputs.ubsan-shards }}
+      ubsan-shard-matrix: ${{ steps.linuxplan.outputs.ubsan-shard-matrix }}
+      tsan-self-hosted: ${{ steps.linuxplan.outputs.tsan-self-hosted }}
+      tsan-shards: ${{ steps.linuxplan.outputs.tsan-shards }}
+      tsan-shard-matrix: ${{ steps.linuxplan.outputs.tsan-shard-matrix }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
+
+    # BEFORE ANYTHING READS THE PLAN (#1219). Each arm's routing predicate is
+    # written twice -- once as this job's `<ARM>_SELF_HOSTED` env var, which sizes
+    # that arm's shard matrix, and once as the arm's own `runs-on`, which picks the
+    # runner -- because `runs-on` cannot read a `needs` output from the job that
+    # produces it. A disagreement between the two does not fail: it stages an
+    # artifact for shards that never run, or runs the whole suite twice, and stays
+    # green. It has drifted once already (4c2ddafb1) and only chance made it
+    # harmless. This is ~0.2 s and it runs unconditionally, on every event, because
+    # the plan it guards is read on every event.
+    - name: The three arms route where the plan says they do
+      run: python3 scripts/check_sanitizer_routing_parity.py
+
     # PULL REQUESTS ONLY. paths-filter derives its comparison base from the event
     # payload; a `schedule` run has neither a PR base nor a push before/after pair,
     # so it has nothing to diff against. The build jobs' `if` below reads
@@ -249,21 +293,31 @@ jobs:
             # The shard coverage proof and the artifact's DLL staging are part of this
             # gate (#1083); a change to either has to run the jobs it guards.
             - 'scripts/verify_test_shards.py'
+            - 'scripts/check_sanitizer_routing_parity.py'
             - 'scripts/Copy-ImportedDlls.ps1'
             - '.github/sanitizer-suppressions/**'
 
     # SHARD ONLY WHERE THERE ARE RUNNERS TO ABSORB IT.
     #
     # Sharding is not free parallelism -- it is parallelism IF a runner slot exists
-    # per shard. The hosted arm has effectively unbounded slots, so 4 shards run
-    # four-wide. The self-hosted box does not: the `olo-ci` label was served by TWO
-    # runners and, measured 2026-09-07, by ONE (olo-ci-2 offline). Three sanitizer
-    # jobs already serialise there; splitting each into four would serialise TWELVE
-    # and hand the whole win back, plus an artifact round-trip per shard.
+    # per shard. The hosted arm does not have UNBOUNDED slots -- #1219 measured the
+    # ceiling at 20 concurrent jobs, touched for 0.4 % of a three-day window -- but
+    # it has far more than four, so 4 shards run four-wide. The self-hosted box does
+    # not: the `olo-ci` label was served by TWO runners and, measured 2026-09-07, by
+    # ONE (olo-ci-2 offline). Splitting a box job into four would serialise four,
+    # plus an artifact round-trip per shard.
     #
     # So the box keeps the monolithic build-and-test job it has today, byte for byte,
     # and only the hosted arm shards. `shards == 1` is the signal for that: the build
     # job runs ctest itself and stages nothing.
+    #
+    # THE PLAN IS PER ARM SINCE #1219, because the arms no longer route together.
+    # UBSan and TSan are hosted on every event and therefore always 4 shards; ASan +
+    # LSan still takes the box on a same-repo PR and is 1 shard there. A single
+    # `linux-shards` output would have told the ASan build job to stage an artifact
+    # for shards that do not exist, or told the TSan shards there was only one of
+    # them -- either way a partition that COUNTS one thing and RUNS another, which is
+    # the exact failure `verify_test_shards.py` exists to catch.
     #
     # WHY 4 ON HOSTED. Measured on run 34108719319 (ASan + LSan, hosted): build 63 min,
     # tests 48 min. Four shards take the test half to ~12 min against an artifact
@@ -274,38 +328,63 @@ jobs:
       id: linuxplan
       shell: bash
       env:
-        # Byte-identical to the `runs-on` expression on the three Linux jobs. It is
-        # written here ONCE and those jobs still carry their own copy, because
-        # `runs-on` cannot read a `needs` output on the job that produces it without
-        # making every sanitizer job wait on this one -- which they already do.
+        # THREE COPIES NOW, ONE PER ARM, each byte-identical to the `runs-on`
+        # expression on its own job. They are written here because `runs-on` cannot
+        # read a `needs` output on the job that produces it without making every
+        # sanitizer job wait on this one -- which they already do.
         #
-        # `github.event_name != 'push'` was added to those three in #1084 and NOT
+        # `github.event_name != 'push'` was added to those jobs in #1084 and NOT
         # here, so this copy was a term short and the comment above it was false. It
         # changed no outcome -- on a `push` all three jobs are skipped at their own
         # `if`, so the plan this step computes is never read -- which is exactly why
         # nothing caught it (4c2ddafb1, 2026-09-11). A copy that is only accidentally
         # harmless is still a copy that drifted, and the next term added to one side
-        # would not get the same luck.
-        SELF_HOSTED: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+        # would not get the same luck. There are three sides to drift now.
+        #
+        # THE ONE TERM THAT DIFFERS between the three is the leading
+        # `vars.OLO_LINUX_<ARM>_SELF_HOSTED == 'true'` on UBSan and TSan. It is
+        # UNSET by default, so those two arms are hosted with no repo configuration
+        # at all -- and setting either variable to `true` puts that arm straight back
+        # on the box with no code change, which is the #1219 rollback lever.
+        ASAN_LSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                         && github.event.inputs.force_hosted != 'true'
+                         && github.event_name != 'schedule'
+                         && github.event_name != 'push'
+                         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        UBSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_UBSAN_SELF_HOSTED == 'true'
+                         && vars.OLO_LINUX_SELF_HOSTED == 'true'
+                         && github.event.inputs.force_hosted != 'true'
+                         && github.event_name != 'schedule'
+                         && github.event_name != 'push'
+                         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        TSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_TSAN_SELF_HOSTED == 'true'
+                         && vars.OLO_LINUX_SELF_HOSTED == 'true'
                          && github.event.inputs.force_hosted != 'true'
                          && github.event_name != 'schedule'
                          && github.event_name != 'push'
                          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
       run: |
         set -euo pipefail
-        if [ "${SELF_HOSTED}" = "true" ]; then
-          shards=1
-          matrix='[1]'
-        else
-          shards=4
-          matrix='[1,2,3,4]'
-        fi
-        {
-          echo "self-hosted=${SELF_HOSTED}"
-          echo "shards=${shards}"
-          echo "matrix=${matrix}"
-        } >> "$GITHUB_OUTPUT"
-        echo "Linux sanitizer plan: self-hosted=${SELF_HOSTED}, ${shards} shard(s), matrix=${matrix}"
+        plan() {
+          arm="$1"
+          self_hosted="$2"
+          if [ "${self_hosted}" = "true" ]; then
+            shards=1
+            matrix='[1]'
+          else
+            shards=4
+            matrix='[1,2,3,4]'
+          fi
+          {
+            echo "${arm}-self-hosted=${self_hosted}"
+            echo "${arm}-shards=${shards}"
+            echo "${arm}-shard-matrix=${matrix}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Linux sanitizer plan: ${arm} self-hosted=${self_hosted}, ${shards} shard(s), matrix=${matrix}"
+        }
+        plan asan-lsan "${ASAN_LSAN_SELF_HOSTED}"
+        plan ubsan "${UBSAN_SELF_HOSTED}"
+        plan tsan "${TSAN_SELF_HOSTED}"
 
   asan-windows:
     # " build" since #1083: this job no longer runs the suite, it builds the tree the
@@ -1289,7 +1368,9 @@ jobs:
     # ccache is a persistent directory every PR run feeds. Routing the nightly
     # to the box would leave every fork PR and every `force_hosted` A/B cold,
     # and would put three sanitizer jobs on the two CI slots at 01:23 UTC, an
-    # hour before gpu-sanitizers-amd.yml needs them.
+    # hour before gpu-sanitizers-amd.yml needs them. Since #1219 two of those three
+    # are hosted on a PR as well, so the nightly is the only run that exercises
+    # this arm's self-hosted-vs-hosted parity at all -- one more reason to leave it.
     #
     # `olo-ci`, not `gpu-amd`: the GPU nightly owns its runner exclusively.
     # The hosted arm is pinned to ubuntu-24.04 (noble) because the LLVM apt repo
@@ -1479,7 +1560,7 @@ jobs:
     #
     # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
     # that one PR, and charged to the repository for as long as the PR stays open.
-    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    # This arm still routes to the box for same-repo PRs; the writer is the nightly.
     - name: Restore sccache storage
       if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -1634,7 +1715,7 @@ jobs:
 
     # ---- sharded plan: measure, stamp and stage, then let the shards run -----
     #
-    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # All three steps are skipped when `asan-lsan-shards == 1` (the self-hosted arm),
     # where this job runs the suite itself exactly as before.
 
     # The unsharded total the coverage proof checks the shards against. `ctest -N`
@@ -1644,7 +1725,7 @@ jobs:
     # different filter than the shards ran with would prove nothing.
     - name: Measure the unsharded case count
       id: ctest-total
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.asan-lsan-shards != '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: |
         set -euo pipefail
@@ -1672,7 +1753,7 @@ jobs:
     # Windows shards never hit this because a .exe needs no mode bit; the shard
     # job below restores it explicitly and asserts the binary starts.
     - name: Stamp the build workspace
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.asan-lsan-shards != '1'
       run: |
         set -euo pipefail
         printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
@@ -1682,7 +1763,7 @@ jobs:
     # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
     # statically into the executable, so nothing else has to travel with it.
     - name: Upload the instrumented test tree
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.asan-lsan-shards != '1'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: asan-lsan-linux-test-tree
@@ -1695,11 +1776,11 @@ jobs:
         compression-level: 1
 
     - name: Run tests under ASan + LSan
-      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `asan-lsan-shards` is 1 only on the
       # self-hosted arm, where one runner cannot absorb a matrix; there this
       # job stays exactly what it was. On the hosted arm the shards below run
       # the suite instead and this step is skipped.
-      if: needs.detect-changes.outputs.linux-shards == '1'
+      if: needs.detect-changes.outputs.asan-lsan-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # WorkerRestartTest.RestartWorkersAndOversubscription is a tight-loop
       # stress test of FScheduler::RestartWorkers that the Windows ASan job
@@ -1785,7 +1866,7 @@ jobs:
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+      if: always() && needs.detect-changes.outputs.asan-lsan-shards == '1'
         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
@@ -1809,10 +1890,32 @@ jobs:
     if: ${{ github.event_name != 'push'
         && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
-    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
-    # and the `force_hosted` A/B live on that job. Keep the three expressions
-    # byte-identical: a job that drifts onto a label set nobody serves does not
-    # fail, it queues for 24 hours.
+    # HOSTED ON EVERY EVENT SINCE #1219 -- this expression is NO LONGER a copy of
+    # asan-lsan-linux's, and the leading term is the whole difference. The security
+    # boundary, the `force_hosted` A/B and the rest of the reasoning still live on
+    # that job; what changed is that `vars.OLO_LINUX_UBSAN_SELF_HOSTED` is UNSET, so
+    # every term after it is unreachable and this arm lands on `ubuntu-24.04`.
+    #
+    # WHY THIS ARM. The box was offered 202.8 min/h against 120 min/h of capacity
+    # over the three days to 2026-09-15T10:52Z (rho 1.69), and 44 % of offered jobs
+    # were cancelled while still queued. UBSan is 39.8 min/h of that; TSan, moved for
+    # the same reason, is 66.5. The two together leave the box at 96.6 min/h, rho
+    # 0.80. Moving TSan ALONE was measured and is not enough -- it leaves rho 1.14.
+    # The hosted side absorbs them at rho 0.29 -> 0.49 against its 20-slot ceiling.
+    # #1219 carries the full arithmetic and the method.
+    #
+    # WHY IT IS SAFE TO ROUTE HERE NOW. The hosted Linux arm was red in September for
+    # exactly one structural reason -- Ubuntu's apt shader toolchain was below the
+    # floor seven production shaders declare (#1139) -- and 211e88eca closed it on
+    # 2026-09-09 by giving the hosted arm the same pinned shaderc + SPIRV-Cross pair
+    # the box gets from $VULKAN_SDK. The nightly hosted Linux arm went 12/12 green on
+    # 09-10, 09-11 and 09-13; shader-floor.yml now guards the floor on every PR.
+    #
+    # ROLLBACK, WITHOUT A CODE CHANGE: set the repo variable
+    # `OLO_LINUX_UBSAN_SELF_HOSTED` to `true` and this arm is back on the box on the
+    # next run. Keep it in step with `UBSAN_SELF_HOSTED` on `detect-changes`: a job
+    # that drifts onto a label set nobody serves does not fail, it queues for 24
+    # hours.
     # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
     # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
     # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
@@ -1829,7 +1932,8 @@ jobs:
     # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
     # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
     # concurrency is not the scarce thing, they just run.
-    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+    runs-on: ${{ vars.OLO_LINUX_UBSAN_SELF_HOSTED == 'true'
+                 && vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
@@ -1943,7 +2047,14 @@ jobs:
     #
     # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
     # that one PR, and charged to the repository for as long as the PR stays open.
-    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    # SINCE #1219 THIS ARM IS HOSTED ON A PR, so unlike ASan + LSan it now RESTORES
+    # here on every PR run -- and still does not save, which is the point. The
+    # nightly remains the only writer, so a PR builds against a snapshot up to 24 h
+    # old. That is priced in: the hosted build times #1219 quotes (48-57 min) were
+    # measured on the nightly itself, i.e. on the coldest realistic restore. If the
+    # afternoon hit rate here is ever sampled and found wanting, the fix is a
+    # default-branch warm, NOT a PR-ref save -- a per-PR entry is charged to the
+    # repo for as long as the PR is open, and the store goes read-only at its cap.
     - name: Restore sccache storage
       if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -2072,7 +2183,7 @@ jobs:
 
     # ---- sharded plan: measure, stamp and stage, then let the shards run -----
     #
-    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # All three steps are skipped when `ubsan-shards == 1` (the self-hosted arm),
     # where this job runs the suite itself exactly as before.
 
     # The unsharded total the coverage proof checks the shards against. `ctest -N`
@@ -2082,7 +2193,7 @@ jobs:
     # different filter than the shards ran with would prove nothing.
     - name: Measure the unsharded case count
       id: ctest-total
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.ubsan-shards != '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: |
         set -euo pipefail
@@ -2110,7 +2221,7 @@ jobs:
     # Windows shards never hit this because a .exe needs no mode bit; the shard
     # job below restores it explicitly and asserts the binary starts.
     - name: Stamp the build workspace
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.ubsan-shards != '1'
       run: |
         set -euo pipefail
         printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
@@ -2120,7 +2231,7 @@ jobs:
     # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
     # statically into the executable, so nothing else has to travel with it.
     - name: Upload the instrumented test tree
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.ubsan-shards != '1'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ubsan-linux-test-tree
@@ -2133,11 +2244,11 @@ jobs:
         compression-level: 1
 
     - name: Run tests under UBSan
-      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `ubsan-shards` is 1 only on the
       # self-hosted arm, where one runner cannot absorb a matrix; there this
       # job stays exactly what it was. On the hosted arm the shards below run
       # the suite instead and this step is skipped.
-      if: needs.detect-changes.outputs.linux-shards == '1'
+      if: needs.detect-changes.outputs.ubsan-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # WorkerRestartTest.RestartWorkersAndOversubscription joins the
       # exclude list (matching ASan + TSan) — 100 iterations of a full
@@ -2207,7 +2318,7 @@ jobs:
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+      if: always() && needs.detect-changes.outputs.ubsan-shards == '1'
         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
@@ -2254,10 +2365,35 @@ jobs:
     # has been observed finishing at 126 minutes, i.e. over this cap. The
     # asymmetry, not the duration, was the bug.
     timeout-minutes: 180
-    # Routed exactly like asan-lsan-linux -- the reasoning, the security boundary
-    # and the `force_hosted` A/B live on that job. Keep the three expressions
-    # byte-identical: a job that drifts onto a label set nobody serves does not
-    # fail, it queues for 24 hours.
+    # HOSTED ON EVERY EVENT SINCE #1219 -- this expression is NO LONGER a copy of
+    # asan-lsan-linux's, and the leading term is the whole difference. The security
+    # boundary, the `force_hosted` A/B and the rest of the reasoning still live on
+    # that job; what changed is that `vars.OLO_LINUX_TSAN_SELF_HOSTED` is UNSET, so
+    # every term after it is unreachable and this arm lands on `ubuntu-24.04`.
+    #
+    # WHY THIS ARM FIRST. It is the box's single largest tenant: 66.5 of the 202.8
+    # min/h offered to a 120 min/h machine over the three days to 2026-09-15T10:52Z,
+    # at a median service of 62.1 min -- and it carried the worst queue tail of the
+    # three (p90 292 min). Moving it ALONE was measured and is NOT enough: it leaves
+    # rho 1.14, still above capacity. UBSan moves with it, and the two together leave
+    # the box at 96.6 min/h, rho 0.80. #1219 carries the full arithmetic.
+    #
+    # THE ONE THING THIS ARM LOSES is the box's warm ccache, and it is the reason
+    # `timeout-minutes: 180` above must stay. On hosted, TSan is a cold sccache
+    # restore plus a full instrumented build: measured at 57.1 min of build on the
+    # 2026-09-13 nightly, ~75 min for the whole arm including its slowest shard.
+    # That fits 180 with room; it does not fit the 90 this cap used to be.
+    #
+    # WHY IT IS SAFE TO ROUTE HERE NOW -- see the UBSan job's note: #1139's apt
+    # shader-toolchain floor was closed for the hosted arm by 211e88eca on
+    # 2026-09-09, the nightly hosted Linux arm went 12/12 green on 09-10, 09-11 and
+    # 09-13, and shader-floor.yml guards the floor on every PR.
+    #
+    # ROLLBACK, WITHOUT A CODE CHANGE: set the repo variable
+    # `OLO_LINUX_TSAN_SELF_HOSTED` to `true` and this arm is back on the box on the
+    # next run. Keep it in step with `TSAN_SELF_HOSTED` on `detect-changes`: a job
+    # that drifts onto a label set nobody serves does not fail, it queues for 24
+    # hours.
     # `!= 'push'` alongside `!= 'schedule'` (#1084), for the reason the ASan
     # (Windows/clang-cl) build above states: both are fleet cache warms, and a warm
     # routed to the box banks nothing the fleet can read. On THIS arm the mechanism is
@@ -2274,7 +2410,8 @@ jobs:
     # master warms (28856fbd, 73119d9d, c8f82bc3) were evicted that way inside 15
     # minutes, and the next one queued 61 min for a job that runs in 4-6. Hosted, where
     # concurrency is not the scarce thing, they just run.
-    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+    runs-on: ${{ vars.OLO_LINUX_TSAN_SELF_HOSTED == 'true'
+                 && vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
@@ -2375,7 +2512,14 @@ jobs:
     #
     # NOT ON PULL REQUESTS: a PR-run entry is scoped to refs/pull/N/merge, readable by
     # that one PR, and charged to the repository for as long as the PR stays open.
-    # These jobs route to the box for same-repo PRs anyway; the writer is the nightly.
+    # SINCE #1219 THIS ARM IS HOSTED ON A PR, so unlike ASan + LSan it now RESTORES
+    # here on every PR run -- and still does not save, which is the point. The
+    # nightly remains the only writer, so a PR builds against a snapshot up to 24 h
+    # old. That is priced in: the hosted build times #1219 quotes (48-57 min) were
+    # measured on the nightly itself, i.e. on the coldest realistic restore. If the
+    # afternoon hit rate here is ever sampled and found wanting, the fix is a
+    # default-branch warm, NOT a PR-ref save -- a per-PR entry is charged to the
+    # repo for as long as the PR is open, and the store goes read-only at its cap.
     - name: Restore sccache storage
       if: runner.environment == 'github-hosted'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -2504,7 +2648,7 @@ jobs:
 
     # ---- sharded plan: measure, stamp and stage, then let the shards run -----
     #
-    # All three steps are skipped when `linux-shards == 1` (the self-hosted arm),
+    # All three steps are skipped when `tsan-shards == 1` (the self-hosted arm),
     # where this job runs the suite itself exactly as before.
 
     # The unsharded total the coverage proof checks the shards against. `ctest -N`
@@ -2514,7 +2658,7 @@ jobs:
     # different filter than the shards ran with would prove nothing.
     - name: Measure the unsharded case count
       id: ctest-total
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.tsan-shards != '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       run: |
         set -euo pipefail
@@ -2542,7 +2686,7 @@ jobs:
     # Windows shards never hit this because a .exe needs no mode bit; the shard
     # job below restores it explicitly and asserts the binary starts.
     - name: Stamp the build workspace
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.tsan-shards != '1'
       run: |
         set -euo pipefail
         printf '%s' '${{github.workspace}}' > build/OloEngine/tests/olo-build-workspace.txt
@@ -2552,7 +2696,7 @@ jobs:
     # stamp and the instrumented binary. The Linux sanitizer runtimes are linked
     # statically into the executable, so nothing else has to travel with it.
     - name: Upload the instrumented test tree
-      if: needs.detect-changes.outputs.linux-shards != '1'
+      if: needs.detect-changes.outputs.tsan-shards != '1'
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: tsan-linux-test-tree
@@ -2565,11 +2709,11 @@ jobs:
         compression-level: 1
 
     - name: Run tests under TSan
-      # SHARDED PLAN RUNS THIS ELSEWHERE. `linux-shards` is 1 only on the
+      # SHARDED PLAN RUNS THIS ELSEWHERE. `tsan-shards` is 1 only on the
       # self-hosted arm, where one runner cannot absorb a matrix; there this
       # job stays exactly what it was. On the hosted arm the shards below run
       # the suite instead and this step is skipped.
-      if: needs.detect-changes.outputs.linux-shards == '1'
+      if: needs.detect-changes.outputs.tsan-shards == '1'
       working-directory: ${{github.workspace}}/build/OloEngine/tests
       # --timeout 600: covers two known-slow buckets under TSan instrumentation:
       #   1. AssetContentValidity.SandboxAssetRegistryDeserialisesAndPathsResolve
@@ -2641,7 +2785,7 @@ jobs:
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
       # to read for forks). Skip the reporter there; same-repo PRs and
       # push/workflow_dispatch runs retain full permissions.
-      if: always() && needs.detect-changes.outputs.linux-shards == '1'
+      if: always() && needs.detect-changes.outputs.tsan-shards == '1'
         && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
       uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
       with:
@@ -2654,21 +2798,27 @@ jobs:
   # ---------------------------------------------------------------------------
   # ASan + LSan (Linux) test run, spread across runners (#1083, Linux).
   #
-  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
-  # the run routes to the self-hosted box, and this whole job is skipped there --
-  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
-  # already queue against them, so a matrix would serialise rather than parallelise.
-  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `asan-lsan-shards` to 1
+  # when this arm routes to the self-hosted box, and this whole job is skipped
+  # there -- the `olo-ci` label is served by at most two runners, so a matrix would
+  # serialise rather than parallelise. On the hosted arm the shard count is 4; see
+  # the plan step for the measurement.
+  #
+  # SINCE #1219 THIS IS THE ONLY ARM WHOSE SHARDS ARE RARE. ASan + LSan is the one
+  # sanitizer still routed to the box on a same-repo PR, so these shards run on the
+  # nightly, on fork PRs, on a `force_hosted` dispatch, and when the
+  # `OLO_LINUX_SELF_HOSTED` kill-switch is off. UBSan's and TSan's equivalents now
+  # run on every PR.
   #
   # `runs-on` is a plain literal rather than the routing expression the build jobs
   # carry, and that is not a shortcut: this job cannot run at all unless the plan
   # already chose the hosted arm, so any other value would be unreachable.
   # ---------------------------------------------------------------------------
   asan-lsan-linux-tests:
-    name: ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    name: ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.asan-lsan-shards }}
     needs: [detect-changes, asan-lsan-linux]
     if: ${{ !cancelled() && needs.asan-lsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.asan-lsan-shards != '1' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -2678,9 +2828,9 @@ jobs:
       # and the coverage proof wants every one of their counts.
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+        shard: ${{ fromJSON(needs.detect-changes.outputs.asan-lsan-shard-matrix) }}
     env:
-      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.asan-lsan-shards }}
       # The SAME exclusion the build job measured its total with. Copied from the
       # build job's literal by construction -- see the note on that env var.
       OLO_ASAN_LSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^WorkerRestartTest\.'
@@ -2839,7 +2989,7 @@ jobs:
     # then post a red "a shard did not complete" on a run nobody abandoned for a
     # reason worth reading. Braced because a bare leading `!` is a YAML tag.
     if: ${{ !cancelled() && needs.asan-lsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.asan-lsan-shards != '1' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2892,21 +3042,27 @@ jobs:
   # ---------------------------------------------------------------------------
   # UBSan (Linux) test run, spread across runners (#1083, Linux).
   #
-  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
-  # the run routes to the self-hosted box, and this whole job is skipped there --
-  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
-  # already queue against them, so a matrix would serialise rather than parallelise.
-  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  # EXISTS ONLY ON THE HOSTED ARM, WHICH SINCE #1219 IS EVERY EVENT. `detect-changes`
+  # sets `ubsan-shards` to 1 only if this arm is put back on the box by setting
+  # `OLO_LINUX_UBSAN_SELF_HOSTED`, and this whole job is skipped there -- the
+  # `olo-ci` label is served by at most two runners, so a matrix would serialise
+  # rather than parallelise. On the hosted arm the shard count is 4; see the plan
+  # step for the measurement.
+  #
+  # So this job, not the build job's own ctest, is where UBSan's suite runs on a
+  # normal PR now. `ubsan-linux-tests-verify` proves the four partitions cover the
+  # whole suite -- which is the guard that matters when a routing change moves
+  # where the tests execute.
   #
   # `runs-on` is a plain literal rather than the routing expression the build jobs
   # carry, and that is not a shortcut: this job cannot run at all unless the plan
   # already chose the hosted arm, so any other value would be unreachable.
   # ---------------------------------------------------------------------------
   ubsan-linux-tests:
-    name: UBSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    name: UBSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.ubsan-shards }}
     needs: [detect-changes, ubsan-linux]
     if: ${{ !cancelled() && needs.ubsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.ubsan-shards != '1' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -2916,9 +3072,9 @@ jobs:
       # and the coverage proof wants every one of their counts.
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+        shard: ${{ fromJSON(needs.detect-changes.outputs.ubsan-shard-matrix) }}
     env:
-      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.ubsan-shards }}
       # The SAME exclusion the build job measured its total with. Copied from the
       # build job's literal by construction -- see the note on that env var.
       OLO_UBSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^NetworkManagerTest\.|^NetworkThreadDispatchTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
@@ -3076,7 +3232,7 @@ jobs:
     # then post a red "a shard did not complete" on a run nobody abandoned for a
     # reason worth reading. Braced because a bare leading `!` is a YAML tag.
     if: ${{ !cancelled() && needs.ubsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.ubsan-shards != '1' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -3129,21 +3285,30 @@ jobs:
   # ---------------------------------------------------------------------------
   # TSan (Linux) test run, spread across runners (#1083, Linux).
   #
-  # EXISTS ONLY ON THE HOSTED ARM. `detect-changes` sets `linux-shards` to 1 when
-  # the run routes to the self-hosted box, and this whole job is skipped there --
-  # the `olo-ci` label is served by at most two runners and three sanitizer jobs
-  # already queue against them, so a matrix would serialise rather than parallelise.
-  # On the hosted arm the shard count is 4; see the plan step for the measurement.
+  # EXISTS ONLY ON THE HOSTED ARM, WHICH SINCE #1219 IS EVERY EVENT. `detect-changes`
+  # sets `tsan-shards` to 1 only if this arm is put back on the box by setting
+  # `OLO_LINUX_TSAN_SELF_HOSTED`, and this whole job is skipped there -- the
+  # `olo-ci` label is served by at most two runners, so a matrix would serialise
+  # rather than parallelise. On the hosted arm the shard count is 4; see the plan
+  # step for the measurement.
+  #
+  # So this job, not the build job's own ctest, is where TSan's suite runs on a
+  # normal PR now. `tsan-linux-tests-verify` proves the four partitions cover the
+  # whole suite -- which is the guard that matters when a routing change moves
+  # where the tests execute. Note the arm keeps its own
+  # `OLO_TSAN_LINUX_CTEST_EXCLUDE`, defined identically on the build job and here;
+  # the coverage proof compares against the build job's `ctest -N` total, which is
+  # taken AFTER that exclusion.
   #
   # `runs-on` is a plain literal rather than the routing expression the build jobs
   # carry, and that is not a shortcut: this job cannot run at all unless the plan
   # already chose the hosted arm, so any other value would be unreachable.
   # ---------------------------------------------------------------------------
   tsan-linux-tests:
-    name: TSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.linux-shards }}
+    name: TSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.tsan-shards }}
     needs: [detect-changes, tsan-linux]
     if: ${{ !cancelled() && needs.tsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.tsan-shards != '1' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -3153,9 +3318,9 @@ jobs:
       # and the coverage proof wants every one of their counts.
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.detect-changes.outputs.linux-shard-matrix) }}
+        shard: ${{ fromJSON(needs.detect-changes.outputs.tsan-shard-matrix) }}
     env:
-      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.linux-shards }}
+      OLO_CTEST_SHARDS: ${{ needs.detect-changes.outputs.tsan-shards }}
       # The SAME exclusion the build job measured its total with. Copied from the
       # build job's literal by construction -- see the note on that env var.
       OLO_TSAN_LINUX_CTEST_EXCLUDE: '^NetworkIntegrationTest\.|^ServerAuthoritativeLoopTest\.|^WorkerRestartTest\.'
@@ -3319,7 +3484,7 @@ jobs:
     # then post a red "a shard did not complete" on a run nobody abandoned for a
     # reason worth reading. Braced because a bare leading `!` is a YAML tag.
     if: ${{ !cancelled() && needs.tsan-linux.result == 'success'
-        && needs.detect-changes.outputs.linux-shards != '1' }}
+        && needs.detect-changes.outputs.tsan-shards != '1' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
