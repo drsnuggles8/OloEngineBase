@@ -312,6 +312,13 @@ namespace OloEngine
         {
             m_Skeleton = skeleton;
         }
+        // The owning reference, for a derived source (an LOD level) that must share
+        // the SAME skeleton as the mesh it was simplified from. GetSkeleton() hands
+        // back a raw pointer, which cannot express that shared ownership.
+        const Ref<Skeleton>& GetSkeletonRef() const
+        {
+            return m_Skeleton;
+        }
 
         bool IsSubmeshRigged(u32 submeshIndex) const
         {
@@ -440,6 +447,15 @@ namespace OloEngine
         const Ref<VertexArray>& GetVertexArray() const
         {
             return m_VertexArray;
+        }
+        // Whether Build() actually produced GPU buffers. False on a process with no
+        // graphics device at all (OloServer, a headless test): Build() keeps the CPU
+        // data and returns before creating any buffer. A CPU-side deformation pass
+        // that re-uploads the vertex buffer has to ask, because GetVertexBuffer()
+        // below asserts rather than returning null.
+        bool HasVertexBuffer() const
+        {
+            return m_VertexBuffer != nullptr;
         }
         const Ref<VertexBuffer>& GetVertexBuffer() const
         {

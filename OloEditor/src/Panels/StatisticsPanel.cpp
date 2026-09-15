@@ -188,6 +188,22 @@ namespace OloEngine
                                     std::string(Animation::ToString(deform.LastResetCause)).c_str());
                     }
                 }
+                // The morph half of the same surface (#1227). "Rejected" is a
+                // deliberate, per-frame refusal to reproject a surface that moved,
+                // not an error; the malformed-input totals below it are.
+                if (deform.MorphSurfacesAdvanced > 0)
+                {
+                    ImGui::Text("Morph Surfaces: %u (with history %u, rejected %u)",
+                                deform.MorphSurfacesAdvanced, deform.MorphSurfacesWithHistory,
+                                deform.MorphSurfacesRejected);
+                    if (deform.MorphUnknownTargets > 0 || deform.MorphIncompatibleSets > 0 ||
+                        deform.MorphBaseCacheInvalidations > 0)
+                    {
+                        ImGui::Text("  Refused morph input: %u unknown target(s), %u incompatible set(s), %u cache drop(s)",
+                                    deform.MorphUnknownTargets, deform.MorphIncompatibleSets,
+                                    deform.MorphBaseCacheInvalidations);
+                    }
+                }
             }
             if (stats3D.TotalEmitters > 0)
             {

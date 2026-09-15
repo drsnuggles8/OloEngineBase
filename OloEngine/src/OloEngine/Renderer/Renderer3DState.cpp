@@ -440,6 +440,11 @@ namespace OloEngine
         return s_Data.CullViewMatrix;
     }
 
+    const LODViewParams& Renderer3D::GetLODViewParams()
+    {
+        return s_Data.LODView;
+    }
+
     const glm::mat4& Renderer3D::GetCullProjectionMatrix()
     {
         return s_Data.CullProjectionMatrix;

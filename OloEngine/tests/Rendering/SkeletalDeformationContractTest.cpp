@@ -26,6 +26,7 @@
 
 #include "OloEnginePCH.h"
 
+#include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <gtest/gtest.h>
@@ -39,6 +40,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -392,6 +394,107 @@ namespace OloEngine::Tests
                        "An ungated read hands the shaders a previous pose after a discontinuity, "
                        "which emits a velocity across the seam that TAA and motion blur smear.";
             }
+        }
+    }
+
+    // Every frame-boundary bone-history advance is paired with a morph-history
+    // advance, at the same call site.
+    //
+    // Same shape of risk as EveryPreviousPaletteReadIsGatedOnHasBoneHistory above,
+    // and the same counter-move. The morph half of the surface (#1227) has its own
+    // per-entity history, and it is only correct if it is advanced at EVERY frame
+    // entry point the bone half is advanced at: Scene has four
+    // (OnUpdateRuntime, OnUpdateRuntimeFixed, OnUpdateSimulation, OnUpdateEditor),
+    // and a morph advance wired into three of them fails in exactly one mode,
+    // silently, as a morphing character that smears under TAA in edit-mode preview
+    // but not in Play. Nothing asserts and no numeric test distinguishes the two.
+    //
+    // The pairing is asserted over CALL SITES rather than over behaviour, because
+    // #1226 shipped a guard on a function with no callers while the live path went
+    // unguarded, and two review passes read it as done.
+    TEST(SkeletalDeformationContract, EveryBoneHistoryAdvanceIsPairedWithAMorphAdvance)
+    {
+        const fs::path repoRoot = fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
+        const fs::path path = repoRoot / "OloEngine/src/OloEngine/Scene/Scene.cpp";
+        const std::string source = ReadFile(path);
+        ASSERT_FALSE(source.empty()) << "could not read " << path.string();
+
+        constexpr char TheNewline = 0x0A;
+        std::vector<std::string> lines;
+        for (std::size_t start = 0; start <= source.size();)
+        {
+            const std::size_t end = source.find(TheNewline, start);
+            lines.push_back(source.substr(start, end == std::string::npos ? std::string::npos : end - start));
+            if (end == std::string::npos)
+                break;
+            start = end + 1;
+        }
+
+        // Pairs of (bone call, the morph call that must accompany it).
+        const std::array<std::pair<std::string_view, std::string_view>, 2> kPairs = {
+            std::pair{ std::string_view{ "SkeletalDeformationSystem::AdvanceHistory(this)" },
+                       std::string_view{ "MorphDeformationSystem::AdvanceHistory(this)" } },
+            std::pair{ std::string_view{ "SkeletalDeformationSystem::ResetHistory(" },
+                       std::string_view{ "MorphDeformationSystem::ResetHistory(" } },
+        };
+
+        u32 pairedAdvances = 0;
+        for (const auto& [boneCall, morphCall] : kPairs)
+        {
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                if (lines[i].find(boneCall) == std::string::npos)
+                    continue;
+
+                // The morph call sits within a few lines — immediately after, or
+                // after the short comment that explains the pairing.
+                const std::size_t lo = i >= 4 ? i - 4 : 0;
+                const std::size_t hi = std::min(lines.size(), i + 12);
+                bool paired = false;
+                for (std::size_t j = lo; j < hi && !paired; ++j)
+                    paired = lines[j].find(morphCall) != std::string::npos;
+
+                EXPECT_TRUE(paired)
+                    << "Scene.cpp:" << (i + 1) << " calls " << boneCall
+                    << " with no nearby " << morphCall
+                    << ". The two halves of the shared animated surface must advance and reset "
+                       "together at every frame entry point; a morph history advanced at only "
+                       "some of them freezes the morph delta in exactly the modes it was left "
+                       "out of, and nothing logs.";
+                if (paired && boneCall.find("AdvanceHistory") != std::string_view::npos)
+                    ++pairedAdvances;
+            }
+        }
+
+        // A guard nobody calls is the failure this file exists to catch, so the
+        // scan also has to fail when the call sites themselves disappear.
+        EXPECT_GE(pairedAdvances, 4u)
+            << "fewer than four paired frame-boundary advances found in Scene.cpp — either a "
+               "frame entry point stopped advancing deformation history, or this scan stopped "
+               "matching the call and is now passing vacuously";
+    }
+
+    // The morph half's reset causes exist and are nameable.
+    //
+    // Every reset is attributed so a discontinuity can be told apart from "nothing
+    // moved" from outside a debugging session (#1226's counters, extended by
+    // #1227). A cause that falls through ToString to "Unknown" reads, in the
+    // editor panel and in olo_skeletal_deformation_stats, as a bug in the engine
+    // rather than as a missing switch arm.
+    TEST(SkeletalDeformationContract, EveryMorphResetCauseHasAName)
+    {
+        using Animation::DeformationHistoryResetCause;
+        constexpr std::array kMorphCauses = {
+            DeformationHistoryResetCause::MorphSurfaceChanged,
+            DeformationHistoryResetCause::MorphSetChanged,
+            DeformationHistoryResetCause::MeshTopologyChanged,
+        };
+
+        for (const auto cause : kMorphCauses)
+        {
+            EXPECT_NE(Animation::ToString(cause), "Unknown")
+                << "a deformation history reset cause has no name, so every reset attributed to "
+                   "it is indistinguishable from an engine bug in the statistics panel";
         }
     }
 

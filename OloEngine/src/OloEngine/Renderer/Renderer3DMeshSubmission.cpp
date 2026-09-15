@@ -76,6 +76,41 @@ namespace OloEngine
 {
     namespace
     {
+        // World-space slack a morph target set can add to a mesh's rest-pose bounds.
+        //
+        // Culling an animated mesh has always padded the rest-pose sphere by a blanket
+        // 2x for skinning. Morph deformation is a SECOND source of motion the rest
+        // bounds know nothing about, and it is one the CPU morph pass bakes straight
+        // into the vertex buffer without recomputing bounds — so a strongly displaced
+        // expression can leave the sphere entirely and pop out of frame at the screen
+        // edge. MorphTargetSet::GetMaxDisplacement is the conservative object-space
+        // bound (weights are clamped to [0,1] and combine additively, so no vertex can
+        // move further than the sum of the per-target maxima); this converts it to
+        // world space with the same max-axis scale BoundingSphere::Transform uses, so
+        // the two agree about what "scale" means (#1227).
+        [[nodiscard]] f32 MorphBoundsSlack(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix)
+        {
+            if (!mesh)
+                return 0.0f;
+            // By value: Mesh::GetMeshSource() returns a Ref by value.
+            const Ref<MeshSource> source = mesh->GetMeshSource();
+            if (!source || !source->HasMorphTargets())
+                return 0.0f;
+
+            const f32 displacement = source->GetMorphTargets()->GetMaxDisplacement();
+            if (!std::isfinite(displacement) || displacement <= 0.0f)
+                return 0.0f;
+
+            const f32 maxScale = glm::max(glm::max(glm::length(glm::vec3(modelMatrix[0])),
+                                                   glm::length(glm::vec3(modelMatrix[1]))),
+                                          glm::length(glm::vec3(modelMatrix[2])));
+            const f32 slack = displacement * maxScale;
+            return std::isfinite(slack) ? slack : 0.0f;
+        }
+    } // namespace
+
+    namespace
+    {
         // Stable per-draw debug label for frame capture / olo_perf_capture_frame:
         // the submesh's node (or mesh) name. Returns a pointer into the
         // MeshSource's own strings — valid for the mesh's lifetime, which spans
@@ -1383,6 +1418,9 @@ namespace OloEngine
             BoundingSphere animatedSphere = mesh->GetTransformedBoundingSphere(modelMatrix);
             // Use a larger expansion factor for animated meshes to account for potential deformation.
             animatedSphere.Radius *= 2.0f; // More conservative than the standard 1.3f for static meshes.
+            // ...plus the morph half of the same motion, which the 2x above does not
+            // bound because it is a fudge for SKINNING (#1227).
+            animatedSphere.Radius += MorphBoundsSlack(mesh, modelMatrix);
 
             if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
             {
@@ -1630,7 +1668,13 @@ namespace OloEngine
             return;
         }
 
-        // Get all entities with required components.
+        // NOT the live animated path. Scene's own animated-mesh loop is what renders
+        // (see the note on the previous-pose gate there); this function has no
+        // callers, and #1226 shipped a guard here that was therefore decorative.
+        // It consequently does NOT resolve the shared animated surface's conventional
+        // LOD level the way Scene::SelectAnimatedSurfaceLOD does (#1227): anything
+        // that revives this path has to route through AnimatedSurfaceSource first,
+        // or it will draw an undeformed LOD 0 while the morph pass writes elsewhere.
         auto view = scene->GetAllEntitiesWith<MeshComponent, SkeletonComponent, TransformComponent>();
 
         // Collect mesh descriptors for parallel submission.
@@ -2135,6 +2179,7 @@ namespace OloEngine
             {
                 BoundingSphere animatedSphere = mesh->GetTransformedBoundingSphere(modelMatrix);
                 animatedSphere.Radius *= 2.0f;
+                animatedSphere.Radius += MorphBoundsSlack(mesh, modelMatrix); // #1227
 
                 if (!ctx.SceneContext->ViewFrustum.IsBoundingSphereVisible(animatedSphere))
                 {

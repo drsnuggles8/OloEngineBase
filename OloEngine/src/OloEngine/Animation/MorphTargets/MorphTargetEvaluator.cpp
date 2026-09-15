@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 
 namespace OloEngine
 {
@@ -38,7 +39,13 @@ namespace OloEngine
         for (u32 t = 0; t < targetCount && t < weightCount; ++t)
         {
             const f32 w = weights[t];
-            if (w < 1e-4f)
+            // isfinite FIRST, and not as part of the threshold test: NaN compares
+            // false against every threshold, so `w < 1e-4f` lets it straight through
+            // and it then multiplies into every delta this target carries. One NaN
+            // vertex removes the triangles it belongs to from the raster, silently.
+            // The weight arrives here from a scene file, a C# or Lua script and an
+            // MCP write, so it is untrusted on four routes (#1227).
+            if (!std::isfinite(w) || w < 1e-4f)
                 continue;
 
             const auto& target = morphTargets.Targets[t];

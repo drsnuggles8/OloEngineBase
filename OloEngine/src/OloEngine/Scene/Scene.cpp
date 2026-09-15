@@ -1457,6 +1457,8 @@ namespace OloEngine
         // zero bone motion instead of a velocity across the seam (#1226).
         Animation::SkeletalDeformationSystem::ResetHistory(
             this, Animation::DeformationHistoryResetCause::SceneTransition);
+        Animation::MorphDeformationSystem::ResetHistory(
+            this, Animation::DeformationHistoryResetCause::SceneTransition);
 
         // Item definitions are runtime data, not an editor-only cache. Loading
         // them at the shared Scene entry point covers Editor Play, OloRuntime,
@@ -2140,56 +2142,252 @@ namespace OloEngine
         RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
     }
 
+    // The mesh an animated entity's shared surface IS this frame: the conventional
+    // LOD level Scene::SelectAnimatedSurfaceLOD resolved at the frame boundary, or
+    // the entity's own source when it has no animated LOD selection. Every consumer
+    // of the surface - the morph deformation pass below, the animated draw loop,
+    // the skinned shadow casters - must ask this and nothing else, or the pass that
+    // deforms and the pass that draws disagree about which mesh they mean (#1227).
+    //
+    // BY VALUE, not by reference: Mesh::GetMeshSource() returns a Ref by value, so
+    // a reference return would bind to a temporary and dangle the moment the caller
+    // used it.
+    static Ref<MeshSource> AnimatedSurfaceSource(const LODGroupComponent* lodComp,
+                                                 const MeshComponent& meshComp)
+    {
+        if (lodComp != nullptr && lodComp->m_ActiveAnimatedMesh)
+        {
+            if (Ref<MeshSource> lodSource = lodComp->m_ActiveAnimatedMesh->GetMeshSource(); lodSource)
+            {
+                return lodSource;
+            }
+        }
+        return meshComp.m_MeshSource;
+    }
+
+    // Write the cached base surface back into a mesh and re-upload it.
+    //
+    // The morph pass deforms the MeshSource's vertex buffer IN PLACE, and a
+    // MeshSource is a shared asset — so whenever this entity stops deforming a
+    // given mesh, that mesh has to be put back first. Two callers need it and they
+    // fail differently if it is skipped:
+    //
+    //   - weights going inactive: the mesh stays stuck in its last expression;
+    //   - an LOD switch: the level being LEFT keeps the deformed vertices, and if
+    //     it is ever selected again its BasePositions are re-cached FROM that
+    //     deformed state, so the expression is applied twice — then three times —
+    //     permanently, on an asset every other entity using that mesh shares.
+    //
+    // Returns false when the cache does not describe this mesh, which is the
+    // caller's signal that there is nothing safe to restore.
+    static bool RestoreBaseSurface(MeshSource& meshSource, const MorphTargetComponent& morphComp)
+    {
+        auto& vertices = meshSource.GetVertices();
+        const auto vertexCount = static_cast<u32>(vertices.Num());
+        if (morphComp.BasePositions.size() != static_cast<sizet>(vertexCount) ||
+            morphComp.BaseNormals.size() != static_cast<sizet>(vertexCount))
+        {
+            return false;
+        }
+
+        for (u32 i = 0; i < vertexCount; ++i)
+        {
+            vertices[static_cast<i32>(i)].Position = morphComp.BasePositions[i];
+            vertices[static_cast<i32>(i)].Normal = morphComp.BaseNormals[i];
+        }
+
+        // No buffer means no graphics device (OloServer, a headless test), not a
+        // failure: the CPU surface above is already restored.
+        if (meshSource.HasVertexBuffer())
+        {
+            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource.GetVertexBuffer());
+            vb->SetData({ vertices.GetData(), static_cast<u32>(vertices.Num() * sizeof(Vertex)) });
+        }
+        return true;
+    }
+
+    // Write the cached rest surface back to the mesh it was taken from, then drop
+    // the cache. THE ONLY correct way to invalidate it.
+    //
+    // InvalidateBaseCache alone clears BasePositions and WasMorphActive, which
+    // leaves the mesh deformed with its only rest copy gone — and the next
+    // activation re-caches those deformed vertices as the base surface, so the
+    // expression compounds on itself, permanently, on an asset every entity using
+    // that mesh shares. Restoring through BaseCacheSource rather than through
+    // whatever mesh is current is what makes this safe across a mesh swap: after
+    // one, the current handle is the NEW surface, and two meshes of equal vertex
+    // count would quietly take each other's rest data.
+    static void RestoreAndInvalidateBaseCache(MorphTargetComponent& morphComp)
+    {
+        if (morphComp.WasMorphActive && morphComp.BaseCacheSource)
+        {
+            (void)RestoreBaseSurface(*morphComp.BaseCacheSource, morphComp);
+        }
+        morphComp.InvalidateBaseCache();
+    }
+
     // Per-entity CPU morph-target deformation: deform the mesh by the component's
     // active weights (or restore the base mesh when they go inactive) and re-upload
     // the vertex buffer. Shared by the runtime (OnUpdateRuntime) and editor-preview
     // (OnUpdateEditor) morph passes so the two can't drift. Weights are produced
     // upstream by the animation/graph samplers or by script/preset writes.
-    static void EvaluateEntityMorphTargets(MorphTargetComponent& morphComp, MeshComponent& meshComp)
+    //
+    // THE COMBINATION ORDER IS MORPH, THEN SKIN, and it is fixed here rather than
+    // agreed between consumers: this pass writes the morphed REST surface into the
+    // one vertex buffer every skinned pass reads, and SkeletalDeformation.glsl then
+    // applies the skin matrix to whatever that buffer holds. Colour, depth, the
+    // three shadow passes and the velocity output therefore see the same combined
+    // surface by construction - there is no second place that could apply the
+    // deltas in the other order. The order matters: a skin matrix is affine but not
+    // a translation, so skinning a rest-space delta is not the same as skinning the
+    // rest vertex and adding the delta afterwards, and the difference on a rotating
+    // jaw bone is the whole expression.
+    //
+    // `skeleton` is here because a surface that MOVED between two frames cannot be
+    // reprojected at all - see MorphDeformationSystem.
+    static void EvaluateEntityMorphTargets(MorphTargetComponent& morphComp, MeshComponent& meshComp,
+                                           const LODGroupComponent* lodComp, Skeleton* skeleton)
     {
-        if (!meshComp.m_MeshSource)
+        // Non-const: this pass writes into the surface, and Ref<T> propagates
+        // constness, so a const handle would select the const GetVertices()
+        // overload and nothing here could deform.
+        Ref<MeshSource> meshSource = AnimatedSurfaceSource(lodComp, meshComp);
+        if (!meshSource)
             return;
 
-        // Auto-populate MorphTargets from MeshSource if not already set
-        if (!morphComp.MorphTargets && meshComp.m_MeshSource->HasMorphTargets())
-            morphComp.MorphTargets = meshComp.m_MeshSource->GetMorphTargets();
+        const auto meshVertexCount = static_cast<u32>(meshSource->GetVertices().Num());
 
-        if (!morphComp.HasActiveWeights() || !morphComp.MorphTargets)
+        // Auto-populate MorphTargets from the surface actually being drawn, and
+        // RE-populate when that surface changed underneath us (a mesh swap, an LOD
+        // switch). Binding the set once and never looking again is how a component
+        // ends up deforming a new mesh with the old mesh's deltas.
+        if (meshSource->HasMorphTargets())
         {
-            // Restore base mesh only on transition from active → inactive
-            if (morphComp.WasMorphActive && !morphComp.BasePositions.empty() && meshComp.m_MeshSource)
+            const bool stillRefused = morphComp.RefusedSet == meshSource->GetMorphTargets() &&
+                                      morphComp.RefusedSetVertexCount == meshVertexCount;
+            if (const Ref<MorphTargetSet>& sourceSet = meshSource->GetMorphTargets();
+                sourceSet && morphComp.MorphTargets != sourceSet && !stillRefused)
             {
-                auto& meshSource = meshComp.m_MeshSource;
-                auto& mutableVerts = meshSource->GetVertices();
-                for (u32 i = 0; i < static_cast<u32>(morphComp.BasePositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+                if (morphComp.HasCachedBaseSurface())
                 {
-                    mutableVerts[i].Position = morphComp.BasePositions[i];
-                    mutableVerts[i].Normal = morphComp.BaseNormals[i];
+                    Animation::SkeletalDeformationSystem::NoteMorphBaseCacheInvalidated();
                 }
-                auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-                vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+                morphComp.MorphTargets = sourceSet;
+                RestoreAndInvalidateBaseCache(morphComp);
+            }
+        }
+
+        // A morph set that does not span the mesh it is bound to is the missing /
+        // malformed morph stream of #1227: applied anyway it deforms the wrong
+        // vertices, which reads as a broken rig rather than as mismatched data.
+        // Refuse it, say so, and count it.
+        if (morphComp.MorphTargets)
+        {
+            if (const auto compatibility = morphComp.MorphTargets->CheckCompatibility(meshVertexCount);
+                compatibility != MorphTargetSet::ECompatibility::Compatible &&
+                compatibility != MorphTargetSet::ECompatibility::Empty)
+            {
+                Animation::SkeletalDeformationSystem::NoteMorphIncompatibleSet();
+                OLO_CORE_WARN("Scene::EvaluateMorphTargets: morph set rejected for a {}-vertex surface ({}) - "
+                              "the mesh is drawn undeformed rather than deformed at the wrong vertices",
+                              meshVertexCount, MorphTargetSet::ToString(compatibility));
+                // Remembered, so the refusal is counted and logged once per set and
+                // not once per frame for as long as the mesh keeps offering it. Keyed
+                // on the vertex count too: the same set may span a different surface.
+                morphComp.RefusedSet = morphComp.MorphTargets;
+                morphComp.RefusedSetVertexCount = meshVertexCount;
+                morphComp.MorphTargets = nullptr;
+                RestoreAndInvalidateBaseCache(morphComp);
+            }
+        }
+
+        // The base-surface cache is only the base surface of the mesh it was taken
+        // from. Keyed on the morph set the component holds a strong Ref to plus the
+        // vertex count, so a mesh swap or an LOD switch drops it instead of writing
+        // the old mesh's rest positions into the new mesh's vertex buffer - which is
+        // in range, silent, and wrong.
+        if (morphComp.BaseCacheKey != morphComp.MorphTargets.Raw() ||
+            morphComp.BaseCacheVertexCount != meshVertexCount)
+        {
+            if (!morphComp.BasePositions.empty())
+            {
+                Animation::SkeletalDeformationSystem::NoteMorphBaseCacheInvalidated();
+            }
+            RestoreAndInvalidateBaseCache(morphComp);
+        }
+
+        const auto ordered = morphComp.GetOrderedWeightsChecked();
+        // Counted on CHANGE, not every frame. This pass runs per frame and the
+        // counter is a session total: a single persistently misnamed weight would
+        // otherwise add 60 per second, and a total that grows with wall-clock time
+        // says nothing about how many bad names there are.
+        if (ordered.UnknownTargets != morphComp.ReportedUnknownTargets)
+        {
+            if (ordered.UnknownTargets > morphComp.ReportedUnknownTargets)
+            {
+                Animation::SkeletalDeformationSystem::NoteMorphUnknownTargets(
+                    ordered.UnknownTargets - morphComp.ReportedUnknownTargets);
+            }
+            morphComp.ReportedUnknownTargets = ordered.UnknownTargets;
+        }
+
+        const bool hasActiveWeights = morphComp.HasActiveWeights() && morphComp.MorphTargets;
+
+        // Whatever happens below, AppliedWeights must end up describing the surface
+        // that is now in the vertex buffer - that is what the next frame's history
+        // advance rotates into the previous slot.
+        const auto finish = [&](std::vector<f32> nowApplied)
+        {
+            if (morphComp.HasMorphHistory && nowApplied != morphComp.PrevAppliedWeights)
+            {
+                // The rest surface the shaders reproject THROUGH is this frame's, so
+                // last frame's pose on it is a hybrid of two surfaces. Reject rather
+                // than emit a velocity that is wrong everywhere the morph moved.
+                Animation::RejectDeformationHistory(skeleton, &morphComp,
+                                                    Animation::DeformationHistoryResetCause::MorphSurfaceChanged);
+            }
+            morphComp.AppliedWeights = MoveTemp(nowApplied);
+            morphComp.HasAppliedSurface = true;
+        };
+
+        if (!hasActiveWeights)
+        {
+            // Restore base mesh only on transition from active -> inactive
+            if (morphComp.WasMorphActive)
+            {
+                (void)RestoreBaseSurface(*meshSource, morphComp);
             }
             morphComp.WasMorphActive = false;
+            finish({}); // an unmorphed surface is the empty weight vector
             return;
         }
 
-        auto& meshSource = meshComp.m_MeshSource;
         auto& vertices = meshSource->GetVertices();
 
         // Cache base vertex data on first evaluation
         if (morphComp.BasePositions.empty() && vertices.Num() > 0)
         {
-            morphComp.BasePositions.resize(vertices.Num());
-            morphComp.BaseNormals.resize(vertices.Num());
-            for (u32 i = 0; i < static_cast<u32>(vertices.Num()); ++i)
+            morphComp.BasePositions.resize(static_cast<sizet>(vertices.Num()));
+            morphComp.BaseNormals.resize(static_cast<sizet>(vertices.Num()));
+            for (u32 i = 0; i < meshVertexCount; ++i)
             {
-                morphComp.BasePositions[i] = vertices[i].Position;
-                morphComp.BaseNormals[i] = vertices[i].Normal;
+                morphComp.BasePositions[i] = vertices[static_cast<i32>(i)].Position;
+                morphComp.BaseNormals[i] = vertices[static_cast<i32>(i)].Normal;
             }
+            morphComp.BaseCacheKey = morphComp.MorphTargets.Raw();
+            morphComp.BaseCacheVertexCount = meshVertexCount;
+            morphComp.BaseCacheSource = meshSource;
         }
 
         if (morphComp.BasePositions.empty())
+        {
+            // No base surface means nothing was deformed, and AppliedWeights must
+            // say so. Returning without finishing leaves it describing an older
+            // surface, which the next frame's advance then rotates into the
+            // previous slot as if it had been drawn.
+            finish({});
             return;
+        }
 
         // Evaluate morph deformation
         std::vector<glm::vec3> outPositions;
@@ -2200,16 +2398,24 @@ namespace OloEngine
         {
             // Write deformed data back into MeshSource vertices and re-upload to the GPU
             auto& mutableVerts = meshSource->GetVertices();
-            for (u32 i = 0; i < static_cast<u32>(outPositions.size()) && i < static_cast<u32>(mutableVerts.Num()); ++i)
+            const u32 writeCount = std::min(static_cast<u32>(outPositions.size()), meshVertexCount);
+            for (u32 i = 0; i < writeCount; ++i)
             {
-                mutableVerts[i].Position = outPositions[i];
-                mutableVerts[i].Normal = outNormals[i];
+                mutableVerts[static_cast<i32>(i)].Position = outPositions[i];
+                mutableVerts[static_cast<i32>(i)].Normal = outNormals[i];
             }
 
-            auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
-            vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+            // No buffer means no graphics device (OloServer, a headless test), not a
+            // failure: the CPU surface above is still the deformed surface, and
+            // GetVertexBuffer() asserts rather than returning null.
+            if (meshSource->HasVertexBuffer())
+            {
+                auto& vb = const_cast<Ref<VertexBuffer>&>(meshSource->GetVertexBuffer());
+                vb->SetData({ mutableVerts.GetData(), static_cast<u32>(mutableVerts.Num() * sizeof(Vertex)) });
+            }
         }
         morphComp.WasMorphActive = true;
+        finish(ordered.Weights);
     }
 
     void Scene::UpdateSpatialIndex()
@@ -2359,6 +2565,14 @@ namespace OloEngine
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+        // The morph half of the same surface, at the same boundary and for the
+        // same reason (#1227). Paired with the call above at every frame entry
+        // point; SkeletalDeformationContract scans these call sites, because a
+        // history pass wired into only some of them is invisible in every test.
+        Animation::MorphDeformationSystem::AdvanceHistory(this);
+        // ...and resolve which mesh that surface IS this frame, before anything
+        // deforms it (#1227).
+        SelectAnimatedSurfaceLOD();
 
         UpdateStreaming();
 
@@ -2399,6 +2613,14 @@ namespace OloEngine
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+        // The morph half of the same surface, at the same boundary and for the
+        // same reason (#1227). Paired with the call above at every frame entry
+        // point; SkeletalDeformationContract scans these call sites, because a
+        // history pass wired into only some of them is invisible in every test.
+        Animation::MorphDeformationSystem::AdvanceHistory(this);
+        // ...and resolve which mesh that surface IS this frame, before anything
+        // deforms it (#1227).
+        SelectAnimatedSurfaceLOD();
 
         UpdateStreaming();
 
@@ -4065,7 +4287,130 @@ namespace OloEngine
             auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
             for (auto e : morphView)
             {
-                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
+                // The LOD level resolved for this entity at the frame boundary, and
+                // the skeleton whose bone history a morph discontinuity has to drop
+                // along with the morph history - both halves describe one surface.
+                const auto* lodComp = m_Registry.try_get<LODGroupComponent>(e);
+                auto* skeletonComp = m_Registry.try_get<SkeletonComponent>(e);
+                Skeleton* skeleton = (skeletonComp != nullptr) ? skeletonComp->m_Skeleton.Raw() : nullptr;
+
+                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e),
+                                           morphView.get<MeshComponent>(e), lodComp, skeleton);
+            }
+        }
+    }
+
+    void Scene::SelectAnimatedSurfaceLOD()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Last frame's culling-camera LOD inputs, which is the right frame to use:
+        // this runs BEFORE the tick that deforms the surface and before the
+        // submission that draws it, so the alternative would be selecting a level
+        // from a camera that has not been set up yet. The camera moves a fraction of
+        // a frame between the two, which cannot change a level that is not already
+        // sitting exactly on a threshold.
+        //
+        // The ENTITY side is one frame behind for the same reason, and deliberately:
+        // GetWorldTransform below reads WorldTransformComponent::WorldMatrix, whose
+        // cache PropagateWorldTransforms refreshes inside the tick. So a level is
+        // chosen from where the entity was when the previous frame drew it — which
+        // is the right frame of reference for "how big is this on screen", and means
+        // a teleport takes one frame to change level. The switch it eventually makes
+        // is an attributed history rejection, never a silently wrong image.
+        const LODViewParams& lodView = Renderer3D::GetLODViewParams();
+
+        auto view = m_Registry.view<LODGroupComponent, MeshComponent>();
+        for (auto e : view)
+        {
+            auto& lodComp = view.get<LODGroupComponent>(e);
+            auto& meshComp = view.get<MeshComponent>(e);
+
+            auto* skeletonComp = m_Registry.try_get<SkeletonComponent>(e);
+            auto* morphComp = m_Registry.try_get<MorphTargetComponent>(e);
+            const bool isAnimatedSurface = (skeletonComp != nullptr) || (morphComp != nullptr);
+
+            // What the surface WAS, so a change can be detected however it happens -
+            // a level switch, a disabled group, a mesh that went away.
+            const Ref<MeshSource> previousSource = AnimatedSurfaceSource(&lodComp, meshComp);
+
+            Ref<Mesh> selectedMesh;
+            i32 selectedIndex = -1;
+
+            if (isAnimatedSurface && lodComp.m_Enabled && meshComp.m_MeshSource &&
+                !lodComp.m_LODGroup.Levels.empty())
+            {
+                // Submesh 0 stands for the entity, exactly as it does in the culling
+                // above: LOD generation refuses a multi-submesh source, so a mesh
+                // with an LOD group has one submesh by construction.
+                Ref<Mesh> lod0 = Ref<Mesh>::Create(meshComp.m_MeshSource, 0);
+                Ref<Mesh> resolved;
+                const LODSelectionResult result =
+                    SelectLODMesh(lod0, GetWorldTransform(e), lodView, &lodComp.m_LODGroup, resolved);
+
+                if (result.SelectedLODIndex >= 0 && resolved && resolved->GetMeshSource())
+                {
+                    // A skinned surface needs its bone stream at every level. LOD
+                    // generation carries it (MeshOptimization::CopyDeformationStreams),
+                    // but a hand-authored group can point at any mesh at all, and
+                    // drawing a skinned entity through a mesh with no influences
+                    // collapses it onto the model origin. Refuse the level instead.
+                    const bool needsBones = (skeletonComp != nullptr) && skeletonComp->m_Skeleton;
+                    if (needsBones && !resolved->GetMeshSource()->HasBoneInfluences())
+                    {
+                        // Against the level last WARNED about, not against
+                        // m_ActiveAnimatedLOD: the refusal writes -1 into that
+                        // below, so comparing with it is always true and the
+                        // warning fires every frame the entity sits at this range.
+                        if (lodComp.m_RefusedAnimatedLOD != result.SelectedLODIndex)
+                        {
+                            lodComp.m_RefusedAnimatedLOD = result.SelectedLODIndex;
+                            OLO_CORE_WARN("Scene::SelectAnimatedSurfaceLOD: LOD level {} of a skinned entity carries no "
+                                          "bone influences - staying at the authored level rather than drawing it unskinned",
+                                          result.SelectedLODIndex);
+                        }
+                    }
+                    else
+                    {
+                        lodComp.m_RefusedAnimatedLOD = -1;
+                        selectedIndex = result.SelectedLODIndex;
+                        selectedMesh = resolved;
+                    }
+                }
+            }
+
+            lodComp.m_ActiveAnimatedLOD = selectedIndex;
+            lodComp.m_ActiveAnimatedMesh = selectedMesh;
+
+            if (!isAnimatedSurface)
+            {
+                continue;
+            }
+
+            // A level switch replaces the whole surface: different vertex count,
+            // different topology, different morph deltas. The previous frame's pose
+            // belongs to a mesh that is no longer being drawn, so reprojecting
+            // through it produces a velocity between two unrelated surfaces.
+            if (const Ref<MeshSource> currentSource = AnimatedSurfaceSource(&lodComp, meshComp);
+                currentSource.Raw() != previousSource.Raw())
+            {
+                Skeleton* skeleton = (skeletonComp != nullptr) ? skeletonComp->m_Skeleton.Raw() : nullptr;
+                Animation::RejectDeformationHistory(skeleton, morphComp,
+                                                    Animation::DeformationHistoryResetCause::MeshTopologyChanged);
+                if (morphComp != nullptr)
+                {
+                    // Put the level we are LEAVING back the way we found it, then
+                    // drop its cache — RestoreAndInvalidateBaseCache targets
+                    // BaseCacheSource, which IS that level, so this stays correct
+                    // even though `previousSource` is also to hand here.
+                    // EvaluateEntityMorphTargets re-derives the cache for the level
+                    // now being drawn.
+                    RestoreAndInvalidateBaseCache(*morphComp);
+
+                    // A set refused for the level we are leaving may span this one.
+                    morphComp->RefusedSet = nullptr;
+                    morphComp->RefusedSetVertexCount = 0;
+                }
             }
         }
     }
@@ -4697,6 +5042,14 @@ namespace OloEngine
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+        // The morph half of the same surface, at the same boundary and for the
+        // same reason (#1227). Paired with the call above at every frame entry
+        // point; SkeletalDeformationContract scans these call sites, because a
+        // history pass wired into only some of them is invisible in every test.
+        Animation::MorphDeformationSystem::AdvanceHistory(this);
+        // ...and resolve which mesh that surface IS this frame, before anything
+        // deforms it (#1227).
+        SelectAnimatedSurfaceLOD();
 
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
@@ -4823,6 +5176,14 @@ namespace OloEngine
         // OnUpdateRuntime. Without it an edit-mode skeleton's previous pose
         // stays frozen at whatever it held when Play last stopped.
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
+        // The morph half of the same surface, at the same boundary and for the
+        // same reason (#1227). Paired with the call above at every frame entry
+        // point; SkeletalDeformationContract scans these call sites, because a
+        // history pass wired into only some of them is invisible in every test.
+        Animation::MorphDeformationSystem::AdvanceHistory(this);
+        // ...and resolve which mesh that surface IS this frame, before anything
+        // deforms it (#1227).
+        SelectAnimatedSurfaceLOD();
 
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
@@ -4860,15 +5221,10 @@ namespace OloEngine
             }
         }
 
-        // Evaluate morph targets for editor preview (mirrors the runtime morph evaluation pass)
-        {
-            OLO_PROFILE_SCOPE("Editor Morph Target Evaluation");
-            auto morphView = m_Registry.view<MorphTargetComponent, MeshComponent>();
-            for (auto e : morphView)
-            {
-                EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e), morphView.get<MeshComponent>(e));
-            }
-        }
+        // Evaluate morph targets for editor preview. Not a mirror of the runtime
+        // pass but a second CALL of it: Scene::EvaluateMorphTargets is the one
+        // implementation, so edit-mode preview and Play cannot deform differently.
+        EvaluateMorphTargets();
 
         // Render based on mode
         if (m_RenderingEnabled)
@@ -10739,12 +11095,28 @@ namespace OloEngine
 
                 // Get LOD group if present and enabled
                 const LODGroup* lodGroup = nullptr;
+                Ref<MeshSource> drawSource = mesh.m_MeshSource;
                 if (m_Registry.all_of<LODGroupComponent>(entity))
                 {
                     const auto& lodComp = m_Registry.get<LODGroupComponent>(entity);
                     if (lodComp.m_Enabled)
                     {
-                        lodGroup = &lodComp.m_LODGroup;
+                        if (lodComp.m_ActiveAnimatedLOD >= 0)
+                        {
+                            // This entity's level was already resolved once, at the
+                            // frame boundary, and its surface was DEFORMED through
+                            // that choice (#1227). A morph-only entity -- morph
+                            // targets but no skeleton -- is drawn by THIS loop, so
+                            // handing the group to DrawMesh would re-run
+                            // SelectLODMesh against the current LODView and, at a
+                            // threshold crossing, draw a level the morph pass never
+                            // touched. Draw the resolved surface; select nothing.
+                            drawSource = AnimatedSurfaceSource(&lodComp, mesh);
+                        }
+                        else
+                        {
+                            lodGroup = &lodComp.m_LODGroup;
+                        }
                     }
                 }
 
@@ -10760,7 +11132,7 @@ namespace OloEngine
 
                 // Draw each submesh with entity ID. Shared with the VirtualMeshComponent
                 // fallback path — see SubmitMeshSourceClassic.
-                SubmitMeshSourceClassic(mesh.m_MeshSource, worldTransform, overrideMaterial, entityID, stableEntityId, lodGroup,
+                SubmitMeshSourceClassic(drawSource, worldTransform, overrideMaterial, entityID, stableEntityId, lodGroup,
                                         meshHasActiveShadows, lightmapScaleOffset);
             }
         }
@@ -11587,6 +11959,18 @@ namespace OloEngine
                     }
                 }
 
+                // Draw the surface the deformation pass wrote, not the authored LOD 0
+                // (#1227). SelectAnimatedSurfaceLOD resolved it at the frame boundary
+                // and EvaluateEntityMorphTargets deformed that same mesh; reading
+                // mesh.m_MeshSource here instead would draw an undeformed LOD 0 while
+                // the morph pass had been writing into a different level.
+                const Ref<MeshSource> surfaceSource =
+                    AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(entity), mesh);
+                if (!surfaceSource)
+                {
+                    continue;
+                }
+
                 const glm::mat4 worldTransform = GetWorldTransform(entity);
 
                 // Same precedence as the static MeshComponent loop: MaterialComponent
@@ -11619,12 +12003,12 @@ namespace OloEngine
                 i32 entityID = static_cast<i32>(std::to_underlying(entity));
 
                 // Draw each submesh as an animated mesh
-                if (!mesh.m_MeshSource->GetSubmeshes().IsEmpty())
+                if (!surfaceSource->GetSubmeshes().IsEmpty())
                 {
-                    for (i32 i = 0; i < mesh.m_MeshSource->GetSubmeshes().Num(); ++i)
+                    for (i32 i = 0; i < surfaceSource->GetSubmeshes().Num(); ++i)
                     {
-                        auto submesh = Ref<Mesh>::Create(mesh.m_MeshSource, i);
-                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, mesh.m_MeshSource.get(),
+                        auto submesh = Ref<Mesh>::Create(surfaceSource, i);
+                        const Material& material = ResolveSubmeshMaterial(overrideMaterial, surfaceSource.get(),
                                                                           static_cast<u32>(i), GetDefaultMaterial());
 
                         // Exclude alpha-masked/blended materials (see MeshComponent

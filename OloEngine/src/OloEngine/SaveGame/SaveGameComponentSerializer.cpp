@@ -3833,7 +3833,12 @@ namespace OloEngine
                 std::string name;
                 f32 weight{};
                 ar << name << weight;
-                c.Weights[name] = weight;
+                // Through SetWeight, not into the map directly: a save file is
+                // untrusted input like any other, and a non-finite weight loaded
+                // straight in propagates into every vertex its target touches and
+                // removes those triangles from the raster with nothing logged
+                // (#1227). SetWeight refuses it, counts it and keeps the default.
+                c.SetWeight(name, weight);
             }
         }
     }

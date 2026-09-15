@@ -8,6 +8,10 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetSystem.h"
 #include "OloEngine/Animation/AnimationClip.h"
 
+#include <cmath>
+#include <limits>
+#include <string>
+
 using namespace OloEngine;
 
 // =============================================================================
@@ -537,4 +541,198 @@ TEST(MorphTargetGPUvsCPUTest, CPUReferenceMatchesExpected)
     EXPECT_NEAR(outPos[3].x, 1.5f, 1e-5f);
     EXPECT_NEAR(outPos[3].y, 3.1f, 1e-5f);
     EXPECT_NEAR(outPos[3].z, 0.5f, 1e-5f);
+}
+
+// =============================================================================
+// Malformed input and the shared-surface bounds (issue #1227)
+//
+// Every test below pins a refusal. The morph weights reach the engine from four
+// untrusted routes — a scene file, a C# script, a Lua script and an MCP write —
+// and the delta arrays reach it from an importer. A malformed value on any of
+// them used to be accepted silently and produce a wrong image rather than an
+// error, which is the failure mode the issue asks to close explicitly.
+// =============================================================================
+
+TEST(MorphTargetComponentTest, NonFiniteWeightIsRefusedAndCounted)
+{
+    MorphTargetComponent comp;
+    comp.SetWeight("Smile", 0.25f);
+
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(comp.SetWeight("Smile", nan))
+        << "a NaN weight was accepted; std::clamp cannot reject one (every comparison "
+           "against NaN is false, so clamp returns it unchanged) and it propagates into "
+           "every vertex the target touches";
+    EXPECT_FLOAT_EQ(comp.GetWeight("Smile"), 0.25f)
+        << "the previous good weight must survive a refused write";
+
+    EXPECT_FALSE(comp.SetWeight("Smile", std::numeric_limits<f32>::infinity()));
+    EXPECT_FLOAT_EQ(comp.GetWeight("Smile"), 0.25f);
+
+    EXPECT_EQ(comp.RejectedWeightCount, 2u)
+        << "refusals must be countable — a refusal nobody can count reads as 'this never happens'";
+}
+
+TEST(MorphTargetComponentTest, WeightNamingAnAbsentTargetIsReported)
+{
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(MorphTarget("Smile", 4));
+
+    MorphTargetComponent comp;
+    comp.MorphTargets = set;
+    comp.SetWeight("Smile", 0.5f);
+    comp.SetWeight("NotOnThisMesh", 0.5f);
+
+    const auto ordered = comp.GetOrderedWeightsChecked();
+    ASSERT_EQ(ordered.Weights.size(), 1u);
+    EXPECT_FLOAT_EQ(ordered.Weights[0], 0.5f);
+    EXPECT_EQ(ordered.UnknownTargets, 1u)
+        << "a weight naming a target this mesh does not have was dropped without a trace — "
+           "that is a rig/asset mismatch and it has to be visible";
+}
+
+TEST(MorphTargetSetTest, CompatibilityRejectsADenseSetThatDoesNotSpanTheMesh)
+{
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(MorphTarget("Smile", 8));
+
+    EXPECT_EQ(set->CheckCompatibility(8), MorphTargetSet::ECompatibility::Compatible);
+    EXPECT_EQ(set->CheckCompatibility(9), MorphTargetSet::ECompatibility::DenseVertexCountMismatch)
+        << "a delta array shorter or longer than the mesh deforms the wrong vertices, which "
+           "reads as a broken rig rather than as mismatched data";
+}
+
+TEST(MorphTargetSetTest, CompatibilityRejectsASparseIndexPastTheMesh)
+{
+    MorphTarget sparse;
+    sparse.Name = "Blink";
+    sparse.IsSparse = true;
+    sparse.SparseVertices.push_back({ 12u, { glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f), glm::vec3(0.0f) } });
+
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(sparse);
+
+    EXPECT_EQ(set->CheckCompatibility(16), MorphTargetSet::ECompatibility::Compatible);
+    EXPECT_EQ(set->CheckCompatibility(8), MorphTargetSet::ECompatibility::SparseIndexOutOfRange);
+
+    // The reason CheckCompatibility exists at all rather than a GetVertexCount()
+    // comparison: a sparse target's dense array is empty, so GetVertexCount()
+    // reports zero and says nothing whatsoever about a sparse set.
+    EXPECT_EQ(set->GetVertexCount(), 0u);
+}
+
+TEST(MorphTargetSetTest, MaxDisplacementIsTheAdditiveWorstCase)
+{
+    auto set = Ref<MorphTargetSet>::Create();
+
+    MorphTarget a("A", 3);
+    a.Vertices[0].DeltaPosition = glm::vec3(3.0f, 4.0f, 0.0f); // length 5
+    a.Vertices[1].DeltaPosition = glm::vec3(1.0f, 0.0f, 0.0f);
+    set->AddTarget(a);
+
+    MorphTarget b("B", 3);
+    b.Vertices[2].DeltaPosition = glm::vec3(0.0f, 0.0f, 2.0f);
+    set->AddTarget(b);
+
+    // Weights are clamped to [0, 1] and combine additively, so no vertex can move
+    // further than the sum of the per-target maxima. Conservative on purpose: the
+    // culling expansion must never be smaller than the real motion.
+    EXPECT_FLOAT_EQ(set->GetMaxDisplacement(), 7.0f);
+
+    // Adding a target has to invalidate the cached bound, or the bound silently
+    // stops enclosing the set it describes.
+    MorphTarget c("C", 3);
+    c.Vertices[0].DeltaPosition = glm::vec3(0.0f, 10.0f, 0.0f);
+    set->AddTarget(c);
+    EXPECT_FLOAT_EQ(set->GetMaxDisplacement(), 17.0f);
+}
+
+TEST(MorphTargetSetTest, MaxDisplacementCoversSparseTargets)
+{
+    MorphTarget sparse;
+    sparse.Name = "Jaw";
+    sparse.IsSparse = true;
+    sparse.SparseVertices.push_back({ 0u, { glm::vec3(0.0f, 0.0f, 6.0f), glm::vec3(0.0f), glm::vec3(0.0f) } });
+
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(sparse);
+
+    EXPECT_FLOAT_EQ(set->GetMaxDisplacement(), 6.0f)
+        << "a sparse target's deltas live in SparseVertices, not Vertices — a bound that "
+           "only walks the dense array reports zero for a sparse set and the culling "
+           "expansion it feeds stops enclosing the motion entirely";
+}
+
+TEST(MorphTargetEvaluatorTest, NonFiniteWeightsCannotReachTheSurface)
+{
+    // The evaluator is reachable directly (MorphTargetSystem, the GPU-vs-CPU
+    // comparison tests) as well as through MorphTargetComponent::SetWeight, so the
+    // refusal has to hold at both ends of the pipe.
+    std::vector<glm::vec3> basePos = { { 0, 0, 0 }, { 1, 0, 0 } };
+    std::vector<glm::vec3> baseNrm = { { 0, 0, 1 }, { 0, 0, 1 } };
+
+    MorphTargetSet targets;
+    MorphTarget t("Test", 2);
+    t.Vertices[0].DeltaPosition = glm::vec3(5.0f, 0.0f, 0.0f);
+    targets.AddTarget(t);
+
+    std::vector<f32> weights = { std::numeric_limits<f32>::quiet_NaN() };
+    std::vector<glm::vec3> outPos, outNrm;
+    MorphTargetEvaluator::EvaluateCPU(basePos, baseNrm, targets, weights, outPos, outNrm);
+
+    ASSERT_EQ(outPos.size(), 2u);
+    for (const auto& p : outPos)
+    {
+        EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z))
+            << "a NaN weight reached the deformed surface — one NaN vertex removes the whole "
+               "triangle fan it belongs to from the raster, with nothing logged";
+    }
+    EXPECT_FLOAT_EQ(outPos[0].x, basePos[0].x) << "the vertex must stay at its base position";
+}
+
+TEST(MorphTargetSetTest, ANonFiniteDeltaIsRefusedRatherThanBoundedAtZero)
+{
+    auto set = Ref<MorphTargetSet>::Create();
+    MorphTarget broken("Broken", 4);
+    broken.Vertices[1].DeltaPosition = glm::vec3(std::numeric_limits<f32>::quiet_NaN(), 0.0f, 0.0f);
+    set->AddTarget(broken);
+
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::NonFiniteDelta)
+        << "a set carrying a non-finite position delta was accepted; applying it puts NaN into the "
+           "surface, which removes every triangle the vertex belongs to from the raster";
+
+    // And the displacement bound must not quietly report "this cannot move".
+    // Zero is only the honest answer BECAUSE the set is refused upstream and the
+    // mesh is therefore never displaced by it.
+    EXPECT_FLOAT_EQ(set->GetMaxDisplacement(), 0.0f);
+}
+
+TEST(MorphTargetSetTest, AnOverflowingDisplacementSumIsRefused)
+{
+    // Each delta is finite on its own; the SUM of the per-target maxima is not.
+    // A bound that silently became zero here would claim a wildly displaced mesh
+    // cannot move at all, which is the worst possible input to a cull expansion.
+    auto set = Ref<MorphTargetSet>::Create();
+    for (int i = 0; i < 4; ++i)
+    {
+        MorphTarget huge("Huge" + std::to_string(i), 2);
+        huge.Vertices[0].DeltaPosition = glm::vec3(std::numeric_limits<f32>::max(), 0.0f, 0.0f);
+        set->AddTarget(huge);
+    }
+
+    EXPECT_EQ(set->CheckCompatibility(2), MorphTargetSet::ECompatibility::NonFiniteDelta);
+}
+
+TEST(MorphTargetSetTest, CompatibilityIsRecheckedPerVertexCount)
+{
+    // The cache is keyed on the vertex count it was asked about. A set shared
+    // between two meshes must not inherit the first mesh's verdict.
+    auto set = Ref<MorphTargetSet>::Create();
+    set->AddTarget(MorphTarget("Smile", 8));
+
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::DenseVertexCountMismatch);
+    EXPECT_EQ(set->CheckCompatibility(8), MorphTargetSet::ECompatibility::Compatible)
+        << "the cached verdict for a different vertex count leaked onto this one";
+    EXPECT_EQ(set->CheckCompatibility(4), MorphTargetSet::ECompatibility::DenseVertexCountMismatch)
+        << "...and back again";
 }

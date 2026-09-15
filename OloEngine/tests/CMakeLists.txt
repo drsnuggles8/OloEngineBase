@@ -526,6 +526,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/StarNestSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestReflectionEvidenceTest.cpp
 		Rendering/PropertyTests/TransmissionVisualEvidenceTest.cpp
+		Rendering/PropertyTests/MorphDeformationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/WaterVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TilemapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/BenchmarkCaptureTest.cpp
@@ -1339,6 +1340,8 @@ add_executable(OloEngine-Tests
 		Functional/Scene/EntityCreateWithUUIDTest.cpp
 		Functional/AnimationPhysics/AnimationContinuesAfterPauseResumeTest.cpp
 		Functional/AnimationPhysics/SkeletalDeformationHistoryTest.cpp
+		Functional/AnimationPhysics/MorphDeformationHistoryTest.cpp
+		Functional/AnimationPhysics/AnimatedSurfaceLODTest.cpp
 		Functional/AnimationPhysics/CharacterPushesDynamicBodyTest.cpp
 		Functional/SaveGame/Save2DBodyVelocityRoundTripTest.cpp
 		Functional/AnimationPhysics/TriggerEndEventFiresOnSeparationTest.cpp

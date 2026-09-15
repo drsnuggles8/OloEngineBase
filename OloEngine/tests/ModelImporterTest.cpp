@@ -265,9 +265,11 @@ TEST(ModelImporterTest, ReimportDiscardsAStaleGeneratedLODGroup)
         << "a generated chain for the previous mesh survived the re-import";
 }
 
-// The same, through the path that skips generation. A static model re-imported as
-// an ANIMATED one takes the "no chain for skinned meshes" branch — the discard has
-// to happen before that gate, or the stale chain outlives it forever.
+// The same, through a path that generates nothing. A static model re-imported as
+// an ANIMATED one used to take a "no chain for skinned meshes" branch; since #1227
+// skinned sources ARE eligible and this one declines only because the MeshSource is
+// empty. Either way the discard has to happen before whatever gate declines, or the
+// stale chain outlives the mesh that produced it forever.
 TEST(ModelImporterTest, StaticToAnimatedReimportDiscardsTheGeneratedLODGroup)
 {
     auto scene = Ref<Scene>::Create();

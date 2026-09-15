@@ -52,6 +52,123 @@ namespace OloEngine::MeshOptimization
             }
             return welded;
         }
+
+        // Carry every per-vertex stream that is NOT part of Vertex — bone influences
+        // and morph-target deltas — plus the skeleton and bone tables that give them
+        // meaning, from a source mesh onto a mesh derived from it.
+        //
+        // Before #1227 all three LOD generators below refused outright to run on a
+        // source with a skeleton, morph targets or a bone table: "not supported until
+        // auxiliary streams (weights/morphs) are preserved". That refusal is what kept
+        // conventional LOD out of the animated surface entirely — every skinned or
+        // morphing mesh drew at LOD 0 forever, however far away it was. The streams are
+        // preservable with the table meshoptimizer already hands back, and
+        // OptimizeMeshSource has applied it to these exact arrays all along.
+        //
+        // `remap` is that vertex-fetch table (old vertex index -> new index, ~0u for a
+        // vertex the derived mesh dropped), or nullptr when the derived mesh kept the
+        // source vertex array verbatim — which the two index-only generators do.
+        void CopyDeformationStreams(const MeshSource& src, MeshSource& dst,
+                                    const u32* remap, sizet srcVertexCount, sizet dstVertexCount)
+        {
+            OLO_CORE_ASSERT(remap != nullptr || srcVertexCount == dstVertexCount,
+                            "CopyDeformationStreams: a null remap means the vertex array was kept verbatim");
+
+            if (src.HasSkeleton())
+            {
+                // Shared, not copied: an LOD level of a character is the SAME character,
+                // and the pose every consumer reads lives on the skeleton.
+                dst.SetSkeleton(src.GetSkeletonRef());
+            }
+            if (!src.GetBoneInfo().IsEmpty())
+            {
+                dst.GetBoneInfo() = src.GetBoneInfo();
+            }
+
+            // Bone influences are parallel to m_Vertices, so they follow the same
+            // reorder or every vertex is skinned by another vertex's bones.
+            if (const auto& srcBones = src.GetBoneInfluences();
+                srcVertexCount > 0 && static_cast<sizet>(srcBones.Num()) == srcVertexCount)
+            {
+                TArray<BoneInfluence> bones(static_cast<i32>(dstVertexCount));
+                if (remap != nullptr)
+                {
+                    meshopt_remapVertexBuffer(bones.GetData(), srcBones.GetData(), srcVertexCount,
+                                              sizeof(BoneInfluence), remap);
+                }
+                else
+                {
+                    std::memcpy(bones.GetData(), srcBones.GetData(), srcVertexCount * sizeof(BoneInfluence));
+                }
+                dst.GetBoneInfluences() = MoveTemp(bones);
+            }
+
+            if (!src.HasMorphTargets())
+            {
+                return;
+            }
+
+            const auto& srcSet = src.GetMorphTargets();
+            std::vector<MorphTarget> targets;
+            targets.reserve(srcSet->Targets.size());
+            for (const auto& srcTarget : srcSet->Targets)
+            {
+                MorphTarget target;
+                target.Name = srcTarget.Name;
+                target.IsSparse = srcTarget.IsSparse;
+
+                if (srcTarget.IsSparse)
+                {
+                    target.SparseVertices.reserve(srcTarget.SparseVertices.size());
+                    for (const auto& entry : srcTarget.SparseVertices)
+                    {
+                        if (entry.VertexIndex >= srcVertexCount)
+                        {
+                            continue;
+                        }
+                        const u32 mapped = (remap != nullptr) ? remap[entry.VertexIndex] : entry.VertexIndex;
+                        if (mapped == ~0u)
+                        {
+                            continue; // this level dropped the vertex the delta applied to
+                        }
+                        target.SparseVertices.emplace_back(mapped, entry.Delta);
+                    }
+                }
+                else if (srcTarget.Vertices.size() == srcVertexCount)
+                {
+                    target.Vertices.resize(dstVertexCount);
+                    if (remap != nullptr)
+                    {
+                        meshopt_remapVertexBuffer(target.Vertices.data(), srcTarget.Vertices.data(),
+                                                  srcVertexCount, sizeof(MorphTargetVertex), remap);
+                    }
+                    else
+                    {
+                        std::ranges::copy(srcTarget.Vertices, target.Vertices.begin());
+                    }
+                }
+                else
+                {
+                    // A delta array that does not span the mesh cannot be remapped onto
+                    // it, and carrying it forward silently would deform the wrong
+                    // vertices at this level only. Drop it loudly instead.
+                    OLO_CORE_WARN("MeshOptimization: morph target '{}' has {} deltas for a {}-vertex mesh — "
+                                  "dropped from the derived LOD level rather than misapplied",
+                                  srcTarget.Name, srcTarget.Vertices.size(), srcVertexCount);
+                    continue;
+                }
+
+                targets.push_back(MoveTemp(target));
+            }
+
+            if (!targets.empty())
+            {
+                auto dstSet = Ref<MorphTargetSet>::Create();
+                dstSet->Targets = MoveTemp(targets);
+                dst.SetMorphTargets(dstSet);
+            }
+        }
+
     } // namespace
 
     // ── Core optimization ──────────────────────────────────────────
@@ -238,14 +355,6 @@ namespace OloEngine::MeshOptimization
             return nullptr;
         }
 
-        // Animated meshes with skeleton or morph targets are not
-        // supported until auxiliary streams (weights/morphs) are preserved.
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
-        {
-            OLO_CORE_WARN("MeshOptimization::GenerateLODMesh: Animated sources with bone/morph/skinning data are not supported for LOD generation");
-            return nullptr;
-        }
-
         // Sanitize incoming floats (may originate from serialized/UI data)
         if (!std::isfinite(targetRatio))
         {
@@ -303,6 +412,10 @@ namespace OloEngine::MeshOptimization
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
 
+        // The vertex array above is the source's, verbatim — only the index buffer
+        // shrank — so the deformation streams transfer with no remap (#1227).
+        CopyDeformationStreams(meshSource, *lodMesh, nullptr, vertexCount, vertexCount);
+
         // Copy material table from source
         for (const auto& [index, handle] : meshSource.GetMaterials())
         {
@@ -353,14 +466,6 @@ namespace OloEngine::MeshOptimization
         {
             OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Multi-submesh LOD not supported ({} submeshes)",
                           meshSource.GetSubmeshes().Num());
-            return nullptr;
-        }
-
-        // Animated meshes with skeleton or morph targets are not
-        // supported until auxiliary streams (weights/morphs) are preserved.
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
-        {
-            OLO_CORE_WARN("MeshOptimization::GenerateLODMeshWithAttributes: Animated sources with bone/morph/skinning data are not supported for LOD generation");
             return nullptr;
         }
 
@@ -433,6 +538,10 @@ namespace OloEngine::MeshOptimization
         lodIndices.Append(simplifiedIndices.data(), static_cast<i32>(resultIndexCount));
 
         auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
+
+        // The vertex array above is the source's, verbatim — only the index buffer
+        // shrank — so the deformation streams transfer with no remap (#1227).
+        CopyDeformationStreams(meshSource, *lodMesh, nullptr, vertexCount, vertexCount);
 
         // Copy material table from source
         for (const auto& [index, handle] : meshSource.GetMaterials())
@@ -616,17 +725,24 @@ namespace OloEngine::MeshOptimization
                 return nullptr;
             }
 
+            // optimizeVertexFetchRemap + remapVertexBuffer rather than the one-shot
+            // optimizeVertexFetch: this level compacts the vertex array, and the bone
+            // and morph-delta arrays parallel to it can only follow through the remap
+            // TABLE, which the one-shot form never produces (#1227).
             std::vector<u32> compactIndices(indices, indices + indexCount);
-            std::vector<Vertex> compactVertices(vertexCount);
-            sizet const uniqueVertexCount = meshopt_optimizeVertexFetch(
-                compactVertices.data(), compactIndices.data(), indexCount,
-                srcVertices.GetData(), vertexCount, sizeof(Vertex));
+            std::vector<u32> remap(vertexCount);
+            sizet const uniqueVertexCount = meshopt_optimizeVertexFetchRemap(
+                remap.data(), compactIndices.data(), indexCount, vertexCount);
 
             if (uniqueVertexCount == 0)
             {
                 return nullptr;
             }
-            compactVertices.resize(uniqueVertexCount);
+
+            std::vector<Vertex> compactVertices(uniqueVertexCount);
+            meshopt_remapVertexBuffer(compactVertices.data(), srcVertices.GetData(), vertexCount,
+                                      sizeof(Vertex), remap.data());
+            meshopt_remapIndexBuffer(compactIndices.data(), compactIndices.data(), indexCount, remap.data());
 
             TArray<Vertex> lodVertices;
             lodVertices.Reserve(static_cast<i32>(uniqueVertexCount));
@@ -637,6 +753,8 @@ namespace OloEngine::MeshOptimization
             lodIndices.Append(compactIndices.data(), static_cast<i32>(indexCount));
 
             auto lodMesh = Ref<MeshSource>::Create(MoveTemp(lodVertices), MoveTemp(lodIndices));
+
+            CopyDeformationStreams(meshSource, *lodMesh, remap.data(), vertexCount, uniqueVertexCount);
 
             for (const auto& [index, handle] : meshSource.GetMaterials())
             {
@@ -739,12 +857,6 @@ namespace OloEngine::MeshOptimization
                           meshSource.GetSubmeshes().Num());
             return chain;
         }
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
-        {
-            OLO_CORE_WARN("MeshOptimization::BuildAutoLODChain: Animated sources with bone/morph/skinning data are not supported for LOD generation");
-            return chain;
-        }
-
         // Sanitize settings — they can come from serialized project / UI data.
         u32 const maxLevels = std::clamp(settings.MaxLevels, 2u, 32u);
         u32 const minTriangleCount = std::max(settings.MinTriangleCount, 4u);

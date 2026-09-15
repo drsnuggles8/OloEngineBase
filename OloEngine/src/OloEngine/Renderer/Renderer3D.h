@@ -1029,6 +1029,11 @@ namespace OloEngine
         [[nodiscard]] static const glm::mat4& GetCullProjectionMatrix();
         [[nodiscard]] static const glm::mat4& GetCullViewProjectionMatrix();
         [[nodiscard]] static const glm::vec3& GetCullViewPosition();
+        // Mesh-LOD selection inputs for this frame, derived in PrepareFrame from
+        // the culling camera. Exposed so Scene can resolve the ANIMATED surface's
+        // level at the frame boundary, ahead of the deformation pass that has to
+        // write to whichever mesh the renderer will draw (#1227).
+        [[nodiscard]] static const LODViewParams& GetLODViewParams();
         [[nodiscard]] static f32 GetCullNearClip();
         [[nodiscard]] static f32 GetCullFarClip();
         // Render-origin-relative forms, for the GPU cull dispatches (which read

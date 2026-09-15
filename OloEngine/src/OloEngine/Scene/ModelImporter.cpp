@@ -258,8 +258,15 @@ namespace OloEngine
         // By VALUE, not by reference into the component: AddComponent below is a
         // structural registry mutation that can move the MeshComponent pool.
         Ref<MeshSource> const meshSource = entity.GetComponent<MeshComponent>().m_MeshSource;
-        if (!meshSource || meshSource->GetSubmeshes().Num() > 1 || meshSource->HasSkeleton() ||
-            meshSource->HasMorphTargets() || !meshSource->GetBoneInfo().IsEmpty())
+        // Skinned and morphing sources are ALLOWED here since #1227: the generators
+        // carry the bone influences and the morph deltas through the same remap the
+        // positions take (MeshOptimization::CopyDeformationStreams), and Scene's
+        // frame boundary treats a level switch on an animated entity as a
+        // deformation-history discontinuity. Before that they were refused, which
+        // is why every imported character drew at LOD 0 however far away it was.
+        // Multi-submesh sources are still refused: the generators collapse every
+        // material into index 0.
+        if (!meshSource || meshSource->GetSubmeshes().Num() > 1)
         {
             return false;
         }
