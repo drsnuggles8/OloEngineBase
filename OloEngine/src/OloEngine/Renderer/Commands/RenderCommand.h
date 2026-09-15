@@ -1087,6 +1087,35 @@ namespace OloEngine
         f32 impostorRadius = 1.0f;
         f32 impostorParallaxScale = 0.5f;
 
+        // ── Leaf material (issue #1234) ──────────────────────────────────
+        // The per-layer half of the vegetation surface. Flattened into scalars
+        // here rather than embedding Renderer3D::FoliageLeafMaterial, because
+        // this struct is radix-sorted as bytes and must stay trivially
+        // copyable with no dependency on Renderer3D.h.
+        //
+        // leafTransmissionStrength == 0 is "not a leaf material": the dispatch
+        // then uploads the pre-#1234 lanes, the G-Buffer writes
+        // MaterialKind::Generic, and nothing else changes.
+        RHI::ResourceHandle leafNormalTextureID{};
+        RHI::ResourceHandle leafRoughnessTextureID{};
+        RHI::ResourceHandle leafThicknessTextureID{};
+        f32 leafRoughness = 0.8f;
+        f32 leafNormalStrength = 1.0f;
+        f32 leafThickness = 0.0f;
+        f32 leafTransmissionStrength = 0.0f;
+        glm::vec3 leafTransmissionColor{ 0.42f, 0.62f, 0.18f };
+        f32 leafTransmissionDistortion = 0.35f;
+        f32 leafTransmissionPower = 4.0f;
+        f32 leafTransmissionWrap = 0.5f;
+        f32 leafTransmissionAmbient = 0.35f;
+        // The three-bit G-Buffer slot this layer's leaf profile interned to
+        // (FoliageLeafProfileTable). 7 == kFoliageLeafSlotNone == "names no
+        // profile", which is what a non-leaf layer and a slot-budget-full layer
+        // both carry. Resolved at SUBMISSION, not at dispatch: the table is the
+        // renderer's, and a parallel command replay must not be the thing that
+        // decides which layer gets slot 0.
+        u32 leafProfileSlot = 7u;
+
         // Entity ID for picking
         i32 entityID = -1;
 

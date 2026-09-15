@@ -3575,7 +3575,7 @@ namespace OloEngine
             // the surface IS, that is which version of the closure evaluates it.
             // See docs/adr/0024-material-kind-is-not-the-closure-version.md.
             {
-                const char* materialKinds[] = { "Generic", "Snow", "Skin" };
+                const char* materialKinds[] = { "Generic", "Snow", "Skin", "Foliage" };
                 static_assert(IM_ARRAYSIZE(materialKinds) == kMaterialKindCount,
                               "the Material Kind combo lost an entry — an unnamed kind would be unselectable "
                               "in the editor while every other surface still serialized it");
@@ -6834,8 +6834,106 @@ namespace OloEngine
                         ImGui::Text("Material");
 
                         ImGui::ColorEdit3("Base Color", glm::value_ptr(layer.BaseColor));
-                        ImGui::DragFloat("Roughness", &layer.Roughness, 0.01f, 0.0f, 1.0f);
+                        // The rebuild is REQUIRED, not a nicety: Roughness only
+                        // reaches the renderer through FoliageRenderer's
+                        // generate step, so without this the value the shaders
+                        // read stays stale until some other control happens to
+                        // trigger one. It was cosmetic before #1234 made this
+                        // field consequential; it is not now.
+                        if (ImGui::DragFloat("Roughness", &layer.Roughness, 0.01f, 0.02f, 1.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "The layer's surface roughness. Read by the forward, forward+ and "
+                            "deferred paths alike since issue #1234 — before that the deferred "
+                            "G-Buffer hard-coded 0.9 and this value was authored but unread. A "
+                            "Roughness Map below MULTIPLIES it, so a white map is a no-op.");
                         ImGui::DragFloat("Alpha Cutoff", &layer.AlphaCutoff, 0.01f, 0.0f, 1.0f);
+
+                        // ── Leaf material (issue #1234) ──────────────────────
+                        ImGui::SeparatorText("Leaf Material");
+                        ImGui::TextWrapped(
+                            "Two-sided leaf transmission and mapped surface shading. Transmission "
+                            "Strength 0 turns the whole thing off, which is what a layer authored "
+                            "before this material existed loads as.");
+
+                        const auto pathField = [&](const char* label, std::string& path, const char* tip)
+                        {
+                            char buf[256];
+                            std::strncpy(buf, path.c_str(), sizeof(buf) - 1);
+                            buf[sizeof(buf) - 1] = '\0';
+                            if (ImGui::InputText(label, buf, sizeof(buf)))
+                            {
+                                path = buf;
+                                component.m_NeedsRebuild = true;
+                            }
+                            ImGui::SetItemTooltip("%s", tip);
+                        };
+
+                        pathField("Normal Map", layer.NormalMapPath,
+                                  "Tangent-space leaf normals — veins, curl, the shape the albedo "
+                                  "cutout cannot carry. LINEAR data, not sRGB. The tangent frame is "
+                                  "derived from screen-space derivatives (the foliage vertex stream "
+                                  "carries no tangent), so the card, the authored mesh and the "
+                                  "impostor all build it the same way.");
+                        if (!layer.NormalMapPath.empty())
+                        {
+                            if (ImGui::DragFloat("Normal Strength", &layer.NormalStrength, 0.01f, 0.0f, 4.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("0 is exactly the geometric normal; 1 is exactly the map.");
+                        }
+
+                        pathField("Roughness Map", layer.RoughnessMapPath,
+                                  "Greyscale, read from the RED channel, MULTIPLYING the Roughness "
+                                  "above. LINEAR data. A layer with no map shades at the constant.");
+
+                        if (ImGui::DragFloat("Transmission Strength", &layer.TransmissionStrength, 0.01f, 0.0f, 8.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "How much light the leaf lets through. 0 is OFF: the layer then shades "
+                            "as MaterialKind::Generic with no transmission lobe and no thickness "
+                            "lane in the G-Buffer, exactly as it did before issue #1234.");
+
+                        if (layer.TransmissionStrength > 0.0f)
+                        {
+                            if (ImGui::ColorEdit3("Transmission Color", glm::value_ptr(layer.TransmissionColor)))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("The colour light takes on its way through the lamina.");
+
+                            pathField("Thickness Map", layer.ThicknessMapPath,
+                                      "Greyscale, read from the RED channel, MULTIPLYING Thickness "
+                                      "below. LINEAR data. This is the map that makes thin tips glow "
+                                      "and thick midribs stay dark — the variation is the point.");
+                            if (ImGui::DragFloat("Thickness", &layer.Thickness, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "Optical thickness of the lamina. With no Thickness Map the whole "
+                                "leaf transmits at this value — which is also what the distant "
+                                "impostor card uses, because an impostor atlas has no thickness "
+                                "channel to vary.");
+
+                            if (ImGui::DragFloat("Lobe Distortion", &layer.TransmissionDistortion, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "How far the exit direction bends back towards the surface normal. "
+                                "0 transmits only where the eye is exactly in line with the light "
+                                "(a hard glint); higher spreads the glow over the whole leaf.");
+                            if (ImGui::DragFloat("Lobe Power", &layer.TransmissionPower, 0.1f, 1.0f, 64.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Falloff exponent of the forward-scattering lobe.");
+                            if (ImGui::DragFloat("Lobe Wrap", &layer.TransmissionWrap, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "Lambertian back-face mix. Without it a leaf lit at ninety degrees "
+                                "to the view transmits nothing and grows a hard terminator down its "
+                                "middle.");
+                            if (ImGui::DragFloat("Environment Transmission", &layer.TransmissionAmbient, 0.01f, 0.0f, 4.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "How much of the irradiance arriving on the FAR face is transmitted. "
+                                "This is the indirect half of the term and it is sampled from the "
+                                "environment along -N, so it moves with the sky — it is not an "
+                                "ambient constant. The direct half is shadowed.");
+                        }
 
                         ImGui::TreePop();
                     }

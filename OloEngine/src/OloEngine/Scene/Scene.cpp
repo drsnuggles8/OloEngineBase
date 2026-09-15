@@ -1494,6 +1494,8 @@ namespace OloEngine
         // A handle that failed to load is forgotten too, so replacing a missing
         // .oloskin and reloading recovers without restarting the editor.
         Renderer3D::GetSkinProfileTable().Reset();
+        // The other tenant of the same G-Buffer slot field (issue #1234).
+        Renderer3D::GetFoliageLeafProfileTable().Reset();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -1985,6 +1987,8 @@ namespace OloEngine
         WaterSpraySystem::Reset();
         // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
         Renderer3D::GetSkinProfileTable().Reset();
+        // The other tenant of the same G-Buffer slot field (issue #1234).
+        Renderer3D::GetFoliageLeafProfileTable().Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -9898,6 +9902,27 @@ namespace OloEngine
                             impostor.Radius = layer.ImpostorRadius;
                         }
 
+                        // The layer's leaf material (issue #1234). Copied
+                        // wholesale onto every draw the layer emits — mesh,
+                        // card and impostor — so the near and far
+                        // representations of a plant are made of the same
+                        // thing. TransmissionStrength 0 means the layer is not
+                        // a leaf material and every path behaves as it did
+                        // before #1234.
+                        Renderer3D::FoliageLeafMaterial leaf;
+                        leaf.NormalTextureID = layer.LeafNormalTextureID;
+                        leaf.RoughnessTextureID = layer.LeafRoughnessTextureID;
+                        leaf.ThicknessTextureID = layer.LeafThicknessTextureID;
+                        leaf.Roughness = layer.LeafRoughness;
+                        leaf.NormalStrength = layer.LeafNormalStrength;
+                        leaf.Thickness = layer.LeafThickness;
+                        leaf.TransmissionStrength = layer.LeafTransmissionStrength;
+                        leaf.TransmissionColor = layer.LeafTransmissionColor;
+                        leaf.TransmissionDistortion = layer.LeafTransmissionDistortion;
+                        leaf.TransmissionPower = layer.LeafTransmissionPower;
+                        leaf.TransmissionWrap = layer.LeafTransmissionWrap;
+                        leaf.TransmissionAmbient = layer.LeafTransmissionAmbient;
+
                         Renderer3D::DrawFoliageLayer(
                             layer.VertexArrayID, layer.BaseIndex, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
@@ -9910,6 +9935,7 @@ namespace OloEngine
                             layer.Bounds,
                             entityID,
                             impostor,
+                            leaf,
                             layer.IsAuthoredMesh,
                             layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance);
                     }

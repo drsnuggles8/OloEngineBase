@@ -5,7 +5,12 @@
 // lighting composite. Alpha-tested cutouts are expressed as hard `discard`
 // (G-Buffer has no alpha blending).
 //
-// `emissive.a = 0.0` → lit (full PBR + directional shadow via DeferredLightingPass).
+// `emissive.a` carries the packed G-Buffer material flags. It used to be a
+// literal 0.0 — lit, Generic, Legacy closure. Since issue #1234 a layer that
+// authored a LEAF MATERIAL encodes MaterialKind::Foliage and its leaf-profile
+// slot through oloEncodeGBufferPbrFlagsEx instead, and parks the pixel's
+// THICKNESS in RT5's red channel, so DeferredLightingShared can evaluate the
+// transmission lobe. A layer that did not stays byte-identical to before.
 // Velocity captures camera + per-object motion and also reprojects per-fragment
 // wind sway by re-evaluating the wind function at `u_PrevTime` in the VS and
 // passing a prev-frame world position through to the fragment stage.
@@ -63,6 +68,11 @@ layout(std140, binding = 12) uniform FoliageParams
     // render-relative space as the instance pivots. NOT u_CameraPosition: the
     // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
     vec4 u_MeshViewPos;
+    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO.
+    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
+    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
+    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
+    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
 };
 
 #include "include/FoliageInstanceGeometry.glsl"
@@ -75,9 +85,25 @@ layout(std140, binding = 12) uniform FoliageParams
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
 #define u_DiffuseTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+// Leaf maps (issue #1234). TEX_METALLIC carries THICKNESS: foliage is never
+// metallic, so the slot is definitionally free on this surface, and the engine
+// already repurposes a semantic slot per shader this way (PBR_MultiLight's
+// u_MetallicRoughnessMap sits on TEX_SPECULAR).
+#define u_LeafNormalMap OLO_HEAP_TEX_2D(2)     // TEX_NORMAL
+#define u_LeafRoughnessMap OLO_HEAP_TEX_2D(6)  // TEX_ROUGHNESS
+#define u_LeafThicknessMap OLO_HEAP_TEX_2D(7)  // TEX_METALLIC (repurposed)
 #else
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
+layout(binding = 2) uniform sampler2D u_LeafNormalMap;     // TEX_NORMAL
+layout(binding = 6) uniform sampler2D u_LeafRoughnessMap;  // TEX_ROUGHNESS
+layout(binding = 7) uniform sampler2D u_LeafThicknessMap;  // TEX_METALLIC (repurposed: thickness)
 #endif
+
+// The shared vegetation material. PBRCommon first: FoliageSurface's G-Buffer
+// flag encoding and the kind constants live there.
+#include "include/PBRCommon.glsl"
+#define OLO_FOLIAGE_SURFACE_SAMPLING 1
+#include "include/FoliageSurface.glsl"
 
 layout(location = 0) out vec4 o_GBufferAlbedo;
 layout(location = 1) out vec4 o_GBufferNormal;
@@ -127,15 +153,33 @@ void main()
     if (alpha < 0.3)
         discard;
 
-    vec3 N = normalize(v_Normal);
-    // Foliage is primarily diffuse — non-metallic, rough, full AO.
+    // THE SURFACE, from the shared evaluation (issue #1234). Roughness used to
+    // be a hard-coded 0.9 here and the normal the raw interpolated one — the
+    // "hardcoded deferred surface attributes" the issue's first criterion
+    // replaces. Both now come from oloFoliageSampleSurface, which the FORWARD
+    // program calls with the same arguments, so the two paths cannot mean
+    // different things by "this leaf".
+    vec3 V = normalize(u_CameraPosition - v_WorldPos);
+    OloFoliageSurface leaf = oloFoliageSampleSurface(v_WorldPos, v_Normal, v_TexCoord, V, v_Color, texColor);
+
+    // Foliage is never metallic and carries no baked AO map.
     float metallic = 0.0;
-    float roughness = 0.9;
     float ao = 1.0;
 
-    o_GBufferAlbedo   = vec4(albedo, metallic);
-    o_GBufferNormal   = vec4(octEncodeGB(N), roughness, ao);
-    o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0); // lit
+    o_GBufferAlbedo   = vec4(leaf.Albedo, metallic);
+    o_GBufferNormal   = vec4(octEncodeGB(leaf.Normal), leaf.Roughness, ao);
+
+    // The flags lane. OLO_PBR_MODEL_LEGACY is not a choice so much as the
+    // status quo preserved: this shader wrote a literal 0.0 lane before #1234,
+    // which decodes to exactly Legacy, and moving foliage to another closure
+    // would have changed every existing foliage pixel under cover of a
+    // transmission feature.
+    bool isLeaf = oloLeafEnabled();
+    float flags = isLeaf
+                      ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY, OLO_MATERIAL_KIND_FOLIAGE,
+                                                   int(u_LeafIds.x + 0.5))
+                      : 0.0;
+    o_GBufferEmissive = vec4(0.0, 0.0, 0.0, flags); // lit; rgb = no emission
 
     // Camera + wind-reprojection velocity. v_PrevWorldPos already includes the
     // prev-frame wind displacement (evaluated at u_PrevTime in the VS).
@@ -146,5 +190,21 @@ void main()
     o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
 
     o_GBufferEntityID = u_EntityID;
-    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
+
+    // RT5 — the baked-lightmap target, and the THICKNESS LANE (issue #1234).
+    //
+    // WHY HERE, AND WHY IT IS SAFE. The transmission lobe needs one per-pixel
+    // scalar in the deferred path and the G-Buffer had no spare channel: RT0.a
+    // is metallic, RT1.zw are roughness and AO, RT2.rgb is emission that ten
+    // ReSTIR shaders read. RT5 is different — its ALPHA is a coverage flag, and
+    // every reader of the target already gates on it (there are exactly two:
+    // DeferredLighting.glsl and DeferredLighting_MSAA.glsl). Foliage has always
+    // written coverage 0 here, so putting thickness in .r and leaving .a at 0
+    // changes NOTHING for any existing reader, on any pixel, in any mode: a
+    // coverage-0 pixel's rgb is already ignored. The foliage-kind test in the
+    // lighting pass is what turns it back into a number.
+    //
+    // 0 when this layer is not a leaf material, so the lane means "does not
+    // transmit" rather than "uninitialised".
+    o_GBufferBakedGI = vec4(isLeaf ? leaf.Thickness : 0.0, 0.0, 0.0, 0.0);
 }

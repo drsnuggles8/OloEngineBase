@@ -50,6 +50,14 @@ namespace OloEngine
         Specular = 2,
         ProfileIdentity = 3,
         ScatteringMask = 4,
+        // The LEAF TRANSMISSION term alone (issue #1234), linear HDR radiance.
+        // #1234's fourth criterion asks for diffuse, specular and transmission
+        // to be inspected SEPARATELY; Diffuse and Specular above already answer
+        // two thirds of that, and a transmission lobe composited into the
+        // diffuse half would have made the third unanswerable. Black on every
+        // pixel that is not MaterialKind::Foliage, which is itself the check
+        // that the kind reached the G-Buffer.
+        Transmission = 5,
 
         Count
     };

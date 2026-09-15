@@ -66,6 +66,55 @@ namespace OloEngine
         f32 Roughness = 0.8f;
         f32 AlphaCutoff = 0.5f; // Alpha test threshold
 
+        // ── Leaf material (issue #1234) ──────────────────────────────────────
+        //
+        // Before this, the deferred path HARD-CODED a foliage pixel's surface
+        // (roughness 0.9, AO 1, the interpolated geometric normal) and the
+        // forward path lit it with one directional light, no shadow and a flat
+        // 0.3 ambient. `Roughness` above was authorable and read by nobody.
+        // These fields are what replaces that, and they are read by the forward,
+        // forward+ and deferred paths through ONE shared evaluation
+        // (assets/shaders/include/FoliageSurface.glsl).
+        //
+        // Authored as PATHS rather than AssetHandles, matching AlbedoPath and
+        // MeshPath beside them — FoliageRenderer loads them directly, as it
+        // already does for the albedo cutout.
+        std::string NormalMapPath;    // tangent-space leaf normals; veins and curl
+        std::string RoughnessMapPath; // greyscale, MULTIPLIES Roughness above
+        std::string ThicknessMapPath; // greyscale, MULTIPLIES Thickness below
+
+        // Tangential scale of the normal map. 0 is exactly the geometric
+        // normal, 1 is exactly the map.
+        f32 NormalStrength = 1.0f;
+
+        // How much light this leaf lets through, and the colour it takes on the
+        // way. Transmission is what makes a backlit canopy glow instead of
+        // reading as a black cutout.
+        //
+        // STRENGTH 0 IS THE OFF SWITCH, AND IT IS THE DEFAULT. A layer that
+        // predates #1234 deserializes to 0 and renders exactly as it did:
+        // MaterialKind::Generic in the G-Buffer, no transmission lobe, no
+        // thickness lane. That is the conservative default a prior on-disk
+        // scene is entitled to — the new material has to be asked for.
+        f32 TransmissionStrength = 0.0f;
+        glm::vec3 TransmissionColor{ 0.42f, 0.62f, 0.18f }; // the chlorophyll green light picks up
+
+        // Optical thickness of the lamina, in [0, 1], modulated per pixel by
+        // ThicknessMapPath. Thin tips transmit, thick midribs do not — that
+        // variation is the whole point of the map.
+        f32 Thickness = 0.5f;
+
+        // Shape of the forward-scattering lobe. See oloFoliageTransmission in
+        // include/FoliageSurface.glsl for what each one does to the image.
+        f32 TransmissionDistortion = 0.35f; // exit direction bent back towards N
+        f32 TransmissionPower = 4.0f;       // falloff exponent
+        f32 TransmissionWrap = 0.5f;        // Lambertian back-face mix
+        // How much of the irradiance arriving on the FAR face is transmitted.
+        // This is the indirect half of the term, and it is environment
+        // irradiance sampled along -N — NOT an ambient constant, which #1234
+        // names as the wrong answer.
+        f32 TransmissionAmbient = 0.35f;
+
         // Octahedral impostor LOD (issue #433) — bakes MeshPath into a view-angle
         // atlas and swaps the flat billboard for a camera-facing impostor card
         // beyond ImpostorStartDistance, cross-fading so distant trees/bushes read
@@ -79,17 +128,23 @@ namespace OloEngine
 
         // Runtime (not serialized)
         Ref<Texture2D> AlbedoTexture;
+        // Leaf maps (issue #1234), loaded by FoliageRenderer from the paths
+        // above. Excluded from operator== for the same reason AlbedoTexture is.
+        Ref<Texture2D> NormalTexture;
+        Ref<Texture2D> RoughnessTexture;
+        Ref<Texture2D> ThicknessTexture;
 
         bool Enabled = true;
 
-        // Manual operator== — excludes the runtime AlbedoTexture (a re-load of
+        // Manual operator== — excludes the runtime AlbedoTexture and the leaf
+        // maps beside it (a re-load of
         // the same asset hands out a different Ref pointer, which would
         // spuriously flag layers as changed). Float / glm::vec3 fields use
         // Math::BitwiseEqual per cpp-coding-quality §2a; AlbedoPath identifies
         // the texture authoritatively for equality purposes.
         auto operator==(const FoliageLayer& other) const -> bool
         {
-            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
         }
     };
 

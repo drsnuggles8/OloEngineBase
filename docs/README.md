@@ -32,6 +32,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [guides/cinematic-sequencer.md](guides/cinematic-sequencer.md) — cinematic sequencer / timeline.
 - [guides/gltf-material-extensions.md](guides/gltf-material-extensions.md) — what the glTF transmission / IOR / volume extensions import and render, and where that stops.
 - [guides/skin-material-profiles.md](guides/skin-material-profiles.md) — what a `.oloskin` profile holds, in which units and colour space, how a skin material names one, and how to look at the four outputs a skin surface exposes.
+- [guides/foliage-leaf-material.md](guides/foliage-leaf-material.md) — the vegetation material: which fields a foliage layer's leaf material has, why its transmission is split into a shadowed direct half and an environment half, what the distant impostor keeps and what it loses, and how to look at the transmission term on its own.
 - [guides/skin-diffusion.md](guides/skin-diffusion.md) — how the screen-space skin scattering works, which diffusion profile it uses and the reference comparison that chose it, what its radius is in world units, and exactly where it stops.
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.

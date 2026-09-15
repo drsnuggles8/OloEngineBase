@@ -668,6 +668,10 @@ namespace OloEngine
         // one. Scene::OnRuntimeStart / OnSimulationStart reset it for the same
         // reason a scene switch resets the water fields.
         s_Data.SkinProfiles.Reset();
+        // Leaf materials (issue #1234) share the field and the stickiness, so
+        // they share the reset — a renderer that came back up with the previous
+        // run's seven leaf slots taken would refuse every new one.
+        s_Data.FoliageLeafProfiles.Reset();
 
         // The shared default primitives own GPU buffers (issue #1191). Drop them
         // here, before the memory tracker's teardown census, or each one reads as
