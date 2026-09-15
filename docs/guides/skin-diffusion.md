@@ -143,9 +143,25 @@ input — a test that asserted a number would pass with any of the three dropped
 
 ## What it costs
 
-One full-resolution RGBA16F attachment on the scene framebuffer, allocated every frame whether or
-not the scene has skin in it (≈16 MB at 1080p), plus one full-resolution RGBA16F scratch target
-declared only when the pass can run.
+Measured in the editor on an **RTX 4090**, Debug build, `Benchmark/ReferenceHead.olo` at
+**1411 × 942**, Medium tier (17 taps), one active profile, six consecutive samples:
+
+| | measured |
+|---|---|
+| SkinDiffusionPass GPU | **0.061 – 0.062 ms** |
+| SkinDiffusionPass CPU | 0.041 – 0.058 ms |
+| whole frame GPU | 1.99 – 2.02 ms |
+| share of frame GPU | **≈ 3 %** |
+
+The CPU figure is the two draws and the 2.9 KB uniform upload. Building a profile's kernel is far
+more expensive than that — about 1500 quadrature evaluations per channel — and does **not** appear
+here, because kernels are cached per slot and rebuilt only when a profile's authored parameters or
+the quality tier change. The first frame after a profile edit was measured at 2.4 ms CPU; every
+frame after it is the number above.
+
+Memory: one full-resolution RGBA16F attachment on the scene framebuffer, allocated every frame
+whether or not the scene has skin in it (10.6 MB at 1411 × 942, ≈16 MB at 1080p), plus one
+full-resolution RGBA16F scratch target declared only when the pass can run.
 
 The attachment is part of the scene framebuffer because the alternative — switching draw buffers per
 draw, keyed on material kind — is a framebuffer state change per draw. Every shader that renders
@@ -172,6 +188,31 @@ This is screen-space real-time diffusion, not a claim of volumetric transport.
   irradiance — is smooth at that scale.
 - **No transmission.** Light through an ear lit from behind is not this feature; it is what
   `ThicknessScale` is being carried for.
+
+## If it looks like it is doing nothing, check the SUBJECT'S SCALE first
+
+The authored reference profile scatters **1.55 mm** in red. That is a real measurement of real
+skin, and it is only ever a few pixels — so how much of a head it covers depends entirely on how
+big the head is in world units.
+
+`Benchmark/ReferenceHead.olo`'s Suzanne is about **1.35 m wide**: the mesh is ~2.7 units across and
+the fixture scales it by 0.5. A human head is about 0.16 m. So that subject is roughly **eight
+times human scale**, and a physically authored profile covers eight times less of it than it would
+on a real head. Measured on that fixture at 1411 × 942 the diffusion changes 61 000 pixels with a
+peak delta of 89/255 — clearly present, concentrated in the eye sockets and behind the ear, and
+easy to read as "nothing happened" if you are expecting the look of an exaggerated profile.
+
+Two things follow, and neither is a bug:
+
+- **Judge it on a head at human scale**, or scale the authored radius with the subject. The
+  engine cannot know that a 1.35 m mesh is meant to be a head.
+- **A soft rig hides it.** The reference fixture is a soft three-point studio setup on purpose.
+  Scattering shows itself at a **terminator**, so a hard side key is what makes it obvious — which
+  is why `SkinDiffusionEvidenceTest` lights its subject from the side and why the issue asks for
+  both soft and hard side lighting.
+
+`olo_render_toggle_pass { name: "skindiffusion" }` is the A/B, and it says so when the scene has no
+skin profile in it at all.
 
 ## Where the code is
 

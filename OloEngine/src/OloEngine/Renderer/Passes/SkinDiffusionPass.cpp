@@ -1,7 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/SkinDiffusionPass.h"
 
-#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -217,8 +216,14 @@ namespace OloEngine
             return;
         }
 
-        GLStateGuard guard("SkinDiffusionPass", GLStateGuard::Policy::Restore);
-
+        // NO GLStateGuard HERE, DELIBERATELY. The guard's Restore policy logs every
+        // field a pass leaves changed, and it is the right tool for a rare path
+        // (DeferredLightingPass uses one around its debug overlay). On a pass that
+        // runs EVERY FRAME it emits a dozen trace lines per frame -- 35 000 in one
+        // editor session, measured -- which drowns the log the renderer's other
+        // diagnostics live in. The state this pass changes is restored explicitly
+        // at the end instead, which is both cheaper and the convention
+        // PrepareFullscreenPass already sets for a fullscreen draw.
         auto va = MeshPrimitives::GetFullscreenTriangle();
 
         context.SetViewport(0, 0, width, height);
@@ -228,7 +233,7 @@ namespace OloEngine
         // (issue #1002): the fullscreen triangle writes NDC directly, so its
         // apparent winding is opposite between GL and Vulkan and no single
         // front-face setting can serve both.
-        RenderCommand::DisableCulling();
+        context.SetCulling(false);
 
         m_Shader->Bind();
 
@@ -294,7 +299,21 @@ namespace OloEngine
                 ++colorCount;
         }
         RenderCommand::RestoreAllFramebufferDrawAttachments(sceneFB->GetRHIHandle(), colorCount);
+
+        // RESTORE WHAT THIS PASS UNIQUELY CHANGED. Every fullscreen pass leaves the
+        // depth test, culling and its own bindings behind -- that is the engine's
+        // convention and the next pass sets its own. The BLEND FUNCTION is not part
+        // of that convention: this is the only pass that changes it, so leaving
+        // ONE/ONE + ZERO/ONE standing would silently re-colour the first later pass
+        // that enables blending without setting its own factors.
+        RenderCommand::SetBlendFuncSeparate(RHI::BlendFactor::One, RHI::BlendFactor::Zero,
+                                            RHI::BlendFactor::One, RHI::BlendFactor::Zero);
+        RenderCommand::SetBlendEquation(RHI::BlendOp::Add);
         context.SetBlendState(false);
+        // The depth mask, for the same reason PrepareFullscreenPass restores it:
+        // a pass that leaves depth writes off makes the NEXT geometry pass render
+        // without depth, which looks like a sorting bug several passes away.
+        context.SetDepthMask(true);
 
         m_Target = sceneFB;
     }
