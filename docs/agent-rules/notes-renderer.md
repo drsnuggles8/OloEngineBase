@@ -1286,3 +1286,41 @@ though they are equal, with a static_assert that they match: aliasing one to the
 future widening of one silently widen the other, and the field can only carry one width.
 
 Found on #1234.
+
+## `Texture2D::Create(path, …)` never returns null — `IsLoaded()` is the only thing that says so
+
+Every overload of `Texture2D::Create` hands back a live `Ref<Texture2D>` on the OpenGL path,
+including for a file that does not exist or will not decode. The failure is reported by
+`IsLoaded()`, and by nothing else.
+
+So this is not a load check:
+
+```cpp
+texture = Texture2D::Create(path, /*srgb=*/false);
+if (!texture)                       // never true
+    OLO_CORE_WARN("could not load {}", path);
+```
+
+and the shader then samples whatever the failed texture object contains. For a tangent-space normal
+map that is a normal of roughly `(-1, -1, -1)`; for a thickness or roughness map it is a black
+channel, which means "does not transmit" and "mirror" respectively — all three read as the feature
+being broken rather than as an asset being missing.
+
+**The rule:** check `IsLoaded()`, log, and then DROP the `Ref`, so the consuming code's
+"no map authored" path runs. A fallback that samples a broken texture is worse than one that uses
+the authored constant, because only the second is a look somebody chose.
+
+```cpp
+texture = path.empty() ? nullptr : Texture2D::Create(path, /*srgb=*/false);
+if (texture && !texture->IsLoaded())
+{
+    OLO_CORE_WARN("leaf map '{}' could not be loaded; shading with the authored constant.", path);
+    texture = nullptr;
+}
+```
+
+Cache the attempt on the PATH, not on the `Ref` being null — otherwise a broken path is re-opened
+and re-logged on every regeneration. `FoliageRenderer`'s authored-mesh import already had that shape;
+the leaf maps now match it.
+
+Found on #1234 (foliage leaf maps), reviewing code whose null check could never fire.
