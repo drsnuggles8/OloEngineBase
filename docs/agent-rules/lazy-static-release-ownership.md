@@ -430,3 +430,37 @@ specifically for *this* document's territory: a self-referential `Ref` through a
 embedded member is now a fourth thing to check, beyond the three scans already
 documented above, when a GPU-owning object survives every release call you can
 find.
+
+## The same rule one level up: per-frame recording state, not just lazy statics
+
+Issue #1226. The rule above is usually read as being about lazy statics. It is
+not — it is about a release site reachable only from a teardown that some
+sessions skip. Per-frame state hits it too.
+
+`VulkanRendererAPI::m_Items` holds one recording context per parallel item, each
+owning cloned engine resources (a camera UBO, a bone palette, an `InstanceBuffer`
+at `SSBO_INSTANCE_DATA`). Its only release was
+`CommandDispatch::Shutdown() -> RenderCommand::ReleaseParallelRecordingResources()`.
+A teardown arriving straight at `VulkanDevice::Shutdown` — the test fixtures, or
+`~VulkanDevice` running `Shutdown` for a context nobody shut down explicitly —
+never calls it, so three 256-byte instance buffers reached `vmaDestroyAllocator`
+and aborted it at process exit, attributed to whichever test happened to run last.
+
+**Where it belongs is already written in that function**, about something else:
+the secondary command pools are released in `VulkanDevice::Shutdown` with the
+comment *"every owner — the context, the test fixtures — reaches this Shutdown,
+so this is the one release point"*. The recorder has two halves and only the
+backend half was following that rule. Both are released there now, with the
+deferred-reclaim drain after them and before the allocator goes down.
+
+**Two forensics lessons, because finding it took far longer than fixing it:**
+
+- **A VMA allocation name that is the class name identifies nothing.** Every
+  storage buffer in the engine reported `VulkanStorageBuffer`. Naming it with the
+  binding and size instead (`binding=15, 256B`) named the tenant on the first
+  run — binding 15 is `SSBO_INSTANCE_DATA`, and 256 B is one `InstanceData`.
+- **The survivor dump only ran on the path that was not aborting.**
+  `LogSurvivingVertexArrays` / `VulkanLogSurvivingTransients`, with their Debug
+  creation stacktraces, were called from `VulkanContext::Shutdown` only. The
+  teardown that actually hit the assert reached it with nothing logged about who
+  held the memory. Forensics belong on the same path as the failure they explain.

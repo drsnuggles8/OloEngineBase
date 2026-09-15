@@ -122,6 +122,29 @@ motion because nothing moved" from "no motion because the history was thrown awa
 are on `olo_skeletal_deformation_stats` and in the editor's Statistics panel, because the four issues
 building on this contract (#1227, #1228, #1229) should not each re-derive it.
 
+## 3. A guard is worthless on the call site nobody calls
+
+When you add a guard to protect a shared read, grep for **every** reader first and
+check which ones are live. `HasBoneHistory()` was added to
+`Renderer3D::RenderAnimatedMeshes` — which has **no callers**. `Scene`'s own
+animated-mesh loop is the path that renders, and it kept reading
+`m_PrevFinalBoneMatrices` raw, so the flag stayed decorative on everything that
+draws. A third reader, `Renderer3D::RenderAnimatedMesh`, was ungated too.
+
+Nothing caught it: the build was green, the functional tests exercise the tick
+rather than submission, and the commit message said the flag was now
+load-bearing. Two review passes went by before it surfaced.
+
+**The counter-move is a test over CALL SITES, not behaviour.** A behaviour test
+passes as soon as one path is correct, which is exactly the state being shipped.
+`SkeletalDeformationContract.EveryPreviousPaletteReadIsGatedOnHasBoneHistory`
+reads the submission sources as text and fails on any `m_PrevFinalBoneMatrices`
+access without a nearby `HasBoneHistory()`. It failed on its first run and named
+the third site — which is how that one was found rather than shipped.
+
+Generalises past this feature: whenever a fix is *"now gated on X"*, the thing to
+pin is that **every** reader is gated, and the cheapest way to pin it is usually
+a text scan, not a scenario.
 ## Related
 
 - [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md) — the same archetype where the mirror is a
