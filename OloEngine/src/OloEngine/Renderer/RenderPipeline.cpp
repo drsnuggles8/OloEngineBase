@@ -2090,6 +2090,24 @@ namespace OloEngine
             const bool hasOITContributors =
                 (SceneCompositePasses.Particle && SceneCompositePasses.Particle->HasRenderCallback()) ||
                 (RenderStreamPasses.Decal && RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0);
+            // Groom strands (#1246). Handed the frame's RESOLVED temporal
+            // state rather than its requests: SelectGroomComposition refuses
+            // the stochastic mode without a resolve to converge it, and
+            // reading PostProcess.TAAEnabled alone would report a resolve that
+            // a temporal upscaler has taken over — ShouldRunEngineTAA forces
+            // engine TAA off while FSR2 runs, and FSR2 is itself a resolve.
+            if (RenderStreamPasses.Groom)
+            {
+                GroomFrameState groomFrame;
+                groomFrame.FrameIndex = data.StochasticFrameIndex;
+                groomFrame.TemporalResolveActive =
+                    data.TemporalUpscaleActive ||
+                    TemporalUpscalePolicy::ShouldRunEngineTAA(data.PostProcess.TAAEnabled,
+                                                              data.TemporalUpscaleActive);
+                groomFrame.OITTargetsAvailable = oitEnabled;
+                RenderStreamPasses.Groom->SetFrameState(groomFrame);
+                RenderStreamPasses.Groom->SetRequests(Renderer3D::GetGroomStrandRequests());
+            }
             if (SceneCompositePasses.Particle)
                 SceneCompositePasses.Particle->SetOITEnabled(oitEnabled);
             if (RenderStreamPasses.Decal)
@@ -3177,6 +3195,14 @@ namespace OloEngine
         HashPassState(h, SceneCompositePasses.OITResolve);
         HashPassState(h, RenderStreamPasses.ForwardOverlay);
         HashPassState(h, RenderStreamPasses.Foliage);
+        // #1246. GroomRenderPass declares its SceneColor RMW only when a
+        // groom was submitted, so whether it declares anything is TOPOLOGY —
+        // and topology is cached. Left out of the fingerprint, the first
+        // groom to appear in a scene that had none would find the cached
+        // graph in which the node declared nothing, stay culled, and report
+        // zeros from every counter meant to explain it.
+        HashPassState(h, RenderStreamPasses.Groom);
+        HashBool(h, !Renderer3D::GetGroomStrandRequests().empty());
         HashPassState(h, RenderStreamPasses.Water);
         HashPassState(h, RenderStreamPasses.FluidIntermediates);
         HashPassState(h, RenderStreamPasses.FluidComposite);
@@ -5726,6 +5752,7 @@ namespace OloEngine
         inputs.Passes.GPUOcclusion = RenderStreamPasses.GPUOcclusion.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
         inputs.Passes.Foliage = RenderStreamPasses.Foliage.Raw();
+        inputs.Passes.Groom = RenderStreamPasses.Groom.Raw();
         inputs.Passes.Water = RenderStreamPasses.Water.Raw();
         inputs.Passes.FluidIntermediates = RenderStreamPasses.FluidIntermediates.Raw();
         inputs.Passes.FluidComposite = RenderStreamPasses.FluidComposite.Raw();
@@ -5875,6 +5902,13 @@ namespace OloEngine
         RenderStreamPasses.Foliage = Ref<FoliageRenderPass>::Create();
         RenderStreamPasses.Foliage->SetName("FoliagePass");
         RenderStreamPasses.Foliage->Init(finalPassSpec);
+
+        // Groom strand visibility (#1246). Path- and backend-agnostic: it
+        // draws into the scene framebuffer, which carries a populated depth
+        // attachment on every path by the time the render-stream band runs.
+        RenderStreamPasses.Groom = Ref<GroomRenderPass>::Create();
+        RenderStreamPasses.Groom->SetName("GroomPass");
+        RenderStreamPasses.Groom->Init(finalPassSpec);
 
         RenderStreamPasses.Water = Ref<WaterRenderPass>::Create();
         RenderStreamPasses.Water->SetName("WaterPass");

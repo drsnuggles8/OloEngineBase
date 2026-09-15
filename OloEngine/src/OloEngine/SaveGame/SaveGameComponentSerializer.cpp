@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "OloEngine/Groom/GroomAsset.h" // GroomLimits: the .ologroom format's own curve-count ceiling
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
@@ -3069,6 +3070,11 @@ namespace OloEngine
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
+        // Production strand rendering (issue #1246). Appended, never
+        // interleaved: a save written before these existed still reads its
+        // preview fields at the same offsets.
+        ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
+        ar << c.m_RenderStrands << c.m_CompositionMode;
 
         if (ar.IsLoading())
         {
@@ -3082,6 +3088,36 @@ namespace OloEngine
             }
             c.m_RootMarkerSize = std::clamp(c.m_RootMarkerSize, 0.0f, 10.0f);
             c.m_MaxPreviewStrands = std::clamp(c.m_MaxPreviewStrands, 1u, 200000u);
+
+            // The strand budget sizes a GPU BUFFER rather than a command
+            // stream, so an unbounded value here is an allocation, not a
+            // stall. GroomLimits::MaxCurveCount is the format's own ceiling.
+            c.m_MaxRenderStrands = std::clamp(c.m_MaxRenderStrands, 1u, GroomLimits::MaxCurveCount);
+
+            if (!std::isfinite(c.m_WidthScale))
+            {
+                c.m_WidthScale = 1.0f;
+            }
+            c.m_WidthScale = std::clamp(c.m_WidthScale, 0.01f, 100.0f);
+
+            if (!std::isfinite(c.m_StrandColor.x) || !std::isfinite(c.m_StrandColor.y) ||
+                !std::isfinite(c.m_StrandColor.z))
+            {
+                c.m_StrandColor = glm::vec3(0.55f, 0.48f, 0.42f);
+            }
+            else
+            {
+                c.m_StrandColor = glm::clamp(c.m_StrandColor, glm::vec3(0.0f), glm::vec3(1.0f));
+            }
+
+            // An out-of-range mode is corruption, not a preference. Reset to
+            // the always-available tier rather than indexing a switch with it;
+            // SelectGroomComposition would refuse it anyway, but arriving
+            // there with a valid value keeps the reason it reports honest.
+            if (!IsValidGroomCompositionMode(static_cast<i32>(c.m_CompositionMode)))
+            {
+                c.m_CompositionMode = static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
+            }
         }
     }
 

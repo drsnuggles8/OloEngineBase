@@ -1258,6 +1258,44 @@ namespace OloEngine
         static_assert(sizeof(FroxelFogUBO) % 16 == 0, "FroxelFogUBO must be 16-byte aligned for std140");
         static_assert(sizeof(FroxelFogUBO) == 240, "FroxelFogUBO std140 size drifted from GLSL expectation (240 B)");
 
+        // @brief Groom strand draw parameters (issue #1246), uploaded at
+        // UBO_USER_0 (7). GLSL twin: the GroomStrandParams block in
+        // GroomStrand.glsl, declared identically in both its stages.
+        //
+        // ONE block rather than a per-draw model block plus a params block,
+        // and on the PASS-LOCAL slot rather than UBO_MODEL. A UniformBuffer
+        // claims its binding point at CONSTRUCTION and nothing rebinds it, so
+        // two buffers sharing binding 3 means whichever was constructed last
+        // owns the slot for the whole session: the strand draw read the
+        // scene's model matrices, drew nothing visible, and every later
+        // consumer of binding 3 would have read the strand pass's. UBO_USER_0
+        // is the slot whose contract is that its occupant rebinds and refills
+        // it before its own draws, which is what this pass does.
+        //
+        // Mode is an int lane because it is a GroomCompositionMode the shader
+        // compares against integer constants; a float lane would make an exact
+        // comparison a rounding question.
+        struct GroomStrandParamsUBO
+        {
+            glm::mat4 Model{ 1.0f };
+            glm::mat4 PrevModel{ 1.0f };
+            glm::vec4 Color{ 1.0f };       // rgb = neutral albedo, a unused
+            glm::ivec4 IDs{ -1, 0, 0, 0 }; // x = EntityID
+            glm::vec4 Viewport{ 0.0f };    // xy = pixels, zw unused
+            glm::vec4 RampWidth{ 0.0f };   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
+            glm::ivec4 ModeFrame{ 0 };     // x = GroomCompositionMode, y = frame index, z = stochastic seed
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomStrandParamsUBO));
+            }
+        };
+
+        static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
+                      "GroomStrandParamsUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(GroomStrandParamsUBO) == 208,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (208 B)");
+
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
         // AutoExposureParams block shared verbatim by

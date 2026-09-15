@@ -73,6 +73,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -97,6 +99,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -121,6 +125,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);

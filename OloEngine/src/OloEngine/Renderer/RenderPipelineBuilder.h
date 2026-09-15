@@ -32,6 +32,7 @@ namespace OloEngine
         RenderGraphNode* GPUOcclusion = nullptr;
         RenderGraphNode* ForwardOverlay = nullptr;
         RenderGraphNode* Foliage = nullptr;
+        RenderGraphNode* Groom = nullptr; // #1246 strand visibility (after Foliage, before Decal)
         RenderGraphNode* Water = nullptr;
         RenderGraphNode* FluidIntermediates = nullptr;
         RenderGraphNode* FluidComposite = nullptr;

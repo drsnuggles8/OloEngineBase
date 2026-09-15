@@ -26,6 +26,20 @@ namespace OloEngine::RenderPipelineBuilderInternal
         }
 
         AddExistingNode(graph, inputs.Passes->Foliage);
+
+        // Groom strands (#1246). Registered on EVERY path and EVERY backend
+        // and self-disabling in Execute when no groom was submitted: the
+        // graph fingerprints topology and caches it, so gating registration
+        // on a capability or on a scene's contents would cull the node for
+        // the whole session (technique-selection-seams.md).
+        //
+        // After Foliage and before Decal because strands are depth-writing
+        // geometry, not a transparent modifier: they belong with the things
+        // that still leave a depth value for the transparent band to compose
+        // against, and the deferred path has already blitted the G-Buffer's
+        // depth into the scene framebuffer by the time this runs.
+        AddExistingNode(graph, inputs.Passes->Groom);
+
         AddExistingNode(graph, inputs.Passes->Decal);
         AddExistingNode(graph, inputs.Passes->Water);
 

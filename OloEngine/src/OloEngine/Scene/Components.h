@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Audio/AudioSource.h"
@@ -5644,6 +5645,29 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 1, Max = 200000)
         u32 m_MaxPreviewStrands = 2000; // a debug line is a command packet — see GroomPreview.h
 
+        // ── Production strand rendering (issue #1246) ──────────────────
+        //
+        // Separate knobs from the preview ones above, deliberately. The two
+        // are different renderers answering different questions, and one
+        // shared "strand count" would make turning the diagnostic down also
+        // turn the coat down. Criterion 4 is that diagnostic curve rendering
+        // is not advertised as a finished quality tier; keeping their controls
+        // apart is half of what makes that true in the editor.
+
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 8000000)
+        u32 m_MaxRenderStrands = 100000; // ribbon geometry budget — see GroomStrandMesh.h
+
+        // Multiplies the cooked object-space DIAMETERS. An authoring lever for
+        // a groom exported at a different unit scale, not a quality knob: at
+        // 1.0 a 70 um hair is 70 um, which is what the coverage comparison was
+        // run at (docs/analysis/groom-strand-visibility-1246.md).
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 100.0f)
+        f32 m_WidthScale = 1.0f;
+
+        // Neutral albedo. #1246 renders an UNLIT coat on purpose — fibre
+        // scattering is #1247 — so this is the only colour in play.
+        glm::vec3 m_StrandColor{ 0.55f, 0.48f, 0.42f };
+
         bool m_ShowPreview = true;
         bool m_ShowStrands = true;
         bool m_ShowRoots = true;
@@ -5651,10 +5675,29 @@ namespace OloEngine
         bool m_ColorByGroup = true;
         bool m_GuidesOnly = false;
 
+        // Draw the production strands. Off by default so an existing scene
+        // loads looking exactly as it did before this field existed — a groom
+        // that silently changed renderer on load would make every committed
+        // capture incomparable with the one beside it.
+        bool m_RenderStrands = false;
+
+        // The REQUESTED GroomCompositionMode. What the groom actually GETS is
+        // SelectGroomComposition's answer, which depends on what the frame
+        // resolved and is reported back in the inspector — see
+        // Groom/GroomVisibility.h. Stored as a u8 rather than as the enum so
+        // the component keeps its pinned, hole-free, trivially-copyable
+        // layout; the range is validated on load rather than trusted.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 3)
+        u8 m_CompositionMode = static_cast<u8>(GroomCompositionMode::StochasticAlpha);
+
         OLO_SERIALIZE(Skip)
         u8 Pad0 = 0;
         OLO_SERIALIZE(Skip)
         u8 Pad1 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad2 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad3 = 0;
 
         GroomComponent() = default;
         GroomComponent(const GroomComponent&) = default;
@@ -5667,7 +5710,7 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
-    static_assert(sizeof(GroomComponent) == 24, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
+    static_assert(sizeof(GroomComponent) == 48, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 
