@@ -705,8 +705,11 @@ namespace OloEngine::DDGI
         // Contributes NOTHING to the gather until captured. Always first.
         NeverCaptured = 0,
         // Already contributing, just from a slightly wrong position — the
-        // relocation spring wants another look.
-        RelocationRefinement = 1,
+        // relocation warm-up has another capture booked for it. Named for the
+        // SCHEDULE rather than for the spring, because the LAST capture of the
+        // warm-up deliberately does not move the probe; see
+        // RelocationStepForCapture below (issue #1279).
+        RelocationFollowUp = 1,
         // Correct, merely stale. Healed at a throttled rate.
         PeriodicRefresh = 2
     };
@@ -751,6 +754,91 @@ namespace OloEngine::DDGI
 
         return static_cast<f32>(std::to_underlying(tier)) * kCaptureTierBias +
                glm::clamp(intra, 0.0f, kMaxIntra);
+    }
+
+    // -------------------------------------------------------------------------
+    // The relocation warm-up schedule (issue #1279). CPU-only, like the tiers
+    // above: this is the single place that decides BOTH which tier a capture is
+    // scheduled in and whether its relocation dispatch may move the probe.
+    //
+    // It is one function because the bug it closes was those two decisions
+    // living at two call sites reading two different record fields, which let
+    // the scheduler's vocabulary and the executor's behaviour drift apart with
+    // no test able to notice.
+    // -------------------------------------------------------------------------
+
+    // How many times the spring is applied while a probe warms up.
+    //
+    // TWO, not the 4 the old adaptive rule used as its ceiling. As a FIXED
+    // count every probe pays it, so 4 would triple the warm-up capture cost for
+    // the many probes that need none at all (an unconstrained probe starts at
+    // offset zero and the spring's grid-restore term keeps it there).
+    inline constexpr u8 kMaxRelocationIterations = 2;
+
+    // The warm-up is one capture LONGER than the number of spring applications,
+    // and that last capture settles rather than places.
+    //
+    // It is neither slack nor an off-by-one. The capture rasterizes the hit
+    // cache from the probe's CURRENT offset (DDGI_Capture.glsl's vertex stage
+    // reads the probe-data texture), and relight reconstructs every hit as
+    // `probeWorldPosition(current offset) + direction * distance`
+    // (DDGI_Relight.glsl). So a capture whose relocation dispatch then MOVES
+    // the probe leaves the whole hit cache displaced by that step - PR #842's
+    // "wrong everywhere, failing nowhere", the same error as capturing from the
+    // lattice point while gathering from the relocated one.
+    //
+    // Ending the warm-up with a capture that does not move the probe is what
+    // puts the cache back in agreement with the position, and nothing else in
+    // the schedule does it: the periodic refresh tier is age-ordered at a
+    // budget/8 rate, so a probe can wait thousands of frames for one.
+    inline constexpr u8 kRelocationWarmupCaptures = static_cast<u8>(kMaxRelocationIterations + 1);
+
+    struct RelocationCaptureStep
+    {
+        // Priority tier this capture is scheduled in.
+        CaptureTier Tier = CaptureTier::NeverCaptured;
+        // Sets DDGI_RELOCATE_ENTRY_HOLD_POSITION on the capture-set entry:
+        // the relocation dispatch still re-reads the hit cache and re-runs
+        // classification, but leaves the offset alone.
+        bool SuppressSpring = false;
+    };
+
+    // `capturesIssued` is ProbeRecord::CaptureCount - how many captures this
+    // probe has already had AT THIS LATTICE POINT, saturating at
+    // kRelocationWarmupCaptures. A cascade shift resets the record, so a probe
+    // that moves to a new lattice point warms up again from zero.
+    //
+    // For kMaxRelocationIterations == 2 the whole schedule is:
+    //
+    //   capturesIssued | tier               | spring
+    //   ---------------|--------------------|--------------------
+    //   0              | NeverCaptured      | runs (placement)
+    //   1              | RelocationFollowUp | runs (placement)
+    //   2              | RelocationFollowUp | suppressed (settle)
+    //   3+             | PeriodicRefresh    | suppressed (geometry)
+    [[nodiscard("the schedule step is the only effect")]] inline RelocationCaptureStep RelocationStepForCapture(u8 capturesIssued) noexcept
+    {
+        if (capturesIssued == 0u)
+        {
+            return { CaptureTier::NeverCaptured, false };
+        }
+        if (capturesIssued < kMaxRelocationIterations)
+        {
+            return { CaptureTier::RelocationFollowUp, false };
+        }
+        if (capturesIssued < kRelocationWarmupCaptures)
+        {
+            // Still a warm-up capture - it is the one that re-reads the hit
+            // cache and re-classifies from the settled position - but the
+            // spring must not move the probe out from under the cache it has
+            // just taken. Same TIER as the placement captures because the
+            // urgency is the same: the probe is not finished.
+            return { CaptureTier::RelocationFollowUp, true };
+        }
+        // Warm-up over. Refresh is a GEOMETRY problem and has no business
+        // moving the probe; DDGI_Relocate.comp carries the measured limit cycle
+        // that says so.
+        return { CaptureTier::PeriodicRefresh, true };
     }
 
     // -------------------------------------------------------------------------

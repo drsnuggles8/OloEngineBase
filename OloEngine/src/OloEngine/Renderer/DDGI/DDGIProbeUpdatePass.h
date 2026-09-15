@@ -282,9 +282,9 @@ namespace OloEngine
         // spheres at the RELOCATED positions) — treat as read-only outside
         // the pass.
         //
-        // SINCE #707 the fields split in two. LastCaptureFrame / Captured /
-        // RelocationIteration are CPU-OWNED — the CPU issues the captures, so
-        // it knows them exactly and uses them to schedule. OffsetN / State /
+        // SINCE #707 the fields split in two. LastCaptureFrame / CaptureCount
+        // are CPU-OWNED — the CPU issues the captures, so it knows them
+        // exactly and uses them to schedule. OffsetN / State /
         // BounceWeightSum / BounceHitCount are GPU-OWNED mirrors, valid only
         // after ReadbackProbeDiagnostics(); they read as their defaults
         // otherwise. Reading a GPU-owned field without that call is the one
@@ -297,9 +297,24 @@ namespace OloEngine
             u32 LastCaptureFrame = 0;                              // CPU-owned
             f32 BounceWeightSum = 0.0f;                            // GPU-owned (#751)
             i32 BounceHitCount = 0;                                // GPU-owned (#751)
-            u8 RelocationIteration = 0;                            // CPU-owned
-            bool Captured = false;                                 // CPU-owned: capture issued at this lattice point
-            bool PendingRelocationRecapture = false;               // CPU-owned
+            // CPU-owned: captures issued AT THIS LATTICE POINT, saturating at
+            // DDGI::kRelocationWarmupCaptures. ONE counter rather than the
+            // Captured / RelocationIteration / PendingRelocationRecapture trio
+            // it replaces: those were three bits encoding one count, and the
+            // capture scheduler and the relocation executor each read a
+            // different one of them, which is how they came to disagree about
+            // what the last warm-up capture was for (issue #1279). Everything
+            // either side needs now comes from DDGI::RelocationStepForCapture.
+            u8 CaptureCount = 0;
+
+            // True once any capture has been issued at this lattice point — a
+            // probe below this contributes nothing to the gather at all. A
+            // cascade shift resets the whole record, so this is per lattice
+            // point and not per probe index.
+            [[nodiscard]] bool Captured() const noexcept
+            {
+                return CaptureCount > 0u;
+            }
         };
 
         // Per-probe scheduling state, indexed by DDGI::CascadedProbeIndex.
@@ -353,8 +368,8 @@ namespace OloEngine
         void ResampleProbe(i32 probeIdx, CaptureResources& resources);
         // Relocates the WHOLE capture set in one dispatch per chunk of
         // UBOStructures::DDGIPassDataUBO::MaxRelocationBatch (issue #846). Reads each
-        // probe's record to decide its refresh flag, so call it BEFORE the capture
-        // bookkeeping that sets ProbeRecord::Captured for this frame.
+        // probe's record to decide its hold-position flag, so call it BEFORE the
+        // capture bookkeeping that advances ProbeRecord::CaptureCount this frame.
         void RelocateProbesGPU(const std::vector<i32>& captureSet);
         void BlendVisibility(const std::vector<i32>& capturedProbes);
         void RelightProbes();

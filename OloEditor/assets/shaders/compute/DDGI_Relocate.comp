@@ -215,7 +215,7 @@ void main()
     uint newState = ddgiClassifyProbe(agg.BackfaceFraction);
     vec3 newOffset = ddgiRelocateProbeSpring(pdataPrev.xyz, agg, spacing, minFrontfaceDistance);
 
-    // A PERIODIC REFRESH MUST NOT RE-PLACE AN ALREADY-SETTLED PROBE.
+    // A CAPTURE OF AN ALREADY-SETTLED PROBE MUST NOT RE-PLACE IT.
     //
     // The capture scheduler re-captures the oldest probes forever (the
     // budget/8 refresh tier) so that moved static geometry heals. Running the
@@ -230,11 +230,17 @@ void main()
     // problem and it converges once; refresh is a GEOMETRY problem and has no
     // business moving the probe.
     //
+    // The same flag rides the LAST capture of a probe's relocation warm-up,
+    // for a different reason: relight reconstructs cached hits from the probe's
+    // CURRENT offset, so the warm-up has to end on a capture the spring does
+    // not move the probe after, or the whole cache is displaced by that step
+    // (issue #1279).
+    //
     // The exception is a probe that now classifies Inactive: it is inside
     // geometry, staying put is actively harmful, and re-placing it is the whole
     // point of relocation. A cascade shift resets the probe's record entirely,
     // so a probe that moves to a new lattice point re-places itself normally.
-    if ((captureEntry.y & DDGI_RELOCATE_ENTRY_REFRESH) != 0 && newState == DDGI_PROBE_STATE_ACTIVE)
+    if ((captureEntry.y & DDGI_RELOCATE_ENTRY_HOLD_POSITION) != 0 && newState == DDGI_PROBE_STATE_ACTIVE)
     {
         newOffset = pdataPrev.xyz;
     }
