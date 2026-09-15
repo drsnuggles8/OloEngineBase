@@ -548,6 +548,8 @@
 		"OloEngine/Renderer/PathTracing/EmissiveTriangleTable.cpp"
 		"OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 		"OloEngine/Renderer/PathTracing/MaterialTextureTable.cpp"
+		"OloEngine/Renderer/MaterialShaderHeapTable.h"
+		"OloEngine/Renderer/MaterialShaderHeapTable.cpp"
 		"OloEngine/Renderer/PathTracing/GgxEnergyTables.h"
 		"OloEngine/Renderer/PathTracing/GpuPathTracerTypes.h"
 		"OloEngine/Renderer/ReSTIR/ReservoirCore.h"

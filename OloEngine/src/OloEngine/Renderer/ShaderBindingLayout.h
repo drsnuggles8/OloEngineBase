@@ -249,6 +249,10 @@ namespace OloEngine
             //   [0] = .x albedo   .y metallicRoughness .z normal    .w ao
             //   [1] = .x emissive .y environment       .z irradiance .w prefilter
             //   [2] = .x brdfLut  .y diffuse (legacy)  .z specular (legacy) .w unused
+            // Vulkan keeps the five map lanes, uses [2].w for the sampler byte
+            // offset, and [1].yzw for the static deferred material table's
+            // address low/high words and record count (ADR 0011 (101)). Zero
+            // address/count disables that table; these are not texture offsets.
             // A slot holding kNullHeapOffset means "no map"; the shader's existing
             // Use*Map flags already gate whether it samples at all.
             glm::uvec4 HeapOffsets[3]{};

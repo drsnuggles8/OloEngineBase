@@ -33,6 +33,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
+#include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -407,6 +408,7 @@ namespace OloEngine
         // session, and the editor panel and the MCP diagnostic read the stats
         // through the same accessor.
         [[nodiscard]] static const GPUScene& GetGPUScene();
+        [[nodiscard]] static const MaterialShaderHeapTable& GetMaterialShaderHeapTable();
         [[nodiscard]] static RayTracing::RayTracingScene& GetRayTracingScene();
         [[nodiscard]] static const RayTracing::SceneStats& GetRayTracingStats();
         // Turns every link staged this frame into the record it names. Called
@@ -2181,6 +2183,7 @@ namespace OloEngine
             // ...and its per-material texture table (the #805 capability for
             // ray-query shaders), resolved before the emissive table reads it.
             MaterialTextureTable PathTracerMaterialTextures;
+            MaterialShaderHeapTable RasterMaterialTextures;
             // Acceleration structures over SceneGPU (#978). Value-owned beside
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.

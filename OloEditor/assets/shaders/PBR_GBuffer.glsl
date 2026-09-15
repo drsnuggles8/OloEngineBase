@@ -142,6 +142,8 @@ void main()
 #ifdef OLO_VULKAN
 #extension GL_EXT_descriptor_heap : require
 #extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference_uvec2 : require
 #define OLO_MATERIAL_VULKAN_HEAP_READER 1
 #endif
 
@@ -250,15 +252,16 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 // The heap arrays and OLO_HEAP_MATERIAL_TEX_2D; guarded internally by
 // `#ifdef OLO_VULKAN`, so it contributes nothing on any other route.
 #include "include/DescriptorHeapTextures.glsl"
+#include "include/MaterialShaderHeapTable.glsl"
 
 // ONE SAMPLER LANE FOR ALL FIVE: every material 2D descriptor is minted with
 // HeapBinding::MaterialTexture2DSampler(), so the sampler offset is
 // frame-uniform rather than per-material (amendment (96)).
-#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
-#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_METALLIC_ROUGHNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
-#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
-#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
-#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AlbedoMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.x, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_MetallicRoughnessMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.y, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.z, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.w, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(matHeapEmissive, OLO_MATERIAL_SAMPLER_OFFSET)
 #elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
@@ -327,8 +330,23 @@ void main()
     bool  matUseEmissiveMap    = bool(u_UseEmissiveMap);
 
     GPUSceneMaterial gpuSceneMaterial;
+#ifdef OLO_VULKAN
+    uvec4 matHeapTextures = u_MaterialHeapOffsets[0];
+    uint matHeapEmissive = OLO_MATERIAL_EMISSIVE_OFFSET;
+    OloMaterialShaderHeapRecord heapRecord;
+    // Validate the bounded texture table FIRST: even the canonical factor
+    // lookup must not dereference an out-of-range GPU-written material index.
+    if (oloMaterialShaderHeapRecord(instances[v_InstanceIndex].GPUSceneRef, u_MaterialHeapOffsets[1].yzw, heapRecord) &&
+        oloGPUSceneMaterial(instances[v_InstanceIndex].GPUSceneRef, gpuSceneMaterial))
+#else
     if (oloGPUSceneMaterial(instances[v_InstanceIndex].GPUSceneRef, gpuSceneMaterial))
+#endif
     {
+#ifdef OLO_VULKAN
+        matHeapTextures = heapRecord.Textures;
+        matHeapEmissive = heapRecord.Emissive;
+        gpuSceneMaterial.Flags = heapRecord.Flags;
+#endif
         matBaseColorFactor   = gpuSceneMaterial.BaseColorFactor;
         matEmissiveFactor    = gpuSceneMaterial.EmissiveFactor;
         matMetallicFactor    = gpuSceneMaterial.MetallicFactor;
