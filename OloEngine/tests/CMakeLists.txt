@@ -253,6 +253,7 @@ add_executable(OloEngine-Tests
 		Rendering/GLDebugMessageParseTest.cpp
 		Rendering/FrameDataBufferTest.cpp
 		Rendering/InstanceDataLayoutTest.cpp
+		Rendering/PropertyTests/GPUSceneAnimatedRecordPropertyTests.cpp
 		Rendering/PropertyTests/GPUScenePropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneLayoutTest.cpp
 		Rendering/PropertyTests/GPUSceneGpuTest.cpp
@@ -261,6 +262,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GPUSceneEnvironmentAndLifecyclePropertyTests.cpp
 		Rendering/PropertyTests/GPUSceneLightAdapterTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationTest.cpp
+		Rendering/PropertyTests/AnimatedGPUSceneEvidenceTest.cpp
+		Rendering/PropertyTests/AnimatedGPUSceneConcurrentRecordingTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationEvidenceTest.cpp
 		Rendering/PropertyTests/ModelComponentGPUSceneEvidenceTest.cpp
 		Rendering/PropertyTests/GPUSceneAntiDuplicationRatchetTest.cpp

@@ -417,6 +417,7 @@ namespace OloEngine
         RecordTable<GPUSceneEnvironmentKey, GPUSceneEnvironmentInput, GPUSceneEnvironment> m_Environments;
         std::array<u32, GPUSceneUnsupportedCategoryCount> m_UnsupportedCounts{};
         GPUSceneFoliageStats m_FoliageCensus;
+        GPUSceneAnimatedStats m_AnimatedCensus;
 
         bool m_UploadPending = false;
         GPUSceneFrameUpdate m_LastFrameUpdate;
@@ -524,6 +525,7 @@ namespace OloEngine
         impl.m_RenderOrigin = renderOrigin;
         impl.m_UnsupportedCounts.fill(0);
         impl.m_FoliageCensus = GPUSceneFoliageStats{};
+        impl.m_AnimatedCensus = GPUSceneAnimatedStats{};
         impl.m_ExtractionStart = std::chrono::steady_clock::now();
         impl.m_Extracting = true;
     }
@@ -581,6 +583,18 @@ namespace OloEngine
         total.m_UnsupportedInstances += census.m_UnsupportedInstances;
         total.m_UnsupportedVariants += census.m_UnsupportedVariants;
         total.m_SpatialGroups += census.m_SpatialGroups;
+    }
+
+    void GPUScene::ReportAnimatedCensus(const GPUSceneAnimatedStats& census)
+    {
+        OLO_CORE_ASSERT(m_Impl->m_Extracting, "GPUScene::ReportAnimatedCensus requires BeginExtraction");
+        auto& total = m_Impl->m_AnimatedCensus;
+        total.m_CanonicalInstances += census.m_CanonicalInstances;
+        total.m_SurfacesWithHistory += census.m_SurfacesWithHistory;
+        total.m_SurfacesWithoutHistory += census.m_SurfacesWithoutHistory;
+        total.m_CanonicalEntities += census.m_CanonicalEntities;
+        total.m_UnsupportedInstances += census.m_UnsupportedInstances;
+        total.m_UnsupportedVariants += census.m_UnsupportedVariants;
     }
 
     GPUSceneFrameUpdate GPUScene::EndExtraction()
@@ -660,6 +674,12 @@ namespace OloEngine
                 record.VisibilityMask = input.m_VisibilityMask;
                 record.Flags = input.m_Flags | GPUSceneInstanceFlagActive;
                 record.Generation = slot.m_Generation;
+                // Verbatim from the input, NOT slot-derived like the transform
+                // above — GPUSceneTypes.h states why the two rules differ
+                // (issue #1228).
+                record.DeformationRevision = input.m_DeformationRevision;
+                record.PreviousDeformationRevision = input.m_PrevDeformationRevision;
+                record.DeformationResetCause = input.m_DeformationResetCause;
                 return record;
             },
             AlwaysCompatible{});
@@ -676,6 +696,7 @@ namespace OloEngine
         stats.m_ExtractionTimeMs = extractionTimeMs;
         stats.m_UnsupportedCounts = impl.m_UnsupportedCounts;
         stats.m_Foliage = impl.m_FoliageCensus;
+        stats.m_Animated = impl.m_AnimatedCensus;
         impl.m_LastFrameUpdate = GPUSceneFrameUpdate{
             .m_InstanceDirtyRanges = impl.m_Instances.TakeDirtyRanges(),
             .m_GeometryDirtyRanges = impl.m_Geometries.TakeDirtyRanges(),
@@ -959,6 +980,7 @@ namespace OloEngine
         impl.m_Extracting = false;
         impl.m_UnsupportedCounts.fill(0);
         impl.m_FoliageCensus = GPUSceneFoliageStats{};
+        impl.m_AnimatedCensus = GPUSceneAnimatedStats{};
         impl.m_LastFrameUpdate = GPUSceneFrameUpdate{};
         impl.m_LastFrameUpdate.m_Stats = impl.BuildStats();
         impl.PublishPendingDirtyRanges();

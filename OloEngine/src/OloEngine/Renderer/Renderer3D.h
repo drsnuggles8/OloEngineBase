@@ -343,10 +343,17 @@ namespace OloEngine
         // range). The link is a position in this frame's link table, not a
         // slot: slots only exist after EndExtraction commits.
         // Contract and ordering: GPUScene/GPUSceneDrawLink.h.
+        //
+        // `animatedSurface` (issue #1228) carries the deformation revisions of
+        // an animated surface. Left default it means "rigid", which is what
+        // every caller before #1228 meant; an animated caller must pass it, and
+        // passing it is what makes the record's Animated flag and its revision
+        // lanes honest.
         [[nodiscard]] static u32 ExtractGPUSceneMesh(
             u64 stableEntityId, u64 stableInstanceId, const Ref<MeshSource>& meshSource, u32 submeshIndex,
             const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
-            GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link);
+            GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link,
+            const GPUSceneAnimatedSurface& animatedSurface = {});
         // Stages a virtual-geometry RAY-TRACING PROXY as a GPU Scene instance
         // (issue #1144): an ordinary rigid geometry + instance pair built from
         // the coarsest DAG cut, so a virtualized entity is present in the TLAS
@@ -390,6 +397,8 @@ namespace OloEngine
         // foliage has canonical identity, how it is represented, and what the
         // raster path cannot draw. Reported once per FoliageComponent.
         static void ReportFoliageCensusGPUScene(const GPUSceneFoliageStats& census);
+        // Issue #1228 — see GPUScene::ReportAnimatedCensus. Additive per frame.
+        static void ReportAnimatedCensusGPUScene(const GPUSceneAnimatedStats& census);
         // Explicit discontinuity seam for editor/runtime camera teleports and scene
         // transitions. Resize and render-scale changes are detected by RenderGraph.
         static u32 InvalidateTemporalHistories(
@@ -476,11 +485,19 @@ namespace OloEngine
         // re-deriving the resolution and risking a confidently wrong answer.
         static auto CreatePODMaterialDataForMaterial(const Material& material, RHI::ResourceHandle shaderRendererID) -> PODMaterialData;
         // Animated drawing commands
-        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1);
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
         // Same as DrawAnimatedMesh but also carries the previous-frame bone matrices used by the
         // Deferred G-Buffer path to compute per-bone motion vectors. Pass empty prevBoneMatrices
         // (or the same data as boneMatrices) to indicate zero per-bone motion.
-        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic = false, i32 entityID = -1);
+        // `gpuSceneDrawLink` is the value ExtractGPUSceneMesh returned for this
+        // animated submesh (issue #1228), or GPUSceneDrawLinkNone. It reaches
+        // exactly the same choke point a rigid DrawMesh link reaches
+        // (CommandDispatch::UploadModelInstance), so a linked animated draw
+        // takes its transforms and its material slot from the canonical record
+        // rather than from the per-entity previous-transform cache -- which is
+        // keyed on the entity alone and therefore gave every submesh after the
+        // first a zero velocity.
+        static CommandPacket* DrawAnimatedMesh(const Ref<Mesh>& mesh, const glm::mat4& modelMatrix, const Material& material, const std::vector<glm::mat4>& boneMatrices, const std::vector<glm::mat4>& prevBoneMatrices, bool isStatic = false, i32 entityID = -1, u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
         static CommandPacket* DrawQuad(const glm::mat4& modelMatrix, const Ref<Texture2D>& texture);
         // `ownerKey` lets callers produce stable per-instance motion vectors
         // when multiple submission sources (entities / emitters / foliage
@@ -769,7 +786,8 @@ namespace OloEngine
                                                        const Material& material,
                                                        const std::vector<glm::mat4>& boneMatrices,
                                                        bool isStatic = false,
-                                                       i32 entityID = -1);
+                                                       i32 entityID = -1,
+                                                       u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
 
         /**
          * @brief Thread-safe animated mesh drawing with previous-frame pose
@@ -790,7 +808,16 @@ namespace OloEngine
                                                        const glm::mat4& prevModelMatrix,
                                                        bool hasPrevTransform,
                                                        bool isStatic = false,
-                                                       i32 entityID = -1);
+                                                       i32 entityID = -1,
+                                                       // Issue #1228. A worker may CARRY a link but must never
+                                                       // MINT one: ExtractGPUSceneMesh appends to an
+                                                       // unsynchronised per-frame vector, so the index is
+                                                       // produced on the main thread during the registry walk
+                                                       // and handed to the worker as a plain integer. That is
+                                                       // also why it is safe -- an index is copied, not shared,
+                                                       // and the table it names is not written again until the
+                                                       // next frame's BeginGPUSceneExtraction.
+                                                       u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
 
         /**
          * @brief Submit a packet to the worker's bucket (thread-safe)
@@ -832,6 +859,16 @@ namespace OloEngine
             // the produced DrawMeshCommand exactly as Scene.cpp's
             // SubmitMeshSourceClassic patches the classic mesh path's.
             glm::vec4 LightmapScaleOffset = glm::vec4(0.0f);
+            // The canonical record this draw was staged as, or
+            // GPUSceneDrawLinkNone (issue #1228).
+            //
+            // The link is MINTED ON THE MAIN THREAD, by the caller, while it
+            // builds this descriptor -- ExtractGPUSceneMesh appends to an
+            // unsynchronised per-frame vector and a worker must never touch it.
+            // What crosses the thread boundary is a plain index, copied into
+            // the descriptor, which is why concurrent recording needs no lock
+            // to resolve the same records the serial path resolves.
+            u32 GPUSceneDrawLink = GPUSceneDrawLinkNone;
         };
 
         /**
