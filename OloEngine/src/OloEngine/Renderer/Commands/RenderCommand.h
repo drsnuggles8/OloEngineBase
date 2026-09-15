@@ -1041,8 +1041,10 @@ namespace OloEngine
     {
         CommandHeader header;
 
-        // Mesh data (instanced quad)
+        // Geometry: the layer's card quad, or one submesh range of its authored
+        // plant mesh (issue #1233).
         RHI::ResourceHandle vertexArrayID{};
+        u32 baseIndex = 0;
         u32 indexCount = 0;
         u32 instanceCount = 0;
 
@@ -1061,7 +1063,13 @@ namespace OloEngine
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;
         f32 prevTime = 0.0f; // Previous-frame time for wind velocity reprojection
-        f32 Pad1 = 0.0f;
+        // Authored-mesh near field (issue #1233). isAuthoredMesh picks the
+        // vertex stage's scaling rule; the hand-over band is the same on the
+        // mesh and card draws of a layer, and each keeps the pixels the other
+        // does not, so the two never overlap.
+        f32 isAuthoredMesh = 0.0f;
+        f32 meshHandoverStart = 0.0f;
+        f32 meshHandoverEnd = 0.0f;
         glm::vec4 baseColor = glm::vec4(1.0f); // xyz = color, w = unused
 
         // Albedo texture (0 = no texture). On the impostor path this is the

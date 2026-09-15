@@ -1707,7 +1707,7 @@ namespace OloEngine
         // Foliage rendering. This function owns submission as well as packet
         // allocation so the two operations cannot select different streams.
         static void DrawFoliageLayer(
-            RHI::ResourceHandle vertexArrayID, u32 indexCount, u32 instanceCount,
+            RHI::ResourceHandle vertexArrayID, u32 baseIndex, u32 indexCount, u32 instanceCount,
             RHI::ResourceHandle albedoTextureID,
             const glm::mat4& modelTransform,
             f32 time,
@@ -1721,7 +1721,13 @@ namespace OloEngine
             // member initializers inside the enclosing class body, which Clang
             // rejects (MSVC accepts it non-conformingly). The sole caller passes
             // it explicitly.
-            const FoliageImpostorParams& impostor);
+            const FoliageImpostorParams& impostor,
+            // Authored plant mesh (issue #1233): this draw is the layer's real
+            // geometry rather than its flat card, and both carry the SAME
+            // hand-over band so the two partition the pixels between them.
+            bool isAuthoredMesh = false,
+            f32 meshHandoverStart = 0.0f,
+            f32 meshHandoverEnd = 0.0f);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams

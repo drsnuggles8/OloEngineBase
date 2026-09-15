@@ -243,9 +243,10 @@ namespace OloEngine::Tests
         const auto& census = registry.GetCensus();
         EXPECT_EQ(census.m_CanonicalInstances, uploaded)
             << "the registry and the instance VBO disagree about how many plants exist";
-        EXPECT_EQ(census.m_MeshCardInstances + census.m_ImpostorInstances + census.m_UnsupportedInstances,
+        EXPECT_EQ(census.m_MeshCardInstances + census.m_ImpostorInstances +
+                      census.m_AuthoredMeshInstances + census.m_UnsupportedInstances,
                   census.m_CanonicalInstances)
-            << "a plant is represented by exactly one of the three variants";
+            << "a plant is represented by exactly one of the four variants";
         EXPECT_EQ(registry.GetRecords().size(), uploaded);
 
         // Identity survives command submission: each draw carries the layer it

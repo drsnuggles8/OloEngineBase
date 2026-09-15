@@ -6,6 +6,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include <glm/glm.hpp>
+#include <algorithm>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -68,6 +69,11 @@ namespace OloEngine
         // Octahedral impostor atlas (#433): beyond ImpostorStartDistance the
         // card cross-fades into a view-dependent impostor.
         Impostor,
+        // The layer's authored plant mesh, drawn as real geometry up close
+        // (#1233). The card or impostor still covers the distance band, so this
+        // names what the instance is up close, which is what its bounds and its
+        // material assignment are derived from.
+        AuthoredMesh,
         // Canonical, but the current raster path draws nothing for it — the
         // layer produced placements and has no card geometry.
         //
@@ -90,6 +96,8 @@ namespace OloEngine
         {
             case FoliageRepresentation::MeshCard:
                 return "Mesh card";
+            case FoliageRepresentation::AuthoredMesh:
+                return "Authored mesh";
             case FoliageRepresentation::Impostor:
                 return "Impostor";
             case FoliageRepresentation::Unsupported:
@@ -98,6 +106,56 @@ namespace OloEngine
                 break;
         }
         return "Unknown";
+    }
+
+    // The shape one instance of a layer occupies, in units of the instance's
+    // own scale — what turns a placement into a CONSERVATIVE bound without the
+    // registry having to know whether it is bounding a card or a pine (#1233).
+    //
+    // TWO horizontal terms, because a layer with an authored mesh draws BOTH
+    // shapes: the mesh up close and the card beyond MeshViewDistance. They
+    // scale differently — the card anisotropically (x/z by `scale`, y by
+    // `height * scale`), the mesh uniformly by `height * scale`, matching the
+    // vertex stage and the impostor — and `height` is per instance, so no
+    // single term covers both. The bound takes the larger, which is the union
+    // of the two shapes and therefore conservative for whichever is drawn.
+    struct FoliageBoundsProfile
+    {
+        // Half-extent scaled by `scale`. The card's 0.5 (a unit-wide quad).
+        f32 m_HalfExtentXZ = 0.5f;
+        // Half-extent scaled by `height * scale`. Zero for a card-only layer;
+        // for an authored mesh, the largest XZ radius of the source AABB's
+        // corners, so ANY of the per-instance Y rotations stays inside it.
+        f32 m_HalfExtentXZHeightScaled = 0.0f;
+        // Vertical span, scaled by `height * scale`. Card: [0, 1] (it stands on
+        // the ground point). With a mesh, widened to the source AABB's y range
+        // — a mesh authored below its origin makes m_MinY negative, and the
+        // bound has to follow it down.
+        f32 m_MinY = 0.0f;
+        f32 m_MaxY = 1.0f;
+
+        // Bitwise, not defaulted: cpp-coding-quality §2a forbids `==` on a
+        // float-containing type, and §2a's whole-struct form is this one-liner
+        // rather than a member-by-member chain (the struct is trivially
+        // copyable, which Math::BitwiseEqual static_asserts).
+        [[nodiscard]] auto operator==(const FoliageBoundsProfile& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
+    // The AABB one placed instance occupies, in the same TERRAIN-LOCAL space as
+    // the instance rows. Shared by the registry's per-instance records and
+    // FoliageRenderer's per-layer AABB so the two cannot disagree.
+    [[nodiscard]] inline BoundingBox FoliageInstanceBounds(const glm::vec3& position, f32 scale, f32 height,
+                                                           const FoliageBoundsProfile& profile)
+    {
+        const f32 heightScale = height * scale;
+        const f32 halfXZ = std::max(profile.m_HalfExtentXZ * scale,
+                                    profile.m_HalfExtentXZHeightScaled * heightScale);
+        const glm::vec3 lo = position + glm::vec3(-halfXZ, profile.m_MinY * heightScale, -halfXZ);
+        const glm::vec3 hi = position + glm::vec3(halfXZ, profile.m_MaxY * heightScale, halfXZ);
+        return BoundingBox(lo, hi);
     }
 
     // The generator inputs an instance's identity is keyed on. See the class
@@ -232,12 +290,15 @@ namespace OloEngine
         u32 m_CanonicalInstances = 0;
         u32 m_MeshCardInstances = 0;
         u32 m_ImpostorInstances = 0;
+        // Instances whose near field is the layer's authored mesh (#1233).
+        u32 m_AuthoredMeshInstances = 0;
         // See FoliageRepresentation::Unsupported: 0 in a healthy scene today.
         u32 m_UnsupportedInstances = 0;
-        // Layers whose AUTHORED representation could not be provided — today
-        // that is UseImpostor with an atlas that failed to bake, which silently
-        // fell back to a flat card. The instances still draw (as cards), so
-        // they are not Unsupported; the VARIANT is.
+        // Layers whose AUTHORED representation could not be provided: UseImpostor
+        // with an atlas that failed to bake, or UseAuthoredMesh with a MeshPath
+        // that would not load (#1233). Both fall back to the flat card — loudly,
+        // never silently. The instances still draw (as cards), so they are not
+        // Unsupported; the VARIANT is.
         u32 m_UnsupportedVariants = 0;
         u32 m_SpatialGroups = 0;
 
@@ -272,9 +333,14 @@ namespace OloEngine
         // placementSeed is the generator seed (today derived from the layer's
         // physical index). Together they are the placement signature.
         // layerIndex indexes the list handed to BeginGeneration.
+        // `boundsProfile` is the shape one instance occupies (see
+        // FoliageBoundsProfile) — the card's by default, the source mesh's on a
+        // layer drawing authored geometry, so conservative bounds follow the
+        // geometry actually drawn instead of a quad's (#1233).
         void BeginLayer(u32 layerIndex, const FoliageLayer& layer,
                         u32 placementSeed, f32 spacing, f32 worldSizeX, f32 worldSizeZ,
-                        FoliageRepresentation representation, bool impostorUnavailable);
+                        FoliageRepresentation representation, bool variantUnavailable,
+                        const FoliageBoundsProfile& boundsProfile = {});
 
         // bufferIndex is the row this instance occupies in the layer's VBO.
         void AddInstance(u32 cellX, u32 cellZ, const FoliageInstanceData& row, u32 bufferIndex);
@@ -445,6 +511,7 @@ namespace OloEngine
         FoliageMaterialKey m_CurrentMaterialKey = kInvalidFoliageMaterialKey;
         u64 m_CurrentMaterialHash = 0;
         FoliageRepresentation m_CurrentRepresentation = FoliageRepresentation::MeshCard;
+        FoliageBoundsProfile m_CurrentBoundsProfile{};
         u32 m_PendingUnsupportedVariants = 0;
     };
 } // namespace OloEngine

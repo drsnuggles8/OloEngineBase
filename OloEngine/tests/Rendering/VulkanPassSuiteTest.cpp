@@ -46,6 +46,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Task/NamedThreads.h"
@@ -7671,32 +7672,22 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     }
 
     // --- the FoliageRenderer VAO shape, verbatim ----------------------------
-    const f32 quadVertices[] = {
-        -0.5f,
-        0.0f,
-        0.0f,
-        0.0f,
-        0.0f, // bottom-left
-        0.5f,
-        0.0f,
-        0.0f,
-        1.0f,
-        0.0f, // bottom-right
-        0.5f,
-        1.0f,
-        0.0f,
-        1.0f,
-        1.0f, // top-right
-        -0.5f,
-        1.0f,
-        0.0f,
-        0.0f,
-        1.0f, // top-left
+    // Stream 0 is the engine's 32-byte Vertex since issue #1233: one geometry
+    // layout serves the card AND a layer's authored plant mesh, so every
+    // foliage program has a single vertex stage instead of a card variant and a
+    // mesh variant per pass. The pull branch reads it at stride 8 floats, which
+    // is exactly what this test exercises — a stride that disagrees with the
+    // shader reads garbage positions and draws nothing where the cards belong.
+    const Vertex quadVertices[] = {
+        { { -0.5f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f } }, // bottom-left
+        { { 0.5f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f } },  // bottom-right
+        { { 0.5f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f } },  // top-right
+        { { -0.5f, 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f } }, // top-left
     };
     u32 quadIndices[] = { 0u, 1u, 2u, 2u, 3u, 0u };
     auto vao = VertexArray::Create();
-    auto quadVB = VertexBuffer::Create(quadVertices, sizeof(quadVertices));
-    quadVB->SetLayout({ { ShaderDataType::Float3, "a_Position" }, { ShaderDataType::Float2, "a_TexCoord" } });
+    auto quadVB = VertexBuffer::Create(quadVertices, static_cast<u32>(sizeof(quadVertices)));
+    quadVB->SetLayout(Vertex::GetLayout());
     vao->AddVertexBuffer(quadVB);
     vao->SetIndexBuffer(IndexBuffer::Create(quadIndices, 6));
 
@@ -7759,6 +7750,11 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     foliageData.FadeStart = 50.0f;     // => fadeFactor exactly 1
     foliageData.AlphaCutoff = 0.5f;
     foliageData.BaseColor = glm::vec4(0.0f);
+    // MeshParams zero = this layer has no authored mesh, so the hand-over
+    // coverage is 0 everywhere and the card owns every pixel — the pre-#1233
+    // behaviour this test pins.
+    foliageData.MeshParams = glm::vec4(0.0f);
+    foliageData.MeshViewPos = glm::vec4(0.0f);
     auto foliageUbo = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(),
                                             ShaderBindingLayout::UBO_FOLIAGE);
     foliageUbo->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());

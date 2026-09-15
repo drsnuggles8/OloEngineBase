@@ -43,7 +43,8 @@ layout(location = 1) in vec3 v_PivotWorld;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
-layout(location = 7) in float v_Radius; // WORLD-space card radius
+layout(location = 7) in float v_Radius;
+layout(location = 2) in float v_MeshCoverage; // WORLD-space card radius
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
@@ -83,7 +84,9 @@ layout(std140, binding = 12) uniform FoliageParams
     vec3 u_FoliageBaseColor;
     float _foliagePad2;
     vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
+    vec4 u_ImpostorParams1;
+    vec4 u_MeshParams; // issue #1233 — see FoliageInstanceGeometry.glsl
+    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO // x=enabled, y=meshRadius, z=parallaxScale, w=unused
 };
 
 #include "include/FoliageImpostorSampling.glsl"

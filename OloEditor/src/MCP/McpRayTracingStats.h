@@ -138,6 +138,7 @@ namespace OloEngine::MCP::RayTracingStats
                 { "canonicalInstances", foliage.m_CanonicalInstances },
                 { "meshCardInstances", foliage.m_MeshCardInstances },
                 { "impostorInstances", foliage.m_ImpostorInstances },
+                { "authoredMeshInstances", foliage.m_AuthoredMeshInstances },
                 { "unsupportedInstances", foliage.m_UnsupportedInstances },
                 { "unsupportedVariants", foliage.m_UnsupportedVariants },
                 { "spatialGroups", foliage.m_SpatialGroups },

@@ -478,6 +478,32 @@ namespace OloEngine
             glm::vec4 ImpostorParams0{ 0.0f }; // x=framesPerAxis, y=hemi(0/1), z=startDistance, w=transitionBand
             glm::vec4 ImpostorParams1{ 0.0f }; // x=enabled(0/1), y=meshRadius(object space), z=parallaxScale, w=unused
 
+            // Authored plant mesh near field (issue #1233).
+            //   x = this draw is the authored mesh (1) or the flat card (0) —
+            //       the two are scaled differently (mesh uniformly by
+            //       height * scale, card anisotropically), and one vertex stage
+            //       serves both so the passes cannot drift apart.
+            //   y, z = near fade-in band [start, end]. Below `end` the draw is
+            //       cut; the mesh's far band and the card's near band are the
+            //       same interval, so exactly one of them covers a plant.
+            glm::vec4 MeshParams{ 0.0f };
+
+            // xyz = the view position the hand-over is measured from, in the
+            // SAME render-relative space as the instance pivots (issue #1233).
+            //
+            // Carried explicitly rather than read from the camera UBO because
+            // the shadow pass's camera is the LIGHT: a hand-over keyed on
+            // u_CameraPosition there would shadow the card where the lit frame
+            // drew the mesh. Every writer fills it with the main view's
+            // position, so both passes pick the same shape for a plant.
+            //
+            // Not the render origin either — that is only the camera when
+            // camera-relative rendering is on, and with it off the origin is
+            // world zero, which turns the hand-over into a ring around the
+            // world origin instead of a radius around the camera. That is
+            // exactly what the first attempt did.
+            glm::vec4 MeshViewPos{ 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(FoliageUBO);
@@ -2351,7 +2377,11 @@ namespace OloEngine
     // terrain shaders (see that file for why).
     static_assert(sizeof(UBOStructures::TerrainUBO) == 2256, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 80, "FoliageUBO unexpected size — update GLSL layout");
+    // 48 before issue #433 appended the two impostor vec4s (-> 80); #1233
+    // appended MeshParams and MeshViewPos (-> 112). Every foliage shader declares the block
+    // WHOLE — including the vec4s it does not read — so a field appended for
+    // one of them cannot land at a different offset in another.
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 112, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");

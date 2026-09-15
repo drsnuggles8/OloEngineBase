@@ -1532,6 +1532,15 @@ namespace OloEngine
                 layer.RandomRotation = layerNode["RandomRotation"].as<bool>(layer.RandomRotation);
                 layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
                 layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
+                // Authored plant mesh near field (issue #1233). Validated like
+                // the impostor band below and for the same reason: these feed a
+                // smoothstep in the vertex and fragment stages, where a NaN or
+                // a negative distance silently drops the layer's geometry.
+                layer.UseAuthoredMesh = layerNode["UseAuthoredMesh"].as<bool>(layer.UseAuthoredMesh);
+                if (const f32 v = layerNode["MeshViewDistance"].as<f32>(layer.MeshViewDistance); std::isfinite(v))
+                    layer.MeshViewDistance = std::max(v, 0.0f);
+                if (const f32 v = layerNode["MeshFadeStartDistance"].as<f32>(layer.MeshFadeStartDistance); std::isfinite(v))
+                    layer.MeshFadeStartDistance = std::clamp(v, 0.0f, layer.MeshViewDistance);
                 layer.WindStrength = layerNode["WindStrength"].as<f32>(layer.WindStrength);
                 layer.WindSpeed = layerNode["WindSpeed"].as<f32>(layer.WindSpeed);
                 layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
@@ -5706,6 +5715,9 @@ namespace OloEngine
                     out << YAML::Key << "RandomRotation" << YAML::Value << layer.RandomRotation;
                     out << YAML::Key << "ViewDistance" << YAML::Value << layer.ViewDistance;
                     out << YAML::Key << "FadeStartDistance" << YAML::Value << layer.FadeStartDistance;
+                    out << YAML::Key << "UseAuthoredMesh" << YAML::Value << layer.UseAuthoredMesh;
+                    out << YAML::Key << "MeshViewDistance" << YAML::Value << layer.MeshViewDistance;
+                    out << YAML::Key << "MeshFadeStartDistance" << YAML::Value << layer.MeshFadeStartDistance;
                     out << YAML::Key << "WindStrength" << YAML::Value << layer.WindStrength;
                     out << YAML::Key << "WindSpeed" << YAML::Value << layer.WindSpeed;
                     out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;

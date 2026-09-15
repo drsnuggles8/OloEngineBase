@@ -74,3 +74,35 @@ race:JPH::UVec4::sLoadInt4
 # interceptors (free/calloc) and carry no symbol of their own. Scoped to the one
 # library, so a genuine engine-side race still reports normally.
 called_from_lib:libgallium
+
+# ── Mesa's RADV Vulkan driver, same category as libgallium above ─────────────
+# The libgallium rule's rationale ends "the routed TSan job passes
+# --olo-gl-backend=none and never loads a driver". That stopped being true on
+# 2026-09-12: ShaderCompileBudget.EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudget
+# (9286bc412) brings up a RADV NULL DEVICE to compile every .comp, so the routed
+# TSan job now does load a Vulkan driver — a different Mesa library from the GL
+# one, so the existing rule does not cover it.
+#
+# RADV spawns its own disk-cache worker threads ('OloEngi:disk$0', 'disk$1') and
+# synchronises them with a pthread_barrier it allocates on the CALLER's stack.
+# libvulkan_radeon is not instrumented, so TSan cannot see that synchronisation
+# and reports the teardown as a race:
+#
+#   Write of size 1 by thread T62:  pthread_barrier_destroy <- libvulkan_radeon.so+0x2a3860
+#   Previous read      by thread T2: pthread_barrier_wait    <- libvulkan_radeon.so+0x2a479c
+#   Location is stack of main thread.
+#
+# EVERY frame below the interceptor is <null> inside libvulkan_radeon; no engine
+# frame is a racing access — the test appears only as the caller that brought the
+# device up. Intermittent, because it needs the barrier teardown to overlap a
+# still-waiting worker: PR #1291 hit it on TSan shard 4/4 while PR #1287 passed
+# the same shard on the same test in the same window. With halt_on_error=1 one
+# report aborts the whole ctest case, and it records NO gtest failure — the
+# results XML is clean and only the job's exit code (8) shows it, which is what
+# makes this one expensive to diagnose from the summary alone.
+#
+# called_from_lib, not a race: rule, for the same reason as libgallium: the
+# racing frames ARE the interceptors (pthread_barrier_*) and carry no symbol of
+# their own. Scoped to the one library, so a genuine engine-side race still
+# reports normally.
+called_from_lib:libvulkan_radeon

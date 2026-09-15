@@ -15,7 +15,16 @@ namespace OloEngine
     {
         std::string Name = "Grass";
 
-        // Mesh asset path (e.g. a quad or low-poly plant mesh)
+        // Authored plant mesh (issue #1233). Rendered as REAL GEOMETRY up close
+        // and baked into the octahedral impostor atlas for distance (#433).
+        //
+        // Authoring convention, shared with the impostor bake: base at the
+        // origin, unit height (y in [0, 1]). Both paths scale the mesh
+        // UNIFORMLY by the instance's `height * scale`, so a mesh authored at
+        // some other size is drawn at the wrong size in BOTH — consistently,
+        // never differently near vs far. FoliageRenderer reports a deviation
+        // rather than silently rescaling, because rescaling here and not in the
+        // bake is exactly how the near and far silhouettes drift apart.
         std::string MeshPath;
 
         // Albedo texture for the foliage (with alpha channel for cutout)
@@ -37,6 +46,16 @@ namespace OloEngine
         // LOD distances
         f32 ViewDistance = 100.0f;     // Max view distance for this layer
         f32 FadeStartDistance = 80.0f; // Distance where fade-out begins
+
+        // Authored-mesh near field (issue #1233). With a loadable MeshPath the
+        // layer draws real geometry inside MeshViewDistance and the flat card
+        // (or the impostor) outside it, cross-fading across
+        // [MeshFadeStartDistance, MeshViewDistance] so nothing pops. The card
+        // draw carries the SAME band as its near-fade-in, so exactly one of the
+        // two is opaque at any distance and both are skipped where neither is.
+        bool UseAuthoredMesh = true;       // Draw MeshPath's geometry up close
+        f32 MeshViewDistance = 30.0f;      // Distance where the mesh hands over to the card
+        f32 MeshFadeStartDistance = 22.0f; // Distance where that hand-over begins
 
         // Wind
         f32 WindStrength = 0.3f; // Wind sway amplitude
@@ -70,7 +89,7 @@ namespace OloEngine
         // the texture authoritatively for equality purposes.
         auto operator==(const FoliageLayer& other) const -> bool
         {
-            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
         }
     };
 
