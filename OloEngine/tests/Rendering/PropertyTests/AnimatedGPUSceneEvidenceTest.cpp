@@ -387,4 +387,60 @@ namespace OloEngine::Tests
             << "the frame after a discontinuity rendered black: a dropped history must cost the surface its "
                "velocity, never its geometry";
     }
+
+    // The feature applies to all three rendering paths, and for different
+    // reasons in each, so a Deferred-only proof would be a proof about one
+    // third of it:
+    //
+    //   * the TRANSFORM half of a link is consumed at
+    //     CommandDispatch::UploadModelInstance, the single-instance choke point
+    //     every path and both backends share -- so it applies everywhere;
+    //   * the MATERIAL half needs the canonical material table bound, which is
+    //     the Deferred G-buffer's read.
+    //
+    // A path that quietly stopped carrying links would still draw, because an
+    // unresolved link falls back by design, so the only thing that catches it
+    // is the consumed-draw counter asserted per path.
+    TEST_F(AnimatedGPUSceneScene, EveryRenderingPathConsumesTheSameAnimatedRecords)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_TRUE(m_SkinnedMesh) << "the skinned primitive failed to build";
+
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+
+        for (const PathCase& pathCase : paths)
+        {
+            Renderer3D::GetRendererSettings().Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+
+            std::vector<u8> pixels;
+            Capture(std::string("Path_") + pathCase.Name, 0.0f, 0.18f, pixels);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            EXPECT_GT(MeanLuminance(pixels), 0.02f)
+                << "path '" << pathCase.Name << "' rendered (near-)black";
+
+            const GPUSceneFrameStats stats = Renderer3D::GetGPUSceneStats();
+            EXPECT_GT(stats.m_Animated.m_CanonicalInstances, 0u)
+                << "path '" << pathCase.Name << "': the animated surface did not reach a canonical record";
+            EXPECT_EQ(stats.m_UnsupportedCounts[static_cast<sizet>(GPUSceneUnsupportedCategory::Skinned)], 0u)
+                << "path '" << pathCase.Name << "': a supported animated surface is counted as unsupported";
+            EXPECT_GT(CommandDispatch::GetGPUSceneConsumedDrawCount(), 0u)
+                << "path '" << pathCase.Name
+                << "': no draw consumed a canonical record, so this path silently kept the legacy branch while "
+                   "the other two migrated";
+        }
+    }
 } // namespace OloEngine::Tests
