@@ -134,7 +134,14 @@ namespace OloEngine
         f32 m_MinY = 0.0f;
         f32 m_MaxY = 1.0f;
 
-        [[nodiscard]] auto operator==(const FoliageBoundsProfile&) const -> bool = default;
+        // Bitwise, not defaulted: cpp-coding-quality §2a forbids `==` on a
+        // float-containing type, and §2a's whole-struct form is this one-liner
+        // rather than a member-by-member chain (the struct is trivially
+        // copyable, which Math::BitwiseEqual static_asserts).
+        [[nodiscard]] auto operator==(const FoliageBoundsProfile& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
     };
 
     // The AABB one placed instance occupies, in the same TERRAIN-LOCAL space as

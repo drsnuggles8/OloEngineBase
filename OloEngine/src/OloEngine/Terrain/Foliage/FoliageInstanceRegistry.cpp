@@ -151,6 +151,20 @@ namespace OloEngine
             HashCombine(h, FloatBits(layer.BaseColor.b));
             HashCombine(h, FloatBits(layer.Roughness));
             HashCombine(h, FloatBits(layer.AlphaCutoff));
+            // The bounds profile too, because AddInstance derives m_LocalBounds
+            // from it: without this a placement that survives a regeneration
+            // with a DIFFERENT profile changes its bounds while its state hash
+            // does not, so the reconcile counts no update and GetGeneration()
+            // does not advance — the one thing the generation counter promises.
+            //
+            // The narrow case it covers is a mesh edited in place: MeshPath is
+            // already hashed above, and a mesh that appears or fails to load
+            // flips m_Representation (also hashed), so only "same path, changed
+            // geometry" reaches here. That is exactly the reimport path.
+            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZ));
+            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZHeightScaled));
+            HashCombine(h, FloatBits(boundsProfile.m_MinY));
+            HashCombine(h, FloatBits(boundsProfile.m_MaxY));
             m_CurrentMaterialHash = h;
         }
 

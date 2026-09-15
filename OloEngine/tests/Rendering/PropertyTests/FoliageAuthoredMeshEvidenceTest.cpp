@@ -22,6 +22,16 @@
 //
 // One frame with a coverage threshold could not tell either of those apart.
 //
+// BOTH bounds are measured, not guessed. The far pose is captured TWICE through
+// the same path to get the renderer's run-to-run noise floor
+// (VisualEvidence::Rgba8Rmse over the pair), and then:
+//   * NEAR is `ExpectCapturesAreDistinct` against that floor — the repo's guard
+//     for "these two frames really are different";
+//   * FAR must sit AT the floor, an absolute bound.
+// The far bound used to be relative (`farDelta < nearDelta * 0.5`), which grows
+// with the near difference and would pass a real far-field regression whenever
+// the near silhouette was large enough — caught in review on this PR.
+//
 // Also checked, camera-independently (the CI gate):
 //   * the layer emits a mesh draw AND a card draw over one instance stream,
 //     carrying the SAME hand-over band — the partition's precondition;
@@ -43,6 +53,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "VisualEvidenceGuards.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -58,6 +69,7 @@
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -250,8 +262,13 @@ namespace OloEngine::Tests
 
         std::vector<u8> nearMesh;
         std::vector<u8> farMesh;
+        std::vector<u8> farMeshRepeat;
         Capture(nearEye, 0.0f, 0.12f, nearMesh);
         Capture(farEye, 0.0f, 0.30f, farMesh);
+        // The SAME pose again, same arm, same code path: this pair is the
+        // renderer's own run-to-run variance and nothing else, which is the only
+        // number that separates "the frame is jittery" from "the frame changed".
+        Capture(farEye, 0.0f, 0.30f, farMeshRepeat);
 
         // ── The camera-independent gate, before any pixel is looked at ───────
         ASSERT_TRUE(m_TerrainEntity && m_TerrainEntity.HasComponent<FoliageComponent>());
@@ -324,18 +341,38 @@ namespace OloEngine::Tests
         const f64 nearDelta = DifferingFraction(nearMesh, nearCard);
         const f64 farDelta = DifferingFraction(farMesh, farCard);
 
+        // The measured noise floor, in the same RMSE units as the comparisons
+        // below. Clamped off zero: a perfectly deterministic frame gives 0.0,
+        // and a bound of "<= 0" would fail on the first least-significant bit
+        // any driver or clock ever changes.
+        const f64 noiseFloorRmse = std::max(VisualEvidence::Rgba8Rmse(farMesh, farMeshRepeat), 0.05);
+        const f64 farRmse = VisualEvidence::Rgba8Rmse(farMesh, farCard);
+
         // Printed on success too: the measured separation between the two arms
         // is the evidence, and a number that quietly drifted toward the
         // threshold is the thing a pass/fail alone would hide.
         GTEST_LOG_(INFO) << "authored-mesh A/B: near " << nearDelta * 100.0 << "% of pixels differ, far "
-                         << farDelta * 100.0 << "%";
+                         << farDelta * 100.0 << "% | noise floor RMSE " << noiseFloorRmse << ", far RMSE " << farRmse;
 
+        // NEAR: the repo's own distinctness guard, against the measured floor.
+        VisualEvidence::ExpectCapturesAreDistinct({ nearMesh, nearCard }, { "near authored mesh", "near card control" },
+                                                  noiseFloorRmse);
         EXPECT_GT(nearDelta, 0.05)
             << "up close the authored mesh and the flat card render the same frame (" << nearDelta * 100.0
             << "% of pixels differ) — the plant geometry is not reaching the screen";
+
+        // FAR: an ABSOLUTE bound at the noise floor. Past the band the two arms
+        // must be the same frame, so the only difference allowed is the jitter
+        // measured above — not a fraction of however different the near frames
+        // happened to be.
+        constexpr f64 kNoiseMargin = 4.0;
+        EXPECT_LE(farRmse, noiseFloorRmse * kNoiseMargin)
+            << "past the hand-over band the authored-mesh switch still changes the frame (RMSE " << farRmse
+            << " against a measured noise floor of " << noiseFloorRmse << " x " << kNoiseMargin
+            << ") — the mesh is drawing beyond its band, or the card was cut with nothing to replace it";
+        // Secondary, kept for the shape of the result: far must also be far
+        // smaller than near in the pixel-count metric.
         EXPECT_LT(farDelta, nearDelta * 0.5)
-            << "past the hand-over band the authored-mesh switch still changes the frame (" << farDelta * 100.0
-            << "% of pixels differ, against " << nearDelta * 100.0
-            << "% up close) — the mesh is drawing beyond its band, or the card was cut with nothing to replace it";
+            << "far " << farDelta * 100.0 << "% vs near " << nearDelta * 100.0 << "%";
     }
 } // namespace OloEngine::Tests

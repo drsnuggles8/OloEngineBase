@@ -127,14 +127,30 @@ namespace OloEngine
                     indices.push_back(srcIndices[static_cast<i32>(srcSlot)] + sub.m_BaseVertex);
                 }
                 part.IndexCount = static_cast<u32>(indices.size()) - part.BaseIndex;
-                // Per-submesh material assignment: Model keeps one material per
-                // imported mesh in the same order CreateCombinedMeshSource
-                // concatenates them, so the submesh index selects it directly.
-                if (const Ref<Material>& material = model->GetMaterial(i); material)
+                // Per-submesh material assignment, through the submesh's OWN
+                // material index — NOT the loop index.
+                //
+                // Model::m_Materials holds one entry per UNIQUE aiMaterial
+                // (ProcessMesh dedups through m_MaterialIndexMap), while
+                // CreateCombinedMeshSource emits one submesh per mesh. Those two
+                // counts only coincide when every submesh has a distinct
+                // material, so indexing by submesh ordinal silently picks the
+                // wrong material the moment a plant reuses one — e.g. a tree
+                // whose trunk and branches share bark. Model.cpp carries the
+                // same warning from #629, where rebuilding the array per-mesh
+                // made warm and cold loads resolve different materials.
+                //
+                // UINT32_MAX is the "no material resolved" sentinel
+                // (Model.cpp sets it when the lookup misses); the bounds check
+                // covers it the same way every other consumer in Model.cpp does.
+                if (sub.m_MaterialIndex < static_cast<u32>(model->GetMaterialCount()))
                 {
-                    part.Albedo = material->GetAlbedoMap();
-                    if (!part.Albedo)
-                        part.Albedo = material->GetDiffuseMap();
+                    if (const Ref<Material>& material = model->GetMaterial(sub.m_MaterialIndex); material)
+                    {
+                        part.Albedo = material->GetAlbedoMap();
+                        if (!part.Albedo)
+                            part.Albedo = material->GetDiffuseMap();
+                    }
                 }
             }
             else
