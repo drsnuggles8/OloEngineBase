@@ -213,6 +213,48 @@ nor a temporal upscaler is running, and reports
   frames) but it is a model of the resolve, not a measurement of it. The live captures in the PR
   are what tie it to real pixels.
 
+## Backend status: OpenGL complete, Vulkan OPEN
+
+**The strand pass renders nothing on Vulkan.** This is an open defect, not a declared capability
+fallback, and it is recorded here rather than left for someone to discover.
+
+What is verified on OpenGL (RTX 4090, Windows, Debug, `build-cached`):
+
+- All three rendering paths draw the coat, with identical pixel counts (81 825 px differ from the
+  strands-off control, max channel delta 146/255) — `GroomStrandVisualEvidenceTest`.
+- Depth-correct overlap: an opaque slab in front of the coat hides 77 % of it (81 825 -> 19 073
+  strand pixels), with no bleed-through.
+- Live in the editor: 0 shader errors, 0 `[error]` lines, 0 VUIDs.
+- The seam engages and disengages live. With TAA off the log carries the refusal sentence
+  verbatim; toggling TAA on clears it (proved by the reason being RE-logged on the way back down,
+  which only happens on a CHANGE of dominant reason), and the coat visibly softens as the
+  stochastic mode takes over.
+
+What is known about the Vulkan failure, so the next session does not re-derive it:
+
+- The backend is confirmed active (`[RHI] Backend: Vulkan (source: --rhi flag)`).
+- The pass RUNS: it builds the strand geometry (`2000 of 2000 strands, 14000 segments, 2.88 MiB`),
+  decides a composition mode, and logs the same fallback reason it does on OpenGL.
+- It declares its render-graph resources: `SceneColor@GroomPass`, `SceneDepthAttachment@GroomPass`,
+  `SceneEntityID@GroomPass`, `SceneViewNormals@GroomPass` and `SceneSkinDiffuse@GroomPass` all
+  appear in `olo_render_list_targets`, so the node is neither culled nor resource-less.
+- The draw is RECORDED, not dropped: `VulkanRendererAPI::PrepareDrawCommon` warns on every one of
+  its early-outs (no ready shader, stage mismatch, no rendering scope, outside the recording
+  bracket) and the log contains none of them. A non-zero index count is passed explicitly, so the
+  `DrawIndexed(va, 0)` "whole buffer" sentinel is not in play either.
+- `SceneColor@GroomPass` captured from the live frame is indistinguishable from the version
+  written by the pass BEFORE it, so nothing is overwriting the strands afterwards — they are never
+  drawn.
+- 0 errors and 0 VUIDs throughout.
+
+That leaves the fragment or the vertex-pull arm of `GroomStrand.glsl` as the remaining suspect: the
+Vulkan backend declares no vertex input state (ADR 0011 §5), so the shader reads its vertices from
+`layout(std430, binding = 57) OloVertexPull` as a flat float array with a hard-coded stride of 12.
+The next step is a bisect in that arm — force the widened alpha to 1 and the raster half width to
+something unmistakable, and see whether any fragment survives. Note that Vulkan graphics pipelines
+do not hot-reload, so each iteration costs a rebuild and a relaunch.
+
+
 ## GPU cost and memory, on named hardware
 
 <!-- Filled in from the live editor run; see the PR body for the captures these came from. -->
