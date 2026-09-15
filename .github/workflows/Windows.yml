@@ -1091,6 +1091,77 @@ jobs:
         -I ${{ matrix.shard }},,${OLO_CTEST_SHARDS}
         --exclude-regex "${OLO_WINDOWS_CTEST_EXCLUDE}"
 
+    # #1294: the ordinary suite correctly skips ray-query tests on runners without
+    # a usable RT device, but a green CTest shard otherwise makes that look exactly
+    # like a pass. Run the two L7 device suites once and publish their executed/
+    # skipped counts and skip reasons in the job summary. This is deliberately a
+    # report, not a minimum-count gate: hosted Windows has no GPU and the AMD
+    # self-hosted runner cannot expose the descriptor-heap RT path. A future RTX
+    # runner can turn the explicit "0 executed" into a hard requirement without
+    # first rediscovering why today's runners are expected to skip.
+    - name: Report Vulkan ray-query device-suite coverage
+      if: always() && matrix.shard == 1
+      shell: bash
+      working-directory: ${{github.workspace}}/OloEditor
+      run: |
+        set +e
+        mkdir -p "${GITHUB_WORKSPACE}/test_results"
+        "${GITHUB_WORKSPACE}/build/OloEngine/tests/${BUILD_TYPE}/OloEngine-Tests.exe" \
+          --gtest_filter='ReSTIRPTDevice.*:RayTracingDevice.*' \
+          --gtest_output="xml:${GITHUB_WORKSPACE}/test_results/vulkan_ray_query_device.xml"
+        status=$?
+        set -e
+
+        python3 - <<'PY'
+        import os
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = os.path.join(os.environ["GITHUB_WORKSPACE"], "test_results", "vulkan_ray_query_device.xml")
+        try:
+            root = ET.parse(report).getroot()
+        except Exception as error:
+            print(f"::error::Could not read Vulkan ray-query device-suite report {report}: {error}")
+            sys.exit(1)
+
+        total = passed = failed = skipped = 0
+        reasons = []
+        for case in root.iter("testcase"):
+            total += 1
+            skipped_nodes = list(case.iter("skipped"))
+            failure_nodes = list(case.iter("failure")) + list(case.iter("error"))
+            if skipped_nodes:
+                skipped += 1
+                for node in skipped_nodes:
+                    reason = (node.get("message") or node.text or "No skip reason supplied.").strip()
+                    if reason not in reasons:
+                        reasons.append(reason)
+            elif failure_nodes:
+                failed += 1
+            else:
+                passed += 1
+
+        summary = os.environ["GITHUB_STEP_SUMMARY"]
+        with open(summary, "a", encoding="utf-8") as output:
+            output.write("## Vulkan ray-query device-suite coverage\\n\\n")
+            output.write(f"- Executed: **{passed + failed}** / {total} (passed: {passed}, failed: {failed})\\n")
+            output.write(f"- Skipped: **{skipped}**\\n")
+            if reasons:
+                output.write("- Skip reason(s):\\n")
+                for reason in reasons:
+                    output.write(f"  - `{reason}`\\n")
+            elif total == 0:
+                output.write("- **No device-suite cases were discovered.**\\n")
+
+        print(f"Vulkan ray-query device suites: {passed + failed} executed, {skipped} skipped, {failed} failed ({total} total).")
+        for reason in reasons:
+            print(f"  skipped: {reason}")
+        if total == 0:
+            print("::error::Vulkan ray-query device-suite filter matched no test cases")
+            sys.exit(1)
+        PY
+        exit "$status"
+
     # `if: always()` on both uploads: a shard that FAILED is the one whose results
     # matter most, and its count is what proves the failure was not an empty run.
     - name: Upload test results
