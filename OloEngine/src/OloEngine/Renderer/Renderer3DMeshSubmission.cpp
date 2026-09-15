@@ -2436,16 +2436,24 @@ namespace OloEngine
                     // Route through the prev-aware DrawAnimatedMesh overload
                     // when the caller supplied prev-pose data; otherwise the
                     // legacy entry aliases current->prev (zero motion).
+                    // The link is forwarded on BOTH arms, and on the parallel
+                    // arms below, because which arm runs is decided by batch
+                    // size alone (issue #1228). A descriptor that carried a link
+                    // and lost it here would take the canonical record above the
+                    // threshold and the legacy per-entity history below it --
+                    // one scene rendering two ways depending on how many meshes
+                    // the model happened to have.
                     if (desc.PrevBoneMatrices)
                     {
                         packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
                                                   *desc.BoneMatrices, *desc.PrevBoneMatrices,
-                                                  desc.IsStatic, desc.EntityID);
+                                                  desc.IsStatic, desc.EntityID, desc.GPUSceneDrawLink);
                     }
                     else
                     {
                         packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
-                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID);
+                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID,
+                                                  desc.GPUSceneDrawLink);
                     }
                 }
                 else

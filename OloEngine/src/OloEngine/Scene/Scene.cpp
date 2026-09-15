@@ -7652,6 +7652,13 @@ namespace OloEngine
             return;
         }
 
+        // One entity contributes one m_CanonicalEntities tick and one
+        // m_CanonicalInstances tick per submesh (issue #1228), so the entity
+        // half is latched across this per-submesh loop rather than counted
+        // inside it. Without the latch this path reported canonical INSTANCES
+        // with zero ENTITIES, which breaks the census's own stated invariant.
+        bool countedCanonicalEntity = false;
+
         for (i32 i = 0; i < meshSource->GetSubmeshes().Num(); ++i)
         {
             auto submesh = Ref<Mesh>::Create(meshSource, i);
@@ -7698,6 +7705,11 @@ namespace OloEngine
                     else
                     {
                         ++animatedCensus->m_CanonicalInstances;
+                        if (!countedCanonicalEntity)
+                        {
+                            ++animatedCensus->m_CanonicalEntities;
+                            countedCanonicalEntity = true;
+                        }
                         if (animatedSurface.HasContinuousDeformation())
                             ++animatedCensus->m_SurfacesWithHistory;
                         else
@@ -12068,7 +12080,20 @@ namespace OloEngine
                         // are all virtual reads as "0 canonical, N variants
                         // elsewhere" instead of as an empty animated census
                         // that looks like nothing was ever offered.
-                        ++animatedCensus.m_UnsupportedVariants;
+                        //
+                        // ...but ONLY when the virtual path really drew it.
+                        // virtualPathOwnsMeshEntities is gated on Deferred
+                        // alone, so with virtual geometry switched OFF that
+                        // loop takes its classic fallback, which stages
+                        // canonical records through SubmitMeshSourceClassic and
+                        // counts this entity as a canonical instance. Ticking a
+                        // variant here as well would count one entity twice,
+                        // under two contradictory headings, in the census whose
+                        // whole job is to say which of the two happened.
+                        if (Renderer3D::GetRendererSettings().VirtualGeometryEnabled)
+                        {
+                            ++animatedCensus.m_UnsupportedVariants;
+                        }
                         continue;
                     }
                 }

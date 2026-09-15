@@ -45,6 +45,9 @@
 
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -71,6 +74,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 namespace OloEngine::Tests
 {
@@ -240,13 +244,94 @@ namespace OloEngine::Tests
                                  "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
+            ASSERT_FALSE(ec) << "cannot create the capture directory '" << dir.string()
+                             << "': " << ec.message();
             const fs::path path = dir / ("AnimatedGPUScene_" + tag + ".png");
-            stbi_write_png(path.string().c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
-                           outPixels.data(), static_cast<int>(rowBytes));
+            // A capture that silently fails to write is worse than no test: the
+            // assertions below still pass, and the evidence a reviewer is told
+            // to look at does not exist. This test has already been bitten once
+            // by writing to a path nobody reads (see the anchoring above).
+            ASSERT_NE(stbi_write_png(path.string().c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight),
+                                     4, outPixels.data(), static_cast<int>(rowBytes)),
+                      0)
+                << "cannot write the capture '" << path.string() << "'";
+        }
+
+        /// Give the subject a real, playing clip that rotates the upper bone.
+        ///
+        /// This is what makes a within-frame palette DELTA exist at all. The
+        /// frame order is AdvanceHistory (prev := current) -> the editor's
+        /// animation preview writes this frame's pose -> submission. A pose
+        /// written by the test from OUTSIDE a frame is flattened by the next
+        /// frame's advance, so prev == current at every submission and the
+        /// renderer never sees a non-zero bone velocity -- the surface moves
+        /// BETWEEN frames but never WITHIN one. Only a writer that runs after
+        /// the advance, which in edit mode is AnimationSystem::Update, produces
+        /// the delta the velocity path exists to carry.
+        void StartUpperBoneClip()
+        {
+            auto clip = Ref<AnimationClip>::Create();
+            clip->Name = "AnimatedGPUSceneSpin";
+            clip->Duration = 4.0f;
+
+            // Keyed on the bone NAME the primitive uses ("Lower"/"Upper"), not
+            // an index: AnimationSystem samples by name, and a channel naming a
+            // bone the skeleton does not have samples nothing at all, which
+            // would leave the pose static and this test green for the wrong
+            // reason.
+            BoneAnimation upper;
+            upper.BoneName = "Upper";
+            upper.PositionKeys.push_back({ 0.0, glm::vec3(0.0f) });
+            upper.PositionKeys.push_back({ 4.0, glm::vec3(0.0f) });
+            upper.ScaleKeys.push_back({ 0.0, glm::vec3(1.0f) });
+            upper.ScaleKeys.push_back({ 4.0, glm::vec3(1.0f) });
+            // A large, monotonic sweep: the delta has to survive a Debug frame's
+            // timestep without relying on a particular frame duration.
+            upper.RotationKeys.push_back({ 0.0, glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 1.0f)) });
+            upper.RotationKeys.push_back({ 2.0, glm::angleAxis(1.2f, glm::vec3(0.0f, 0.0f, 1.0f)) });
+            upper.RotationKeys.push_back({ 4.0, glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 1.0f)) });
+            clip->BoneAnimations.push_back(MoveTemp(upper));
+            clip->InvalidateBoneCache();
+
+            auto& animState = m_Subject.AddComponent<AnimationStateComponent>();
+            animState.m_CurrentClip = clip;
+            animState.m_CurrentTime = 0.0f;
+            animState.m_IsPlaying = true;
+            m_Clip = clip;
+        }
+
+        /// The largest per-bone difference between the two palettes the shaders
+        /// read this frame. Zero means every consumer emits exactly zero bone
+        /// motion, whatever the revisions say.
+        [[nodiscard]] f32 PaletteDelta() const
+        {
+            if (!m_Skeleton || !m_Skeleton->HasBoneHistory())
+            {
+                return 0.0f;
+            }
+            const auto& cur = m_Skeleton->m_FinalBoneMatrices;
+            const auto& prev = m_Skeleton->m_PrevFinalBoneMatrices;
+            if (cur.size() != prev.size())
+            {
+                return 0.0f;
+            }
+            f32 worst = 0.0f;
+            for (sizet bone = 0; bone < cur.size(); ++bone)
+            {
+                for (int col = 0; col < 4; ++col)
+                {
+                    for (int row = 0; row < 4; ++row)
+                    {
+                        worst = std::max(worst, std::abs(cur[bone][col][row] - prev[bone][col][row]));
+                    }
+                }
+            }
+            return worst;
         }
 
         Ref<Mesh> m_SkinnedMesh;
         Ref<Skeleton> m_Skeleton;
+        Ref<AnimationClip> m_Clip;
         Entity m_Subject;
     };
 
@@ -442,5 +527,84 @@ namespace OloEngine::Tests
                 << "': no draw consumed a canonical record, so this path silently kept the legacy branch while "
                    "the other two migrated";
         }
+    }
+
+    // The half the manual-bend test above CANNOT reach, and the reason this file
+    // has two motion tests instead of one.
+    //
+    // `SetUpperBoneBend` writes the pose from outside the frame, so the next
+    // frame's AdvanceHistory copies it straight into the previous palette:
+    // every submission carries prev == current and the emitted bone motion is
+    // exactly zero. That still exercises the revisions -- they advance, and the
+    // picture changes between captures -- but it never exercises a VELOCITY,
+    // which is the thing a stale previous revision makes wrong.
+    //
+    // A real playing clip does, because the editor's animation preview writes
+    // the pose AFTER the advance and BEFORE submission, which is the production
+    // ordering. So this test asserts the delta exists, that the record calls the
+    // surface continuous while it does, and that a declared discontinuity is
+    // still able to cancel that verdict mid-animation.
+    TEST_F(AnimatedGPUSceneScene, APlayingClipSubmitsANonZeroPaletteDeltaUnderAContinuousRevision)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_TRUE(m_SkinnedMesh) << "the skinned primitive failed to build";
+        ASSERT_TRUE(m_Skeleton);
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        StartUpperBoneClip();
+        ASSERT_TRUE(m_Clip);
+
+        std::vector<u8> pixels;
+        f32 bestDelta = 0.0f;
+        u32 continuousFrames = 0;
+
+        for (u32 frame = 0; frame < 4u; ++frame)
+        {
+            Capture("Clip" + std::to_string(frame), 0.0f, 0.18f, pixels);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+
+            const f32 delta = PaletteDelta();
+            bestDelta = std::max(bestDelta, delta);
+            if (m_Skeleton->HasContinuousDeformation())
+            {
+                ++continuousFrames;
+                // While the clip plays continuously the record must SAY it is
+                // continuous, because that is the permission the temporal
+                // filters need to reproject rather than reject.
+                EXPECT_EQ(m_Skeleton->HasBoneHistory(), true) << "frame " << frame;
+            }
+        }
+
+        EXPECT_GT(bestDelta, 1e-4f)
+            << "no frame submitted a previous palette that differs from the current one, so every draw emitted "
+               "exactly zero bone motion and nothing here tested a velocity at all -- the pose is being written "
+               "outside the frame and flattened by AdvanceHistory";
+        EXPECT_GT(continuousFrames, 0u)
+            << "the surface never reported a continuous deformation while a clip was playing, so the record "
+               "would deny a velocity to every animating character";
+
+        // A discontinuity declared mid-animation must cancel the continuity the
+        // advance just asserted -- the case a slot-derived previous revision
+        // cannot see, here with a genuinely moving palette rather than a static
+        // one.
+        Animation::RejectDeformationHistory(m_Skeleton.Raw(), nullptr,
+                                            Animation::DeformationHistoryResetCause::Teleport);
+        EXPECT_FALSE(m_Skeleton->HasContinuousDeformation())
+            << "a mid-animation discontinuity left the surface claiming a previous pose it was never in";
+        EXPECT_EQ(m_Skeleton->m_DeformationRevision, m_Skeleton->m_PrevDeformationRevision);
+
+        Capture("ClipAfterTeleport", 0.0f, 0.18f, pixels);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        EXPECT_GT(MeanLuminance(pixels), 0.02f)
+            << "the frame after a mid-animation discontinuity rendered black: a dropped history costs the "
+               "surface its velocity, never its geometry";
     }
 } // namespace OloEngine::Tests
