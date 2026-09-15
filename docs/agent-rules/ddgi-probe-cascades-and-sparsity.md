@@ -97,7 +97,7 @@ drain in the middle of the frame, once per captured probe, every frame.
 Consequences that are easy to undo by accident:
 
 * The CPU no longer knows a probe's relocation offset or its classification. `DDGIProbeUpdatePass::ProbeRecord`
-  is split into CPU-owned fields (`Captured`, `LastCaptureFrame`, `RelocationIteration`) and GPU-owned
+  is split into CPU-owned fields (`CaptureCount`, `LastCaptureFrame`) and GPU-owned
   mirrors (`OffsetN`, `State`, `Bounce*`) that read as their defaults until `ReadbackProbeDiagnostics()`
   is called. Zeros look exactly like "un-relocated, uncaptured", so a reader that forgets the call
   gets a plausible answer rather than an obvious one.
@@ -148,6 +148,24 @@ Two things that are not obvious:
   pinned at its previous offset with an unsatisfied force forever.
 * The **sky counts as a free direction with full weight**. Without it the mean free direction is built
   only from the far walls, and a probe by a window drifts outward instead of staying put.
+
+### The warm-up must END on a capture that does not move the probe
+
+A probe's warm-up is `kMaxRelocationIterations` spring applications plus **one more capture that
+runs the classification but not the spring** — `DDGI::kRelocationWarmupCaptures`, derived by
+`DDGI::RelocationStepForCapture`. The extra capture is not slack.
+
+The capture rasterizes the hit cache **from the probe's current offset** and relight reconstructs
+every hit as `probeWorldPosition(current offset) + direction * distance`. So a capture whose spring
+then moves the probe leaves the whole cache displaced by that step, and nothing re-captures it until
+the age-ordered refresh tier gets round to it — the same "wrong everywhere, failing nowhere"
+error as capturing from the lattice point while gathering from the relocated one.
+
+Measured on the closed-loop model in `DDGIMathTest` (1-cell spacing, wall 0.05 cells from the
+lattice point): ending on the settling capture leaves **0**; letting the last capture spring leaves
+0.003 cells; dropping the settling capture leaves **0.10 cells**, 40% of the comfort distance. Tier
+and spring-suppression come out of the one function because deriving them at two call sites from two
+different record fields is how they drifted apart unseen (#1279).
 
 ## 7. Cascade defaults are a memory decision, not a quality one
 

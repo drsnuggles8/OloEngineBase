@@ -1560,7 +1560,7 @@ TEST(DDGIMath, CaptureTiersOrderCoverageBeforeRefinementBeforeRefresh)
     // the FURTHEST away and in the COARSEST cascade, which is the case an
     // unclamped `distance + tier * bias` gets wrong.
     const f32 neverCaptured = DDGI::CaptureScore(DDGI::CaptureTier::NeverCaptured, 5000.0f, 7, 0u);
-    const f32 refinement = DDGI::CaptureScore(DDGI::CaptureTier::RelocationRefinement, 0.0f, 0, 0u);
+    const f32 refinement = DDGI::CaptureScore(DDGI::CaptureTier::RelocationFollowUp, 0.0f, 0, 0u);
     const f32 refresh = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 100000u);
 
     EXPECT_LT(neverCaptured, refinement)
@@ -1572,14 +1572,14 @@ TEST(DDGIMath, CaptureTiersOrderCoverageBeforeRefinementBeforeRefresh)
     // The separation must hold for an absurd distance too — that is what the
     // intra-tier clamp is for.
     const f32 absurd = DDGI::CaptureScore(DDGI::CaptureTier::NeverCaptured, 1.0e9f, 7, 0u);
-    EXPECT_LT(absurd, DDGI::CaptureScore(DDGI::CaptureTier::RelocationRefinement, 0.0f, 0, 0u))
+    EXPECT_LT(absurd, DDGI::CaptureScore(DDGI::CaptureTier::RelocationFollowUp, 0.0f, 0, 0u))
         << "the intra-tier rank must be clamped below the tier bias, or a distant probe crosses tiers";
     EXPECT_TRUE(std::isfinite(absurd));
 }
 
 TEST(DDGIMath, CaptureScoreOrdersNearerAndFinerCascadesFirstWithinATier)
 {
-    for (DDGI::CaptureTier tier : { DDGI::CaptureTier::NeverCaptured, DDGI::CaptureTier::RelocationRefinement })
+    for (DDGI::CaptureTier tier : { DDGI::CaptureTier::NeverCaptured, DDGI::CaptureTier::RelocationFollowUp })
     {
         EXPECT_LT(DDGI::CaptureScore(tier, 1.0f, 0, 0u), DDGI::CaptureScore(tier, 50.0f, 0, 0u))
             << "nearer probes first";
@@ -1608,4 +1608,224 @@ TEST(DDGIMath, CaptureRefreshTierOrdersOldestFirstAndIgnoresDistance)
     const f32 ancient = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 0xFFFFFFFFu);
     EXPECT_GE(ancient, 2.0f * DDGI::kCaptureTierBias);
     EXPECT_LT(ancient, 3.0f * DDGI::kCaptureTierBias);
+}
+
+// =============================================================================
+// The relocation warm-up schedule (issue #1279).
+//
+// The bug these pin is a VOCABULARY bug with teeth: the capture scheduler
+// tiered a probe's last warm-up capture as a relocation refinement while the
+// relocation dispatch executed it as a refresh, because the two sites derived
+// their half of the answer from two different record fields. Both halves now
+// come out of DDGI::RelocationStepForCapture, so the only way they can drift
+// apart again is by changing that function, which these tests read.
+// =============================================================================
+
+TEST(DDGIMath, RelocationWarmupScheduleIsTheCaptureByCaptureTable)
+{
+    // The table in DDGICommon.h, asserted rather than described. Written out
+    // literally for kMaxRelocationIterations == 2 on purpose: this is the trace
+    // the issue argued over, and a loop derived from the same constants the
+    // function uses would agree with any off-by-one it contained.
+    ASSERT_EQ(DDGI::kMaxRelocationIterations, 2u) << "the literal table below is written for kMax == 2";
+    ASSERT_EQ(DDGI::kRelocationWarmupCaptures, 3u);
+
+    const DDGI::RelocationCaptureStep first = DDGI::RelocationStepForCapture(0u);
+    EXPECT_EQ(first.Tier, DDGI::CaptureTier::NeverCaptured)
+        << "a probe with no capture contributes nothing to the gather and outranks everything";
+    EXPECT_FALSE(first.SuppressSpring) << "the first capture is what PLACES the probe";
+
+    const DDGI::RelocationCaptureStep second = DDGI::RelocationStepForCapture(1u);
+    EXPECT_EQ(second.Tier, DDGI::CaptureTier::RelocationFollowUp);
+    EXPECT_FALSE(second.SuppressSpring) << "the second capture is the second spring application";
+
+    const DDGI::RelocationCaptureStep settle = DDGI::RelocationStepForCapture(2u);
+    EXPECT_EQ(settle.Tier, DDGI::CaptureTier::RelocationFollowUp)
+        << "the settling capture is still part of the warm-up: the probe is not finished, so it must not drop to "
+           "the age-ordered refresh tier and wait its turn";
+    EXPECT_TRUE(settle.SuppressSpring)
+        << "and it must NOT move the probe - that is the whole reason it is scheduled";
+
+    for (u8 captures : { u8{ 3 }, u8{ 4 }, u8{ 200 }, u8{ 255 } })
+    {
+        const DDGI::RelocationCaptureStep refresh = DDGI::RelocationStepForCapture(captures);
+        EXPECT_EQ(refresh.Tier, DDGI::CaptureTier::PeriodicRefresh) << "captures=" << static_cast<u32>(captures);
+        EXPECT_TRUE(refresh.SuppressSpring)
+            << "refresh is a GEOMETRY problem; captures=" << static_cast<u32>(captures);
+    }
+}
+
+TEST(DDGIMath, RelocationWarmupRunsTheSpringExactlyMaxIterationsTimes)
+{
+    // The constant is named for spring applications, so the schedule had better
+    // deliver that many - the mismatch #1279 records was first visible as this
+    // count reading 2 from one side of the code and 3 from the other.
+    u32 springApplications = 0;
+    for (u8 captures = 0; captures < DDGI::kRelocationWarmupCaptures; ++captures)
+    {
+        if (!DDGI::RelocationStepForCapture(captures).SuppressSpring)
+        {
+            ++springApplications;
+        }
+    }
+    EXPECT_EQ(springApplications, static_cast<u32>(DDGI::kMaxRelocationIterations));
+    EXPECT_EQ(DDGI::kRelocationWarmupCaptures, DDGI::kMaxRelocationIterations + 1)
+        << "one capture longer than the spring count: the extra one is the settling capture";
+}
+
+namespace
+{
+    // A CLOSED-LOOP model of one probe warming up beside a flat wall.
+    //
+    // The spring tests above hold the hit aggregates FIXED, which answers "does
+    // the spring step sensibly" but not the question #1279 turns on: the
+    // aggregates are re-captured from wherever the spring just put the probe,
+    // so the spring's output is its own next input. Here the aggregates are a
+    // function of the current offset, which is that feedback.
+    //
+    // One wall in one dimension is not the GPU field and does not claim to be.
+    // It is the smallest system carrying the feedback, which is enough to turn
+    // "how far is the hit cache from the probe when the warm-up ends" from an
+    // argument into a number.
+    constexpr f32 kModelMinFrontface = 0.25f;
+
+    DDGI::ProbeHitAggregates WallAggregatesAtOffset(f32 wallDistanceAtLattice, f32 offsetX)
+    {
+        // Where the wall is FROM THE PROBE, given where the spring put it.
+        const f32 wallDist = glm::max(wallDistanceAtLattice + offsetX, 1e-3f);
+
+        DDGI::ProbeHitAggregates agg;
+        agg.BackfaceFraction = 0.0f;
+        agg.ClosestFrontfaceDir = glm::vec3(-1.0f, 0.0f, 0.0f);
+        agg.ClosestFrontfaceDist = wallDist;
+        agg.FarthestFrontfaceDir = glm::vec3(1.0f, 0.0f, 0.0f);
+        agg.FarthestFrontfaceDist = 4.0f - offsetX;
+        agg.AnyHitWithinCell = true;
+
+        // Crowding exists only while the wall is inside the comfort distance,
+        // weighted by how far inside it is (the shader's 1 - dist/minDist).
+        if (wallDist < kModelMinFrontface)
+        {
+            const f32 weight = 1.0f - wallDist / kModelMinFrontface;
+            agg.CrowdingSum = glm::vec3(-1.0f, 0.0f, 0.0f) * weight;
+            agg.CrowdingWeight = weight;
+        }
+
+        // The open hemisphere is +x, and it gets less lopsided as the probe
+        // backs away - the spring reads that mean UNNORMALIZED for exactly this
+        // reason.
+        agg.FreeDirectionSum = glm::vec3(1.0f, 0.0f, 0.0f) * glm::clamp(1.0f - wallDist, 0.0f, 1.0f);
+        agg.FreeDirectionWeight = 1.0f;
+        return agg;
+    }
+
+    // Runs a warm-up of `captures` captures and returns how far the probe ends
+    // up from the position its LAST capture was rasterized at, in cells.
+    //
+    // That distance is the error every cached hit then carries:
+    // DDGI_Capture.glsl rasterizes probe-relative hit positions from the offset
+    // in the probe-data texture, and DDGI_Relight.glsl reconstructs them as
+    // probeWorldPosition(current offset) + direction * distance.
+    f32 HitCacheDisplacementAfterWarmup(f32 wallDistanceAtLattice, u32 captures, bool settleOnLastCapture)
+    {
+        glm::vec3 offset(0.0f);
+        glm::vec3 capturedFrom(0.0f);
+        for (u32 capture = 0; capture < captures; ++capture)
+        {
+            capturedFrom = offset; // the capture rasterizes from HERE
+            const bool suppressSpring = settleOnLastCapture && (capture + 1u == captures);
+            if (!suppressSpring)
+            {
+                offset = DDGI::RelocateProbeSpring(offset, WallAggregatesAtOffset(wallDistanceAtLattice, offset.x),
+                                                   glm::vec3(1.0f), kModelMinFrontface);
+            }
+        }
+        return glm::length(offset - capturedFrom);
+    }
+} // namespace
+
+// The measurement that decided #1279, and the reason the shipped schedule is
+// three captures with the last one settling rather than either of the two
+// repairs the issue proposed.
+TEST(DDGIMath, RelocationWarmupEndsWithTheHitCacheAgreeingWithTheProbePosition)
+{
+    // Three wall distances: outside the comfort distance, inside it, and hard
+    // against it. Measured displacements in cells (this model, 1-cell spacing):
+    //
+    //   wall at | shipped | all-spring (3 captures) | no settling capture (2)
+    //   --------|---------|-------------------------|------------------------
+    //   0.30    | 0       | 0.0167                  | 0.0189
+    //   0.10    | 0       | 0.0020                  | 0.1015
+    //   0.05    | 0       | 0.0032                  | 0.1028
+    //
+    // A tenth of a cell is 40% of the comfort distance - every hit in that
+    // probe's cache would be relit from a point that far from where it was seen.
+    for (f32 wall : { 0.30f, 0.10f, 0.05f })
+    {
+        const f32 shipped = HitCacheDisplacementAfterWarmup(wall, DDGI::kRelocationWarmupCaptures, true);
+        EXPECT_FLOAT_EQ(shipped, 0.0f)
+            << "wall at " << wall
+            << ": the settling capture is what puts the cache and the position back in agreement, and it must do "
+               "so EXACTLY";
+
+        // Rejected option 1 (CodeRabbit's on #1273): let the last warm-up
+        // capture run the spring too. It is bounded, so nothing runs away - but
+        // it moves the probe out from under the cache it has just taken, and
+        // nothing re-captures it until the age-ordered refresh tier gets round
+        // to it.
+        const f32 allSpring = HitCacheDisplacementAfterWarmup(wall, DDGI::kRelocationWarmupCaptures, false);
+        EXPECT_GT(allSpring, 0.0f) << "wall at " << wall;
+
+        // Rejected option 2: drop the settling capture. Then the LAST capture
+        // is a placement capture, and the probe ends a full spring step away
+        // from where that capture saw the world.
+        const f32 noSettle = HitCacheDisplacementAfterWarmup(wall, DDGI::kMaxRelocationIterations, false);
+        EXPECT_GT(noSettle, 0.0f) << "wall at " << wall;
+    }
+
+    // The crowded case is where dropping the settling capture hurts most, and
+    // it is the case relocation exists for.
+    EXPECT_GT(HitCacheDisplacementAfterWarmup(0.05f, DDGI::kMaxRelocationIterations, false), 0.05f)
+        << "a probe pressed against a wall would be relit from a point a twentieth of a cell off";
+}
+
+TEST(DDGIMath, ClosedLoopSpringReachesAFixedPointRatherThanCirclingOne)
+{
+    // Re-capturing the aggregates from the moved probe on every iteration is
+    // the feedback DDGI_Relocate.comp's comment warns about. At the shipped
+    // gains, in this model, it is contractive: the step shrinks monotonically
+    // and reaches a fixed point exactly.
+    //
+    // This does NOT reproduce the 3-7 RMSE limit cycle that comment records -
+    // that was measured on the real field, where the hit cache is re-rasterized
+    // in three dimensions and the aggregates are not a smooth function of one
+    // offset. What it bounds is the opposite claim: the loop is not inherently
+    // divergent, so "it would run away" is not the argument against springing
+    // on a refresh. The argument is the displacement test above.
+    for (f32 wall : { 0.30f, 0.10f, 0.05f })
+    {
+        glm::vec3 offset(0.0f);
+        f32 previousStep = std::numeric_limits<f32>::max();
+        for (i32 iteration = 0; iteration < 200; ++iteration)
+        {
+            const glm::vec3 before = offset;
+            offset = DDGI::RelocateProbeSpring(offset, WallAggregatesAtOffset(wall, offset.x), glm::vec3(1.0f),
+                                               kModelMinFrontface);
+            const f32 step = glm::length(offset - before);
+            ASSERT_LE(step, previousStep + 1e-6f)
+                << "wall at " << wall << ", iteration " << iteration
+                << ": the step grew, which is the shape of a cycle rather than a contraction";
+            ASSERT_LE(glm::length(offset), DDGI::kMaxProbeOffsetFraction) << "left the 45%-of-cell ellipsoid";
+            previousStep = step;
+        }
+
+        // Settled, not merely slow: another 200 iterations move it by nothing.
+        const glm::vec3 settled = offset;
+        for (i32 iteration = 0; iteration < 200; ++iteration)
+        {
+            offset = DDGI::RelocateProbeSpring(offset, WallAggregatesAtOffset(wall, offset.x), glm::vec3(1.0f),
+                                               kModelMinFrontface);
+        }
+        EXPECT_FLOAT_EQ(glm::length(offset - settled), 0.0f) << "wall at " << wall << ": still moving after 200 more";
+    }
 }

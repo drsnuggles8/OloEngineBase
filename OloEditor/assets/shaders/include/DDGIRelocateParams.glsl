@@ -27,15 +27,21 @@
 // by BindlessShaderPipeline.DDGIShaderConstantsMatchTheCppMirrors.
 #define DDGI_RELOCATE_BATCH 64
 
-// Per-entry flag in u_DDGICaptureSet[i].y: this capture is a periodic REFRESH
-// of an already-placed probe, not a first placement. See DDGI_Relocate.comp
-// for why that must not re-run the relocation spring.
+// Per-entry flag in u_DDGICaptureSet[i].y: this capture must NOT move the
+// probe. It still re-reads the hit cache and re-runs classification; only the
+// relocation spring is skipped. See DDGI_Relocate.comp for why.
+//
+// Named for what it does rather than for one of the two cases that set it: a
+// periodic refresh of a settled probe, and the LAST capture of a probe's
+// relocation warm-up, which exists precisely to leave the probe where the
+// spring put it so the hit cache it takes matches the position it is relit
+// from (issue #1279).
 //
 // It is PER PROBE, not per dispatch. It was DDGI_PASS_FLAG_REFRESH_CAPTURE in
 // u_DDGIComputeParams.w while relocation ran one dispatch per probe; batching
 // the dispatch made a whole-dispatch flag wrong, because a single capture set
 // mixes settled probes with probes still converging.
-#define DDGI_RELOCATE_ENTRY_REFRESH 1
+#define DDGI_RELOCATE_ENTRY_HOLD_POSITION 1
 
 layout(std140, binding = 7) uniform DDGIRelocateParams
 {
