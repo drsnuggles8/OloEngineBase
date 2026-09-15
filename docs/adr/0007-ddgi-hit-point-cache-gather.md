@@ -302,7 +302,7 @@ load-bearing: `DDGIReferenceParityTest` measured its parity against that layout.
 
 What is preserved is the LAYOUT, INDEXING AND GATHER ARITHMETIC — not the frame.
 The authored path is not bit-identical to #632 overall, and claiming so would be
-wrong: every captured probe now goes through `RelocateProbeGPU`, so the spring
+wrong: every captured probe now goes through `RelocateProbesGPU`, so the spring
 replaces RTXGI's three-case rule there too and converged probes settle at
 slightly different offsets. Measured against the table PR #836 recorded on the
 same rig, the four air-fitted probes hold to within +-0.01 while the

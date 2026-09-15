@@ -171,6 +171,8 @@ add_executable(OloEngine-Tests
 		Rendering/LODTest.cpp
 		Rendering/MeshOptimizationTest.cpp
 		Rendering/SubmeshMaterialResolveTest.cpp
+		Rendering/VirtualSkinnedBoundsTest.cpp
+		Rendering/VirtualGeometryPageStoreTest.cpp
 		Rendering/VirtualLightmapUVPackingTest.cpp
 		Rendering/VirtualMeshBuilderTest.cpp
 		Rendering/VirtualMeshCookIdentityTest.cpp
@@ -271,6 +273,7 @@ add_executable(OloEngine-Tests
 		Rendering/Splat/GaussianSplatGpuOrderingParityTest.cpp
 		Rendering/PropertyTests/UniformBufferBindingOwnershipTest.cpp
 		Rendering/GPUPrefixSumPerfProbe.cpp
+		Rendering/DDGI/DDGIRelocateBatchingPerfProbe.cpp
 		Rendering/GPUHashMapTest.cpp
 		Rendering/GPUPagedCacheTest.cpp
 		Rendering/GPUCacheShaderResolveTest.cpp
@@ -1439,6 +1442,10 @@ add_executable(OloEngine-Tests
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
 		Rendering/PropertyTests/SkeletalDeformationVisualEvidenceTest.cpp
+		# Skinned auto-batching (issue #1031): a same-pose crowd must collapse into
+		# one instanced draw and render the same colour AND motion vectors as the
+		# one-draw-per-actor path, measured against a same-input control render.
+		Rendering/PropertyTests/SkinnedCrowdBatchingVisualEvidenceTest.cpp
 		# Script-driven runtime spawning (issue #643): the deferred entity-command
 		# queue driven from Lua through real Scene::OnUpdateRuntime ticks, under
 		# both the parallel and the sequential gameplay executor.
@@ -1515,6 +1522,7 @@ olo_copy_ffmpeg_runtime(OloEngine-Tests)
 # Windows resolves at process load — without the DLL the whole suite fails to start, long before
 # any Steam test would have skipped. No-op unless OLO_WITH_STEAM is on with the real SDK.
 olo_copy_steam_runtime(OloEngine-Tests)
+olo_copy_aftermath_runtime(OloEngine-Tests)
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 

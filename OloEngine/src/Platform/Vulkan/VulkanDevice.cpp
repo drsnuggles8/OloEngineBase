@@ -3,6 +3,8 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanDevice.h"
+
+#include "Platform/Vulkan/VulkanAftermath.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanBarrierLowering.h"
 #include "Platform/Vulkan/VulkanShader.h"
@@ -58,12 +60,134 @@ namespace OloEngine
         VulkanDevice* s_ActiveDevice = nullptr;
 
 #ifdef OLO_DEBUG
+        // --- VK_EXT_device_address_binding_report (issue #1198) -------------
+        // A VK_EXT_device_fault report names an ADDRESS. The checkpoints added
+        // for #1201 name the PASS. Neither says WHAT lived at that address,
+        // which is the difference between "READ of invalid address" and "this
+        // VkImage, bound here, freed there" — the question a use-after-free
+        // investigation actually has to answer.
+        //
+        // The validation layer implements this extension by emitting one
+        // debug-messenger message per address bind/unbind. Recording them gives
+        // LogDeviceFaultInfo an address -> object map. It is OFF unless
+        // Levers::VulkanAddressBindingReport() asks for it, because that
+        // message arrives on EVERY allocation.
+        struct AddressBindingRecord
+        {
+            u64 Base = 0;
+            u64 End = 0;
+            u64 ObjectHandle = 0;
+            VkObjectType ObjectType = VK_OBJECT_TYPE_UNKNOWN;
+            bool Unbound = false;
+            u64 Serial = 0;
+        };
+
+        std::mutex s_AddressBindingMutex;
+        std::vector<AddressBindingRecord> s_AddressBindings;
+        u64 s_AddressBindingSerial = 0;
+
+        // A fault on a new device must not resolve to a range from the previous
+        // one: the history is per device generation, cleared at Init.
+        void ResetAddressBindingHistory()
+        {
+            const std::lock_guard lock(s_AddressBindingMutex);
+            s_AddressBindings.clear();
+            s_AddressBindingSerial = 0;
+        }
+
+        // Bounded so a long session cannot grow it without limit; the tail is
+        // what a fault needs, and dropping the oldest entries only loses
+        // history for ranges that have long since been rebound.
+        constexpr sizet kMaxAddressBindings = 200000;
+        constexpr sizet kAddressBindingTrim = 50000;
+
+        [[nodiscard]] bool AddressBindingReportRequested()
+        {
+            static const bool s_On = Levers::VulkanAddressBindingReport();
+            return s_On;
+        }
+
+        [[nodiscard]] const char* ObjectTypeName(const VkObjectType type)
+        {
+            switch (type)
+            {
+                case VK_OBJECT_TYPE_IMAGE:
+                    return "VkImage";
+                case VK_OBJECT_TYPE_BUFFER:
+                    return "VkBuffer";
+                case VK_OBJECT_TYPE_DEVICE_MEMORY:
+                    return "VkDeviceMemory";
+                case VK_OBJECT_TYPE_ACCELERATION_STRUCTURE_KHR:
+                    return "VkAccelerationStructureKHR";
+                default:
+                    return "object";
+            }
+        }
+
+        void RecordAddressBinding(const VkDeviceAddressBindingCallbackDataEXT& data,
+                                  const VkDebugUtilsMessengerCallbackDataEXT& callbackData) noexcept
+        {
+            AddressBindingRecord record;
+            record.Base = static_cast<u64>(data.baseAddress);
+            record.End = record.Base + static_cast<u64>(data.size);
+            record.Unbound = data.bindingType == VK_DEVICE_ADDRESS_BINDING_TYPE_UNBIND_EXT;
+            if (callbackData.objectCount > 0u && callbackData.pObjects != nullptr)
+            {
+                record.ObjectHandle = callbackData.pObjects[0].objectHandle;
+                record.ObjectType = callbackData.pObjects[0].objectType;
+            }
+            try
+            {
+                const std::lock_guard lock(s_AddressBindingMutex);
+                record.Serial = s_AddressBindingSerial++;
+                if (s_AddressBindings.size() >= kMaxAddressBindings)
+                {
+                    s_AddressBindings.erase(s_AddressBindings.begin(),
+                                            s_AddressBindings.begin() + kAddressBindingTrim);
+                }
+                s_AddressBindings.push_back(record);
+            }
+            catch (...)
+            {
+                // A diagnostic must never take the process down; losing one
+                // record only costs resolution on that range.
+            }
+        }
+
         VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessengerCallback(
             VkDebugUtilsMessageSeverityFlagBitsEXT severity,
             VkDebugUtilsMessageTypeFlagsEXT /*types*/,
             const VkDebugUtilsMessengerCallbackDataEXT* callbackData,
             void* /*userData*/)
         {
+            // An address-binding message carries no text worth logging — it is
+            // pure data for the fault resolver below, and there is one per
+            // allocation. Record and return before the logging paths.
+            if (callbackData != nullptr)
+            {
+                for (const auto* next = static_cast<const VkBaseInStructure*>(callbackData->pNext); next != nullptr;
+                     next = next->pNext)
+                {
+                    if (next->sType == VK_STRUCTURE_TYPE_DEVICE_ADDRESS_BINDING_CALLBACK_DATA_EXT)
+                    {
+                        RecordAddressBinding(
+                            *reinterpret_cast<const VkDeviceAddressBindingCallbackDataEXT*>(next), *callbackData);
+                        return VK_FALSE;
+                    }
+                }
+            }
+
+            // Subscribing to INFO for the address-binding messages above also
+            // subscribes to every OTHER info-severity message, which would
+            // otherwise all land in the log. They are not what the severity was
+            // widened for, so drop them here rather than tracing them.
+            if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0 &&
+                (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                             VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)) == 0)
+            {
+                return VK_FALSE;
+            }
+
             const char* message = (callbackData != nullptr && callbackData->pMessage != nullptr)
                                       ? callbackData->pMessage
                                       : "(no message)";
@@ -138,6 +262,15 @@ namespace OloEngine
             info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            if (AddressBindingReportRequested())
+            {
+                // Address-binding messages arrive at INFO severity, which this
+                // messenger otherwise does not subscribe to. The callback
+                // returns before the logging paths, so widening the severity
+                // does not add log noise.
+                info.messageType |= VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT;
+                info.messageSeverity |= VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+            }
             info.pfnUserCallback = DebugMessengerCallback;
             return info;
         }
@@ -176,6 +309,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_CORE_ASSERT(s_ActiveDevice == nullptr, "VulkanDevice::Init: another VulkanDevice is already live");
         OLO_CORE_ASSERT(m_Instance == VK_NULL_HANDLE, "VulkanDevice::Init called twice");
+#ifdef OLO_DEBUG
+        ResetAddressBindingHistory();
+#endif
 
         // --- Loader ---------------------------------------------------------
         // Safe to run twice: VulkanContext also runs it (before this call) so
@@ -558,6 +694,11 @@ namespace OloEngine
         // gate row.
         VkPhysicalDeviceFaultFeaturesEXT supportedFault{};
         supportedFault.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        // Probed, not assumed: the extension name being listed does not make the
+        // feature supported, and enabling an unsupported feature fails
+        // vkCreateDevice (VUID-VkDeviceCreateInfo-pNext).
+        VkPhysicalDeviceAddressBindingReportFeaturesEXT supportedAddressBinding{};
+        supportedAddressBinding.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
         bool hasDeviceFaultExtension = false;
         // VK_EXT_mesh_shader (issue #813): OPTIONAL, same when-supported rule
         // as EDS3 / device-fault — never an ADR 0010 gate row (requiring it
@@ -586,6 +727,8 @@ namespace OloEngine
         bool hasRayQueryExtension = false;
         bool hasRayPipelineExtension = false;
         bool hasCheckpointsExtension = false;
+        bool hasAddressBindingExtension = false;
+        bool hasDiagnosticsConfigExtension = false;
         {
             u32 extCount = 0;
             vkEnumerateDeviceExtensionProperties(m_PhysicalDevice, nullptr, &extCount, nullptr);
@@ -599,13 +742,15 @@ namespace OloEngine
             hasEds3Extension = listed(VK_EXT_EXTENDED_DYNAMIC_STATE_3_EXTENSION_NAME);
             hasDeviceFaultExtension = listed(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
             hasCheckpointsExtension = listed(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+            hasAddressBindingExtension = listed(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+            hasDiagnosticsConfigExtension = listed(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
             hasMeshShaderExtension = listed(VK_EXT_MESH_SHADER_EXTENSION_NAME);
             hasAccelStructExtension = listed(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             hasDeferredHostOpsExtension = listed(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
             hasRayQueryExtension = listed(VK_KHR_RAY_QUERY_EXTENSION_NAME);
             hasRayPipelineExtension = listed(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             if (hasEds3Extension || hasDeviceFaultExtension || hasMeshShaderExtension || hasAccelStructExtension ||
-                hasRayQueryExtension || hasRayPipelineExtension)
+                hasRayQueryExtension || hasRayPipelineExtension || hasAddressBindingExtension)
             {
                 VkPhysicalDeviceFeatures2 probe{};
                 probe.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -614,6 +759,11 @@ namespace OloEngine
                 {
                     supportedFault.pNext = probe.pNext;
                     probe.pNext = &supportedFault;
+                }
+                if (hasAddressBindingExtension)
+                {
+                    supportedAddressBinding.pNext = probe.pNext;
+                    probe.pNext = &supportedAddressBinding;
                 }
                 if (hasMeshShaderExtension)
                 {
@@ -640,6 +790,7 @@ namespace OloEngine
                 }
                 vkGetPhysicalDeviceFeatures2(m_PhysicalDevice, &probe);
                 supportedFault.pNext = nullptr;
+                supportedAddressBinding.pNext = nullptr;
                 supportedMeshShader.pNext = nullptr;
                 // Scrub every reused struct: these are probe results now and
                 // request structs later, and a stale pNext would splice the
@@ -811,6 +962,70 @@ namespace OloEngine
             deviceExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
         }
 
+        // Aftermath is armed BEFORE vkCreateDevice on purpose: the driver reads
+        // its state at device creation, so arming later yields a dump with no
+        // resource or shader tracking in it (issue #1198).
+        VulkanAftermath::Initialize();
+        VkDeviceDiagnosticsConfigCreateInfoNV diagnosticsConfig{};
+        diagnosticsConfig.sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV;
+        if (const char* aftermathExtension = VulkanAftermath::DeviceExtensionName(); aftermathExtension != nullptr)
+        {
+            if (hasDiagnosticsConfigExtension)
+            {
+                deviceExtensions.push_back(aftermathExtension);
+                diagnosticsConfig.flags =
+                    static_cast<VkDeviceDiagnosticsConfigFlagsNV>(VulkanAftermath::DeviceDiagnosticsFlags());
+            }
+            else
+            {
+                OLO_CORE_WARN("[Vulkan] Aftermath crash dumps requested but {} is not available — the dump will "
+                              "carry no resource tracking",
+                              aftermathExtension);
+            }
+        }
+
+        // Address-binding reporting (issue #1198): opt-in, because the layer
+        // reports every allocation. See the recorder above.
+        //
+        // OLO_DEBUG-ONLY, and the guard is on the USE as well as on the recorder:
+        // the extension is implemented BY the validation layer, which only the
+        // Debug build loads, and the recorder itself is inside the same guard.
+        // Without this the Release and Dist configurations do not compile — and
+        // nothing local catches that, because every local build is Debug.
+        VkPhysicalDeviceAddressBindingReportFeaturesEXT addressBindingFeatures{};
+        addressBindingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT;
+#ifdef OLO_DEBUG
+        if (AddressBindingReportRequested())
+        {
+            // Three prerequisites, each checked rather than assumed: the
+            // extension, the FEATURE it advertises, and a live debug-utils
+            // messenger — the reports arrive through the messenger, so without
+            // one the feature is enabled for nothing. Never a silent no-op: a
+            // session that asked for this and did not get it must be told which
+            // leg failed, or a fault report's missing owner line reads as
+            // "nothing owned that address".
+            const char* missing = !hasAddressBindingExtension                               ? "VK_EXT_device_address_binding_report is not available"
+                                  : supportedAddressBinding.reportAddressBinding != VK_TRUE ? "the reportAddressBinding feature is unsupported"
+                                  : m_DebugMessenger == VK_NULL_HANDLE                      ? "no debug-utils messenger is active (validation layer absent)"
+                                                                                            : nullptr;
+            if (missing == nullptr)
+            {
+                deviceExtensions.push_back(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+                addressBindingFeatures.reportAddressBinding = VK_TRUE;
+                OLO_CORE_INFO("[Vulkan] address-binding reporting enabled — a device-fault address will name the "
+                              "object that owned it");
+            }
+            else
+            {
+                OLO_CORE_WARN("[Vulkan] address-binding reporting requested but {} — fault addresses will not "
+                              "resolve to objects",
+                              missing);
+            }
+        }
+#else
+        (void)hasAddressBindingExtension;
+#endif
+
         // Mesh shaders (issue #813): OPTIONAL — enabled when the extension is
         // listed AND the driver supports both stages; never an ADR 0010 gate
         // row (the gate list must not widen — a device without mesh shaders
@@ -908,6 +1123,16 @@ namespace OloEngine
         {
             faultFeatures.pNext = featureChainHead;
             featureChainHead = &faultFeatures;
+        }
+        if (addressBindingFeatures.reportAddressBinding == VK_TRUE)
+        {
+            addressBindingFeatures.pNext = featureChainHead;
+            featureChainHead = &addressBindingFeatures;
+        }
+        if (diagnosticsConfig.flags != 0u)
+        {
+            diagnosticsConfig.pNext = featureChainHead;
+            featureChainHead = &diagnosticsConfig;
         }
         if (wantMeshShader)
         {
@@ -1222,6 +1447,8 @@ namespace OloEngine
 
     void VulkanDevice::Shutdown()
     {
+        // Release the crash-dump handler with the device it was armed for.
+        VulkanAftermath::Shutdown();
         // Idempotent: also runs from the dtor after an explicit Shutdown, and
         // after a partially-failed Init (whatever came up gets torn down).
         // Order: pool -> VMA -> device -> messenger -> instance — the tail of
@@ -1413,6 +1640,10 @@ namespace OloEngine
         // versa. Either alone is worth having on a device loss.
         LogDeviceFaultRecords();
         LogQueueCheckpoints();
+        // The third source, and the only one that names the RESOURCE at the
+        // faulting address and whether its memory was already freed. Last
+        // because it waits on the driver to assemble its dump.
+        VulkanAftermath::OnDeviceLost();
     }
 
     void VulkanDevice::LogDeviceFaultRecords() const
@@ -1485,12 +1716,57 @@ namespace OloEngine
             // device addresses.
             OLO_CORE_ERROR("[Vulkan]   fault address: {:#x} (precision ±{:#x}) — {}",
                            static_cast<u64>(a.reportedAddress), static_cast<u64>(a.addressPrecision), type);
+            LogAddressOwners(static_cast<u64>(a.reportedAddress), static_cast<u64>(a.addressPrecision));
         }
         for (const auto& v : vendors)
         {
             OLO_CORE_ERROR("[Vulkan]   vendor fault: '{}' code={:#x} data={:#x}", v.description,
                            static_cast<u64>(v.vendorFaultCode), static_cast<u64>(v.vendorFaultData));
         }
+    }
+
+    void VulkanDevice::LogAddressOwners([[maybe_unused]] const u64 address, [[maybe_unused]] const u64 precision)
+    {
+#ifndef OLO_DEBUG
+        // The recorder lives behind OLO_DEBUG (the validation layer implements
+        // the extension), so there is nothing to resolve against here.
+        return;
+#else
+        if (!AddressBindingReportRequested())
+        {
+            return;
+        }
+        const std::lock_guard lock(s_AddressBindingMutex);
+        if (s_AddressBindings.empty())
+        {
+            OLO_CORE_ERROR("[Vulkan]     owner: no address bindings were recorded");
+            return;
+        }
+        // The reported address is only precise to `precision`, so match the
+        // whole window. NEWEST FIRST: a range is reused, and the most recent
+        // binding is the one that was in force at the fault — an older `bound`
+        // record for the same range is history, not the answer.
+        const u64 low = (address > precision) ? address - precision : 0u;
+        const u64 high = address + precision;
+        u32 reported = 0;
+        constexpr u32 kMaxReported = 8;
+        for (auto it = s_AddressBindings.rbegin(); it != s_AddressBindings.rend() && reported < kMaxReported; ++it)
+        {
+            if (it->End <= it->Base || high < it->Base || low >= it->End)
+            {
+                continue;
+            }
+            ++reported;
+            OLO_CORE_ERROR("[Vulkan]     owner: {} {} handle={:#x} range={:#x}..{:#x} (seq {})",
+                           it->Unbound ? "UNBOUND (freed)" : "bound", ObjectTypeName(it->ObjectType),
+                           it->ObjectHandle, it->Base, it->End, it->Serial);
+        }
+        if (reported == 0u)
+        {
+            OLO_CORE_ERROR("[Vulkan]     owner: no recorded binding covers {:#x} ({} ranges tracked)", address,
+                           s_AddressBindings.size());
+        }
+#endif
     }
 
     void VulkanDevice::LogQueueCheckpoints() const

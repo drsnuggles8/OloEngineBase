@@ -344,6 +344,11 @@ namespace OloEngine
         void LogDeviceFaultInfo() const;
         // The two halves of LogDeviceFaultInfo, each behind its own extension.
         void LogDeviceFaultRecords() const;
+        // Resolve one device-fault address to the object that owned it, using the
+        // VK_EXT_device_address_binding_report records (issue #1198). No-op unless
+        // Levers::VulkanAddressBindingReport() enabled the extension.
+        static void LogAddressOwners(u64 address, u64 precision);
+
         void LogQueueCheckpoints() const;
 
         // Validation-error counter: the debug messenger increments this on

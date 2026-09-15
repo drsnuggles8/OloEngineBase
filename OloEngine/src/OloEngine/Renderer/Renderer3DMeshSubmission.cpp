@@ -277,7 +277,9 @@ namespace OloEngine
                                        const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                        const Material& defaultMaterial, i32 entityID, u64 stableEntityId,
                                        f32 errorThresholdPixels, bool castShadows,
-                                       const glm::vec4& lightmapScaleOffset)
+                                       const glm::vec4& lightmapScaleOffset,
+                                       std::span<const glm::mat4> boneMatrices,
+                                       std::span<const glm::mat4> prevBoneMatrices)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -309,6 +311,42 @@ namespace OloEngine
         }
         submission.ErrorThresholdPixels = std::clamp(errorThresholdPixels, 0.05f, 64.0f);
         submission.CastShadows = castShadows;
+
+        // Bone palette (issue #1150), and ONLY when this mesh's cooked DAG
+        // actually carries the skin bindings the shaders would read — the same
+        // cook-vs-runtime disagreement the lightmap region below guards against,
+        // with a sharper failure: publishing a palette for a rigid cook would
+        // deform the cull's BOUNDS while the vertices stayed in the rest pose,
+        // i.e. geometry culled against a volume it is not in. The registry warns
+        // once per mesh when it sees that, so the drop is not silent.
+        if (!boneMatrices.empty() && registry.MeshIsSkinned(meshHandle))
+        {
+            submission.BoneMatrices.assign(boneMatrices.begin(), boneMatrices.end());
+            submission.PrevBoneMatrices.assign(prevBoneMatrices.begin(), prevBoneMatrices.end());
+        }
+        else if (!boneMatrices.empty())
+        {
+            // A skeleton posed this entity and NO part of its cooked DAG carries
+            // a skin binding: the cook predates issue #1150. The mesh renders in
+            // its rest pose, which is a character standing in a T-pose while its
+            // skeleton animates — obviously wrong on screen, but with nothing
+            // anywhere to say why.
+            //
+            // Warn-once per mesh: the condition is permanent until the DAG is
+            // re-cooked and this runs per instance per frame, so an unmemoized
+            // warning fills OloEngine.log at frame rate and buries every other
+            // diagnostic — the same failure the lightmap warning below avoids.
+            static std::unordered_set<u64> s_WarnedRigidCookSkinnedMeshes;
+            if (s_WarnedRigidCookSkinnedMeshes.insert(static_cast<u64>(meshHandle)).second)
+            {
+                OLO_CORE_WARN_TAG("Renderer3D",
+                                  "virtual mesh {:x} is submitted with a bone palette but no part of its cooked "
+                                  "cluster DAG carries a skinning payload — it renders in its REST POSE through the "
+                                  "virtual path. The cook predates issue #1150; re-cook it (touch the source, or "
+                                  "delete its .omesh cache entry). Warned once per asset.",
+                                  static_cast<u64>(meshHandle));
+            }
+        }
 
         // Baked lightmap region (issue #867), but ONLY when this mesh's cooked
         // DAG actually carries the uv2 stream the shader would read.
@@ -396,7 +434,22 @@ namespace OloEngine
                 // PODMaterialData copy. If one of them ever moves, the other
                 // has to move with it or a Blend part is traced without being
                 // drawn again.
-                if (material->GetAlphaMode() == AlphaMode::Blend)
+                //
+                // A SKINNED part is refused for a different reason and with the
+                // same outcome (issue #1150). The proxy is the DAG's coarsest
+                // cut baked once at registration — it is fixed geometry, which
+                // is exactly why it can be built once and never refitted. A
+                // deforming mesh has no fixed geometry, so the proxy would be
+                // the REST POSE: a T-posed character casting ray-traced shadows
+                // and appearing in reflections while the raster path draws it
+                // mid-stride. Wrong geometry in the TLAS is worse than none,
+                // because none is counted and this would not be.
+                //
+                // It leaves skinned virtual geometry outside the TLAS, which is
+                // where every other skinned mesh already is (RayTracingScene
+                // excludes skinned entities outright). #1144 is the issue that
+                // owns closing that.
+                if (material->GetAlphaMode() == AlphaMode::Blend || submission.IsSkinned())
                 {
                     ++vgDiagnostics.ProxylessParts;
                     ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory::Virtualized);

@@ -149,6 +149,20 @@ namespace OloEngine
         return &m_BoneMatrices[offset];
     }
 
+    const glm::mat4* FrameDataBuffer::GetBoneMatrixRange(u32 offset, u32 count) const
+    {
+        TUniqueLock<FMutex> lock(m_BoneMutex);
+        // u64 arithmetic so an offset + count that wraps u32 cannot pass the
+        // test it is supposed to fail.
+        if (count == 0 || static_cast<u64>(offset) + static_cast<u64>(count) > static_cast<u64>(m_BoneMatrices.size()))
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: Bone matrix range [{}, {}) is outside the buffer ({} matrices)",
+                           offset, static_cast<u64>(offset) + static_cast<u64>(count), m_BoneMatrices.size());
+            return nullptr;
+        }
+        return &m_BoneMatrices[offset];
+    }
+
     glm::mat4* FrameDataBuffer::GetTransformPtr(u32 offset)
     {
         TUniqueLock<FMutex> lock(m_TransformMutex);

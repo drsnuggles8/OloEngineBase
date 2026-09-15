@@ -16,3 +16,4 @@ olo_copy_ffmpeg_runtime(OloServer)
 # server fails to start with a bare "the code execution cannot proceed" dialog and no log line —
 # a failure that looks nothing like its cause. No-op unless OLO_WITH_STEAM is on with the real SDK.
 olo_copy_steam_runtime(OloServer)
+olo_copy_aftermath_runtime(OloServer)

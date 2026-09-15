@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -79,7 +80,83 @@ namespace OloEngine::Tests
             std::string_view{ "ShadowDepthSkinned.glsl" },
             std::string_view{ "VSM_DepthSkinned.glsl" },
             std::string_view{ "VSM_DepthLocalSkinned.glsl" },
+            // Virtualized geometry (issue #1150). It reaches the producer
+            // through include/VirtualSkinnedVertexFetch.glsl, which redirects
+            // the palette with OLO_DEFORM_EXTERNAL_PALETTE because one virtual
+            // draw covers many instances with a palette each and the producer's
+            // default is a per-draw UBO. The SKINNING is still the producer's,
+            // which is what this list is about — so these belong on it, and the
+            // include assertion below follows the chain one hop.
+            std::string_view{ "VirtualMeshGBuffer.glsl" },
+            std::string_view{ "VirtualMeshletGBuffer.glsl" },
+            std::string_view{ "VirtualMeshShadowDepth.glsl" },
+            std::string_view{ "VSM_VirtualMeshDepth.glsl" },
         };
+
+        // Every file a shader pulls in, transitively — what the preprocessor
+        // would see, resolved the way glslc resolves a quoted include (relative
+        // to the including file, then to the shader root).
+        //
+        // The contract is "this pass does not reach the bone palette on its
+        // own", and a consumer satisfies that whether it includes the producer
+        // directly or through a header that does. Virtualized geometry reaches
+        // it two hops out (VirtualMeshGBuffer -> VirtualGBufferVertexStage ->
+        // VirtualSkinnedVertexFetch -> the producer), so a fixed one-hop list
+        // would have had to grow with every intermediate. Following the chain
+        // asks the question the contract actually means.
+        void CollectIncludes(const fs::path& path, std::set<fs::path>& visited, std::string& combined)
+        {
+            const fs::path canonical = fs::weakly_canonical(path);
+            if (visited.contains(canonical))
+            {
+                return;
+            }
+            visited.insert(canonical);
+
+            const std::string source = ReadFile(path);
+            if (source.empty())
+            {
+                return;
+            }
+            combined += source;
+
+            // Custom delimiter: the pattern itself contains `)"`, which would end a
+            // plain R"( ... )" raw string early.
+            const std::regex includeDirective(R"RX(#\s*include\s*"([^"]+)")RX");
+            for (std::sregex_iterator it(source.begin(), source.end(), includeDirective), end; it != end; ++it)
+            {
+                const std::string relative = (*it)[1].str();
+                fs::path resolved = path.parent_path() / relative;
+                if (!fs::exists(resolved))
+                {
+                    resolved = ShaderRoot() / relative;
+                }
+                if (fs::exists(resolved))
+                {
+                    CollectIncludes(resolved, visited, combined);
+                }
+            }
+        }
+
+        // (source-with-includes, set of resolved include paths) for one shader.
+        struct ExpandedShader
+        {
+            std::string Source;
+            std::set<fs::path> Files;
+        };
+
+        ExpandedShader Expand(const fs::path& path)
+        {
+            ExpandedShader expanded;
+            CollectIncludes(path, expanded.Files, expanded.Source);
+            return expanded;
+        }
+
+        bool ReachesProducer(const ExpandedShader& expanded)
+        {
+            const fs::path producer = fs::weakly_canonical(ShaderRoot() / "include" / "SkeletalDeformation.glsl");
+            return expanded.Files.contains(producer);
+        }
 
         constexpr std::string_view kProducerInclude = "include/SkeletalDeformation.glsl";
 
@@ -103,10 +180,10 @@ namespace OloEngine::Tests
         for (const std::string_view consumer : kSkinnedConsumers)
         {
             const fs::path path = ShaderRoot() / consumer;
-            const std::string source = ReadFile(path);
-            ASSERT_FALSE(source.empty()) << "could not read " << path.string();
+            const ExpandedShader expanded = Expand(path);
+            ASSERT_FALSE(expanded.Source.empty()) << "could not read " << path.string();
 
-            EXPECT_NE(source.find(kProducerInclude), std::string::npos)
+            EXPECT_TRUE(ReachesProducer(expanded))
                 << consumer << " does not include " << kProducerInclude
                 << " — a skinned pass that reaches the bone palette on its own is free to "
                    "drift from the colour pass it is depth-tested and shadow-matched against";
@@ -117,7 +194,10 @@ namespace OloEngine::Tests
     {
         for (const std::string_view consumer : kSkinnedConsumers)
         {
-            const std::string source = ReadFile(ShaderRoot() / consumer);
+            // The whole chain: a consumer that reaches the producer through a
+            // header calls the entry point THERE, so searching the consumer
+            // alone would fail every indirect one.
+            const std::string source = Expand(ShaderRoot() / consumer).Source;
             ASSERT_FALSE(source.empty()) << consumer;
 
             const bool callsProducer = std::ranges::any_of(
@@ -208,8 +288,17 @@ namespace OloEngine::Tests
         // The bounds test. Its absence in the shadow group is the defect #1226
         // fixed; asserting on the producer is what stops it coming back for all
         // seven consumers at once.
-        EXPECT_NE(producer.find("boneID >= 0 && boneID < OLO_MAX_BONES"), std::string::npos)
+        EXPECT_NE(producer.find("boneID >= 0 && boneID < int(OLO_DEFORM_BONE_COUNT)"), std::string::npos)
             << "the producer no longer bounds the bone ID before indexing the palette";
+
+        // ...and the DEFAULT bound is still the palette's own declared length.
+        // The bound became a macro when #1150 gave virtualized geometry a
+        // per-instance palette, so pinning the comparison alone would no longer
+        // reach a number: a consumer-supplied count could be anything, and the
+        // default could quietly stop being the UBO's length.
+        EXPECT_NE(producer.find("#define OLO_DEFORM_BONE_COUNT OLO_MAX_BONES"), std::string::npos)
+            << "the producer's default bone-count bound is no longer OLO_MAX_BONES, so the "
+               "per-draw UBO consumers can index past their own palette";
 
         // The zero-weight guard. Without it the accumulation of an unweighted
         // vertex is the zero matrix, which maps the vertex onto the model

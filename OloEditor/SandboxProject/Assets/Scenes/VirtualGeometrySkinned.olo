@@ -1,0 +1,191 @@
+Scene: VirtualGeometrySkinned.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Skinned virtualized geometry (issue #1150) — a rigged character drawn through
+# the Nanite-style cluster LOD DAG.
+#
+# REQUIRES THE DEFERRED RENDERING PATH, like every virtual-geometry scene:
+# VirtualGeometryPass self-disables on Forward / Forward+. On load:
+# Renderer Settings -> Rendering Path -> Deferred. (The Virtual Mesh inspector
+# shows a warning plus a one-click switch while the wrong path is active.)
+#
+# PRESS PLAY.
+#
+# ⚠ TODAY THE TWO VIRTUAL CHARACTERS STAND IN THEIR BIND POSE AND THE CLASSIC
+#   ONE WALKS — see issue #1272, and this scene is its reproduction.
+#
+#   Nothing is wrong with the renderer: a VirtualMeshComponent addresses its
+#   mesh by AssetHandle, and no MeshSource ASSET in the engine carries bone
+#   influences, because the asset import path (Model + CreateCombinedMeshSource)
+#   never extracted them. Only AnimatedModel does, which is what the classic
+#   character's MeshComponent holds — hence one walking figure and two T-posed
+#   ones from the same file. OloEngine.log says exactly this, once per mesh:
+#   "submitted with a bone palette but no part of its cooked cluster DAG
+#   carries a skinning payload — it renders in its REST POSE".
+#
+#   When #1272 lands, all three animate and this becomes the live demo of
+#   skinned virtual geometry. The renderer half is already proven headlessly by
+#   VirtualSkinnedBoundsTest and by
+#   VirtualGeometryVisualEvidence.ASkinnedVirtualMeshDeformsOnScreenFromEveryAngle,
+#   which drive this same pipeline from a procedurally rigged MeshSource.
+#
+# WHAT EACH ENTITY IS FOR
+#
+#   * "CesiumMan (virtual, skinned)" — the subject. A VirtualMeshComponent and a
+#     SkeletonComponent on the same entity is what makes a virtual mesh skinned;
+#     the AnimationStateComponent drives the skeleton the virtual path reads.
+#     4,672 triangles over 19 joints.
+#   * "CesiumMan (classic, skinned)" — the CONTROL, three units to the left,
+#     drawn by the ordinary skinned mesh path from the same file and the same
+#     animation. The two must move identically. This is the comparison that
+#     separates "the deformation is wrong" from "the whole scene is wrong", and
+#     it is the reason the scene has two characters rather than one.
+#   * "CesiumMan (virtual, coarse cut)" — the same subject again at an error
+#     threshold of 16 px instead of 0.5, so the DAG cut collapses toward the
+#     root clusters WHILE deforming. A crack or a hole here and not on the fine
+#     one means the conservative bounds stopped holding at a coarse level, which
+#     is the failure docs/agent-rules/deforming-geometry-conservative-bounds.md
+#     is about.
+#
+# The ground plane is a classic mesh, so the characters' shadows land on
+# geometry the virtual path did not draw — a deformed shadow on it is the
+# shadow-depth stage reading the same pose as the G-Buffer.
+# ─────────────────────────────────────────────────────────────────────────────
+Entities:
+  - Entity: 810000000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 1.1, 4.2]
+      Rotation: [-0.08, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.785398185
+        PerspectiveNear: 0.1
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 810000000000002
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      FilePath: assets/textures/hdr/newport_loft.hdr
+      IsCubemapFolder: false
+  - Entity: 810000000000003
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 12, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [-0.35, -0.8, -0.45]
+      Color: [1, 0.96, 0.88]
+      Intensity: 5
+      CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 300
+      CascadeSplitLambda: 0.92
+  - Entity: 810000000000004
+    TagComponent:
+      Tag: Ground Plane
+    TransformComponent:
+      Translation: [0, -0.02, 0]
+      Rotation: [0, 0, 0]
+      Scale: [40, 0.04, 40]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.32, 0.33, 0.35]
+      Metallic: 0
+      Roughness: 0.9
+
+  # ═══ The subject: a skinned mesh through the virtualized path ═══
+  - Entity: 810000000000010
+    TagComponent:
+      Tag: CesiumMan (virtual, skinned)
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4896684622676915332
+      ErrorThresholdPixels: 0.5
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.78, 0.7]
+      Metallic: 0
+      Roughness: 0.65
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+
+  # ═══ The control: the SAME file and animation, drawn the classic way ═══
+  - Entity: 810000000000011
+    TagComponent:
+      Tag: CesiumMan (classic, skinned)
+    TransformComponent:
+      Translation: [-1.6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      {}
+    MaterialComponent:
+      AlbedoColor: [0.62, 0.72, 0.85]
+      Metallic: 0
+      Roughness: 0.65
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}
+
+  # ═══ The same subject at a COARSE cut, still deforming ═══
+  - Entity: 810000000000012
+    TagComponent:
+      Tag: CesiumMan (virtual, coarse cut)
+    TransformComponent:
+      Translation: [1.6, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    VirtualMeshComponent:
+      Enabled: true
+      MeshSource: 4896684622676915332
+      ErrorThresholdPixels: 16
+      CastShadows: true
+    MaterialComponent:
+      AlbedoColor: [0.85, 0.6, 0.45]
+      Metallic: 0
+      Roughness: 0.65
+    AnimationStateComponent:
+      State: 0
+      CurrentTime: 0
+      BlendDuration: 0.3
+      CurrentClipIndex: 0
+      IsPlaying: true
+      SourceFilePath: Models/CesiumMan/CesiumMan.gltf
+      CurrentClipName: ""
+    SkeletonComponent:
+      {}

@@ -1271,10 +1271,14 @@ TEST(VirtualMeshSerializer, RejectsCorruptedBlobs)
     // 7 counts (issue #629 added the two cook-identity words). Every byte poke below is
     // relative to it, so it MUST track the writer — it used to be a bare `36` and, when the
     // header grew, each poke silently landed in the wrong section and corrupted nothing.
-    // 12 words since issue #867 added LightmapUVCount. The fixture carries no
-    // UV2, so its optional array is zero bytes and every section below still
-    // sits directly after the vertices.
-    constexpr sizet kHeaderBytes = 12 * sizeof(u32);
+    // 12 words since issue #867 added LightmapUVCount, and 15 since issue #1150
+    // added SkinningCount / BoneBoundsCount / ClusterBoneRefCount. The fixture
+    // is RIGID and carries no UV2, so all four of those optional arrays are zero
+    // bytes and every section below still sits directly after the vertices —
+    // only the header size moved. (Which is exactly the failure the paragraph
+    // above describes, hit a second time: the pokes landed inside the header's
+    // new words and corrupted nothing.)
+    constexpr sizet kHeaderBytes = 15 * sizeof(u32);
 
     // Empty / truncated input
     EXPECT_FALSE(VirtualMeshSerializer::DeserializeFromBlob({}, out));

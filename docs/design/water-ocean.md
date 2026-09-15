@@ -17,6 +17,7 @@ issue tracker and the picker. The remaining open work now lives in GitHub:
 | §5.3 shore wave deformation | [#1033](https://github.com/drsnuggles8/OloEngineBase/issues/1033) |
 | §2.2 foam advection, §2.3 spray particles, §7.3 rain impact | [#1034](https://github.com/drsnuggles8/OloEngineBase/issues/1034) |
 | §4.1 projected grid, §4.2 adaptive tessellation, §6.3 hex tiling, §6.4 compute Gerstner | [#1035](https://github.com/drsnuggles8/OloEngineBase/issues/1035) — **drained**: §4.1 shipped opt-in, §4.2 measured and declined, §6.3/§6.4 answered. All four are recorded in place below. |
+| §4.1 projected grid, skirt mapping | [#1217](https://github.com/drsnuggles8/OloEngineBase/issues/1217) — **done**: the skirt takes a fixed small share of each axis instead of 59% of the rows at a grazing eye. Recorded in §4.1. |
 
 §7.4 (foam trail persistence) is **shipped** — the wake disturbance field from
 issue #967 is exactly that, so it is not in the table.
@@ -383,7 +384,7 @@ tess level is a constant 1 and the grid resolution is the only knob.
 WaterShowcase.olo opts in at 256x144.
 
 Contract and CPU mirror: [`WaterSurfaceLod.h`](../../OloEngine/src/OloEngine/Renderer/Water/WaterSurfaceLod.h)
-(28 tests in `WaterGeometryLodProfileTest`, built against the real
+(33 tests in `WaterGeometryLodProfileTest`, built against the real
 `EditorCamera` matrix). Evaluator: `waterProjectGridVertex()` in
 [`WaterVertexStage.glsl`](../../OloEditor/assets/shaders/include/WaterVertexStage.glsl).
 Visual evidence, both grids at both acceptance-criterion angles:
@@ -444,19 +445,52 @@ Two more are structural rather than found:
   keeps a finite water tile finite. Rows past the rect collapse to zero-area
   triangles on its edge instead of extending the ocean to the horizon.
 
-**The skirt is the real cost, and it is view-dependent.** The rectangle reaches
-below the screen by the displacement bound, so part of the grid is always laid
-out where the camera cannot see it until a crest lifts it into frame. How much
-depends on the camera's height above the water relative to the crest height —
-measured on WaterShowcase's waves (a 1.28 m bound):
+**The skirt was the real cost, and it is view-dependent (issue #1217).** The
+rectangle reaches below the screen by the displacement bound, so part of the
+grid is always laid out where the camera cannot see it until a crest lifts it
+into frame. How much depends on the camera's height above the water relative to
+the crest height, and mapped UNIFORMLY it was most of the grid at the pose the
+feature exists for. Measured on WaterShowcase's waves (a 1.28 m bound), at
+256×144:
 
-| pose | rows below the screen | vertices on screen | px per on-screen triangle at 256×144 |
+| pose | rows below the screen | vertices on screen | px per on-screen triangle |
 |---|---|---|---|
-| low grazing, 3 m eye | 61% | 25% | ~60 |
-| high overhead, 150 m eye | 7% | 76% | ~37 |
+| low grazing, 3 m eye, uniform (u, v) | 59% | 28% | 61.6 |
+| low grazing, 3 m eye, **compressed skirt** | **10%** | **74%** | **22.0** |
+| high overhead, 150 m eye (either) | 7% | 76% | 36.8 |
 
-That is why the scene authors 256×144 rather than the 192×108 that would tile
-1080p exactly. It is also why the bound the rectangle uses is
+`WaterSurfaceLod::MapProjectedGridUV` is what closed that. Each END of each axis
+gets at most `kSkirtParamShare` (0.1) of that axis' rows, and the rest go to the
+part of the rectangle that is on screen. Three properties make it safe to do at
+all, and they are the whole design:
+
+- **the on-screen part stays exactly uniform.** The compression is confined to
+  the ends; over the window the map is the same straight line it always was, so
+  `ProjectedGridVertexIsUniformInScreenSpace` is untouched;
+- **a skirt that already takes no more than its share is left alone, to the
+  bit.** The join slope works out to exactly 1 in that case, so the overhead
+  pose above is byte-identical to the uniform mapping and its goldens do not
+  move. Only a camera low enough to grow a real skirt sees any change at all;
+- **the band-limit follows the step.** `SpacingPerMetre` now describes the
+  ON-SCREEN step rather than the rectangle's average, and each vertex carries
+  its own `m_StepRatio` — its NDC step over the on-screen one, 1 everywhere on
+  screen and up to ~28 at the outermost skirt row. Without it a compressed
+  skirt row is band-limited as though its neighbours were still an on-screen
+  step away, and the octave ladder puts detail on it that its own lattice
+  cannot sample. The skirt is a *quadratic* rather than a second straight line
+  precisely so this step has no jump in it: the ladder must not change across
+  one edge of the mesh.
+
+Johanson's projector-camera construction is the other shape this could have
+taken, and it was not chosen: it replaces `ComputeNdcBounds` wholesale, and with
+it the five load-bearing details listed above that were found by capturing
+frames after every CPU test was already green. The compressed map leaves all of them in place, and
+it is provably the identity wherever the skirt is already small.
+
+That is also why the scene authors 256×144 rather than the 192×108 that would
+tile 1080p exactly — the resolution predates the compression and is left alone
+here, because changing it would move the goldens for a reason that is not this
+one. It is also why the bound the rectangle uses is
 `MaxSurfaceDisplacement` and **not** the tess-control cull's
 `MaxWaveDisplacement`: the cull's is 2.8× larger (it bounds every detail octave
 by the largest and adds a 1.5× safety factor, both free for a cull), and feeding
@@ -474,9 +508,6 @@ the packed fields left coherent (`PackProjectedGrid` returns false): a
 degenerate surface transform (a zero scale on any axis makes every projected
 vertex NaN, where the world grid merely draws zero area), and an orthographic
 camera, which has no eye for a pinhole ray to be cast from.
-
-A non-uniform (u, v) mapping that spent fewer rows on the skirt would recover
-most of that, and is filed as follow-up work rather than left unmeasured.
 
 **Off by default**, deliberately: it moves every water vertex, so a scene opts
 in and its goldens move in the same commit. Only WaterShowcase does.

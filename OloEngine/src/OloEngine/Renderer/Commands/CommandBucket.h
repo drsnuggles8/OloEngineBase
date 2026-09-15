@@ -51,6 +51,20 @@ namespace OloEngine
         u16 materialDataIndex = 0;
         u16 renderStateIndex = 0;
 
+        // Bone-palette partition id (issue #1031). 0 for a static draw. A
+        // skinned draw may only batch with another skinned draw whose bone
+        // palette — current AND previous pose — is byte-identical, because the
+        // batched draw uploads exactly one palette for all N instances.
+        //
+        // This is a partition ORDINAL assigned by BatchCommands after it has
+        // compared the candidate palettes byte for byte, NOT a content hash.
+        // A hash here would make a collision render one actor in another's
+        // pose, which is the kind of wrong image nobody reads as a bug; an
+        // ordinal cannot collide by construction. Palettes are only compared
+        // among draws that already share the geometry/material key above, so
+        // the comparison never runs for a scene with one character.
+        u64 bonePaletteID = 0;
+
         bool operator==(const InstanceGroupKey& other) const = default;
     };
 
@@ -63,6 +77,7 @@ namespace OloEngine
             h ^= std::hash<u32>{}(key.baseIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.materialDataIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
             h ^= std::hash<u16>{}(key.renderStateIndex) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<u64>{}(key.bonePaletteID) + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;
         }
     };
@@ -94,23 +109,33 @@ namespace OloEngine
     // Configuration for command bucket processing
     struct CommandBucketConfig
     {
-        bool EnableSorting = true;    // Sort commands to minimize state changes
-        bool EnableBatching = true;   // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
-        u32 MaxMeshInstances = 16384; // Maximum instances per DrawMeshInstanced packet, for CommandBucket's CPU
-                                      // auto-batching of separate DrawMesh entities that share mesh/material/render
-                                      // state — a different path from the GPU-cull InstancedMeshComponent draw (see
-                                      // FrameDataBuffer::DEFAULT_ENTITY_ID_CAPACITY, 262144, for that one; issue
-                                      // #524's draws_unique/draws_instanced/anim_crowd stress scenes all route
-                                      // around this path — unique materials, single-InstancedMeshComponent, and
-                                      // animated-mesh-skips-batching, respectively — so there's no evidence this
-                                      // needs to scale with those). Well below FrameDataBuffer's EntityID/Color/
-                                      // Custom capacity (so an N-into-1 collapse never truncates per-source picking
-                                      // IDs) and below DEFAULT_TRANSFORM_CAPACITY (65536) with headroom — a group
-                                      // at this cap uses only 1/4 of the transform buffer for its current-transform
-                                      // allocation, leaving room for the prev-transform stream plus other groups in
-                                      // the same frame. Dispatcher uses a TLS heap scratch so raising this doesn't
-                                      // bloat the stack.
-        u32 InitialCapacity = 1024;   // Initial capacity for command arrays
+        bool EnableSorting = true;  // Sort commands to minimize state changes
+        bool EnableBatching = true; // Batch similar DrawMesh → DrawMeshInstanced (requires instanced shader support)
+        // The cap the DISPATCHER can actually honour. CommandDispatch::
+        // DrawMeshInstanced truncates to this and does not split the batch, so
+        // a bucket configured above it collapses source draws that then never
+        // render. It used to be spelled `CommandBucketConfig{}.MaxMeshInstances`
+        // at the two dispatch-side sites -- i.e. the DEFAULT config rather than
+        // the bucket's own -- which is why a raised cap silently dropped
+        // instances instead of failing. Naming it once is what lets
+        // ValidateConfig below reject a value the dispatcher cannot serve.
+        static constexpr u32 kMaxDispatchableMeshInstances = 16384;
+
+        u32 MaxMeshInstances = kMaxDispatchableMeshInstances; // Maximum instances per DrawMeshInstanced packet, for CommandBucket's CPU
+                                                              // auto-batching of separate DrawMesh entities that share mesh/material/render
+                                                              // state — a different path from the GPU-cull InstancedMeshComponent draw (see
+                                                              // FrameDataBuffer::DEFAULT_ENTITY_ID_CAPACITY, 262144, for that one; issue
+                                                              // #524's draws_unique/draws_instanced/anim_crowd stress scenes all route
+                                                              // around this path — unique materials, single-InstancedMeshComponent, and
+                                                              // animated-mesh-skips-batching, respectively — so there's no evidence this
+                                                              // needs to scale with those). Well below FrameDataBuffer's EntityID/Color/
+                                                              // Custom capacity (so an N-into-1 collapse never truncates per-source picking
+                                                              // IDs) and below DEFAULT_TRANSFORM_CAPACITY (65536) with headroom — a group
+                                                              // at this cap uses only 1/4 of the transform buffer for its current-transform
+                                                              // allocation, leaving room for the prev-transform stream plus other groups in
+                                                              // the same frame. Dispatcher uses a TLS heap scratch so raising this doesn't
+                                                              // bloat the stack.
+        u32 InitialCapacity = 1024;                           // Initial capacity for command arrays
     };
 
     // Cache-line padded slot for thread-local storage
@@ -206,6 +231,20 @@ namespace OloEngine
             u32 BatchedCommands = 0; // Commands that were successfully batched
             u32 DrawCalls = 0;       // Actual draw calls executed
             u32 StateChanges = 0;    // State changes performed
+
+            // Skinned auto-batching (issue #1031). Kept apart from
+            // BatchedCommands — which counts every collapsed source — because
+            // the skinned figure answers a different question: how much of a
+            // crowd actually shares a pose. A crowd of independently phased
+            // animations legitimately reports zero here, and that is the
+            // measurement, not a failure.
+            u32 SkinnedBatchedCommands = 0; // Skinned sources collapsed into an instanced draw
+            u32 SkinnedBatchGroups = 0;     // Distinct same-pose groups those came from
+            // Skinned draws that were eligible on geometry and material but
+            // could not be considered, because their bone offsets were still
+            // worker-local at batch time. Non-zero means RemapBoneOffsets did
+            // not run before this pass — a plumbing error, not a pose result.
+            u32 SkinnedBatchUnremapped = 0;
         };
 
         // Immutable replay for an already prepared range. Concurrent replays of
@@ -225,6 +264,24 @@ namespace OloEngine
         Statistics GetStatistics() const
         {
             return m_Stats;
+        }
+
+        // Batching / sorting policy for this bucket. The constructor already
+        // takes this struct; exposing it afterwards lets a caller A/B the
+        // batcher against itself on one real frame, which is how the skinned
+        // batching of issue #1031 is measured and how its output is proved
+        // pixel-identical to the unbatched path. Takes effect on the next
+        // BatchCommands call.
+        [[nodiscard]] CommandBucketConfig GetConfig() const
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            return m_Config;
+        }
+
+        void SetConfig(const CommandBucketConfig& config)
+        {
+            TUniqueLock<FMutex> lock(m_Mutex);
+            m_Config = ValidateConfig(config);
         }
 
         // Get command count
@@ -428,8 +485,22 @@ namespace OloEngine
         // Try to merge compatible commands for batching (works on array indices)
         bool TryMergeCommands(sizet targetIdx, sizet sourceIdx, CommandAllocator& allocator);
 
+        // Clamp a config into what the rest of the pipeline can serve, loudly.
+        // Zero would make BatchCommands emit an instanced command of zero
+        // instances; anything above the dispatch cap would make it collapse
+        // source draws the dispatcher then truncates away. Both are silent
+        // wrong-image failures, so the clamp reports rather than just clamps.
+        [[nodiscard]] static CommandBucketConfig ValidateConfig(const CommandBucketConfig& config);
+
         // Convert a DrawMeshCommand to DrawMeshInstancedCommand for batching
         CommandPacket* ConvertToInstanced(CommandPacket* meshPacket, CommandAllocator& allocator);
+
+        // Split skinned batching candidates by pose and feed the same-pose
+        // subsets into `groups` under distinct bonePaletteID ordinals
+        // (issue #1031). Lives on the bucket because it reads m_Packets and
+        // reports into m_Stats.
+        using InstanceGroupMap = std::unordered_map<InstanceGroupKey, std::vector<sizet>, InstanceGroupKeyHash>;
+        void PartitionSkinnedGroups(const InstanceGroupMap& candidates, InstanceGroupMap& groups);
 
         // Internal sort implementation — caller must hold m_Mutex
         void SortCommandsInternal();

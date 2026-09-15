@@ -17,7 +17,7 @@
 // the split visible. Giving every field its own offset in one shared block is
 // what makes it impossible: identical text in every consumer cannot disagree.
 //
-// Every pass uploads all 32 bytes; a pass with no use for a field writes 0.
+// Every pass uploads all 48 bytes; a pass with no use for a field writes 0.
 // Adding a field means adding it HERE and growing the C++ mirror with it.
 layout(std140, binding = 49) uniform VirtualDrawInfo {
     // 0 — instance every draw/workgroup of this call belongs to.
@@ -51,6 +51,18 @@ layout(std140, binding = 49) uniform VirtualDrawInfo {
     //      value here a GPU overflow could inflate, and it addresses a buffer.
     //      0 means "no software raster in this pass", i.e. an empty list.
     uint u_VirtualSwListCapacity;
+    // 32 — first ELEMENT of the packed skin-binding tail in the SAME arena at
+    //      binding 39 (issue #1150), two 16-byte bindings to a 32-byte element.
+    //      Skinning has no binding of its own for the reason stated above the
+    //      uv2 field, and ZERO means "this arena carries no skinning" — a
+    //      don't-fetch signal every reader must honour, same bounds argument.
+    uint u_VirtualSkinningBase;
+    // 36/40/44 — std140 rounds this block to a 16-byte multiple; the three
+    //      words that buys are NAMED rather than left implicit, so the next
+    //      field to be added claims a slot that is visibly there.
+    uint u_VirtualSkinPad0;
+    uint u_VirtualSkinPad1;
+    uint u_VirtualSkinPad2;
 };
 
 // ---- the packed uv2 tail: ONE spelling of the addressing math --------------

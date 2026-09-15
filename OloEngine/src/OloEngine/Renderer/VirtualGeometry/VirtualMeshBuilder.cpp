@@ -3,6 +3,7 @@
 
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Vertex.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualSkinningPacking.h"
 
 #include <meshoptimizer.h>
 
@@ -716,6 +717,186 @@ namespace OloEngine::VirtualMeshBuilder
 
             return groupIndex;
         }
+
+        // ── Skinning metadata (issue #1150) ──────────────────────────────────
+        //
+        // Derived from the FINISHED DAG rather than from the source mesh, and
+        // that is not an implementation detail: both products below are keyed to
+        // the emitted clusters and to the compacted vertex array, neither of
+        // which exists until emission is done. Simplification only ever REMOVES
+        // vertices, so every vertex any cluster still references carries the
+        // binding it was compacted with and no binding has to be re-derived for
+        // a coarse level.
+        //
+        // Both are no-ops on a rigid cook (mesh.Skinning empty), so the rigid
+        // path reaches the same VirtualMesh it reached before.
+        void ComputeSkinningMetadata(VirtualMesh& mesh)
+        {
+            if (!mesh.IsSkinned())
+            {
+                return;
+            }
+
+            // A SUBMESH of a rigged mesh can carry no bone weights at all — a
+            // static prop parented into a character's FBX is the ordinary case.
+            // The compaction above fills its Skinning stream anyway, because
+            // "is this source rigged" is a property of the MeshSource and not of
+            // the submesh, so without this the part would claim to be skinned
+            // and then produce an EMPTY BoneBounds. The blob's all-or-nothing
+            // check rejects exactly that shape, which would make the cook
+            // permanently unloadable: every load re-cooks the whole DAG and
+            // re-fails. The part does not deform, so the honest answer is that
+            // it is rigid.
+            const bool anyInfluence = std::ranges::any_of(
+                mesh.Skinning, [](const VirtualVertexSkinning& binding)
+                { return binding.Weights[0] > 0.0f || binding.Weights[1] > 0.0f || binding.Weights[2] > 0.0f ||
+                         binding.Weights[3] > 0.0f; });
+            if (!anyInfluence)
+            {
+                mesh.Skinning.clear();
+                mesh.Skinning.shrink_to_fit();
+                return;
+            }
+
+            // (1) Per-bone rest-pose spheres. Two passes because a centroid has
+            // to exist before anything can be measured against it; the sphere is
+            // centroid + farthest member rather than a minimal enclosing sphere,
+            // which is a slightly larger bound computed in a fraction of the
+            // time — and every use of it is one-sided (larger is safe).
+            u32 boneSlotCount = 0;
+            for (const VirtualVertexSkinning& binding : mesh.Skinning)
+            {
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    if (binding.Weights[i] > 0.0f)
+                    {
+                        boneSlotCount = std::max(boneSlotCount, binding.BoneIDs[i] + 1u);
+                    }
+                }
+            }
+            // Sized to the highest bone any vertex actually binds, not to the
+            // skeleton: a palette longer than this simply has no influence on
+            // this mesh, and SkinDisplacementBound walks the shorter of the two.
+            mesh.BoneBounds.assign(boneSlotCount, VirtualBoneBounds{});
+
+            std::vector<glm::dvec3> centroidSum(boneSlotCount, glm::dvec3(0.0));
+            std::vector<u32> centroidCount(boneSlotCount, 0u);
+            for (sizet v = 0; v < mesh.Skinning.size(); ++v)
+            {
+                const VirtualVertexSkinning& binding = mesh.Skinning[v];
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    if (binding.Weights[i] <= 0.0f)
+                    {
+                        continue;
+                    }
+                    u32 const boneId = binding.BoneIDs[i];
+                    centroidSum[boneId] += glm::dvec3(mesh.Vertices[v].Position);
+                    ++centroidCount[boneId];
+                }
+            }
+            for (u32 b = 0; b < boneSlotCount; ++b)
+            {
+                if (centroidCount[b] > 0)
+                {
+                    mesh.BoneBounds[b].Center = glm::vec3(centroidSum[b] / static_cast<f64>(centroidCount[b]));
+                    mesh.BoneBounds[b].Radius = 0.0f; // influences something; radius grown below
+                }
+            }
+            for (sizet v = 0; v < mesh.Skinning.size(); ++v)
+            {
+                const VirtualVertexSkinning& binding = mesh.Skinning[v];
+                for (u32 i = 0; i < 4; ++i)
+                {
+                    if (binding.Weights[i] <= 0.0f)
+                    {
+                        continue;
+                    }
+                    VirtualBoneBounds& bounds = mesh.BoneBounds[binding.BoneIDs[i]];
+                    bounds.Radius = std::max(bounds.Radius, glm::length(mesh.Vertices[v].Position - bounds.Center));
+                }
+            }
+
+            // (2) Per-cluster bone sets, fixed width. A cluster whose set does
+            // not fit keeps an ALL-SENTINEL list, which the cull reads as "no
+            // tight bound available" and answers with the instance-wide one —
+            // the reason this is a capacity decision rather than a build
+            // failure (see kMaxClusterBones).
+            mesh.ClusterBoneRefs.assign(mesh.Clusters.size() * kMaxClusterBones, kNoClusterBone);
+            u32 overflowedClusters = 0;
+            for (sizet c = 0; c < mesh.Clusters.size(); ++c)
+            {
+                const VirtualCluster& cluster = mesh.Clusters[c];
+                sizet const base = c * kMaxClusterBones;
+                u32 used = 0;
+                bool overflowed = false;
+                for (u32 local = 0; local < cluster.VertexCount && !overflowed; ++local)
+                {
+                    u32 const vertexIndex = mesh.ClusterVertexRefs[cluster.VertexOffset + local];
+                    const VirtualVertexSkinning& binding = mesh.Skinning[vertexIndex];
+
+                    // A RIGID vertex inside a skinned mesh forfeits the whole
+                    // cluster's tight bound, and this is a correctness rule
+                    // rather than a tuning one.
+                    //
+                    // The deformed sphere is the hull of { M_b * c : b in the
+                    // set }. A vertex with no influence does not move, so it
+                    // stays at its REST position — which that hull need not
+                    // contain once the bones have carried the rest of the
+                    // cluster away. There is no bone id that stands for "the
+                    // identity", so the honest answer is the instance-wide
+                    // bound, which contains a rigid vertex trivially (its
+                    // displacement is zero, and zero is under any bound).
+                    if (!(binding.Weights[0] > 0.0f || binding.Weights[1] > 0.0f || binding.Weights[2] > 0.0f ||
+                          binding.Weights[3] > 0.0f))
+                    {
+                        overflowed = true;
+                        break;
+                    }
+
+                    for (u32 i = 0; i < 4; ++i)
+                    {
+                        if (binding.Weights[i] <= 0.0f)
+                        {
+                            continue;
+                        }
+                        u32 const boneId = binding.BoneIDs[i];
+                        bool present = false;
+                        for (u32 slot = 0; slot < used; ++slot)
+                        {
+                            present = present || mesh.ClusterBoneRefs[base + slot] == boneId;
+                        }
+                        if (present)
+                        {
+                            continue;
+                        }
+                        if (used == kMaxClusterBones)
+                        {
+                            overflowed = true;
+                            break;
+                        }
+                        mesh.ClusterBoneRefs[base + used] = boneId;
+                        ++used;
+                    }
+                }
+                if (overflowed)
+                {
+                    std::fill_n(mesh.ClusterBoneRefs.begin() + static_cast<std::ptrdiff_t>(base), kMaxClusterBones,
+                                kNoClusterBone);
+                    ++overflowedClusters;
+                }
+            }
+
+            if (overflowedClusters > 0)
+            {
+                // Not a warning: this is a cost report, not a fault. Those
+                // clusters still draw, still cast shadows and still pick the
+                // same LOD — they just cull against the whole instance's bound.
+                OLO_CORE_TRACE("VirtualMeshBuilder: {} of {} clusters reference more than {} bones (or hold a vertex "
+                               "with no influence) and fall back to the instance-wide deformed bound",
+                               overflowedClusters, mesh.Clusters.size(), kMaxClusterBones);
+            }
+        }
     } // namespace
 
     VirtualMesh BuildSubmesh(const MeshSource& meshSource, u32 submeshIndex, const VirtualMeshBuildConfig& config)
@@ -733,9 +914,22 @@ namespace OloEngine::VirtualMeshBuilder
             OLO_CORE_WARN("VirtualMeshBuilder: Source mesh has no geometry");
             return result;
         }
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
+        // MORPH TARGETS remain rejected (issue #1150 lifted the SKINNING half only).
+        //
+        // The two look alike from here and are not. Linear-blend skinning is a
+        // per-vertex convex combination of a small, STATIC set of bone
+        // transforms, which is what lets VirtualSkinningBounds derive a bound
+        // that holds for every pose from data the cook can compute once. A morph
+        // target is an arbitrary per-vertex displacement field with a runtime
+        // weight: there is no bone set to bound it with, and a conservative
+        // bound would have to be "the union of every target's displacement",
+        // which is neither small nor cheap to keep watertight across a DAG. It
+        // stays a loud rejection with its own message rather than being folded
+        // into a generic one — "unsupported" that does not say WHICH feature was
+        // the problem is the failure this warning exists to avoid.
+        if (meshSource.HasMorphTargets())
         {
-            OLO_CORE_WARN("VirtualMeshBuilder: Skinned / morph-target sources are not supported");
+            OLO_CORE_WARN("VirtualMeshBuilder: Morph-target sources are not supported (skinning is, issue #1150)");
             return result;
         }
 
@@ -792,6 +986,18 @@ namespace OloEngine::VirtualMeshBuilder
             const bool sourceHasLightmapUVs = meshSource.HasLightmapUVs();
             const auto& srcLightmapUVs = meshSource.GetLightmapUVs();
 
+            // The skin bindings ride the SAME compaction, for the same reason
+            // (issue #1150). MeshSource pre-allocates m_BoneInfluences to the
+            // vertex count for every source, rigged or not, so the length check
+            // is what separates "this mesh is skinned" from "this mesh has an
+            // empty influence array sized like its vertices" — HasBoneInfluences
+            // answers the first, and a stream that fell out of step here would
+            // deform vertices by another vertex's bones, which reads as the mesh
+            // tearing itself apart rather than as a load failure.
+            const bool sourceHasSkinning = meshSource.HasBoneInfluences() &&
+                                           meshSource.GetBoneInfluences().Num() == srcVertices.Num();
+            const auto& srcInfluences = meshSource.GetBoneInfluences();
+
             std::vector<u32> vertexRemap(static_cast<sizet>(srcVertices.Num()), UINT32_MAX);
             for (sizet i = 0; i < rangeIndexCount; ++i)
             {
@@ -808,6 +1014,56 @@ namespace OloEngine::VirtualMeshBuilder
                     if (sourceHasLightmapUVs)
                     {
                         result.LightmapUVs.push_back(srcLightmapUVs[static_cast<i32>(v)]);
+                    }
+                    if (sourceHasSkinning)
+                    {
+                        const BoneInfluence& influence = srcInfluences[static_cast<i32>(v)];
+                        VirtualVertexSkinning binding;
+                        f32 total = 0.0f;
+                        for (u32 slot = 0; slot < 4; ++slot)
+                        {
+                            u32 const boneId = influence.m_BoneIDs[slot];
+                            f32 const weight = influence.m_Weights[slot];
+                            // Two independent reasons to drop an influence, and
+                            // BOTH are about hostile input rather than tidiness.
+                            //
+                            // A non-finite or negative WEIGHT reaches the GPU as
+                            // a multiplier on a bone matrix, where a NaN spreads
+                            // to the whole vertex and a negative weight breaks
+                            // the convexity every bound in VirtualSkinningBounds
+                            // rests on.
+                            //
+                            // An out-of-range bone ID is worse: these arrive raw
+                            // from the asset pack, and the emission below sizes
+                            // its per-bone arrays from max(id) + 1 and then
+                            // INDEXES them by the same ids. 0xFFFFFFFF wraps that
+                            // increment to zero and writes out of bounds; a
+                            // merely large id asks for a multi-gigabyte
+                            // allocation. Nothing upstream bounds them — this
+                            // path was unreachable until the skinned rejection
+                            // was lifted. The cap is the one the GPU packing can
+                            // address at all (VirtualSkinningPacking.h), so an id
+                            // above it could never have been read by a shader.
+                            bool const usable = std::isfinite(weight) && weight > 0.0f &&
+                                                boneId < kVirtualSkinningMaxBoneId;
+                            binding.BoneIDs[slot] = usable ? boneId : 0u;
+                            binding.Weights[slot] = usable ? weight : 0.0f;
+                            total += binding.Weights[slot];
+                        }
+                        // Normalize here, once, at cook time. The shaders and
+                        // the CPU bound both assume SUM(w) == 1 (that is what
+                        // makes a skinned position a CONVEX combination); an
+                        // importer that left the weights merely close to 1 would
+                        // otherwise scale every vertex slightly toward or away
+                        // from the origin, which looks like a modelling error.
+                        if (total > 0.0f)
+                        {
+                            for (f32& weight : binding.Weights)
+                            {
+                                weight /= total;
+                            }
+                        }
+                        result.Skinning.push_back(binding);
                     }
                 }
                 indices[i] = vertexRemap[v];
@@ -997,6 +1253,8 @@ namespace OloEngine::VirtualMeshBuilder
                           submeshIndex, result.SourceTriangleCount);
         }
 
+        ComputeSkinningMetadata(result);
+
         ReportUvDegenerates(result, submeshIndex);
 
         return result;
@@ -1013,9 +1271,11 @@ namespace OloEngine::VirtualMeshBuilder
 
         VirtualMeshSet set;
 
-        if (meshSource.HasSkeleton() || meshSource.HasMorphTargets() || !meshSource.GetBoneInfo().IsEmpty())
+        // Skinned sources build (issue #1150); morph targets still do not — see
+        // BuildSubmesh for why the two part company here.
+        if (meshSource.HasMorphTargets())
         {
-            OLO_CORE_WARN("VirtualMeshBuilder::BuildSet: Skinned / morph-target sources are not supported");
+            OLO_CORE_WARN("VirtualMeshBuilder::BuildSet: Morph-target sources are not supported");
             return set;
         }
 
