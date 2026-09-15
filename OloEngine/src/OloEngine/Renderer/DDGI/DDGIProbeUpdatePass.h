@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -323,6 +324,11 @@ namespace OloEngine
         void DestroyResources();
         void BuildCascades();
         void UploadVolumeUBO(bool enabled);
+        // The pass-local block every DDGI draw and dispatch shares, minus the
+        // per-dispatch fields its caller fills in. Separate from UploadComputeParams
+        // because the relocation dispatch needs to edit the struct (its capture-set
+        // array) between building it and uploading it.
+        [[nodiscard]] UBOStructures::DDGIPassDataUBO MakePassData(i32 probeIndexOrTotal, i32 flags) const;
         void UploadComputeParams(i32 probeIndexOrTotal, i32 flags, UniformBuffer* target = nullptr);
         void BindProbeBuffers() const;
 
@@ -345,7 +351,11 @@ namespace OloEngine
                                const std::function<void(i32, CaptureResources&)>& body);
         void CaptureProbe(i32 probeIdx, CaptureResources& resources);
         void ResampleProbe(i32 probeIdx, CaptureResources& resources);
-        void RelocateProbeGPU(i32 probeIdx, bool refreshCapture, UniformBuffer* params = nullptr);
+        // Relocates the WHOLE capture set in one dispatch per chunk of
+        // UBOStructures::DDGIPassDataUBO::MaxRelocationBatch (issue #846). Reads each
+        // probe's record to decide its refresh flag, so call it BEFORE the capture
+        // bookkeeping that sets ProbeRecord::Captured for this frame.
+        void RelocateProbesGPU(const std::vector<i32>& captureSet);
         void BlendVisibility(const std::vector<i32>& capturedProbes);
         void RelightProbes();
         void BlendIrradiance();
@@ -366,9 +376,10 @@ namespace OloEngine
         Ref<ComputeShader> m_RelocateCompute;
 
         // UBOs
-        Ref<UniformBuffer> m_DDGIUBO;          // binding 51 (UBO_DDGI)
-        Ref<UniformBuffer> m_PassDataUBO;      // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
-        Ref<UniformBuffer> m_CaptureCameraUBO; // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
+        Ref<UniformBuffer> m_DDGIUBO;           // binding 51 (UBO_DDGI)
+        Ref<UniformBuffer> m_PassDataUBO;       // binding 7  (UBO_USER_0) — per-draw/per-dispatch data
+        Ref<UniformBuffer> m_RelocateParamsUBO; // binding 7 too — the batched relocation capture set (#846)
+        Ref<UniformBuffer> m_CaptureCameraUBO;  // binding 0  (UBO_CAMERA) — per-face overwrite, ShadowRenderPass style
         std::vector<CaptureResources> m_CaptureItems;
 
         // SSBO (issue #707; one buffer since #1015)

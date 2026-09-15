@@ -419,6 +419,11 @@ namespace OloEngine
         addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addressInfo.buffer = buffer;
         entry->DeviceAddress = vkGetBufferDeviceAddress(device->GetDevice(), &addressInfo);
+        if (Levers::VulkanTraceBuffers())
+        {
+            OLO_CORE_TRACE("[RHI/Vulkan] raw buffer {:#x}..{:#x} ({} bytes, VkBuffer {:#x})", entry->DeviceAddress,
+                           entry->DeviceAddress + entry->Size, entry->Size, VkHandleToU64(buffer));
+        }
 
         // Keep generic native resolution working (CopyBufferSubData's operands
         // and barrier lowering resolve through the identity registry).
@@ -659,8 +664,9 @@ namespace OloEngine
         // foliage OOB was named by exactly this pairing).
         if (Levers::VulkanTraceBuffers())
         {
-            OLO_CORE_TRACE("[RHI/Vulkan] vertex buffer {:#x}..{:#x} ({} bytes, {})", m_DeviceAddress,
-                           m_DeviceAddress + m_Size, m_Size, m_Mapped != nullptr ? "BAR-mapped" : "staged");
+            OLO_CORE_TRACE("[RHI/Vulkan] vertex buffer {:#x}..{:#x} ({} bytes, VkBuffer {:#x}, {})",
+                           m_DeviceAddress, m_DeviceAddress + m_Size, m_Size, VkHandleToU64(m_Buffer),
+                           m_Mapped != nullptr ? "BAR-mapped" : "staged");
         }
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
@@ -864,6 +870,12 @@ namespace OloEngine
         addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addressInfo.buffer = m_Buffer;
         m_DeviceAddress = vkGetBufferDeviceAddress(VulkanDevice::Get()->GetDevice(), &addressInfo);
+
+        if (Levers::VulkanTraceBuffers())
+        {
+            OLO_CORE_TRACE("[RHI/Vulkan] index buffer {:#x}..{:#x} ({} bytes, VkBuffer {:#x})", m_DeviceAddress,
+                           m_DeviceAddress + sizeBytes, sizeBytes, VkHandleToU64(m_Buffer));
+        }
 
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, VkHandleToU64(m_Buffer), RHI::Backend::Vulkan);
         // Diagnostics-only registration (#810) — see VulkanRootObjectKind.

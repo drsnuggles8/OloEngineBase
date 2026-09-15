@@ -455,11 +455,19 @@ namespace OloEngine
         // `stableEntityId` is the entity's canonical GPU Scene identity (the
         // same one the classic path passes), needed here because each part is
         // also staged as a ray-tracing proxy instance keyed by it.
+        //
+        // `boneMatrices` / `prevBoneMatrices` make the instance SKINNED (issue
+        // #1150): the same model-space palette DrawAnimatedMesh takes for the
+        // classic path, forwarded unchanged so both renderers pose the character
+        // from one set of matrices. Empty for a rigid mesh, which is every
+        // caller that predates skinned virtual geometry.
         [[nodiscard]] static bool SubmitVirtualMesh(AssetHandle meshHandle, const Ref<MeshSource>& meshSource,
                                                     const glm::mat4& modelMatrix, const Material* overrideMaterial,
                                                     const Material& defaultMaterial, i32 entityID,
                                                     u64 stableEntityId, f32 errorThresholdPixels, bool castShadows,
-                                                    const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f));
+                                                    const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
+                                                    std::span<const glm::mat4> boneMatrices = {},
+                                                    std::span<const glm::mat4> prevBoneMatrices = {});
         // Flatten a Material into the exact POD record the frame material table
         // uploads for a draw (factors, alpha mode/cutoff, and the resolved GL
         // texture id per slot, incl. the global-IBL fallback). Public because it
@@ -2008,7 +2016,6 @@ namespace OloEngine
         // rerouted to ForwardOverlayPass to avoid aliasing its outputs onto
         // G-Buffer slots.
         static bool IsDeferredCapableShader(const Ref<Shader>& shader);
-        static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
         static void AdvanceDecalVisibilityFrame();
         static auto ValidateDrawMeshResources(const char* context, RHI::ResourceHandle vertexArray,
                                               RHI::ResourceHandle shader) -> bool;
@@ -2074,6 +2081,14 @@ namespace OloEngine
         // them; GetGPUOcclusionPass stays private (only SubmitGPUCulledInstanced
         // uses it).
       public:
+        // The pass that owns a render stream's CommandBucket. Public since
+        // issue #1031: proving that skinned auto-batching renders the same
+        // pixels as the unbatched path means toggling THE bucket's own
+        // EnableBatching between two frames of one scene, which needs the pass
+        // the batcher runs on. Returns the engine's own pass object — a caller
+        // outside the renderer should read from it, not restructure it.
+        static auto GetRenderStreamNode(RenderStreamType stream) -> CommandBufferRenderPass*;
+
         static GPUFrustumCuller::HZBOcclusionInputs BuildCurrentOcclusionHZB(RHI::ResourceHandle depthTexture,
                                                                              u32 width, u32 height);
         static void DispatchOcclusionPhase2(const GPUFrustumCuller::TwoPhaseCullResult& cull,

@@ -51,8 +51,10 @@ OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",
                  "Route texture binding through the bindless descriptor heap. Defaults off so a machine "
                  "without the extension, and every headless test, takes the slot-based path.")
 OLO_LEVER_TOGGLE(VulkanTraceBuffers, "OLO_VK_TRACE_BUFFERS",
-                 "Log every Vulkan vertex/index buffer's device-address range at create time — the currency "
-                 "for pairing a GPU fault address back to its buffer.")
+                 "Log every Vulkan vertex/index/raw buffer's device-address range and VkBuffer at create "
+                 "time, and every index BIND's range, buffer and resolved addressFlags — the currency for "
+                 "pairing a GPU fault address, or a validation message naming a handle, back to its buffer "
+                 "(#1200).")
 OLO_LEVER_TRISTATE(VulkanParallelRecording, "OLO_VK_PARALLEL_RECORDING",
                    "Record independent work items (shadow cascades, atlas entries) on task workers into secondary "
                    "command buffers (#806). \"0\" runs every RecordParallel region inline on the render thread — "
@@ -76,6 +78,30 @@ OLO_LEVER_TOGGLE(VulkanNoHostImageCopy, "OLO_VULKAN_NO_HOST_IMAGE_COPY",
                  "disabling the Vulkan 1.4 host-image-copy route (#809). The host route changes WHEN an "
                  "upload happens relative to the queue, so this is the A/B for attributing a frame or "
                  "validation difference to it without rebuilding the backend.")
+OLO_LEVER_TOGGLE(VulkanNoDepthReclaimHold, "OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD",
+                 "Disable the extra generation a depth-stencil image's memory is held after its last use "
+                 "(VulkanDeferredReclaim::kDepthStencilHoldGenerations, #1198). That hold is a workaround for a "
+                 "driver-side read of a destroyed depth target's base address on the first frame after it is "
+                 "replaced; this lever exists so it can be re-tested against a new driver rather than trusted "
+                 "forever. Turning it on restores the device fault on a live forward -> forward+ switch on the "
+                 "driver it was measured on.")
+OLO_LEVER_TOGGLE(VulkanAftermathCrashDumps, "OLO_VULKAN_AFTERMATH",
+                 "Arm NVIDIA Nsight Aftermath GPU crash dumps and enable VK_NV_device_diagnostics_config "
+                 "resource tracking, so a device loss writes a .nv-gpudmp and logs the page-fault RESOURCE "
+                 "— its handle, format, extent, and whether its memory was already freed (#1198). This is "
+                 "the only source of that last fact: VK_EXT_device_fault gives an address and the NV "
+                 "checkpoints give a pass, but neither says what lived there. Needs a build configured with "
+                 "AFTERMATH_SDK_ROOT; without one this warns rather than going quiet. OFF by default — "
+                 "resource tracking costs on every allocation, and it must be armed before device creation, "
+                 "so it is a restart-required investigation switch, not a runtime toggle.")
+OLO_LEVER_TOGGLE(VulkanAddressBindingReport, "OLO_VULKAN_ADDRESS_BINDING_REPORT",
+                 "Enable VK_EXT_device_address_binding_report and record every GPU address range as the "
+                 "validation layer binds and unbinds it, so a device-fault address resolves to the object "
+                 "that owned it and to whether that object was already freed (#1198). A fault report then "
+                 "says \"this VkImage, bound at X, UNBOUND at Y\" instead of a bare address. OFF by default: "
+                 "the layer emits a debug-messenger message per allocation, so it costs on every bind — turn "
+                 "it on for a fault investigation, not for a normal session. Debug builds only (it needs the "
+                 "validation layer that implements it).")
 OLO_LEVER_TOGGLE(VulkanNoRayTracing, "OLO_VULKAN_NO_RAY_TRACING",
                  "Refuse VK_KHR_acceleration_structure / VK_KHR_ray_query at device creation, so the RT "
                  "scene reports unsupported and builds nothing (#978). This is the A/B for \"is that frame "

@@ -733,6 +733,18 @@ namespace OloEngine
         bool isAnimatedMesh = false;
         u32 boneBufferOffset = 0;     // Offset into FrameDataBuffer for all instance bone matrices
         u32 boneCountPerInstance = 0; // Number of bones per instance
+        // Previous-frame bone palette, shared by every instance in the batch
+        // exactly as the current one is. UINT32_MAX = alias current (zero
+        // skeletal motion), the same sentinel DrawMeshCommand uses.
+        //
+        // Issue #1031: without this the instanced path aliased prev to current
+        // unconditionally, so a batched skinned draw emitted no per-bone
+        // velocity at all. That is invisible in a still frame and shows up as
+        // ghosting under TAA and motion blur — a failure that reads as a
+        // temporal-filter problem rather than as a batching one. Skinned
+        // auto-batching only groups draws whose PREVIOUS palettes match too,
+        // so one offset is the right shape for the whole batch.
+        u32 prevBoneBufferOffset = UINT32_MAX;
 
         // Per-instance i32 entity IDs in FrameDataBuffer::EntityIDs. UINT32_MAX
         // = no stream (dispatcher writes -1 to InstanceData.EntityID, breaking

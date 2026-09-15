@@ -9,33 +9,16 @@
 #type vertex
 #version 460 core
 
-// Mirrors OloEngine::VirtualGpuVertex (32 B std430)
-struct VirtualGpuVertex {
-    vec4 PositionU;
-    vec4 NormalV;
-};
-
-// Mirrors OloEngine::VirtualInstanceGpuRecord (240 B std430)
-struct VirtualInstance {
-    mat4 Transform;
-    mat4 PrevTransform;
-    mat4 NormalMatrix;
-    uint ClusterBase;
-    uint ClusterCount;
-    uint GroupBase;
-    int  EntityID;
-    float MaxScale;
-    float ErrorThresholdPixels;
-    uint CommandBase;
-    uint Flags;
-    // Baked lightmap atlas region (issue #867). Declared even where unused: the
-    // std430 array stride IS the struct size, so omitting it makes every
-    // instance after the first read the previous one's transform.
-    vec4 LightmapScaleOffset;
-};
-
-layout(std430, binding = 39) readonly buffer VirtualVertices { VirtualGpuVertex vertices[]; };
-layout(std430, binding = 35) readonly buffer VirtualInstances { VirtualInstance instances[]; };
+// STRUCT MIRRORS + THE SHARED POSE, in include/VirtualSkinnedVertexFetch.glsl
+// (which pulls in VirtualGeometryGpuStructs.glsl and declares bindings 39/35).
+//
+// This file carried its own copies until issue #1150, which grew
+// VirtualInstance from 240 to 256 bytes. FIVE hand-written copies had to move
+// together, and a std430 stride mismatch does not error: every instance past
+// the first reads the previous one's transform. The copies were already
+// recorded as follow-up work by the shared header; a change that has to touch
+// all of them is when that debt comes due.
+#include "include/VirtualSkinnedVertexFetch.glsl"
 
 layout(std140, binding = 0) uniform CameraMatrices {
     mat4 u_ViewProjection; // shadow cascade light view-projection (render-origin-relative)
@@ -62,7 +45,13 @@ void main()
 {
     VirtualInstance inst = instances[u_VirtualInstanceIndex];
     VirtualGpuVertex vert = vertices[gl_VertexIndex];
-    gl_Position = u_ViewProjection * (inst.Transform * vec4(vert.PositionU.xyz, 1.0));
+    // The SAME pose the G-Buffer draws (issue #1150): both stages call
+    // SkinVirtualVertex out of include/VirtualSkinnedVertexFetch.glsl. A
+    // shadow rasterized from the rest pose while the surface is animated is a
+    // character shadowing itself in stripes, and nothing about it reads as a
+    // shader error.
+    vec3 posed = SkinVirtualPosition(inst, uint(gl_VertexIndex), vert.PositionU.xyz);
+    gl_Position = u_ViewProjection * (inst.Transform * vec4(posed, 1.0));
 }
 
 #type fragment

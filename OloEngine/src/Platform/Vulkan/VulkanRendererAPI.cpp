@@ -29,6 +29,7 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanStorageBuffer.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -2815,6 +2816,30 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         AssembleRootData(layout, shaderName, vao, commandOrderedBufferReads);
+        // A shader that declares no root data at all assembles zero bytes, and
+        // the arena refuses a zero-byte push — so the work drops. That is the
+        // conservative answer (an EMPTY layout is far more often failed
+        // reflection than a genuinely input-free shader, and running on failed
+        // reflection is worse than not running), but it was the second fully
+        // silent drop in this chain: no warning, only the counter. Name it,
+        // the way the pipeline-creation failure above names its shader.
+        //
+        // "draw or dispatch" is not hedging: DispatchCompute and
+        // DispatchComputeIndirect push their root data through here too, so
+        // naming this a draw would misdescribe a compute shader's drop.
+        if (ctx.RootScratch.empty())
+        {
+            static VulkanWarnOnceSet s_WarnedEmptyLayouts; // items may fail concurrently (#806)
+            if (s_WarnedEmptyLayouts.Insert(shaderName != nullptr ? shaderName : "<unnamed>"))
+            {
+                OLO_CORE_ERROR("[RHI/Vulkan] '{}' assembled an empty root-data layout — every draw or dispatch "
+                               "using it is dropped. A shader reaches its inputs through root data, so an empty "
+                               "layout is normally failed reflection; a shader that genuinely needs no input "
+                               "still has to declare one binding to be runnable here.",
+                               shaderName != nullptr ? shaderName : "<unnamed>");
+            }
+            return false;
+        }
         const auto rootAllocation = VulkanFrameArena::Get().Push(ctx.RootScratch.data(), ctx.RootScratch.size(), 16);
         if (!rootAllocation.IsValid())
         {
@@ -2857,7 +2882,7 @@ namespace OloEngine
                      // VulkanIndexBuffer is created INDEX|TRANSFER_DST|
                      // TRANSFER_SRC|SHADER_DEVICE_ADDRESS (+ AS build input) —
                      // no STORAGE_BUFFER_BIT, so VUID-13123 forbids the flag.
-                     VulkanAddressCommands::StorageUsage::Absent };
+                     VulkanAddressCommands::StorageUsage::Absent, indexBuffer->GetVkBuffer() };
         }
         // The raw element buffer (SetVertexArrayIndexBuffer, #1052). Resolved
         // here rather than cached on the VAO so a re-allocate under the same
@@ -2871,9 +2896,23 @@ namespace OloEngine
                      // The raw family's one conservative usage set includes
                      // STORAGE_BUFFER_BIT (it is the dual-role element/SSBO
                      // arena), so VUID-13122 REQUIRES the flag here.
-                     VulkanAddressCommands::StorageUsage::Present };
+                     VulkanAddressCommands::StorageUsage::Present, raw->Buffer };
         }
         return {};
+    }
+
+    VkAddressCommandFlagsKHR VulkanRendererAPI::IndexBindAddressFlagsFor(const VulkanVertexArray* vao)
+    {
+        const ResolvedIndexBuffer indexBuffer = ResolveIndexBufferFor(vao);
+        // The SAME refusal BindIndexBufferFor applies, extent included: a raw
+        // arena allocated at 0 bytes still has a valid address, and reporting
+        // STORAGE_BUFFER_USAGE for a bind that will never be recorded would
+        // make this accessor disagree with the command it describes.
+        if (indexBuffer.Address == 0 || indexBuffer.SizeBytes == 0)
+        {
+            return 0;
+        }
+        return VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
     }
 
     bool VulkanRendererAPI::BindIndexBufferFor(const VulkanVertexArray* vao)
@@ -2928,6 +2967,12 @@ namespace OloEngine
             bindInfo.addressRange = VulkanAddressCommands::MakeRange(indexBuffer.Address, indexBuffer.SizeBytes);
             bindInfo.addressFlags = VulkanAddressCommands::FlagsFor(indexBuffer.Storage);
             bindInfo.indexType = VK_INDEX_TYPE_UINT32;
+            if (Levers::VulkanTraceBuffers())
+            {
+                OLO_CORE_TRACE("[RHI/Vulkan] index bind {:#x}..{:#x} ({} bytes, VkBuffer {:#x}, flags {:#x})",
+                               indexBuffer.Address, indexBuffer.Address + indexBuffer.SizeBytes,
+                               indexBuffer.SizeBytes, VulkanUpload::VkHandleToU64(indexBuffer.Buffer), bindInfo.addressFlags);
+            }
             vkCmdBindIndexBuffer3KHR(ctx.Cmd, &bindInfo);
             ctx.BoundIndexBufferAddress = indexBuffer.Address;
             ctx.BoundIndexBufferSize = indexBuffer.SizeBytes;
@@ -5357,11 +5402,6 @@ namespace OloEngine
         auto& ctx = Ctx();
         if (sizeBytes == 0)
             return;
-        if (ctx.Cmd == VK_NULL_HANDLE)
-        {
-            UnimplementedStub("CopyBufferSubData(outside recording bracket)", StubKind::OutsideRecording);
-            return;
-        }
 
         auto& registry = RHI::ResourceRegistry::Get();
         const u64 srcNative = registry.KindOf(srcBuffer) == RHI::ResourceKind::Buffer
@@ -5380,7 +5420,7 @@ namespace OloEngine
 
         // The copy lands in the destination's PERSISTENT buffer, so a live
         // frame-arena snapshot staged by an earlier SetData would shadow it for
-        // every later draw (issue #1052 — this is the path
+        // every later draw (issue #1052 - this is the path
         // VirtualMeshRegistry's upload ring takes for the vertex arena once the
         // ring maps, so it is not hypothetical). Drop it; the buffer then
         // resolves persistent, which is where the copy went.
@@ -5389,34 +5429,6 @@ namespace OloEngine
         {
             static_cast<VulkanStorageBuffer*>(dstRoot->Object)->InvalidateSnapshotForExternalWrite();
         }
-
-        // Transfer commands are illegal inside a dynamic-rendering scope.
-        EndRenderingScope();
-
-        // No per-buffer state tracking exists (ADR 0011 §1.5's GL-shaped
-        // barrier model), so bracket the copy conservatively: make every
-        // prior write available to the copy, then the copy's write available
-        // to every later consumer INCLUDING the host (the readback ring's
-        // ReadBufferSubData memcpy next frame — fence-wait handles ordering,
-        // the HOST access flag makes the availability explicit for sync
-        // validation).
-        const auto globalBarrier = [&](VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
-                                       VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
-        {
-            VkMemoryBarrier2 barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            barrier.srcStageMask = srcStage & m_EnabledStageMask;
-            barrier.srcAccessMask = srcAccess;
-            barrier.dstStageMask = dstStage & m_EnabledStageMask;
-            barrier.dstAccessMask = dstAccess;
-            VkDependencyInfo dep{};
-            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dep.memoryBarrierCount = 1;
-            dep.pMemoryBarriers = &barrier;
-            ctx.RecordBarrier(dep);
-        };
-        globalBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
-                      VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
         // Both endpoints are facade-supplied buffers of unknown family, the
         // UploadBufferSubData case on both sides (see the note there).
@@ -5436,14 +5448,110 @@ namespace OloEngine
                               StubKind::PreconditionFailure);
             return;
         }
-        VulkanAddressCommands::CmdCopyRange(ctx.Cmd, srcAddress + srcOffsetBytes,
-                                            VulkanAddressCommands::StorageUsage::Unknown,
-                                            dstAddress + dstOffsetBytes,
-                                            VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
 
-        globalBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
-                      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT);
+        // No per-buffer state tracking exists (ADR 0011 1.5's GL-shaped
+        // barrier model), so bracket the copy conservatively: make every
+        // prior write available to the copy, then the copy's write available
+        // to every later consumer INCLUDING the host (the readback ring's
+        // ReadBufferSubData memcpy next frame - fence-wait handles ordering,
+        // the HOST access flag makes the availability explicit for sync
+        // validation).
+        const auto fillBarrier = [&](VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                                     VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess,
+                                     VkMemoryBarrier2& barrier, VkDependencyInfo& dep)
+        {
+            barrier = VkMemoryBarrier2{};
+            barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = srcStage & m_EnabledStageMask;
+            barrier.srcAccessMask = srcAccess;
+            barrier.dstStageMask = dstStage & m_EnabledStageMask;
+            barrier.dstAccessMask = dstAccess;
+            dep = VkDependencyInfo{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &barrier;
+        };
+
+        // The copy itself, identical on both paths below - only the command
+        // buffer it lands in and how its barriers are emitted differ.
+        const auto recordCopy = [&](VkCommandBuffer cmd,
+                                    const std::function<void(const VkDependencyInfo&)>& emitBarrier)
+        {
+            VkMemoryBarrier2 barrier{};
+            VkDependencyInfo dep{};
+            fillBarrier(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT,
+                        VK_PIPELINE_STAGE_2_COPY_BIT,
+                        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT, barrier, dep);
+            emitBarrier(dep);
+
+            VulkanAddressCommands::CmdCopyRange(cmd, srcAddress + srcOffsetBytes,
+                                                VulkanAddressCommands::StorageUsage::Unknown,
+                                                dstAddress + dstOffsetBytes,
+                                                VulkanAddressCommands::StorageUsage::Unknown, sizeBytes);
+
+            fillBarrier(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_2_HOST_BIT,
+                        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT,
+                        barrier, dep);
+            emitBarrier(dep);
+        };
+
+        if (ctx.Cmd != VK_NULL_HANDLE)
+        {
+            // Transfer commands are illegal inside a dynamic-rendering scope.
+            EndRenderingScope();
+            recordCopy(ctx.Cmd, [&ctx](const VkDependencyInfo& dep)
+                       { ctx.RecordBarrier(dep); });
+            return;
+        }
+
+        // NO FRAME IS RECORDING - a ONE-SHOT SUBMIT, not a no-op (issue #846).
+        //
+        // This used to return early with an "outside recording bracket" stub.
+        // That is right for a draw, which has no frame to draw into, and wrong
+        // for a COPY, because the engine's one blocking readback path runs
+        // here BY DESIGN. StagedBufferReadback exists so that a GPU-written
+        // buffer is never read by the CPU directly - it stages a copy and reads
+        // the staging buffer instead - and every consumer of it is a
+        // human-or-test diagnostic called from outside the frame:
+        // DDGIProbeUpdatePass::ReadbackProbeDiagnostics behind
+        // olo_ddgi_probe_stats, the editor's probe panel, and the tests.
+        //
+        // The no-op did not fail loudly. The copy silently did not happen, the
+        // caller read a staging buffer nothing had ever written, and the
+        // diagnostic reported all-zero counters - indistinguishable from "DDGI
+        // captured no probes" while the frame on screen was correct. One sample
+        // came back 0xFFFFFFFF, which is what gave it away as uninitialised
+        // memory rather than a measurement.
+        //
+        // Queue submissions execute in submit order, so a one-shot submitted
+        // now runs after every frame already submitted and observes its writes.
+        // There is no frame to flush first: ctx.Cmd being null is exactly the
+        // statement that this thread has no recording open, which is the same
+        // condition VulkanStorageBuffer::GetData flushes on and finds nothing
+        // to do. A vkDeviceWaitIdle here was tried, on the theory that the
+        // async compute queue (#808) could still be writing the source; it
+        // changed none of the values it was meant to change, so it is not
+        // carried for a stall this path would pay on every diagnostic read.
+        VulkanOneShot::Outcome outcome = VulkanOneShot::Outcome::NotSubmitted;
+        const bool copied = VulkanOneShot::Submit(
+            "CopyBufferSubData(outside recording bracket)",
+            [&](VkCommandBuffer cmd)
+            { recordCopy(cmd, [cmd](const VkDependencyInfo& dep)
+                         { vkCmdPipelineBarrier2(cmd, &dep); }); },
+            &outcome);
+        if (!copied)
+        {
+            // LOUD, and deliberately not an UnimplementedStub: the caller is
+            // about to read the destination and would otherwise publish
+            // whatever it happens to hold as a measurement. This is the failure
+            // the all-zero DDGI counters taught - a readback that cannot happen
+            // must say so, not return quietly.
+            OLO_CORE_ERROR("[RHI/Vulkan] CopyBufferSubData one-shot {} - the destination was NOT written, so "
+                           "any readback of it is meaningless",
+                           outcome == VulkanOneShot::Outcome::NotSubmitted ? "never reached the queue"
+                                                                           : "was submitted but never retired");
+        }
     }
 
     // =========================================================================

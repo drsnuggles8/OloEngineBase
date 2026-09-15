@@ -872,6 +872,61 @@ TEST_F(VulkanResourceFactory, DescriptorSlotCacheKeysViewsAndRecyclesOnDestroy)
     EXPECT_EQ(cache.GetCachedSlotCount(), cachedBefore - 2);
 }
 
+// Issue #1198: a depth-stencil image's memory outlives its last use by one
+// generation MORE than a colour image's. The frame fence proves the frame that
+// last bound the surface is complete; the extra generation covers the driver's
+// own read of a replaced depth target's base address on the first frame after
+// it goes (see VulkanDeferredReclaim::kDepthStencilHoldGenerations).
+TEST_F(VulkanResourceFactory, DepthStencilImagesAreHeldOneGenerationLongerThanColour)
+{
+    ScopedVulkanApiSelection vulkanApi;
+    auto& reclaim = VulkanDeferredReclaim::Get();
+
+    TextureSpecification colourSpec;
+    colourSpec.Width = 4;
+    colourSpec.Height = 4;
+    colourSpec.Format = ImageFormat::RGBA8;
+    colourSpec.GenerateMips = false;
+    TextureSpecification depthSpec = colourSpec;
+    depthSpec.Format = ImageFormat::DEPTH24STENCIL8;
+
+    auto colour = Texture2D::Create(colourSpec);
+    auto depth = Texture2D::Create(depthSpec);
+    ASSERT_NE(colour, nullptr);
+    ASSERT_NE(depth, nullptr);
+    const auto* depthInfo =
+        VulkanImageInfoRegistry::Get().Lookup(static_cast<VulkanTexture2D*>(depth.Raw())->GetVkImage());
+    ASSERT_NE(depthInfo, nullptr);
+    ASSERT_TRUE(VulkanDeferredReclaim::IsDepthStencilFormat(depthInfo->Format));
+
+    // Start from a drained queue so the counts below are only these two images.
+    CompleteFrames(static_cast<u32>(VulkanDeferredReclaim::kDepthStencilHoldGenerations));
+    const sizet baseline = reclaim.GetPendingCount();
+
+    colour = nullptr;
+    depth = nullptr;
+    const sizet enqueued = reclaim.GetPendingCount() - baseline;
+    ASSERT_GE(enqueued, sizet{ 2 });
+
+    CompleteFrames(static_cast<u32>(VulkanDeferredReclaim::kFramesInFlight));
+    if (Levers::VulkanNoDepthReclaimHold())
+    {
+        // The lever is a supported configuration (it exists to re-test the
+        // workaround against a new driver): with it on, depth is ordinary.
+        EXPECT_EQ(reclaim.GetPendingCount(), baseline)
+            << "with OLO_VULKAN_NO_DEPTH_RECLAIM_HOLD set, depth must reclaim with everything else";
+        return;
+    }
+    // The colour image is gone; the depth image is still held.
+    EXPECT_EQ(reclaim.GetPendingCount() - baseline, enqueued - 1)
+        << "after kFramesInFlight generations exactly the colour image should have been destroyed";
+
+    CompleteFrames(1);
+    EXPECT_EQ(reclaim.GetPendingCount(), baseline)
+        << "after kDepthStencilHoldGenerations the depth image must be destroyed too - the hold is one extra "
+           "generation, not a leak";
+}
+
 TEST_F(VulkanResourceFactory, StorageBufferDataPathsRoundTrip)
 {
     ScopedVulkanApiSelection vulkanApi;

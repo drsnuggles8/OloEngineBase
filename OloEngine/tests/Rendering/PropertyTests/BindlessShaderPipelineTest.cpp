@@ -709,13 +709,21 @@ void main()
             const char* CppName;
         };
 
-        const std::array<Mirror, 3> kMirrors{ {
+        const std::array<Mirror, 4> kMirrors{ {
             { "include/DDGICommon.glsl", R"(#define\s+DDGI_MAX_CASCADES\s+(\d+))",
               static_cast<u32>(DDGI::kMaxCascades), "DDGI::kMaxCascades" },
             { "compute/DDGI_RequestProbe.comp", R"(#define\s+DDGI_PROBE_DISPATCH_STRIDE\s+(\d+))",
               DDGI::kProbeDispatchStride, "DDGI::kProbeDispatchStride" },
             { "compute/DDGI_RequestScreen.comp", R"(const\s+int\s+DDGI_SCREEN_REQUEST_STRIDE\s*=\s*(\d+))",
               DDGI::kScreenRequestStride, "DDGI::kScreenRequestStride" },
+            // Issue #846. This one sizes a UBO ARRAY the relocation dispatch
+            // indexes by gl_WorkGroupID.x, so a GLSL value SMALLER than the C++
+            // one is an out-of-bounds read on a work group the CPU legitimately
+            // dispatched, and a larger one silently grows the block past its
+            // C++ twin.
+            { "include/DDGIRelocateParams.glsl", R"(#define\s+DDGI_RELOCATE_BATCH\s+(\d+))",
+              UBOStructures::DDGIRelocateParamsUBO::MaxRelocationBatch,
+              "UBOStructures::DDGIRelocateParamsUBO::MaxRelocationBatch" },
         } };
 
         for (const Mirror& mirror : kMirrors)

@@ -225,6 +225,7 @@ olo_copy_ffmpeg_runtime(OloEditor)
 # Stage steam_api64.dll next to the exe (#644). No-op unless OLO_WITH_STEAM is on with the real
 # SDK. Same directory-scope rule as the ffmpeg copy above.
 olo_copy_steam_runtime(OloEditor)
+olo_copy_aftermath_runtime(OloEditor)
 
 # Stage OpenUSD's plugInfo resource tree next to the editor exe so PlugRegistry can map
 # .usda/.usdc/.usdz -> file-format plugin at runtime (#655). OLO_USD_PLUGIN_TREE is set by

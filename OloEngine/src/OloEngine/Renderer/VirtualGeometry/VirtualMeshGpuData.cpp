@@ -32,6 +32,10 @@ namespace OloEngine
             {
                 data.LightmapUVs.reserve(totalVertices);
             }
+            if (mesh.IsSkinned())
+            {
+                data.Skinning.reserve(totalVertices);
+            }
             data.Indices.reserve(totalIndices);
         }
 
@@ -53,6 +57,7 @@ namespace OloEngine
 
             // Expand the cluster's vertex window into cluster-owned packed vertices
             const bool hasLightmapUVs = mesh.LightmapUVs.size() == mesh.Vertices.size();
+            const bool hasSkinning = mesh.Skinning.size() == mesh.Vertices.size();
             for (u32 v = 0; v < cluster.VertexCount; ++v)
             {
                 const u32 sourceVertex = mesh.ClusterVertexRefs[cluster.VertexOffset + v];
@@ -68,6 +73,13 @@ namespace OloEngine
                 {
                     data.LightmapUVs.push_back(mesh.LightmapUVs[sourceVertex]);
                 }
+                // Ditto for the skin binding (issue #1150): cluster-owned, so a
+                // vertex duplicated into two clusters carries its binding into
+                // both and a page can be streamed without a shared indirection.
+                if (hasSkinning)
+                {
+                    data.Skinning.push_back(mesh.Skinning[sourceVertex]);
+                }
             }
 
             // Local u8 triangle indices widen to u32; BaseVertex carries VertexBase
@@ -77,6 +89,14 @@ namespace OloEngine
                 data.Indices.push_back(mesh.ClusterTriangles[cluster.TriangleOffset + i]);
             }
         }
+
+        // Skinning metadata passes through UNEXPANDED: both arrays are already
+        // keyed the way the GPU addresses them — one entry per bone slot, and
+        // kMaxClusterBones entries per cluster in the SAME cluster order this
+        // loop emitted. Copying rather than rebuilding is what keeps the cook
+        // the single owner of the bone sets.
+        data.BoneBounds = mesh.BoneBounds;
+        data.ClusterBoneRefs = mesh.ClusterBoneRefs;
 
         for (const VirtualClusterGroup& group : mesh.Groups)
         {

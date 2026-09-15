@@ -18,10 +18,12 @@
 // Bit flags in u_DDGIComputeParams.w.
 #define DDGI_PASS_FLAG_CASCADE_SHIFTED 1
 #define DDGI_PASS_FLAG_DEPTH_VALID 2
-// This capture is a periodic REFRESH of an already-placed probe, not a
-// first placement. See DDGI_Relocate.comp for why that must not re-run
-// the relocation spring.
-#define DDGI_PASS_FLAG_REFRESH_CAPTURE 4
+
+// The "this capture is a periodic refresh" flag is NOT here. It is per probe
+// and lives in include/DDGIRelocateParams.glsl's capture set, because since
+// issue #846 one dispatch relocates a whole capture set and such a set mixes
+// settled probes with probes still converging. Bit 4 of this flag word is
+// retired rather than reused.
 
 layout(std140, binding = 7) uniform DDGIPassData
 {

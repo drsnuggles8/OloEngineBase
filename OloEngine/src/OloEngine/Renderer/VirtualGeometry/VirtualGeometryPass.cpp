@@ -665,6 +665,12 @@ namespace OloEngine
                     // arena (issue #867); 0 when this arena carries none, which is
                     // the shaders' don't-fetch signal.
                     drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                    // ...and where the packed skin-binding tail starts (issue
+                    // #1150), on exactly the same 0-means-absent contract. A
+                    // stage that skips this leaves the block's word zero, which
+                    // reads as "rigid" — so a missed site is a character frozen
+                    // in its rest pose, not a wrong-address read.
+                    drawInfo.SkinningBase = registry.GetSkinningBaseElement();
                     upload->SetData(&drawInfo, sizeof(drawInfo));
                     upload->Bind();
 
@@ -1008,6 +1014,12 @@ namespace OloEngine
                         drawInfo.ViewportHeight = registry.GetVisbufferHeight();
                         // The resolve reconstructs uv2 from the same tail (issue #867).
                         drawInfo.LightmapUVBase = registry.GetLightmapUVBaseElement();
+                        // The resolve never poses a vertex — skinned clusters
+                        // never reach the software rasterizer (ADR 0024) — but
+                        // the block is uploaded whole by every pass, so the
+                        // field is filled rather than left to mean something
+                        // else here than it does two pipelines away.
+                        drawInfo.SkinningBase = registry.GetSkinningBaseElement();
                         // What the SW list can hold — the SAME number the cull
                         // dispatches bound their appends by (u_SwCapacity). The
                         // resolve bounds its record index by this rather than by

@@ -10,6 +10,8 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualLightmapUVPacking.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualSkinningBounds.h"
+#include "OloEngine/Renderer/VirtualGeometry/VirtualSkinningPacking.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshProxy.h"
 
@@ -114,6 +116,13 @@ namespace OloEngine
                 // packed data is incompatible by IsMeshletCompatible's own
                 // IsValid() guard — no external pre-check needed.)
                 entry.MeshletCompatible = IsMeshletCompatible(entry.Packed);
+                // Recorded now because the on-disk spill (#1151) releases both arrays this
+                // test reads, and "spilled" must not read as "no uv2".
+                entry.HasLightmapUVs = !entry.Packed.LightmapUVs.empty() &&
+                                       entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size();
+                // Same reason, for the same spill: IsSkinned() compares against Vertices,
+                // which the spill releases. See MeshEntry::IsSkinned in the header.
+                entry.IsSkinned = entry.Packed.IsSkinned();
                 // Ray-tracing proxy (issue #1144). Built here because this is
                 // the last place that holds the DAG — PackVirtualMeshForGpu
                 // keeps only the pooled cluster records, and the coarsest cut
@@ -253,6 +262,12 @@ namespace OloEngine
             entry.Proxy = {};
             entry.ProxyVertexBuffer = nullptr;
             entry.ProxyIndexBuffer = nullptr;
+            // The spilled pages in the store belong to the OLD cook. Unbind them; the file's
+            // bytes are simply never read again (the store is append-only and session-scoped,
+            // so there is nothing to reclaim before Shutdown deletes the whole file).
+            entry.StorePageBase = VirtualGeometryPageStore::kInvalidMesh;
+            entry.HasLightmapUVs = false;
+            entry.IsSkinned = false;
         }
         m_EntryLookup.erase(it);
         m_BlendRejectionWarned.erase(static_cast<u64>(handle));
@@ -275,13 +290,47 @@ namespace OloEngine
         }
         for (u32 i = 0; i < parts.Count; ++i)
         {
-            const auto& packed = GetEntry(parts.FirstEntry + i).Packed;
-            if (packed.LightmapUVs.empty() || packed.LightmapUVs.size() != packed.Vertices.size())
+            // HasLightmapUVs rather than the two arrays it was derived from: the on-disk
+            // backing store (#1151) releases them, and a spilled mesh must not read as a mesh
+            // whose cook predates its unwrap.
+            if (!GetEntry(parts.FirstEntry + i).HasLightmapUVs)
             {
                 return false;
             }
         }
         return true;
+    }
+
+    bool VirtualMeshRegistry::MeshIsSkinned(AssetHandle handle) const
+    {
+        // ANY part, deliberately NOT the all-or-nothing rule MeshHasLightmapUVs
+        // uses, and the difference is not an inconsistency.
+        //
+        // A uv2 region is published PER MESH, so a mesh whose parts disagree
+        // would address a sibling's charts — there is no per-part gate to save
+        // it. Skinning has one: PrepareFrame decides per part, on that part's own
+        // recorded MeshEntry::IsSkinned. So "some parts of this mesh deform" is a
+        // state
+        // the runtime can represent exactly, and it is the CORRECT state for the
+        // ordinary case that produces it — a static prop submesh parented into a
+        // rigged character's file, which carries no bone weights and genuinely
+        // does not deform.
+        //
+        // Requiring every part would make that whole character render in its
+        // rest pose because one prop was not weighted.
+        const MeshParts parts = FindParts(handle);
+        if (!parts.Valid || parts.Count == 0)
+        {
+            return false;
+        }
+        for (u32 i = 0; i < parts.Count; ++i)
+        {
+            if (GetEntry(parts.FirstEntry + i).IsSkinned)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     VirtualMeshRegistry::MeshParts VirtualMeshRegistry::FindParts(AssetHandle handle) const
@@ -318,6 +367,79 @@ namespace OloEngine
         }
     }
 
+    void VirtualMeshRegistry::SetPageBacking(VirtualPageBacking backing)
+    {
+        if (m_PageBacking == backing)
+        {
+            return;
+        }
+        m_PageBacking = backing;
+        if (backing == VirtualPageBacking::Memory && m_PageStore.IsOpen())
+        {
+            // Not a silent no-op: the meshes already spilled have no in-memory copy left, so
+            // they keep reading from the store. Only meshes registered from here on keep their
+            // payload in RAM.
+            OLO_CORE_WARN("VirtualMeshRegistry: page backing set back to Memory, but {} page(s) are already "
+                          "spilled to '{}' — those keep faulting in from disk (their RAM copy is gone). "
+                          "Only meshes registered from now on stay in memory.",
+                          m_PageStore.GetStats().PagesWritten, m_PageStore.GetPath().string());
+        }
+        m_PoolsDirty = true; // the spill happens in RebuildPools
+    }
+
+    void VirtualMeshRegistry::SpillPagesToStore()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (m_PageBacking != VirtualPageBacking::Disk)
+        {
+            return;
+        }
+        for (MeshEntry& entry : m_Entries)
+        {
+            if (!entry.Valid || entry.StorePageBase != VirtualGeometryPageStore::kInvalidMesh ||
+                entry.Packed.Pages.empty())
+            {
+                continue;
+            }
+            u32 const base = m_PageStore.AddMesh(entry.Packed);
+            if (base == VirtualGeometryPageStore::kInvalidMesh)
+            {
+                // AddMesh already said why. Keeping the payload in RAM is the only correct
+                // response — there is no other source for those bytes — so this mesh simply
+                // does not participate in on-disk streaming.
+                continue;
+            }
+            entry.StorePageBase = base;
+            // Release the geometry, not the metadata: Clusters/Groups/Pages are read on every
+            // pool rebuild and are what the resident buffers are sized from.
+            entry.Packed.Vertices = {};
+            entry.Packed.LightmapUVs = {};
+            entry.Packed.Indices = {};
+        }
+    }
+
+    void VirtualMeshRegistry::PublishPageStoreStats()
+    {
+        // Collect finished reads first. Every other path into the completion queue runs only
+        // while pages are being requested, so a settled camera (or a fully-resident early
+        // return in ProcessResidency) would otherwise freeze PageFaultsInFlight at its last
+        // value and leave those payloads staged.
+        m_PageStore.Poll();
+        const VirtualPageStoreStats& store = m_PageStore.GetStats();
+        m_ResidencyStats.StreamingFromDisk = m_PageStore.IsOpen();
+        m_ResidencyStats.PageFaultsInFlight = store.ReadsInFlight;
+        m_ResidencyStats.PagesStaged = store.PagesReady;
+        m_ResidencyStats.PageFaultsIssued = store.ReadsIssued;
+        m_ResidencyStats.PageReadFailures = store.ReadsFailed;
+        m_ResidencyStats.PageBytesRead = store.BytesRead;
+        m_ResidencyStats.PageBytesSpilled = store.BytesWritten;
+        m_ResidencyStats.PageStagingBytes = store.StagingBytes;
+        m_ResidencyStats.PageStagingPeakBytes = store.PeakStagingBytes;
+        m_ResidencyStats.PageStagedDiscards = store.StagedDiscards;
+        m_ResidencyStats.FailedPages = m_FailedPages;
+    }
+
     void VirtualMeshRegistry::CopyThroughRing(RHI::ResourceHandle targetBuffer, u64 targetOffset,
                                               const void* payload, u64 bytes)
     {
@@ -344,39 +466,127 @@ namespace OloEngine
         m_UploadRing.Commit(bytes);
     }
 
-    bool VirtualMeshRegistry::LoadPage(u32 pageIndex)
+    VirtualMeshRegistry::PageLoadResult VirtualMeshRegistry::LoadPage(u32 pageIndex, bool allowAsync)
     {
         PageRuntime& page = m_Pages[pageIndex];
         if (page.Resident)
         {
-            return true;
+            return PageLoadResult::Loaded;
         }
-
-        // Allocate a slot through the shared paged-cache substrate (#704):
-        // free slot first, else the policy delegates back to
-        // SelectResidencyVictim (the exact pre-#704 LRU scan) and the victim's
-        // slot transfers to this page — OnResidencyEvicted does the victim's
-        // bookkeeping via the eviction listener. Failure means the budget is
-        // exhausted by pinned/in-use pages; the coarser cut keeps rendering.
-        SlotCache::ObjectAllocation slotAlloc;
-        if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
+        if (page.LoadFailed)
         {
-            return false;
+            return PageLoadResult::NotLoaded;
         }
-        u32 const slot = slotAlloc.m_StartPage;
 
         const MeshEntry& entry = m_Entries[page.MeshEntryIndex];
         const VirtualMeshGpuData& packed = entry.Packed;
+
+        // ---- 1. Get the bytes BEFORE touching the slot cache (issue #1151) --------------
+        //
+        // Order matters and is the whole reason the fault-in is a separate step: allocating a
+        // slot first would evict a live page (LRU) to make room for geometry that has not
+        // arrived, so a camera sweep under a tight budget would trade resident pages for empty
+        // slots and the cut would get COARSER the harder it streamed.
+        //
+        // These point either into the mesh's still-resident packed arrays or into the store's
+        // staged payload. The store's payload is PAGE-LOCAL (index 0 = the page's first
+        // vertex), so the source offset differs between the two — everything after this reads
+        // the three pointers and never the offsets again.
+        const VirtualGpuVertex* vertexSource = nullptr;
+        const glm::vec2* lightmapSource = nullptr;
+        const u32* indexSource = nullptr;
+        VirtualPagePayload blockingPayload;
+        bool consumedFromStore = false;
+        u32 const storePage = page.EntryPageIndex;
+
+        if (entry.StorePageBase != VirtualGeometryPageStore::kInvalidMesh)
+        {
+            const VirtualPagePayload* payload = nullptr;
+            bool ok = false;
+            if (allowAsync)
+            {
+                switch (m_PageStore.Fetch(entry.StorePageBase, storePage, payload))
+                {
+                    case VirtualGeometryPageStore::FetchState::Ready:
+                        ok = true;
+                        consumedFromStore = true;
+                        break;
+                    case VirtualGeometryPageStore::FetchState::Pending:
+                        // The honest answer: not yet. The page stays non-resident, its group's
+                        // request bit stays set, and the cut holds at a resident ancestor
+                        // until a later frame finds it Ready. Counted in
+                        // VirtualResidencyStats::PageFaultsInFlight, never silent.
+                        return PageLoadResult::Pending;
+                    case VirtualGeometryPageStore::FetchState::Deferred:
+                        // The store had no room to start a read. Nothing was begun for this
+                        // page, so it must NOT spend the caller's per-frame budget — otherwise
+                        // a frame whose in-flight cap is already full burns its whole budget
+                        // on refusals and never reaches the pages that are already Ready.
+                        return PageLoadResult::NotLoaded;
+                    case VirtualGeometryPageStore::FetchState::Failed:
+                        break;
+                }
+            }
+            else if (m_PageStore.ReadPageBlocking(entry.StorePageBase, storePage, blockingPayload))
+            {
+                payload = &blockingPayload;
+                ok = true;
+            }
+
+            if (!ok)
+            {
+                // The store already logged which page and why. Mark it so the request path
+                // stops asking, and count it — a page that can never load leaves its clusters
+                // permanently at a coarser ancestor, which is a visible quality loss and must
+                // not be invisible in the stats.
+                page.LoadFailed = true;
+                ++m_FailedPages;
+                return PageLoadResult::NotLoaded;
+            }
+            vertexSource = payload->Vertices.data();
+            lightmapSource = payload->LightmapUVs.empty() ? nullptr : payload->LightmapUVs.data();
+            indexSource = payload->Indices.data();
+        }
+        else
+        {
+            // Empty-guarded: `data()` may be null on an empty vector and null + n is undefined
+            // even where nothing is read through it. A page with no vertices or no indices is
+            // degenerate rather than impossible, and CopyThroughRing already no-ops on 0 bytes.
+            vertexSource = packed.Vertices.empty() ? nullptr : packed.Vertices.data() + page.Info.VertexOffset;
+            lightmapSource = entry.HasLightmapUVs ? packed.LightmapUVs.data() + page.Info.VertexOffset : nullptr;
+            indexSource = packed.Indices.empty() ? nullptr : packed.Indices.data() + page.Info.IndexOffset;
+        }
+
+        // ---- 2. Allocate a slot through the shared paged-cache substrate (#704) ---------
+        // Free slot first, else the policy delegates back to SelectResidencyVictim (the exact
+        // pre-#704 LRU scan) and the victim's slot transfers to this page —
+        // OnResidencyEvicted does the victim's bookkeeping via the eviction listener. Failure
+        // means the budget is exhausted by pinned/in-use pages; the coarser cut keeps
+        // rendering.
+        SlotCache::ObjectAllocation slotAlloc;
+        if (!m_SlotCache.AllocatePages(static_cast<u64>(pageIndex), 1, slotAlloc))
+        {
+            if (consumedFromStore)
+            {
+                // End the lease but KEEP the bytes: they are already read, the staged cap
+                // bounds how many such payloads can accumulate, and the next frame's retry
+                // finds them Ready instead of re-reading the identical page off disk.
+                // Dropping them here turned a full slot arena into read amplification —
+                // BytesRead climbing with PageUploads flat. Ending the lease matters as much
+                // as keeping the bytes: a payload nobody released can never be trimmed.
+                m_PageStore.Release(entry.StorePageBase, storePage, /*keepStaged=*/true);
+            }
+            return PageLoadResult::NotLoaded;
+        }
+        u32 const slot = slotAlloc.m_StartPage;
 
         // Geometry payloads into the arena slot
         u64 const slotVertexBase = static_cast<u64>(slot) * m_SlotVertexCapacity;
         u64 const slotIndexBase = static_cast<u64>(slot) * m_SlotIndexCapacity;
         CopyThroughRing(m_VertexBuffer->GetRHIHandle(), slotVertexBase * sizeof(VirtualGpuVertex),
-                        packed.Vertices.data() + page.Info.VertexOffset,
-                        static_cast<u64>(page.Info.VertexCount) * sizeof(VirtualGpuVertex));
+                        vertexSource, static_cast<u64>(page.Info.VertexCount) * sizeof(VirtualGpuVertex));
         CopyThroughRing(m_IndexBuffer, slotIndexBase * sizeof(u32),
-                        packed.Indices.data() + page.Info.IndexOffset,
-                        static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
+                        indexSource, static_cast<u64>(page.Info.IndexCount) * sizeof(u32));
 
         // The page's baked lightmap uv2, packed four pairs to a 32-byte element
         // (issue #867). A page's vertices always start at slot-local index 0,
@@ -384,8 +594,7 @@ namespace OloEngine
         // exactly `uvBase + slotVertexBase / 4` and the lane of slot-local
         // vertex i is `i & 3` — no per-page offset math, which is the whole
         // reason the capacity is rounded.
-        if (m_LightmapUVBaseElement != 0 && packed.LightmapUVs.size() == packed.Vertices.size() &&
-            !packed.LightmapUVs.empty())
+        if (m_LightmapUVBaseElement != 0 && lightmapSource != nullptr)
         {
             // Packed slot-locally from 0, which is legal only because a page's
             // vertices start at slot-local 0 AND m_SlotVertexCapacity is
@@ -396,14 +605,35 @@ namespace OloEngine
             std::vector<VirtualGpuVertex> uvStaging(packedElements);
             for (u32 v = 0; v < page.Info.VertexCount; ++v)
             {
-                PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v,
-                                      packed.LightmapUVs[page.Info.VertexOffset + v]);
+                PackVirtualLightmapUV(uvStaging[VirtualLightmapUVElementOffset(v)], v, lightmapSource[v]);
             }
             CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
                             (static_cast<u64>(m_LightmapUVBaseElement) +
                              VirtualLightmapUVElementOffset(static_cast<u32>(slotVertexBase))) *
                                 sizeof(VirtualGpuVertex),
                             uvStaging.data(),
+                            static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
+        }
+
+        // The page's skin bindings, packed two to a 32-byte element (issue
+        // #1150). Same slot-local-from-0 packing the uv2 tail above uses, and
+        // legal for the same two reasons: a page's vertices start at slot-local
+        // index 0, and m_SlotVertexCapacity is 4-aligned and therefore also
+        // 2-aligned, so a global index's lane equals its slot-local lane.
+        if (m_SkinningBaseElement != 0 && entry.IsSkinned)
+        {
+            u32 const packedElements = VirtualSkinningElementCount(page.Info.VertexCount);
+            std::vector<VirtualGpuVertex> skinStaging(packedElements);
+            for (u32 v = 0; v < page.Info.VertexCount; ++v)
+            {
+                PackVirtualSkinning(skinStaging[VirtualSkinningElementOffset(v)], v,
+                                    packed.Skinning[page.Info.VertexOffset + v]);
+            }
+            CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
+                            (static_cast<u64>(m_SkinningBaseElement) +
+                             VirtualSkinningElementOffset(static_cast<u32>(slotVertexBase))) *
+                                sizeof(VirtualGpuVertex),
+                            skinStaging.data(),
                             static_cast<u64>(packedElements) * sizeof(VirtualGpuVertex));
         }
 
@@ -421,6 +651,11 @@ namespace OloEngine
                                  static_cast<u32>(rebased.size() * sizeof(VirtualClusterGpuRecord)),
                                  page.PooledFirstCluster * static_cast<u32>(sizeof(VirtualClusterGpuRecord)));
 
+        if (consumedFromStore)
+        {
+            m_PageStore.Release(entry.StorePageBase, storePage);
+        }
+
         page.SlotIndex = slot;
         page.Resident = true;
         page.LastUsedFrame = m_FrameCounter;
@@ -428,7 +663,7 @@ namespace OloEngine
         m_DirtyResidencyGroups.push_back(page.PooledGroup);
         ++m_ResidencyStats.PageUploads;
         ++m_ResidencyStats.ResidentPages;
-        return true;
+        return PageLoadResult::Loaded;
     }
 
     void VirtualMeshRegistry::OnResidencyEvicted(u32 pageIndex)
@@ -486,6 +721,20 @@ namespace OloEngine
         m_SlotCache.Destroy();
         m_ResidencyStats = {};
 
+        // Spill first (issue #1151): the pinned and eager loads below read through the store
+        // for any mesh that has one, and doing it here means a mesh registered after the last
+        // rebuild joins the store on this pass rather than the next.
+        //
+        // The store's two caps are derived from the per-frame page budget rather than set
+        // independently, because they are the same quantity seen from three sides: a frame
+        // attends to at most m_MaxPageUploadsPerFrame pages, so at most that many reads can be
+        // outstanding, and a staged payload only has to survive until the next frame reaches
+        // it — doubled to leave headroom for a poll that applies two snapshots at once.
+        m_PageStore.SetMaxReadsInFlight(m_MaxPageUploadsPerFrame);
+        m_PageStore.SetMaxStagedPages(m_MaxPageUploadsPerFrame * 2u);
+        SpillPagesToStore();
+        m_FailedPages = 0;
+
         u32 maxPageVertices = 0;
         u32 maxPageIndices = 0;
         u32 pinnedPages = 0;
@@ -513,11 +762,14 @@ namespace OloEngine
             }
             groups.insert(groups.end(), entry.Packed.Groups.begin(), entry.Packed.Groups.end());
 
-            for (const VirtualPageInfo& info : entry.Packed.Pages)
+            auto const entryPageCount = static_cast<u32>(entry.Packed.Pages.size());
+            for (u32 entryPage = 0; entryPage < entryPageCount; ++entryPage)
             {
+                const VirtualPageInfo& info = entry.Packed.Pages[entryPage];
                 PageRuntime page;
                 page.Info = info;
                 page.MeshEntryIndex = entryIndex;
+                page.EntryPageIndex = entryPage;
                 page.PooledGroup = entry.GroupBase + info.GroupIndex;
                 page.PooledFirstCluster = entry.ClusterBase + info.FirstCluster;
                 page.Pinned = info.Pinned;
@@ -611,15 +863,34 @@ namespace OloEngine
         // the header for why it lives inside this buffer rather than getting a
         // binding. Allocated only when some registered mesh carries UV2, so an
         // unbaked scene's arena is byte-for-byte what it was before.
-        const bool anyLightmapUVs =
-            std::ranges::any_of(m_Entries, [](const MeshEntry& entry)
-                                { return entry.Packed.LightmapUVs.size() == entry.Packed.Vertices.size() &&
-                                         !entry.Packed.LightmapUVs.empty(); });
+        const bool anyLightmapUVs = std::ranges::any_of(
+            m_Entries, [](const MeshEntry& entry)
+            { return entry.Valid && entry.HasLightmapUVs; });
         u64 const lightmapElements =
             anyLightmapUVs ? VirtualLightmapUVElementCount(static_cast<u32>(vertexElements)) : 0u;
         m_LightmapUVBaseElement = anyLightmapUVs ? static_cast<u32>(vertexElements) : 0u;
 
-        u64 const vertexArenaBytes = (vertexElements + lightmapElements) * sizeof(VirtualGpuVertex);
+        // The skinning tails (issue #1150), allocated on the same all-or-nothing
+        // rule and for the same reason — see VirtualSkinningPacking.h for the
+        // arena layout. A scene with no skinned virtual mesh allocates exactly
+        // what it did before.
+        //
+        // TWO tails, not one, because they are keyed differently: the skin
+        // bindings are per VERTEX and therefore per SLOT (refilled by every page
+        // load), while the per-cluster bone sets are per POOLED CLUSTER and
+        // fully resident like the cluster records themselves — the cull must be
+        // able to bound a cluster whether or not its page is in memory.
+        const bool anySkinned = std::ranges::any_of(m_Entries, [](const MeshEntry& entry)
+                                                    { return entry.Valid && entry.IsSkinned; });
+        u64 const skinningElements =
+            anySkinned ? VirtualSkinningElementCount(static_cast<u32>(vertexElements)) : 0u;
+        m_SkinningBaseElement = anySkinned ? static_cast<u32>(vertexElements + lightmapElements) : 0u;
+        u64 const clusterBoneElements = anySkinned ? m_PooledClusters.size() : 0u;
+        m_ClusterBoneBaseElement =
+            anySkinned ? static_cast<u32>(vertexElements + lightmapElements + skinningElements) : 0u;
+
+        u64 const vertexArenaBytes =
+            (vertexElements + lightmapElements + skinningElements + clusterBoneElements) * sizeof(VirtualGpuVertex);
         if (!m_VertexBuffer || m_VertexBuffer->GetSize() < vertexArenaBytes)
         {
             m_VertexBuffer = StorageBuffer::Create(static_cast<u32>(vertexArenaBytes),
@@ -646,6 +917,32 @@ namespace OloEngine
             [[maybe_unused]] bool const ringCreated = m_UploadRing.Create(kUploadRingBytes);
         }
 
+        // The per-cluster bone-set tail (issue #1150). Uploaded ONCE here, with
+        // the pools, rather than per page load: the cull bounds a cluster
+        // whether or not the cluster's geometry page is resident (that is the
+        // whole point of the residency-clamped cut), so its bone set has to be
+        // there unconditionally — and it is keyed by pooled cluster index, which
+        // does not move.
+        if (m_ClusterBoneBaseElement != 0 && !m_PooledClusters.empty())
+        {
+            static_assert(sizeof(VirtualGpuVertex) == kMaxClusterBones * sizeof(u32),
+                          "one arena element must hold exactly one cluster's bone set");
+            std::vector<u32> boneStaging(m_PooledClusters.size() * kMaxClusterBones, kNoClusterBone);
+            for (const MeshEntry& entry : m_Entries)
+            {
+                if (!entry.Valid || !entry.IsSkinned)
+                {
+                    continue; // a rigid part's clusters keep the all-sentinel fill
+                }
+                std::ranges::copy(entry.Packed.ClusterBoneRefs,
+                                  boneStaging.begin() +
+                                      static_cast<std::ptrdiff_t>(entry.ClusterBase) * kMaxClusterBones);
+            }
+            CopyThroughRing(m_VertexBuffer->GetRHIHandle(),
+                            static_cast<u64>(m_ClusterBoneBaseElement) * sizeof(VirtualGpuVertex),
+                            boneStaging.data(), boneStaging.size() * sizeof(u32));
+        }
+
         // Residency reset: nothing resident, then load pinned pages (always) and
         // — when the budget fits everything — every page eagerly so the default
         // configuration has no pop-in.
@@ -655,15 +952,20 @@ namespace OloEngine
             page.Resident = false;
             page.SlotIndex = kNoSlot;
             page.LastUsedFrame = 0;
+            page.LoadFailed = false;
         }
         bool const eager = (slotCount >= totalPages);
         for (u32 p = 0; p < m_Pages.size(); ++p)
         {
             if (m_Pages[p].Pinned || eager)
             {
-                LoadPage(p);
+                // Synchronous, not async: a pinned page IS the fallback the asynchronous path
+                // falls back to, and an eager configuration promises no pop-in. Neither has
+                // anything coarser to render while a read is outstanding.
+                (void)LoadPage(p, false);
             }
         }
+        PublishPageStoreStats();
 
         auto const statesBytes = static_cast<u32>(m_GroupStatesCpu.size() * sizeof(u32));
         if (!m_GroupStatesBuffer || m_GroupStatesBuffer->GetSize() < statesBytes)
@@ -685,9 +987,17 @@ namespace OloEngine
         m_PoolsDirty = false;
 
         OLO_CORE_TRACE("VirtualMeshRegistry: pools rebuilt — {} clusters, {} groups, {} pages ({} pinned), "
-                       "{} slots x ({} verts / {} indices), {} resident",
+                       "{} slots x ({} verts / {} indices), {} resident, backing {}",
                        m_PooledClusters.size(), groups.size(), totalPages, pinnedPages,
-                       slotCount, m_SlotVertexCapacity, m_SlotIndexCapacity, m_ResidencyStats.ResidentPages);
+                       slotCount, m_SlotVertexCapacity, m_SlotIndexCapacity, m_ResidencyStats.ResidentPages,
+                       m_PageStore.IsOpen() ? "disk" : "memory");
+        if (m_FailedPages > 0)
+        {
+            OLO_CORE_ERROR("VirtualMeshRegistry: {} of {} page(s) could not be read from the backing store "
+                           "during the rebuild — that geometry stays at a coarser DAG cut for the rest of "
+                           "the session (see VirtualResidencyStats::FailedPages)",
+                           m_FailedPages, totalPages);
+        }
     }
 
     void VirtualMeshRegistry::ProcessResidency()
@@ -700,6 +1010,7 @@ namespace OloEngine
         }
         m_ResidencyProcessed = true;
         ++m_FrameCounter;
+        PublishPageStoreStats();
 
         // Fully-resident configurations skip the readback entirely.
         if (m_ResidencyStats.ResidentPages == m_ResidencyStats.TotalPages)
@@ -715,6 +1026,7 @@ namespace OloEngine
         CaptureResidencyStates();
         PollResidencyReadback();
         m_ResidencyStats.RequestReadbackSlotsInFlight = m_ResidencyReadbackSlotsInFlight;
+        PublishPageStoreStats();
     }
 
     bool VirtualMeshRegistry::EnsureResidencyReadbackSlots()
@@ -823,7 +1135,7 @@ namespace OloEngine
         // kResidencyReadbackSlots * m_MaxPageUploadsPerFrame pages — the exact
         // per-frame spike this cap exists to prevent, since each load stages
         // through the finite CopyThroughRing upload ring.
-        u32 uploadBudget = m_MaxPageUploadsPerFrame;
+        u32 workBudget = m_MaxPageUploadsPerFrame;
         // OLDEST FIRST, not array order. m_NextResidencyReadbackSlot is the
         // slot the NEXT capture will use, so it is also the oldest one still
         // in flight; walking from there wraps the ring in ISSUE order. Array
@@ -854,12 +1166,12 @@ namespace OloEngine
             slot.m_Fence = 0;
             slot.m_Pending = false;
 
-            ApplyResidencySnapshot(gpuStates, uploadBudget);
+            ApplyResidencySnapshot(gpuStates, workBudget);
         }
         m_ResidencyReadbackSlotsInFlight = inFlight;
     }
 
-    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& uploadBudget)
+    void VirtualMeshRegistry::ApplyResidencySnapshot(const std::vector<u32>& gpuStates, u32& workBudget)
     {
         // LRU touches first so this snapshot's loads cannot evict just-used pages.
         for (u32 g = 0; g < gpuStates.size(); ++g)
@@ -874,20 +1186,33 @@ namespace OloEngine
             }
         }
 
-        for (u32 g = 0; g < gpuStates.size() && uploadBudget > 0; ++g)
+        for (u32 g = 0; g < gpuStates.size() && workBudget > 0; ++g)
         {
             if ((gpuStates[g] & kStateRequested) == 0u)
             {
                 continue;
             }
             u32 const pageIndex = m_PageOfPooledGroup[g];
-            if (pageIndex == kNoSlot || m_Pages[pageIndex].Resident)
+            if (pageIndex == kNoSlot || m_Pages[pageIndex].Resident || m_Pages[pageIndex].LoadFailed)
             {
                 continue;
             }
-            if (LoadPage(pageIndex))
+            // Asynchronous (issue #1151). Loaded and Pending both spend budget; only a page
+            // the cache had no slot for (or that can never load) does not, which is exactly
+            // the pre-#1151 behaviour on the in-memory backing, where Pending cannot happen.
+            //
+            // Spending budget on Pending is the point: it bounds outstanding reads by what a
+            // frame can absorb. Skipping on instead would walk the whole group array issuing
+            // reads at loop speed, and the results would be discarded unread — see the comment
+            // on this function's declaration for the measured numbers.
+            switch (LoadPage(pageIndex, true))
             {
-                --uploadBudget;
+                case PageLoadResult::Loaded:
+                case PageLoadResult::Pending:
+                    --workBudget;
+                    break;
+                case PageLoadResult::NotLoaded:
+                    break;
             }
         }
 
@@ -1042,7 +1367,13 @@ namespace OloEngine
     void VirtualMeshRegistry::EnsureFrameBuffers()
     {
         auto const instanceCount = static_cast<u32>(m_FrameInstances.size());
-        auto const instanceBytes = instanceCount * static_cast<u32>(sizeof(VirtualInstanceGpuRecord));
+        // The bone-palette tail rides this buffer (issue #1150) — one palette
+        // entry per element, in the same record layout, because a posed bone
+        // needs exactly the three matrices a VirtualInstance carries and there
+        // is no SSBO binding left to give it. See VirtualInstanceGpuRecord's
+        // SkinBoneBase for the full reasoning.
+        auto const instanceBytes =
+            (instanceCount + m_BonePaletteElementCount) * static_cast<u32>(sizeof(VirtualInstanceGpuRecord));
         if (!m_InstanceBuffer || m_InstanceBuffer->GetSize() < instanceBytes)
         {
             m_InstanceBuffer = StorageBuffer::Create(std::max(instanceBytes, 1024u),
@@ -1135,6 +1466,12 @@ namespace OloEngine
         m_FrameInstances.reserve(m_Submissions.size());
         m_TotalFrameClusterCount = 0;
 
+        // This frame's bone palettes, accumulated beside the instance records
+        // and appended to the same upload as the buffer's tail (issue #1150).
+        // Built here rather than in a second pass because the base an instance
+        // records IS its position in this vector.
+        std::vector<VirtualInstanceGpuRecord> bonePalette;
+
         for (const VirtualMeshSubmission& submission : m_Submissions)
         {
             MeshParts const parts = FindParts(submission.Mesh);
@@ -1154,6 +1491,14 @@ namespace OloEngine
             {
                 continue;
             }
+
+            // One bone palette per SUBMISSION, not per part (issue #1150).
+            // Every part of a mesh is posed by the same skeleton, so appending
+            // it once per part would store a 100-bone palette three times for a
+            // three-submesh character and change nothing about the result.
+            // Filled lazily by the first part that turns out to be skinned.
+            constexpr u32 kNoPalette = 0xFFFFFFFFu;
+            u32 submissionPaletteBase = kNoPalette;
 
             // One GPU instance PER PART. Each part is an independent DAG over one submesh, so
             // it gets its own cluster range and its own material — which is what makes a
@@ -1230,9 +1575,102 @@ namespace OloEngine
                 gpu.LightmapScaleOffset = submission.LightmapScaleOffset;
                 gpu.CommandBase = m_TotalFrameClusterCount;
 
+                // ── Skinning (issue #1150) ───────────────────────────────────
+                //
+                // Gated on BOTH the submission carrying a palette and this
+                // PART's cook carrying a skinning payload. They can disagree:
+                // the DAG is cooked the first time the mesh is registered while
+                // the palette comes from the live skeleton, so a mesh cooked by
+                // a builder that predates #1150 has no bindings at all.
+                // Deforming that part's BOUNDS while its vertices stay rigid is
+                // geometry sliding out of its own culling volume, which flickers
+                // rather than failing — so the part renders rigid instead, and
+                // the warn-once below says why.
+                if (submission.IsSkinned() && entry.IsSkinned)
+                {
+                    if (submissionPaletteBase == kNoPalette)
+                    {
+                        submissionPaletteBase = static_cast<u32>(bonePalette.size());
+                        // Bone velocity degrades to "no motion" rather than to a
+                        // mismatched pairing when the two sets disagree in length.
+                        const bool usePrev = submission.PrevBoneMatrices.size() == submission.BoneMatrices.size();
+                        for (sizet b = 0; b < submission.BoneMatrices.size(); ++b)
+                        {
+                            VirtualInstanceGpuRecord paletteEntry;
+                            paletteEntry.Transform = submission.BoneMatrices[b];
+                            paletteEntry.PrevTransform =
+                                usePrev ? submission.PrevBoneMatrices[b] : submission.BoneMatrices[b];
+                            // NormalMatrix is left at identity and unread: the
+                            // shared deformation producer derives the deformed
+                            // normal from the blended skin matrix, as every
+                            // other skinned consumer does (issue #1226), so a
+                            // per-bone inverse-transpose would be a second
+                            // answer to a question that already has one — and
+                            // an inverse per bone per frame to compute it.
+                            bonePalette.push_back(paletteEntry);
+                        }
+                    }
+
+                    gpu.Flags |= VirtualInstanceGpuRecord::kFlagSkinned;
+                    // RELATIVE to the tail here; rebased to an absolute element
+                    // index below, once the instance count is final.
+                    gpu.SkinBoneBase = submissionPaletteBase;
+                    gpu.SkinBoneCount = static_cast<u32>(submission.BoneMatrices.size());
+                    gpu.SkinClusterBoneBase = m_ClusterBoneBaseElement + entry.ClusterBase;
+                    // The MAX over both poses, not the current one alone.
+                    //
+                    // This single scalar pads the instance's PrevBounds as well
+                    // as its current bounds, and the previous pose can have
+                    // displaced further — a character that just lowered its arm
+                    // moved more last frame than this one. Padding the previous
+                    // bounds by the current pose's bound then under-covers the
+                    // old silhouette, which is exactly what shadow-page
+                    // invalidation needs: it would leave the pages that arm
+                    // swept through holding a stale caster. It also feeds the
+                    // cull's previous-pose fallback sphere for a cluster whose
+                    // bone set did not fit.
+                    const auto& effectivePrevPalette =
+                        submission.PrevBoneMatrices.size() == submission.BoneMatrices.size()
+                            ? submission.PrevBoneMatrices
+                            : submission.BoneMatrices;
+                    gpu.SkinBoundsPadding =
+                        std::max(SkinDisplacementBound(entry.Packed.BoneBounds, submission.BoneMatrices),
+                                 SkinDisplacementBound(entry.Packed.BoneBounds, effectivePrevPalette));
+
+                    // The group ERROR scale, applied to the THRESHOLD instead of
+                    // to the errors. A bone that stretches its vertices by s
+                    // stretches the surface deviation a coarse LOD stands in for
+                    // by at most s as well, so every group error should scale by
+                    // the largest s in the palette. Both cut rules compare a
+                    // projected error against this threshold and the projection
+                    // is linear in the error, so dividing the threshold once on
+                    // the CPU is EXACTLY multiplying every error on the GPU —
+                    // for no new field in a record whose lanes are spoken for,
+                    // and no arithmetic in the cull's hot loop.
+                    f32 const errorScale = SkinMaxBoneScale(submission.BoneMatrices);
+                    if (errorScale > 1.0f)
+                    {
+                        // Floored rather than clamped at the scale: below a
+                        // hundredth of a pixel every finite group error is over
+                        // the threshold, so the cut is already the finest the
+                        // DAG has and going lower cannot refine it further.
+                        gpu.ErrorThresholdPixels = std::max(gpu.ErrorThresholdPixels / errorScale, 0.01f);
+                    }
+                }
+                // No `else` warning here. A part that is not skinned inside a
+                // skinned submission is the ORDINARY case now that MeshIsSkinned
+                // is per-mesh-any rather than per-mesh-all (an unweighted prop
+                // submesh), so warning would fire on healthy assets every frame.
+                // The condition actually worth reporting — a palette published
+                // for a mesh whose cook carries no skinning at ALL — is a stale
+                // cook, and it is caught in Renderer3D::SubmitVirtualMesh, which
+                // is the place that can still tell the difference.
+
                 // Conservative world-space sphere scaling + cone validity
                 gpu.MaxScale = maxScale;
-                gpu.Flags = 0;
+                // NOT reset to 0 here: the skinning block above may already have
+                // set kFlagSkinned, and `gpu` is a freshly default-constructed
+                // record per part, so a reset would only ever destroy that.
                 if ((maxScale / minScale) < 1.01f)
                 {
                     gpu.Flags |= VirtualInstanceGpuRecord::kFlagUniformScale;
@@ -1258,10 +1696,21 @@ namespace OloEngine
                 instance.HasBounds = entry.HasBounds;
                 if (entry.HasBounds)
                 {
-                    TransformedBounds(gpu.Transform, entry.LocalBoundsMin, entry.LocalBoundsMax,
-                                      instance.BoundsMin, instance.BoundsMax);
-                    TransformedBounds(gpu.PrevTransform, entry.LocalBoundsMin, entry.LocalBoundsMax,
-                                      instance.PrevBoundsMin, instance.PrevBoundsMax);
+                    // The part's LOCAL bounds were computed from the REST-POSE
+                    // cluster spheres at registration, so a deforming instance
+                    // needs the same conservative padding its group spheres get
+                    // (issue #1150) — applied in OBJECT space, before the
+                    // transform, which is where SkinBoundsPadding is measured.
+                    //
+                    // Both consumers would fail silently without it: the VSM
+                    // route would skip a clip level a raised arm reaches into,
+                    // and shadow-page invalidation would leave the pages that
+                    // arm moved through holding a stale silhouette.
+                    glm::vec3 const localMin = entry.LocalBoundsMin - glm::vec3(gpu.SkinBoundsPadding);
+                    glm::vec3 const localMax = entry.LocalBoundsMax + glm::vec3(gpu.SkinBoundsPadding);
+                    TransformedBounds(gpu.Transform, localMin, localMax, instance.BoundsMin, instance.BoundsMax);
+                    TransformedBounds(gpu.PrevTransform, localMin, localMax, instance.PrevBoundsMin,
+                                      instance.PrevBoundsMax);
                 }
 
                 m_TotalFrameClusterCount += gpu.ClusterCount;
@@ -1271,17 +1720,37 @@ namespace OloEngine
 
         if (m_FrameInstances.empty())
         {
+            m_BonePaletteBaseElement = 0;
+            m_BonePaletteElementCount = 0;
             return false;
+        }
+
+        // The palette tail starts where the instance records end, which is only
+        // knowable now — hence the two steps: the loop above recorded a base
+        // RELATIVE to the tail, and this rebases it to the absolute element the
+        // shader indexes with.
+        m_BonePaletteBaseElement = static_cast<u32>(m_FrameInstances.size());
+        m_BonePaletteElementCount = static_cast<u32>(bonePalette.size());
+        for (FrameInstance& instance : m_FrameInstances)
+        {
+            if (instance.Gpu.SkinBoneCount != 0)
+            {
+                instance.Gpu.SkinBoneBase += m_BonePaletteBaseElement;
+            }
         }
 
         EnsureFrameBuffers();
 
         std::vector<VirtualInstanceGpuRecord> gpuRecords;
-        gpuRecords.reserve(m_FrameInstances.size());
+        gpuRecords.reserve(m_FrameInstances.size() + bonePalette.size());
         for (const FrameInstance& instance : m_FrameInstances)
         {
             gpuRecords.push_back(instance.Gpu);
         }
+        // One upload, not two: the tail is part of the same array, so appending
+        // here keeps the two regions contiguous by construction rather than by
+        // two offsets that could drift apart.
+        gpuRecords.insert(gpuRecords.end(), bonePalette.begin(), bonePalette.end());
         m_InstanceBuffer->SetData(gpuRecords.data(),
                                   static_cast<u32>(gpuRecords.size() * sizeof(VirtualInstanceGpuRecord)), 0);
 
@@ -1307,6 +1776,10 @@ namespace OloEngine
         m_GroupStatesBuffer = nullptr;
         m_VertexBuffer = nullptr;
         m_LightmapUVBaseElement = 0;
+        m_SkinningBaseElement = 0;
+        m_ClusterBoneBaseElement = 0;
+        m_BonePaletteBaseElement = 0;
+        m_BonePaletteElementCount = 0;
         m_InstanceBuffer = nullptr;
         m_CommandBuffer = nullptr;
         m_ArgsBuffer = nullptr;
@@ -1357,6 +1830,11 @@ namespace OloEngine
         m_PooledClusters.clear();
         m_GroupStatesCpu.clear();
         m_SlotCache.Destroy();
+        // Joins the IO workers and deletes the spill file. Must happen while the entries that
+        // reference it are being torn down, not later: a worker still reading would otherwise
+        // outlive the registry that owns the store.
+        m_PageStore.Close();
+        m_FailedPages = 0;
         m_ResidencyStats = {};
         m_FrameCounter = 0;
         m_PoolsDirty = false;

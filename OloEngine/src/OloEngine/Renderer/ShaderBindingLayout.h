@@ -923,6 +923,49 @@ namespace OloEngine
         };
         static_assert(sizeof(DDGIPassDataUBO) % 16 == 0, "DDGIPassDataUBO must be 16-byte aligned for std140");
         static_assert(sizeof(DDGIPassDataUBO) == 400, "DDGIPassDataUBO std140 size drifted from GLSL expectation (400 B)");
+
+        // @brief The batched DDGI relocation dispatch's capture set (issue #846).
+        // Mirrors the `DDGIRelocateParams` std140 block in
+        // OloEditor/assets/shaders/include/DDGIRelocateParams.glsl.
+        //
+        // A BLOCK OF ITS OWN, on the same pass-local binding as DDGIPassDataUBO,
+        // rather than three more fields inside it. DDGIPassData is re-uploaded
+        // once per caster per cube face per captured probe by
+        // DDGIProbeUpdatePass::CaptureProbe; this array is 1 KB and is read by
+        // exactly one dispatch per frame, so carrying it there would multiply
+        // every one of those capture uploads by ~3.5x — and on the Vulkan
+        // backend each upload is a fresh frame-arena push, which is how a DDGI
+        // frame exhausts the arena and starts dropping draws with nothing in
+        // the log (issue #1185's shape).
+        //
+        // UBO_USER_0 is pass-local and its occupant refills it immediately
+        // before its own work, so this costs no binding: DDGIPassData, VRCS
+        // ShadingRateParams and this block share the slot at three sizes.
+        struct DDGIRelocateParamsUBO
+        {
+            // Fixed-size because the block is a UBO. A capture set longer than
+            // this is dispatched in consecutive chunks rather than truncated —
+            // see DDGIProbeUpdatePass::RelocateProbesGPU. 64 entries covers the
+            // largest budget the editor slider, the scene YAML clamp and the Lua
+            // setter all stop at.
+            static constexpr u32 MaxRelocationBatch = 64;
+
+            // One entry per work group: .x = global probe index, .y = 1 when
+            // this capture is a periodic refresh of an already-placed probe (the
+            // flag that used to be DDGI_PASS_FLAG_REFRESH_CAPTURE in
+            // DDGIPassDataUBO::ComputeParams.w, which could only describe a
+            // whole dispatch). Entries past the dispatch's group count are
+            // neither written nor read.
+            glm::ivec4 CaptureSet[MaxRelocationBatch]{}; // 0
+
+            static constexpr u32 GetSize()
+            {
+                return sizeof(DDGIRelocateParamsUBO);
+            }
+        };
+        static_assert(sizeof(DDGIRelocateParamsUBO) % 16 == 0, "DDGIRelocateParamsUBO must be 16-byte aligned for std140");
+        static_assert(sizeof(DDGIRelocateParamsUBO) == 1024, "DDGIRelocateParamsUBO std140 size drifted from GLSL expectation (1024 B)");
+        static_assert(sizeof(DDGIRelocateParamsUBO) <= 16384, "DDGIRelocateParamsUBO must stay under the 16 KB UBO block limit");
         // @brief Water surface rendering parameters
         struct WaterUBO
         {
@@ -1081,8 +1124,15 @@ namespace OloEngine
             //     short of the sky and extends PAST the near edge by however
             //     far a crest can move a vertex there;
             // w = band-limit spacing per metre of ray distance
-            //     (WaterSurfaceLod::SpacingPerMetre): one grid step of view
-            //     angle, so a vertex t metres out is sampled ~w*t metres apart.
+            //     (WaterSurfaceLod::SpacingPerMetre): one ON-SCREEN grid step
+            //     of view angle. Not one step of the whole rectangle: since
+            //     issue #1217 the skirt rows are compressed into a fixed share
+            //     of each axis, so the rectangle's average step describes no
+            //     row. The vertex stage scales this by the vertex's OWN step
+            //     ratio -- 1 everywhere on screen, larger in a compressed skirt
+            //     -- before multiplying by the ray distance, so a vertex t
+            //     metres out on screen is sampled ~w*t metres apart and a skirt
+            //     vertex proportionally coarser.
             //     The rim radius a missed ray is pushed to is derived in-shader
             //     from ProjectedGridParams2.xy and the model matrix.
             glm::vec4 ProjectedGridParams;

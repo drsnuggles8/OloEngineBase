@@ -176,10 +176,16 @@ namespace OloEngine
             // vec2-per-vertex UV2 array follows the vertices. The count is 0 or
             // VertexCount and nothing else, so an unbaked cook grows by exactly the
             // one header word.
-            constexpr u32 kVersion = 3;
-            constexpr sizet kHeaderSize = 12 * sizeof(u32);
+            // v4 (issue #1150): three more header words — SkinningCount,
+            // BoneBoundsCount, ClusterBoneRefCount — and three optional payload
+            // arrays after the lightmap UVs. All three are zero for a rigid
+            // cook, so a rigid mesh grows by exactly three header words.
+            constexpr u32 kVersion = 4;
+            constexpr sizet kHeaderSize = 15 * sizeof(u32);
             constexpr sizet kLightmapUVWireSize = 2 * sizeof(f32);
-            constexpr sizet kVertexWireSize = 8 * sizeof(f32); // px py pz nx ny nz u v
+            constexpr sizet kSkinningWireSize = 4 * sizeof(u32) + 4 * sizeof(f32); // bone ids + weights
+            constexpr sizet kBoneBoundsWireSize = 4 * sizeof(f32);                 // centre + radius
+            constexpr sizet kVertexWireSize = 8 * sizeof(f32);                     // px py pz nx ny nz u v
             constexpr sizet kClusterWireSize = 6 * sizeof(u32) + 11 * sizeof(f32);
             constexpr sizet kGroupWireSize = 3 * sizeof(u32) + 5 * sizeof(f32);
 
@@ -189,6 +195,10 @@ namespace OloEngine
             constexpr u32 kMaxGroups = 16u * 1024 * 1024;
             constexpr u32 kMaxVertexRefs = 256u * 1024 * 1024;
             constexpr u32 kMaxTriangleBytes = 768u * 1024 * 1024;
+            // A skeleton is a human-authored rig, so this is generous by three
+            // orders of magnitude; it exists to stop a hostile header word from
+            // asking for a multi-gigabyte allocation, not to express a rig limit.
+            constexpr u32 kMaxBoneBounds = 1u * 1024 * 1024;
             constexpr u32 kMaxClusterVertices = 256;  // local triangle indices are u8
             constexpr u32 kMaxClusterTriangles = 512; // meshoptimizer implementation limit
 
@@ -280,11 +290,15 @@ namespace OloEngine
 
             [[nodiscard]] sizet ExpectedBlobSize(sizet vertexCount, sizet clusterCount, sizet groupCount,
                                                  sizet vertexRefCount, sizet triangleByteCount,
-                                                 sizet lightmapUVCount)
+                                                 sizet lightmapUVCount, sizet skinningCount,
+                                                 sizet boneBoundsCount, sizet clusterBoneRefCount)
             {
                 return kHeaderSize +
                        vertexCount * kVertexWireSize +
                        lightmapUVCount * kLightmapUVWireSize +
+                       skinningCount * kSkinningWireSize +
+                       boneBoundsCount * kBoneBoundsWireSize +
+                       clusterBoneRefCount * sizeof(u32) +
                        clusterCount * kClusterWireSize +
                        groupCount * kGroupWireSize +
                        vertexRefCount * sizeof(u32) +
@@ -301,6 +315,9 @@ namespace OloEngine
                 u32 LevelCount = 0;
                 u32 SourceTriangleCount = 0;
                 u32 LightmapUVCount = 0;
+                u32 SkinningCount = 0;
+                u32 BoneBoundsCount = 0;
+                u32 ClusterBoneRefCount = 0;
             };
 
             // Every stage below treats the blob as hostile: read, then validate before use,
@@ -330,7 +347,38 @@ namespace OloEngine
                 if (!reader.Read(counts.VertexCount) || !reader.Read(counts.ClusterCount) ||
                     !reader.Read(counts.GroupCount) || !reader.Read(counts.VertexRefCount) ||
                     !reader.Read(counts.TriangleByteCount) || !reader.Read(counts.LevelCount) ||
-                    !reader.Read(counts.SourceTriangleCount) || !reader.Read(counts.LightmapUVCount))
+                    !reader.Read(counts.SourceTriangleCount) || !reader.Read(counts.LightmapUVCount) ||
+                    !reader.Read(counts.SkinningCount) || !reader.Read(counts.BoneBoundsCount) ||
+                    !reader.Read(counts.ClusterBoneRefCount))
+                {
+                    return false;
+                }
+
+                // The skinning payload is ALL-OR-NOTHING, and the three counts
+                // must agree with each other and with the geometry (issue #1150).
+                // A partial payload is not a degraded mesh: vertices with no
+                // binding would stay in the rest pose while their neighbours
+                // deform, which renders as the mesh tearing apart rather than as
+                // a load failure — and a cluster bone list of the wrong length
+                // would address another cluster's bones, which silently culls
+                // the wrong geometry. Both are rejected here, so the registry
+                // falls back to a runtime build.
+                if (counts.SkinningCount != 0 && counts.SkinningCount != counts.VertexCount)
+                {
+                    return false;
+                }
+                bool const skinned = counts.SkinningCount != 0;
+                if (skinned != (counts.BoneBoundsCount != 0))
+                {
+                    return false;
+                }
+                u64 const expectedClusterBoneRefs =
+                    skinned ? static_cast<u64>(counts.ClusterCount) * kMaxClusterBones : 0u;
+                if (counts.ClusterBoneRefCount != expectedClusterBoneRefs)
+                {
+                    return false;
+                }
+                if (counts.BoneBoundsCount > kMaxBoneBounds)
                 {
                     return false;
                 }
@@ -358,7 +406,8 @@ namespace OloEngine
                 }
                 return blob.size() == ExpectedBlobSize(counts.VertexCount, counts.ClusterCount, counts.GroupCount,
                                                        counts.VertexRefCount, counts.TriangleByteCount,
-                                                       counts.LightmapUVCount);
+                                                       counts.LightmapUVCount, counts.SkinningCount,
+                                                       counts.BoneBoundsCount, counts.ClusterBoneRefCount);
             }
 
             [[nodiscard]] bool ReadVertices(BlobReader& reader, VirtualMesh& mesh, const WireCounts& counts)
@@ -379,6 +428,51 @@ namespace OloEngine
                     if (!ReadFiniteF32(reader, uv.x) || !ReadFiniteF32(reader, uv.y))
                     {
                         return false;
+                    }
+                }
+
+                // Skin bindings (issue #1150). Bone ids are NOT range-checked
+                // against BoneBoundsCount here on purpose: the runtime palette,
+                // not the cook, decides which ids are addressable, and every
+                // consumer already drops an id past the palette
+                // (VirtualSkinningBounds::SkinPosition, oloSkinVirtualVertex).
+                // What IS checked is the weights, because a non-finite weight
+                // multiplies a bone matrix and spreads a NaN through the whole
+                // vertex, and a negative one breaks the convexity that makes
+                // every bound in VirtualSkinningBounds conservative.
+                mesh.Skinning.resize(counts.SkinningCount);
+                for (VirtualVertexSkinning& binding : mesh.Skinning)
+                {
+                    for (u32& boneId : binding.BoneIDs)
+                    {
+                        if (!reader.Read(boneId))
+                        {
+                            return false;
+                        }
+                    }
+                    for (f32& weight : binding.Weights)
+                    {
+                        if (!ReadFiniteF32(reader, weight) || weight < 0.0f || weight > 1.0f)
+                        {
+                            return false;
+                        }
+                    }
+                }
+
+                mesh.BoneBounds.resize(counts.BoneBoundsCount);
+                for (VirtualBoneBounds& bounds : mesh.BoneBounds)
+                {
+                    if (!ReadFiniteVec3(reader, bounds.Center) || !ReadFiniteF32(reader, bounds.Radius))
+                    {
+                        return false;
+                    }
+                    // Anything below the "influences nothing" sentinel is
+                    // normalized to it rather than rejected: a negative radius
+                    // is only ever read as the sentinel downstream, so there is
+                    // one representation of it instead of a family.
+                    if (bounds.Radius < 0.0f)
+                    {
+                        bounds.Radius = -1.0f;
                     }
                 }
                 return true;
@@ -548,6 +642,17 @@ namespace OloEngine
                     }
                 }
 
+                // Per-cluster bone sets (issue #1150). Length was already pinned
+                // to ClusterCount * kMaxClusterBones by the header check, so
+                // this only has to read them; the ids themselves are bounded by
+                // the runtime palette, exactly as the per-vertex ids are.
+                mesh.ClusterBoneRefs.resize(counts.ClusterBoneRefCount);
+                if (!reader.ReadBytes(reinterpret_cast<u8*>(mesh.ClusterBoneRefs.data()),
+                                      static_cast<sizet>(counts.ClusterBoneRefCount) * sizeof(u32)))
+                {
+                    return false;
+                }
+
                 return reader.Remaining() == 0;
             }
         } // namespace
@@ -595,7 +700,8 @@ namespace OloEngine
 
             BlobWriter writer(ExpectedBlobSize(mesh.Vertices.size(), mesh.Clusters.size(), mesh.Groups.size(),
                                                mesh.ClusterVertexRefs.size(), mesh.ClusterTriangles.size(),
-                                               mesh.LightmapUVs.size()));
+                                               mesh.LightmapUVs.size(), mesh.Skinning.size(),
+                                               mesh.BoneBounds.size(), mesh.ClusterBoneRefs.size()));
 
             writer.Write(kMagic);
             writer.Write(kVersion);
@@ -609,6 +715,9 @@ namespace OloEngine
             writer.Write(mesh.LevelCount);
             writer.Write(mesh.SourceTriangleCount);
             writer.Write(static_cast<u32>(mesh.LightmapUVs.size()));
+            writer.Write(static_cast<u32>(mesh.Skinning.size()));
+            writer.Write(static_cast<u32>(mesh.BoneBounds.size()));
+            writer.Write(static_cast<u32>(mesh.ClusterBoneRefs.size()));
 
             for (const Vertex& vertex : mesh.Vertices)
             {
@@ -620,6 +729,28 @@ namespace OloEngine
             for (const glm::vec2& uv : mesh.LightmapUVs)
             {
                 writer.Write(uv);
+            }
+
+            // Field by field, never the struct: VirtualVertexSkinning has no
+            // padding today, but writing it whole would make a future field or
+            // alignment change leak uninitialized bytes into the blob and break
+            // deterministic cooks — the rule the whole format follows.
+            for (const VirtualVertexSkinning& binding : mesh.Skinning)
+            {
+                for (u32 const boneId : binding.BoneIDs)
+                {
+                    writer.Write(boneId);
+                }
+                for (f32 const weight : binding.Weights)
+                {
+                    writer.Write(weight);
+                }
+            }
+
+            for (const VirtualBoneBounds& bounds : mesh.BoneBounds)
+            {
+                writer.Write(bounds.Center);
+                writer.Write(bounds.Radius);
             }
 
             for (const VirtualCluster& cluster : mesh.Clusters)
@@ -650,6 +781,8 @@ namespace OloEngine
             writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterVertexRefs.data()),
                               mesh.ClusterVertexRefs.size() * sizeof(u32));
             writer.WriteBytes(mesh.ClusterTriangles.data(), mesh.ClusterTriangles.size());
+            writer.WriteBytes(reinterpret_cast<const u8*>(mesh.ClusterBoneRefs.data()),
+                              mesh.ClusterBoneRefs.size() * sizeof(u32));
 
             return writer.Take();
         }

@@ -6,27 +6,29 @@
 # capture frame reproduces.
 #
 # Every camera is placed so the frame STRADDLES the impostor cross-fade band
-# (ImpostorStartDistance 45 m, 18 m transition): real mesh in the near field,
-# impostor cards beyond, and the blend between them in shot. That transition is
-# the thing a canopy fixture exists to measure.
+# (ImpostorStartDistance 45 m, 18 m transition). The band is NOT mesh-vs-card:
+# no foliage layer ever draws mesh geometry — FoliageRenderer::BuildQuadGeometry
+# builds a 4-vertex card for every layer, and MeshPath only feeds the impostor
+# bake. Near the camera the card reads a single atlas frame like a flat
+# billboard; past the band it becomes the full parallax octahedral impostor
+# (FoliageImpostorSampling.glsl). That transition is the thing a canopy fixture
+# exists to measure. Real plant meshes are issue #1233.
 #
-# CURRENT LIMITATION THIS FIXTURE RECORDS: the trees are the two low-poly
-# meshes generate_vegetation.py emits — a few dozen triangles each — because
-# that is every tree this repository owns. This capture measures canopy
+# CURRENT LIMITATION THIS FIXTURE RECORDS: the atlas is baked from the two
+# low-poly meshes generate_vegetation.py emits — a few dozen triangles each —
+# because that is every tree this repository owns. This capture measures canopy
 # DENSITY and the impostor transition honestly; it does not measure leaf
 # detail, and nobody should read it as if it did.
 #
-# MEASURED OBSERVATION, 2026-09-13 (RTX 4090, Debug, OpenGL, Deferred): the
-# mesh-foliage canopy appears in Beauty and in ShadowMapCSMCascade0, but writes
-# NEITHER GBufferAlbedo NOR GBufferNormal — both are empty above the horizon
-# while the terrain and the understory billboards are present in them. Every
-# G-Buffer-derived term therefore treats the canopy as sky: SSAO, SSGI and SSR
-# get no canopy occluder, and the derived Roughness lane is blank there. That is
-# a large part of why this fixture's forest floor is lit like open ground.
-#
-# This is REPORTED, NOT FIXED here. FoliageRenderPass belongs to the in-flight
-# #1230 branch and this issue's scope is the measuring instrument, not the
-# thing being measured. The AOVs above are the evidence; see issue #1239.
+# HISTORY: when this fixture was written (2026-09-13) the impostor canopy
+# appeared in Beauty and ShadowMapCSMCascade0 but wrote NEITHER GBufferAlbedo
+# NOR GBufferNormal, and on Vulkan it barely rendered at all. Both were fixed by
+# PR #1265 (issue #1264) and re-verified on master 5acc47238 for issue #1267:
+# the canopy is now in Albedo, Normals and AOBuffer on both backends. This
+# manifest runs Deferred with the G-Buffer foliage programs present, so every
+# layer routes to ScenePass and FoliagePass receives no commands at all.
+# Keep the G-Buffer AOVs below — they are what caught it, and what would catch
+# a regression.
 #
 # Camera convention (EditorCamera): YawDegrees 0 looks -Z, +90 looks +X;
 # positive PitchDegrees looks DOWN.
