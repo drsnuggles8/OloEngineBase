@@ -56,6 +56,16 @@ three Linux jobs for a day and a half, ~4,000 tests into a two-hour build, repor
 `'descriptor_heap' : unrecognized layout identifier` against a line in an include file. Every word of
 that reads like a shader bug.
 
+**That particular blind spot is now closed twice over**, and it is worth knowing which half does
+what. `shader-floor.yml` is the guard: it runs on every PR, on the hosted toolchain, and asks
+`glslc` one question per declared extension — so an extension that outruns the floor is red on the
+PR rather than on the next nightly. And since
+[#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) the *sanitizer* asymmetry is
+smaller too: UBSan and TSan default to hosted, so on any PR where the sanitizer jobs run at all —
+they are gated on the `native` paths filter — two of the three Linux arms exercise the hosted
+shader toolchain on the PR itself. Neither half replaces raising the floor when a shader
+genuinely needs a newer extension — they only make the failure arrive early and legible.
+
 **Raising the floor is four literals that must move together**: `setup-vulkan`'s `version`,
 `setup-shader-toolchain-linux`'s `shaderc-version` and `spirv-cross-version`, and
 `ShaderToolchainFloor.h`'s `kMinimumVulkanSdk` / `kMinimumShadercTag`. Moving one splits the arms
