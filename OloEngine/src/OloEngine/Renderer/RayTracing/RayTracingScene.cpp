@@ -529,19 +529,27 @@ namespace OloEngine::RayTracing
             state.LastSeenFrame = m_FrameNumber;
             if (reason.has_value())
             {
-                // The recorded pose advances only when a build was actually
-                // recorded. Storing it unconditionally would mark a surface as
-                // built-at-this-pose on a frame whose build was skipped or
-                // failed, and the structure would then hold the PREVIOUS pose
-                // forever while the policy believed it current — a stale
-                // character that never refits again, which is the original
-                // defect back in a subtler form.
-                state.DeformationRevision = entry.DeformationRevision;
-                state.HasDeformation = buildClass == GeometryClass::Deformed;
-                // A refit extends the run; any full rebuild resets it. A
-                // geometry that stops deforming therefore keeps its run length
-                // rather than rebuilding on the next change.
-                state.ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u;
+                // The pose and the refit run are NOT committed here. Reaching
+                // this point means the build was REQUESTED; whether the backend
+                // records it is unknown until RecordBlasBuilds returns, and a
+                // request it drops leaves the previous structure resident and
+                // untouched.
+                //
+                // Committing here would mark that structure built-at-this-pose
+                // while it still holds the previous one, and the next frame
+                // would read deformationAdvanced == false and never refit it
+                // again — a character frozen mid-stride for the session.
+                // Deferred to after the record call below.
+                //
+                // A refit extends the run; any full rebuild resets it, so a
+                // geometry that stops deforming keeps its run length rather
+                // than rebuilding on the next change.
+                m_PendingDeformationCommits.push_back(PendingDeformationCommit{
+                    .Key = key,
+                    .DeformationRevision = entry.DeformationRevision,
+                    .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
+                    .HasDeformation = buildClass == GeometryClass::Deformed,
+                });
                 m_PendingBuilds.push_back(BlasBuildRequest{
                     .Key = key,
                     .Class = buildClass,
@@ -587,11 +595,38 @@ namespace OloEngine::RayTracing
         // never completes in production while a test that calls the backend
         // directly still passes.
         const u32 recorded = m_Backend->RecordBlasBuilds(m_PendingBuilds);
-        if (recorded < m_PendingBuilds.size())
+        const bool everyBuildRecorded = recorded == m_PendingBuilds.size();
+        if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
                           m_PendingBuilds.size() - recorded, m_PendingBuilds.size());
         }
+
+        // Now the pose bookkeeping, and only if EVERY request was recorded.
+        //
+        // All-or-nothing because the backend reports a COUNT, not which keys:
+        // it can skip an entry mid-loop on a failed size query or allocation,
+        // so a partial success cannot be attributed to particular keys from
+        // here. Re-deciding a handful of surfaces next frame is cheap;
+        // committing a pose for a build that never happened costs that surface
+        // its refits for the rest of the session.
+        //
+        // Widening this to per-key attribution means RecordBlasBuilds returning
+        // the keys it recorded — worth doing if the all-or-nothing ever shows
+        // up as churn, and not worth it before.
+        if (everyBuildRecorded)
+        {
+            for (const PendingDeformationCommit& commit : m_PendingDeformationCommits)
+            {
+                if (auto found = m_Blas.find(commit.Key); found != m_Blas.end())
+                {
+                    found->second.DeformationRevision = commit.DeformationRevision;
+                    found->second.HasDeformation = commit.HasDeformation;
+                    found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
+                }
+            }
+        }
+        m_PendingDeformationCommits.clear();
 
         // Belt to the retire loop's braces: a build that failed above would
         // otherwise leave an instance in the TLAS pointing at no structure.
