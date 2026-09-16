@@ -206,6 +206,7 @@ namespace OloEngine
         if (deferredActive && m_GBuffer)
         {
             renderFB->ClearAttachment(std::to_underlying(GBuffer::BakedGI), glm::vec4(0.0f));
+            renderFB->ClearAttachment(std::to_underlying(GBuffer::Velocity), glm::vec4(0.0f));
         }
 
         // Velocity RT (scene FB attachment 3 in Forward / Forward+) must clear
