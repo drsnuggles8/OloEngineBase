@@ -7,7 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
-#include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Math/Math.h"
 
 #include <algorithm>
