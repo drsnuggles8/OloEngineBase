@@ -2248,6 +2248,74 @@ void main() {
     EXPECT_EQ(pixel(missingMap[0], kSize / 4u), (std::array<u8, 3>{ 255, 255, 255 }));
 }
 
+TEST_F(VulkanDrawPath, CopyExportsRemainOrderedThroughAliasedGraphBarriers)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    TextureSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto source = Texture2D::Create(spec);
+    auto destination = Texture2D::Create(spec);
+    ASSERT_TRUE(source && destination);
+    SubmitFrame(api, [&]()
+                {
+        api.ClearTextureFloat(source->GetRHIHandle(), 0, glm::vec4(0.25f));
+        api.CopyImageSubData(source->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D,
+                            destination->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 16, 16);
+        // Framebuffer base/version attachment views can resolve to one image.
+        // Both transitions execute in one batch, so neither may forget the
+        // copy just because the first declaration advanced recorded layout.
+        std::array<RHI::Barrier, 4> aliases{};
+        for (sizet i = 0; i < aliases.size(); ++i)
+        {
+            aliases[i].Resource = i < 2 ? source->GetRHIHandle() : destination->GetRHIHandle();
+            aliases[i].Before = RHI::Access::ColorAttachmentWrite;
+            aliases[i].After = RHI::Access::ColorAttachmentWrite;
+        }
+        api.IssueBarrierBatch(MemoryBarrierFlags::None, aliases); });
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitResolvesMultisampleColourAndDepth)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    FramebufferSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Samples = 4;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::DEPTH_COMPONENT32F };
+    auto source = Framebuffer::Create(spec);
+    spec.Samples = 1;
+    auto destination = Framebuffer::Create(spec);
+    ASSERT_TRUE(source && destination);
+    SubmitFrame(api, [&]()
+                {
+        source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+        api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+        api.SetFramebufferReadAttachment(source->GetRHIHandle(), 0);
+        api.SetFramebufferDrawAttachments(destination->GetRHIHandle(), std::array<u32, 1>{0});
+        api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                            0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+        api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                            0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Depth, RHI::Filter::Nearest); });
+    std::array<u8, 4> colour{};
+    ASSERT_TRUE(api.ReadTextureSubImage(destination->GetColorAttachmentHandle(0), 0, 0, 0, 0,
+                                        1, 1, 1, RHI::Format::RGBA8UNorm, colour.size(), colour.data()));
+    EXPECT_NEAR(colour[0], 64, 1);
+    EXPECT_NEAR(colour[1], 128, 1);
+    EXPECT_NEAR(colour[2], 191, 1);
+    EXPECT_EQ(colour[3], 255);
+    f32 depth = 0.0f;
+    ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, 0, 0, 0,
+                                        1, 1, 1, RHI::Format::D32Float, sizeof(depth), &depth));
+    EXPECT_NEAR(depth, 0.4f, 1e-6f);
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
 TEST_F(VulkanDrawPath, InspectorDistinguishesComputeAndGraphicsShaderObjects)
 {
     ScopedVulkanRenderCommandSelection selection;
@@ -2275,6 +2343,5 @@ void main() {}
     VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
     EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);
 }
-
 
 #endif // OLO_WITH_VULKAN
