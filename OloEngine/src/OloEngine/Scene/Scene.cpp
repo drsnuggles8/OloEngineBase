@@ -12140,10 +12140,8 @@ namespace OloEngine
                 // CommandDispatch alias the current palette into the prev slot,
                 // i.e. exactly zero bone motion.
                 //
-                // This is THE live path: Renderer3D::RenderAnimatedMeshes carries
-                // the same guard but has no callers, so gating only there would
-                // have left the guard decorative on everything that actually
-                // renders.
+                // This is the live animated submission path, so the guard must
+                // remain here rather than on an unused renderer helper.
                 static const std::vector<glm::mat4> s_NoBoneHistory;
                 const auto& boneMatrices = skeleton.m_Skeleton->m_FinalBoneMatrices;
                 const auto& prevBoneMatrices = skeleton.m_Skeleton->HasBoneHistory()

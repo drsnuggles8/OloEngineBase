@@ -273,7 +273,6 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GPUSceneLightAdapterTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationTest.cpp
 		Rendering/PropertyTests/AnimatedGPUSceneEvidenceTest.cpp
-		Rendering/PropertyTests/AnimatedGPUSceneConcurrentRecordingTest.cpp
 		Rendering/PropertyTests/GPUSceneRasterMigrationEvidenceTest.cpp
 		Rendering/PropertyTests/ModelComponentGPUSceneEvidenceTest.cpp
 		Rendering/PropertyTests/GPUSceneAntiDuplicationRatchetTest.cpp

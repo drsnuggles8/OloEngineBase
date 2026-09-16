@@ -46,7 +46,7 @@ namespace
     //
     // WHY IT IS A FUNCTION RATHER THAN REPEATED AT EACH SITE. Five submission
     // paths choose a shader — DrawMesh, SelectInstancedShaderRouting,
-    // DrawAnimatedMesh, DrawMeshParallel and DrawAnimatedMeshParallel — and every
+    // DrawAnimatedMesh and DrawMeshParallel — and every
     // one of them has to make the SAME decision, or a transmissive material
     // renders opaque on whichever path a given scene happens to take. The first
     // cut of this feature wrote the rule inline at two of the five and left the
@@ -1694,6 +1694,7 @@ namespace OloEngine
         return packet;
     }
 
+    #if 0 // Retired by #1289: animated submission remains on Scene's serial GPUScene-aware path.
     void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
     {
         OLO_PROFILE_FUNCTION();
@@ -1978,6 +1979,8 @@ namespace OloEngine
         }
     }
 
+    #endif
+
     CommandPacket* Renderer3D::DrawMeshParallel(WorkerSubmitContext& ctx,
                                                 const Ref<Mesh>& mesh,
                                                 const glm::mat4& modelMatrix,
@@ -2177,6 +2180,7 @@ namespace OloEngine
         return packet;
     }
 
+    #if 0 // Retired by #1289: benchmarked animated worker recording regressed CPU time and scene output.
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
                                                         const Ref<Mesh>& mesh,
                                                         const glm::mat4& modelMatrix,
@@ -2412,6 +2416,8 @@ namespace OloEngine
         return packet;
     }
 
+    #endif
+
     u32 Renderer3D::SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
                                          i32 minBatchSize)
     {
@@ -2430,58 +2436,20 @@ namespace OloEngine
             u32 totalSubmitted = 0;
             for (const auto& desc : meshes)
             {
-                CommandPacket* packet = nullptr;
-                if (desc.IsAnimated && desc.BoneMatrices)
+                // DrawMesh records previous transforms in the shared cache.
+                // Seed it when the caller already owns authoritative history.
+                if (desc.HasPrevTransform && desc.EntityID >= 0)
                 {
-                    // Route through the prev-aware DrawAnimatedMesh overload
-                    // when the caller supplied prev-pose data; otherwise the
-                    // legacy entry aliases current->prev (zero motion).
-                    // The link is forwarded on BOTH arms, and on the parallel
-                    // arms below, because which arm runs is decided by batch
-                    // size alone (issue #1228). A descriptor that carried a link
-                    // and lost it here would take the canonical record above the
-                    // threshold and the legacy per-entity history below it --
-                    // one scene rendering two ways depending on how many meshes
-                    // the model happened to have.
-                    if (desc.PrevBoneMatrices)
-                    {
-                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
-                                                  *desc.BoneMatrices, *desc.PrevBoneMatrices,
-                                                  desc.IsStatic, desc.EntityID, desc.GPUSceneDrawLink);
-                    }
-                    else
-                    {
-                        packet = DrawAnimatedMesh(desc.Mesh, desc.Transform, desc.MaterialData,
-                                                  *desc.BoneMatrices, desc.IsStatic, desc.EntityID,
-                                                  desc.GPUSceneDrawLink);
-                    }
+                    s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
                 }
-                else
-                {
-                    // DrawMesh internally records prev-transform via the shared
-                    // per-entity cache (GetAndRecordPrevTransform) keyed on
-                    // entityID, so object motion is preserved even without an
-                    // explicit prev-aware overload on this path. When the
-                    // caller has already computed a prev-transform (e.g. for
-                    // animated-mesh fallback paths that store it in desc), seed
-                    // the cache so DrawMesh's internal lookup returns the
-                    // caller-authoritative value instead of potentially stale
-                    // prior-frame history.
-                    if (desc.HasPrevTransform && desc.EntityID >= 0)
-                    {
-                        s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
-                    }
-                    packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic, desc.EntityID,
-                                      desc.LODGroupPtr, desc.GPUSceneDrawLink);
-                }
+                CommandPacket* packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
+                                                  desc.EntityID, desc.LODGroupPtr);
                 if (packet)
                 {
                     // Baked lightmap region (issue #867), patched before
                     // submission — the same shape and the same `.x > 0` gate
-                    // Scene.cpp's SubmitMeshSourceClassic uses. Animated draws
-                    // are deliberately excluded: skinned geometry is never
-                    // lightmap-static, and DrawAnimatedMeshCommand has no lane.
-                    if (!desc.IsAnimated && desc.LightmapScaleOffset.x > 0.0f)
+                    // Scene.cpp's SubmitMeshSourceClassic uses.
+                    if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
                     }
@@ -2522,60 +2490,10 @@ namespace OloEngine
             {
                 const MeshSubmitDesc& desc = meshes[index];
 
-                CommandPacket* packet = nullptr;
-                if (desc.IsAnimated && desc.BoneMatrices)
-                {
-                    // Route through the prev-aware overload when the caller
-                    // supplied prev-pose data; otherwise fall back to the
-                    // legacy entry which aliases current->prev (zero motion).
-                    if (desc.PrevBoneMatrices || desc.HasPrevTransform)
-                    {
-                        static const std::vector<glm::mat4> s_EmptyPrev;
-                        const std::vector<glm::mat4>& prevBones =
-                            desc.PrevBoneMatrices ? *desc.PrevBoneMatrices : s_EmptyPrev;
-                        packet = Renderer3D::DrawAnimatedMeshParallel(
-                            stats.Context,
-                            desc.Mesh,
-                            desc.Transform,
-                            desc.MaterialData,
-                            *desc.BoneMatrices,
-                            prevBones,
-                            desc.PrevTransform,
-                            desc.HasPrevTransform,
-                            desc.IsStatic,
-                            desc.EntityID,
-                            // Carried from the descriptor, which the MAIN
-                            // thread filled in (issue #1228). The worker
-                            // copies an index; it never appends to the link
-                            // table, so this needs no synchronisation.
-                            desc.GPUSceneDrawLink);
-                    }
-                    else
-                    {
-                        packet = Renderer3D::DrawAnimatedMeshParallel(
-                            stats.Context,
-                            desc.Mesh,
-                            desc.Transform,
-                            desc.MaterialData,
-                            *desc.BoneMatrices,
-                            desc.IsStatic,
-                            desc.EntityID,
-                            desc.GPUSceneDrawLink);
-                    }
-                }
-                else
-                {
-                    const glm::mat4* prevXform = desc.HasPrevTransform ? &desc.PrevTransform : nullptr;
-                    packet = Renderer3D::DrawMeshParallel(
-                        stats.Context,
-                        desc.Mesh,
-                        desc.Transform,
-                        desc.MaterialData,
-                        desc.IsStatic,
-                        desc.EntityID,
-                        desc.LODGroupPtr,
-                        prevXform);
-                }
+                const glm::mat4* prevXform = desc.HasPrevTransform ? &desc.PrevTransform : nullptr;
+                CommandPacket* packet = Renderer3D::DrawMeshParallel(
+                    stats.Context, desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
+                    desc.EntityID, desc.LODGroupPtr, prevXform);
 
                 if (packet)
                 {
@@ -2583,7 +2501,7 @@ namespace OloEngine
                     // and a batch that merely crossed the parallel threshold
                     // silently losing its baked GI is exactly the kind of split
                     // this repo keeps paying for.
-                    if (!desc.IsAnimated && desc.LightmapScaleOffset.x > 0.0f)
+                    if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
                     }
