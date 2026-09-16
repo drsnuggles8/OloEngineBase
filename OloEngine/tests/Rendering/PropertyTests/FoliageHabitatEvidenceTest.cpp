@@ -37,6 +37,16 @@
 //   4. MSAA and a non-native resolution are cells of their own, because foliage
 //      is alpha-cutout geometry whose coverage interacts with both.
 //
+// The COMMITTED PNGs come from an ISOLATED run of this fixture. Running it
+// after other renderer tests leaves global renderer state behind
+// (cross-test-renderer-state.md) and the captures come out shaded differently
+// — same scene, same habitat structure, different exposure and density. That
+// does not weaken the assertions: every measurement below is an A/B between
+// two frames captured back to back under whatever state is live, so both arms
+// share it and the difference is the habitat rules alone. Only the pictures
+// are order-sensitive, and they are evidence for a human to look at, never
+// compared against a baseline.
+//
 // Classification: L8 / visual evidence (full GL pipeline + RGBA8 readback +
 // PNG). Skips cleanly without a GL 4.6 context; never DISABLED_.
 // =============================================================================

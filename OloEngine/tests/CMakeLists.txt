@@ -799,6 +799,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
+		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
