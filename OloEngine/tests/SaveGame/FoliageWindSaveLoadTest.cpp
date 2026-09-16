@@ -232,7 +232,8 @@ namespace OloEngine::Tests
 
     TEST(FoliageWindSaveLoad, SceneFuzzSeedCannotPublishNonFiniteWind)
     {
-        const auto path = std::filesystem::path(__FILE__).parent_path().parent_path() / "Fuzzing/corpus/scene_yaml/foliage_wind_weights.yaml";
+        // __FILE__ can be remapped by sanitizer builds; use the configured source location.
+        const auto path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / "OloEngine/tests/Fuzzing/corpus/scene_yaml/foliage_wind_weights.yaml";
         std::ifstream input(path);
         ASSERT_TRUE(input.good());
         std::ostringstream yaml;
