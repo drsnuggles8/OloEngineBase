@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include <algorithm>
+#include <span>
 #include <utility>
 
 namespace OloEngine
@@ -386,17 +387,16 @@ namespace OloEngine
         // OpenGL, and on any device without ray tracing, Acquire refuses
         // everything and the record staged here is byte-for-byte the record
         // staged before this issue.
-        const RayTracing::DeformedSurfaceBinding deformed =
-            s_Data.DeformedSurfaces.Acquire(RayTracing::DeformedSurfaceKey{
-                                                .EntityId = stableEntityId,
-                                                .RestVertexBuffer = RHI::HashKey(vertexHandle),
-                                            },
-                                            animatedSurface.m_IsAnimated, meshSource,
-                                            std::span<const glm::mat4>{
-                                                animatedSurface.m_BonePalette,
-                                                animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount
-                                                                                         : 0u },
-                                            animatedSurface.m_MorphStateHash);
+        const RayTracing::DeformedSurfaceKey deformedKey{
+            .EntityId = stableEntityId,
+            .RestVertexBuffer = RHI::HashKey(vertexHandle),
+        };
+        const std::span<const glm::mat4> bonePalette{
+            animatedSurface.m_BonePalette,
+            animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount : 0u
+        };
+        const RayTracing::DeformedSurfaceBinding deformed = s_Data.DeformedSurfaces.Acquire(
+            deformedKey, animatedSurface.m_IsAnimated, meshSource, bonePalette, animatedSurface.m_MorphStateHash);
         const bool useDeformed = deformed.IsValid();
         // The producer's answer, not the caller's: only the cache knows whether
         // it actually rewrote this surface's vertices, and that is what the

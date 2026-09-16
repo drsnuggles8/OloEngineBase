@@ -7628,7 +7628,7 @@ namespace OloEngine
     }
 
     [[nodiscard]] static GPUSceneAnimatedSurface MakeGPUSceneAnimatedSurface(const Skeleton* skeleton,
-                                                                            const MorphTargetComponent* morph)
+                                                                             const MorphTargetComponent* morph)
     {
         if (skeleton == nullptr)
         {
