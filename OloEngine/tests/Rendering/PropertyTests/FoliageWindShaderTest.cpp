@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
+#include "OloEngine/Wind/WindSystem.h"
 #include <glad/gl.h>
 #include <gtest/gtest.h>
 
@@ -46,5 +47,48 @@ namespace OloEngine::Tests
         EXPECT_LT(magnitude(7), 0.01f) << "legacy enabled field clock or amplitude changed";
         EXPECT_GT(magnitude(8), 1e-3f) << "noncentral impostor history must rotate with its centre";
         EXPECT_LE(magnitude(6), FoliageWindMaximumDisplacement(2.0f, { 0.4f, 1.0f, 1.0f, 0.0f }) + 0.005f);
+    }
+    TEST(FoliageWindShader, ReinitializationRequiresAFrameBeforeWindHistoryIsValid)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const bool restoreInitialized = WindSystem::IsInitialized();
+        WindSystem::Shutdown();
+        struct RestoreWind
+        {
+            bool Initialized;
+            ~RestoreWind()
+            {
+                WindSystem::Shutdown();
+                if (Initialized)
+                    WindSystem::Init();
+            }
+        } restore{ restoreInitialized };
+        GLStateGuard guard("WindLifecycle", GLStateGuard::Policy::Restore);
+        for (const bool enabled : { false, true })
+            for (u32 lifecycle = 0; lifecycle < 2; ++lifecycle)
+            {
+                SCOPED_TRACE(::testing::Message() << "enabled=" << enabled << " lifecycle=" << lifecycle);
+                WindSystem::Init();
+                ASSERT_TRUE(WindSystem::IsInitialized());
+                EXPECT_FALSE(WindSystem::HasStableParameters());
+                EXPECT_FLOAT_EQ(WindSystem::GetGPUData().TimeAndFlags.x, 0.0f);
+                EXPECT_FLOAT_EQ(WindSystem::GetGPUData().TimeAndFlags.w, 0.0f);
+                WindSettings settings;
+                settings.Enabled = enabled;
+                settings.GridResolution = 1;
+                WindSystem::Update(settings, glm::vec3(0.0f), Timestep(0.25f));
+                EXPECT_FALSE(WindSystem::HasStableParameters());
+                EXPECT_FLOAT_EQ(WindSystem::GetGPUData().TimeAndFlags.w, 0.0f);
+                WindSystem::Update(settings, glm::vec3(0.0f), Timestep(0.5f));
+                EXPECT_TRUE(WindSystem::HasStableParameters());
+                EXPECT_FLOAT_EQ(WindSystem::GetGPUData().TimeAndFlags.x, 0.75f);
+                EXPECT_FLOAT_EQ(WindSystem::GetGPUData().TimeAndFlags.w, 0.25f);
+                settings.Speed += 1.0f;
+                WindSystem::Update(settings, glm::vec3(0.0f), Timestep(0.0f));
+                EXPECT_FALSE(WindSystem::HasStableParameters());
+                WindSystem::Update(settings, glm::vec3(0.0f), Timestep(0.0f));
+                EXPECT_TRUE(WindSystem::HasStableParameters());
+                WindSystem::Shutdown();
+            }
     }
 } // namespace OloEngine::Tests

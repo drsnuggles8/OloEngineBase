@@ -35,6 +35,9 @@ namespace OloEngine
             return;
         }
 
+        // No frame from a previous lifecycle can supply valid wind history.
+        s_Data = WindSystemData{};
+
         // Create 3D wind-field texture (128³ RGBA16F)
         Texture3DSpecification spec;
         spec.Width = 128;
@@ -69,11 +72,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.m_GenerateShader = nullptr;
-        s_Data.m_WindField = nullptr;
-        s_Data.m_WindUBO = nullptr;
-        s_Data.m_GenerateUBO = nullptr;
-        s_Data.m_Initialized = false;
+        s_Data = WindSystemData{};
 
         OLO_CORE_INFO("WindSystem shut down");
     }
@@ -125,9 +124,11 @@ namespace OloEngine
                                      static_cast<f32>(resolvedResolution),
                                      s_Data.m_PrevAccumulatedTime);
 
-        s_Data.m_FoliageHistoryValid = Math::BitwiseEqual(oldGPU.DirectionAndSpeed, gpu.DirectionAndSpeed) &&
+        s_Data.m_FoliageHistoryValid = s_Data.m_HasPreviousUpdate &&
+                                       Math::BitwiseEqual(oldGPU.DirectionAndSpeed, gpu.DirectionAndSpeed) &&
                                        Math::BitwiseEqual(oldGPU.GustAndTurbulence, gpu.GustAndTurbulence) &&
                                        Math::BitwiseEqual(oldGPU.TimeAndFlags.y, gpu.TimeAndFlags.y);
+        s_Data.m_HasPreviousUpdate = true;
 
         // Upload UBO
         s_Data.m_WindUBO->SetData(&gpu, WindUBOData::GetSize());

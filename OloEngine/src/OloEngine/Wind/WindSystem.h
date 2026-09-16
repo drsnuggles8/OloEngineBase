@@ -101,6 +101,7 @@ namespace OloEngine
             Ref<UniformBuffer> m_GenerateUBO;
             WindUBOData m_GPUData;
             bool m_FoliageHistoryValid = false;
+            bool m_HasPreviousUpdate = false;
 
             f32 m_AccumulatedTime = 0.0f;
             f32 m_PrevAccumulatedTime = 0.0f;
