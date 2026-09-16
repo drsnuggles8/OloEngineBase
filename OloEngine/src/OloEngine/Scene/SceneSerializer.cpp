@@ -1530,6 +1530,54 @@ namespace OloEngine
                 layer.MinHeight = layerNode["MinHeight"].as<f32>(layer.MinHeight);
                 layer.MaxHeight = layerNode["MaxHeight"].as<f32>(layer.MaxHeight);
                 layer.RandomRotation = layerNode["RandomRotation"].as<bool>(layer.RandomRotation);
+
+                // Species habitat rules, clumping and ground contact (issue
+                // #1254). Every float here reaches the placement generator,
+                // where a NaN band silently empties the layer and a zero clump
+                // scale divides by zero — so each is validated finite and
+                // range-clamped, and a bad value keeps the constructor default
+                // rather than being written through. A key that is ABSENT keeps
+                // the default too, and every one of these defaults to OFF, so a
+                // scene authored before #1254 scatters exactly as it used to.
+                if (const f32 v = layerNode["SlopeFeather"].as<f32>(layer.SlopeFeather); std::isfinite(v))
+                    layer.SlopeFeather = std::clamp(v, 0.0f, 90.0f);
+                layer.UseAltitudeBand = layerNode["UseAltitudeBand"].as<bool>(layer.UseAltitudeBand);
+                if (const f32 v = layerNode["MinAltitude"].as<f32>(layer.MinAltitude); std::isfinite(v))
+                    layer.MinAltitude = v;
+                if (const f32 v = layerNode["MaxAltitude"].as<f32>(layer.MaxAltitude); std::isfinite(v))
+                    layer.MaxAltitude = v;
+                if (const f32 v = layerNode["AltitudeFeather"].as<f32>(layer.AltitudeFeather); std::isfinite(v))
+                    layer.AltitudeFeather = std::max(v, 0.0f);
+                layer.UseMoisture = layerNode["UseMoisture"].as<bool>(layer.UseMoisture);
+                if (const f32 v = layerNode["MinMoisture"].as<f32>(layer.MinMoisture); std::isfinite(v))
+                    layer.MinMoisture = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["MaxMoisture"].as<f32>(layer.MaxMoisture); std::isfinite(v))
+                    layer.MaxMoisture = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["MoistureFeather"].as<f32>(layer.MoistureFeather); std::isfinite(v))
+                    layer.MoistureFeather = std::clamp(v, 0.0f, 1.0f);
+                layer.ExclusionSplatmapChannel =
+                    layerNode["ExclusionSplatmapChannel"].as<i32>(layer.ExclusionSplatmapChannel);
+                if (const f32 v = layerNode["ExclusionThreshold"].as<f32>(layer.ExclusionThreshold); std::isfinite(v))
+                    layer.ExclusionThreshold = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["ClumpStrength"].as<f32>(layer.ClumpStrength); std::isfinite(v))
+                    layer.ClumpStrength = std::clamp(v, 0.0f, 1.0f);
+                // Lower bound well above 0: the patch size is a DIVISOR in
+                // ClumpField, and a zero would take the whole field to infinity.
+                if (const f32 v = layerNode["ClumpScale"].as<f32>(layer.ClumpScale); std::isfinite(v))
+                    layer.ClumpScale = std::max(v, 0.01f);
+                if (const f32 v = layerNode["ClumpFalloff"].as<f32>(layer.ClumpFalloff); std::isfinite(v))
+                    layer.ClumpFalloff = std::clamp(v, 0.05f, 16.0f);
+                if (const f32 v = layerNode["ClumpScaleInfluence"].as<f32>(layer.ClumpScaleInfluence);
+                    std::isfinite(v))
+                    layer.ClumpScaleInfluence = std::clamp(v, 0.0f, 1.0f);
+                layer.ClumpGroup = layerNode["ClumpGroup"].as<i32>(layer.ClumpGroup);
+                if (const f32 v = layerNode["GroundOffset"].as<f32>(layer.GroundOffset); std::isfinite(v))
+                    layer.GroundOffset = v;
+                if (const f32 v = layerNode["SlopeSinkFactor"].as<f32>(layer.SlopeSinkFactor); std::isfinite(v))
+                    layer.SlopeSinkFactor = std::clamp(v, 0.0f, 4.0f);
+                layer.DecorrelatedVariation =
+                    layerNode["DecorrelatedVariation"].as<bool>(layer.DecorrelatedVariation);
+
                 layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
                 layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
                 // Authored plant mesh near field (issue #1233). Validated like
@@ -5746,6 +5794,30 @@ namespace OloEngine
                     out << YAML::Key << "MinHeight" << YAML::Value << layer.MinHeight;
                     out << YAML::Key << "MaxHeight" << YAML::Value << layer.MaxHeight;
                     out << YAML::Key << "RandomRotation" << YAML::Value << layer.RandomRotation;
+                    // Species habitat rules, clumping and ground contact (issue
+                    // #1254) — written unconditionally so a round-trip is
+                    // lossless even for a layer that leaves every rule off; the
+                    // reader's defaults cover the older scenes that have none of
+                    // these keys.
+                    out << YAML::Key << "SlopeFeather" << YAML::Value << layer.SlopeFeather;
+                    out << YAML::Key << "UseAltitudeBand" << YAML::Value << layer.UseAltitudeBand;
+                    out << YAML::Key << "MinAltitude" << YAML::Value << layer.MinAltitude;
+                    out << YAML::Key << "MaxAltitude" << YAML::Value << layer.MaxAltitude;
+                    out << YAML::Key << "AltitudeFeather" << YAML::Value << layer.AltitudeFeather;
+                    out << YAML::Key << "UseMoisture" << YAML::Value << layer.UseMoisture;
+                    out << YAML::Key << "MinMoisture" << YAML::Value << layer.MinMoisture;
+                    out << YAML::Key << "MaxMoisture" << YAML::Value << layer.MaxMoisture;
+                    out << YAML::Key << "MoistureFeather" << YAML::Value << layer.MoistureFeather;
+                    out << YAML::Key << "ExclusionSplatmapChannel" << YAML::Value << layer.ExclusionSplatmapChannel;
+                    out << YAML::Key << "ExclusionThreshold" << YAML::Value << layer.ExclusionThreshold;
+                    out << YAML::Key << "ClumpStrength" << YAML::Value << layer.ClumpStrength;
+                    out << YAML::Key << "ClumpScale" << YAML::Value << layer.ClumpScale;
+                    out << YAML::Key << "ClumpFalloff" << YAML::Value << layer.ClumpFalloff;
+                    out << YAML::Key << "ClumpScaleInfluence" << YAML::Value << layer.ClumpScaleInfluence;
+                    out << YAML::Key << "ClumpGroup" << YAML::Value << layer.ClumpGroup;
+                    out << YAML::Key << "GroundOffset" << YAML::Value << layer.GroundOffset;
+                    out << YAML::Key << "SlopeSinkFactor" << YAML::Value << layer.SlopeSinkFactor;
+                    out << YAML::Key << "DecorrelatedVariation" << YAML::Value << layer.DecorrelatedVariation;
                     out << YAML::Key << "ViewDistance" << YAML::Value << layer.ViewDistance;
                     out << YAML::Key << "FadeStartDistance" << YAML::Value << layer.FadeStartDistance;
                     out << YAML::Key << "UseAuthoredMesh" << YAML::Value << layer.UseAuthoredMesh;

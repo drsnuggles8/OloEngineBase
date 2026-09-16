@@ -93,7 +93,30 @@ namespace OloEngine
             f32 WindStrength;
             f32 WindSpeed;
             f32 ViewDistance;
+
+            // ── Ecology (issue #1254) ────────────────────────────────────────
+            // What turns this table from "three kinds of card" into a habitat
+            // gradient. FoliageLayer defaults every one of these to OFF so a
+            // scene on disk is untouched; a layer the GENERATOR emits is new,
+            // so it gets the rules switched on.
+            f32 MinMoisture; // band on the topographic moisture proxy
+            f32 MaxMoisture;
+            f32 MoistureFeather;
+            f32 SlopeFeather;   // degrees of soft edge on the inherited slope band
+            f32 ClumpStrength;  // 0 = uniform scatter
+            f32 ClumpScale;     // world units, roughly one patch across
+            f32 ClumpFalloff;   // >1 tightens patches
+            f32 ClumpScaleInfl; // bigger plants in a patch's core
+            i32 ClumpGroup;     // species sharing a group clump TOGETHER
+            f32 SlopeSink;      // how far to sink so downhill roots do not float
         };
+
+        // The clump groups the table below shares. Two species in one group
+        // read the SAME noise field, so they appear in the same patches — which
+        // is what makes the meadow and the woodland move as two things rather
+        // than as five independent noises that average back out to uniform.
+        constexpr i32 kMeadowClump = 0;   // grass + wildflowers
+        constexpr i32 kWoodlandClump = 1; // shrubs + leaf litter
 
         // Default biome foliage: dense grass + sparse wildflowers on the grass
         // layer (1), and sparse dune grass on the sand layer (0). Rock (2) and
@@ -107,10 +130,29 @@ namespace OloEngine
         // render as solid/garbage quads. The BaseColor tint modulates the
         // texture, differentiating the kinds.
         constexpr const char* kGrassCutout = "assets/textures/grass.png";
-        constexpr std::array<FoliageProfile, 3> kDefaultFoliageProfiles{ {
-            { 1u, "Grass", kGrassCutout, 6.0f, 30.0f, 0.9f, 1.9f, 1.2f, 2.6f, glm::vec3(0.30f, 0.46f, 0.16f), 0.35f, 1.6f, 180.0f },
-            { 1u, "Wildflowers", kGrassCutout, 1.5f, 22.0f, 0.7f, 1.3f, 0.8f, 1.6f, glm::vec3(0.66f, 0.56f, 0.24f), 0.25f, 1.2f, 140.0f },
-            { 0u, "Dune Grass", kGrassCutout, 1.0f, 18.0f, 0.8f, 1.4f, 0.9f, 1.8f, glm::vec3(0.62f, 0.60f, 0.32f), 0.40f, 1.4f, 140.0f },
+        // Five species across two habitats (issue #1254): a MEADOW of grass and
+        // wildflowers on the wetter, flatter ground, and a WOODLAND fringe of
+        // shrubs with leaf litter under them on the drier, steeper ground. The
+        // two moisture bands OVERLAP, and each is feathered, so the boundary
+        // between them is a band where both thin out rather than a line.
+        //
+        // Densities are raised from their pre-#1254 values because clumping can
+        // only multiply suitability DOWN: at ClumpStrength 0.75 a layer keeps
+        // roughly a third of its cells, so the same on-screen lushness inside
+        // the patches costs about three times the nominal density.
+        constexpr std::array<FoliageProfile, 5> kDefaultFoliageProfiles{ {
+            // layer, name, albedo, density, slopeCeil, minS, maxS, minH, maxH, colour, windStr, windSpd, viewDist,
+            //   minMoist, maxMoist, moistFeather, slopeFeather, clumpStr, clumpScale, clumpFall, clumpScaleInfl, group, sink
+            { 1u, "Meadow Grass", kGrassCutout, 16.0f, 30.0f, 0.9f, 1.9f, 1.2f, 2.6f, glm::vec3(0.30f, 0.46f, 0.16f), 0.35f, 1.6f, 180.0f,
+              0.35f, 1.0f, 0.22f, 6.0f, 0.65f, 26.0f, 1.1f, 0.35f, kMeadowClump, 0.6f },
+            { 1u, "Wildflowers", kGrassCutout, 5.0f, 22.0f, 0.7f, 1.3f, 0.8f, 1.6f, glm::vec3(0.66f, 0.56f, 0.24f), 0.25f, 1.2f, 140.0f,
+              0.45f, 1.0f, 0.18f, 5.0f, 0.85f, 14.0f, 1.8f, 0.30f, kMeadowClump, 0.5f },
+            { 1u, "Shrubs", kGrassCutout, 1.2f, 34.0f, 1.4f, 2.6f, 1.8f, 3.4f, glm::vec3(0.22f, 0.34f, 0.14f), 0.18f, 0.9f, 220.0f,
+              0.08f, 0.62f, 0.20f, 8.0f, 0.80f, 34.0f, 1.4f, 0.45f, kWoodlandClump, 0.9f },
+            { 1u, "Leaf Litter", kGrassCutout, 9.0f, 34.0f, 0.5f, 1.0f, 0.25f, 0.55f, glm::vec3(0.40f, 0.29f, 0.14f), 0.05f, 0.6f, 90.0f,
+              0.05f, 0.66f, 0.22f, 8.0f, 0.75f, 34.0f, 1.2f, 0.20f, kWoodlandClump, 1.0f },
+            { 0u, "Dune Grass", kGrassCutout, 2.5f, 18.0f, 0.8f, 1.4f, 0.9f, 1.8f, glm::vec3(0.62f, 0.60f, 0.32f), 0.40f, 1.4f, 140.0f,
+              0.0f, 0.55f, 0.20f, 4.0f, 0.55f, 20.0f, 1.0f, 0.25f, -1, 0.4f },
         } };
     } // namespace
 
@@ -755,6 +797,28 @@ namespace OloEngine
             layer.FadeStartDistance = profile.ViewDistance * 0.8f; // begin fade before the cull distance
             layer.RandomRotation = true;
             layer.Enabled = true;
+
+            // ── Ecology (issue #1254) ────────────────────────────────────────
+            // A GENERATED layer is new, so it gets the habitat rules switched
+            // on. Nothing here touches a layer already on disk — FoliageLayer's
+            // constructor defaults, which are what a stored scene deserializes
+            // to, leave every one of these off.
+            layer.SlopeFeather = std::min(profile.SlopeFeather,
+                                          (layer.MaxSlopeAngle - layer.MinSlopeAngle) * 0.5f);
+            layer.UseMoisture = true;
+            layer.MinMoisture = profile.MinMoisture;
+            layer.MaxMoisture = profile.MaxMoisture;
+            layer.MoistureFeather = profile.MoistureFeather;
+            layer.ClumpStrength = profile.ClumpStrength;
+            layer.ClumpScale = profile.ClumpScale;
+            layer.ClumpFalloff = profile.ClumpFalloff;
+            layer.ClumpScaleInfluence = profile.ClumpScaleInfl;
+            layer.ClumpGroup = profile.ClumpGroup;
+            layer.SlopeSinkFactor = profile.SlopeSink;
+            // The avalanche hash, not the legacy one. Safe to switch on here
+            // for the same reason the rules above are: these plants have never
+            // been placed before, so nothing moves and no id retires.
+            layer.DecorrelatedVariation = true;
 
             layers.push_back(std::move(layer));
         }

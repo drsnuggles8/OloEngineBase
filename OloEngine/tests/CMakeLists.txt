@@ -641,6 +641,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageHabitatClumpingPropertyTests.cpp
+		Rendering/PropertyTests/FoliageHabitatEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp

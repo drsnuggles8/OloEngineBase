@@ -121,6 +121,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract mirrored in three places, and a miss sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md): three ways impostor cards go missing, separable only by reading PNGs from several azimuths; and a layer draws two shapes, so read `EnumerateLayerDraws` rather than any one pass's shader.
+- [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md): judge a placement hash by its distinct-offset count, keep gating rules out of the placement signature and moving ones in, and default every new scatter rule to the multiplicative identity.
 - [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included, and a capture that skips the y flip draws with culling off.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
@@ -201,6 +202,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | Unit tests pass whether the cape detaches, jitters or freezes rigid. |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | A foliage layer draws its authored mesh near and its card far; a pass that decides that for itself renders a plant whose shadow is a different shape. |
+| [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md) | A scatter hash whose two jitter draws differ by a constant: 32 distinct offsets over 6400 cells, Pearson correlation 0.02, and a screenshot that looks random. |
 | [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md) | An off-screen bake uploaded a raw GL-convention ortho; on Vulkan every triangle sat at negative clip z and was clipped, so the atlas baked "successfully" as its clear colour and the whole impostor canopy rendered nothing — with no counter or validation error to show for it. |
 | [single-mesh-visual-test-lighting.md](single-mesh-visual-test-lighting.md) | A bright material rendered near-black and the test asserted nothing about it. |
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |

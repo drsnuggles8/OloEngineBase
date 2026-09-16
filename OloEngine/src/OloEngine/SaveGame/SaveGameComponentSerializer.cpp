@@ -643,6 +643,74 @@ namespace OloEngine
                 l.TransmissionAmbient = std::clamp(l.TransmissionAmbient, 0.0f, 4.0f);
             }
         }
+        // Species habitat rules, clumping and ground contact appended in
+        // save-format v35 (issue #1254). v34 and older saves stop before them
+        // and keep the constructor defaults, every one of which is OFF — so an
+        // older save scatters its plants in exactly the positions the build
+        // that wrote it scattered them. DecorrelatedVariation is the one to
+        // watch: it changes the cell -> XZ mapping, so a default the other way
+        // would MOVE every plant in every save that predates this band.
+        if (HasFieldsSince(ar, 35))
+        {
+            ar << l.SlopeFeather;
+            ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
+            ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
+            ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
+            ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
+            ar << l.ClumpGroup;
+            ar << l.GroundOffset << l.SlopeSinkFactor;
+            ar << l.DecorrelatedVariation;
+
+            if (ar.IsLoading())
+            {
+                // The same bounds DeserializeFoliageComponent applies, for the
+                // same reason: every one of these reaches the placement
+                // generator, where a NaN band silently empties the layer and a
+                // zero clump scale is a division by zero. A save file is no
+                // more trusted than a .olo. Kept textually parallel to that
+                // deserializer so a future edit to one is visibly missing from
+                // the other.
+                if (!std::isfinite(l.SlopeFeather))
+                    l.SlopeFeather = 0.0f;
+                l.SlopeFeather = std::clamp(l.SlopeFeather, 0.0f, 90.0f);
+                if (!std::isfinite(l.MinAltitude))
+                    l.MinAltitude = 0.0f;
+                if (!std::isfinite(l.MaxAltitude))
+                    l.MaxAltitude = 1000.0f;
+                if (!std::isfinite(l.AltitudeFeather))
+                    l.AltitudeFeather = 0.0f;
+                l.AltitudeFeather = std::max(l.AltitudeFeather, 0.0f);
+                if (!std::isfinite(l.MinMoisture))
+                    l.MinMoisture = 0.0f;
+                l.MinMoisture = std::clamp(l.MinMoisture, 0.0f, 1.0f);
+                if (!std::isfinite(l.MaxMoisture))
+                    l.MaxMoisture = 1.0f;
+                l.MaxMoisture = std::clamp(l.MaxMoisture, 0.0f, 1.0f);
+                if (!std::isfinite(l.MoistureFeather))
+                    l.MoistureFeather = 0.0f;
+                l.MoistureFeather = std::clamp(l.MoistureFeather, 0.0f, 1.0f);
+                if (!std::isfinite(l.ExclusionThreshold))
+                    l.ExclusionThreshold = 0.5f;
+                l.ExclusionThreshold = std::clamp(l.ExclusionThreshold, 0.0f, 1.0f);
+                if (!std::isfinite(l.ClumpStrength))
+                    l.ClumpStrength = 0.0f;
+                l.ClumpStrength = std::clamp(l.ClumpStrength, 0.0f, 1.0f);
+                if (!std::isfinite(l.ClumpScale))
+                    l.ClumpScale = 12.0f;
+                l.ClumpScale = std::max(l.ClumpScale, 0.01f);
+                if (!std::isfinite(l.ClumpFalloff))
+                    l.ClumpFalloff = 1.0f;
+                l.ClumpFalloff = std::clamp(l.ClumpFalloff, 0.05f, 16.0f);
+                if (!std::isfinite(l.ClumpScaleInfluence))
+                    l.ClumpScaleInfluence = 0.0f;
+                l.ClumpScaleInfluence = std::clamp(l.ClumpScaleInfluence, 0.0f, 1.0f);
+                if (!std::isfinite(l.GroundOffset))
+                    l.GroundOffset = 0.0f;
+                if (!std::isfinite(l.SlopeSinkFactor))
+                    l.SlopeSinkFactor = 0.0f;
+                l.SlopeSinkFactor = std::clamp(l.SlopeSinkFactor, 0.0f, 4.0f);
+            }
+        }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.
     }
