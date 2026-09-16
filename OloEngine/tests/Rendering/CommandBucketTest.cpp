@@ -1205,14 +1205,22 @@ TEST_F(CommandBucketBatchTest, BatchedGPUSceneRefsRemainPerInstance)
     config.EnableBatching = true;
     CommandBucket bucket(config);
 
-    constexpr u32 kCount = 3;
+    constexpr u32 kCount = 4;
     for (u32 i = 0; i < kCount; ++i)
     {
         auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i), static_cast<i32>(i));
         cmd.vertexArrayID = TestHandle(100u);
-        // Deliberately non-none but unresolved: BatchCommands must write one
-        // fallback record for every source instead of dropping the lane.
-        cmd.gpuSceneDrawLink = 1000u + i;
+        // Put every other optional stream before the only link. The batch
+        // scan must not exit after finding Color, Custom, and Lightmap data;
+        // it still needs to discover this later GPU Scene lane.
+        if (i == 0)
+            cmd.color = glm::vec4(0.5f);
+        if (i == 1)
+            cmd.custom = 1.0f;
+        if (i == 2)
+            cmd.lightmapScaleOffset = glm::vec4(0.25f);
+        if (i == 3)
+            cmd.gpuSceneDrawLink = 1000u; // Deliberately unresolved.
         PacketMetadata meta;
         meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
         bucket.Submit(cmd, meta, m_Allocator.get());

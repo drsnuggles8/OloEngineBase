@@ -298,11 +298,16 @@ namespace OloEngine
         auto& arena = VulkanFrameArena::Get();
         const u64 generation = arena.GetFrameGeneration();
         const bool liveSnapshot = m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == generation;
-        const bool exactUpload = m_Usage == StorageBufferUsage::DynamicDrawExactUpload;
+        const bool exactUploadUsage = m_Usage == StorageBufferUsage::DynamicDrawExactUpload;
+        // InstanceBuffer::Upload writes the prefix from element zero, which
+        // can safely use its draw-bounded byte count. UploadRange remains a
+        // supported API, so any nonzero-offset write deliberately falls back
+        // to the normal whole-buffer snapshot contract.
+        const bool exactUpload = exactUploadUsage && offset == 0;
         // Normal snapshots cover their backing buffer. Exact-upload buffers
         // are intentionally different: their draw count bounds all shader
         // indexing, so their live snapshot can be a valid uploaded prefix.
-        OLO_CORE_ASSERT(!liveSnapshot || exactUpload || m_SnapshotBytes == m_Size,
+        OLO_CORE_ASSERT(!liveSnapshot || exactUploadUsage || m_SnapshotBytes == m_Size,
                         "VulkanStorageBuffer: live snapshot is not whole-buffer");
 
         // Nothing has read this snapshot yet: rewrite it in place. A snapshot
@@ -319,8 +324,9 @@ namespace OloEngine
         // exhausting it drops root data for the WHOLE frame, not just for this
         // buffer. With reuse, that batch costs one whole-buffer fill plus N
         // small memcpys.
+        const bool liveWholeSnapshot = liveSnapshot && m_SnapshotBytes == m_Size;
         if (liveSnapshot && !m_SnapshotConsumed.load(std::memory_order_relaxed) &&
-            (!exactUpload || m_SnapshotBytes >= size))
+            (liveWholeSnapshot || (exactUpload && m_SnapshotBytes >= size)))
         {
             std::memcpy(static_cast<u8*>(m_SnapshotCpu) + offset, data, size);
             arena.FlushWrite(VulkanFrameArenaAllocation{ m_SnapshotCpu, m_SnapshotAddress, m_SnapshotArenaOffset },
@@ -337,12 +343,6 @@ namespace OloEngine
         // makes that an out-of-bounds device read under buffer-device-address
         // root data, not a wrong pixel. The sibling VulkanUniformBuffer has
         // always pushed its whole shadow for exactly this reason.
-        if (exactUpload && offset != 0)
-        {
-            OLO_CORE_ERROR("VulkanStorageBuffer: exact-upload snapshot requires offset 0; dropping {}+{} update", offset, size);
-            InvalidateSnapshot();
-            return;
-        }
         const u32 newBytes = exactUpload ? size : m_Size;
 
         // Bytes this write does not define — the prefix [0, offset) and the
@@ -360,7 +360,7 @@ namespace OloEngine
         // touches the host mapping, so filling from it would resurrect the very
         // bytes that write was issued to replace — a cleared range reappearing
         // for every draw recorded after the next partial SetData.
-        const void* fillSource = liveSnapshot ? m_SnapshotCpu : (GpuWroteThisFrame() ? nullptr : m_Mapped);
+        const void* fillSource = liveWholeSnapshot ? m_SnapshotCpu : (GpuWroteThisFrame() ? nullptr : m_Mapped);
         const bool coversWholeBuffer = exactUpload || (offset == 0 && size == m_Size);
         if (!coversWholeBuffer && fillSource == nullptr)
         {

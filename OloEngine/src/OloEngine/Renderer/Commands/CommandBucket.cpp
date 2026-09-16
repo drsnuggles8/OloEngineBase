@@ -852,7 +852,7 @@ namespace OloEngine
                     anyNonDefaultLightmapRegion = true;
                 if (meshCmd->gpuSceneDrawLink != GPUSceneDrawLinkNone)
                     anyGPUSceneLink = true;
-                if (anyNonDefaultColor && anyNonDefaultCustom && anyNonDefaultLightmapRegion)
+                if (anyNonDefaultColor && anyNonDefaultCustom && anyNonDefaultLightmapRegion && anyGPUSceneLink)
                     break;
             }
 
@@ -930,6 +930,10 @@ namespace OloEngine
                     if (const GPUSceneDrawLink* link = Renderer3D::GetGPUSceneDrawLink(meshCmd->gpuSceneDrawLink); link && link->m_Resolved)
                     {
                         reference = link->Ref();
+                        // Resolved GPU Scene transforms are already relative
+                        // to this frame's render origin. The dispatcher uses
+                        // their valid reference to avoid applying that shift
+                        // a second time.
                         frameBuffer.WriteTransforms(transformOffset + t, &link->m_CurrentTransform, 1);
                         if (prevTransformOffset != UINT32_MAX)
                             frameBuffer.WriteTransforms(prevTransformOffset + t, &link->m_PreviousTransform, 1);
