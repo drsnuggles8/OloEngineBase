@@ -197,6 +197,19 @@ namespace OloEngine
         // allocation / address 0).
         (void)EnsureBuffers();
         (void)EnsureNullBlock();
+        const u64 priorUsed = m_Slots[m_CurrentSlot].Cursor.load(std::memory_order_relaxed);
+        if (priorUsed != 0)
+        {
+            OLO_CORE_INFO("VulkanFrameArena: previous frame high-water {}/{} B; requested root={} uniform={} vertex={} storage={} rt={}",
+                          priorUsed, kSlotCapacityBytes,
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RootData),
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot),
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot),
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::StorageSnapshot),
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RayTracingStaging));
+        }
+        for (auto& bytes : m_ConsumerBytes)
+            bytes.store(0, std::memory_order_relaxed);
         m_CurrentSlot = frameSlot % kFramesInFlight;
         m_Slots[m_CurrentSlot].Cursor.store(0, std::memory_order_relaxed);
         ++m_FrameGeneration;
@@ -205,7 +218,7 @@ namespace OloEngine
         m_OverflowWarned.store(false, std::memory_order_relaxed);
     }
 
-    VulkanFrameArenaAllocation VulkanFrameArena::Allocate(u64 sizeBytes, u64 alignment)
+    VulkanFrameArenaAllocation VulkanFrameArena::Allocate(u64 sizeBytes, u64 alignment, VulkanFrameArenaConsumer consumer)
     {
         // Runtime checks, not assert-only: alignment == 0 wraps the mask and
         // aligned becomes 0, silently overwriting root data already handed
@@ -315,6 +328,7 @@ namespace OloEngine
             }
             block.Cursor = aligned + sizeBytes;
             ++worker->ArenaAllocations;
+            m_ConsumerBytes[static_cast<sizet>(consumer)].fetch_add(sizeBytes, std::memory_order_relaxed);
             return {
                 .Cpu = static_cast<u8*>(slot.Mapped) + aligned,
                 .Gpu = slot.BaseAddress + aligned,
@@ -328,6 +342,7 @@ namespace OloEngine
             return overflow();
         }
         m_AllocationsThisFrame.fetch_add(1, std::memory_order_relaxed);
+        m_ConsumerBytes[static_cast<sizet>(consumer)].fetch_add(sizeBytes, std::memory_order_relaxed);
         return {
             .Cpu = static_cast<u8*>(slot.Mapped) + aligned,
             .Gpu = slot.BaseAddress + aligned,
@@ -340,9 +355,10 @@ namespace OloEngine
         m_AllocationsThisFrame.fetch_add(count, std::memory_order_relaxed);
     }
 
-    VulkanFrameArenaAllocation VulkanFrameArena::Push(const void* data, u64 sizeBytes, u64 alignment)
+    VulkanFrameArenaAllocation VulkanFrameArena::Push(const void* data, u64 sizeBytes, u64 alignment,
+                                                      VulkanFrameArenaConsumer consumer)
     {
-        VulkanFrameArenaAllocation allocation = Allocate(sizeBytes, alignment);
+        VulkanFrameArenaAllocation allocation = Allocate(sizeBytes, alignment, consumer);
         if (allocation.IsValid() && data != nullptr)
         {
             std::memcpy(allocation.Cpu, data, sizeBytes);

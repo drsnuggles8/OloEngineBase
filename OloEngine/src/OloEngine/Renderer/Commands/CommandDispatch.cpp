@@ -2594,6 +2594,10 @@ namespace OloEngine
         const glm::vec4* lightmapRegions = nullptr;
         if (cmd->lightmapRegionBufferOffset != UINT32_MAX)
             lightmapRegions = frameBuffer.GetColorPtr(cmd->lightmapRegionBufferOffset);
+        const glm::uvec4* gpuSceneRefs = nullptr;
+        if (cmd->gpuSceneRefBufferOffset != UINT32_MAX)
+            gpuSceneRefs = frameBuffer.GetGPUSceneRefPtr(cmd->gpuSceneRefBufferOffset);
+        const bool gpuSceneMaterialsBound = gpuSceneRefs && BindGPUSceneMaterialsIfNeeded();
 
         if (transforms && Data().ModelInstanceBuffer)
         {
@@ -2614,9 +2618,13 @@ namespace OloEngine
             for (sizet i = 0; i < instanceCount; ++i)
             {
                 InstanceData& inst = scratch[i];
-                inst.Transform = MakeModelRelative(transforms[i], origin);
+                // CommandBucket replaces a resolved link's transform entries
+                // with its GPU Scene record values. Those values are already
+                // render-origin-relative, unlike the legacy command values.
+                const bool resolvedGPUSceneTransform = gpuSceneRefs && gpuSceneRefs[i].w != GPUSceneDrawRefUnlinked;
+                inst.Transform = resolvedGPUSceneTransform ? transforms[i] : MakeModelRelative(transforms[i], origin);
                 inst.Normal = glm::transpose(glm::inverse(transforms[i]));
-                inst.PrevTransform = MakeModelRelative(prevTransforms[i], origin);
+                inst.PrevTransform = resolvedGPUSceneTransform ? prevTransforms[i] : MakeModelRelative(prevTransforms[i], origin);
                 // Per-source EntityID survives the N-into-1 batch collapse via
                 // FrameDataBuffer's EntityID stream — CommandBucket::BatchCommands
                 // writes one entry per source DrawMeshCommand, and the fragment
@@ -2628,6 +2636,15 @@ namespace OloEngine
                 inst.Color = colors ? colors[i] : glm::vec4(1.0f);
                 inst.Custom = customs ? customs[i] : 0.0f;
                 inst.LightmapScaleOffset = lightmapRegions ? lightmapRegions[i] : glm::vec4(0.0f);
+                if (gpuSceneRefs)
+                {
+                    inst.GPUSceneRef = gpuSceneRefs[i];
+                    if (!gpuSceneMaterialsBound)
+                    {
+                        inst.GPUSceneRef.z = 0u;
+                        inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
+                    }
+                }
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
             Data().ModelInstanceBuffer->Upload(instances);

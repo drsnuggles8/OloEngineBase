@@ -20,7 +20,7 @@ namespace OloEngine
     {
         m_Storage = StorageBuffer::Create(BytesFor(m_Capacity),
                                           ShaderBindingLayout::SSBO_INSTANCE_DATA,
-                                          StorageBufferUsage::DynamicDraw);
+                                          StorageBufferUsage::DynamicDrawExactUpload);
     }
 
     void InstanceBuffer::EnsureCapacity(u32 requiredCount)

@@ -60,6 +60,16 @@
 
 namespace OloEngine
 {
+    enum class VulkanFrameArenaConsumer : u8
+    {
+        RootData,
+        UniformSnapshot,
+        VertexSnapshot,
+        StorageSnapshot,
+        RayTracingStaging,
+        Count,
+    };
+
     struct VulkanFrameArenaAllocation
     {
         void* Cpu = nullptr;     ///< Write-through mapped pointer (null on overflow).
@@ -94,12 +104,14 @@ namespace OloEngine
         // two; 16 is std430-safe for any root struct the model produces.
         // Callable from any thread concurrently — the claim is atomic (see
         // the thread-safety block above).
-        [[nodiscard]] VulkanFrameArenaAllocation Allocate(u64 sizeBytes, u64 alignment = 16);
+        [[nodiscard]] VulkanFrameArenaAllocation Allocate(u64 sizeBytes, u64 alignment = 16,
+                                                          VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
 
         // Convenience: allocate + memcpy + return (and flush when the
         // placement is non-coherent). The common "one root struct per draw"
         // shape.
-        [[nodiscard]] VulkanFrameArenaAllocation Push(const void* data, u64 sizeBytes, u64 alignment = 16);
+        [[nodiscard]] VulkanFrameArenaAllocation Push(const void* data, u64 sizeBytes, u64 alignment = 16,
+                                                      VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
 
         // Fold a worker context's per-block allocation count into the frame
         // tally (the join calls this once per item; the worker path itself
@@ -151,6 +163,10 @@ namespace OloEngine
         [[nodiscard]] u64 GetOverflowCount() const
         {
             return m_OverflowCount.load(std::memory_order_relaxed);
+        }
+        [[nodiscard]] u64 GetConsumerBytesThisFrame(VulkanFrameArenaConsumer consumer) const
+        {
+            return m_ConsumerBytes[static_cast<sizet>(consumer)].load(std::memory_order_relaxed);
         }
         [[nodiscard]] u32 GetCurrentSlot() const
         {
@@ -233,6 +249,7 @@ namespace OloEngine
         std::atomic<u64> m_AllocationsThisFrame{ 0 };
         std::atomic<u64> m_OverflowCount{ 0 };
         std::atomic<bool> m_OverflowWarned{ false };
+        std::array<std::atomic<u64>, static_cast<sizet>(VulkanFrameArenaConsumer::Count)> m_ConsumerBytes{};
     };
 } // namespace OloEngine
 

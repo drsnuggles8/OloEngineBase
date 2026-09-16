@@ -760,6 +760,7 @@ namespace OloEngine
         // DrawMeshCommand has no per-source color/custom slot.
         u32 colorBufferOffset = UINT32_MAX;
         u32 customBufferOffset = UINT32_MAX;
+        u32 gpuSceneRefBufferOffset = UINT32_MAX;
 
         // Per-instance vec4 lightmap atlas regions (issue #439), riding the
         // same generic vec4 stream as Colors under their own offset. UINT32_MAX

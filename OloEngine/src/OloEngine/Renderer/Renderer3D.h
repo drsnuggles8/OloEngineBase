@@ -705,10 +705,6 @@ namespace OloEngine
                                              const glm::quat& rotation = glm::quat(1, 0, 0, 0),
                                              const glm::vec3& color = glm::vec3(0.0f, 1.0f, 0.0f));
 
-        // ECS Animated Mesh Rendering
-        static void RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial);
-        static void RenderAnimatedMesh(const Ref<Scene>& scene, Entity entity, const Material& defaultMaterial);
-
         // ====================================================================
         // Parallel Command Generation API
         // ====================================================================
@@ -779,55 +775,6 @@ namespace OloEngine
                                                const glm::mat4* prevModelMatrix = nullptr);
 
         /**
-         * @brief Thread-safe animated mesh drawing for parallel submission
-         *
-         * `entityID` is the picking ID written into the draw command, exactly
-         * as the serial DrawAnimatedMesh writes it. It matters more than a
-         * defaulted parameter suggests: a command left at the default -1 is
-         * invisible to the editor picking buffer, so an animated mesh stops
-         * being selectable the moment its batch grows past
-         * SubmitMeshesParallel's threshold and switches to this route.
-         */
-        static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
-                                                       const Ref<Mesh>& mesh,
-                                                       const glm::mat4& modelMatrix,
-                                                       const Material& material,
-                                                       const std::vector<glm::mat4>& boneMatrices,
-                                                       bool isStatic = false,
-                                                       i32 entityID = -1,
-                                                       u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
-
-        /**
-         * @brief Thread-safe animated mesh drawing with previous-frame pose
-         *
-         * Same as DrawAnimatedMeshParallel above but also carries the prev-
-         * frame pose so the worker can upload the prev-bone palette alongside
-         * the current one and populate `prevTransform` for correct TAA /
-         * motion-blur velocity. `prevBoneMatrices` must either be empty or
-         * have the same size as `boneMatrices`; `hasPrevTransform` lets the
-         * caller distinguish "identity" from "explicitly unchanged".
-         */
-        static CommandPacket* DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
-                                                       const Ref<Mesh>& mesh,
-                                                       const glm::mat4& modelMatrix,
-                                                       const Material& material,
-                                                       const std::vector<glm::mat4>& boneMatrices,
-                                                       const std::vector<glm::mat4>& prevBoneMatrices,
-                                                       const glm::mat4& prevModelMatrix,
-                                                       bool hasPrevTransform,
-                                                       bool isStatic = false,
-                                                       i32 entityID = -1,
-                                                       // Issue #1228. A worker may CARRY a link but must never
-                                                       // MINT one: ExtractGPUSceneMesh appends to an
-                                                       // unsynchronised per-frame vector, so the index is
-                                                       // produced on the main thread during the registry walk
-                                                       // and handed to the worker as a plain integer. That is
-                                                       // also why it is safe -- an index is copied, not shared,
-                                                       // and the table it names is not written again until the
-                                                       // next frame's BeginGPUSceneExtraction.
-                                                       u32 gpuSceneDrawLink = GPUSceneDrawLinkNone);
-
-        /**
          * @brief Submit a packet to the worker's bucket (thread-safe)
          */
         static void SubmitPacketParallel(WorkerSubmitContext& ctx, CommandPacket* packet);
@@ -847,15 +794,6 @@ namespace OloEngine
             Material MaterialData;
             bool IsStatic = true;
             i32 EntityID = -1; // Entity ID for picking (-1 = no entity)
-            // For animated meshes
-            bool IsAnimated = false;
-            const std::vector<glm::mat4>* BoneMatrices = nullptr;
-            // Optional previous-frame pose for motion-vector generation. When
-            // null (or empty / size-mismatched) the consumer aliases current
-            // bones / transform into the prev slot -- zero per-bone and per-
-            // object motion. Lifetime: caller must keep the referenced vector
-            // alive until SubmitMeshesParallel returns.
-            const std::vector<glm::mat4>* PrevBoneMatrices = nullptr;
             glm::mat4 PrevTransform = glm::mat4(1.0f);
             bool HasPrevTransform = false; // False => prev == current (zero object motion).
             // For LOD selection
@@ -867,16 +805,6 @@ namespace OloEngine
             // the produced DrawMeshCommand exactly as Scene.cpp's
             // SubmitMeshSourceClassic patches the classic mesh path's.
             glm::vec4 LightmapScaleOffset = glm::vec4(0.0f);
-            // The canonical record this draw was staged as, or
-            // GPUSceneDrawLinkNone (issue #1228).
-            //
-            // The link is MINTED ON THE MAIN THREAD, by the caller, while it
-            // builds this descriptor -- ExtractGPUSceneMesh appends to an
-            // unsynchronised per-frame vector and a worker must never touch it.
-            // What crosses the thread boundary is a plain index, copied into
-            // the descriptor, which is why concurrent recording needs no lock
-            // to resolve the same records the serial path resolves.
-            u32 GPUSceneDrawLink = GPUSceneDrawLinkNone;
         };
 
         /**

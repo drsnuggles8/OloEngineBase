@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/CommandPacket.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Math/Math.h"
 
 #include <algorithm>
@@ -1191,6 +1192,54 @@ TEST_F(CommandBucketBatchTest, BatchedEntityIDAndPrevTransformSurviveCollapse)
             << "EntityID " << i << " lost across batch collapse";
         EXPECT_EQ(storedPrev[i], expectedPrev[i])
             << "PrevTransform " << i << " lost across batch collapse";
+    }
+}
+
+// GPU Scene references are per source, not per batch. A batch with no resolved
+// sources still needs an explicit unlinked lane: dispatch uses it to select the
+// legacy fallback for each instance rather than reading stale instance data.
+TEST_F(CommandBucketBatchTest, BatchedGPUSceneRefsRemainPerInstance)
+{
+    CommandBucketConfig config;
+    config.EnableSorting = true;
+    config.EnableBatching = true;
+    CommandBucket bucket(config);
+
+    constexpr u32 kCount = 4;
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        auto cmd = MakeSyntheticDrawMeshCommand(1, 1, static_cast<f32>(i), static_cast<i32>(i));
+        cmd.vertexArrayID = TestHandle(100u);
+        // Put every other optional stream before the only link. The batch
+        // scan must not exit after finding Color, Custom, and Lightmap data;
+        // it still needs to discover this later GPU Scene lane.
+        if (i == 0)
+            cmd.color = glm::vec4(0.5f);
+        if (i == 1)
+            cmd.custom = 1.0f;
+        if (i == 2)
+            cmd.lightmapScaleOffset = glm::vec4(0.25f);
+        if (i == 3)
+            cmd.gpuSceneDrawLink = 1000u; // Deliberately unresolved.
+        PacketMetadata meta;
+        meta.m_SortKey = MakeSyntheticOpaqueKey(0, ViewLayerType::ThreeD, 1, 1, i);
+        bucket.Submit(cmd, meta, m_Allocator.get());
+    }
+
+    bucket.SortCommands();
+    bucket.BatchCommands(*m_Allocator);
+
+    ASSERT_EQ(bucket.GetSortedCommands().size(), 1u);
+    const auto* cmd = bucket.GetSortedCommands()[0]->GetCommandData<DrawMeshInstancedCommand>();
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_EQ(cmd->instanceCount, kCount);
+    ASSERT_NE(cmd->gpuSceneRefBufferOffset, UINT32_MAX);
+
+    const glm::uvec4* refs = FrameDataBufferManager::Get().GetGPUSceneRefPtr(cmd->gpuSceneRefBufferOffset);
+    ASSERT_NE(refs, nullptr);
+    for (u32 i = 0; i < kCount; ++i)
+    {
+        EXPECT_EQ(refs[i].w, GPUSceneDrawRefUnlinked) << "instance " << i;
     }
 }
 

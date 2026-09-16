@@ -65,8 +65,7 @@ namespace OloEngine::GPUSceneLegacyAdapters
             .m_File = "OloEngine/src/OloEngine/Renderer/Renderer3DMeshSubmission.cpp",
             .m_Name = "Renderer3D submission (skinned, parallel, instanced, quad)",
             .m_UnsupportedCategory = std::nullopt,
-            .m_Exit = "DrawMesh, DrawAnimatedMesh and DrawAnimatedMeshParallel all take a link "
-                      "now (issue #1228 added the two animated ones). What is left is "
+            .m_Exit = "DrawMesh and DrawAnimatedMesh take a link. What is left is "
                       "DrawMeshInstanced, which needs a per-instance link lane in InstanceData "
                       "before N sources can each name their own record, and the quad path. The "
                       "same lane is what CommandBucket's auto-batching needs: it collapses N "
