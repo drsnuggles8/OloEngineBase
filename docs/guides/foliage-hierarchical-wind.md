@@ -49,8 +49,8 @@ card placement, main-view atlas selection, and cutout as colour.
 ## Persistence and inspection
 
 Scene YAML and cooked scene blobs carry `WindStiffness`, `WindBranchWeight`,
-`WindLeafWeight`, and `WindDebugDisplacement`. Save-game format v35 appends those
-fields after the v33 leaf material block. Older scenes and v34 saves default all
+`WindLeafWeight`, and `WindDebugDisplacement`. Save-game format v36 appends those
+fields after the landed v35 habitat block. Older scenes and v35-or-earlier saves default all
 weights and debug to zero. Both loaders reject non-finite weights and clamp
 them to [0, 1].
 
@@ -150,7 +150,7 @@ Representative live captures (the full on/off and velocity grid is committed):
   [depth](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Depth.png),
   and [shadow](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ShadowA.png).
 
-Master remains save format v34 at publication. This task appends v35 wind fields;
-the concurrently open species/clumping PR #1302 also appends fields. Whichever
-PR lands second must rebase, place its fields after the first v35 block, use
-v36, and rerun its persistence tests before merging.
+Species/clumping PR #1302 landed save format v35 while this PR was running CI.
+This published branch merges that master commit and appends wind fields at v36,
+after the landed habitat block. Persistence tests cover actual on-disk v34 and
+v35 payloads, including preserved habitat fields and defaulted wind weights.

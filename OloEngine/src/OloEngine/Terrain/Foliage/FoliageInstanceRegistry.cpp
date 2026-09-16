@@ -182,11 +182,22 @@ namespace OloEngine
         // terrain extent. Slope gates and splatmap masking are NOT here — they
         // only decide WHETHER a cell emits, and a cell that stops emitting
         // retires through the reconcile on its own.
+        //
+        // The #1254 habitat rules and clump field follow that same rule and are
+        // deliberately ABSENT: they gate emission and modulate scale, neither
+        // of which moves a plant, so tightening a moisture band retires the
+        // plants that fall outside it and leaves every survivor its id — which
+        // is the incremental behaviour acceptance criterion 3 asks for.
+        //
+        // DecorrelatedVariation is the one #1254 field that IS here, because it
+        // is the one that re-draws the jitter: flipping it moves every plant in
+        // the layer, so every id in the layer has to retire.
         u64 signature = 0xCBF29CE484222325ull;
         HashCombine(signature, static_cast<u64>(placementSeed));
         HashCombine(signature, FloatBits(spacing));
         HashCombine(signature, FloatBits(worldSizeX));
         HashCombine(signature, FloatBits(worldSizeZ));
+        HashCombine(signature, layer.DecorrelatedVariation ? 1ull : 0ull);
 
         m_CurrentKeyPrototype = FoliagePlacementKey{
             .m_LayerKey = AcquireLayerKey(layer.Name, ordinal),

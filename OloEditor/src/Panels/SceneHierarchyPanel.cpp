@@ -6807,6 +6807,125 @@ namespace OloEngine
                         if (ImGui::DragFloat("Max Slope", &layer.MaxSlopeAngle, 0.5f, 0.0f, 90.0f))
                             component.m_NeedsRebuild = true;
 
+                        // ── Species habitat (issue #1254) ────────────────────
+                        ImGui::SeparatorText("Habitat");
+                        ImGui::TextWrapped(
+                            "What makes a scatter read as an ecosystem: each species answers "
+                            "'would I grow here?' from the terrain, and every gate below is a "
+                            "SOFT weight that multiplies with the others, so neighbouring "
+                            "species dissolve into each other instead of meeting on a line. "
+                            "All of these are off by default, which is how a layer authored "
+                            "before this loads.");
+
+                        if (ImGui::DragFloat("Slope Feather", &layer.SlopeFeather, 0.5f, 0.0f, 90.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Degrees of soft edge INWARD from Min/Max Slope. 0 keeps the hard "
+                            "cut-off exactly as it was — a zero feather never moves a plant.");
+
+                        if (ImGui::Checkbox("Altitude Band", &layer.UseAltitudeBand))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Gate this species by world-space altitude — a tree line, a valley "
+                            "floor. In world units, not normalized heightfield units.");
+                        if (layer.UseAltitudeBand)
+                        {
+                            if (ImGui::DragFloat("Min Altitude", &layer.MinAltitude, 0.25f, -10000.0f, 10000.0f))
+                                component.m_NeedsRebuild = true;
+                            if (ImGui::DragFloat("Max Altitude", &layer.MaxAltitude, 0.25f, -10000.0f, 10000.0f))
+                                component.m_NeedsRebuild = true;
+                            if (ImGui::DragFloat("Altitude Feather", &layer.AltitudeFeather, 0.25f, 0.0f, 1000.0f))
+                                component.m_NeedsRebuild = true;
+                        }
+
+                        if (ImGui::Checkbox("Moisture Band", &layer.UseMoisture))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Gate by a TOPOGRAPHIC moisture proxy: low, flat ground is wet (1), "
+                            "high, steep ground is dry (0). Deliberately not a hydrology "
+                            "simulation — it is a repeatable number you can band on.");
+                        if (layer.UseMoisture)
+                        {
+                            if (ImGui::DragFloat("Min Moisture", &layer.MinMoisture, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            if (ImGui::DragFloat("Max Moisture", &layer.MaxMoisture, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            if (ImGui::DragFloat("Moisture Feather", &layer.MoistureFeather, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                        }
+
+                        if (ImGui::DragInt("Exclusion Channel", &layer.ExclusionSplatmapChannel, 1, -1, 7))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "An authored splatmap channel that SUPPRESSES this species where it "
+                            "is painted — bare rock, a path, a building footprint. Independent "
+                            "of Splatmap Channel above, so a layer can want grass AND not want "
+                            "rock. -1 disables it.");
+                        if (layer.ExclusionSplatmapChannel >= 0)
+                        {
+                            if (ImGui::DragFloat("Exclusion Threshold", &layer.ExclusionThreshold, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Channel weight at which suppression is total.");
+                        }
+
+                        // ── Clumping (issue #1254) ───────────────────────────
+                        ImGui::SeparatorText("Clumping");
+                        ImGui::TextWrapped(
+                            "Plants grow in patches. Clumping can only multiply suitability "
+                            "DOWN, so a layer that gains it gets sparser at the same Density — "
+                            "raise Density to keep the same count inside the patches.");
+
+                        if (ImGui::DragFloat("Clump Strength", &layer.ClumpStrength, 0.01f, 0.0f, 1.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip("0 is the off switch: the field is never evaluated.");
+                        if (layer.ClumpStrength > 0.0f)
+                        {
+                            if (ImGui::DragFloat("Clump Scale", &layer.ClumpScale, 0.1f, 0.01f, 500.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Roughly one patch across, in world units.");
+                            if (ImGui::DragFloat("Clump Falloff", &layer.ClumpFalloff, 0.01f, 0.05f, 16.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Above 1 tightens patches; below 1 diffuses their edges.");
+                            if (ImGui::DragFloat("Clump Scale Influence", &layer.ClumpScaleInfluence, 0.01f, 0.0f, 1.0f))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "How much bigger a plant grows in a patch's core than on its "
+                                "fringe. This is what stops a clumped layer reading as the same "
+                                "plant stamped at varying spacing.");
+                            if (ImGui::DragInt("Clump Group", &layer.ClumpGroup, 1, -1, 63))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip(
+                                "-1 is this layer's own field. Two layers sharing a non-negative "
+                                "group clump TOGETHER — wildflowers in the same patches as the "
+                                "meadow grass, litter under the same trees.");
+                        }
+
+                        // ── Ground contact (issue #1254) ─────────────────────
+                        ImGui::SeparatorText("Ground Contact");
+
+                        if (ImGui::DragFloat("Ground Offset", &layer.GroundOffset, 0.005f, -5.0f, 5.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip("Constant world-unit offset along Y; positive is up.");
+                        if (ImGui::DragFloat("Slope Sink", &layer.SlopeSinkFactor, 0.01f, 0.0f, 4.0f))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "A plant meets the ground at ONE point, its origin, so on a slope "
+                            "its downhill half floats. 1 sinks it by the full drop across its "
+                            "own half-width, which buries the uphill side instead — and a "
+                            "buried side is invisible where a floating one is not.");
+
+                        // ── Variation quality (issue #1254) ──────────────────
+                        if (ImGui::Checkbox("Decorrelated Variation", &layer.DecorrelatedVariation))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Draws jitter, scale, height and rotation from an avalanche hash "
+                            "instead of the original one, whose seed is mixed in too late: "
+                            "measured over an 80x80 grid the two jitter draws differ by only 32 "
+                            "distinct offsets, so every plant sits on one of 32 diagonals "
+                            "inside its cell. TURNING THIS ON MOVES EVERY PLANT IN THE LAYER "
+                            "and retires every canonical instance id it had — they really are "
+                            "different plants in different places.");
+
                         ImGui::Separator();
                         ImGui::Text("Scale & Height");
 

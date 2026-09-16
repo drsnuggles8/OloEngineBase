@@ -155,7 +155,25 @@ namespace OloEngine
     //      the other's HasFieldsSince and been read with the wrong fields at
     //      the wrong offsets, desynchronising everything after it. If you are
     //      adding the next band, check what master took while you were away.
-    static constexpr u32 kSaveGameFormatVersion = 35;
+    // v35: FoliageLayer gained its SPECIES HABITAT RULES, CLUMPING and GROUND
+    //      CONTACT (#1254) — the slope feather, the altitude and moisture
+    //      bands, the exclusion splatmap channel, the clump field's strength /
+    //      scale / falloff / scale influence / group, the ground offset and
+    //      slope sink, and the DecorrelatedVariation switch. v34 and older
+    //      saves stop before them and keep the defaults, every one of which is
+    //      OFF: no band gates, a zero clump strength, no sink and the legacy
+    //      placement hash. A save from before this scatters its plants in
+    //      exactly the positions the build that wrote it scattered them, which
+    //      matters more here than usual — DecorrelatedVariation defaulting the
+    //      other way would MOVE every plant in every old save.
+    //
+    //      Every float is validated finite and clamped on load: they reach the
+    //      placement generator, where a NaN band silently empties the layer and
+    //      a zero clump scale is a division by zero.
+    // v36: FoliageLayer hierarchical wind weights and displacement debug (#1236),
+    //      appended after the landed v35 habitat band. v35 and older saves
+    //      keep zero weights and debug disabled.
+    static constexpr u32 kSaveGameFormatVersion = 36;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

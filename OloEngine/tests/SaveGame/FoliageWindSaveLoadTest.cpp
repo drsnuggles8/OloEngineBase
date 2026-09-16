@@ -44,7 +44,7 @@ namespace OloEngine::Tests
         }
 
         // Explicit old positional layout, independent of the production writer.
-        std::vector<u8> WriteV34()
+        std::vector<u8> WritePrior(u32 version)
         {
             std::vector<u8> bytes;
             FMemoryWriter ar(bytes);
@@ -62,6 +62,22 @@ namespace OloEngine::Tests
             ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
             ar << l.NormalStrength << l.TransmissionStrength << l.TransmissionColor << l.Thickness;
             ar << l.TransmissionDistortion << l.TransmissionPower << l.TransmissionWrap << l.TransmissionAmbient;
+            if (version == 35)
+            {
+                l.SlopeFeather = 7.5f;
+                l.UseMoisture = true;
+                l.ClumpStrength = 0.625f;
+                l.ClumpGroup = 3;
+                l.DecorrelatedVariation = true;
+                ar << l.SlopeFeather;
+                ar << l.UseAltitudeBand << l.MinAltitude << l.MaxAltitude << l.AltitudeFeather;
+                ar << l.UseMoisture << l.MinMoisture << l.MaxMoisture << l.MoistureFeather;
+                ar << l.ExclusionSplatmapChannel << l.ExclusionThreshold;
+                ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
+                ar << l.ClumpGroup;
+                ar << l.GroundOffset << l.SlopeSinkFactor;
+                ar << l.DecorrelatedVariation;
+            }
             bool enabled = true;
             ar << enabled;
             return bytes;
@@ -76,6 +92,9 @@ namespace OloEngine::Tests
         layer.WindBranchWeight = 0.625f;
         layer.WindLeafWeight = 0.8125f;
         layer.WindDebugDisplacement = true;
+        layer.UseMoisture = true;
+        layer.ClumpStrength = 0.5f;
+        layer.DecorrelatedVariation = true;
         authored.m_Layers.push_back(layer);
         const auto loaded = Read(Write(authored), kSaveGameFormatVersion);
         ASSERT_EQ(loaded.m_Layers.size(), 1u);
@@ -89,7 +108,7 @@ namespace OloEngine::Tests
         const auto path = TempFile("prior-v34.olosave");
         SaveGameHeader header;
         header.FormatVersion = 34;
-        ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, WriteV34()));
+        ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, WritePrior(34)));
         SaveGameHeader loadedHeader;
         ASSERT_TRUE(SaveGameFile::ReadHeader(path, loadedHeader));
         ASSERT_EQ(loadedHeader.FormatVersion, 34u);
@@ -103,6 +122,33 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindLeafWeight, 0.0f);
         EXPECT_FALSE(loaded.m_Layers[0].WindDebugDisplacement);
         EXPECT_FLOAT_EQ(loaded.m_Layers[0].WindStrength, 0.3f);
+    }
+
+    TEST(FoliageWindSaveLoad, V35PreservesHabitatAndDefaultsWindWithoutConsumingFollowingFields)
+    {
+        const auto path = TempFile("prior-v35.olosave");
+        SaveGameHeader header;
+        header.FormatVersion = 35;
+        ASSERT_TRUE(SaveGameFile::Write(path, header, SaveGameMetadata{}, {}, WritePrior(35)));
+        SaveGameHeader loadedHeader;
+        ASSERT_TRUE(SaveGameFile::ReadHeader(path, loadedHeader));
+        ASSERT_EQ(loadedHeader.FormatVersion, 35u);
+        ASSERT_TRUE(SaveGameFile::ValidateChecksum(path));
+        std::vector<u8> payload;
+        ASSERT_TRUE(SaveGameFile::ReadPayload(path, payload));
+        const auto loaded = Read(payload, loadedHeader.FormatVersion);
+        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        const auto& layer = loaded.m_Layers[0];
+        EXPECT_FLOAT_EQ(layer.SlopeFeather, 7.5f);
+        EXPECT_TRUE(layer.UseMoisture);
+        EXPECT_FLOAT_EQ(layer.ClumpStrength, 0.625f);
+        EXPECT_EQ(layer.ClumpGroup, 3u);
+        EXPECT_TRUE(layer.DecorrelatedVariation);
+        EXPECT_FLOAT_EQ(layer.WindStiffness, 0.0f);
+        EXPECT_FLOAT_EQ(layer.WindBranchWeight, 0.0f);
+        EXPECT_FLOAT_EQ(layer.WindLeafWeight, 0.0f);
+        EXPECT_FALSE(layer.WindDebugDisplacement);
+        EXPECT_TRUE(loaded.m_Enabled);
     }
 
     TEST(FoliageWindSaveLoad, NonFiniteAndOutOfRangeWeightsAreSanitized)

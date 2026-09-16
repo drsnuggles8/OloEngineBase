@@ -101,13 +101,24 @@ namespace OloEngine
         switch (m_Usage)
         {
             case StorageBufferUsage::DynamicDraw:
+            // DynamicDrawExactUpload is a DynamicDraw buffer plus a VULKAN-side
+            // decision about how much of it to snapshot per frame (see
+            // VulkanStorageBuffer.cpp). GL has no equivalent knob, so the hint
+            // is identical — but it has to be SAID, because InstanceBuffer
+            // constructs with this usage and therefore every mesh draw reaches
+            // here. Falling into `default` asserted on the first draw of any
+            // GL frame in Debug; Release returned GL_DYNAMIC_DRAW and was fine,
+            // and no CI config builds Debug, so it stayed invisible.
             case StorageBufferUsage::DynamicDrawExactUpload:
                 return GL_DYNAMIC_DRAW;
             case StorageBufferUsage::DynamicCopy:
                 return GL_DYNAMIC_COPY;
-            default:
-                OLO_CORE_ASSERT(false, "Unknown StorageBufferUsage!");
-                return GL_DYNAMIC_DRAW;
         }
+
+        // No `default` above, deliberately: a fourth usage is now a -Wswitch
+        // compile error here rather than a Debug-only assert at first draw.
+        // This line is reached only by a value cast in from outside the enum.
+        OLO_CORE_ASSERT(false, "Unknown StorageBufferUsage!");
+        return GL_DYNAMIC_DRAW;
     }
 } // namespace OloEngine
