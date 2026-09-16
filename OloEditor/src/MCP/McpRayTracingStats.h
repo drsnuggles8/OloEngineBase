@@ -43,9 +43,16 @@ namespace OloEngine::MCP::RayTracingStats
         OloEngine::GPUSceneFrameStats GPUScene;
     };
 
-    // The JSON key for each diagnostics category. A switch, not a table lookup,
-    // so a category added to the enum without a name here fails to compile
-    // instead of silently reporting as "unknown".
+    // The JSON key for each diagnostics category.
+    //
+    // A switch rather than a table lookup so an unnamed category is at least a
+    // -Wswitch warning rather than an out-of-range read. It is NOT a compile
+    // error, though an earlier version of this comment claimed so: adding
+    // GPUSceneUnsupportedCategory::Groom (#1246) compiled fine and fell through
+    // to "unknown", and what actually caught it was
+    // McpRayTracingStats.EveryDiagnosticsCategoryGetsItsOwnKey. That test is the
+    // guard; keep it in mind when adding a category, because the build will not
+    // stop you.
     [[nodiscard]] constexpr const char* UnsupportedCategoryKey(OloEngine::GPUSceneUnsupportedCategory category)
     {
         using enum OloEngine::GPUSceneUnsupportedCategory;
@@ -75,6 +82,8 @@ namespace OloEngine::MCP::RayTracingStats
                 return "tiles";
             case Cloth:
                 return "cloth";
+            case Groom:
+                return "groom";
             case NotExtractable:
                 return "notExtractable";
             case Count:
