@@ -205,7 +205,8 @@ namespace OloEngine
         const FoliageLeafMaterial& leaf,
         bool isAuthoredMesh,
         f32 meshHandoverStart,
-        f32 meshHandoverEnd)
+        f32 meshHandoverEnd,
+        const glm::vec4& windWeights)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -301,6 +302,7 @@ namespace OloEngine
         cmd->prevTime = prevTime;
         cmd->windStrength = windStrength;
         cmd->windSpeed = windSpeed;
+        cmd->windWeights = windWeights;
         cmd->viewDistance = viewDistance;
         cmd->fadeStart = fadeStart;
         cmd->alphaCutoff = alphaCutoff;

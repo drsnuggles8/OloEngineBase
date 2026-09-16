@@ -187,7 +187,10 @@ TEST(FoliageImpostorPlacementTest, BothFoliageStagesPlaceInstancesThroughTheTerr
         const std::string vertex = StripComments(VertexStageOf(source));
         ASSERT_FALSE(vertex.empty()) << shader << " has no #type vertex stage";
 
-        EXPECT_NE(vertex.find("u_Model * vec4(a_PositionScale.xyz"), std::string::npos)
+        const bool transformsStreamPosition = vertex.find("u_Model * vec4(a_PositionScale.xyz") != std::string::npos;
+        const bool transformsNamedPosition = vertex.find("instancePos = a_PositionScale.xyz") != std::string::npos &&
+                                             vertex.find("u_Model * vec4(instancePos") != std::string::npos;
+        EXPECT_TRUE(transformsStreamPosition || transformsNamedPosition)
             << shader
             << ": the vertex stage must turn the TERRAIN-LOCAL instance position into a world "
                "position through u_Model (the owning terrain's transform, uploaded by "

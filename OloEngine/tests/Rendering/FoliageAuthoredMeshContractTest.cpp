@@ -283,7 +283,7 @@ namespace OloEngine::Tests
                 << "a stage scales the instance itself — the card's anisotropic rule and the mesh's "
                    "uniform one have to come from one place or a pass draws a different plant";
             EXPECT_TRUE(MentionsOutsideComments(*vs, "foliageInstanceRotation"));
-            EXPECT_TRUE(MentionsOutsideComments(*vs, "foliageLegacyWindOffset"))
+            EXPECT_TRUE(MentionsOutsideComments(*vs, "foliageDeform"))
                 << "a stage sways the plant with its own sine — a shadow out of phase with its plant "
                    "is the same desync as a shadow of the wrong shape";
         }

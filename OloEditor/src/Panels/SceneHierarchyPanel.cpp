@@ -6832,6 +6832,10 @@ namespace OloEngine
 
                         ImGui::DragFloat("Wind Strength", &layer.WindStrength, 0.01f, 0.0f, 5.0f);
                         ImGui::DragFloat("Wind Speed", &layer.WindSpeed, 0.1f, 0.0f, 20.0f);
+                        ImGui::DragFloat("Wind Stiffness", &layer.WindStiffness, 0.01f, 0.0f, 1.0f);
+                        ImGui::DragFloat("Branch Weight", &layer.WindBranchWeight, 0.01f, 0.0f, 1.0f);
+                        ImGui::DragFloat("Leaf Flutter Weight", &layer.WindLeafWeight, 0.01f, 0.0f, 1.0f);
+                        ImGui::Checkbox("Wind Displacement", &layer.WindDebugDisplacement);
 
                         ImGui::Separator();
                         ImGui::Text("Material");

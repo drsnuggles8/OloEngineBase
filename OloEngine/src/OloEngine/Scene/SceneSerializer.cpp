@@ -1543,6 +1543,21 @@ namespace OloEngine
                     layer.MeshFadeStartDistance = std::clamp(v, 0.0f, layer.MeshViewDistance);
                 layer.WindStrength = layerNode["WindStrength"].as<f32>(layer.WindStrength);
                 layer.WindSpeed = layerNode["WindSpeed"].as<f32>(layer.WindSpeed);
+                layer.WindStiffness = layerNode["WindStiffness"].as<f32>(0.0f);
+                if (!std::isfinite(layer.WindStiffness))
+                    layer.WindStiffness = 0.0f;
+                layer.WindStiffness = std::clamp(layer.WindStiffness, 0.0f, 1.0f);
+                layer.WindBranchWeight = layerNode["WindBranchWeight"].as<f32>(0.0f);
+                if (!std::isfinite(layer.WindBranchWeight))
+                    layer.WindBranchWeight = 0.0f;
+                layer.WindBranchWeight = std::clamp(layer.WindBranchWeight, 0.0f, 1.0f);
+                layer.WindLeafWeight = layerNode["WindLeafWeight"].as<f32>(0.0f);
+                if (!std::isfinite(layer.WindLeafWeight))
+                    layer.WindLeafWeight = 0.0f;
+                layer.WindLeafWeight = std::clamp(layer.WindLeafWeight, 0.0f, 1.0f);
+                layer.WindDebugDisplacement = layerNode["WindDebugDisplacement"].as<bool>(false);
+                SanitizeFloat(layer.WindStrength, 0.0f, 20.0f, 0.3f);
+                SanitizeFloat(layer.WindSpeed, 0.0f, 20.0f, 1.0f);
                 layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
                 layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
                 layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
@@ -5753,6 +5768,11 @@ namespace OloEngine
                     out << YAML::Key << "MeshFadeStartDistance" << YAML::Value << layer.MeshFadeStartDistance;
                     out << YAML::Key << "WindStrength" << YAML::Value << layer.WindStrength;
                     out << YAML::Key << "WindSpeed" << YAML::Value << layer.WindSpeed;
+                    out << YAML::Key << "WindStiffness" << YAML::Value << layer.WindStiffness;
+                    out << YAML::Key << "WindBranchWeight" << YAML::Value << layer.WindBranchWeight;
+                    out << YAML::Key << "WindLeafWeight" << YAML::Value << layer.WindLeafWeight;
+                    out << YAML::Key << "WindDebugDisplacement" << YAML::Value << layer.WindDebugDisplacement;
+
                     out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
                     out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;
                     out << YAML::Key << "AlphaCutoff" << YAML::Value << layer.AlphaCutoff;

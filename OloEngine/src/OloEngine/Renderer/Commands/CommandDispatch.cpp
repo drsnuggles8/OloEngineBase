@@ -4,6 +4,7 @@
 // no imported-material table left to consult — only a PODMaterialData slot to bind. See
 // RenderPathDrift.EveryMeshSubmissionPathUsesTheSharedMaterialResolver.
 #include "OloEnginePCH.h"
+#include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/CommandDispatchRecordingState.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -3292,6 +3293,14 @@ namespace OloEngine
             foliageData.Time = cmd->time;
             foliageData.WindStrength = cmd->windStrength;
             foliageData.WindSpeed = cmd->windSpeed;
+            foliageData.WindWeights = cmd->windWeights;
+            const auto wind = WindSystem::GetGPUData();
+            foliageData.WindDirection = wind.DirectionAndSpeed;
+            foliageData.WindGust = wind.GustAndTurbulence;
+            foliageData.WindClock = wind.TimeAndFlags;
+            foliageData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
+            foliageData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
+            foliageData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
             foliageData.ViewDistance = cmd->viewDistance;
             foliageData.FadeStart = cmd->fadeStart;
             foliageData.AlphaCutoff = cmd->alphaCutoff;

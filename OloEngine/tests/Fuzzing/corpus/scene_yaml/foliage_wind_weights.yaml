@@ -1,0 +1,13 @@
+Scene: WindFuzz
+Entities:
+  - Entity: 1236
+    FoliageComponent:
+      Enabled: true
+      Layers:
+        - Name: Wind
+          WindStrength: .nan
+          WindSpeed: .inf
+          WindStiffness: .nan
+          WindBranchWeight: -1
+          WindLeafWeight: 2
+          WindDebugDisplacement: true

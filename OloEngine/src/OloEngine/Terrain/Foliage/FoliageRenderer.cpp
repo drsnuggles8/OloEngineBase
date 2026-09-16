@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Terrain/Foliage/FoliageWind.h"
+#include "OloEngine/Wind/WindSystem.h"
 #include "FoliageRenderer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
@@ -368,6 +370,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        m_WindHistory.Reset();
+
         // A shrinking layer list drops the trailing LayerRenderData entries
         // below — free their impostor VRAM budget claims first, or resize()
         // destroying them silently leaks the claims for the rest of the
@@ -456,6 +460,7 @@ namespace OloEngine
             renderData.FadeStartDistance = layer.FadeStartDistance;
             renderData.WindStrength = layer.WindStrength;
             renderData.WindSpeed = layer.WindSpeed;
+            renderData.WindWeights = SanitizeFoliageWind(layer.WindStiffness, layer.WindBranchWeight, layer.WindLeafWeight, layer.WindDebugDisplacement);
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
 
@@ -568,6 +573,15 @@ namespace OloEngine
             // counted rather than left to the one-off log line.
             const bool impostorRequested = layer.UseImpostor;
             const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
+            if (impostorAvailable)
+            {
+                if (!m_ImpostorDepthShader)
+                    m_ImpostorDepthShader = Shader::Create("assets/shaders/Foliage_Impostor_Depth.glsl");
+                const f32 radius = FoliageImpostorBoundsRadius(renderData.Impostor.Radius);
+                renderData.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(renderData.BoundsProfile.m_HalfExtentXZHeightScaled, radius);
+                renderData.BoundsProfile.m_MinY = std::min(renderData.BoundsProfile.m_MinY, 0.5f - radius);
+                renderData.BoundsProfile.m_MaxY = std::max(renderData.BoundsProfile.m_MaxY, 0.5f + radius);
+            }
             // The NEAR field names the representation, because that is what the
             // instance's bounds and its material assignment are derived from:
             // an authored-mesh plant still hands over to a card or an impostor
@@ -593,6 +607,7 @@ namespace OloEngine
             const bool variantUnavailable = (impostorRequested && !impostorAvailable) ||
                                             (meshRequested && !meshDrawable);
 
+            renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights, m_LegacyWindEnvelope);
             m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
                                   FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
                                   FoliagePlacement::SpacingForDensity(layer.Density),
@@ -609,7 +624,9 @@ namespace OloEngine
             {
                 m_Registry.AddInstance(placement.m_CellX, placement.m_CellZ, placement.m_Row,
                                        static_cast<u32>(instances.size()));
-                instances.push_back(placement.m_Row);
+                auto row = placement.m_Row;
+                row.RotationHeight.w = FoliageWindPhase(m_Registry.GetRecords().back().m_Id);
+                instances.push_back(row);
             }
             m_Registry.EndLayer();
 
@@ -714,6 +731,14 @@ namespace OloEngine
                 foliageUBOData.Time = m_Time;
                 foliageUBOData.WindStrength = layer.WindStrength;
                 foliageUBOData.WindSpeed = layer.WindSpeed;
+                foliageUBOData.WindWeights = layer.WindWeights;
+                const auto wind = WindSystem::GetGPUData();
+                foliageUBOData.WindDirection = wind.DirectionAndSpeed;
+                foliageUBOData.WindGust = wind.GustAndTurbulence;
+                foliageUBOData.WindClock = wind.TimeAndFlags;
+                foliageUBOData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
+                foliageUBOData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
+                foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                 foliageUBOData.ViewDistance = draw.ViewDistance;
                 foliageUBOData.FadeStart = draw.FadeStart;
                 foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
@@ -845,11 +870,26 @@ namespace OloEngine
             EnumerateLayerDraws(layer, draws);
             for (const auto& draw : draws)
             {
+                const bool impostor = !draw.IsAuthoredMesh && layer.UseImpostor && layer.Impostor.IsValid();
+                const auto& program = impostor ? m_ImpostorDepthShader : depthShader;
+                if (!program || !program->IsReady())
+                    continue;
+                program->Bind();
+
                 // Upload per-draw foliage UBO for depth pass
                 ShaderBindingLayout::FoliageUBO foliageUBOData{};
-                foliageUBOData.Time = time;
+                foliageUBOData.Time = m_Time;
+                foliageUBOData.PrevTime = m_PrevTime;
                 foliageUBOData.WindStrength = layer.WindStrength;
                 foliageUBOData.WindSpeed = layer.WindSpeed;
+                foliageUBOData.WindWeights = layer.WindWeights;
+                const auto wind = WindSystem::GetGPUData();
+                foliageUBOData.WindDirection = wind.DirectionAndSpeed;
+                foliageUBOData.WindGust = wind.GustAndTurbulence;
+                foliageUBOData.WindClock = wind.TimeAndFlags;
+                foliageUBOData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
+                foliageUBOData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
+                foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                 foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
                                                       draw.HandoverStart, draw.HandoverEnd, 0.0f);
@@ -858,12 +898,22 @@ namespace OloEngine
                 // the lit frame drew the card and the plant's shadow would be a
                 // different shape than the plant (issue #1233, fourth criterion).
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                if (impostor)
+                {
+                    foliageUBOData.ViewDistance = draw.ViewDistance;
+                    foliageUBOData.FadeStart = draw.FadeStart;
+                    foliageUBOData.ImpostorParams0 = glm::vec4(layer.Impostor.FramesPerAxis, layer.Impostor.Hemi ? 1.0f : 0.0f, layer.ImpostorStartDistance, layer.ImpostorTransitionBand);
+                    foliageUBOData.ImpostorParams1 = glm::vec4(1.0f, layer.Impostor.Radius, 0.5f, 0.0f);
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE, layer.Impostor.Albedo->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent);
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_SPECULAR, layer.Impostor.NormalDepth->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent);
+                }
+
                 auto foliageUBO = Renderer3D::GetFoliageUBO();
                 foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
                 foliageUBO->Bind();
 
                 // Bind albedo for alpha test in shadow pass (see the seam note above).
-                if (draw.Albedo)
+                if (!impostor && draw.Albedo)
                 {
                     HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
                                                      draw.Albedo->GetRHIHandle(),
@@ -986,6 +1036,7 @@ namespace OloEngine
                 info.FadeStartDistance = draw.FadeStart;
                 info.WindStrength = layer.WindStrength;
                 info.WindSpeed = layer.WindSpeed;
+                info.WindWeights = layer.WindWeights;
                 info.BaseColor = layer.BaseColor;
                 info.AlphaCutoff = layer.AlphaCutoff;
                 info.Bounds = layer.Bounds;

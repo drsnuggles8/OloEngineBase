@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 
 namespace OloEngine
 {
@@ -17,6 +18,8 @@ namespace OloEngine
     void FoliageRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         RenderGraphNode::Setup(builder, board);
+        m_SelectedVelocityExport = {};
+        m_SelectedSceneDepthExport = {};
 
         if (m_CommandBucket.GetCommandCount() == 0)
             return;
@@ -35,6 +38,43 @@ namespace OloEngine
             [[maybe_unused]] const auto sceneColorNew =
                 builder.WriteNewVersion(board.Scene.SceneColor, RGWriteUsage::RenderTarget, foliageVersionTag);
             builder.DependsOnPreviousWriter(ResourceNames::SceneColor);
+        }
+        // ScenePass exports before these forward draws. Republish the actual
+        // attachments after foliage so temporal and depth consumers
+        // see the same surface as SceneColor.
+        const auto declareExport = [&builder](RGTextureHandle handle, RGTextureHandle& selected)
+        {
+            if (handle.IsValid())
+            {
+                selected = handle;
+                builder.Write(handle, RGWriteUsage::TransferDest);
+            }
+        };
+        // A deferred shader failure can route fallback overlays through this
+        // pass. Its framebuffer does not contain the opaque G-Buffer velocity;
+        // preserve those deferred exports rather than replacing the image.
+        if (Renderer3D::GetRendererSettings().Path != RenderingPath::Deferred)
+        {
+            declareExport(board.GBuffer.Velocity, m_SelectedVelocityExport);
+            declareExport(board.Scene.SceneDepth, m_SelectedSceneDepthExport);
+            // Page marking consumes the opaque depth snapshot. Complete that
+            // reader before replacing it with the post-foliage depth image.
+            if (m_SelectedSceneDepthExport.IsValid())
+            {
+                builder.DependsOnPass("VirtualShadowMapMarkPass");
+                builder.DependsOnPass("SphereProxyAOPass");
+                switch (Renderer3D::GetPostProcessSettings().ActiveAOTechnique)
+                {
+                    case AOTechnique::SSAO:
+                        builder.DependsOnPass("SSAOPass");
+                        break;
+                    case AOTechnique::GTAO:
+                        builder.DependsOnPass("GTAOPass");
+                        break;
+                    case AOTechnique::None:
+                        break;
+                }
+            }
         }
     }
 
@@ -90,6 +130,21 @@ namespace OloEngine
         CommandDispatch::InvalidateRenderStateCache();
 
         m_SceneFramebuffer->Unbind();
+
+        const auto copyExport = [&context, this](RGTextureHandle handle, RHI::ResourceHandle source)
+        {
+            if (!handle.IsValid() || !source.IsValid())
+                return;
+            const auto destination = context.ResolveTextureHandle(handle);
+            if (!destination.IsValid() || destination == source)
+                return;
+            const auto& spec = m_SceneFramebuffer->GetSpecification();
+            RenderCommand::CopyImageSubData(source, RendererAPI::TextureTargetType::Texture2D,
+                                            destination, RendererAPI::TextureTargetType::Texture2D,
+                                            spec.Width, spec.Height);
+        };
+        copyExport(m_SelectedVelocityExport, m_SceneFramebuffer->GetColorAttachmentHandle(3));
+        copyExport(m_SelectedSceneDepthExport, m_SceneFramebuffer->GetDepthAttachmentHandle());
 
         // Reset bucket for next frame
         ResetCommandBucket();

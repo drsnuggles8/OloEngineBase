@@ -155,7 +155,7 @@ namespace OloEngine
     //      the other's HasFieldsSince and been read with the wrong fields at
     //      the wrong offsets, desynchronising everything after it. If you are
     //      adding the next band, check what master took while you were away.
-    static constexpr u32 kSaveGameFormatVersion = 34;
+    static constexpr u32 kSaveGameFormatVersion = 35;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

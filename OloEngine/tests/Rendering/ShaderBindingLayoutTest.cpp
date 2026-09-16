@@ -108,11 +108,12 @@ TEST(ShaderBindingLayout, FoliageUBOSizeStable)
 {
     // 48 base bytes + 2 vec4 octahedral impostor params (issue #433) = 80,
     // + MeshParams and MeshViewPos for the authored plant mesh (#1233) = 112,
-    // + the four leaf-material vec4s (#1234) = 176.
+    // + the four leaf-material vec4s (#1234) = 176,
+    // + six wind/history snapshot vec4s (#1236) = 272.
     // Every foliage shader declares the block WHOLE, including the vec4s it
     // does not read, so a field appended for one of them cannot land at a
     // different offset in another.
-    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 176u);
+    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 272u);
 }
 
 TEST(ShaderBindingLayout, DecalUBOSizeStable)

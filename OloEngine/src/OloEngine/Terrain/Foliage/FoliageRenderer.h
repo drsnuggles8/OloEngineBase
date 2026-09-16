@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
@@ -62,6 +63,7 @@ namespace OloEngine
         f32 FadeStartDistance = 80.0f;
         f32 WindStrength = 0.3f;
         f32 WindSpeed = 1.0f;
+        glm::vec4 WindWeights{ 0.0f };
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
         BoundingBox Bounds; // Precomputed AABB encompassing all instances in this layer
@@ -196,8 +198,21 @@ namespace OloEngine
 
         void SetTime(f32 time, f32 prevTime)
         {
-            m_Time = time;
-            m_PrevTime = prevTime;
+            m_WindHistory.Advance(time, prevTime);
+            m_Time = m_WindHistory.Time;
+            m_PrevTime = m_WindHistory.PreviousTime;
+        }
+
+        bool SetLegacyWindEnvelope(f32 envelope)
+        {
+            const bool changed = !Math::BitwiseEqual(m_LegacyWindEnvelope, envelope);
+            m_LegacyWindEnvelope = envelope;
+            return changed;
+        }
+
+        [[nodiscard]] f32 GetPreviousTime() const
+        {
+            return m_PrevTime;
         }
 
       private:
@@ -249,6 +264,7 @@ namespace OloEngine
             f32 FadeStartDistance = 80.0f;
             f32 WindStrength = 0.3f;
             f32 WindSpeed = 1.0f;
+            glm::vec4 WindWeights{ 0.0f };
             glm::vec3 BaseColor{ 1.0f };
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;
@@ -342,6 +358,9 @@ namespace OloEngine
         FoliageInstanceRegistry m_Registry;
         glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
+        f32 m_LegacyWindEnvelope = 2.0f;
+        Ref<Shader> m_ImpostorDepthShader;
+        FoliageWindHistory m_WindHistory;
         f32 m_Time = 0.0f;
         f32 m_PrevTime = 0.0f;
     };

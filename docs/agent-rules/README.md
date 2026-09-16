@@ -121,6 +121,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract mirrored in three places, and a miss sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md): three ways impostor cards go missing, separable only by reading PNGs from several azimuths; and a layer draws two shapes, so read `EnumerateLayerDraws` rather than any one pass's shader.
+- [foliage-hierarchical-wind.md](../guides/foliage-hierarchical-wind.md): share deformation across raster passes, bound square impostor corners, and evaluate each motion-history facing basis independently.
 - [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included, and a capture that skips the y flip draws with culling off.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
@@ -199,6 +200,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 |---|---|
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | Unit tests pass whether the cape detaches, jitters or freezes rigid. |
+| [foliage-hierarchical-wind.md](../guides/foliage-hierarchical-wind.md) | Reusing the current camera-facing card basis for previous positions loses wind-induced orientation motion even with a stationary camera. |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | A foliage layer draws its authored mesh near and its card far; a pass that decides that for itself renders a plant whose shadow is a different shape. |
 | [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md) | An off-screen bake uploaded a raw GL-convention ortho; on Vulkan every triangle sat at negative clip z and was clipped, so the atlas baked "successfully" as its clear colour and the whole impostor canopy rendered nothing — with no counter or validation error to show for it. |

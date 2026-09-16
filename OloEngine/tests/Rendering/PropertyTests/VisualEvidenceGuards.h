@@ -47,6 +47,9 @@ namespace OloEngine::Tests::VisualEvidence
     /// size bug reads as "maximally different" rather than as a pass.
     [[nodiscard]] f64 Rgba8Rmse(const std::vector<u8>& a, const std::vector<u8>& b);
 
+    /// Mean RGB SSIM on 8x8 windows, used by the L8 RMSE/SSIM cascade.
+    [[nodiscard]] f32 Rgba8Ssim(const std::vector<u8>& a, const std::vector<u8>& b, u32 width, u32 height);
+
     /// Flip an RGBA8 buffer vertically, in place. `glGetTextureImage` hands back
     /// rows bottom-up (GL origin); `stbi_write_png` and every "the lower band is
     /// the foreground" assertion treat row 0 as the TOP.

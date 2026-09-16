@@ -60,6 +60,16 @@ namespace OloEngine
         /// Bind the 3D wind-field texture to TEX_WIND_FIELD (slot 29).
         static void BindWindTexture();
 
+        [[nodiscard]] static bool HasStableParameters()
+        {
+            return !s_Data.m_Initialized || s_Data.m_FoliageHistoryValid;
+        }
+
+        [[nodiscard]] static WindUBOData GetGPUData()
+        {
+            return s_Data.m_Initialized ? s_Data.m_GPUData : WindUBOData{};
+        }
+
         /**
          * @brief CPU-side wind query (approximate).
          *
@@ -90,6 +100,7 @@ namespace OloEngine
             // UBOStructures::WindGenerateUBO.
             Ref<UniformBuffer> m_GenerateUBO;
             WindUBOData m_GPUData;
+            bool m_FoliageHistoryValid = false;
 
             f32 m_AccumulatedTime = 0.0f;
             f32 m_PrevAccumulatedTime = 0.0f;
