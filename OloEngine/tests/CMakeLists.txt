@@ -641,6 +641,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageHabitatClumpingPropertyTests.cpp
+		Rendering/PropertyTests/FoliageHabitatEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelGreedyMeshVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VoxelMarchingCubesVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredPropertyTests.cpp
@@ -797,6 +799,7 @@ add_executable(OloEngine-Tests
 		SaveGame/SaveGameVersionMigrationTest.cpp
 		SaveGame/BoidComponentSaveLoadSanitizeTest.cpp
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
+		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests

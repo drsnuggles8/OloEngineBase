@@ -43,6 +43,117 @@ namespace OloEngine
         f32 MaxHeight = 1.5f;       // Max instance height
         bool RandomRotation = true; // Random Y-axis rotation
 
+        // ── Species habitat rules (issue #1254) ──────────────────────────────
+        //
+        // What makes a scatter read as an ECOSYSTEM rather than uniform random
+        // cards: each species answers "would I grow here?" from the terrain,
+        // and neighbouring species answer differently, so the boundary between
+        // them is where one suitability falls off as another rises.
+        //
+        // Every gate below produces a SUITABILITY in [0, 1] rather than a
+        // yes/no, and the gates multiply. The placement test is then one
+        // stochastic comparison against that product — the same test the
+        // splatmap channel has always used, which is why a feathered edge
+        // dissolves into its neighbour instead of ending on a line.
+        //
+        // EVERY ONE OF THESE DEFAULTS TO OFF. A layer authored before #1254
+        // deserializes with no altitude band, no moisture band, a zero slope
+        // feather and no exclusion channel, so its suitability is exactly what
+        // it was: 1, or the splatmap weight. Same pattern, same reason, as
+        // TransmissionStrength = 0 below.
+
+        // Softens the existing MinSlopeAngle / MaxSlopeAngle gate by this many
+        // degrees INWARD from each bound. 0 keeps the hard cut-off, evaluated
+        // in exactly the cosine comparison it always was — a feathered slope
+        // gate must not be able to move a plant that a zero feather kept.
+        f32 SlopeFeather = 0.0f;
+
+        // Altitude band, in WORLD units (the sampled height times the terrain's
+        // height scale), not normalized heightfield units — an author reading
+        // "tree line at 55 m" should be able to type 55.
+        bool UseAltitudeBand = false;
+        f32 MinAltitude = 0.0f;
+        f32 MaxAltitude = 1000.0f;
+        f32 AltitudeFeather = 0.0f; // world units of soft edge on both bounds
+
+        // Moisture band. Moisture is a TOPOGRAPHIC PROXY derived from the
+        // heightfield — low, flat ground is wet; high, steep ground is dry —
+        // not a hydrology simulation, which the issue's scope boundary
+        // excludes. FoliagePlacement::MoistureAt is the definition.
+        bool UseMoisture = false;
+        f32 MinMoisture = 0.0f;
+        f32 MaxMoisture = 1.0f;
+        f32 MoistureFeather = 0.0f;
+
+        // An authored splatmap channel that SUPPRESSES this species where it is
+        // painted — bare rock for grass, a path, the footprint of a building.
+        // The positive mask stays SplatmapChannel above; this is the negative
+        // one, and the two are independent so a layer can want grass AND not
+        // want rock. -1 disables it.
+        i32 ExclusionSplatmapChannel = -1;
+        f32 ExclusionThreshold = 0.5f; // channel weight at which suppression is total
+
+        // ── Clumping (issue #1254) ──────────────────────────────────────────
+        //
+        // Plants grow in patches. A clump field — smooth two-octave value noise
+        // over the world, sampled at the plant's own position — multiplies into
+        // the suitability above, so a species thins out between its patches
+        // instead of covering its habitat evenly.
+        //
+        // STRENGTH 0 IS THE OFF SWITCH AND THE DEFAULT: the weight is a
+        // constant 1 and the field is never evaluated.
+        //
+        // Clumping REMOVES plants (it can only multiply suitability down), so a
+        // layer that gains clumping gets sparser at the same Density. Raise
+        // Density to keep the same plant count inside the patches.
+        f32 ClumpStrength = 0.0f;       // 0 = uniform, 1 = fully patch-driven
+        f32 ClumpScale = 12.0f;         // world units — roughly one patch across
+        f32 ClumpFalloff = 1.0f;        // >1 tightens patches, <1 diffuses their edges
+        f32 ClumpScaleInfluence = 0.0f; // how much a patch's core grows bigger plants
+
+        // Which clump field this species reads. -1 means its own, derived from
+        // the layer's generator seed. A shared non-negative group makes two
+        // species clump TOGETHER — wildflowers in the same patches as the
+        // meadow grass, litter under the same trees — which is what lets a
+        // habitat boundary move as one thing rather than as N independent
+        // noises that average back out to uniform.
+        i32 ClumpGroup = -1;
+
+        // ── Ground contact (issue #1254) ────────────────────────────────────
+        //
+        // A plant is placed at the heightfield's surface, which puts the base of
+        // its bounding cylinder exactly on the ground at ONE point: its origin.
+        // On a slope the downhill half of a wide plant is then in the air —
+        // "floating roots". Sinking it by the drop across its own half-width
+        // buries the uphill side instead, which is invisible, so that is the
+        // trade the sink factor makes.
+        //
+        // Both default to 0: a layer authored before #1254 sits exactly where
+        // it sat.
+        f32 GroundOffset = 0.0f;    // constant world-unit offset, + is up
+        f32 SlopeSinkFactor = 0.0f; // 0 = none, 1 = the full half-width drop
+
+        // ── Variation quality (issue #1254) ─────────────────────────────────
+        //
+        // The original HashPosition reinterprets a scaled float's BITS and
+        // finishes with one multiply-and-shift, with the per-draw seed XORed in
+        // BEFORE that multiply. Seeds that differ by a small constant therefore
+        // produce outputs that differ by a near-constant offset, and the two
+        // jitter draws (seed, seed + 7) are exactly that case: measured over a
+        // 80x80 grid, (jitterZ - jitterX) takes just 32 distinct values, so
+        // every plant in the layer sits on one of 32 diagonals inside its cell.
+        // That is a visible repeated distribution at landscape scale, which
+        // acceptance criterion 2 rules out.
+        //
+        // Setting this routes the jitter, scale, height and rotation draws
+        // through HashCell — an integer avalanche hash of (cell x, cell z,
+        // seed) — which gives 6398 distinct offsets over the same grid and no
+        // collisions at all. Left OFF by default because turning it on MOVES
+        // every plant in the layer: it changes the cell -> XZ mapping, so the
+        // registry's placement signature covers it and every id in the layer
+        // legitimately retires when it flips (see FoliageInstanceRegistry).
+        bool DecorrelatedVariation = false;
+
         // LOD distances
         f32 ViewDistance = 100.0f;     // Max view distance for this layer
         f32 FadeStartDistance = 80.0f; // Distance where fade-out begins
@@ -144,7 +255,7 @@ namespace OloEngine
         // the texture authoritatively for equality purposes.
         auto operator==(const FoliageLayer& other) const -> bool
         {
-            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(SlopeFeather, other.SlopeFeather) && UseAltitudeBand == other.UseAltitudeBand && Math::BitwiseEqual(MinAltitude, other.MinAltitude) && Math::BitwiseEqual(MaxAltitude, other.MaxAltitude) && Math::BitwiseEqual(AltitudeFeather, other.AltitudeFeather) && UseMoisture == other.UseMoisture && Math::BitwiseEqual(MinMoisture, other.MinMoisture) && Math::BitwiseEqual(MaxMoisture, other.MaxMoisture) && Math::BitwiseEqual(MoistureFeather, other.MoistureFeather) && ExclusionSplatmapChannel == other.ExclusionSplatmapChannel && Math::BitwiseEqual(ExclusionThreshold, other.ExclusionThreshold) && Math::BitwiseEqual(ClumpStrength, other.ClumpStrength) && Math::BitwiseEqual(ClumpScale, other.ClumpScale) && Math::BitwiseEqual(ClumpFalloff, other.ClumpFalloff) && Math::BitwiseEqual(ClumpScaleInfluence, other.ClumpScaleInfluence) && ClumpGroup == other.ClumpGroup && Math::BitwiseEqual(GroundOffset, other.GroundOffset) && Math::BitwiseEqual(SlopeSinkFactor, other.SlopeSinkFactor) && DecorrelatedVariation == other.DecorrelatedVariation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
         }
     };
 
