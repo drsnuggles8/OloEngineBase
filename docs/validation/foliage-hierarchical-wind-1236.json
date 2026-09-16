@@ -578,11 +578,11 @@
       "lodPausedMaxAbs": 0.0,
       "renderGraphHazards": [],
       "shaderOrBindingDiagnostics": [
-        "[19:45:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-        "[19:45:11] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-        "[19:45:16] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
+        "[19:45:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:11] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:16] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
       ],
       "foliageDrawCensus": {
         "Foliage_Depth": {
@@ -1314,11 +1314,11 @@
           "status": "notInitialized"
         },
         "logErrors": [
-          "[23:05:44] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-          "[23:05:56] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
-          "[23:06:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant \u2014 substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
+          "[23:05:44] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:56] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:06:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
         ],
         "foliageDrawCensus": {
           "Foliage_Depth": {
@@ -1367,5 +1367,108 @@
       "FoliageWindEvidenceTest.MissingAlbedoShadowDoesNotReuseThePreviousAtlas",
       "VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects"
     ]
+  },
+  "reviewFollowupValidation": {
+    "codeHead": "791ac723d6871fd58b7d6f09fd15f076cb1847d7",
+    "utc": "2026-09-16T23:41:05.853980+00:00",
+    "priorRoundCiHead": "d0cb250002774149291df63c0fb2a6e7d9dddb75",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35151151790,
+      "sanitizerRun": 35151151585,
+      "linuxAsanCtestEntriesPassed": 1851
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-two.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "flags": [
+          "none"
+        ]
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu"
+        ]
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 4,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu"
+        ]
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu",
+          "strict-renderer-state"
+        ]
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu",
+          "strict-renderer-state",
+          "perf-strict"
+        ]
+      }
+    ],
+    "totalPassed": 132,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "101376",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "0.372180",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "183296",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "0.544073",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "103424",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "0.570621",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "184320",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "0.743802"
+    },
+    "corrections": [
+      "Reject unavailable Vulkan DS resolve views before transitions",
+      "Include SSIM edge windows and singleton variance with three new L1 tests",
+      "Collect twenty fresh finite positive GPU reports within eighty attempts without changing budgets",
+      "Test NaN and both infinity signs in every wind weight"
+    ],
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "successfulRenderingPathUnchanged": true,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "dismissedFinding": {
+      "reviewThread": "PRRT_kwDOGiS2f86jH8ch",
+      "reason": "Repository Sonar alignment explicitly permits duplicated test scaffolds"
+    }
   }
 }
