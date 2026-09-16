@@ -2594,6 +2594,10 @@ namespace OloEngine
         const glm::vec4* lightmapRegions = nullptr;
         if (cmd->lightmapRegionBufferOffset != UINT32_MAX)
             lightmapRegions = frameBuffer.GetColorPtr(cmd->lightmapRegionBufferOffset);
+        const glm::uvec4* gpuSceneRefs = nullptr;
+        if (cmd->gpuSceneRefBufferOffset != UINT32_MAX)
+            gpuSceneRefs = frameBuffer.GetGPUSceneRefPtr(cmd->gpuSceneRefBufferOffset);
+        const bool gpuSceneMaterialsBound = gpuSceneRefs && BindGPUSceneMaterialsIfNeeded();
 
         if (transforms && Data().ModelInstanceBuffer)
         {
@@ -2628,6 +2632,15 @@ namespace OloEngine
                 inst.Color = colors ? colors[i] : glm::vec4(1.0f);
                 inst.Custom = customs ? customs[i] : 0.0f;
                 inst.LightmapScaleOffset = lightmapRegions ? lightmapRegions[i] : glm::vec4(0.0f);
+                if (gpuSceneRefs)
+                {
+                    inst.GPUSceneRef = gpuSceneRefs[i];
+                    if (!gpuSceneMaterialsBound)
+                    {
+                        inst.GPUSceneRef.z = 0u;
+                        inst.GPUSceneRef.w = GPUSceneDrawRefUnlinked;
+                    }
+                }
             }
             const std::span<const InstanceData> instances(scratch.data(), instanceCount);
             Data().ModelInstanceBuffer->Upload(instances);

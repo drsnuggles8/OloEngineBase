@@ -230,6 +230,7 @@ namespace OloEngine
         // same 200k-instance GPU-cull draw populates all three streams together.
         static constexpr sizet DEFAULT_COLOR_CAPACITY = 262144;
         static constexpr sizet DEFAULT_CUSTOM_CAPACITY = 262144;
+        static constexpr sizet DEFAULT_GPU_SCENE_REF_CAPACITY = 262144;
 
         u32 AllocateColors(u32 count);
         glm::vec4* GetColorPtr(u32 offset);
@@ -240,6 +241,10 @@ namespace OloEngine
         f32* GetCustomPtr(u32 offset);
         const f32* GetCustomPtr(u32 offset) const;
         void WriteCustoms(u32 offset, const f32* data, u32 count);
+        u32 AllocateGPUSceneRefs(u32 count);
+        glm::uvec4* GetGPUSceneRefPtr(u32 offset);
+        const glm::uvec4* GetGPUSceneRefPtr(u32 offset) const;
+        void WriteGPUSceneRefs(u32 offset, const glm::uvec4* data, u32 count);
 
         // Statistics
         sizet GetBoneMatrixCount() const
@@ -397,24 +402,28 @@ namespace OloEngine
         std::vector<i32> m_EntityIDs;
         std::vector<glm::vec4> m_Colors;
         std::vector<f32> m_Customs;
+        std::vector<glm::uvec4> m_GPUSceneRefs;
 
         u32 m_BoneMatrixOffset = 0; // Current allocation offset
         u32 m_TransformOffset = 0;  // Current allocation offset
         u32 m_EntityIDOffset = 0;   // Current allocation offset (i32 stream)
         u32 m_ColorOffset = 0;      // Current allocation offset (vec4 stream)
         u32 m_CustomOffset = 0;     // Current allocation offset (f32 stream)
+        u32 m_GPUSceneRefOffset = 0;
 
         mutable FMutex m_BoneMutex;
         mutable FMutex m_TransformMutex;
         mutable FMutex m_EntityIDMutex;
         mutable FMutex m_ColorMutex;
         mutable FMutex m_CustomMutex;
+        mutable FMutex m_GPUSceneRefMutex;
 
         bool m_BoneOverflowLogged = false;      // Once-per-frame overflow warning
         bool m_TransformOverflowLogged = false; // Once-per-frame overflow warning
         bool m_EntityIDOverflowLogged = false;  // Once-per-frame overflow warning
         bool m_ColorOverflowLogged = false;     // Once-per-frame overflow warning
         bool m_CustomOverflowLogged = false;    // Once-per-frame overflow warning
+        bool m_GPUSceneRefOverflowLogged = false;
 
         // ====================================================================
         // RenderState Table Storage

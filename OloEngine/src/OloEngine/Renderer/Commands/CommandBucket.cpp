@@ -4,6 +4,8 @@
 #include "RenderCommand.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RendererAPI.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Renderer/Debug/GPUTimerQueryPool.h"
 #include "OloEngine/Task/ParallelFor.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -754,6 +756,7 @@ namespace OloEngine
         bool entityIDOverflowLogged = false;
         bool colorOverflowLogged = false;
         bool customOverflowLogged = false;
+        bool gpuSceneRefOverflowLogged = false;
         bool lightmapRegionOverflowLogged = false;
 
         for (auto& [key, indices] : groups)
@@ -832,6 +835,7 @@ namespace OloEngine
             bool anyNonDefaultColor = false;
             bool anyNonDefaultCustom = false;
             bool anyNonDefaultLightmapRegion = false;
+            bool anyGPUSceneLink = false;
             constexpr glm::vec4 defaultColor{ 1.0f };
             constexpr f32 defaultCustom = 0.0f;
             constexpr glm::vec4 defaultLightmapRegion{ 0.0f };
@@ -846,12 +850,24 @@ namespace OloEngine
                     anyNonDefaultCustom = true;
                 if (!Math::BitwiseEqual(meshCmd->lightmapScaleOffset, defaultLightmapRegion))
                     anyNonDefaultLightmapRegion = true;
+                if (meshCmd->gpuSceneDrawLink != GPUSceneDrawLinkNone)
+                    anyGPUSceneLink = true;
                 if (anyNonDefaultColor && anyNonDefaultCustom && anyNonDefaultLightmapRegion)
                     break;
             }
 
             u32 colorOffset = UINT32_MAX;
             u32 customOffset = UINT32_MAX;
+            u32 gpuSceneRefOffset = UINT32_MAX;
+            if (anyGPUSceneLink)
+            {
+                gpuSceneRefOffset = frameBuffer.AllocateGPUSceneRefs(totalInstances);
+                if (gpuSceneRefOffset == UINT32_MAX && !gpuSceneRefOverflowLogged)
+                {
+                    OLO_CORE_WARN("CommandBucket::BatchCommands: Failed to allocate {} GPU Scene references; linked draws will fall back. Subsequent failures this frame will be silent.", totalInstances);
+                    gpuSceneRefOverflowLogged = true;
+                }
+            }
             if (anyNonDefaultColor)
             {
                 colorOffset = frameBuffer.AllocateColors(totalInstances);
@@ -908,6 +924,18 @@ namespace OloEngine
                     frameBuffer.WriteCustoms(customOffset + t, &meshCmd->custom, 1);
                 if (lightmapRegionOffset != UINT32_MAX)
                     frameBuffer.WriteColors(lightmapRegionOffset + t, &meshCmd->lightmapScaleOffset, 1);
+                if (gpuSceneRefOffset != UINT32_MAX)
+                {
+                    glm::uvec4 reference{ GPUSceneDrawRefUnlinked };
+                    if (const GPUSceneDrawLink* link = Renderer3D::GetGPUSceneDrawLink(meshCmd->gpuSceneDrawLink); link && link->m_Resolved)
+                    {
+                        reference = link->Ref();
+                        frameBuffer.WriteTransforms(transformOffset + t, &link->m_CurrentTransform, 1);
+                        if (prevTransformOffset != UINT32_MAX)
+                            frameBuffer.WriteTransforms(prevTransformOffset + t, &link->m_PreviousTransform, 1);
+                    }
+                    frameBuffer.WriteGPUSceneRefs(gpuSceneRefOffset + t, &reference, 1);
+                }
             }
 
             // Build the instanced command from the first DrawMeshCommand
@@ -936,6 +964,7 @@ namespace OloEngine
             icmd->entityIDBufferOffset = entityIDOffset;             // UINT32_MAX on alloc failure -> dispatcher writes -1
             icmd->colorBufferOffset = colorOffset;                   // UINT32_MAX when all sources had identity tint
             icmd->customBufferOffset = customOffset;                 // UINT32_MAX when all sources had Custom == 0
+            icmd->gpuSceneRefBufferOffset = gpuSceneRefOffset;
             icmd->lightmapRegionBufferOffset = lightmapRegionOffset; // UINT32_MAX when no source carried a lightmap region
             icmd->shaderHandle = firstCmd->shaderHandle;
             icmd->materialDataIndex = firstCmd->materialDataIndex;

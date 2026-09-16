@@ -13,11 +13,13 @@ namespace OloEngine
         m_EntityIDs.resize(entityIDCapacity);
         m_Colors.resize(DEFAULT_COLOR_CAPACITY);
         m_Customs.resize(DEFAULT_CUSTOM_CAPACITY);
+        m_GPUSceneRefs.resize(DEFAULT_GPU_SCENE_REF_CAPACITY);
         m_BoneMatrixOffset = 0;
         m_TransformOffset = 0;
         m_EntityIDOffset = 0;
         m_ColorOffset = 0;
         m_CustomOffset = 0;
+        m_GPUSceneRefOffset = 0;
         m_MaterialData.resize(MAX_MATERIAL_DATA_PER_FRAME);
     }
 
@@ -49,6 +51,11 @@ namespace OloEngine
             TUniqueLock<FMutex> customLock(m_CustomMutex);
             m_CustomOffset = 0;
             m_CustomOverflowLogged = false;
+        }
+        {
+            TUniqueLock<FMutex> gpuSceneRefLock(m_GPUSceneRefMutex);
+            m_GPUSceneRefOffset = 0;
+            m_GPUSceneRefOverflowLogged = false;
         }
 
         // Reset parallel submission state
@@ -354,6 +361,46 @@ namespace OloEngine
             return;
         }
         std::memcpy(&m_Customs[offset], data, count * sizeof(f32));
+    }
+
+    u32 FrameDataBuffer::AllocateGPUSceneRefs(u32 count)
+    {
+        TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+        const u32 offset = m_GPUSceneRefOffset;
+        if (count > static_cast<u32>(m_GPUSceneRefs.size()) - offset)
+        {
+            if (!m_GPUSceneRefOverflowLogged)
+            {
+                OLO_CORE_ERROR("FrameDataBuffer: GPU Scene reference buffer overflow! Requested {} at offset {}, capacity {}. Subsequent overflows this frame will be silent.", count, offset, m_GPUSceneRefs.size());
+                m_GPUSceneRefOverflowLogged = true;
+            }
+            return UINT32_MAX;
+        }
+        m_GPUSceneRefOffset = offset + count;
+        return offset;
+    }
+
+    glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset)
+    {
+        TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+        return offset < m_GPUSceneRefs.size() ? &m_GPUSceneRefs[offset] : nullptr;
+    }
+
+    const glm::uvec4* FrameDataBuffer::GetGPUSceneRefPtr(u32 offset) const
+    {
+        TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+        return offset < m_GPUSceneRefs.size() ? &m_GPUSceneRefs[offset] : nullptr;
+    }
+
+    void FrameDataBuffer::WriteGPUSceneRefs(u32 offset, const glm::uvec4* data, u32 count)
+    {
+        TUniqueLock<FMutex> lock(m_GPUSceneRefMutex);
+        if (offset + count > m_GPUSceneRefs.size())
+        {
+            OLO_CORE_ERROR("FrameDataBuffer: WriteGPUSceneRefs out of bounds: offset={}, count={}, capacity={}", offset, count, m_GPUSceneRefs.size());
+            return;
+        }
+        std::memcpy(&m_GPUSceneRefs[offset], data, count * sizeof(glm::uvec4));
     }
 
     // ========================================================================
