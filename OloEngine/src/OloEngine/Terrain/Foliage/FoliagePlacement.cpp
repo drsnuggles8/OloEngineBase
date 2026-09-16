@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <glm/gtc/constants.hpp>
 
 namespace OloEngine::FoliagePlacement
@@ -16,21 +17,39 @@ namespace OloEngine::FoliagePlacement
         // `feather` units of linear ramp at each bound. Outside the band it is
         // 0; with a zero feather it is a hard 1 inside, which is what makes a
         // default-constructed layer behave exactly as it did before #1254.
-        [[nodiscard]] f32 FeatheredBand(f32 v, f32 lo, f32 hi, f32 feather)
+        //
+        // `domainLo` / `domainHi` are the range the QUANTITY itself can take —
+        // [0, 1] for the moisture proxy, unbounded for a world-space altitude.
+        // A band bound sitting at a domain edge gets NO ramp, because there is
+        // nothing on the far side of it to transition to. Without that, a
+        // species authored as "everywhere wet", MaxMoisture = 1, was feathered
+        // DOWN on the wettest ground — thinned to 0.18 exactly where it was
+        // supposed to be densest, which is the opposite of what the author
+        // asked for and is invisible in anything but a species-by-species count.
+        [[nodiscard]] f32 FeatheredBand(f32 v, f32 lo, f32 hi, f32 feather,
+                                        f32 domainLo = -std::numeric_limits<f32>::infinity(),
+                                        f32 domainHi = std::numeric_limits<f32>::infinity())
         {
             if (!(v >= lo) || !(v <= hi)) // false for NaN too, which must not place a plant
                 return 0.0f;
             if (feather <= 0.0f)
                 return 1.0f;
 
+            const bool rampLo = lo > domainLo;
+            const bool rampHi = hi < domainHi;
+            if (!rampLo && !rampHi)
+                return 1.0f;
+
             // Never let the two ramps overlap: a feather wider than half the
-            // band would otherwise drive the centre of the band below 1.
-            const f32 width = std::min(feather, (hi - lo) * 0.5f);
+            // band would otherwise drive the centre of the band below 1. With
+            // only one live ramp the whole band is available to it.
+            const f32 span = (rampLo && rampHi) ? (hi - lo) * 0.5f : (hi - lo);
+            const f32 width = std::min(feather, span);
             if (width <= 0.0f)
                 return 1.0f;
 
-            const f32 rising = std::clamp((v - lo) / width, 0.0f, 1.0f);
-            const f32 falling = std::clamp((hi - v) / width, 0.0f, 1.0f);
+            const f32 rising = rampLo ? std::clamp((v - lo) / width, 0.0f, 1.0f) : 1.0f;
+            const f32 falling = rampHi ? std::clamp((hi - v) / width, 0.0f, 1.0f) : 1.0f;
             return std::min(rising, falling);
         }
 
@@ -169,8 +188,17 @@ namespace OloEngine::FoliagePlacement
 
             if (slopeFeather > 0.0f)
             {
-                gate.m_CosInnerLo = std::cos(glm::radians(std::max(minAngle, maxAngle - slopeFeather)));
-                gate.m_CosInnerHi = std::cos(glm::radians(std::min(maxAngle, minAngle + slopeFeather)));
+                // Clamped to half the band, exactly as FeatheredBand clamps its
+                // own: two ramps wider than half the band overlap, and the
+                // CENTRE of the band then never reaches suitability 1, so a
+                // uniformly-suitable slope loses a random quarter of its plants.
+                // This used to be worked around at the one call site that
+                // authors a feather (TerrainGenerator), which is precisely the
+                // sign that the guard belonged here instead.
+                const f32 halfBand = std::max((maxAngle - minAngle) * 0.5f, 0.0f);
+                const f32 width = std::min(slopeFeather, halfBand);
+                gate.m_CosInnerLo = std::cos(glm::radians(maxAngle - width));
+                gate.m_CosInnerHi = std::cos(glm::radians(minAngle + width));
             }
             return gate;
         }
@@ -209,8 +237,10 @@ namespace OloEngine::FoliagePlacement
 
             if (rules.m_UseMoisture)
             {
+                // Domain [0, 1]: the moisture proxy cannot leave it, so a band
+                // that reaches either end has no outside to feather towards.
                 weight *= FeatheredBand(MoistureAt(normalizedHeight, upDot), rules.m_MinMoisture,
-                                        rules.m_MaxMoisture, rules.m_MoistureFeather);
+                                        rules.m_MaxMoisture, rules.m_MoistureFeather, 0.0f, 1.0f);
             }
 
             return std::clamp(weight, 0.0f, 1.0f);
@@ -337,9 +367,16 @@ namespace OloEngine::FoliagePlacement
 
     f32 ExclusionWeight(f32 paintedWeight, f32 threshold)
     {
-        if (!(threshold > 0.0f))
-            return 1.0f; // a zero threshold cannot suppress anything, only divide by zero
         const f32 painted = std::clamp(std::isfinite(paintedWeight) ? paintedWeight : 0.0f, 0.0f, 1.0f);
+        if (!(threshold > 0.0f))
+        {
+            // The threshold is "the painted weight at which suppression is
+            // TOTAL", so zero means any paint at all suppresses. Returning 1
+            // here — the obvious way to dodge the division — inverts the
+            // control: an author dragging the slider to 0 would silently get no
+            // exclusion at the setting that should exclude hardest.
+            return painted > 0.0f ? 0.0f : 1.0f;
+        }
         return 1.0f - std::clamp(painted / threshold, 0.0f, 1.0f);
     }
 

@@ -32,6 +32,11 @@
 //   AC3 determinism       -> RegenerationIsBitIdentical
 //   backward compatibility-> ADefaultLayerPlacesExactlyWhereItAlwaysDid
 //                            HabitatRulesOffIsExactlyOne
+//   self-review regressions-> ABandTouchingTheDomainEdgeIsNotFeatheredThere
+//                            AWideSlopeFeatherDoesNotHollowOutTheBandCentre
+//                            AZeroExclusionThresholdSuppressesInsteadOfDisabling
+//                            EveryGeneratedSpeciesCanActuallyPlaceSomething
+//                            GeneratedSpeciesActuallyScatterOnGeneratedTerrain
 //
 // OLO_TEST_LAYER: L1
 // =============================================================================
@@ -40,6 +45,7 @@
 
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
 
 #include <gtest/gtest.h>
 
@@ -298,8 +304,8 @@ TEST(FoliageHabitatClumping, MoistureProxyIsWetLowAndFlatDryHighAndSteep)
     // be deliberate: low + flat is fully wet, high + steep is fully dry, and
     // each axis alone gets you halfway.
     EXPECT_FLOAT_EQ(FP::MoistureAt(0.0f, 1.0f), 1.0f);
-    EXPECT_FLOAT_EQ(FP::MoistureAt(1.0f, 0.70710678f), 0.0f); // 45 degrees: runoff begins
-    EXPECT_NEAR(FP::MoistureAt(1.0f, 1.0f), 0.5f, 1e-5f);     // flat but high
+    EXPECT_FLOAT_EQ(FP::MoistureAt(1.0f, 0.70710678f), 0.0f);    // 45 degrees: runoff begins
+    EXPECT_NEAR(FP::MoistureAt(1.0f, 1.0f), 0.5f, 1e-5f);        // flat but high
     EXPECT_NEAR(FP::MoistureAt(0.0f, 0.70710678f), 0.5f, 1e-5f); // low but steep
 
     // Monotone in both inputs — the property an author bands on.
@@ -423,8 +429,9 @@ TEST(FoliageHabitatClumping, ExclusionWeightSuppressesWherePainted)
     EXPECT_FLOAT_EQ(FP::ExclusionWeight(1.0f, 0.5f), 0.0f);
     EXPECT_NEAR(FP::ExclusionWeight(0.25f, 0.5f), 0.5f, 1e-6f);
 
-    // A zero threshold cannot suppress anything — and must not divide by zero.
-    EXPECT_FLOAT_EQ(FP::ExclusionWeight(1.0f, 0.0f), 1.0f);
+    // A zero threshold must not divide by zero — see
+    // AZeroExclusionThresholdSuppressesInsteadOfDisabling for what it DOES mean.
+    EXPECT_TRUE(std::isfinite(FP::ExclusionWeight(1.0f, 0.0f)));
     EXPECT_TRUE(std::isfinite(FP::ExclusionWeight(std::numeric_limits<f32>::quiet_NaN(), 0.5f)));
 }
 
@@ -915,4 +922,133 @@ TEST(FoliageHabitatClumping, GroundSinkIsAnAttributeEditNotAnIdentityChange)
     EXPECT_TRUE(registry.GetLastDelta().m_Retired.empty());
     EXPECT_EQ(registry.GetLastDelta().m_Updated, before.size())
         << "every plant moved in Y, so every record must be reported as updated";
+}
+
+// ── Self-review regressions (issue #1254) ───────────────────────────────────
+//
+// Five defects found by reviewing this change before it was proposed. Each was
+// SILENT — every one of them produced a frame that still looked like grass —
+// so each gets a test rather than a fix and a promise.
+
+TEST(FoliageHabitatClumping, ABandTouchingTheDomainEdgeIsNotFeatheredThere)
+{
+    // A species authored "everywhere wet" (MaxMoisture 1) was feathered DOWN on
+    // the wettest ground: the falling ramp fired against a bound that the
+    // quantity can never exceed, thinning the layer to 0.18 exactly where the
+    // author asked for the most. A bound sitting at the domain edge has no
+    // outside to transition to, so it gets no ramp.
+    FoliageLayer wetLoving;
+    wetLoving.UseMoisture = true;
+    wetLoving.MinMoisture = 0.45f;
+    wetLoving.MaxMoisture = 1.0f;
+    wetLoving.MoistureFeather = 0.16f;
+
+    // Moisture 1 is low, flat ground — the wettest the proxy can report.
+    EXPECT_FLOAT_EQ(FP::HabitatSuitability(wetLoving, 0.0f, 0.0f, 1.0f), 1.0f)
+        << "the wettest ground thinned a species whose band reaches moisture 1";
+
+    // The LOWER bound is interior, so it still feathers.
+    const f32 nearFloor = FP::HabitatSuitability(wetLoving, 0.0f, 0.86f, 1.0f);
+    EXPECT_GT(nearFloor, 0.0f);
+    EXPECT_LT(nearFloor, 1.0f) << "the interior bound stopped feathering too — the fix went too far";
+
+    // Symmetrically at the dry end: a band anchored at 0 is not feathered there.
+    FoliageLayer dryLoving;
+    dryLoving.UseMoisture = true;
+    dryLoving.MinMoisture = 0.0f;
+    dryLoving.MaxMoisture = 0.76f;
+    dryLoving.MoistureFeather = 0.14f;
+    EXPECT_FLOAT_EQ(FP::HabitatSuitability(dryLoving, 0.0f, 1.0f, 0.70710678f), 1.0f)
+        << "moisture 0 is the driest the proxy reports; a band anchored there must be full";
+}
+
+TEST(FoliageHabitatClumping, AWideSlopeFeatherDoesNotHollowOutTheBandCentre)
+{
+    // The slope gate built its two ramps without the half-band clamp
+    // FeatheredBand has, so a feather wider than half the band made them
+    // overlap and the CENTRE of the band never reached 1 — a uniformly
+    // suitable slope losing a random quarter of its plants.
+    FoliageLayer layer;
+    layer.MinSlopeAngle = 0.0f;
+    layer.MaxSlopeAngle = 30.0f;
+    layer.SlopeFeather = 20.0f; // wider than half the 30-degree band
+
+    // The middle of the band, 15 degrees, is as suitable as slope can be.
+    const f32 mid = std::cos(glm::radians(15.0f));
+    EXPECT_FLOAT_EQ(FP::HabitatSuitability(layer, 0.0f, 0.0f, mid), 1.0f)
+        << "the band centre is not fully suitable, so a wide feather is deleting plants "
+           "from ground that is squarely inside the authored slope range";
+
+    // And it is still a feather: the edges are not full.
+    EXPECT_LT(FP::HabitatSuitability(layer, 0.0f, 0.0f, std::cos(glm::radians(29.0f))), 1.0f);
+}
+
+TEST(FoliageHabitatClumping, AZeroExclusionThresholdSuppressesInsteadOfDisabling)
+{
+    // The threshold is documented as "the painted weight at which suppression
+    // is total", so 0 must mean any paint at all suppresses. Returning 1 — the
+    // obvious way to dodge the division — inverted the control at the setting
+    // that should exclude hardest.
+    EXPECT_FLOAT_EQ(FP::ExclusionWeight(0.0f, 0.0f), 1.0f) << "unpainted ground must never be suppressed";
+    EXPECT_FLOAT_EQ(FP::ExclusionWeight(0.004f, 0.0f), 0.0f) << "any paint at threshold 0 must suppress totally";
+    EXPECT_FLOAT_EQ(FP::ExclusionWeight(1.0f, 0.0f), 0.0f);
+}
+
+TEST(FoliageHabitatClumping, EveryGeneratedSpeciesCanActuallyPlaceSomething)
+{
+    // The one that mattered. Dune Grass was authored a [0, 0.55] moisture band,
+    // but it grows on SAND — low, flat ground, which this proxy reads as the
+    // WETTEST there is (>= 0.83). The band could not be satisfied anywhere the
+    // species was allowed to grow, so it emitted zero instances and vanished
+    // from the generated world, having rendered before #1254.
+    //
+    // Guards the whole table, not just that row: a generated species whose
+    // habitat band cannot overlap its own splat layer is a species that is
+    // silently gone.
+    const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
+    ASSERT_GE(layers.size(), 5u) << "the default biome should emit the full species table";
+
+    for (const auto& layer : layers)
+    {
+        ASSERT_TRUE(layer.UseMoisture) << layer.Name << ": expected a generated layer to carry habitat rules";
+
+        // Sweep the moisture the proxy can actually report, and require the
+        // band to admit SOMETHING. Slope and altitude are left at their
+        // generated values; this is purely "is the moisture band reachable".
+        bool reachable = false;
+        f32 best = 0.0f;
+        for (int i = 0; i <= 200; ++i)
+        {
+            const f32 normalizedHeight = static_cast<f32>(i) / 200.0f;
+            for (const f32 upDot : { 1.0f, 0.985f, 0.951f, 0.906f, 0.866f })
+            {
+                const f32 s = FP::HabitatSuitability(layer, normalizedHeight * 30.0f, normalizedHeight, upDot);
+                best = std::max(best, s);
+                if (s > 0.0f)
+                    reachable = true;
+            }
+        }
+        EXPECT_TRUE(reachable) << layer.Name << ": no terrain this species is allowed on satisfies its habitat "
+                                                "band, so the generator emits a layer that places nothing";
+        EXPECT_GT(best, 0.5f) << layer.Name << ": the species is reachable but never more than " << best
+                              << " suitable, so it is a rumour rather than a population";
+    }
+}
+
+TEST(FoliageHabitatClumping, GeneratedSpeciesActuallyScatterOnGeneratedTerrain)
+{
+    // The end-to-end version of the test above: run the REAL generator over a
+    // ramp that spans the whole height range and require every generated
+    // species to place at least some plants. A band that is reachable in
+    // principle but misses the terrain in practice still ships an empty layer.
+    const auto heights = RampField(1.0f);
+    const auto layers = TerrainGenerator::MakeDefaultFoliageLayers();
+
+    for (u32 i = 0; i < static_cast<u32>(layers.size()); ++i)
+    {
+        // The splatmap mask is not available headlessly, so this measures the
+        // habitat rules alone — which is exactly where the defect was.
+        const auto placed = Generate(layers[i], i, heights);
+        EXPECT_FALSE(placed.empty()) << layers[i].Name << ": placed nothing on a full-range ramp";
+    }
 }

@@ -136,6 +136,18 @@ namespace OloEngine
         // two moisture bands OVERLAP, and each is feathered, so the boundary
         // between them is a band where both thin out rather than a line.
         //
+        // THE BANDS ARE TUNED TO THE RANGE THE PROXY ACTUALLY REACHES, which is
+        // not [0, 1]. MoistureAt averages lowness and flatness, and both are
+        // HIGH on the gentle, low ground these rules paint, so on the default
+        // biome the grass layer only spans about [0.43, 1.0] and the sand layer
+        // about [0.83, 1.0]. A first pass here authored bands against an
+        // imagined full [0, 1] range, and the arithmetic is unforgiving: Dune
+        // Grass's [0.0, 0.55] could not be satisfied anywhere sand exists, so
+        // that species emitted ZERO instances and simply vanished from the
+        // generated world, having rendered before #1254. If you retune these,
+        // check them against MoistureAt over the rule's own height and slope
+        // band, not against the slider's range.
+        //
         // Densities are raised from their pre-#1254 values because clumping can
         // only multiply suitability DOWN: at ClumpStrength 0.75 a layer keeps
         // roughly a third of its cells, so the same on-screen lushness inside
@@ -144,15 +156,15 @@ namespace OloEngine
             // layer, name, albedo, density, slopeCeil, minS, maxS, minH, maxH, colour, windStr, windSpd, viewDist,
             //   minMoist, maxMoist, moistFeather, slopeFeather, clumpStr, clumpScale, clumpFall, clumpScaleInfl, group, sink
             { 1u, "Meadow Grass", kGrassCutout, 16.0f, 30.0f, 0.9f, 1.9f, 1.2f, 2.6f, glm::vec3(0.30f, 0.46f, 0.16f), 0.35f, 1.6f, 180.0f,
-              0.35f, 1.0f, 0.22f, 6.0f, 0.65f, 26.0f, 1.1f, 0.35f, kMeadowClump, 0.6f },
+              0.45f, 1.0f, 0.16f, 6.0f, 0.65f, 26.0f, 1.1f, 0.35f, kMeadowClump, 0.6f },
             { 1u, "Wildflowers", kGrassCutout, 5.0f, 22.0f, 0.7f, 1.3f, 0.8f, 1.6f, glm::vec3(0.66f, 0.56f, 0.24f), 0.25f, 1.2f, 140.0f,
-              0.45f, 1.0f, 0.18f, 5.0f, 0.85f, 14.0f, 1.8f, 0.30f, kMeadowClump, 0.5f },
+              0.58f, 1.0f, 0.14f, 5.0f, 0.85f, 14.0f, 1.8f, 0.30f, kMeadowClump, 0.5f },
             { 1u, "Shrubs", kGrassCutout, 1.2f, 34.0f, 1.4f, 2.6f, 1.8f, 3.4f, glm::vec3(0.22f, 0.34f, 0.14f), 0.18f, 0.9f, 220.0f,
-              0.08f, 0.62f, 0.20f, 8.0f, 0.80f, 34.0f, 1.4f, 0.45f, kWoodlandClump, 0.9f },
+              0.0f, 0.76f, 0.14f, 8.0f, 0.80f, 34.0f, 1.4f, 0.45f, kWoodlandClump, 0.9f },
             { 1u, "Leaf Litter", kGrassCutout, 9.0f, 34.0f, 0.5f, 1.0f, 0.25f, 0.55f, glm::vec3(0.40f, 0.29f, 0.14f), 0.05f, 0.6f, 90.0f,
-              0.05f, 0.66f, 0.22f, 8.0f, 0.75f, 34.0f, 1.2f, 0.20f, kWoodlandClump, 1.0f },
+              0.0f, 0.80f, 0.16f, 8.0f, 0.75f, 34.0f, 1.2f, 0.20f, kWoodlandClump, 1.0f },
             { 0u, "Dune Grass", kGrassCutout, 2.5f, 18.0f, 0.8f, 1.4f, 0.9f, 1.8f, glm::vec3(0.62f, 0.60f, 0.32f), 0.40f, 1.4f, 140.0f,
-              0.0f, 0.55f, 0.20f, 4.0f, 0.55f, 20.0f, 1.0f, 0.25f, -1, 0.4f },
+              0.78f, 1.0f, 0.10f, 4.0f, 0.55f, 20.0f, 1.0f, 0.25f, -1, 0.4f },
         } };
     } // namespace
 
@@ -803,8 +815,10 @@ namespace OloEngine
             // on. Nothing here touches a layer already on disk — FoliageLayer's
             // constructor defaults, which are what a stored scene deserializes
             // to, leave every one of these off.
-            layer.SlopeFeather = std::min(profile.SlopeFeather,
-                                          (layer.MaxSlopeAngle - layer.MinSlopeAngle) * 0.5f);
+            // Not clamped to half the band here any more — FoliagePlacement's
+            // slope gate does that for every caller, including a value typed
+            // straight into the inspector.
+            layer.SlopeFeather = profile.SlopeFeather;
             layer.UseMoisture = true;
             layer.MinMoisture = profile.MinMoisture;
             layer.MaxMoisture = profile.MaxMoisture;

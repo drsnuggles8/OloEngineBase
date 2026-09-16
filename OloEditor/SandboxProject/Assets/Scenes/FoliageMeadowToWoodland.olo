@@ -198,9 +198,9 @@ Entities:
           MaxAltitude: 1000
           AltitudeFeather: 0
           UseMoisture: true
-          MinMoisture: 0.35
+          MinMoisture: 0.45
           MaxMoisture: 1
-          MoistureFeather: 0.22
+          MoistureFeather: 0.16
           ExclusionSplatmapChannel: 2
           ExclusionThreshold: 0.6
           ClumpStrength: 0.65
@@ -237,9 +237,9 @@ Entities:
           MaxAltitude: 1000
           AltitudeFeather: 0
           UseMoisture: true
-          MinMoisture: 0.45
+          MinMoisture: 0.58
           MaxMoisture: 1
-          MoistureFeather: 0.18
+          MoistureFeather: 0.14
           ExclusionSplatmapChannel: 2
           ExclusionThreshold: 0.6
           ClumpStrength: 0.85
@@ -276,9 +276,9 @@ Entities:
           MaxAltitude: 1000
           AltitudeFeather: 0
           UseMoisture: true
-          MinMoisture: 0.08
-          MaxMoisture: 0.62
-          MoistureFeather: 0.2
+          MinMoisture: 0
+          MaxMoisture: 0.76
+          MoistureFeather: 0.14
           ExclusionSplatmapChannel: 2
           ExclusionThreshold: 0.6
           ClumpStrength: 0.8
@@ -315,9 +315,9 @@ Entities:
           MaxAltitude: 1000
           AltitudeFeather: 0
           UseMoisture: true
-          MinMoisture: 0.05
-          MaxMoisture: 0.66
-          MoistureFeather: 0.22
+          MinMoisture: 0
+          MaxMoisture: 0.8
+          MoistureFeather: 0.16
           ExclusionSplatmapChannel: 2
           ExclusionThreshold: 0.6
           ClumpStrength: 0.75
@@ -354,9 +354,9 @@ Entities:
           MaxAltitude: 1000
           AltitudeFeather: 0
           UseMoisture: true
-          MinMoisture: 0
-          MaxMoisture: 0.55
-          MoistureFeather: 0.2
+          MinMoisture: 0.78
+          MaxMoisture: 1
+          MoistureFeather: 0.1
           ExclusionSplatmapChannel: 2
           ExclusionThreshold: 0.6
           ClumpStrength: 0.55
