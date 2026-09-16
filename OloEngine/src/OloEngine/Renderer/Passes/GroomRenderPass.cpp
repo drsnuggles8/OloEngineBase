@@ -139,7 +139,8 @@ namespace OloEngine
         // The cost is that a field added to the struct must be added here too.
         // GroomStrandMeshTest.TheCacheKeySeparatesSettingsThatProduceDifferentMeshes
         // is what catches forgetting.
-        const auto mix = [](u64 key, u64 value) {
+        const auto mix = [](u64 key, u64 value)
+        {
             key ^= value;
             key *= 1099511628211ull; // FNV-1a prime, as elsewhere in the groom code
             return key;

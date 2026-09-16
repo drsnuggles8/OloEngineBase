@@ -262,9 +262,11 @@ perfectly, and so does the cross-stage uniform-block mismatch that preceded it (
 
 **Machine:** NVIDIA GeForce RTX 4090, Intel Core i7-14700KF, Windows 11.
 **Build:** Debug, `build-cached` (clang-cl). **Scene:** `Scenes/GroomStrandCoat.olo`,
-1411x942 render resolution, fixed camera, OpenGL, forward path, TAA off (so the measured
-mode is the OpaqueRibbon tier — the stochastic tier discards a different NUMBER of
-fragments but rasterises the identical geometry, so the pass cost is the same work).
+1411x942 render resolution, fixed camera, OpenGL, forward path.
+
+**TAA is off in this arm, so the tier measured below is `OpaqueRibbon`, not the selected
+`StochasticAlpha`.** The two are compared directly further down; do not read the 0.03 ms
+as the selected mode's cost without that second measurement.
 **Subject:** two grooms, 2 000 strands each, 14 000 segments each — 56 000 triangles and
 2 draw calls added to the frame.
 
@@ -291,6 +293,34 @@ six indices per segment. It scales linearly in segments, is cached per (asset, b
 settings) pair, and is bounded by `SetCacheBudgetBytes` (256 MiB by default). The selected
 composition mode adds **no render-target memory at all** — see the table above, where that
 is the whole of its advantage over the two rejected modes.
+
+### The two tiers against each other
+
+The number above is the fallback tier's. The selected tier discards a different SET of
+fragments — at sub-pixel widths, most of them — so identical geometry does not by itself
+establish identical fragment, depth or bandwidth work. Measured rather than argued:
+
+Same machine and scene, camera moved in close on the thick coat so strand fragments
+dominate the frame (that is where a difference in discard behaviour would show), **TAA on
+in both arms** so the resolve's own cost cancels and the only variable is the composition
+mode. 14 interleaved rounds, toggling `GroomComponent::CompositionMode` between 0 and 1.
+
+| tier | frame GPU (median) |
+|---|---|
+| OpaqueRibbon | 1.900 ms |
+| StochasticAlpha | 1.890 ms |
+| difference | **-0.010 ms** |
+
+**That is not a measurement of zero — it is below the instrument's resolution.** The
+samples across both arms spanned 1.89 ms, two orders of magnitude wider than the
+difference, because turning TAA on makes the frame both costlier and much noisier than the
+0.03 ms the strand pass contributes. What the run supports is a BOUND: at this geometry
+the two tiers differ by far less than the frame-level counter can separate. It does not
+support "they cost the same".
+
+Separating them properly needs a per-pass GPU timer around the strand draws rather than a
+frame-level counter — the same instrument the Vulkan gap below needs.
+
 
 ### What could not be measured, and why
 

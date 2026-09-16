@@ -771,7 +771,8 @@ TEST(GroomCoverageModel, CoverageAtTheRightAndBottomEdgesIsNotDiscarded)
 //     duplicate set of GPU buffers behind.
 TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
 {
-    const auto makeRequest = [](AssetHandle handle, u32 maxStrands, u32 maxSegments, bool guidesOnly) {
+    const auto makeRequest = [](AssetHandle handle, u32 maxStrands, u32 maxSegments, bool guidesOnly)
+    {
         GroomStrandRequest request;
         request.Handle = handle;
         request.Build.MaxStrands = maxStrands;
