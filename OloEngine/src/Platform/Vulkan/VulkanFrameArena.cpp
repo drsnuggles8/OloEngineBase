@@ -356,7 +356,7 @@ namespace OloEngine
     }
 
     VulkanFrameArenaAllocation VulkanFrameArena::Push(const void* data, u64 sizeBytes, u64 alignment,
-                                                       VulkanFrameArenaConsumer consumer)
+                                                      VulkanFrameArenaConsumer consumer)
     {
         VulkanFrameArenaAllocation allocation = Allocate(sizeBytes, alignment, consumer);
         if (allocation.IsValid() && data != nullptr)

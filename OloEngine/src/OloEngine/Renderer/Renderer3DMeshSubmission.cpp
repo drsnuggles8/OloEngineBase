@@ -1694,7 +1694,7 @@ namespace OloEngine
         return packet;
     }
 
-    #if 0 // Retired by #1289: animated submission remains on Scene's serial GPUScene-aware path.
+#if 0 // Retired by #1289: animated submission remains on Scene's serial GPUScene-aware path.
     void Renderer3D::RenderAnimatedMeshes(const Ref<Scene>& scene, const Material& defaultMaterial)
     {
         OLO_PROFILE_FUNCTION();
@@ -1979,7 +1979,7 @@ namespace OloEngine
         }
     }
 
-    #endif
+#endif
 
     CommandPacket* Renderer3D::DrawMeshParallel(WorkerSubmitContext& ctx,
                                                 const Ref<Mesh>& mesh,
@@ -2180,7 +2180,7 @@ namespace OloEngine
         return packet;
     }
 
-    #if 0 // Retired by #1289: benchmarked animated worker recording regressed CPU time and scene output.
+#if 0 // Retired by #1289: benchmarked animated worker recording regressed CPU time and scene output.
     CommandPacket* Renderer3D::DrawAnimatedMeshParallel(WorkerSubmitContext& ctx,
                                                         const Ref<Mesh>& mesh,
                                                         const glm::mat4& modelMatrix,
@@ -2416,7 +2416,7 @@ namespace OloEngine
         return packet;
     }
 
-    #endif
+#endif
 
     u32 Renderer3D::SubmitMeshesParallel(const std::vector<MeshSubmitDesc>& meshes,
                                          i32 minBatchSize)
@@ -2443,7 +2443,7 @@ namespace OloEngine
                     s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
                 }
                 CommandPacket* packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
-                                                  desc.EntityID, desc.LODGroupPtr);
+                                                 desc.EntityID, desc.LODGroupPtr);
                 if (packet)
                 {
                     // Baked lightmap region (issue #867), patched before

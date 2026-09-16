@@ -2076,8 +2076,8 @@ namespace OloEngine
                 m_Meshes[i],
                 transform,
                 meshMaterial,
-                true,     // IsStatic
-                entityID  // EntityID for picking
+                true,    // IsStatic
+                entityID // EntityID for picking
             };
             // Baked lightmap region for this mesh (issue #867). A model fans one
             // entity out over several MeshSources, so the region is per mesh —

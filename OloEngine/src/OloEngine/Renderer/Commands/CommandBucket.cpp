@@ -960,10 +960,10 @@ namespace OloEngine
             icmd->instanceCount = totalInstances;
             icmd->transformBufferOffset = transformOffset;
             icmd->transformCount = totalInstances;
-            icmd->prevTransformBufferOffset = prevTransformOffset;   // UINT32_MAX on alloc failure -> dispatcher aliases current
-            icmd->entityIDBufferOffset = entityIDOffset;             // UINT32_MAX on alloc failure -> dispatcher writes -1
-            icmd->colorBufferOffset = colorOffset;                   // UINT32_MAX when all sources had identity tint
-            icmd->customBufferOffset = customOffset;                 // UINT32_MAX when all sources had Custom == 0
+            icmd->prevTransformBufferOffset = prevTransformOffset; // UINT32_MAX on alloc failure -> dispatcher aliases current
+            icmd->entityIDBufferOffset = entityIDOffset;           // UINT32_MAX on alloc failure -> dispatcher writes -1
+            icmd->colorBufferOffset = colorOffset;                 // UINT32_MAX when all sources had identity tint
+            icmd->customBufferOffset = customOffset;               // UINT32_MAX when all sources had Custom == 0
             icmd->gpuSceneRefBufferOffset = gpuSceneRefOffset;
             icmd->lightmapRegionBufferOffset = lightmapRegionOffset; // UINT32_MAX when no source carried a lightmap region
             icmd->shaderHandle = firstCmd->shaderHandle;

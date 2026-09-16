@@ -105,13 +105,13 @@ namespace OloEngine
         // Callable from any thread concurrently — the claim is atomic (see
         // the thread-safety block above).
         [[nodiscard]] VulkanFrameArenaAllocation Allocate(u64 sizeBytes, u64 alignment = 16,
-                                                           VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
+                                                          VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
 
         // Convenience: allocate + memcpy + return (and flush when the
         // placement is non-coherent). The common "one root struct per draw"
         // shape.
         [[nodiscard]] VulkanFrameArenaAllocation Push(const void* data, u64 sizeBytes, u64 alignment = 16,
-                                                       VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
+                                                      VulkanFrameArenaConsumer consumer = VulkanFrameArenaConsumer::RootData);
 
         // Fold a worker context's per-block allocation count into the frame
         // tally (the join calls this once per item; the worker path itself
