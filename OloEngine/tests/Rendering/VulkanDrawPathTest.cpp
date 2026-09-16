@@ -62,6 +62,8 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanFramebuffer.h"
+#include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
@@ -2313,6 +2315,98 @@ TEST_F(VulkanDrawPath, FramebufferBlitResolvesMultisampleColourAndDepth)
     ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, 0, 0, 0,
                                         1, 1, 1, RHI::Format::D32Float, sizeof(depth), &depth));
     EXPECT_NEAR(depth, 0.4f, 1e-6f);
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitPreservesUnrequestedDepthStencilAspects)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    struct StencilReadback
+    {
+        VmaAllocator Allocator;
+        VkBuffer Buffer = VK_NULL_HANDLE;
+        VmaAllocation Allocation = VK_NULL_HANDLE;
+        ~StencilReadback()
+        {
+            if (Buffer != VK_NULL_HANDLE)
+                vmaDestroyBuffer(Allocator, Buffer, Allocation);
+        }
+    } readback{ m_Device->GetAllocator() };
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = 16 * 16;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo allocationInfo{};
+    allocationInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VmaAllocationInfo mapped{};
+    ASSERT_EQ(vmaCreateBuffer(readback.Allocator, &bufferInfo, &allocationInfo,
+                              &readback.Buffer, &readback.Allocation, &mapped),
+              VK_SUCCESS);
+    ASSERT_NE(mapped.pMappedData, nullptr);
+    for (const u32 samples : { 1u, 4u })
+        for (const auto aspect : { RHI::BlitAspect::Depth, RHI::BlitAspect::Stencil, RHI::BlitAspect::DepthStencil })
+        {
+            SCOPED_TRACE(::testing::Message() << "samples=" << samples << " aspect=" << static_cast<u32>(aspect));
+            FramebufferSpecification spec;
+            spec.Width = spec.Height = 16;
+            spec.Samples = samples;
+            spec.Attachments = { FramebufferTextureFormat::DEPTH24STENCIL8 };
+            auto source = Framebuffer::Create(spec);
+            spec.Samples = 1;
+            auto destination = Framebuffer::Create(spec);
+            ASSERT_TRUE(source && destination);
+            auto* sourceVK = static_cast<VulkanFramebuffer*>(source.Raw());
+            auto* destinationVK = static_cast<VulkanFramebuffer*>(destination.Raw());
+            const VkImage sourceImage = sourceVK->GetDepthAttachmentImage()->GetVkImage();
+            const VkImage destinationImage = destinationVK->GetDepthAttachmentImage()->GetVkImage();
+            SubmitFrame(api, [&]()
+                        {
+                // Seed both aspects with different values. The facade's depth
+                // clear establishes/tracks TRANSFER_DST; raw clears retain it.
+                api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+                api.ClearFramebufferDepth(destination->GetRHIHandle(), 0.8f);
+                api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+                const VkClearDepthStencilValue sourceValue{ 0.4f, 37 };
+                const VkClearDepthStencilValue destinationValue{ 0.8f, 19 };
+                vkCmdClearDepthStencilImage(m_Cmd, sourceImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &sourceValue, 1, &range);
+                vkCmdClearDepthStencilImage(m_Cmd, destinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &destinationValue, 1, &range);
+                api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                    0, 0, 16, 16, 0, 0, 16, 16, aspect, RHI::Filter::Nearest);
+                RHI::Barrier barrier;
+                barrier.Resource = destination->GetDepthAttachmentHandle();
+                barrier.Range = { RHI::TextureAspect::DepthStencil, 0, 1, 0, 1 };
+                barrier.Before = samples == 1 ? RHI::Access::TransferWrite : RHI::Access::DepthStencilAttachmentWrite;
+                barrier.After = RHI::Access::TransferRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::TextureUpdate, std::span{ &barrier, 1u });
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_STENCIL_BIT, 0, 0, 1 };
+                region.imageExtent = { 16, 16, 1 };
+                vkCmdCopyImageToBuffer(m_Cmd, destinationImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.Buffer, 1, &region);
+                VkBufferMemoryBarrier2 host{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+                host.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                host.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                host.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                host.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+                host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                host.buffer = readback.Buffer;
+                host.size = VK_WHOLE_SIZE;
+                VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dependency.bufferMemoryBarrierCount = 1;
+                dependency.pBufferMemoryBarriers = &host;
+                vkCmdPipelineBarrier2(m_Cmd, &dependency); });
+            ASSERT_EQ(vmaInvalidateAllocation(readback.Allocator, readback.Allocation, 0, VK_WHOLE_SIZE), VK_SUCCESS);
+            const u8 expectedStencil = aspect == RHI::BlitAspect::Depth ? 19 : 37;
+            const auto* stencil = static_cast<const u8*>(mapped.pMappedData);
+            for (u32 pixel = 0; pixel < 16 * 16; ++pixel)
+                EXPECT_EQ(stencil[pixel], expectedStencil);
+            f32 depth = 0.0f;
+            ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, 0, 0, 0,
+                                                1, 1, 1, RHI::Format::D32Float, sizeof(depth), &depth));
+            EXPECT_NEAR(depth, aspect == RHI::BlitAspect::Stencil ? 0.8f : 0.4f, 1e-6f);
+        }
     EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 

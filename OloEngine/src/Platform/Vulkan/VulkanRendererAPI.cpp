@@ -5050,14 +5050,9 @@ namespace OloEngine
             }
             const VkImage srcVk = srcImage->GetVkImage();
             const VkImage dstVk = dstImage->GetVkImage();
-            // The aspect comes from the IMAGE, not from the caller's
-            // BlitAspect: a combined depth/stencil format must name BOTH
-            // aspects in a layout-transition barrier (VUID 03320 — no
-            // separateDepthStencilLayouts on the floor), and a matched-format
-            // copy legally moves both (the unused stencil rides along, which
-            // is also what GL's depth blit leaves behaviourally). The blit
-            // pairs are format-matched by the caller contract, so one aspect
-            // set serves src and dst alike.
+            // Combined depth/stencil images need BOTH aspects in layout
+            // transitions (no separateDepthStencilLayouts on the floor).
+            // The copy/resolve itself must preserve the caller's aspect mask.
             const auto* srcInfo = VulkanImageInfoRegistry::Get().Lookup(srcVk);
             const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstVk);
             if (srcInfo == nullptr || dstInfo == nullptr)
@@ -5065,6 +5060,10 @@ namespace OloEngine
                 return;
             }
             const VkImageAspectFlags aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            const VkImageAspectFlags requestedMask = aspect == RHI::BlitAspect::Color ? VK_IMAGE_ASPECT_COLOR_BIT : ((aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_DEPTH_BIT : 0u) | (aspect == RHI::BlitAspect::Stencil || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u));
+            const VkImageAspectFlags operationMask = aspectMask & requestedMask;
+            if (operationMask == 0u)
+                return;
             const bool resolving = srcInfo->Samples > 1u && dstInfo->Samples == 1u;
             if (srcInfo->Samples != dstInfo->Samples && !resolving)
             {
@@ -5074,7 +5073,7 @@ namespace OloEngine
             std::vector<VkImageMemoryBarrier2> toTransfer;
             const VkImageSubresourceRange srcRange{ aspectMask, 0u, 1u, 0u, 1u };
             const VkImageSubresourceRange dstRange{ aspectMask, 0u, 1u, 0u, 1u };
-            if (resolving && (aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0u)
+            if (resolving && (operationMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0u)
             {
                 // Depth has no vkCmdResolveImage arm. A LOAD-only rendering
                 // instance resolves sample zero when it ends; no draw is needed.
@@ -5107,9 +5106,8 @@ namespace OloEngine
                 VkRenderingInfo rendering{ VK_STRUCTURE_TYPE_RENDERING_INFO };
                 rendering.renderArea.extent = { static_cast<u32>(width), static_cast<u32>(height) };
                 rendering.layerCount = 1;
-                rendering.pDepthAttachment = &attachment;
-                if ((aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0u)
-                    rendering.pStencilAttachment = &attachment;
+                rendering.pDepthAttachment = (operationMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0u ? &attachment : nullptr;
+                rendering.pStencilAttachment = (operationMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0u ? &attachment : nullptr;
                 vkCmdBeginRendering(ctx.Cmd, &rendering);
                 vkCmdEndRendering(ctx.Cmd);
                 MemoryBarrier(MemoryBarrierFlags::Framebuffer);
@@ -5131,28 +5129,34 @@ namespace OloEngine
             if (resolving)
             {
                 VkImageResolve region{};
-                region.srcSubresource = { aspectMask, 0u, 0u, 1u };
-                region.dstSubresource = { aspectMask, 0u, 0u, 1u };
+                region.srcSubresource = { operationMask, 0u, 0u, 1u };
+                region.dstSubresource = { operationMask, 0u, 0u, 1u };
                 region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
                 vkCmdResolveImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
                 MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
                 return;
             }
-            VkImageCopy region{};
-            region.srcSubresource = { aspectMask, 0u, 0u, 1u };
-            region.dstSubresource = { aspectMask, 0u, 0u, 1u };
-            region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+            std::array<VkImageCopy, 2> regions{};
+            u32 regionCount = 0;
+            for (const VkImageAspectFlags bit : { VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_ASPECT_STENCIL_BIT })
+                if ((operationMask & bit) != 0u)
+                {
+                    auto& region = regions[regionCount++];
+                    region.srcSubresource = { bit, 0u, 0u, 1u };
+                    region.dstSubresource = { bit, 0u, 0u, 1u };
+                    region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+                }
             vkCmdCopyImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, regions.data());
             MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
         };
 
         if (aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ||
             aspect == RHI::BlitAspect::Stencil)
         {
-            // The BlitAspect selects the ATTACHMENT PAIR; the copied aspect
-            // set comes from the images themselves (see copyOne).
+            // Select the depth/stencil attachment pair; copyOne also respects
+            // which of its two aspects the caller requested.
             copyOne(src->GetDepthAttachmentImage(), dst->GetDepthAttachmentImage());
             return;
         }
