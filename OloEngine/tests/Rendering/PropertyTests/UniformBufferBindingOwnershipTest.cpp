@@ -25,8 +25,10 @@
 #include "OloEnginePCH.h"
 
 #include <gtest/gtest.h>
+#include <array>
 
 #include "OloEngine/Renderer/UniformBuffer.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "PropertyTests/RenderPropertyTest.h"
 
 #define GLFW_INCLUDE_NONE
@@ -34,6 +36,31 @@
 
 namespace OloEngine::Tests
 {
+    TEST(StorageBufferBindingOwnership, ExactUploadConstructionAndResizeLeaveBindingsAlone)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        GLint original = 0;
+        glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 0, &original);
+        auto buffer = StorageBuffer::Create(64, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicDrawExactUpload);
+        ASSERT_TRUE(buffer);
+        for (const u32 size : { 64u, 128u })
+        {
+            if (size != buffer->GetSize())
+                buffer->Resize(size);
+            EXPECT_EQ(buffer->GetSize(), size);
+            GLint bound = 0, usage = 0;
+            glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, 0, &bound);
+            EXPECT_EQ(bound, original);
+            glGetNamedBufferParameteriv(buffer->GetRendererID(), GL_BUFFER_USAGE, &usage);
+            EXPECT_EQ(usage, GL_DYNAMIC_DRAW);
+            const std::array<u32, 4> values{ 11, 22, 33, 44 };
+            buffer->SetData(values.data(), sizeof(values));
+            std::array<u32, 4> actual{};
+            buffer->GetData(actual.data(), sizeof(actual));
+            EXPECT_EQ(actual, values);
+        }
+    }
+
     namespace
     {
         // The binding this test plays with. UBO_USER_1 is a pass-local slot, so

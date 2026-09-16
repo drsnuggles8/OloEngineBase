@@ -101,6 +101,7 @@ namespace OloEngine
         switch (m_Usage)
         {
             case StorageBufferUsage::DynamicDraw:
+            case StorageBufferUsage::DynamicDrawExactUpload:
                 return GL_DYNAMIC_DRAW;
             case StorageBufferUsage::DynamicCopy:
                 return GL_DYNAMIC_COPY;
