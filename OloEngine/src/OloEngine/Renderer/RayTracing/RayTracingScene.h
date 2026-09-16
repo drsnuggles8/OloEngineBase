@@ -334,18 +334,36 @@ namespace OloEngine::RayTracing
         std::unordered_map<GeometryKey, BlasState, GeometryKeyHash> m_Blas;
         std::vector<InstanceRecord> m_Instances;
         std::vector<BlasBuildRequest> m_PendingBuilds;
-        // Pose bookkeeping held back until RecordBlasBuilds has said the builds
-        // it belongs to were actually recorded. A request the backend drops
-        // leaves the previous structure resident, and marking that structure
-        // built-at-the-new-pose would stop it ever refitting again.
-        struct PendingDeformationCommit
+        // EVERYTHING a resident structure believes about itself, held back until
+        // RecordBlasBuilds has said the build it belongs to was recorded. A
+        // request the backend drops leaves the PREVIOUS structure resident and
+        // untouched, so any state committed as though the build happened
+        // describes a structure that does not exist.
+        //
+        // The fingerprint and the class are in here for the same reason as the
+        // pose, and the fingerprint is the worst of the three to get wrong. Take
+        // a resident Static geometry whose vertex address moved: the rebuild is
+        // requested, the backend drops it, and committing the new fingerprint
+        // anyway makes the next frame read geometryChanged == false with a BLAS
+        // still resident — so DecideBuild returns nothing, and that structure
+        // traces the OLD address for the rest of the session. On a Deformed
+        // geometry it is the same suppression wearing criterion 2's clothes: the
+        // rebuild is skipped and a REFIT runs in its place, against vertices the
+        // tree was never built for.
+        //
+        // LastSeenFrame is NOT deferred. It answers "was this geometry offered
+        // this frame", which is true whatever the backend did, and deferring it
+        // would retire a live structure on the frame a build failed.
+        struct PendingBlasCommit
         {
             GeometryKey Key;
+            GeometryClass Class = GeometryClass::Unsupported;
+            u64 GeometryFingerprint = 0;
             u32 DeformationRevision = 0;
             u32 ConsecutiveRefits = 0;
             bool HasDeformation = false;
         };
-        std::vector<PendingDeformationCommit> m_PendingDeformationCommits;
+        std::vector<PendingBlasCommit> m_PendingBlasCommits;
         std::vector<GeometryKey> m_PendingRetires;
 
         SceneStats m_Stats{};

@@ -124,7 +124,7 @@ namespace OloEngine::RayTracing
         m_Blas.clear();
         m_Instances.clear();
         m_PendingBuilds.clear();
-        m_PendingDeformationCommits.clear();
+        m_PendingBlasCommits.clear();
         m_PendingRetires.clear();
         m_Stats = SceneStats{};
         m_PreviousInstanceCount = 0;
@@ -354,7 +354,7 @@ namespace OloEngine::RayTracing
 
         m_Instances.clear();
         m_PendingBuilds.clear();
-        m_PendingDeformationCommits.clear();
+        m_PendingBlasCommits.clear();
         m_PendingRetires.clear();
 
         ResidentCounters resident{};
@@ -524,9 +524,21 @@ namespace OloEngine::RayTracing
             ++resident.BlasByClass[static_cast<sizet>(entry.ReportedClass)];
 
             BlasState& state = m_Blas[key];
-            state.Class = buildClass;
-            state.GeometryFingerprint = entry.Fingerprint;
+            // LastSeenFrame only. It answers "was this geometry offered this
+            // frame", which is true whatever the backend goes on to do, and it
+            // is what the retire-by-absence loop reads — deferring it would
+            // retire a live structure on the frame one of its builds failed.
             state.LastSeenFrame = m_FrameNumber;
+            if (!reason.has_value())
+            {
+                // Nothing was requested, which means DecideBuild found the class
+                // and the fingerprint unchanged — that is WHY it asked for no
+                // build. Committing them here is therefore a no-op that keeps a
+                // first-sight entry consistent, and it cannot describe a
+                // structure that failed to appear.
+                state.Class = buildClass;
+                state.GeometryFingerprint = entry.Fingerprint;
+            }
             if (reason.has_value())
             {
                 // The pose and the refit run are NOT committed here. Reaching
@@ -544,8 +556,10 @@ namespace OloEngine::RayTracing
                 // A refit extends the run; any full rebuild resets it, so a
                 // geometry that stops deforming keeps its run length rather
                 // than rebuilding on the next change.
-                m_PendingDeformationCommits.push_back(PendingDeformationCommit{
+                m_PendingBlasCommits.push_back(PendingBlasCommit{
                     .Key = key,
+                    .Class = buildClass,
+                    .GeometryFingerprint = entry.Fingerprint,
                     .DeformationRevision = entry.DeformationRevision,
                     .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
                     .HasDeformation = buildClass == GeometryClass::Deformed,
@@ -616,17 +630,19 @@ namespace OloEngine::RayTracing
         // up as churn, and not worth it before.
         if (everyBuildRecorded)
         {
-            for (const PendingDeformationCommit& commit : m_PendingDeformationCommits)
+            for (const PendingBlasCommit& commit : m_PendingBlasCommits)
             {
                 if (auto found = m_Blas.find(commit.Key); found != m_Blas.end())
                 {
+                    found->second.Class = commit.Class;
+                    found->second.GeometryFingerprint = commit.GeometryFingerprint;
                     found->second.DeformationRevision = commit.DeformationRevision;
                     found->second.HasDeformation = commit.HasDeformation;
                     found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
                 }
             }
         }
-        m_PendingDeformationCommits.clear();
+        m_PendingBlasCommits.clear();
 
         // Belt to the retire loop's braces: a build that failed above would
         // otherwise leave an instance in the TLAS pointing at no structure.
