@@ -17,6 +17,7 @@
 // payload from an empty scene are the same bytes.
 
 #include "MCP/McpStatsSnapshot.h"
+#include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingStats.h"
@@ -41,6 +42,11 @@ namespace OloEngine::MCP::RayTracingStats
         // up, not that the scene is empty.
         bool GPUSceneAvailable = false;
         OloEngine::GPUSceneFrameStats GPUScene;
+        // The deformed-vertex producer behind the animated BLASes (#1229).
+        // Reported beside them for the same reason GPUScene is: "no deformed
+        // surfaces" and "deformed surfaces that could not be produced" give the
+        // RT counters the same shape and need opposite fixes.
+        OloEngine::RayTracing::DeformedSurfaceStats Deformed;
     };
 
     // The JSON key for each diagnostics category. A switch, not a table lookup,
@@ -201,6 +207,35 @@ namespace OloEngine::MCP::RayTracingStats
             { "accelerationStructureBytes", resident.AccelerationStructureBytes },
             { "scratchBytes", resident.ScratchBytes },
             { "compactionSavedBytes", resident.CompactionSavedBytes },
+        };
+
+        // The deformed-vertex producer (issue #1229). Criterion 4 asks for
+        // build/refit timings, memory and rebuild reasons; the structures'
+        // half is above, and this is the producer's — because a frame where
+        // animated surfaces are expensive is either deforming a lot of vertices
+        // or rebuilding a lot of structures, and the RT counters alone cannot
+        // say which.
+        //
+        // `refused` is the number to read first. It is the one value here that
+        // means something is wrong rather than something is costly: a surface
+        // that should be in the TLAS and is not.
+        //
+        // `skippedUnchanged` is the opposite — a large number there is the
+        // system working, because an idle character costs neither a dispatch
+        // nor a refit.
+        const auto& deformed = snapshot.Deformed;
+        out["deformedSurfaces"] = Json{
+            { "residentSurfaces", deformed.ResidentSurfaces },
+            { "residentBytes", deformed.ResidentBytes },
+            { "paletteBytes", deformed.PaletteBytes },
+            { "requested", deformed.SurfacesRequested },
+            { "dispatched", deformed.Dispatched },
+            { "verticesDeformed", deformed.VerticesDeformed },
+            { "allocated", deformed.Allocated },
+            { "reallocated", deformed.Reallocated },
+            { "retired", deformed.Retired },
+            { "skippedUnchanged", deformed.SkippedUnchanged },
+            { "refused", deformed.Refused },
         };
 
         out["frame"] = Json{

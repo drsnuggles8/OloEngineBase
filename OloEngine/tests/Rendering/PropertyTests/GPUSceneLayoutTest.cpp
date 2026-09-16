@@ -45,7 +45,7 @@ namespace OloEngine::Tests
             { "DeformationRevision", offsetof(GPUSceneInstance, DeformationRevision) },
             { "PreviousDeformationRevision", offsetof(GPUSceneInstance, PreviousDeformationRevision) },
             { "DeformationResetCause", offsetof(GPUSceneInstance, DeformationResetCause) },
-            { "DeformationPad0", offsetof(GPUSceneInstance, DeformationPad0) },
+            { "DeformedContentRevision", offsetof(GPUSceneInstance, DeformedContentRevision) },
         } };
         constexpr std::array<MemberPin, 14> kGeometryPins{ {
             { "VertexBufferIndex", offsetof(GPUSceneGeometry, VertexBufferIndex) },

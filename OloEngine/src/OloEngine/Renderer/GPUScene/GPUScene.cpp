@@ -681,6 +681,7 @@ namespace OloEngine
                 record.DeformationRevision = input.m_DeformationRevision;
                 record.PreviousDeformationRevision = input.m_PrevDeformationRevision;
                 record.DeformationResetCause = input.m_DeformationResetCause;
+                record.DeformedContentRevision = input.m_DeformedContentRevision;
                 return record;
             },
             AlwaysCompatible{});

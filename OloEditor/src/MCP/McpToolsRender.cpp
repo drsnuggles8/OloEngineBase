@@ -6634,6 +6634,7 @@ namespace OloEngine::MCP
                 // payload and need different fixes.
                 snapshot.GPUSceneAvailable = true;
                 snapshot.GPUScene = Renderer3D::GetGPUSceneStats();
+                snapshot.Deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
             return RayTracingStats::BuildReport(snapshot);

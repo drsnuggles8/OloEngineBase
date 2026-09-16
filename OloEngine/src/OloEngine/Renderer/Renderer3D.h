@@ -34,6 +34,7 @@
 #include "OloEngine/Renderer/PathTracing/EmissiveTriangleTable.h"
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/MaterialShaderHeapTable.h"
+#include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -419,6 +420,8 @@ namespace OloEngine
         [[nodiscard]] static const GPUScene& GetGPUScene();
         [[nodiscard]] static const MaterialShaderHeapTable& GetMaterialShaderHeapTable();
         [[nodiscard]] static RayTracing::RayTracingScene& GetRayTracingScene();
+        // The deformed-vertex producer behind the animated BLASes (#1229).
+        [[nodiscard]] static RayTracing::DeformedSurfaceCache& GetDeformedSurfaceCache();
         [[nodiscard]] static const RayTracing::SceneStats& GetRayTracingStats();
         // Turns every link staged this frame into the record it names. Called
         // once, from EndScene, after EndExtraction and Upload; a consumer that
@@ -2239,6 +2242,15 @@ namespace OloEngine
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.
             RayTracing::RayTracingScene SceneRT;
+            // The deformed-vertex producer for animated surfaces (#1229).
+            // Value-owned beside SceneRT for the same reason SceneRT is owned
+            // beside SceneGPU: its buffers ARE what SceneRT's animated BLASes
+            // are built from, so a restart that stranded one behind the other
+            // would leave acceleration structures pointing at freed memory.
+            //
+            // Armed from SceneRT's capability at init, so it allocates nothing
+            // on OpenGL or on any device without ray tracing.
+            RayTracing::DeformedSurfaceCache DeformedSurfaces;
             // See SetRayTracedShadowLightRequests (issue #1056).
             std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             bool GPUSceneExtractionActive = false;

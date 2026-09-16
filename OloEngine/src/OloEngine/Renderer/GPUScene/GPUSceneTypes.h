@@ -131,6 +131,23 @@ namespace OloEngine
     enum GPUSceneGeometryFlag : u32
     {
         GPUSceneGeometryFlagActive = 1u << 0,
+        // This record's vertex stream is a DEFORMED one (issue #1229): a
+        // per-surface buffer holding the skinned-and-morphed vertices a compute
+        // dispatch wrote this frame, not the shared rest surface the mesh asset
+        // owns.
+        //
+        // It is a GEOMETRY flag rather than an instance flag because it
+        // describes the stream, and because that is the level the consumer asks
+        // at: RayTracingScene classifies per instance but decides BUILDS per
+        // geometry, and "does this BLAS have to refit every frame" is a
+        // question about the geometry.
+        //
+        // A record carrying it is inherently unshared — a deformed stream
+        // belongs to exactly one entity — which is what gives an animated
+        // surface its own BLAS without a second key space. Two characters
+        // sharing a skinned mesh share the REST buffer and therefore used to
+        // share a geometry record; they hold different poses and must not.
+        GPUSceneGeometryFlagDeformed = 1u << 1,
     };
 
     // Mirrors Material's authored state one bit per knob, so the deferred
@@ -287,7 +304,21 @@ namespace OloEngine
         // debug view and olo_gpu_scene diagnostics can name it without
         // re-deriving it from CPU state they cannot see.
         u32 DeformationResetCause = 0;
-        u32 DeformationPad0 = 0;
+        // How many times this surface's DEFORMED VERTEX STREAM has actually
+        // been rewritten (issue #1229). Zero on a rigid instance and on an
+        // animated one with no deformed stream.
+        //
+        // This lane was `DeformationPad0`, so it costs no bytes and moves no
+        // offset — the std430 mirror declared the same padding word.
+        //
+        // It is NOT DeformationRevision, and the difference is the whole reason
+        // it exists. That counter advances once per frame for every skinned
+        // entity whether or not it animated (#1226's frame-boundary rule), so
+        // it ticks for a character standing perfectly still. A consumer that
+        // caches something built FROM these vertices — an acceleration
+        // structure — has to know whether the vertices moved, not whether a
+        // frame elapsed, and only the producer can answer that.
+        u32 DeformedContentRevision = 0;
     };
 
     struct alignas(16) GPUSceneGeometry
@@ -484,7 +515,7 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneInstance, DeformationRevision) == 128);
     static_assert(offsetof(GPUSceneInstance, PreviousDeformationRevision) == 132);
     static_assert(offsetof(GPUSceneInstance, DeformationResetCause) == 136);
-    static_assert(offsetof(GPUSceneInstance, DeformationPad0) == 140);
+    static_assert(offsetof(GPUSceneInstance, DeformedContentRevision) == 140);
     static_assert(sizeof(GPUSceneGeometry) == 64);
     static_assert(alignof(GPUSceneGeometry) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneGeometry>);
@@ -795,6 +826,9 @@ namespace OloEngine
         u32 m_DeformationRevision = 0;
         u32 m_PrevDeformationRevision = 0;
         u32 m_DeformationResetCause = 0;
+        // Issue #1229. Advances only when the deformed vertex stream was
+        // actually rewritten; see GPUSceneInstance::DeformedContentRevision.
+        u32 m_DeformedContentRevision = 0;
     };
 
     // What an extraction caller knows about the DEFORMATION of the surface it
@@ -814,6 +848,30 @@ namespace OloEngine
         u32 m_PrevDeformationRevision = 0;
         // Animation::DeformationHistoryResetCause, widened.
         u32 m_ResetCause = 0;
+
+        // The entity's current final bone matrices (issue #1229), which the
+        // deformed-vertex producer skins with. Borrowed for the duration of the
+        // extraction call and never retained: the caller owns them and rewrites
+        // them every tick, so the producer COPIES what it needs into its own
+        // per-frame staging before returning.
+        //
+        // A raw pointer and a count rather than a std::span, for one concrete
+        // reason: std::span is not equality-comparable, so a span member would
+        // delete this struct's defaulted operator==. The pair keeps the struct
+        // comparable — and comparing palette IDENTITY rather than contents is
+        // the right meaning for a borrowed view anyway.
+        //
+        // Empty on a rigid surface, and empty is also what an animated surface
+        // whose skeleton has no palette yet carries. The producer treats both
+        // as "cannot deform this", counts the refusal, and the surface stays
+        // out of the TLAS rather than entering it at rest.
+        const glm::mat4* m_BonePalette = nullptr;
+        u32 m_BoneCount = 0;
+
+        // Filled by the extraction path from the producer's answer, not by the
+        // caller: only the deformed-vertex cache knows whether it rewrote this
+        // surface's vertices this frame.
+        u32 m_DeformedContentRevision = 0;
 
         // The verdict the census and the record's consumers share, so
         // "continuous" has one spelling on this side of the seam too.

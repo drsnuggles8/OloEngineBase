@@ -7604,6 +7604,19 @@ namespace OloEngine
             // is already "no live discontinuity" for a surface with history -
             // it is read, not re-decided, because the producer owns the rule.
             .m_ResetCause = static_cast<u32>(skeleton->m_DeformationResetCause),
+            // The CURRENT palette, borrowed (issue #1229). The deformed-vertex
+            // producer skins with exactly the matrices the raster vertex stage
+            // skins with this frame, which is what makes the two surfaces the
+            // same surface — deriving a second palette here is the drift
+            // skeletal-deformation-shared-output.md exists to prevent, one
+            // level up from the shader.
+            //
+            // The PREVIOUS palette is deliberately not carried. An
+            // acceleration structure describes where geometry is now; there is
+            // no previous-pose BLAS, and a velocity is the raster path's
+            // business.
+            .m_BonePalette = skeleton->m_FinalBoneMatrices.data(),
+            .m_BoneCount = static_cast<u32>(skeleton->m_FinalBoneMatrices.size()),
         };
     }
 

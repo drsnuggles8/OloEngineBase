@@ -39,6 +39,7 @@
 #include "OloEngine/Renderer/Passes/ReSTIRGIPass.h"
 #include "OloEngine/Renderer/Passes/ReSTIRPTPass.h"
 #include "OloEngine/Renderer/Passes/RayTracingScenePass.h"
+#include "OloEngine/Renderer/Passes/SkeletalDeformPass.h"
 #include "OloEngine/Renderer/Passes/SSAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SphereProxyAORenderPass.h"
 #include "OloEngine/Renderer/Passes/SSGIRenderPass.h"
@@ -212,6 +213,9 @@ namespace OloEngine
         // consumes what it marks) is the first node in the graph, so its output is
         // one frame ahead of its consumer by construction.
         Ref<VirtualShadowMapMarkPass> VirtualShadowMapMark;
+        // #1229 skinning-to-memory, immediately BEFORE RayTracingScene:
+        // it writes the vertex buffers those BLASes are built from.
+        Ref<SkeletalDeformPass> SkeletalDeform;
         Ref<RayTracingScenePass> RayTracingScene; // #978 BLAS/TLAS build, first in the frame
 
         void Reset()

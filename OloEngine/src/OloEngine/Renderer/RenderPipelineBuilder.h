@@ -18,8 +18,12 @@ namespace OloEngine
     // upcast from each concrete pass class (which derives `RenderGraphNode`).
     struct RenderPipelinePassInputs
     {
-        // #978 acceleration-structure build. FIRST in the frame: every
-        // ray-query consumer reads what it produces.
+        // #1229 skinning to memory. FIRST in the frame, ahead of the
+        // acceleration-structure build: it writes the vertex buffers the
+        // animated BLASes are built from.
+        RenderGraphNode* SkeletalDeform = nullptr;
+        // #978 acceleration-structure build. Every ray-query consumer reads
+        // what it produces.
         RenderGraphNode* RayTracingScene = nullptr;
         RenderGraphNode* Scene = nullptr;
         RenderGraphNode* Shadow = nullptr;
