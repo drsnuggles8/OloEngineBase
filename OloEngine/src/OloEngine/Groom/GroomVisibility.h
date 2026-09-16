@@ -304,8 +304,7 @@ namespace OloEngine
 
         [[nodiscard]] constexpr bool IsFallback() const noexcept
         {
-            return Reason != GroomCompositionFallbackReason::None
-                   && Reason != GroomCompositionFallbackReason::NotRequested;
+            return Reason != GroomCompositionFallbackReason::None && Reason != GroomCompositionFallbackReason::NotRequested;
         }
 
         [[nodiscard]] auto operator==(const GroomCompositionDecision&) const -> bool = default;

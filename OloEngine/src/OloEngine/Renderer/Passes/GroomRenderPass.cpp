@@ -308,15 +308,26 @@ namespace OloEngine
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
-            // BIND BEFORE UPLOAD, every draw. A UniformBuffer claims its
-            // binding point at construction and nothing rebinds it, so by the
-            // time this pass runs the slot belongs to whoever constructed a
-            // buffer on it last. Without this the strand draws read another
-            // pass's bytes: the viewport came back zero, every ribbon widened
-            // by a garbage factor, and the pass reported 28 000 segments drawn
-            // while changing not one pixel.
-            m_ParamsUBO->Bind();
+            // UPLOAD, THEN BIND — in that order, every draw, the shape
+            // CloudscapeRenderPass::UploadAndBindUBO established.
+            //
+            // Both halves are load-bearing and each was learned from a frame
+            // that drew nothing:
+            //
+            //   * BINDING at all, because a UniformBuffer claims its binding
+            //     point at CONSTRUCTION and nothing rebinds it, so by the time
+            //     this pass runs the slot belongs to whoever constructed a
+            //     buffer on it last. Without it the strand draws read another
+            //     pass's bytes on OpenGL.
+            //   * The ORDER, because the Vulkan backend's UBOs are
+            //     arena-versioned: SetData mints a NEW allocation (ADR 0011
+            //     §4), so binding first publishes the address of the PREVIOUS
+            //     one. The draw then reads a zero viewport, every ribbon is
+            //     widened by a garbage factor and lands off-screen, and the
+            //     pass reports thousands of segments drawn while changing not
+            //     one pixel — on Vulkan only, with no error anywhere.
             m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
+            m_ParamsUBO->Bind();
 
             entry->Array->Bind();
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);

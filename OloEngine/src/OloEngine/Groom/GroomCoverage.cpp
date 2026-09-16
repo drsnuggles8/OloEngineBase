@@ -365,8 +365,13 @@ namespace OloEngine::GroomCoverage
         // projection (projection[1][1] == 1/tan(fovY/2)) and for an
         // orthographic one (where clip w is 1 and projection[1][1] is
         // 2/orthoHeight), so no branch on projection type is needed.
+        //
+        // std::abs, matching the GLSL twin: a Vulkan-convention projection has
+        // a NEGATIVE [1][1] because that clip space has +Y downwards, and the
+        // magnitude is what "pixels per unit" means. See
+        // oloGroomPixelsPerUnitAtUnitW for what dropping it costs.
         const f32 pixelsPerUnitAtUnitW =
-            projection[1][1] * static_cast<f32>(viewportHeight) * 0.5f;
+            std::abs(projection[1][1]) * static_cast<f32>(viewportHeight) * 0.5f;
 
         const auto& points = groom.GetPoints();
         const auto& widths = groom.GetPointWidths();
@@ -384,7 +389,8 @@ namespace OloEngine::GroomCoverage
             bool Valid = false;
         };
 
-        const auto project = [&](u32 pointIndex) -> Projected {
+        const auto project = [&](u32 pointIndex) -> Projected
+        {
             Projected result;
             const glm::vec3& p = points[pointIndex];
             if (!IsFinite(p))
@@ -392,8 +398,7 @@ namespace OloEngine::GroomCoverage
                 return result;
             }
             const glm::vec4 clip = mvp * glm::vec4(p, 1.0f);
-            if (!(clip.w > 0.0f) || !std::isfinite(clip.w) || !std::isfinite(clip.x) || !std::isfinite(clip.y)
-                || !std::isfinite(clip.z))
+            if (!(clip.w > 0.0f) || !std::isfinite(clip.w) || !std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z))
             {
                 return result;
             }
@@ -412,8 +417,7 @@ namespace OloEngine::GroomCoverage
             const f32 diameter = widths[pointIndex];
             const f32 radiusWorld = diameter * 0.5f * widthScale * objectScale;
             result.HalfWidth = radiusWorld * pixelsPerUnitAtUnitW * invW;
-            result.Valid = std::isfinite(result.Screen.x) && std::isfinite(result.Screen.y)
-                           && std::isfinite(result.HalfWidth) && result.HalfWidth >= 0.0f;
+            result.Valid = std::isfinite(result.Screen.x) && std::isfinite(result.Screen.y) && std::isfinite(result.HalfWidth) && result.HalfWidth >= 0.0f;
             return result;
         };
 
@@ -494,8 +498,7 @@ namespace OloEngine::GroomCoverage
             return {};
         }
 
-        const u64 sampleCount = static_cast<u64>(width) * static_cast<u64>(height) * static_cast<u64>(supersample)
-                                * static_cast<u64>(supersample);
+        const u64 sampleCount = static_cast<u64>(width) * static_cast<u64>(height) * static_cast<u64>(supersample) * static_cast<u64>(supersample);
         if (sampleCount > kMaxReferenceSamples)
         {
             return {};
@@ -531,9 +534,7 @@ namespace OloEngine::GroomCoverage
                             {
                                 continue;
                             }
-                            const u64 index = (static_cast<u64>(y) * static_cast<u64>(supersample) + sy)
-                                                  * static_cast<u64>(sampleWidth)
-                                              + static_cast<u64>(x) * static_cast<u64>(supersample) + sx;
+                            const u64 index = (static_cast<u64>(y) * static_cast<u64>(supersample) + sy) * static_cast<u64>(sampleWidth) + static_cast<u64>(x) * static_cast<u64>(supersample) + sx;
                             hits[static_cast<sizet>(index >> 6)] |= 1ull << (index & 63ull);
                         }
                     }
@@ -550,9 +551,7 @@ namespace OloEngine::GroomCoverage
                 u32 covered = 0;
                 for (u32 sy = 0; sy < supersample; ++sy)
                 {
-                    const u64 rowBase = (static_cast<u64>(y) * static_cast<u64>(supersample) + sy)
-                                            * static_cast<u64>(sampleWidth)
-                                        + static_cast<u64>(x) * static_cast<u64>(supersample);
+                    const u64 rowBase = (static_cast<u64>(y) * static_cast<u64>(supersample) + sy) * static_cast<u64>(sampleWidth) + static_cast<u64>(x) * static_cast<u64>(supersample);
                     for (u32 sx = 0; sx < supersample; ++sx)
                     {
                         const u64 index = rowBase + sx;

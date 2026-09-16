@@ -501,7 +501,8 @@ namespace OloEngine::Tests
         // Not zero: strands still show AROUND the slab, which is the point of
         // parking it in front of only part of the coat. What must be true is
         // that far fewer strand pixels survive than without the slab.
-        const u32 unoccludedStrandPixels = [&] {
+        const u32 unoccludedStrandPixels = [&]
+        {
             SetRenderStrands(false);
             m_OccluderEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, -1000.0f, 0.0f);
             std::vector<u8> baseline;

@@ -213,47 +213,50 @@ nor a temporal upscaler is running, and reports
   frames) but it is a model of the resolve, not a measurement of it. The live captures in the PR
   are what tie it to real pixels.
 
-## Backend status: OpenGL complete, Vulkan OPEN
+## Backend status: both backends verified
 
-**The strand pass renders nothing on Vulkan.** This is an open defect, not a declared capability
-fallback, and it is recorded here rather than left for someone to discover.
+Verified on an RTX 4090, Windows, Debug, `build-cached`.
 
-What is verified on OpenGL (RTX 4090, Windows, Debug, `build-cached`):
+**OpenGL** — all three paths draw the coat with identical pixel counts (81 825 px differ from the
+strands-off control, max channel delta 146/255); an opaque slab in front hides 77 % of it
+(81 825 -> 19 073 strand pixels) with no bleed-through; live editor reports 0 shader errors, 0
+`[error]` lines, 0 VUIDs.
 
-- All three rendering paths draw the coat, with identical pixel counts (81 825 px differ from the
-  strands-off control, max channel delta 146/255) — `GroomStrandVisualEvidenceTest`.
-- Depth-correct overlap: an opaque slab in front of the coat hides 77 % of it (81 825 -> 19 073
-  strand pixels), with no bleed-through.
-- Live in the editor: 0 shader errors, 0 `[error]` lines, 0 VUIDs.
-- The seam engages and disengages live. With TAA off the log carries the refusal sentence
-  verbatim; toggling TAA on clears it (proved by the reason being RE-logged on the way back down,
-  which only happens on a CHANGE of dominant reason), and the coat visibly softens as the
-  stochastic mode takes over.
+**Vulkan** — same scene, same camera: the coat renders, the slab occludes it, 0 `[error]` lines and
+0 VUIDs. On both backends the seam engages and disengages live: with TAA off the log carries the
+refusal sentence verbatim, and toggling TAA on clears it (proved by the reason being RE-logged on
+the way back down, which only happens on a CHANGE of dominant reason).
 
-What is known about the Vulkan failure, so the next session does not re-derive it:
+### The Vulkan bug this cost, because it is the kind that ships
 
-- The backend is confirmed active (`[RHI] Backend: Vulkan (source: --rhi flag)`).
-- The pass RUNS: it builds the strand geometry (`2000 of 2000 strands, 14000 segments, 2.88 MiB`),
-  decides a composition mode, and logs the same fallback reason it does on OpenGL.
-- It declares its render-graph resources: `SceneColor@GroomPass`, `SceneDepthAttachment@GroomPass`,
-  `SceneEntityID@GroomPass`, `SceneViewNormals@GroomPass` and `SceneSkinDiffuse@GroomPass` all
-  appear in `olo_render_list_targets`, so the node is neither culled nor resource-less.
-- The draw is RECORDED, not dropped: `VulkanRendererAPI::PrepareDrawCommon` warns on every one of
-  its early-outs (no ready shader, stage mismatch, no rendering scope, outside the recording
-  bracket) and the log contains none of them. A non-zero index count is passed explicitly, so the
-  `DrawIndexed(va, 0)` "whole buffer" sentinel is not in play either.
-- `SceneColor@GroomPass` captured from the live frame is indistinguishable from the version
-  written by the pass BEFORE it, so nothing is overwriting the strands afterwards — they are never
-  drawn.
-- 0 errors and 0 VUIDs throughout.
+**The strand pass rendered nothing at all on Vulkan, and every diagnostic said it was fine.** The
+backend was active, the pass ran and logged, it declared its render-graph resources, the draw was
+recorded rather than dropped (`PrepareDrawCommon` warns on every one of its early-outs and none
+fired), the vertex pull and the UBO both carried correct data, and there were 0 errors and 0 VUIDs.
 
-That leaves the fragment or the vertex-pull arm of `GroomStrand.glsl` as the remaining suspect: the
-Vulkan backend declares no vertex input state (ADR 0011 §5), so the shader reads its vertices from
-`layout(std430, binding = 57) OloVertexPull` as a flat float array with a hard-coded stride of 12.
-The next step is a bisect in that arm — force the widened alpha to 1 and the raster half width to
-something unmistakable, and see whether any fragment survives. Note that Vulkan graphics pipelines
-do not hot-reload, so each iteration costs a rebuild and a relaunch.
+The cause was one missing `abs()`:
 
+```glsl
+return projection[1][1] * viewportHeight * 0.5;   // pixels per world unit at w == 1
+```
+
+Vulkan's clip space has +Y downwards, so the engine uploads a projection whose `[1][1]` is
+**negative** there. That made pixels-per-unit negative, so every strand got a negative projected
+half width, `oloGroomWidenedAlpha` clamped it to 0, and the alpha test discarded **every fragment**.
+The engine already guards the same matrix element the same way — `Renderer3D.h` stores
+`|cull projection[1][1]|` and `RenderPipeline.cpp` takes `std::abs` of it — so this was a
+convention that existed and was not followed.
+
+It is worth recording how it was found, because the obvious hypotheses were all wrong. Two live
+shader probes settled it in two runs: the first replaced `gl_Position` with a fixed on-screen quad
+and the fragment output with an unconditional colour — the quad appeared, which cleared the pass,
+the pipeline, the render scope, the depth state and the draw. The second kept the fixed quad but
+encoded a PULLED vertex attribute in red and a UBO lane in green; both came back non-zero, which
+cleared the vertex pull and the uniform buffer and left only the arithmetic between them.
+
+Note that a shader validated by `glslc` is not a shader validated on Vulkan: this compiles
+perfectly, and so does the cross-stage uniform-block mismatch that preceded it (see
+`docs/agent-rules/glsl-shaders.md`).
 
 ## GPU cost and memory, on named hardware
 

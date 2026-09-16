@@ -65,9 +65,20 @@ float oloGroomStochasticHash(uint pixelX, uint pixelY, uint frameIndex, uint seg
 // 1/tan(fovY/2)) and for an orthographic one (where clip w is 1 and [1][1] is
 // 2/orthoHeight), so no branch on projection type is needed — the same
 // derivation GroomCoverage::ProjectGroom uses.
+//
+// THE abs() IS LOAD-BEARING, AND ITS ABSENCE IS INVISIBLE ON OPENGL.
+// Vulkan's clip space has +Y downwards, so the engine uploads a projection
+// whose [1][1] is NEGATIVE there. Without the abs() this returns a negative
+// pixels-per-unit, every strand gets a negative half width, oloGroomWidenedAlpha
+// clamps that to 0, and the alpha test discards EVERY fragment: the pass runs,
+// the draw is recorded, the vertex pull and the UBO are both correct, and not
+// one pixel changes — with no error and no validation message anywhere. The
+// sign is a clip-space convention; the MAGNITUDE is the thing being asked for.
+// The engine guards the same element the same way — see Renderer3D.h's
+// "|cull projection[1][1]|" and RenderPipeline.cpp's std::abs on it.
 float oloGroomPixelsPerUnitAtUnitW(mat4 projection, float viewportHeight)
 {
-    return projection[1][1] * viewportHeight * 0.5;
+    return abs(projection[1][1]) * viewportHeight * 0.5;
 }
 
 // Composition modes. Twin of GroomCompositionMode in

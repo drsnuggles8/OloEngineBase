@@ -144,9 +144,9 @@ namespace
         std::vector<ScreenSegment> Segments;
         std::vector<f32> Reference;
         Row Opaque;
-        std::array<Row, 3> A2C;        // 2, 4, 8 samples
+        std::array<Row, 3> A2C; // 2, 4, 8 samples
         Row StochasticSingleFrame;
-        Row StochasticConverged;       // 8 frames, TAA's effective history
+        Row StochasticConverged; // 8 frames, TAA's effective history
         Row Oit;
         TemporalStability OpaqueStability;
         TemporalStability StochasticStability;
@@ -496,10 +496,8 @@ TEST(GroomCoverageStability, SilhouetteAreaFractionIsStableAcrossResolutions)
             << kResolutions[i].Name;
     }
 
-    const f64 opaqueSpread = *std::max_element(opaqueFraction.begin(), opaqueFraction.end())
-                             - *std::min_element(opaqueFraction.begin(), opaqueFraction.end());
-    const f64 convergedSpread = *std::max_element(convergedFraction.begin(), convergedFraction.end())
-                                - *std::min_element(convergedFraction.begin(), convergedFraction.end());
+    const f64 opaqueSpread = *std::max_element(opaqueFraction.begin(), opaqueFraction.end()) - *std::min_element(opaqueFraction.begin(), opaqueFraction.end());
+    const f64 convergedSpread = *std::max_element(convergedFraction.begin(), convergedFraction.end()) - *std::min_element(convergedFraction.begin(), convergedFraction.end());
     std::printf("[groom-coverage] area-fraction spread across resolutions: opaque %.4f, stochastic %.4f\n",
                 opaqueSpread, convergedSpread);
 }

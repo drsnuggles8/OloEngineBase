@@ -67,6 +67,37 @@ Read before touching `OloEngine/src/OloEngine/Groom/Groom{Visibility,Coverage,St
     one into the other, and do not delete the preview — a groom with no shading yet is exactly when
     the debug lines are the only usable view.
 
+## `projection[1][1]` is NEGATIVE on Vulkan — take `abs()` before using it as a scale
+
+Any shader that derives a pixels-per-world-unit scale from the projection matrix must write
+`abs(projection[1][1])`. Vulkan's clip space has +Y downwards, so the engine uploads a projection
+whose `[1][1]` is negative there; the sign is a clip-space convention and the MAGNITUDE is what a
+scale is asking for. The engine already does this elsewhere — `Renderer3D.h` stores
+`|cull projection[1][1]|`, `RenderPipeline.cpp` takes `std::abs` of it.
+
+**The failure is invisible on OpenGL and silent on Vulkan**, which is why it gets its own heading.
+Without the `abs()` the strand pass produced a negative half width, `oloGroomWidenedAlpha` clamped
+it to 0, and the alpha test discarded every fragment. What that looks like from the outside:
+
+- the pass runs and logs its stats (thousands of segments "drawn"),
+- the render-graph node is present and declares its resources,
+- the draw is RECORDED, not dropped — `PrepareDrawCommon` warns on every early-out and none fire,
+- the vertex pull and the UBO both carry correct data,
+- 0 errors, 0 VUIDs, 0 validation messages,
+- and not one pixel changes.
+
+**The bisect that finds this class of bug in two runs**, rather than by reading code: shaders are
+runtime assets, so each iteration is an editor restart, not a rebuild.
+
+1. Replace `gl_Position` with a fixed on-screen quad and the fragment output with an unconditional
+   colour. If it appears, the pass, pipeline, render scope, depth state and draw are all fine and
+   the problem is the DATA.
+2. Keep the fixed quad and encode one PULLED attribute in red and one UBO lane in green. Non-zero
+   in both clears the vertex pull and the uniform buffer, leaving only the arithmetic between them.
+
+Read the pixels with a decoder rather than by eye — the frame is tone-mapped, so "looks green" and
+"red is zero" are different claims.
+
 ## When you measure a composition approach, measure ACCURACY, not spread
 
 The trap, because it nearly shipped: the first version of the resolution-stability test asserted
