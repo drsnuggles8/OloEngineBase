@@ -124,6 +124,7 @@ namespace OloEngine::RayTracing
         m_Blas.clear();
         m_Instances.clear();
         m_PendingBuilds.clear();
+        m_PendingDeformationCommits.clear();
         m_PendingRetires.clear();
         m_Stats = SceneStats{};
         m_PreviousInstanceCount = 0;
@@ -353,6 +354,7 @@ namespace OloEngine::RayTracing
 
         m_Instances.clear();
         m_PendingBuilds.clear();
+        m_PendingDeformationCommits.clear();
         m_PendingRetires.clear();
 
         ResidentCounters resident{};

@@ -387,16 +387,26 @@ namespace OloEngine
         // OpenGL, and on any device without ray tracing, Acquire refuses
         // everything and the record staged here is byte-for-byte the record
         // staged before this issue.
-        const RayTracing::DeformedSurfaceKey deformedKey{
-            .EntityId = stableEntityId,
-            .RestVertexBuffer = RHI::HashKey(vertexHandle),
-        };
-        const std::span<const glm::mat4> bonePalette{
-            animatedSurface.m_BonePalette,
-            animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount : 0u
-        };
-        const RayTracing::DeformedSurfaceBinding deformed = s_Data.DeformedSurfaces.Acquire(
-            deformedKey, animatedSurface.m_IsAnimated, meshSource, bonePalette, animatedSurface.m_MorphStateHash);
+        // Only an animated submission can have a deformed stream, and this
+        // function runs for every submesh of every mesh in the scene — rigid
+        // geometry outnumbers animated by orders of magnitude in any real level.
+        // Acquire refuses a rigid caller on its first line anyway; skipping it
+        // here also skips hashing the buffer handle and building the span to ask
+        // a question whose answer is already known.
+        RayTracing::DeformedSurfaceBinding deformed{};
+        if (animatedSurface.m_IsAnimated)
+        {
+            const RayTracing::DeformedSurfaceKey deformedKey{
+                .EntityId = stableEntityId,
+                .RestVertexBuffer = RHI::HashKey(vertexHandle),
+            };
+            const std::span<const glm::mat4> bonePalette{
+                animatedSurface.m_BonePalette,
+                animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount : 0u
+            };
+            deformed = s_Data.DeformedSurfaces.Acquire(deformedKey, animatedSurface.m_IsAnimated, meshSource,
+                                                      bonePalette, animatedSurface.m_MorphStateHash);
+        }
         const bool useDeformed = deformed.IsValid();
         // The producer's answer, not the caller's: only the cache knows whether
         // it actually rewrote this surface's vertices, and that is what the

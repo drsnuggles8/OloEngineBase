@@ -179,10 +179,18 @@ ray-query dispatch has no per-draw scope to bind arbitrary materials into. The f
 caller-supplied macro. Closing that needs the shader-visible sampler heap ADR 0011 §1.2a already
 records — it is not an acceleration-structure problem.
 
-Deformed geometry has a class, a refit heuristic and tests, but **no live producer**: nothing in this
-engine writes a deformed vertex to memory, because every skinned consumer deforms inside its own
-vertex stage and keeps nothing ([skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md)).
-The policy is exercised by tests, not by a scene, and that is stated rather than hidden.
+Deformed geometry had a class, a refit heuristic and tests but **no live producer** until #1229,
+because every skinned consumer deforms inside its own vertex stage and keeps nothing
+([skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md)). That issue added
+the producer, so the class is now reachable and the policy is exercised by a scene rather than only
+by tests — see
+[deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md).
+
+**Classification takes two records, not one.** An instance carrying `GPUSceneInstanceFlagAnimated`
+is `Deformed` when its geometry also carries `GPUSceneGeometryFlagDeformed` — the producer's
+statement that this record's vertex stream is the deformed one — and `Unsupported` otherwise, because
+the only stream available is then the shared rest surface and a BLAS built from that traces a
+T-pose. The refusal is counted under `ResidentCounters::AnimatedInstancesRefused`.
 
 **A corollary that cost a merge to learn.** Cloth and particle entities are skipped upstream and
 counted in `GPUSceneUnsupportedCategory`, so they can never reach a build. **Skinned entities used to

@@ -44,6 +44,18 @@ namespace OloEngine::RayTracing
 
         constexpr u32 kWorkgroupSize = 64; ///< local_size_x in the compute shader.
 
+        // Vertex.h already pins sizeof(Vertex) == 32, so this cannot drift
+        // silently — that assert fires first. This one exists for its MESSAGE:
+        // whoever changes the vertex layout will be standing in Vertex.h with no
+        // reason to suspect a compute shader in the editor's asset tree, and
+        // OLO_DEFORM_VERTEX_FLOATS there is a literal 8 that no C++ change can
+        // reach. Failing here too is what names the second file.
+        static_assert(sizeof(Vertex) == 32,
+                      "The deformed stream layout is duplicated as OLO_DEFORM_VERTEX_FLOATS (8) in "
+                      "OloEditor/assets/shaders/compute/SkeletalDeformToBuffer.comp, and as "
+                      "OLO_RT_VERTEX_STRIDE in include/RayTracingAlphaTest.glsl. Change all three "
+                      "together or a ray hit interpolates the wrong triangle with no diagnostic.");
+
         // Growth rounding. A surface that gains vertices one at a time would
         // otherwise reallocate — and therefore force a BLAS REBUILD rather than
         // a refit — on every frame it grows.

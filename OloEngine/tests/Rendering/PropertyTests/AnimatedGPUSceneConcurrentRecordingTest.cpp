@@ -132,6 +132,19 @@ namespace OloEngine::Tests
         // than inside the worker body: this is the ownership boundary the whole
         // design rests on.
         Renderer3D::BeginGPUSceneExtraction(/*ownerToken*/ 0xC0FFEEull);
+        // Closed on EVERY exit from here, not just the happy one. Registered
+        // immediately after the call that opens it, because every ASSERT_*
+        // below returns from the test — and a return that skipped the cleanup
+        // would leak the extraction flag into the next test, which then dies on
+        // "called twice before EndScene" and buries the assertion that actually
+        // failed under an abort several thousand tests later.
+        const struct ExtractionScope
+        {
+            ~ExtractionScope()
+            {
+                Renderer3D::ResetGPUScene();
+            }
+        } extractionScope;
 
         std::vector<Renderer3D::MeshSubmitDesc> descriptors;
         std::vector<u32> mintedLinks;
@@ -243,23 +256,5 @@ namespace OloEngine::Tests
                    "the per-entity transform cache the records exist to replace";
         }
 
-        // CLOSE THE EXTRACTION THIS TEST OPENED.
-        //
-        // BeginGPUSceneExtraction above sets a renderer-global flag that only
-        // EndScene or this call clears, and this test deliberately never runs
-        // an EndScene — that is the point, since it asserts the links have NOT
-        // resolved yet. Leaving the flag set leaks into the next test in the
-        // process: BeginGPUSceneExtraction asserts "called twice before
-        // EndScene" and the whole run aborts there.
-        //
-        // It aborted for real. The failure is invisible when this file is run
-        // alone and only appears in a full-suite run, several thousand tests
-        // later, blamed on whichever test happened to extract next — here
-        // GPUSceneRasterMigrationScene, which passes in isolation.
-        //
-        // ResetGPUScene rather than EndScene because there is no frame to end:
-        // it clears the flag and drops the link table, which is exactly the
-        // right state to hand the next test (cross-test-renderer-state.md).
-        Renderer3D::ResetGPUScene();
     }
 } // namespace OloEngine::Tests

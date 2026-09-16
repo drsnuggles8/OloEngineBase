@@ -334,6 +334,18 @@ namespace OloEngine::RayTracing
         std::unordered_map<GeometryKey, BlasState, GeometryKeyHash> m_Blas;
         std::vector<InstanceRecord> m_Instances;
         std::vector<BlasBuildRequest> m_PendingBuilds;
+        // Pose bookkeeping held back until RecordBlasBuilds has said the builds
+        // it belongs to were actually recorded. A request the backend drops
+        // leaves the previous structure resident, and marking that structure
+        // built-at-the-new-pose would stop it ever refitting again.
+        struct PendingDeformationCommit
+        {
+            GeometryKey Key;
+            u32 DeformationRevision = 0;
+            u32 ConsecutiveRefits = 0;
+            bool HasDeformation = false;
+        };
+        std::vector<PendingDeformationCommit> m_PendingDeformationCommits;
         std::vector<GeometryKey> m_PendingRetires;
 
         SceneStats m_Stats{};
