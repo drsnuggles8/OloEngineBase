@@ -5078,6 +5078,13 @@ namespace OloEngine
                 // Depth has no vkCmdResolveImage arm. A LOAD-only rendering
                 // instance resolves sample zero when it ends; no draw is needed.
                 // SAMPLE_ZERO is required for depth/stencil resolve on our API floor.
+                const VkImageView sourceView = srcImage->GetOrCreateAttachmentView();
+                const VkImageView destinationView = dstImage->GetOrCreateAttachmentView();
+                if (sourceView == VK_NULL_HANDLE || destinationView == VK_NULL_HANDLE)
+                {
+                    UnimplementedStub("BlitFramebuffer(depth/stencil attachment view unavailable)", StubKind::PreconditionFailure);
+                    return;
+                }
                 constexpr auto layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                 StageTransferTransition(srcVk, srcRange, layout,
                                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, toTransfer);
@@ -5096,10 +5103,10 @@ namespace OloEngine
                 dep.pImageMemoryBarriers = toTransfer.data();
                 ctx.RecordBarrier(dep);
                 VkRenderingAttachmentInfo attachment{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-                attachment.imageView = srcImage->GetOrCreateAttachmentView();
+                attachment.imageView = sourceView;
                 attachment.imageLayout = layout;
                 attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-                attachment.resolveImageView = dstImage->GetOrCreateAttachmentView();
+                attachment.resolveImageView = destinationView;
                 attachment.resolveImageLayout = layout;
                 attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
                 attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
