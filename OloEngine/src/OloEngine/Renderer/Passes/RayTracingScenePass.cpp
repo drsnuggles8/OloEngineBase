@@ -38,13 +38,26 @@ namespace OloEngine
     void RayTracingScenePass::Setup(RGBuilder& builder, FrameBlackboard& blackboard)
     {
         RenderGraphNode::Setup(builder, blackboard);
+        // The one edge this node declares (issue #1229). An animated surface's
+        // BLAS is built from a vertex buffer SkeletalDeformPass wrote with a
+        // compute dispatch earlier in this same command buffer; a build that
+        // ran first would hold whatever that memory contained, with no error
+        // and no validation message, because every API call involved is legal.
+        //
+        // By NAME, and declared here rather than left to registration order,
+        // for the reason this node's own header gives for existing at all: an
+        // ordering that holds because two AddNode calls happen to be adjacent
+        // is invisible to the graph and silently wrong the first time someone
+        // reorders the pipeline.
+        builder.DependsOnPass("SkeletalDeformPass");
         // Nothing is declared as a graph read or write: the acceleration
         // structure is not a graph resource, and the vertex/index streams the
         // build consumes are reached by device address rather than through the
-        // graph. The ORDERING that matters is expressed by NeverCull plus the
-        // node's position (first), and the memory hazard by the explicit
-        // AS-build -> AS-read barrier Execute emits. When a ray-query consumer
-        // lands, it declares an execution dependency on this node by name.
+        // graph. The ORDERING that matters is expressed by NeverCull, by the
+        // edge above, and by the node's position near the front of the frame;
+        // the memory hazard by the explicit AS-build -> AS-read barrier Execute
+        // emits. Every ray-query consumer declares an execution dependency on
+        // this node by name, the same way this one declares its producer.
     }
 
     void RayTracingScenePass::Execute(RGCommandContext& context)

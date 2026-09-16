@@ -124,6 +124,7 @@ namespace OloEngine::RayTracing
         m_Blas.clear();
         m_Instances.clear();
         m_PendingBuilds.clear();
+        m_PendingBlasCommits.clear();
         m_PendingRetires.clear();
         m_Stats = SceneStats{};
         m_PreviousInstanceCount = 0;
@@ -164,11 +165,56 @@ namespace OloEngine::RayTracing
             return GeometryClass::Unsupported;
         }
 
-        // Deformed geometry does not reach GPU Scene today: skinned, cloth and
-        // particle entities are excluded upstream and counted in
-        // GPUSceneUnsupportedCategory instead. The class and its refit policy
-        // exist and are tested, so the day a deformed-vertex stream lands in
-        // GPU Scene this is the one line that changes.
+        // AN ANIMATED SURFACE WITH NO DEFORMED VERTEX STREAM IS NOT TRACEABLE,
+        // and this refusal is the whole of it.
+        //
+        // The comment that used to sit here said skinned entities never reach
+        // GPU Scene at all, which was true when #978 wrote it and stopped being
+        // true when #1228 gave animated meshes canonical records. Nothing else
+        // changed — so from that merge until this line existed, every skinned
+        // character passed the checks above and took the RIGID path below,
+        // earning a compacted, build-once BLAS holding its REST pose. It then
+        // cast ray-traced shadows and appeared in reflections T-posed while the
+        // raster path drew it mid-stride.
+        //
+        // Nothing announced it. The record is well-formed, the addresses are
+        // real, the build succeeds, the validation layers see legal usage and
+        // the counters all read healthy — the only evidence is the picture, in
+        // a pass most scenes do not enable. That is precisely the shape
+        // Renderer3DMeshSubmission.cpp already refuses for a skinned VIRTUAL
+        // mesh, in a comment that names this exact failure: "Wrong geometry in
+        // the TLAS is worse than none, because none is counted and this would
+        // not be."
+        //
+        // So an animated instance is traced only when a deformed vertex stream
+        // exists for it, and is a counted refusal otherwise.
+        //
+        // Two different flags on two different records answer the two halves,
+        // and keeping them apart is the point:
+        //
+        //  * the INSTANCE says "this surface deforms" — a property of the
+        //    entity, set from the caller's own statement (#1228);
+        //  * the GEOMETRY says "this record's vertex stream IS the deformed
+        //    one" — a property of the buffer, set by the producer (#1229).
+        //
+        // Animated with a deformed stream is Deformed: its vertices move every
+        // frame, so it refits. Animated WITHOUT one is Unsupported, because the
+        // only stream available is the shared rest surface and a BLAS built
+        // from that traces a T-pose. The second case is not hypothetical — a
+        // surface whose bone influences are missing, whose allocation failed,
+        // or whose compute shader did not load all land here, and each is
+        // counted by the producer as well.
+        //
+        // The instance flag is tested, never inferred from the deformation
+        // revisions: both lanes are 0 on a rigid instance and 0 == 0 is the
+        // DISCONTINUOUS reading, so inference would classify every rigid mesh
+        // as a deforming one (animated-surface-records.md §3).
+        if ((instance.Flags & GPUSceneInstanceFlagAnimated) != 0u)
+        {
+            return (geometry->Flags & GPUSceneGeometryFlagDeformed) != 0u ? GeometryClass::Deformed
+                                                                          : GeometryClass::Unsupported;
+        }
+
         //
         // Virtualized-cluster entities USED to be on that list and no longer
         // are (issue #1144, ADR 0023). Nothing here knows about them: each
@@ -199,7 +245,8 @@ namespace OloEngine::RayTracing
     }
 
     std::optional<BuildReason> RayTracingScene::DecideBuild(GeometryClass previousClass, GeometryClass currentClass,
-                                                            bool geometryChanged, bool hasBlas, u32 consecutiveRefits)
+                                                            bool geometryChanged, bool hasBlas, u32 consecutiveRefits,
+                                                            bool deformationAdvanced)
     {
         if (UpdatePolicyFor(currentClass) == UpdatePolicy::Never)
         {
@@ -223,6 +270,21 @@ namespace OloEngine::RayTracing
         }
         if (UpdatePolicyFor(currentClass) == UpdatePolicy::RefitOrRebuild)
         {
+            // A surface that did not deform since its structure was built needs
+            // nothing. The vertices under the BLAS are the vertices it was
+            // built from, so a refit would reproduce the tree it already has at
+            // the cost of a real BLAS update.
+            //
+            // This is checked BEFORE the budget heuristic on purpose: an idle
+            // character must not accumulate refits it never performed and then
+            // pay a full rebuild for standing still. A paused crowd costs zero
+            // acceleration-structure work per frame, which is the difference
+            // between "animated surfaces are supported" and "animated surfaces
+            // are affordable".
+            if (!deformationAdvanced)
+            {
+                return std::nullopt;
+            }
             // The documented heuristic. A refit reuses the tree built for the
             // ORIGINAL vertex positions, so its quality decays as the vertices
             // drift; after kMaxConsecutiveRefits the run is broken with a full
@@ -292,6 +354,7 @@ namespace OloEngine::RayTracing
 
         m_Instances.clear();
         m_PendingBuilds.clear();
+        m_PendingBlasCommits.clear();
         m_PendingRetires.clear();
 
         ResidentCounters resident{};
@@ -316,6 +379,12 @@ namespace OloEngine::RayTracing
             // different questions: a Masked mesh is still built once.
             GeometryClass ReportedClass = GeometryClass::Static;
             u64 Fingerprint = 0;
+            // The pose this geometry's surface is at, from the instance record
+            // (#1228's revision). Only meaningful for a Deformed geometry, and
+            // a Deformed geometry is unshared by construction — its vertex
+            // stream belongs to one entity — so there is exactly one instance
+            // writing this and no fold is needed.
+            u32 DeformationRevision = 0;
         };
         std::unordered_map<GeometryKey, GeometryDemand, GeometryKeyHash> demand;
 
@@ -341,6 +410,15 @@ namespace OloEngine::RayTracing
                 // rejects one instance of a mesh other instances still trace).
                 ++resident.UnsupportedInstances;
                 ++m_Stats.Frame.InstancesSkipped;
+                // ...and an ANIMATED refusal is broken out, because it is the
+                // one row here that means "this should have been traceable".
+                // Ticked from the instance's own flag rather than from the
+                // class, since Unsupported is the one class that does not say
+                // why it was reached.
+                if ((instance->Flags & GPUSceneInstanceFlagAnimated) != 0u)
+                {
+                    ++resident.AnimatedInstancesRefused;
+                }
                 continue;
             }
 
@@ -359,6 +437,10 @@ namespace OloEngine::RayTracing
             // for the same reason: a mesh used both opaquely and as a cutout
             // reports once, as Masked.
             entry.ReportedClass = MostRestrictive(entry.ReportedClass, geometryClass);
+            if (geometryClass == GeometryClass::Deformed)
+            {
+                entry.DeformationRevision = instance->DeformedContentRevision;
+            }
 
             InstanceRecord record{};
             record.Transform[0] = instance->CurrentTransform.Row0;
@@ -370,7 +452,23 @@ namespace OloEngine::RayTracing
             // VK_GEOMETRY_INSTANCE_FORCE_OPAQUE / FORCE_NO_OPAQUE override the
             // geometry's own flag, so one mesh used opaquely by one entity and
             // as a cutout by another needs one BLAS, not two.
-            record.ForceOpaque = !RequiresCandidateConfirmation(geometryClass);
+            //
+            // Read from the MATERIAL rather than from the class, and that is a
+            // fix rather than a restatement (issue #1229). GeometryClass has
+            // one slot and a surface can be two things at once: an alpha-masked
+            // character is both Masked and Deformed, and since Deformed is the
+            // more restrictive of the two it is what Classify returns. Deriving
+            // opacity from the class would therefore hand every animated cutout
+            // FORCE_OPAQUE and trace its leaves and hair cards as solid quads —
+            // silently, because the only symptom is a shadow with the wrong
+            // outline.
+            //
+            // Asking the material is also simply the truer question: opacity IS
+            // a material property, which is what the BLAS geometry flag comment
+            // in the Vulkan backend has said since #978. For a rigid instance
+            // this is exactly what RequiresCandidateConfirmation(class) already
+            // computed, so nothing about the rigid path changes.
+            record.ForceOpaque = material->AlphaMode != static_cast<u32>(AlphaMode::Mask);
             record.Geometry = key;
             m_Instances.push_back(record);
         }
@@ -386,13 +484,39 @@ namespace OloEngine::RayTracing
             const bool geometryChanged = known && found->second.GeometryFingerprint != entry.Fingerprint;
             const u32 consecutiveRefits = known ? found->second.ConsecutiveRefits : 0u;
 
+            // Has this surface's POSE moved since the structure was built?
+            //
+            // The geometry fingerprint cannot answer it: a deformation rewrites
+            // the vertex BYTES in place and leaves every field of the geometry
+            // record — both addresses, both counts, both formats — exactly as
+            // it found them.
+            //
+            // Nor can the SKELETON's deformation revision, which is the obvious
+            // candidate and is wrong. #1226 advances bone history once per
+            // frame for every skinned entity whether or not it animated, so
+            // that counter ticks for a character standing perfectly still.
+            // Measured on the fox scene in edit mode with a fixed pose, driving
+            // this from it produced a refit every frame and a full rebuild
+            // every eighth — for a character that never moved.
+            //
+            // What answers it is the PRODUCER's content revision, which
+            // advances only when the deformed vertex stream was actually
+            // rewritten (GPUSceneInstance::DeformedContentRevision).
+            //
+            // A structure that has never carried a revision must build: that is
+            // the first sight of a new character, whose skeleton legitimately
+            // sits at revision 0.
+            const bool deformationAdvanced =
+                !known || !found->second.HasDeformation || found->second.DeformationRevision != entry.DeformationRevision;
+
             if (!known)
             {
                 topologyChanged = true;
             }
 
             const auto reason = DecideBuild(previousClass, buildClass, geometryChanged,
-                                            known && m_Backend->IsBlasResident(key), consecutiveRefits);
+                                            known && m_Backend->IsBlasResident(key), consecutiveRefits,
+                                            deformationAdvanced);
 
             // ONE structure, counted once. This loop is per unique geometry,
             // which is what a BLAS is — the instance walk above would have
@@ -400,15 +524,46 @@ namespace OloEngine::RayTracing
             ++resident.BlasByClass[static_cast<sizet>(entry.ReportedClass)];
 
             BlasState& state = m_Blas[key];
-            state.Class = buildClass;
-            state.GeometryFingerprint = entry.Fingerprint;
+            // LastSeenFrame only. It answers "was this geometry offered this
+            // frame", which is true whatever the backend goes on to do, and it
+            // is what the retire-by-absence loop reads — deferring it would
+            // retire a live structure on the frame one of its builds failed.
             state.LastSeenFrame = m_FrameNumber;
+            if (!reason.has_value())
+            {
+                // Nothing was requested, which means DecideBuild found the class
+                // and the fingerprint unchanged — that is WHY it asked for no
+                // build. Committing them here is therefore a no-op that keeps a
+                // first-sight entry consistent, and it cannot describe a
+                // structure that failed to appear.
+                state.Class = buildClass;
+                state.GeometryFingerprint = entry.Fingerprint;
+            }
             if (reason.has_value())
             {
-                // A refit extends the run; any full rebuild resets it. A
-                // geometry that stops deforming therefore keeps its run length
-                // rather than rebuilding on the next change.
-                state.ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u;
+                // The pose and the refit run are NOT committed here. Reaching
+                // this point means the build was REQUESTED; whether the backend
+                // records it is unknown until RecordBlasBuilds returns, and a
+                // request it drops leaves the previous structure resident and
+                // untouched.
+                //
+                // Committing here would mark that structure built-at-this-pose
+                // while it still holds the previous one, and the next frame
+                // would read deformationAdvanced == false and never refit it
+                // again — a character frozen mid-stride for the session.
+                // Deferred to after the record call below.
+                //
+                // A refit extends the run; any full rebuild resets it, so a
+                // geometry that stops deforming keeps its run length rather
+                // than rebuilding on the next change.
+                m_PendingBlasCommits.push_back(PendingBlasCommit{
+                    .Key = key,
+                    .Class = buildClass,
+                    .GeometryFingerprint = entry.Fingerprint,
+                    .DeformationRevision = entry.DeformationRevision,
+                    .ConsecutiveRefits = *reason == BuildReason::DeformedRefit ? consecutiveRefits + 1u : 0u,
+                    .HasDeformation = buildClass == GeometryClass::Deformed,
+                });
                 m_PendingBuilds.push_back(BlasBuildRequest{
                     .Key = key,
                     .Class = buildClass,
@@ -454,11 +609,40 @@ namespace OloEngine::RayTracing
         // never completes in production while a test that calls the backend
         // directly still passes.
         const u32 recorded = m_Backend->RecordBlasBuilds(m_PendingBuilds);
-        if (recorded < m_PendingBuilds.size())
+        const bool everyBuildRecorded = recorded == m_PendingBuilds.size();
+        if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
                           m_PendingBuilds.size() - recorded, m_PendingBuilds.size());
         }
+
+        // Now the pose bookkeeping, and only if EVERY request was recorded.
+        //
+        // All-or-nothing because the backend reports a COUNT, not which keys:
+        // it can skip an entry mid-loop on a failed size query or allocation,
+        // so a partial success cannot be attributed to particular keys from
+        // here. Re-deciding a handful of surfaces next frame is cheap;
+        // committing a pose for a build that never happened costs that surface
+        // its refits for the rest of the session.
+        //
+        // Widening this to per-key attribution means RecordBlasBuilds returning
+        // the keys it recorded — worth doing if the all-or-nothing ever shows
+        // up as churn, and not worth it before.
+        if (everyBuildRecorded)
+        {
+            for (const PendingBlasCommit& commit : m_PendingBlasCommits)
+            {
+                if (auto found = m_Blas.find(commit.Key); found != m_Blas.end())
+                {
+                    found->second.Class = commit.Class;
+                    found->second.GeometryFingerprint = commit.GeometryFingerprint;
+                    found->second.DeformationRevision = commit.DeformationRevision;
+                    found->second.HasDeformation = commit.HasDeformation;
+                    found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
+                }
+            }
+        }
+        m_PendingBlasCommits.clear();
 
         // Belt to the retire loop's braces: a build that failed above would
         // otherwise leave an instance in the TLAS pointing at no structure.
@@ -492,6 +676,14 @@ namespace OloEngine::RayTracing
         if (IsAvailable())
         {
             m_Backend->RecordBuildToReadBarrier();
+        }
+    }
+
+    void RayTracingScene::RecordDeformToBuildBarrier()
+    {
+        if (IsAvailable())
+        {
+            m_Backend->RecordDeformToBuildBarrier();
         }
     }
 

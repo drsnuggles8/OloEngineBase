@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+
+#include <bit>
 #include "Scene.h"
 #include "Entity.h"
 
@@ -1494,6 +1496,8 @@ namespace OloEngine
         // A handle that failed to load is forgotten too, so replacing a missing
         // .oloskin and reloading recovers without restarting the editor.
         Renderer3D::GetSkinProfileTable().Reset();
+        // The other tenant of the same G-Buffer slot field (issue #1234).
+        Renderer3D::GetFoliageLeafProfileTable().Reset();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -1985,6 +1989,8 @@ namespace OloEngine
         WaterSpraySystem::Reset();
         // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
         Renderer3D::GetSkinProfileTable().Reset();
+        // The other tenant of the same G-Buffer slot field (issue #1234).
+        Renderer3D::GetFoliageLeafProfileTable().Reset();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -7590,7 +7596,43 @@ namespace OloEngine
     // A null skeleton is a rigid surface, not an animated one with no history:
     // the default-constructed value carries m_IsAnimated = false, which is what
     // stops a rigid instance from claiming a dropped deformation history.
-    [[nodiscard]] static GPUSceneAnimatedSurface MakeGPUSceneAnimatedSurface(const Skeleton* skeleton)
+    // Order-independent hash of a morph component's live weights.
+    //
+    // Order-independent because the weights live in an unordered_map, whose
+    // iteration order is unspecified and free to change when the map rehashes:
+    // a sequential hash would report a pose change on a frame where nothing
+    // moved but a bucket did. Summing per-entry hashes cannot do that.
+    //
+    // Weight BITS, not the float value, for the reason the palette hash gives:
+    // this asks "is this the same expression", and an epsilon would let a slow
+    // drift accumulate under an acceleration structure never refitted for it.
+    [[nodiscard]] static u64 HashMorphState(const MorphTargetComponent* morph)
+    {
+        if (morph == nullptr)
+        {
+            return 0;
+        }
+        u64 sum = 0;
+        for (const auto& [name, weight] : morph->Weights)
+        {
+            u64 entry = 1469598103934665603ull;
+            for (const char c : name)
+            {
+                entry ^= static_cast<u64>(static_cast<unsigned char>(c));
+                entry *= 1099511628211ull;
+            }
+            entry ^= static_cast<u64>(std::bit_cast<u32>(weight));
+            entry *= 1099511628211ull;
+            sum += entry;
+        }
+        // Fold the count so that dropping a zero-weight target — which changes
+        // the surface back — cannot hash equal to keeping it.
+        sum ^= static_cast<u64>(morph->Weights.size()) * 1099511628211ull;
+        return sum;
+    }
+
+    [[nodiscard]] static GPUSceneAnimatedSurface MakeGPUSceneAnimatedSurface(const Skeleton* skeleton,
+                                                                             const MorphTargetComponent* morph)
     {
         if (skeleton == nullptr)
         {
@@ -7604,6 +7646,20 @@ namespace OloEngine
             // is already "no live discontinuity" for a surface with history -
             // it is read, not re-decided, because the producer owns the rule.
             .m_ResetCause = static_cast<u32>(skeleton->m_DeformationResetCause),
+            // The CURRENT palette, borrowed (issue #1229). The deformed-vertex
+            // producer skins with exactly the matrices the raster vertex stage
+            // skins with this frame, which is what makes the two surfaces the
+            // same surface — deriving a second palette here is the drift
+            // skeletal-deformation-shared-output.md exists to prevent, one
+            // level up from the shader.
+            //
+            // The PREVIOUS palette is deliberately not carried. An
+            // acceleration structure describes where geometry is now; there is
+            // no previous-pose BLAS, and a velocity is the raster path's
+            // business.
+            .m_BonePalette = skeleton->m_FinalBoneMatrices.data(),
+            .m_BoneCount = static_cast<u32>(skeleton->m_FinalBoneMatrices.size()),
+            .m_MorphStateHash = HashMorphState(morph),
         };
     }
 
@@ -7647,7 +7703,13 @@ namespace OloEngine
                                         // why the skinned arm below ticks Skinned for it rather
                                         // than staging a record with an invented identity.
                                         const Skeleton* skeleton = nullptr,
-                                        GPUSceneAnimatedStats* animatedCensus = nullptr)
+                                        GPUSceneAnimatedStats* animatedCensus = nullptr,
+                                        // Issue #1229: the morph component whose weights also move
+                                        // this surface's vertices, because EvaluateMorphTargets
+                                        // writes them straight into the rest buffer. Null is
+                                        // "no morph targets", which hashes to 0 and therefore never
+                                        // reports a change on its own.
+                                        const MorphTargetComponent* morph = nullptr)
     {
         if (!meshSource || meshSource->GetSubmeshes().IsEmpty())
         {
@@ -7680,7 +7742,8 @@ namespace OloEngine
                 // is the palette, and that is what the deformation revisions
                 // carry. The one rigid thing the record holds, the world
                 // transform, is as true for a skinned entity as for any other.
-                const GPUSceneAnimatedSurface animatedSurface = MakeGPUSceneAnimatedSurface(skeleton);
+                const GPUSceneAnimatedSurface animatedSurface =
+                    MakeGPUSceneAnimatedSurface(skeleton, morph);
                 const u32 skinnedLink =
                     animatedSurface.m_IsAnimated
                         ? StageGPUSceneSubmesh(stableEntityId, meshSource, static_cast<u32>(i), worldTransform,
@@ -9898,6 +9961,27 @@ namespace OloEngine
                             impostor.Radius = layer.ImpostorRadius;
                         }
 
+                        // The layer's leaf material (issue #1234). Copied
+                        // wholesale onto every draw the layer emits — mesh,
+                        // card and impostor — so the near and far
+                        // representations of a plant are made of the same
+                        // thing. TransmissionStrength 0 means the layer is not
+                        // a leaf material and every path behaves as it did
+                        // before #1234.
+                        Renderer3D::FoliageLeafMaterial leaf;
+                        leaf.NormalTextureID = layer.LeafNormalTextureID;
+                        leaf.RoughnessTextureID = layer.LeafRoughnessTextureID;
+                        leaf.ThicknessTextureID = layer.LeafThicknessTextureID;
+                        leaf.Roughness = layer.LeafRoughness;
+                        leaf.NormalStrength = layer.LeafNormalStrength;
+                        leaf.Thickness = layer.LeafThickness;
+                        leaf.TransmissionStrength = layer.LeafTransmissionStrength;
+                        leaf.TransmissionColor = layer.LeafTransmissionColor;
+                        leaf.TransmissionDistortion = layer.LeafTransmissionDistortion;
+                        leaf.TransmissionPower = layer.LeafTransmissionPower;
+                        leaf.TransmissionWrap = layer.LeafTransmissionWrap;
+                        leaf.TransmissionAmbient = layer.LeafTransmissionAmbient;
+
                         Renderer3D::DrawFoliageLayer(
                             layer.VertexArrayID, layer.BaseIndex, layer.IndexCount, layer.InstanceCount,
                             layer.AlbedoTextureID,
@@ -9910,6 +9994,7 @@ namespace OloEngine
                             layer.Bounds,
                             entityID,
                             impostor,
+                            leaf,
                             layer.IsAuthoredMesh,
                             layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance);
                     }
@@ -11407,7 +11492,8 @@ namespace OloEngine
                                             /*lodGroup*/ nullptr,
                                             meshHasActiveShadows && virtualMesh.m_CastShadows,
                                             lightmapScaleOffset, boneMatrices, prevBoneMatrices,
-                                            fallbackSkeleton, &animatedCensus);
+                                            fallbackSkeleton, &animatedCensus,
+                                            m_Registry.try_get<MorphTargetComponent>(entity));
                     continue;
                 }
 
@@ -12158,8 +12244,8 @@ namespace OloEngine
                 // (issue #1228). The geometry and material identities below stay
                 // per submesh, which is the whole point of the split -- an
                 // entity has one pose and N surfaces.
-                const GPUSceneAnimatedSurface animatedSurface =
-                    MakeGPUSceneAnimatedSurface(skeleton.m_Skeleton.Raw());
+                const GPUSceneAnimatedSurface animatedSurface = MakeGPUSceneAnimatedSurface(
+                    skeleton.m_Skeleton.Raw(), m_Registry.try_get<MorphTargetComponent>(entity));
                 // The same canonical entity identity the rigid path uses
                 // (IDComponent UUID, falling back to the entt handle), so an
                 // entity that is skinned today and rigid tomorrow keeps one

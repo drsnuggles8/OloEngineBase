@@ -24,10 +24,17 @@
 #include "BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
 #define u_AlbedoAtlas OLO_HEAP_TEX_2D(0)  // rgb=albedo, a=coverage — TEX_DIFFUSE
-#define u_NormalDepthAtlas OLO_HEAP_TEX_2D(10)  // rgb=obj normal, a=depth — TEX_USER_0
+// MOVED OFF TEX_USER_0 (10) BY ISSUE #1234. Since the foliage programs gained
+// image-based ambient, TEX_USER_0/1/2 carry the engine's IBL trio — irradiance
+// and prefilter are samplerCUBEs there — and a sampler2D on 10 in the same
+// shader is a WITHIN-SHADER namespace collision, which is the one binding rule
+// that actually has to hold (ShaderBindingLayout, namespace note A2): Vulkan's
+// single-set model collapses the two. TEX_SPECULAR is unused by every foliage
+// program, and CommandDispatch::DrawFoliageLayer binds the atlas there.
+#define u_NormalDepthAtlas OLO_HEAP_TEX_2D(1)  // rgb=obj normal, a=depth — TEX_SPECULAR
 #else
 layout(binding = 0) uniform sampler2D u_AlbedoAtlas;      // rgb=albedo, a=coverage
-layout(binding = 10) uniform sampler2D u_NormalDepthAtlas; // rgb=obj normal, a=depth
+layout(binding = 1) uniform sampler2D u_NormalDepthAtlas; // rgb=obj normal, a=depth — TEX_SPECULAR
 #endif
 
 #include "OctahedralImpostor.glsl"

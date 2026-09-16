@@ -422,6 +422,13 @@ namespace OloEngine
         // the scene reporting BackendNotVulkan, and nothing downstream
         // changes. Deliberately AFTER the GPU Scene it consumes.
         s_Data.SceneRT.Init();
+        // ...and the deformed-vertex producer its animated BLASes are built
+        // from (#1229). Armed from the capability SceneRT just decided rather
+        // than from a second test of its own: one answer, one place. On every
+        // backend without ray tracing this allocates nothing and Acquire
+        // refuses every surface, which is what keeps the raster path
+        // byte-identical to what it was before this feature.
+        s_Data.DeformedSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         // GPU per-instance frustum culler — compute shader is lazy-loaded on
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
@@ -668,6 +675,10 @@ namespace OloEngine
         // one. Scene::OnRuntimeStart / OnSimulationStart reset it for the same
         // reason a scene switch resets the water fields.
         s_Data.SkinProfiles.Reset();
+        // Leaf materials (issue #1234) share the field and the stickiness, so
+        // they share the reset — a renderer that came back up with the previous
+        // run's seven leaf slots taken would refuse every new one.
+        s_Data.FoliageLeafProfiles.Reset();
 
         // The shared default primitives own GPU buffers (issue #1191). Drop them
         // here, before the memory tracker's teardown census, or each one reads as
@@ -789,8 +800,12 @@ namespace OloEngine
         s_Data.MultiLightBuffer.Reset();
         s_Data.ModelInstanceBuffer.Reset();
         // Ray tracing before the GPU Scene it keys off, so no acceleration
-        // structure outlives the records that named it.
+        // structure outlives the records that named it...
         s_Data.SceneRT.Shutdown();
+        // ...and the deformed streams after the structures built from them, for
+        // exactly the same ordering reason one level down: a BLAS retired above
+        // must not be holding a vertex buffer this frees.
+        s_Data.DeformedSurfaces.Shutdown();
         s_Data.PathTracerEmissive.Shutdown();
         s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.RasterMaterialTextures.Shutdown();

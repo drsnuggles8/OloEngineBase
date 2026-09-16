@@ -202,6 +202,7 @@ namespace OloEngine
         const BoundingBox& layerBounds,
         i32 entityID,
         const FoliageImpostorParams& impostor,
+        const FoliageLeafMaterial& leaf,
         bool isAuthoredMesh,
         f32 meshHandoverStart,
         f32 meshHandoverEnd)
@@ -309,6 +310,33 @@ namespace OloEngine
         cmd->isAuthoredMesh = isAuthoredMesh ? 1.0f : 0.0f;
         cmd->meshHandoverStart = meshHandoverStart;
         cmd->meshHandoverEnd = meshHandoverEnd;
+
+        // Leaf material (issue #1234). Copied for EVERY draw of the layer —
+        // the authored mesh, the flat card and the impostor card alike — so a
+        // plant cannot change what it is made of as it crosses a hand-over
+        // band. That is the distance half of the fourth acceptance criterion,
+        // and it is structural here rather than a thing three call sites have
+        // to remember.
+        cmd->leafNormalTextureID = leaf.NormalTextureID;
+        cmd->leafRoughnessTextureID = leaf.RoughnessTextureID;
+        cmd->leafThicknessTextureID = leaf.ThicknessTextureID;
+        cmd->leafRoughness = leaf.Roughness;
+        cmd->leafNormalStrength = leaf.NormalStrength;
+        cmd->leafThickness = leaf.Thickness;
+        cmd->leafTransmissionStrength = leaf.TransmissionStrength;
+        cmd->leafTransmissionColor = leaf.TransmissionColor;
+        cmd->leafTransmissionDistortion = leaf.TransmissionDistortion;
+        cmd->leafTransmissionPower = leaf.TransmissionPower;
+        cmd->leafTransmissionWrap = leaf.TransmissionWrap;
+        cmd->leafTransmissionAmbient = leaf.TransmissionAmbient;
+        // Intern the layer-constant half of the lobe so the DEFERRED path can
+        // name it per pixel (issue #1234). A non-leaf layer resolves to
+        // kFoliageLeafSlotNone for free — Resolve() short-circuits on strength
+        // 0 — so the overwhelmingly common case costs nothing and spends no
+        // slot. See FoliageLeafProfile.h for why this mirrors skin's plumbing.
+        cmd->leafProfileSlot = GetFoliageLeafProfileTable().Resolve(FoliageLeafProfile{
+            leaf.TransmissionColor, leaf.TransmissionStrength, leaf.TransmissionDistortion,
+            leaf.TransmissionPower, leaf.TransmissionWrap, leaf.TransmissionAmbient });
 
         // Octahedral impostor payload (issue #433).
         if (useImpostor)

@@ -93,6 +93,22 @@ namespace OloEngine::Tests
             std::string_view{ "VirtualMeshletGBuffer.glsl" },
             std::string_view{ "VirtualMeshShadowDepth.glsl" },
             std::string_view{ "VSM_VirtualMeshDepth.glsl" },
+            // Ray tracing (issue #1229). The odd one out in two ways, and both
+            // are why it belongs here rather than being waved through: it is a
+            // COMPUTE shader rather than a vertex stage, and it is the only
+            // consumer that WRITES the deformed vertex to memory instead of
+            // consuming it in place. What makes it the same kind of thing as
+            // the rest is the only thing this list is about — the skinning it
+            // applies is the producer's, reached through
+            // OLO_DEFORM_EXTERNAL_PALETTE because its palette arrives as a
+            // device address rather than a per-draw UBO.
+            //
+            // It has to be the producer's skinning. A BLAS built from vertices
+            // this file skinned differently would put a silhouette in every
+            // ray-traced shadow and reflection that disagrees with the one
+            // raster draws, which is the exact defect #1226 removed, now
+            // reachable across backends rather than across passes.
+            std::string_view{ "compute/SkeletalDeformToBuffer.comp" },
         };
 
         // Every file a shader pulls in, transitively — what the preprocessor
@@ -190,6 +206,87 @@ namespace OloEngine::Tests
                 << " — a skinned pass that reaches the bone palette on its own is free to "
                    "drift from the colour pass it is depth-tested and shadow-matched against";
         }
+    }
+
+    // THE LIST IS CLOSED, and until this test existed nothing made it so.
+    //
+    // kSkinnedConsumers' own comment has always said "a separate test checks
+    // that nothing outside it touches the bone palette". That test did not
+    // exist. Every other case in this file iterates the list, so a skinned pass
+    // that was never added to it is invisible to all of them — the list
+    // described the consumers rather than constraining them, and a new consumer
+    // could reach the producer, drift from it, or declare its own palette
+    // without a single assertion firing.
+    //
+    // Found while adding the ray-tracing consumer for #1229: that shader
+    // reached the producer, and the whole suite stayed green whether or not it
+    // was on the list. Adding it to the list fixes one shader; this fixes the
+    // next one.
+    //
+    // Shipped shaders only — include/ files are not consumers, they are how a
+    // consumer reaches the producer (VirtualSkinnedVertexFetch.glsl is the
+    // reason that distinction has to be drawn rather than assumed).
+    TEST(SkeletalDeformationContract, NoShaderOutsideTheListReachesTheProducer)
+    {
+        std::vector<std::string> unlisted;
+        u32 reachingProducer = 0;
+        const fs::path root = ShaderRoot();
+        ASSERT_TRUE(fs::exists(root)) << root.string();
+
+        for (const fs::directory_entry& entry : fs::recursive_directory_iterator(root))
+        {
+            if (!entry.is_regular_file())
+            {
+                continue;
+            }
+            const fs::path& path = entry.path();
+            const std::string extension = path.extension().string();
+            if (extension != ".glsl" && extension != ".comp")
+            {
+                continue;
+            }
+            // An include is not a consumer. Skipping the directory by name
+            // rather than by "was it included by something" keeps the rule
+            // legible: a file under include/ is a header, whatever it contains.
+            const std::string relative = fs::relative(path, root).generic_string();
+            if (relative.starts_with("include/"))
+            {
+                continue;
+            }
+            if (!ReachesProducer(Expand(path)))
+            {
+                continue;
+            }
+            ++reachingProducer;
+            if (std::ranges::find(kSkinnedConsumers, std::string_view{ relative }) == kSkinnedConsumers.end())
+            {
+                unlisted.push_back(relative);
+            }
+        }
+
+        // The scan must have SEEN the consumers, or "nothing is unlisted" is
+        // the answer a broken walk gives too — a wrong shader root, an
+        // extension filter that matches nothing, or an include resolver that
+        // stopped following would all produce an empty result and a green test.
+        // This is the assertion that makes the green mean something.
+        EXPECT_EQ(reachingProducer, static_cast<u32>(kSkinnedConsumers.size()))
+            << "the scan found " << reachingProducer << " shaders reaching the producer but the list names "
+            << kSkinnedConsumers.size()
+            << " — if those numbers disagree the unlisted check below is measuring something other than what it "
+               "claims";
+
+        EXPECT_TRUE(unlisted.empty())
+            << "these shaders reach include/SkeletalDeformation.glsl but are not on kSkinnedConsumers, so every "
+               "other contract test in this file silently skips them: "
+            << [&unlisted]
+        {
+            std::string joined;
+            for (const std::string& name : unlisted)
+            {
+                joined += "\n  " + name;
+            }
+            return joined;
+        }();
     }
 
     TEST(SkeletalDeformationContract, EverySkinnedConsumerCallsAProducerEntryPoint)

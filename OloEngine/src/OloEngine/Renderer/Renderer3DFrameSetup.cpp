@@ -73,6 +73,12 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -97,6 +103,12 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -121,6 +133,12 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);

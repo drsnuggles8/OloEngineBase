@@ -446,11 +446,35 @@ namespace OloEngine
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::RigidDynamic)],
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Deformed)],
                                 rt.Resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)]);
-                    // Unsupported is a real, expected population — skinned,
-                    // cloth, virtualized and particle geometry never reach the
-                    // canonical GPU Scene — so it is labelled rather than left
-                    // to read as an error count.
+                    // Unsupported is a real, expected population — cloth and
+                    // particle geometry never reach the canonical GPU Scene —
+                    // so it is labelled rather than left to read as an error
+                    // count.
                     ImGui::Text("Unsupported instances (raster only): %u", rt.Resident.UnsupportedInstances);
+                    // The animated share, shown separately because it is the
+                    // one row here that means "this should have been
+                    // traceable". These surfaces are kept OUT of the TLAS
+                    // rather than traced at their rest pose, which is what a
+                    // reader needs to know before concluding a character is
+                    // missing from a reflection by accident.
+                    ImGui::Text("  of which animated (no deformed stream): %u",
+                                rt.Resident.AnimatedInstancesRefused);
+                    {
+                        // The deformed-vertex producer behind the animated
+                        // BLASes (#1229). Shown here rather than in its own
+                        // header because the two are only meaningful together:
+                        // "0 Deformed structures" is healthy in a scene with no
+                        // characters and a defect in one full of them, and the
+                        // producer's counters are what tells those apart.
+                        const auto& deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
+                        ImGui::Text("Deformed streams: %u resident (%.2f MB)   dispatched %u (%u verts)",
+                                    deformed.ResidentSurfaces,
+                                    static_cast<f64>(deformed.ResidentBytes) / (1024.0 * 1024.0),
+                                    deformed.Dispatched, deformed.VerticesDeformed);
+                        ImGui::Text("  idle (skipped): %u   alloc %u   realloc %u   retired %u   refused %u",
+                                    deformed.SkippedUnchanged, deformed.Allocated, deformed.Reallocated,
+                                    deformed.Retired, deformed.Refused);
+                    }
                     ImGui::Text("TLAS instances: %u", rt.Resident.TlasInstances);
 
                     ImGui::Separator();

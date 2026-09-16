@@ -130,6 +130,7 @@ namespace OloEngine::RayTracing
         TlasBuildReason RecordTlasBuild(std::span<const InstanceRecord> instances, TlasBuildReason requested) override;
         [[nodiscard]] u64 GetTlasDeviceAddress() const override;
         void RecordBuildToReadBarrier() override;
+        void RecordDeformToBuildBarrier() override;
         void PublishStats(SceneStats& stats) const override;
         void Shutdown() override;
 
@@ -1110,6 +1111,57 @@ namespace OloEngine::RayTracing
         dep.pMemoryBarriers = &barrier;
         vkCmdPipelineBarrier2(cmd, &dep);
         m_BuildsPendingBarrier = false;
+    }
+
+    void VulkanRayTracingBackend::RecordDeformToBuildBarrier()
+    {
+        if (!m_Capabilities.Supported)
+        {
+            return;
+        }
+        const VkCommandBuffer cmd = AcquireCommandBuffer();
+        if (cmd == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        // Issue #1229's producer hazard: SkeletalDeformPass wrote an animated
+        // surface's vertices with a compute dispatch, and RecordBlasBuilds on
+        // the next node reads those exact bytes.
+        //
+        // The destination ACCESS is SHADER_READ, not ACCELERATION_STRUCTURE_
+        // READ, and the distinction is the one worth getting right. A build
+        // reads its INPUT geometry as shader storage; ACCELERATION_STRUCTURE_
+        // READ describes reading an acceleration structure, which a BLAS build
+        // does not do to its vertex stream. The instance-buffer barrier above
+        // makes the same distinction for the same reason.
+        //
+        // A global VkMemoryBarrier2 rather than one buffer barrier per surface:
+        // a crowd is hundreds of small buffers, the whole set is written and
+        // then the whole set is read, and hundreds of buffer barriers cost more
+        // than the one global the driver collapses them into anyway.
+        //
+        // Emitted unconditionally rather than behind a pending-write flag, and
+        // that asymmetry with RecordBuildToReadBarrier is deliberate: the
+        // caller only reaches this after a dispatch it actually recorded, so
+        // there is no "nothing happened" case for a flag to suppress, and a
+        // flag that could go stale between two nodes is a worse failure than a
+        // redundant barrier.
+        VkMemoryBarrier2 barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        // The build reads it as shader storage; the hit shaders read the very
+        // same bytes by device address later in the frame, which is why the
+        // destination scope covers them too rather than relying on the
+        // build->read barrier to cover a write it never saw.
+        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &barrier;
+        vkCmdPipelineBarrier2(cmd, &dep);
     }
 
     void VulkanRayTracingBackend::PublishStats(SceneStats& stats) const

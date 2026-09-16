@@ -6,6 +6,24 @@
 // Draws the layer's flat card AND, up close, its authored plant mesh (issue
 // #1233) — both from the shared vertex stage below, so the forward, deferred
 // and shadow programs cannot place the same plant differently.
+//
+// LIGHTING, SINCE ISSUE #1234. This used to be one directional light, a
+// half-strength back-face hack and a flat `albedo * 0.3` ambient — the "basic
+// forward foliage lighting" the issue replaces. It is now the real thing: the
+// full multi-light loop, CSM / virtual / atlas shadows, image-based ambient,
+// and the two-sided leaf transmission lobe. Every surface attribute and the
+// lobe itself come from include/FoliageSurface.glsl, which the DEFERRED
+// programs call with the same arguments — that shared call, not a convention,
+// is what makes the issue's third criterion (same material meaning, same normal
+// orientation across forward / forward+ / deferred) hold.
+//
+// FORWARD AND FORWARD+ ARE THE SAME PROGRAM HERE. SelectFoliageRenderStream
+// routes both to FoliageRenderPass with this shader
+// (Renderer3DSpecializedDraws.cpp), so "forward+ preserves the same material
+// meaning as forward" is not a claim about two implementations agreeing — there
+// is one. Foliage does not read the clustered light list; it walks the same
+// multi-light UBO on both, which is why the two cells are identical by
+// construction.
 // =============================================================================
 
 #type vertex
@@ -56,26 +74,78 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding1;
 };
 
-// Multi-light UBO (binding 5)
-layout(std140, binding = 5) uniform MultiLightData
-{
-    int u_NumLights;
-    int _ml_pad0;
-    int _ml_pad1;
-    int _ml_pad2;
-    // Light[0]
-    vec4 u_Light0_Position;
-    vec4 u_Light0_Direction;
-    vec4 u_Light0_ColorIntensity;
-    vec4 u_Light0_Params;
-    vec4 u_Light0_Params2;
+#include "include/BindlessHeap.glsl"
+
+// PBRCommon first — LightData, MAX_LIGHTS, the BRDF, the CSM sampler and the
+// G-Buffer flag constants all come from it, and the light UBO below is declared
+// in terms of its LightData struct.
+#include "include/PBRCommon.glsl"
+// Virtual Shadow Maps (issue #702) — self-contained (UBO 79/80, page-table SSBO
+// 54, sampler 65), and CommandDispatch::BindShadowTextures publishes a DISABLED
+// globals block when VSM is off, so this costs one runtime branch and needs no
+// second program. Included because the DEFERRED path takes the VSM branch for
+// the directional light; a forward foliage shader that only knew about CSM
+// would disagree with it in exactly the frames VSM is on.
+#include "include/VirtualShadowSampling.glsl"
+
+// Multi-Light UBO (binding 5) — THE FULL BLOCK, matching PBR_MultiLight.glsl.
+// It used to be declared here as a four-int header plus Light[0] only: a
+// truncated view of the same buffer, which read the first light correctly and
+// made the other 255 unreachable. That truncation IS the "basic forward foliage
+// lighting" of the issue title.
+layout(std140, binding = 5) uniform MultiLightBuffer {
+    int u_LightCount;
+    int u_MaxLights;
+    int u_ShadowCasterCount;
+    int u_DirectionalLightCount;
+    LightData u_Lights[MAX_LIGHTS];
 };
 
-#include "include/BindlessHeap.glsl"
+// Shadow UBO (binding 6) — declared exactly as PBR_MultiLight.glsl declares it.
+layout(std140, binding = 6) uniform ShadowData {
+    mat4 u_DirectionalLightSpaceMatrices[4];
+    vec4 u_CascadePlaneDistances;
+    vec4 u_ShadowParams;  // x=bias, y=normalBias, z=softness, w=maxShadowDistance
+    mat4 u_AtlasEntryMatrices[48];
+    vec4 u_AtlasEntryScaleOffset[48];
+    int u_DirectionalShadowEnabled;
+    int u_AtlasEntryCount;
+    int u_ShadowMapResolution;
+    int u_AtlasResolution;
+    int u_CascadeDebugEnabled;
+    int u_SoftShadowMode;
+    float u_AtlasDepthBias;
+    int _shadowPad2;
+};
+
 #ifdef OLO_BINDLESS
 #define u_DiffuseTexture OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE
+// Leaf maps (issue #1234). TEX_METALLIC carries THICKNESS — foliage is never
+// metallic, so the slot is definitionally free on this surface, and the engine
+// already repurposes a semantic slot per shader this way (PBR_MultiLight's
+// u_MetallicRoughnessMap sits on TEX_SPECULAR).
+#define u_LeafNormalMap OLO_HEAP_TEX_2D(2)     // TEX_NORMAL
+#define u_LeafRoughnessMap OLO_HEAP_TEX_2D(6)  // TEX_ROUGHNESS
+#define u_LeafThicknessMap OLO_HEAP_TEX_2D(7)  // TEX_METALLIC (repurposed)
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)
+#define u_IrradianceMap OLO_HEAP_TEX_CUBE(10)  // TEX_USER_0
+#define u_PrefilterMap OLO_HEAP_TEX_CUBE(11)   // TEX_USER_1
+#define u_BRDFLutMap OLO_HEAP_TEX_2D(12)       // TEX_USER_2
 #else
 layout(binding = 0) uniform sampler2D u_DiffuseTexture;
+layout(binding = 2) uniform sampler2D u_LeafNormalMap;     // TEX_NORMAL
+layout(binding = 6) uniform sampler2D u_LeafRoughnessMap;  // TEX_ROUGHNESS
+layout(binding = 7) uniform sampler2D u_LeafThicknessMap;  // TEX_METALLIC (repurposed: thickness)
+layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;  // TEX_SHADOW
+layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;  // TEX_SHADOW_ATLAS
+layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;    // TEX_SHADOW_CSM_RAW
+layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;     // TEX_SHADOW_ATLAS_RAW
+layout(binding = 10) uniform samplerCube u_IrradianceMap;  // TEX_USER_0
+layout(binding = 11) uniform samplerCube u_PrefilterMap;   // TEX_USER_1
+layout(binding = 12) uniform sampler2D u_BRDFLutMap;       // TEX_USER_2
 #endif
 
 // Foliage UBO (binding 12) — shared with vertex stage
@@ -100,9 +170,23 @@ layout(std140, binding = 12) uniform FoliageParams
     // render-relative space as the instance pivots. NOT u_CameraPosition: the
     // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
     vec4 u_MeshViewPos;
+    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
+    // block is declared identically in every stage of every foliage program:
+    // std140 blocks must match across the stages of one program, so a lane
+    // appended to one declaration and not the others is a LINK failure, not a
+    // wrong pixel.
+    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
+    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
+    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
+    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
 };
 
 #include "include/FoliageInstanceGeometry.glsl"
+
+// The shared vegetation material, sampling half included: this program owns the
+// foliage UBO and the leaf samplers it needs.
+#define OLO_FOLIAGE_SURFACE_SAMPLING 1
+#include "include/FoliageSurface.glsl"
 
 void main()
 {
@@ -129,22 +213,163 @@ void main()
 
     color.a *= fadeFactor * v_Fade;
 
-    // Simple directional lighting (first light assumed directional)
-    vec3 normal = normalize(v_Normal);
-    vec3 lightDir = normalize(-u_Light0_Direction.xyz);
-    float NdotL = max(dot(normal, lightDir), 0.0);
+    // ── THE SURFACE (issue #1234) ────────────────────────────────────────
+    // From the SAME function Foliage_Instance_GBuffer.glsl calls, with the same
+    // arguments: albedo, the viewer-facing normal, the mapped roughness and the
+    // per-pixel thickness. `leaf.Normal` is already flipped to face the viewer
+    // by oloFoliageFaceNormal — that shared call is the whole of the "same
+    // normal orientation" criterion, and it is a direction test rather than
+    // gl_FrontFacing so the culled card, the two-sided mesh and the impostor
+    // all answer alike.
+    vec3 V = normalize(u_CameraPosition - v_WorldPos);
+    OloFoliageSurface leaf = oloFoliageSampleSurface(v_WorldPos, v_Normal, v_TexCoord, V, v_Color, texColor);
 
-    // Two-sided lighting for foliage
-    if (NdotL < 0.01)
+    // Foliage is never metallic and carries no baked AO map. Matching the
+    // G-Buffer writer, which writes exactly these two constants.
+    const float metallic = 0.0;
+    const float ao = 1.0;
+
+    bool isLeaf = oloLeafEnabled();
+    vec3 leafTint = u_LeafTransmit.rgb; // ALREADY tint * strength; see the UBO
+    // The irradiance arriving on the FAR face, for the transmission's indirect
+    // half. Sampled along -N so it is the environment BEHIND the leaf, which is
+    // what actually shines through it.
+    // Zero when no environment is bound, and that is the honest answer rather
+    // than a gap: with no environment there IS nothing behind the leaf to shine
+    // through it. The DIRECT half of the transmission is unaffected, so a
+    // backlit canopy still glows in an IBL-less scene.
+    vec3 backEnvIrradiance = (isLeaf && u_LeafIds.y > 0.5)
+                                 ? texture(u_IrradianceMap, -leaf.Normal).rgb * u_LeafIds.z
+                                 : vec3(0.0);
+
+    float viewDepth = (u_View * vec4(v_WorldPos, 1.0)).z;
+
+    OloSurfaceLighting Lo = oloSurfaceLightingZero();
+    vec3 transmitted = vec3(0.0);
+
+    int lightCount = min(u_LightCount, MAX_LIGHTS);
+    for (int i = 0; i < lightCount; ++i)
     {
-        NdotL = max(dot(-normal, lightDir), 0.0) * 0.5;
+        int lightType = int(u_Lights[i].position.w);
+
+        // The light's GEOMETRY, from the shared helper the reflected lobe also
+        // uses (oloLightSample, PBRCommon.glsl). It returns false for a sphere
+        // area light — that type has no single L — so those contribute to the
+        // reflected lobe below and to no transmission, which is stated rather
+        // than approximated with a direction to the centre.
+        vec3 L;
+        vec3 radiance;
+        bool hasDirection = oloLightSample(u_Lights[i], v_WorldPos, L, radiance);
+
+        // ONE shadow factor, biased along the LIT-SIDE normal, serving BOTH
+        // lobes. See oloFoliageShadowNormal for why the shading normal is the
+        // wrong normal to offset a backlit leaf's shadow lookup along, and why
+        // this is a no-op wherever the reflected lobe is non-zero.
+        vec3 Ns = hasDirection ? oloFoliageShadowNormal(leaf.Normal, L) : leaf.Normal;
+        float shadow = 1.0;
+
+        if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
+        {
+            if (VSM_ENABLED != 0)
+            {
+                shadow = vsmShadowFactor(v_WorldPos, Ns);
+            }
+            else
+            {
+                shadow = calculateCascadedShadowFactorCSM(
+                    u_ShadowMapCSM, u_ShadowMapCSMRaw, v_WorldPos, Ns, viewDepth,
+                    u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
+                    u_ShadowParams, u_ShadowMapResolution, u_SoftShadowMode);
+            }
+        }
+        else if (lightType == SPOT_LIGHT)
+        {
+            int atlasEntry = int(u_Lights[i].direction.w);
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, Ns, atlasEntry, false, localShadow))
+            {
+                shadow = localShadow;
+            }
+            else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+            {
+                shadow = calculateAtlasEntryShadow(
+                    v_WorldPos, u_AtlasEntryMatrices[atlasEntry], u_AtlasEntryScaleOffset[atlasEntry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    u_SoftShadowMode, u_ShadowParams.z);
+            }
+        }
+        else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
+        {
+            int baseEntry = int(u_Lights[i].direction.w);
+            float localShadow;
+            if (vsmLocalShadow(v_WorldPos, Ns, baseEntry, true, localShadow))
+            {
+                shadow = localShadow;
+            }
+            else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+            {
+                int entry = baseEntry + atlasCubeFace(v_WorldPos - u_Lights[i].position.xyz);
+                shadow = calculateAtlasEntryShadow(
+                    v_WorldPos, u_AtlasEntryMatrices[entry], u_AtlasEntryScaleOffset[entry],
+                    u_ShadowAtlas, u_ShadowAtlasRaw, u_AtlasDepthBias, u_AtlasResolution,
+                    0, u_ShadowParams.z);
+            }
+        }
+
+        // The REFLECTED lobe — the front face's ordinary PBR response. Zero
+        // where dot(N, L) <= 0, which is exactly the backlit case the
+        // transmission lobe below exists to fill.
+        OloSurfaceLighting contrib = calculateLightContributionSplit(
+            u_Lights[i], leaf.Normal, V, leaf.Albedo, metallic, leaf.Roughness, v_WorldPos,
+            OLO_PBR_MODEL_LEGACY);
+        Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(contrib, vec3(shadow)));
+
+        // The TRANSMITTED lobe, gated by the SAME shadow factor — which is what
+        // makes it not an unshadowed constant (#1234's second criterion).
+        if (isLeaf && hasDirection)
+        {
+            transmitted += oloFoliageTransmissionDirect(leaf.Normal, V, L, radiance, shadow,
+                                                        leaf.Thickness, leafTint, u_LeafLobe);
+        }
     }
 
-    vec3 lightColor = u_Light0_ColorIntensity.rgb * u_Light0_ColorIntensity.w;
-    vec3 ambient = color.rgb * 0.3;
-    vec3 diffuse = color.rgb * lightColor * NdotL;
+    // Image-based ambient, replacing the flat `albedo * 0.3` this shader used to
+    // apply. The prefiltered radiance at the mirror direction and the
+    // irradiance cubemap are both bound per foliage draw from Renderer3D's
+    // GLOBAL IBL (CommandDispatch::DrawFoliageLayer), so a canopy's ambient does
+    // not depend on whether a lit mesh happened to draw first.
+    //
+    // WITH NO ENVIRONMENT BOUND it falls back to calculateSimpleAmbient — the
+    // same fallback Terrain_PBR and the deferred ambient ladder's last rung
+    // use. That is not a nicety: a scene with no EnvironmentMap binds no IBL
+    // trio at all, the samplers would read the engine's typed-null cubemap as
+    // black, and replacing the old flat ambient with that would have turned
+    // every such canopy's unlit side black. u_LeafIds.y is what tells the two
+    // cases apart, because a bound-and-black cubemap is a legitimate frame.
+    vec3 ambient;
+    if (u_LeafIds.y > 0.5)
+    {
+        vec3 prefilteredColor = textureLod(u_PrefilterMap, reflect(-V, leaf.Normal),
+                                           leaf.Roughness * MAX_REFLECTION_LOD).rgb;
+        ambient = calculateCombinedAmbientPrefiltered(
+                      texture(u_IrradianceMap, leaf.Normal).rgb, leaf.Normal, V, leaf.Albedo,
+                      metallic, leaf.Roughness, u_BRDFLutMap, prefilteredColor) *
+                  u_LeafIds.z;
+    }
+    else
+    {
+        ambient = calculateSimpleAmbient(leaf.Albedo, metallic, ao);
+    }
 
-    vec3 litColor = ambient + diffuse;
+    // The environment half of the transmission, added ONCE rather than per
+    // light — see oloFoliageTransmissionAmbient.
+    if (isLeaf)
+    {
+        transmitted += oloFoliageTransmissionAmbient(leaf.Thickness, leafTint, backEnvIrradiance,
+                                                     u_LeafLobe);
+    }
+
+    vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
     FragColor = vec4(litColor, color.a);
 

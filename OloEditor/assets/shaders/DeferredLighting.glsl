@@ -130,6 +130,21 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     // A slot nobody claimed stays neutral, so a stale slot reads as "no profile
     // effect" rather than as garbage.
     vec4 u_SkinProfileParams[7];
+    // THE LEAF PROFILE TABLE (issue #1234) — the second tenant of the same
+    // three-bit G-Buffer slot field, here for the same reason the skin table
+    // above is: the transmission lobe's shape is authored per foliage LAYER,
+    // and a fullscreen lighting pass has no per-layer state. Read only under
+    // MaterialKind::Foliage; a pixel has one kind, so the two tables can never
+    // both be consulted for one pixel. MUST mirror DeferredControlsData in
+    // DeferredLightingPass.cpp, which static_asserts this size.
+    //   Tint: rgb = transmission tint PRE-MULTIPLIED by strength (the same
+    //         product the forward path's u_LeafTransmit.rgb carries, in the
+    //         same order), w = the raw strength.
+    //   Lobe: x = distortion, y = power, z = wrap, w = environment scale —
+    //         exactly the `lobe` vec4 oloFoliageTransmission* takes.
+    // A slot nobody claimed stays all-zero, which shades as no transmission.
+    vec4 u_LeafProfileTint[7];
+    vec4 u_LeafProfileLobe[7];
 };
 
 // Texture inputs. Under heap-bindless (issue #691) every one of these

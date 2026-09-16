@@ -179,6 +179,24 @@ namespace OloEngine::RayTracing
         // frame still cannot read without one.
         virtual void RecordBuildToReadBarrier() = 0;
 
+        // Emit the COMPUTE-WRITE -> AS-BUILD-READ barrier (issue #1229). The
+        // deformation pass writes an animated surface's vertices with a compute
+        // dispatch, and the BLAS build on the next node reads those exact
+        // bytes; without this the build may run first and hold whatever the
+        // memory contained, with no error and no validation message because
+        // every API call involved is legal.
+        //
+        // Deliberately NOT folded into RecordBlasBuilds. The write and the
+        // build are recorded by two different nodes, and a barrier emitted by
+        // the reader would sit after its own hazard the moment anything is
+        // recorded between them.
+        //
+        // Note the destination access is a SHADER read, not an acceleration-
+        // structure read: a build reading its INPUT vertex data reads it as
+        // shader storage. The same distinction the instance-buffer barrier in
+        // the Vulkan backend already documents.
+        virtual void RecordDeformToBuildBarrier() = 0;
+
         // Fold this frame's device-side numbers (AS bytes, scratch bytes,
         // compaction savings, GPU times) into the stats block the scene owns.
         virtual void PublishStats(SceneStats& stats) const = 0;
@@ -243,6 +261,11 @@ namespace OloEngine::RayTracing
         // the graph says it does.
         void RecordBuildToReadBarrier();
 
+        // Emit the deformation-write -> AS-build-read barrier (issue #1229).
+        // Called by SkeletalDeformPass, which runs immediately before the node
+        // that calls Update. Safe and free when RT is unavailable.
+        void RecordDeformToBuildBarrier();
+
         [[nodiscard]] u64 GetTlasDeviceAddress() const;
 
         [[nodiscard]] const SceneStats& GetStats() const
@@ -268,9 +291,20 @@ namespace OloEngine::RayTracing
         // quality decays as the vertices drift from it.
         static constexpr u32 kMaxConsecutiveRefits = 8;
 
+        // `deformationAdvanced` is whether this surface's pose CHANGED since
+        // the resident structure was built, taken from the deformation revision
+        // #1228 minted for exactly this question. It is the one input the
+        // geometry fingerprint cannot supply: a pose change rewrites the
+        // vertices in place and moves no field of the geometry record, so a
+        // fingerprint-driven policy either refits every deformed surface every
+        // frame or never refits one at all.
+        //
+        // An idle character is the common case in a real scene, and refitting
+        // one costs a full BLAS update for a surface that did not move.
         [[nodiscard]] static std::optional<BuildReason> DecideBuild(GeometryClass previousClass,
                                                                     GeometryClass currentClass, bool geometryChanged,
-                                                                    bool hasBlas, u32 consecutiveRefits);
+                                                                    bool hasBlas, u32 consecutiveRefits,
+                                                                    bool deformationAdvanced = true);
 
         // Decide whether the TLAS can refit or must rebuild.
         [[nodiscard]] static TlasBuildReason DecideTlasBuild(u32 previousInstanceCount, u32 currentInstanceCount,
@@ -283,6 +317,13 @@ namespace OloEngine::RayTracing
         {
             GeometryClass Class = GeometryClass::Unsupported;
             u32 ConsecutiveRefits = 0;
+            // The pose the resident structure was built from. `HasDeformation`
+            // separates "built at revision 0" from "never built with a
+            // revision at all": revision 0 is a value a freshly spawned
+            // skeleton legitimately holds, so conflating them would skip the
+            // first build of every new character.
+            u32 DeformationRevision = 0;
+            bool HasDeformation = false;
             u64 GeometryFingerprint = 0; ///< Bytes of the GPU Scene geometry record, hashed.
             u64 LastSeenFrame = 0;
         };
@@ -293,6 +334,36 @@ namespace OloEngine::RayTracing
         std::unordered_map<GeometryKey, BlasState, GeometryKeyHash> m_Blas;
         std::vector<InstanceRecord> m_Instances;
         std::vector<BlasBuildRequest> m_PendingBuilds;
+        // EVERYTHING a resident structure believes about itself, held back until
+        // RecordBlasBuilds has said the build it belongs to was recorded. A
+        // request the backend drops leaves the PREVIOUS structure resident and
+        // untouched, so any state committed as though the build happened
+        // describes a structure that does not exist.
+        //
+        // The fingerprint and the class are in here for the same reason as the
+        // pose, and the fingerprint is the worst of the three to get wrong. Take
+        // a resident Static geometry whose vertex address moved: the rebuild is
+        // requested, the backend drops it, and committing the new fingerprint
+        // anyway makes the next frame read geometryChanged == false with a BLAS
+        // still resident — so DecideBuild returns nothing, and that structure
+        // traces the OLD address for the rest of the session. On a Deformed
+        // geometry it is the same suppression wearing criterion 2's clothes: the
+        // rebuild is skipped and a REFIT runs in its place, against vertices the
+        // tree was never built for.
+        //
+        // LastSeenFrame is NOT deferred. It answers "was this geometry offered
+        // this frame", which is true whatever the backend did, and deferring it
+        // would retire a live structure on the frame a build failed.
+        struct PendingBlasCommit
+        {
+            GeometryKey Key;
+            GeometryClass Class = GeometryClass::Unsupported;
+            u64 GeometryFingerprint = 0;
+            u32 DeformationRevision = 0;
+            u32 ConsecutiveRefits = 0;
+            bool HasDeformation = false;
+        };
+        std::vector<PendingBlasCommit> m_PendingBlasCommits;
         std::vector<GeometryKey> m_PendingRetires;
 
         SceneStats m_Stats{};

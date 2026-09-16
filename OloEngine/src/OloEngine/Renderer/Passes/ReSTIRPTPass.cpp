@@ -190,9 +190,27 @@ namespace OloEngine
             return;
         }
         const auto& resident = m_RayTracingScene->GetStats().Resident;
+        // Deforming geometry is reported separately from non-opaque geometry
+        // (issue #1229). The tier stands down for both, but they are different
+        // facts about the scene and one message for two causes is a message
+        // nobody can act on: "unsupported or non-opaque geometry" in a scene
+        // whose only disqualifier is a perfectly opaque animated character
+        // sends a reader looking for a cutout material that is not there.
+        //
+        // The stand-down itself is unchanged and deliberate. This tier reuses
+        // paths across frames by reconnecting at a hit vertex, and a surface
+        // whose vertices moved is not the surface the reused path was measured
+        // on. Whether the reuse can be made to survive deformation is ReSTIR
+        // PT's own question, not this issue's — #1229 gives it correct animated
+        // geometry to stand down ON, where before #1228 it had none and after
+        // #1228 it had a rest pose it could not tell apart from a static mesh.
+        if (resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Deformed)] != 0u)
+        {
+            StandDown("deforming geometry");
+            return;
+        }
         if (resident.UnsupportedInstances != 0u ||
-            resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)] != 0u ||
-            resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Deformed)] != 0u)
+            resident.BlasByClass[static_cast<sizet>(RayTracing::GeometryClass::Masked)] != 0u)
         {
             StandDown("unsupported or non-opaque geometry");
             return;

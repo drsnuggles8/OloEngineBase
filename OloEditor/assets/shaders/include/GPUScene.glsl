@@ -39,7 +39,9 @@ struct GPUSceneInstance
     uint DeformationRevision;
     uint PreviousDeformationRevision;
     uint DeformationResetCause;
-    uint DeformationPad0;
+    // Issue #1229: how many times the deformed vertex stream was rewritten.
+    // Was DeformationPad0, so the layout is unchanged.
+    uint DeformedContentRevision;
 };
 
 struct GPUSceneGeometry

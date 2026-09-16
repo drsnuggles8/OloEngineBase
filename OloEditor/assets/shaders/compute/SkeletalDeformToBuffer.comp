@@ -1,0 +1,206 @@
+// =============================================================================
+// SkeletalDeformToBuffer.comp — the deformed-vertex PRODUCER for ray tracing.
+// Issue #1229.
+//
+// WHY THIS EXISTS. Every other consumer of a skinned surface deforms it inside
+// its own vertex stage and throws the result away (see
+// include/SkeletalDeformation.glsl). That is enough for raster, and it is not
+// enough for an acceleration structure: a BLAS is built from vertices that are
+// IN MEMORY, so a skinned character whose pose only ever existed in a vertex
+// shader traces as its rest pose. Before this shader, that is exactly what
+// happened — #1228 made skinned meshes reach the canonical GPU Scene, and the
+// RT scene then built a rest-pose BLAS for each one and put it in the TLAS.
+//
+// So this shader materializes the surface: one invocation per vertex, reading
+// the rest stream and the bone influences and writing the deformed vertex to a
+// per-surface output buffer that the BLAS build and the hit shaders both read.
+//
+// THE SKINNING ITSELF IS NOT HERE. It is include/SkeletalDeformation.glsl's,
+// reached through OLO_DEFORM_EXTERNAL_PALETTE exactly as
+// include/VirtualSkinnedVertexFetch.glsl reaches it — only the palette STORAGE
+// differs (a device address here, a per-draw UBO there), and writing the
+// linear-blend math a second time is precisely the drift #1226 removed.
+// This file is on kSkinnedConsumers in SkeletalDeformationContractTest.cpp.
+//
+// VULKAN ONLY, like every other ray-tracing tenant. It is loaded behind
+// RenderCommand::SupportsRayTracing(), so an OpenGL session never compiles it
+// and the raster path it does not touch stays the tested fallback.
+//
+// ZERO BINDINGS EXCEPT ONE UBO, the idiom #978 established for
+// compute/RayTracingProbe.comp: the buffer-binding namespace is full, so the
+// four streams arrive as device addresses in the params block at binding 65
+// and are reached through GL_EXT_buffer_reference. Binding 65 is rebound per
+// pass; this pass owns it while it is dispatched.
+//
+// THE OUTPUT LAYOUT IS `OloEngine::Vertex`, byte for byte — 32 bytes of
+// {vec3 Position, vec3 Normal, vec2 TexCoord}. That is load-bearing and not a
+// convenience: include/RayTracingAlphaTest.glsl's OLO_RT_VERTEX_STRIDE and the
+// hit fetch in include/RayTracedSurfaceHit.glsl read a geometry's vertex stream
+// at exactly that stride, so a deformed stream in this layout needs NO shader
+// change anywhere downstream. Traversal, shading and the alpha-cutout
+// confirmation all follow the geometry record's VertexAddress, and pointing
+// that one field at this buffer moves all three at once.
+// =============================================================================
+
+#version 460 core
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+// One vertex of OloEngine::Vertex, as raw floats. Addressed as floats rather
+// than as a struct so the stride arithmetic below is the same arithmetic
+// RayTracedSurfaceHit.glsl does against the same bytes — two different
+// spellings of one layout is how an offset drifts.
+#define OLO_DEFORM_VERTEX_FLOATS 8u  // 32 bytes / 4
+#define OLO_DEFORM_NORMAL_FLOAT 3u   // byte offset 12
+#define OLO_DEFORM_TEXCOORD_FLOAT 6u // byte offset 24
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer OloDeformRestStream
+{
+    float Floats[];
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer OloDeformOutStream
+{
+    float Floats[];
+};
+
+// OloEngine::BoneInfluence — four u32 ids then four f32 weights, 32 bytes.
+struct OloDeformInfluence
+{
+    uvec4 BoneIDs;
+    vec4 Weights;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloDeformInfluenceStream
+{
+    OloDeformInfluence Records[];
+};
+
+// The current-pose palette for THIS surface. One surface, one skeleton, so it
+// is a flat array rather than the per-instance offset table virtualized
+// geometry needs.
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer OloDeformPaletteStream
+{
+    mat4 Bones[];
+};
+
+layout(std140, binding = 65) uniform OloSkeletalDeformParams
+{
+    uvec2 RestVertexAddress;
+    uvec2 BoneInfluenceAddress;
+    uvec2 PaletteAddress;
+    uvec2 OutputVertexAddress;
+    uint VertexCount;
+    uint BoneCount;
+    uint _padding0;
+    uint _padding1;
+}
+u_Deform;
+
+// The palette hook. Deliberately NOT named u_BoneTransforms / u_BoneMatrices:
+// those names are what SkeletalDeformationContract's inline-accumulation scan
+// looks for, and a private palette wearing the producer's name is the exact
+// thing that scan exists to catch.
+#define OLO_DEFORM_EXTERNAL_PALETTE
+#define OLO_DEFORM_BONE(i) (OloDeformPaletteStream(u_Deform.PaletteAddress).Bones[i])
+#define OLO_DEFORM_BONE_COUNT u_Deform.BoneCount
+
+#include "../include/SkeletalDeformation.glsl"
+
+// A skin matrix's bottom row is the weighted sum of the palette's bottom rows,
+// so OloDeformedSurface::Position.w is the TOTAL INFLUENCE WEIGHT rather than
+// 1. The raster consumers carry that w all the way into gl_Position and let the
+// perspective divide absorb it; a vertex buffer has no such divide, so this
+// shader has to do it here or the two surfaces disagree wherever the weights do
+// not sum to one.
+//
+// It is an exact match, not an approximation. For an affine model matrix M and
+// a linear view-projection VP, `VP * M * vec4(p, w)` equals
+// `w * (VP * M * vec4(p / w, 1))`, and a uniform scale of clip coordinates is
+// erased by the perspective divide. So p/w IS the point raster draws.
+//
+// w <= 0 cannot come from a well-formed palette (weights are non-negative and
+// an unskinned vertex takes the identity, giving w == 1). It is reported by
+// falling back to the rest position rather than by emitting an infinity that
+// would become a NaN triangle in the BLAS and a corrupt tree for the whole
+// surface.
+#define OLO_DEFORM_MIN_HOMOGENEOUS_W 1e-6
+
+vec3 OloDeformDehomogenize(vec4 position, vec3 restPosition)
+{
+    return (position.w > OLO_DEFORM_MIN_HOMOGENEOUS_W) ? (position.xyz / position.w) : restPosition;
+}
+
+// The rest stream holds unit normals, and so must the deformed stream: the hit
+// shaders interpolate these and hand the result to a BSDF that assumes a
+// direction, not a scaled one. The linear-blend matrix carries the same total
+// weight the position did plus any bone scale, so a renormalize is the right
+// answer and a divide by w is not. A degenerate result keeps the rest normal —
+// a zero normal shades black and reads as a lighting bug three subsystems away.
+vec3 OloDeformNormalize(vec3 normal, vec3 restNormal)
+{
+    const float lengthSquared = dot(normal, normal);
+    return (lengthSquared > 1e-12) ? (normal * inversesqrt(lengthSquared)) : restNormal;
+}
+
+void main()
+{
+    const uint vertexIndex = gl_GlobalInvocationID.x;
+    // No OpArrayLength anywhere: asking a buffer_reference for its length
+    // access-violates inside the driver on this backend (#994). The count is
+    // CPU-supplied and it is the only bound.
+    if (vertexIndex >= u_Deform.VertexCount)
+    {
+        return;
+    }
+
+    OloDeformRestStream restStream = OloDeformRestStream(u_Deform.RestVertexAddress);
+    OloDeformOutStream outStream = OloDeformOutStream(u_Deform.OutputVertexAddress);
+    OloDeformInfluenceStream influences = OloDeformInfluenceStream(u_Deform.BoneInfluenceAddress);
+
+    const uint base = vertexIndex * OLO_DEFORM_VERTEX_FLOATS;
+    const uint normalBase = base + OLO_DEFORM_NORMAL_FLOAT;
+    const uint texCoordBase = base + OLO_DEFORM_TEXCOORD_FLOAT;
+
+    // The rest surface this reads is the surface the MORPH pass already wrote:
+    // Scene::EvaluateMorphTargets applies its deltas on the CPU, in place, into
+    // this same vertex buffer. So morph-then-skin is the combination order here
+    // by construction, exactly as it is for every raster consumer
+    // (morph-and-lod-in-the-animated-surface.md rule 1) — an expressing head
+    // and a moving skeleton both reach the BLAS, and neither needed a second
+    // delta application.
+    const vec3 restPosition = vec3(restStream.Floats[base + 0u], restStream.Floats[base + 1u],
+                                   restStream.Floats[base + 2u]);
+    const vec3 restNormal = vec3(restStream.Floats[normalBase + 0u], restStream.Floats[normalBase + 1u],
+                                 restStream.Floats[normalBase + 2u]);
+
+    const OloDeformInfluence influence = influences.Records[vertexIndex];
+
+    // THE producer. ivec4 because the palette bound test is signed — a bone id
+    // of 0xFFFFFFFF is a negative index there and is rejected, which is the
+    // behaviour every raster consumer already has.
+    const OloDeformedSurface surface =
+        OloDeformSkinnedVertex(restPosition, restNormal, ivec4(influence.BoneIDs), influence.Weights);
+
+    const vec3 deformedPosition = OloDeformDehomogenize(surface.Position, restPosition);
+    const vec3 deformedNormal = OloDeformNormalize(surface.Normal, restNormal);
+
+    outStream.Floats[base + 0u] = deformedPosition.x;
+    outStream.Floats[base + 1u] = deformedPosition.y;
+    outStream.Floats[base + 2u] = deformedPosition.z;
+    outStream.Floats[normalBase + 0u] = deformedNormal.x;
+    outStream.Floats[normalBase + 1u] = deformedNormal.y;
+    outStream.Floats[normalBase + 2u] = deformedNormal.z;
+
+    // The UV is copied rather than left uninitialized, and that is criterion
+    // 1's "alpha-mask semantics" half rather than tidiness: the ray-query
+    // cutout confirmation in include/RayTracingAlphaTest.glsl interpolates the
+    // hit triangle's UVs out of THIS stream and samples the albedo alpha with
+    // them. A deformed stream with no UVs makes every alpha-tested animated
+    // surface sample texel (0,0) and either vanish or turn solid.
+    outStream.Floats[texCoordBase + 0u] = restStream.Floats[texCoordBase + 0u];
+    outStream.Floats[texCoordBase + 1u] = restStream.Floats[texCoordBase + 1u];
+}

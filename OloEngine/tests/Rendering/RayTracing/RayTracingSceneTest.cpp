@@ -65,6 +65,7 @@ namespace OloEngine::Tests
             RT::TlasBuildReason LastRequestedReason = RT::TlasBuildReason::FirstBuild;
             u32 TlasBuildCalls = 0;
             u32 BarrierCalls = 0;
+            u32 DeformBarrierCalls = 0;
             // Set to fail the Nth build so the "instance whose BLAS never
             // landed must not reach the TLAS" path can be driven.
             bool FailAllBuilds = false;
@@ -124,6 +125,11 @@ namespace OloEngine::Tests
             void RecordBuildToReadBarrier() override
             {
                 ++BarrierCalls;
+            }
+
+            void RecordDeformToBuildBarrier() override
+            {
+                ++DeformBarrierCalls;
             }
 
             void PublishStats(RT::SceneStats&) const override
@@ -392,6 +398,60 @@ namespace OloEngine::Tests
             m_GPUScene.ExtractInstance(MakeInstanceKey(entity, geometryKey), instance);
         }
 
+        // The same, but the instance declares itself ANIMATED — the record a
+        // skinned submesh has produced since issue #1228. The geometry is
+        // identical to the rigid case on purpose: what makes this surface
+        // untraceable is not its geometry record, which is perfectly
+        // well-formed, but the fact that the record describes a REST surface
+        // while the pose only ever exists inside a vertex shader.
+        // The same as StageAnimatedInstance but the GEOMETRY declares itself a
+        // deformed stream — the record #1229's producer stages once it has
+        // written this surface's skinned vertices into a buffer of its own.
+        // `contentRevision` is the number the acceleration-structure policy
+        // actually reads: how many times the PRODUCER rewrote this surface's
+        // vertices. Holding it across two frames is an idle character; bumping
+        // it is one that moved.
+        //
+        // Deliberately not the skeleton's deformation revision, which advances
+        // every frame for every skinned entity whether or not it animated
+        // (#1226) and therefore cannot express "idle" at all.
+        void StageDeformedInstance(u64 entity, const GPUSceneGeometryKey& geometryKey,
+                                   GPUSceneGeometryInput geometry, const GPUSceneMaterialInput& material,
+                                   u32 contentRevision = 1)
+        {
+            geometry.m_Flags |= GPUSceneGeometryFlagDeformed;
+            const GPUSceneMaterialKey materialKey = MakeMaterialKey(entity);
+            m_GPUScene.ExtractGeometry(geometryKey, geometry);
+            m_GPUScene.ExtractMaterial(materialKey, material);
+            GPUSceneInstanceInput instance{};
+            instance.m_Material = materialKey;
+            instance.m_VisibilityMask = std::numeric_limits<u32>::max();
+            instance.m_Flags = GPUSceneInstanceFlagAnimated;
+            // A live animated surface: the skeleton's own revisions advance
+            // every frame, which is exactly why they are not what drives the
+            // build decision below.
+            instance.m_DeformationRevision = 2;
+            instance.m_PrevDeformationRevision = 1;
+            instance.m_DeformedContentRevision = contentRevision;
+            m_GPUScene.ExtractInstance(MakeInstanceKey(entity, geometryKey), instance);
+        }
+
+        void StageAnimatedInstance(u64 entity, const GPUSceneGeometryKey& geometryKey,
+                                   const GPUSceneGeometryInput& geometry, const GPUSceneMaterialInput& material,
+                                   u32 deformationRevision = 2, u32 previousDeformationRevision = 1)
+        {
+            const GPUSceneMaterialKey materialKey = MakeMaterialKey(entity);
+            m_GPUScene.ExtractGeometry(geometryKey, geometry);
+            m_GPUScene.ExtractMaterial(materialKey, material);
+            GPUSceneInstanceInput instance{};
+            instance.m_Material = materialKey;
+            instance.m_VisibilityMask = std::numeric_limits<u32>::max();
+            instance.m_Flags = GPUSceneInstanceFlagAnimated;
+            instance.m_DeformationRevision = deformationRevision;
+            instance.m_PrevDeformationRevision = previousDeformationRevision;
+            m_GPUScene.ExtractInstance(MakeInstanceKey(entity, geometryKey), instance);
+        }
+
         GPUScene m_GPUScene;
         RT::RayTracingScene m_Scene;
         FakeRayTracingBackend* m_Backend = nullptr;
@@ -499,6 +559,374 @@ namespace OloEngine::Tests
         EXPECT_EQ(m_Scene.GetStats().Frame.InstancesSkipped, 1u);
         EXPECT_EQ(m_Scene.GetStats().Resident.UnsupportedInstances, 1u);
         EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 0u);
+    }
+
+    // =========================================================================
+    // Animated surfaces: refused, not traced at rest
+    //
+    // Issue #1228 gave skinned meshes canonical GPU Scene records. It did not
+    // give them deformed VERTICES — skinning happens in the vertex stage and is
+    // never written to memory — so from that merge until this guard existed,
+    // every skinned character's rest-pose buffer was built into a compacted,
+    // build-once BLAS and put in the TLAS. The character then cast ray-traced
+    // shadows and appeared in reflections T-posed while raster drew it
+    // mid-stride, with nothing anywhere reporting it: the record is
+    // well-formed, the build succeeds, the API usage is legal and every counter
+    // reads healthy.
+    //
+    // These four cases are deliberately about what does NOT happen, because the
+    // defect's whole character was that everything that normally signals a
+    // problem kept saying there wasn't one.
+    // =========================================================================
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedInstanceIsRefusedRatherThanTracedAtItsRestPose)
+    {
+        BeginFrame();
+        StageAnimatedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_TRUE(m_Backend->Builds.empty())
+            << "an animated surface has no deformed vertices in memory, so a BLAS built from its record would hold "
+               "the rest pose — wrong geometry in the TLAS is worse than none";
+        EXPECT_TRUE(m_Backend->LastInstances.empty());
+        EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedRefusalIsCountedUnderItsOwnName)
+    {
+        // The refusal has to be VISIBLE, or it is the same silence wearing a
+        // different shape. UnsupportedInstances alone cannot carry it: a cloth
+        // instance in that count is a permanent property of the engine, an
+        // animated one is a surface that should be traceable and is not.
+        BeginFrame();
+        StageAnimatedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_EQ(m_Scene.GetStats().Frame.InstancesSkipped, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.UnsupportedInstances, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 1u);
+    }
+
+    TEST_F(RayTracingSceneFixture, ARigidInstanceIsUntouchedByTheAnimatedGuard)
+    {
+        // The control, and it is not optional. A guard that refused EVERY
+        // instance would pass both tests above and take the whole TLAS with it;
+        // only this case fails on that. The geometry is byte-identical to the
+        // animated one, so the flag is the only difference between them.
+        BeginFrame();
+        StageInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAnimatedInstanceDoesNotTakeARigidSiblingSharingItsMeshOutOfTheTlas)
+    {
+        // Classification is per INSTANCE and the BLAS demand map is per
+        // GEOMETRY, so a refusal that leaked from one to the other would delete
+        // a perfectly traceable rigid instance because something else animated
+        // the same mesh. That is a plausible way to write this guard and it is
+        // wrong: two entities share a mesh routinely, and only one of them may
+        // be skinned.
+        const GPUSceneGeometryKey shared = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageAnimatedInstance(1, shared, MakeTraceableGeometry(), MakeMaterial());
+        StageInstance(2, shared, MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 1u);
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u)
+            << "the rigid instance sharing the mesh must still trace";
+        EXPECT_EQ(m_Scene.GetStats().Resident.TotalBlas(), 1u);
+
+        // ...and it must be the RIGID one. Asserting only the count would pass
+        // just as well if the guard had kept the animated instance and dropped
+        // the rigid one, which is the same bug with the survivors swapped.
+        const u32 tracedSlot = m_Backend->LastInstances[0].CustomIndex;
+        bool foundTracedRecord = false;
+        for (u32 slot = 0; slot < m_GPUScene.GetInstanceSlotCount(); ++slot)
+        {
+            const GPUSceneInstance* record = m_GPUScene.GetLiveInstanceRecordBySlot(slot);
+            if (record == nullptr || record->StableIndex != tracedSlot)
+            {
+                continue;
+            }
+            foundTracedRecord = true;
+            EXPECT_EQ(record->Flags & GPUSceneInstanceFlagAnimated, 0u)
+                << "the surviving TLAS instance is the animated one — the refusal dropped the wrong sibling";
+        }
+        EXPECT_TRUE(foundTracedRecord) << "the traced instance's custom index names no live GPU Scene record";
+    }
+
+    // =========================================================================
+    // Deformed surfaces: criterion 1 (the pose reaches the TLAS) and criterion
+    // 2 (which changes refit and which rebuild).
+    //
+    // Criterion 2 is the risk surface of this issue, because a refit where a
+    // rebuild was required does not fail — it renders a plausible frame with a
+    // tree built for vertices that are no longer there. So every branch of it
+    // gets its own case rather than one case with several assertions.
+    // =========================================================================
+
+    TEST_F(RayTracingSceneFixture, ADeformedStreamMakesAnAnimatedSurfaceTraceable)
+    {
+        BeginFrame();
+        StageDeformedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Class, GeometryClass::Deformed)
+            << "a surface whose vertices are rewritten every frame must not take the build-once path";
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.BlasByClass[static_cast<sizet>(GeometryClass::Deformed)], 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.AnimatedInstancesRefused, 0u);
+    }
+
+    TEST_F(RayTracingSceneFixture, TwoCharactersSharingOneMeshGetTwoDeformedStructures)
+    {
+        // The reason a per-geometry BLAS cannot serve deforming geometry, and
+        // the reason the deformed stream carries the geometry KEY rather than
+        // riding the rest buffer's record. Two entities, one mesh asset, two
+        // poses: sharing one structure would give both characters whichever
+        // pose was staged last.
+        BeginFrame();
+        StageDeformedInstance(1, MakeGeometryKey(0xD1, 20), MakeTraceableGeometry(0xA000, 0x2000), MakeMaterial());
+        StageDeformedInstance(2, MakeGeometryKey(0xD2, 20), MakeTraceableGeometry(0xB000, 0x2000), MakeMaterial());
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_EQ(m_Backend->Builds.size(), 2u);
+        EXPECT_EQ(m_Backend->LastInstances.size(), 2u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.BlasByClass[static_cast<sizet>(GeometryClass::Deformed)], 2u);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAdvancingPoseRefitsRatherThanRebuilds)
+    {
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), /*contentRevision=*/1);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        m_Backend->ClearRecording();
+
+        // Same buffers, same counts, same addresses — only the pose moved. That
+        // is a vertex-only change, and it is what a refit is for.
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), /*contentRevision=*/2);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::DeformedRefit);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnIdlePoseCostsNoAccelerationStructureWorkAtAll)
+    {
+        // A paused or idle character must not refit. The geometry record is
+        // byte-identical frame to frame whether the pose moved or not — a
+        // deformation rewrites the vertices in place — so a fingerprint-driven
+        // policy would refit every animated surface every frame forever. The
+        // deformation revision is the only thing that can tell the two apart.
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), /*contentRevision=*/7);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        m_Backend->ClearRecording();
+
+        // The SAME content revision: the producer did not rewrite the vertices,
+        // so there is nothing for a refit to fit to. The skeleton's own
+        // revisions are identical in both frames here too, but that is not what
+        // is being tested — the helper advances them regardless.
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), /*contentRevision=*/7);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_TRUE(m_Backend->Builds.empty())
+            << "an idle character refitted its BLAS for a pose it did not leave";
+        EXPECT_EQ(m_Scene.GetStats().Frame.BlasBuilds, 0u);
+        EXPECT_EQ(m_Backend->LastInstances.size(), 1u) << "...but it must still be IN the TLAS";
+    }
+
+    TEST_F(RayTracingSceneFixture, AVertexCountChangeRebuildsInsteadOfRefitting)
+    {
+        // The LOD-transition branch of criterion 2. A refit may not change the
+        // primitive count a structure was sized for, so this is a rebuild — and
+        // getting it wrong is the quiet failure this criterion is about, since
+        // a refit against a different count is invalid usage that renders a
+        // plausible frame rather than failing.
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(0x1000, 0x2000, 3, 3), MakeMaterial(), 1);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        m_Backend->ClearRecording();
+
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(0x1000, 0x2000, 6, 6), MakeMaterial(), 2);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::GeometryChanged);
+        EXPECT_EQ(m_Backend->Builds[0].IndexCount, 6u);
+    }
+
+    TEST_F(RayTracingSceneFixture, ACapacityGrowthThatMovesTheBufferRebuilds)
+    {
+        // Capacity growth reallocates the deformed stream, so its device
+        // address moves. A refit would update a structure whose geometry
+        // pointer still names freed memory.
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(0x1000, 0x2000), MakeMaterial(), 1);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        m_Backend->ClearRecording();
+
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(0x9000, 0x2000), MakeMaterial(), 2);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::GeometryChanged);
+        EXPECT_EQ(m_Backend->Builds[0].VertexAddress, 0x9000u);
+    }
+
+    TEST_F(RayTracingSceneFixture, LosingTheDeformedStreamChangesTheClassRatherThanRefitting)
+    {
+        // The incompatible-build-flags branch. A Deformed structure was built
+        // ALLOW_UPDATE and never compacted; a Static one is built
+        // ALLOW_COMPACTION and cannot be refitted at all. Moving between them
+        // under one identity is a rebuild, and the class change is what says so
+        // — this is what a surface whose producer stopped being able to deform
+        // it looks like.
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial(), 1);
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        ASSERT_EQ(m_Backend->Builds[0].Class, GeometryClass::Deformed);
+        m_Backend->ClearRecording();
+
+        // Same geometry identity and same bytes, but no longer animated at all.
+        BeginFrame();
+        StageInstance(1, key, MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_EQ(m_Backend->Builds[0].Reason, BuildReason::ClassChanged);
+        EXPECT_EQ(m_Backend->Builds[0].Class, GeometryClass::Static);
+    }
+
+    TEST_F(RayTracingSceneFixture, AnAlphaMaskedCharacterKeepsItsCutoutSemantics)
+    {
+        // Criterion 1's other half, and a trap in the classification itself.
+        // GeometryClass has ONE slot and this surface is two things at once:
+        // Masked because its material is a cutout, Deformed because its
+        // vertices move. Deformed is the more restrictive of the two, so it is
+        // what Classify returns — and an instance whose opacity was derived
+        // from the returned class would therefore be forced OPAQUE and trace
+        // its leaves and hair cards as solid quads.
+        //
+        // Opacity is read from the material instead, which is where it actually
+        // lives. Nothing about the rigid path changes; this is the case that
+        // says so for the animated one.
+        BeginFrame();
+        StageDeformedInstance(1, MakeGeometryKey(10, 20), MakeTraceableGeometry(), MakeMaterial(AlphaMode::Mask));
+        EndFrame();
+
+        m_Scene.Update(m_GPUScene);
+
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u);
+        EXPECT_FALSE(m_Backend->LastInstances[0].ForceOpaque)
+            << "an alpha-masked animated surface lost its candidate confirmation, so every ray stops on its "
+               "bounding quads instead of its cutout";
+        EXPECT_EQ(m_Backend->Builds[0].Class, GeometryClass::Deformed)
+            << "...and it must still refit, because it is still deforming";
+    }
+
+    TEST_F(RayTracingSceneFixture, ADespawnedCharacterLeavesNoGhostInTheTlas)
+    {
+        // Criterion 3's despawn half. The instance list is rebuilt from live
+        // records every frame rather than patched, so absence IS removal — and
+        // the deformed structure it named is retired on the same frame.
+        const GPUSceneGeometryKey key = MakeGeometryKey(10, 20);
+        BeginFrame();
+        StageDeformedInstance(1, key, MakeTraceableGeometry(), MakeMaterial());
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+        ASSERT_EQ(m_Backend->LastInstances.size(), 1u);
+        m_Backend->ClearRecording();
+
+        BeginFrame();
+        EndFrame();
+        m_Scene.Update(m_GPUScene);
+
+        EXPECT_TRUE(m_Backend->LastInstances.empty()) << "the despawned character is still in the TLAS";
+        EXPECT_EQ(m_Scene.GetStats().Frame.BlasRetired, 1u);
+        EXPECT_EQ(m_Scene.GetStats().Resident.BlasByClass[static_cast<sizet>(GeometryClass::Deformed)], 0u);
+    }
+
+    TEST(RayTracingBuildDecision, AnUnchangedPoseIsNotABuildButAChangedOneIs)
+    {
+        // The pure form of the idle-character rule, stated against DecideBuild
+        // directly so the policy is pinned independently of the scene walk that
+        // feeds it.
+        EXPECT_FALSE(RT::RayTracingScene::DecideBuild(GeometryClass::Deformed, GeometryClass::Deformed, false, true, 0,
+                                                      /*deformationAdvanced=*/false)
+                         .has_value());
+        EXPECT_EQ(RT::RayTracingScene::DecideBuild(GeometryClass::Deformed, GeometryClass::Deformed, false, true, 0,
+                                                   /*deformationAdvanced=*/true),
+                  BuildReason::DeformedRefit);
+    }
+
+    TEST(RayTracingBuildDecision, AnIdleSurfaceDoesNotAccumulateRefitsItNeverPerformed)
+    {
+        // The ordering inside DecideBuild matters: the pose test comes BEFORE
+        // the refit-budget heuristic. Reversed, a character standing still at a
+        // run length past the budget would be handed a full rebuild every frame
+        // for not moving — the most expensive possible answer to "nothing
+        // happened".
+        EXPECT_FALSE(RT::RayTracingScene::DecideBuild(GeometryClass::Deformed, GeometryClass::Deformed, false, true,
+                                                      RT::RayTracingScene::kMaxConsecutiveRefits,
+                                                      /*deformationAdvanced=*/false)
+                         .has_value());
+        EXPECT_EQ(RT::RayTracingScene::DecideBuild(GeometryClass::Deformed, GeometryClass::Deformed, false, true,
+                                                   RT::RayTracingScene::kMaxConsecutiveRefits,
+                                                   /*deformationAdvanced=*/true),
+                  BuildReason::DeformedRefitBudget);
+    }
+
+    TEST(RayTracingBuildDecision, AFirstBuildIgnoresThePoseTest)
+    {
+        // A brand-new character has no structure, and its skeleton legitimately
+        // sits at revision 0. Letting the pose test suppress that build would
+        // leave it absent from the TLAS for as long as it stood still.
+        EXPECT_EQ(RT::RayTracingScene::DecideBuild(GeometryClass::Deformed, GeometryClass::Deformed, false, false, 0,
+                                                   /*deformationAdvanced=*/false),
+                  BuildReason::FirstBuild);
     }
 
     TEST_F(RayTracingSceneFixture, AMovedInstanceRebuildsNoBlas)

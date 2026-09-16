@@ -61,10 +61,32 @@ namespace OloEngine
             // A slot nobody claimed stays neutral (tint 1,1,1, model 0), so a
             // stale slot reads as "no profile effect" rather than as garbage.
             std::array<glm::vec4, kMaxSkinProfileSlots> SkinProfileParams{};
+
+            // THE LEAF PROFILE TABLE (issue #1234), indexed by the SAME
+            // three-bit slot field — read under MaterialKind::Foliage where the
+            // skin table is read under MaterialKind::Skin. Here for exactly the
+            // argument the skin table's comment makes above: the lobe's shape is
+            // authored per foliage LAYER, and without this the deferred path
+            // would know WHICH leaf material a pixel is and nothing about it,
+            // which is the per-path divergence #1234's third criterion forbids.
+            //
+            //   Tint: rgb = tint * strength (FoliageLeafProfileTintLane),
+            //         w   = the raw strength
+            //   Lobe: x = distortion, y = power, z = wrap, w = env scale
+            //
+            // An unclaimed slot stays all-zero, and zero strength shades as no
+            // transmission — so a stale slot loses the effect rather than
+            // acquiring someone else's.
+            std::array<glm::vec4, kMaxFoliageLeafSlots> LeafProfileTint{};
+            std::array<glm::vec4, kMaxFoliageLeafSlots> LeafProfileLobe{};
         };
+        static_assert(kMaxFoliageLeafSlots == kMaxSkinProfileSlots,
+                      "The leaf profile table and the skin profile table are two tenants of ONE three-bit "
+                      "G-Buffer field; if their slot counts ever differ, the field can no longer name both.");
         static_assert(sizeof(DeferredControlsData) % 16 == 0,
                       "DeferredControlsData must be 16-byte aligned for std140");
-        static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16,
+        static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16 +
+                                                          kMaxFoliageLeafSlots * 32,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
     } // namespace
@@ -372,6 +394,22 @@ namespace OloEngine
                 const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);
                 controls.SkinProfileParams[slot] = glm::vec4(parameters.SpecularTint,
                                                              static_cast<f32>(std::to_underlying(parameters.EvaluationModel)));
+            }
+        }
+
+        // The leaf profile table (issue #1234). Filled from the SAME
+        // FoliageLeafProfileTable that assigned the slots the foliage G-Buffer
+        // writer wrote, and filled EVERY frame, for the two reasons the skin
+        // table above states: the two sides cannot disagree about what slot N
+        // means, and a value dragged in the foliage inspector reaches this pass
+        // on the next frame.
+        {
+            const FoliageLeafProfileTable& leafProfiles = Renderer3D::GetFoliageLeafProfileTable();
+            for (u32 slot = 0; slot < kMaxFoliageLeafSlots; ++slot)
+            {
+                const FoliageLeafProfile profile = leafProfiles.GetProfileForSlot(slot);
+                controls.LeafProfileTint[slot] = FoliageLeafProfileTintLane(profile);
+                controls.LeafProfileLobe[slot] = FoliageLeafProfileLobeLane(profile);
             }
         }
         m_ControlsUBO->SetData(&controls, sizeof(controls));

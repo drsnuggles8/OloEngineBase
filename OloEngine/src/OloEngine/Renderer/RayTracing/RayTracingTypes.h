@@ -130,10 +130,18 @@ namespace OloEngine::RayTracing
     enum class GeometryClass : u32
     {
         // The record cannot be traced at all — no device address, an unknown
-        // vertex/index format, a degenerate triangle count, or a geometry the
-        // canonical scene never produces (skinned, cloth, virtualized clusters,
-        // particles, fluids). Counted and reported; the raster fallback stays
-        // visible. This is a real, expected population, not an error bucket.
+        // vertex/index format, a degenerate triangle count, a geometry the
+        // canonical scene never produces (cloth, particles, fluids), or an
+        // ANIMATED surface with no deformed vertex stream behind it. Counted
+        // and reported; the raster fallback stays visible. This is a real,
+        // expected population, not an error bucket.
+        //
+        // The animated row is the one that is a REFUSAL rather than an absence,
+        // and it is counted separately (ResidentCounters::
+        // AnimatedInstancesRefused) for that reason: those records exist, are
+        // well-formed, and would build a perfectly valid acceleration structure
+        // around the wrong vertices. Virtualized-cluster entities left this
+        // list at #1144 — they arrive as a fixed rigid proxy (ADR 0023).
         Unsupported = 0,
 
         // Vertices move every frame. Refit while the refit budget and the

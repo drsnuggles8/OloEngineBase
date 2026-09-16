@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include <algorithm>
+#include <span>
 #include <utility>
 
 namespace OloEngine
@@ -149,6 +150,9 @@ namespace OloEngine
             u32 m_IndexCount = 0;
             i32 m_BaseVertex = 0;
             u32 m_VertexCount = 0;
+            // GPUSceneGeometryFlag bits the caller owns. The encoder adds
+            // Active; today the only caller-set bit is Deformed (issue #1229).
+            u32 m_Flags = 0;
         };
 
         // Stages one geometry + one instance record and hands back the instance
@@ -179,6 +183,7 @@ namespace OloEngine
                                       .m_IndexCount = geometry.m_IndexCount,
                                       .m_BaseVertex = geometry.m_BaseVertex,
                                       .m_VertexCount = geometry.m_VertexCount,
+                                      .m_Flags = geometry.m_Flags,
                                   });
             const GPUSceneInstanceKey instanceKey{
                 .m_EntityId = stableEntityId,
@@ -202,6 +207,7 @@ namespace OloEngine
                     .m_DeformationRevision = animated.m_DeformationRevision,
                     .m_PrevDeformationRevision = animated.m_PrevDeformationRevision,
                     .m_DeformationResetCause = animated.m_ResetCause,
+                    .m_DeformedContentRevision = animated.m_DeformedContentRevision,
                 });
             return instanceKey;
         }
@@ -213,6 +219,13 @@ namespace OloEngine
                         "Renderer3D::BeginGPUSceneExtraction called twice before EndScene");
         s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.RenderOrigin);
         s_Data.GPUSceneExtractionActive = true;
+        // The deformed-vertex producer (#1229) rides the same extraction: every
+        // animated submission asks it for a stream while staging, and the
+        // dispatches it queues are recorded by SkeletalDeformPass once the
+        // graph runs. The frame number is GPU Scene's own, so "not offered this
+        // frame" means the same thing on both sides and a surface whose entity
+        // died is retired by both on the same frame.
+        s_Data.DeformedSurfaces.BeginFrame();
         // The path tracer's area-light gather (#1055) rides the same
         // extraction; it costs nothing while the tracer is off or its shader
         // never loaded, which is the state every CI runner is in. Keyed on the
@@ -348,21 +361,76 @@ namespace OloEngine
         }
 
         const Submesh& submesh = meshSource->GetSubmeshes()[static_cast<i32>(submeshIndex)];
+
+        // Issue #1229: an animated surface's record describes its DEFORMED
+        // stream, not the rest surface the asset owns.
+        //
+        // The substitution is one field — the vertex handle and its address —
+        // and that is the whole reason the design fits here rather than in a
+        // second scene. Everything downstream of the record follows that field:
+        // the BLAS build reads it, and so do the hit shaders' triangle fetch
+        // and the alpha-cutout confirmation, so pointing it at the deformed
+        // buffer moves traversal, shading and masking together and needs no
+        // shader change anywhere.
+        //
+        // The KEY moves with it, and that is load-bearing rather than
+        // incidental. A geometry key is (vertex buffer, index buffer, submesh);
+        // a deformed buffer belongs to exactly one entity, so two characters
+        // sharing a skinned mesh now get two records and therefore two BLASes,
+        // holding their own poses. Sharing one record — which is what the rest
+        // buffer gave them — is the thing that makes a per-geometry BLAS wrong
+        // for deforming geometry.
+        //
+        // The RASTER path is untouched by all of this: nothing outside the ray
+        // tracer reads a geometry record's vertex address, and the draw still
+        // binds the mesh's own vertex array and skins in the vertex stage. On
+        // OpenGL, and on any device without ray tracing, Acquire refuses
+        // everything and the record staged here is byte-for-byte the record
+        // staged before this issue.
+        // Only an animated submission can have a deformed stream, and this
+        // function runs for every submesh of every mesh in the scene — rigid
+        // geometry outnumbers animated by orders of magnitude in any real level.
+        // Acquire refuses a rigid caller on its first line anyway; skipping it
+        // here also skips hashing the buffer handle and building the span to ask
+        // a question whose answer is already known.
+        RayTracing::DeformedSurfaceBinding deformed{};
+        if (animatedSurface.m_IsAnimated)
+        {
+            const RayTracing::DeformedSurfaceKey deformedKey{
+                .EntityId = stableEntityId,
+                .RestVertexBuffer = RHI::HashKey(vertexHandle),
+            };
+            const std::span<const glm::mat4> bonePalette{
+                animatedSurface.m_BonePalette,
+                animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount : 0u
+            };
+            deformed = s_Data.DeformedSurfaces.Acquire(deformedKey, animatedSurface.m_IsAnimated, meshSource,
+                                                       bonePalette, animatedSurface.m_MorphStateHash);
+        }
+        const bool useDeformed = deformed.IsValid();
+        // The producer's answer, not the caller's: only the cache knows whether
+        // it actually rewrote this surface's vertices, and that is what the
+        // acceleration-structure policy compares.
+        GPUSceneAnimatedSurface resolvedAnimated = animatedSurface;
+        resolvedAnimated.m_DeformedContentRevision = deformed.ContentRevision;
+
         const GPUSceneInstanceKey instanceKey =
             StageGeometryAndInstance(s_Data.SceneGPU, stableEntityId, stableInstanceId,
                                      StagedGeometry{
-                                         .m_VertexHandle = vertexHandle,
+                                         .m_VertexHandle = useDeformed ? deformed.Handle : vertexHandle,
                                          .m_IndexHandle = indexHandle,
-                                         .m_VertexAddress = vertexBuffer->GetDeviceAddress(),
+                                         .m_VertexAddress = useDeformed ? deformed.DeviceAddress
+                                                                        : vertexBuffer->GetDeviceAddress(),
                                          .m_IndexAddress = indexBuffer->GetDeviceAddress(),
                                          .m_SubRange = submeshIndex,
                                          .m_FirstIndex = submesh.m_BaseIndex,
                                          .m_IndexCount = submesh.m_IndexCount,
                                          .m_BaseVertex = static_cast<i32>(submesh.m_BaseVertex),
                                          .m_VertexCount = submesh.m_VertexCount,
+                                         .m_Flags = useDeformed ? GPUSceneGeometryFlagDeformed : 0u,
                                      },
                                      worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask,
-                                     animatedSurface);
+                                     resolvedAnimated);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
@@ -619,6 +687,11 @@ namespace OloEngine
     RayTracing::RayTracingScene& Renderer3D::GetRayTracingScene()
     {
         return s_Data.SceneRT;
+    }
+
+    RayTracing::DeformedSurfaceCache& Renderer3D::GetDeformedSurfaceCache()
+    {
+        return s_Data.DeformedSurfaces;
     }
 
     const RayTracing::SceneStats& Renderer3D::GetRayTracingStats()

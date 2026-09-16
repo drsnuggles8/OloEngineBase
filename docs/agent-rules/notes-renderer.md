@@ -1215,3 +1215,112 @@ The other half of the rule: every field below the open-ended one is fixed-width 
 so a bad profile slot would not produce a wrong profile — it would produce a wrong closure model.
 
 Found on #1231.
+
+## A two-sided surface's shadow lookup must be biased along the LIT-side normal
+
+Cascaded-shadow sampling offsets the receiver along its shading normal by `ShadowParams.y` metres to
+escape self-shadowing acne. That is correct for every surface whose shading normal faces the light —
+which is every surface where the reflected lobe is non-zero, and therefore every surface the bias was
+designed against.
+
+It is wrong for a **two-sided** surface lit from behind. A backlit leaf's shading normal faces the
+viewer and therefore points *away* from the light, so the offset walks the sample point deeper behind
+the leaf's own shadow-map depth. The shadow factor collapses to zero, and any term gated on it —
+transmission, translucency, a wrap-lighting fill — goes black.
+
+**Pass `faceforward`-style lit-side normal to the shadow lookup**, not the shading normal:
+
+```glsl
+vec3 shadowN = (dot(N, L) < 0.0) ? -N : N;   // oloFoliageShadowNormal in include/FoliageSurface.glsl
+```
+
+Two things make this safe rather than a special case:
+
+- where `dot(N, L) > 0` it returns `N` unchanged, so ONE lookup serves both the reflected and the
+  transmitted lobe and the two can never disagree about whether the pixel is in shadow;
+- it is the physically honest query — the shadow test asks whether the face the light actually hits
+  is occluded, and that face's normal points at the light.
+
+The symptom when you get it wrong reads as *"the transmission lobe is broken"*, because the lobe is
+the only thing visible in that configuration. It is a sign error one function away.
+
+Found on #1234 (foliage leaf transmission).
+
+## G-Buffer RT5 is a free per-pixel lane for a kind-gated scalar, because its alpha is a GATE
+
+RT5 (baked lightmap irradiance) is the one G-Buffer attachment with a **coverage flag** in its alpha,
+and both of its readers — `DeferredLighting.glsl` and `DeferredLighting_MSAA.glsl`, and there are only
+those two — already gate the whole target on `bakedGI.a > 0.5`. Every writer that is not a lightmapped
+receiver writes `vec4(0)`.
+
+So a pass that needs one more per-pixel scalar can put it in RT5's `.rgb` and leave `.a` at 0, and
+**no existing reader changes behaviour on any pixel**: a coverage-0 pixel's rgb was already ignored.
+That is a materially better trade than the alternatives — RT0.a is metallic, RT1.zw are roughness and
+AO, and RT2.rgb is emission that ~10 ReSTIR shaders read, so any of those needs every reader audited.
+
+Two conditions on using it:
+
+- **Gate the READ on something only your writer sets** — the material kind is not enough on its own if
+  that kind is authorable on ordinary materials (a mesh material set to `MaterialKind::Foliage` still
+  goes through `PBR_GBuffer`, which writes real irradiance there). #1234 gates on the profile SLOT,
+  which only a foliage shader ever writes.
+- **Know the resolved-MSAA cost.** `GBuffer::Resolve()` average-blits RT5, so a silhouette pixel that
+  is part your surface and part a lightmapped receiver averages `yourValue / sampleCount` into the
+  irradiance. Bounded and small, but it is not zero, and it is invisible in every non-MSAA capture.
+
+Found on #1234 (per-pixel leaf thickness on the deferred path).
+
+## Two profile tables can share one G-Buffer slot field, if each is read only under its own kind
+
+The RT2 flags lane's three-bit slot field (bits 3..5) has had two tenants since #1234: the skin
+profile slot (`MaterialKind::Skin`) and the leaf profile slot (`MaterialKind::Foliage`). This works
+because a pixel has exactly **one** kind, so the two reads are mutually exclusive by construction
+rather than by convention.
+
+The rule that makes it safe is the one #1231 already wrote down: *a slot is only meaningful under its
+kind*. Writers that go through neither (`Terrain`, `Water`) leave the lane at 0, whose slot bits read
+as 0 — and treating that as "profile 0" is the failure both gates exist to prevent.
+
+Keep the two slot-count constants **separate** (`kMaxSkinProfileSlots`, `kMaxFoliageLeafSlots`) even
+though they are equal, with a static_assert that they match: aliasing one to the other would make a
+future widening of one silently widen the other, and the field can only carry one width.
+
+Found on #1234.
+
+## `Texture2D::Create(path, …)` never returns null — `IsLoaded()` is the only thing that says so
+
+Every overload of `Texture2D::Create` hands back a live `Ref<Texture2D>` on the OpenGL path,
+including for a file that does not exist or will not decode. The failure is reported by
+`IsLoaded()`, and by nothing else.
+
+So this is not a load check:
+
+```cpp
+texture = Texture2D::Create(path, /*srgb=*/false);
+if (!texture)                       // never true
+    OLO_CORE_WARN("could not load {}", path);
+```
+
+and the shader then samples whatever the failed texture object contains. For a tangent-space normal
+map that is a normal of roughly `(-1, -1, -1)`; for a thickness or roughness map it is a black
+channel, which means "does not transmit" and "mirror" respectively — all three read as the feature
+being broken rather than as an asset being missing.
+
+**The rule:** check `IsLoaded()`, log, and then DROP the `Ref`, so the consuming code's
+"no map authored" path runs. A fallback that samples a broken texture is worse than one that uses
+the authored constant, because only the second is a look somebody chose.
+
+```cpp
+texture = path.empty() ? nullptr : Texture2D::Create(path, /*srgb=*/false);
+if (texture && !texture->IsLoaded())
+{
+    OLO_CORE_WARN("leaf map '{}' could not be loaded; shading with the authored constant.", path);
+    texture = nullptr;
+}
+```
+
+Cache the attempt on the PATH, not on the `Ref` being null — otherwise a broken path is re-opened
+and re-logged on every regeneration. `FoliageRenderer`'s authored-mesh import already had that shape;
+the leaf maps now match it.
+
+Found on #1234 (foliage leaf maps), reviewing code whose null check could never fire.
