@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanShader.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <algorithm>
@@ -206,6 +207,15 @@ namespace OloEngine
         sizet released = 0;
         for (auto& [key, entry] : m_Entries)
         {
+            if (entry.Kind == VulkanRootObjectKind::ComputeShader && entry.Object != nullptr)
+            {
+                auto* shader = static_cast<VulkanComputeShader*>(entry.Object);
+                OLO_CORE_TRACE("[Vulkan] releasing module of surviving compute shader '{}' at context teardown",
+                               shader->GetName());
+                shader->ReleaseDeviceObjects();
+                ++released;
+                continue;
+            }
             if (entry.Kind != VulkanRootObjectKind::Shader || entry.Object == nullptr)
             {
                 continue;

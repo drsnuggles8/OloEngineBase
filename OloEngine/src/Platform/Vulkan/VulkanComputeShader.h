@@ -86,6 +86,12 @@ namespace OloEngine
 
         void Reload() override;
 
+        // Context teardown releases native modules even when a Ref survives.
+        void ReleaseDeviceObjects()
+        {
+            DestroyModule();
+        }
+
         // --- backend-internal (the dispatch path's material) ----------------
         [[nodiscard]] VkShaderModule GetModule() const
         {

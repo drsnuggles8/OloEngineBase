@@ -57,6 +57,8 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanResourceInspectorBackend.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -2245,5 +2247,34 @@ void main() {
     capture(true, 0u, 0u, missingMap);
     EXPECT_EQ(pixel(missingMap[0], kSize / 4u), (std::array<u8, 3>{ 255, 255, 255 }));
 }
+
+TEST_F(VulkanDrawPath, InspectorDistinguishesComputeAndGraphicsShaderObjects)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto compute = Ref<VulkanComputeShader>::Create("InspectorCompute", R"(
+#version 460 core
+layout(local_size_x = 1) in;
+void main() {}
+)");
+    auto graphics = Ref<VulkanShader>::Create("InspectorGraphics", kVertexSrc, kFragmentSrc);
+    ASSERT_NE(compute->GetModule(), VK_NULL_HANDLE);
+    ASSERT_EQ(graphics->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    VulkanResourceInspectorBackend inspector;
+    std::vector<IResourceInspectorBackend::DiscoveredResource> resources;
+    inspector.DiscoverResources(resources);
+    for (const auto& [handle, name] : std::array{
+             std::pair{ compute->GetRHIHandle(), std::string("InspectorCompute") },
+             std::pair{ graphics->GetRHIHandle(), std::string("InspectorGraphics") } })
+    {
+        const auto row = std::ranges::find(resources, handle, &IResourceInspectorBackend::DiscoveredResource::Handle);
+        ASSERT_NE(row, resources.end());
+        EXPECT_EQ(row->Name, name);
+    }
+    VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+    EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);
+    VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+    EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);
+}
+
 
 #endif // OLO_WITH_VULKAN

@@ -311,7 +311,7 @@ namespace OloEngine
 
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram,
                          static_cast<u64>(reinterpret_cast<std::uintptr_t>(m_Module)), RHI::Backend::Vulkan);
-        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::Shader, this);
+        VulkanRootObjectRegistry::Get().Register(m_RHIHandle.Get(), VulkanRootObjectKind::ComputeShader, this);
         return true;
     }
 
