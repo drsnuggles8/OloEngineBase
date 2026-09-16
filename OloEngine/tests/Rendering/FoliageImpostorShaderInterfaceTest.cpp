@@ -131,7 +131,12 @@ namespace OloEngine::Tests
             EXPECT_TRUE(MentionsOutsideComments(fs, out)) << out;
         }
         EXPECT_FALSE(MentionsOutsideComments(fs, "FragColor")) << "the deferred variant still declares the forward lit output";
-        EXPECT_FALSE(MentionsOutsideComments(fs, "MultiLightData"))
+        // MultiLightBuffer, not MultiLightData: #1234 replaced the impostor's
+        // truncated four-int-plus-Light[0] block with the real full one, the
+        // same block PBR_MultiLight declares. Chasing the rename matters most
+        // HERE — a negative assertion against a name nothing declares any more
+        // passes for the wrong reason and stops testing anything.
+        EXPECT_FALSE(MentionsOutsideComments(fs, "MultiLightBuffer"))
             << "the deferred variant still relights itself; DeferredLightingPass shades the G-Buffer";
     }
 
@@ -139,7 +144,10 @@ namespace OloEngine::Tests
     {
         const auto& fs = m_Forward.m_Fragment;
         EXPECT_TRUE(MentionsOutsideComments(fs, "FragColor"));
-        EXPECT_TRUE(MentionsOutsideComments(fs, "MultiLightData"));
+        // See the deferred case above for the #1234 rename. The forward card
+        // relights itself, so it must still name the light block — and since
+        // #1234 it walks the WHOLE array rather than Light[0] alone.
+        EXPECT_TRUE(MentionsOutsideComments(fs, "MultiLightBuffer"));
         EXPECT_FALSE(MentionsOutsideComments(fs, "o_GBufferAlbedo"))
             << "the forward card declares a G-Buffer output — executed against the Scene MRT that maps a float "
                "onto the R32_SINT entity-ID target (issue #955)";

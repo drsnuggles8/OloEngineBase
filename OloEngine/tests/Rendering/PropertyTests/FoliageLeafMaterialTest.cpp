@@ -434,6 +434,11 @@ Entities:
           TransmissionAmbient: .inf
           NormalStrength: .nan
           Enabled: true
+        - Name: FiniteOutOfRange
+          TransmissionStrength: 2
+          TransmissionColor: [-0.5, 4, 0.25]
+          Thickness: 0.5
+          Enabled: true
 )";
 
         auto reloaded = Scene::Create();
@@ -443,7 +448,7 @@ Entities:
         ASSERT_TRUE(static_cast<bool>(restored));
         ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
         const auto& foliage = restored.GetComponent<FoliageComponent>();
-        ASSERT_EQ(foliage.m_Layers.size(), 1u);
+        ASSERT_EQ(foliage.m_Layers.size(), 2u);
         const FoliageLayer& l = foliage.m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(l.TransmissionStrength));
@@ -464,9 +469,23 @@ Entities:
         EXPECT_LE(l.Thickness, 1.0f);
         EXPECT_GE(l.TransmissionDistortion, 0.0f);
         EXPECT_LE(l.TransmissionDistortion, 1.0f);
-        EXPECT_GE(l.TransmissionColor.x, 0.0f);
-        EXPECT_LE(l.TransmissionColor.x, 1.0f);
-        EXPECT_GE(l.TransmissionColor.y, 0.0f);
+        // A NON-FINITE component rejects the WHOLE vector to the default —
+        // the reader requires all three finite before it assigns — so this
+        // layer proves rejection, not clamping.
+        EXPECT_TRUE(Math::BitwiseEqual(l.TransmissionColor, glm::vec3(0.42f, 0.62f, 0.18f)))
+            << "a colour with a non-finite component must keep the default outright, not a "
+               "partially-clamped mixture of authored and default components";
+
+        // THE SECOND LAYER IS WHAT EXERCISES THE CLAMP. Every component here is
+        // finite, so the assignment runs and each one is clamped on its own —
+        // which the layer above can never show, because its infinity rejects
+        // the vector before any clamping happens. Both cases are needed: one
+        // for the reject path, one for the clamp path.
+        const FoliageLayer& oor = foliage.m_Layers[1];
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.x, 0.0f) << "x below 0 must clamp UP to 0";
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.y, 1.0f) << "y above 1 must clamp DOWN to 1";
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.z, 0.25f) << "z is already in range and must be untouched";
+        EXPECT_FLOAT_EQ(oor.TransmissionStrength, 2.0f) << "a strength inside [0, 8] is not clamped";
     }
 
 } // namespace OloEngine::Tests

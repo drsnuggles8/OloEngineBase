@@ -123,6 +123,24 @@ namespace OloEngine::Tests
 
         FoliageProbeHarness harness(static_cast<u32>(CaseCount), 1u,
                                     "assets/shaders/tests/ShaderUnit_FoliageTransmission.glsl");
+
+        // THE SHADER COMPILED, ASKED BEFORE ANYTHING IS DRAWN. Shader::Create
+        // hands back an OpenGLShader even when FinalizeGL set its status to
+        // Failed, and Bind() on a non-Ready program returns without binding
+        // while Draw() carries on regardless. Without this the probe would
+        // report whatever the no-shader draw left in the attachment — a
+        // non-finite texel or a zero that looks like a lobe returning zero —
+        // and the failure would read as a shading bug rather than as
+        // "ShaderUnit_FoliageTransmission.glsl did not compile".
+        //
+        // Same trap as Texture2D::Create, which also never returns null; see
+        // docs/agent-rules/notes-renderer.md.
+        ASSERT_TRUE(harness.m_Shader) << "the probe shader was not created at all";
+        ASSERT_TRUE(harness.m_Shader->IsReady())
+            << "assets/shaders/tests/ShaderUnit_FoliageTransmission.glsl did not compile — check "
+               "OloEngine.log for the compiler diagnostic. Every assertion below would otherwise "
+               "measure a frame no shader wrote.";
+
         harness.Draw();
 
         std::vector<f32> pixels;

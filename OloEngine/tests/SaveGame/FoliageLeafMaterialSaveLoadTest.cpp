@@ -252,8 +252,20 @@ namespace OloEngine::Tests
         hostile.NormalStrength = -std::numeric_limits<f32>::infinity();
         seed.m_Layers.push_back(hostile);
 
+        // A SECOND LAYER, FINITE BUT OUT OF RANGE. The layer above proves the
+        // REJECT path: a non-finite component sends the whole vector back to
+        // its default before any clamping, so it can never show that the
+        // components clamp independently. This one has every component finite,
+        // so the clamp actually runs.
+        FoliageLayer outOfRange;
+        outOfRange.Name = "FiniteOutOfRange";
+        outOfRange.TransmissionStrength = 2.0f;
+        outOfRange.TransmissionColor = glm::vec3(-0.5f, 4.0f, 0.25f);
+        outOfRange.Thickness = 0.5f;
+        seed.m_Layers.push_back(outOfRange);
+
         const FoliageComponent loaded = RoundTrip(seed, kSaveGameFormatVersion);
-        ASSERT_EQ(loaded.m_Layers.size(), 1u);
+        ASSERT_EQ(loaded.m_Layers.size(), 2u);
         const FoliageLayer& l = loaded.m_Layers[0];
 
         EXPECT_TRUE(std::isfinite(l.TransmissionStrength));
@@ -272,9 +284,15 @@ namespace OloEngine::Tests
         EXPECT_LE(l.Thickness, 1.0f);
         EXPECT_GE(l.TransmissionDistortion, 0.0f);
         EXPECT_GE(l.NormalStrength, 0.0f);
-        EXPECT_GE(l.TransmissionColor.x, 0.0f);
-        EXPECT_LE(l.TransmissionColor.x, 1.0f);
-        EXPECT_GE(l.TransmissionColor.y, 0.0f);
+        EXPECT_TRUE(Math::BitwiseEqual(l.TransmissionColor, glm::vec3(0.42f, 0.62f, 0.18f)))
+            << "a colour with a non-finite component must keep the default outright, not a "
+               "partially-clamped mixture of authored and default components";
+
+        const FoliageLayer& oor = loaded.m_Layers[1];
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.x, 0.0f) << "x below 0 must clamp UP to 0";
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.y, 1.0f) << "y above 1 must clamp DOWN to 1";
+        EXPECT_FLOAT_EQ(oor.TransmissionColor.z, 0.25f) << "z is already in range and must be untouched";
+        EXPECT_FLOAT_EQ(oor.TransmissionStrength, 2.0f) << "a strength inside [0, 8] is not clamped";
     }
 
 } // namespace OloEngine::Tests
