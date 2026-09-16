@@ -225,6 +225,7 @@ namespace OloEngine
             DDGIProbeUpdate.Reset();
             VirtualShadowMapMark.Reset();
             SkeletalDeform.Reset();
+            RayTracingScene.Reset();
         }
     };
 
