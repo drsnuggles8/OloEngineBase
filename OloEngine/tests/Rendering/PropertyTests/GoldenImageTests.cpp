@@ -656,7 +656,7 @@ namespace OloEngine::Tests
     // =========================================================================
     // [Layer-1 — Unit] SSIM math property checks.
     //
-    // These four `GoldenImageSsimTest` cases are plain CPU-side unit tests
+    // These `GoldenImageSsimTest` cases are plain CPU-side unit tests
     // (no GPU required) that pin the perceptual-similarity math used by the
     // §8 RMSE → SSIM cascade. They live in this file — rather than under a
     // dedicated L1 target — because ComputeRgbSsim() and MakeCheckerboard()
@@ -727,6 +727,51 @@ namespace OloEngine::Tests
         const f32 ssimAB = ComputeRgbSsim(a, b, kW, kH);
         const f32 ssimBA = ComputeRgbSsim(b, a, kW, kH);
         EXPECT_NEAR(ssimAB, ssimBA, 1e-5f);
+    }
+
+    // =========================================================================
+    TEST(GoldenImageSsimTest, PartialRightAndBottomWindowsDetectChanges)
+    {
+        for (const auto& dimensions : { std::pair{ 9u, 8u }, std::pair{ 8u, 9u }, std::pair{ 9u, 9u } })
+        {
+            const auto [width, height] = dimensions;
+            const auto a = MakeCheckerboard(width, height, 40, 200, 4);
+            auto b = a;
+            for (u32 y = 0; y < height; ++y)
+                for (u32 x = 0; x < width; ++x)
+                    if (x >= 8u || y >= 8u)
+                        for (u32 channel = 0; channel < 3; ++channel)
+                            b[(static_cast<sizet>(y) * width + x) * 4 + channel] = 0;
+            const f32 forward = ComputeRgbSsim(a, b, width, height);
+            EXPECT_LT(forward, 0.985f) << width << 'x' << height;
+            EXPECT_NEAR(forward, ComputeRgbSsim(b, a, width, height), 1e-5f);
+            EXPECT_NEAR(ComputeRgbSsim(a, a, width, height), 1.0f, 1e-5f);
+        }
+    }
+
+    TEST(GoldenImageSsimTest, SingletonEdgeWindowDetectsCornerChange)
+    {
+        const auto a = MakeCheckerboard(9, 9, 40, 200, 4);
+        auto b = a;
+        for (u32 channel = 0; channel < 3; ++channel)
+            b[(8u * 9u + 8u) * 4u + channel] = 255;
+        EXPECT_LT(ComputeRgbSsim(a, b, 9, 9), 0.985f);
+    }
+
+    TEST(GoldenImageSsimTest, SmallImagesHaveFiniteSymmetricSimilarity)
+    {
+        for (const auto& dimensions : { std::pair{ 1u, 1u }, std::pair{ 3u, 5u } })
+        {
+            const auto [width, height] = dimensions;
+            const auto a = MakeCheckerboard(width, height, 40, 200, 2);
+            auto b = a;
+            b[0] = 255;
+            const f32 forward = ComputeRgbSsim(a, b, width, height);
+            EXPECT_TRUE(std::isfinite(forward));
+            EXPECT_LT(forward, 1.0f);
+            EXPECT_NEAR(forward, ComputeRgbSsim(b, a, width, height), 1e-5f);
+            EXPECT_NEAR(ComputeRgbSsim(a, a, width, height), 1.0f, 1e-5f);
+        }
     }
 
     // =========================================================================
