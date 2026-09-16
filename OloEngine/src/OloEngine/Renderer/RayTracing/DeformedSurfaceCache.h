@@ -47,6 +47,7 @@
 #include <limits>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OloEngine
@@ -110,12 +111,12 @@ namespace OloEngine::RayTracing
     {
         RHI::ResourceHandle Handle{};
         u64 DeviceAddress = 0;
-        // True on the frame the buffer was (re)allocated. The acceleration
-        // structure cannot refit across that: the address moved and, when the
-        // vertex count moved with it, the tree was sized for a different
-        // primitive count. Carried out rather than re-derived from the address
-        // because the caller has no memory of last frame's address.
-        bool Reallocated = false;
+        // NO `Reallocated` lane. A reallocation moves the buffer's DEVICE
+        // ADDRESS, which is already one of the fields FingerprintGeometry
+        // hashes, so RayTracingScene sees it as GeometryChanged and rebuilds
+        // without being told twice. A second spelling of one fact is a second
+        // thing that can disagree with it.
+        //
         // Increments ONLY when this surface's vertices were actually rewritten.
         // It is what tells a consumer "the geometry under your acceleration
         // structure moved", and the skeleton's deformation revision cannot
@@ -148,17 +149,17 @@ namespace OloEngine::RayTracing
     struct DeformedSurfaceStats
     {
         // Standing.
-        u32 ResidentSurfaces = 0;    ///< Deformed buffers currently allocated.
-        u64 ResidentBytes = 0;       ///< What those buffers hold, bytes.
-        u64 PaletteBytes = 0;        ///< The shared per-frame palette staging buffer.
+        u32 ResidentSurfaces = 0; ///< Deformed buffers currently allocated.
+        u64 ResidentBytes = 0;    ///< What those buffers hold, bytes.
+        u64 PaletteBytes = 0;     ///< The shared per-frame palette staging buffer.
 
         // Per frame.
-        u32 SurfacesRequested = 0;   ///< Acquire() calls that named a live animated surface.
-        u32 Dispatched = 0;          ///< Compute dispatches recorded.
-        u32 VerticesDeformed = 0;    ///< Vertices those dispatches covered.
-        u32 Allocated = 0;           ///< Buffers created this frame (a new surface).
-        u32 Reallocated = 0;         ///< Buffers replaced this frame (capacity grew).
-        u32 Retired = 0;             ///< Buffers released this frame (despawn, LOD switch).
+        u32 SurfacesRequested = 0; ///< Acquire() calls that named a live animated surface.
+        u32 Dispatched = 0;        ///< Compute dispatches recorded.
+        u32 VerticesDeformed = 0;  ///< Vertices those dispatches covered.
+        u32 Allocated = 0;         ///< Buffers created this frame (a new surface).
+        u32 Reallocated = 0;       ///< Buffers replaced this frame (capacity grew).
+        u32 Retired = 0;           ///< Buffers released this frame (despawn, LOD switch).
         // A surface whose pose did not advance since the last dispatch. It is
         // SKIPPED, not re-deformed, and the acceleration structure is not
         // refitted for it either — which is the single largest saving in a
@@ -261,9 +262,17 @@ namespace OloEngine::RayTracing
         // counted as a requested-and-refused animated surface and the one
         // counter that means "a character is missing from the TLAS" would read
         // in the thousands on a scene with no characters in it.
+        // `morphStateHash` folds in everything OTHER than the bone palette that
+        // changes this surface's vertices. It is not optional: morph deltas are
+        // applied on the CPU straight into the rest vertex buffer
+        // (Scene::EvaluateMorphTargets), so an expressing head with a fixed
+        // skeleton pose rewrites the geometry while the palette does not move
+        // one bit. Comparing the palette alone freezes that face at its first
+        // expression in every ray-traced effect — and "an expressing head" is
+        // one of the two subjects this issue names.
         [[nodiscard]] DeformedSurfaceBinding Acquire(const DeformedSurfaceKey& key, bool isAnimated,
                                                      const Ref<MeshSource>& meshSource,
-                                                     std::span<const glm::mat4> palette);
+                                                     std::span<const glm::mat4> palette, u64 morphStateHash);
 
         // The pose hash Acquire compares against. Exposed because it is the
         // testable half of the skip decision.
@@ -318,8 +327,8 @@ namespace OloEngine::RayTracing
         struct Entry
         {
             Ref<VertexBuffer> Output;
-            u32 Capacity = 0;     ///< Vertices the buffer can hold.
-            u32 VertexCount = 0;  ///< Vertices the surface had when last dispatched.
+            u32 Capacity = 0;    ///< Vertices the buffer can hold.
+            u32 VertexCount = 0; ///< Vertices the surface had when last dispatched.
             u64 DeviceAddress = 0;
             u64 LastSeenFrame = 0;
             // The revision the resident contents were produced at, and whether
@@ -333,12 +342,19 @@ namespace OloEngine::RayTracing
             // it is exact: identical palettes and an identical vertex count
             // mean identical output.
             u64 PaletteHash = 0;
+            u64 MorphStateHash = 0;
             u32 ContentRevision = 0;
             bool EverDeformed = false;
         };
 
         struct QueuedDispatch
         {
+            // The surface this dispatch belongs to. Carried so that a queue
+            // which is DROPPED rather than recorded can put its entries back:
+            // Acquire has already marked them deformed-at-this-pose, and a
+            // surface left in that state is never re-queued, so its structure
+            // would be built over vertices nothing ever wrote.
+            DeformedSurfaceKey Key{};
             u64 RestAddress = 0;
             u64 InfluenceAddress = 0;
             u64 OutputAddress = 0;
@@ -348,6 +364,9 @@ namespace OloEngine::RayTracing
         };
 
         void ReleaseEntry(Entry& entry);
+        // Undo the pose bookkeeping Acquire committed for every queued surface,
+        // so the next frame offers them again.
+        void RollbackQueuedDispatches();
         bool EnsurePaletteBuffer(u64 requiredBytes);
         bool EnsureShader();
 
@@ -357,6 +376,11 @@ namespace OloEngine::RayTracing
         std::unordered_map<DeformedSurfaceKey, Entry, DeformedSurfaceKeyHash> m_Surfaces;
         std::vector<QueuedDispatch> m_Queue;
         std::vector<DeformedSurfaceKey> m_PendingRetires;
+        // Surfaces already counted in SurfacesRequested this frame. Acquire is
+        // called once per SUBMESH and a character is many submeshes sharing one
+        // deformed stream, so without this the census reports one idle fox as
+        // several idle surfaces.
+        std::unordered_set<DeformedSurfaceKey, DeformedSurfaceKeyHash> m_CountedThisFrame;
 
         // The frame's palettes, packed back to back and uploaded once. One
         // buffer for every surface rather than one per surface: a palette is

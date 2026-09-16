@@ -392,10 +392,11 @@ namespace OloEngine
                                                 .RestVertexBuffer = RHI::HashKey(vertexHandle),
                                             },
                                             animatedSurface.m_IsAnimated, meshSource,
-                                            std::span<const glm::mat4>{ animatedSurface.m_BonePalette,
-                                                                        animatedSurface.m_BonePalette != nullptr
-                                                                            ? animatedSurface.m_BoneCount
-                                                                            : 0u });
+                                            std::span<const glm::mat4>{
+                                                animatedSurface.m_BonePalette,
+                                                animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount
+                                                                                         : 0u },
+                                            animatedSurface.m_MorphStateHash);
         const bool useDeformed = deformed.IsValid();
         // The producer's answer, not the caller's: only the cache knows whether
         // it actually rewrote this surface's vertices, and that is what the

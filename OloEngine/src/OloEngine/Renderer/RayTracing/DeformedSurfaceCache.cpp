@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace OloEngine::RayTracing
 {
@@ -117,6 +118,7 @@ namespace OloEngine::RayTracing
         m_Surfaces.clear();
         m_Queue.clear();
         m_PendingRetires.clear();
+        m_CountedThisFrame.clear();
         m_PaletteStaging.clear();
         m_PaletteBuffer.Reset();
         m_PaletteBufferBytes = 0;
@@ -138,16 +140,58 @@ namespace OloEngine::RayTracing
         entry.VertexCount = 0;
         entry.DeviceAddress = 0;
         entry.PaletteHash = 0;
+        entry.MorphStateHash = 0;
         entry.EverDeformed = false;
+    }
+
+    void DeformedSurfaceCache::RollbackQueuedDispatches()
+    {
+        // Acquire committed each queued surface's pose bookkeeping on the
+        // promise that Dispatch would record it. When the queue is dropped
+        // instead, that promise is broken and the entry must go back — a
+        // surface left marked deformed-at-this-pose is never offered again,
+        // and its acceleration structure would be rebuilt over vertices
+        // nothing ever wrote, for the rest of the session.
+        //
+        // ContentRevision is deliberately NOT wound back. It is a change
+        // counter, not a position: winding it back could make a later genuine
+        // rewrite land on a value a consumer had already seen and skip the
+        // rebuild. Leaving it high costs one redundant build and cannot lose
+        // one.
+        for (const QueuedDispatch& item : m_Queue)
+        {
+            if (auto found = m_Surfaces.find(item.Key); found != m_Surfaces.end())
+            {
+                found->second.EverDeformed = false;
+                found->second.PaletteHash = 0;
+                found->second.MorphStateHash = 0;
+            }
+        }
+        // Counted as refusals: these surfaces asked for a deformed stream this
+        // frame and did not get one. ResetFrame runs AFTER this in BeginFrame,
+        // so a rollback of last frame's leftovers cannot leak into the new
+        // frame's number.
+        m_Stats.Refused += static_cast<u32>(m_Queue.size());
+        m_Queue.clear();
     }
 
     void DeformedSurfaceCache::BeginFrame()
     {
+        // A queue still standing here was never recorded: the graph did not run
+        // SkeletalDeformPass at all last frame — an extraction with no frame
+        // behind it, a renderer torn down mid-frame — so the surfaces in it are
+        // marked deformed-at-a-pose that nothing wrote. Rolling back rather
+        // than clearing is what makes them come back.
+        //
+        // Clearing silently is the same defect as the dropped-dispatch path
+        // below, reached by a different route, and it is the easier of the two
+        // to miss because nothing failed: the queue simply was not asked for.
+        RollbackQueuedDispatches();
         ++m_FrameNumber;
         m_Stats.ResetFrame();
-        m_Queue.clear();
         m_PaletteStaging.clear();
         m_PendingRetires.clear();
+        m_CountedThisFrame.clear();
     }
 
     bool DeformedSurfaceCache::EnsureShader()
@@ -209,7 +253,7 @@ namespace OloEngine::RayTracing
 
     DeformedSurfaceBinding DeformedSurfaceCache::Acquire(const DeformedSurfaceKey& key, bool isAnimated,
                                                          const Ref<MeshSource>& meshSource,
-                                                         std::span<const glm::mat4> palette)
+                                                         std::span<const glm::mat4> palette, u64 morphStateHash)
     {
         // NOT refusals, and neither is counted. There is no ray tracing, or
         // this is an ordinary rigid mesh — in both cases nothing was offered,
@@ -221,11 +265,22 @@ namespace OloEngine::RayTracing
             return DeformedSurfaceBinding{};
         }
 
-        ++m_Stats.SurfacesRequested;
-
-        const auto refuse = [this]() -> DeformedSurfaceBinding
+        // Once per SURFACE, not once per submesh. Acquire is called for every
+        // staged submesh and a character is many submeshes sharing one deformed
+        // stream, so counting here unguarded reports one idle fox as N idle
+        // surfaces and makes the census unreadable on any real character.
+        const bool firstAcquireThisFrame = m_CountedThisFrame.insert(key).second;
+        if (firstAcquireThisFrame)
         {
-            ++m_Stats.Refused;
+            ++m_Stats.SurfacesRequested;
+        }
+
+        const auto refuse = [this, firstAcquireThisFrame]() -> DeformedSurfaceBinding
+        {
+            if (firstAcquireThisFrame)
+            {
+                ++m_Stats.Refused;
+            }
             return DeformedSurfaceBinding{};
         };
 
@@ -256,6 +311,12 @@ namespace OloEngine::RayTracing
 
         Entry& entry = m_Surfaces[key];
         const bool firstSight = entry.Output == nullptr;
+        // Stamped BEFORE the allocation attempt below can return. A refusal
+        // that left this stale would have EndFrame retire the very buffer the
+        // failure path exists to preserve, and the surface would then churn
+        // allocate-and-retire — with a FirstBuild and a retire of its
+        // acceleration structure — on every frame.
+        entry.LastSeenFrame = m_FrameNumber;
 
         bool reallocated = false;
         if (!CapacityServes(entry.Capacity, vertexCount))
@@ -295,6 +356,15 @@ namespace OloEngine::RayTracing
             {
                 ++m_Stats.Allocated;
             }
+            // Zero the fresh allocation. A buffer that is handed out before
+            // anything writes it is the one way a surface can reach a BLAS
+            // build holding whatever the allocator left behind — and garbage
+            // floats are NaN triangles, which poison the tree for the whole
+            // surface rather than drawing something wrong in one place. Zeros
+            // are degenerate triangles at the origin: bounded, harmless, and
+            // replaced by the first dispatch that lands.
+            const std::vector<unsigned char> zeroed(static_cast<sizet>(bytes), 0u);
+            allocated->SetData(VertexData{ .data = zeroed.data(), .size = static_cast<u32>(bytes) });
             entry.Output = allocated;
             entry.Capacity = capacity;
             entry.DeviceAddress = allocated->GetDeviceAddress();
@@ -304,15 +374,12 @@ namespace OloEngine::RayTracing
             // would trace whatever the fresh allocation happened to contain.
             entry.EverDeformed = false;
             entry.PaletteHash = 0;
-            reallocated = true;
+            entry.MorphStateHash = 0;
         }
-
-        entry.LastSeenFrame = m_FrameNumber;
 
         DeformedSurfaceBinding binding{};
         binding.Handle = entry.Output->GetRHIHandle();
         binding.DeviceAddress = entry.DeviceAddress;
-        binding.Reallocated = reallocated;
 
         // The pose test. `EverDeformed` is what separates "we have already
         // produced this palette" from "we have never produced anything" — a
@@ -320,11 +387,15 @@ namespace OloEngine::RayTracing
         // in it, and a hash comparison alone cannot tell those apart.
         const u64 paletteHash = HashPalette(palette);
         const bool vertexCountChanged = entry.VertexCount != vertexCount;
-        const bool poseChanged = !entry.EverDeformed || entry.PaletteHash != paletteHash;
+        const bool poseChanged = !entry.EverDeformed || entry.PaletteHash != paletteHash ||
+                                 entry.MorphStateHash != morphStateHash;
         binding.ContentRevision = entry.ContentRevision;
         if (!poseChanged && !vertexCountChanged)
         {
-            ++m_Stats.SkippedUnchanged;
+            if (firstAcquireThisFrame)
+            {
+                ++m_Stats.SkippedUnchanged;
+            }
             return binding;
         }
 
@@ -336,6 +407,7 @@ namespace OloEngine::RayTracing
         m_PaletteStaging.insert(m_PaletteStaging.end(), palette.begin(), palette.end());
 
         m_Queue.push_back(QueuedDispatch{
+            .Key = key,
             .RestAddress = restAddress,
             .InfluenceAddress = influenceAddress,
             .OutputAddress = entry.DeviceAddress,
@@ -346,6 +418,7 @@ namespace OloEngine::RayTracing
 
         entry.VertexCount = vertexCount;
         entry.PaletteHash = paletteHash;
+        entry.MorphStateHash = morphStateHash;
         entry.EverDeformed = true;
         // Only here, where a dispatch was actually queued. This is what a
         // consumer compares to learn that the geometry under its acceleration
@@ -384,7 +457,18 @@ namespace OloEngine::RayTracing
         // Binding 0 and never bound: the shader reaches this buffer by DEVICE
         // ADDRESS, so it consumes no number from the storage namespace, which
         // has had none free since SSBO_GPU_STATS.
-        m_PaletteBuffer = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicDraw);
+        // DynamicCopy, NOT DynamicDraw, and the difference is real work rather
+        // than a label. DynamicDraw makes every SetData inside a recording
+        // bracket push a whole-buffer snapshot into the frame arena so that
+        // draws recorded around it keep the bytes they were recorded with
+        // (vulkan-command-ordered-buffer-writes.md). Nothing here needs that:
+        // the palettes are uploaded ONCE per frame, before any dispatch is
+        // recorded, and the compute shader reads them through the PERSISTENT
+        // device address rather than a root-data snapshot. Under DynamicDraw
+        // the snapshot is pure waste — a write-combined read of the whole
+        // buffer plus arena space no one reads, in the same frame arena #1293
+        // is currently measuring for overflow.
+        m_PaletteBuffer = StorageBuffer::Create(static_cast<u32>(capacity), 0, StorageBufferUsage::DynamicCopy);
         if (!m_PaletteBuffer)
         {
             m_PaletteBufferBytes = 0;
@@ -437,15 +521,14 @@ namespace OloEngine::RayTracing
             }
             else
             {
-                // Nothing can be deformed without palettes. Drop the queue
-                // rather than dispatching against a null address, and say so —
-                // every queued surface falls back to its rest pose this frame
-                // and the refusal is counted where a reader will look for it.
-                OLO_CORE_WARN("[RayTracing] could not stage {} bone-palette bytes; {} animated surfaces trace their "
-                              "rest pose this frame",
+                // Nothing can be deformed without palettes. Roll the queue back
+                // rather than dispatching against a null address, so every
+                // surface in it is offered again next frame instead of being
+                // stranded at a pose that was never written.
+                OLO_CORE_WARN("[RayTracing] could not stage {} bone-palette bytes; {} animated surfaces keep their "
+                              "previous pose this frame",
                               bytes, m_Queue.size());
-                m_Stats.Refused += static_cast<u32>(m_Queue.size());
-                m_Queue.clear();
+                RollbackQueuedDispatches();
             }
         }
 
@@ -469,8 +552,7 @@ namespace OloEngine::RayTracing
         }
         if (m_PaletteAddress == 0u || !EnsureShader())
         {
-            m_Stats.Refused += static_cast<u32>(m_Queue.size());
-            m_Queue.clear();
+            RollbackQueuedDispatches();
             return 0;
         }
 

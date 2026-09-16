@@ -868,6 +868,18 @@ namespace OloEngine
         const glm::mat4* m_BonePalette = nullptr;
         u32 m_BoneCount = 0;
 
+        // Everything OTHER than the bone palette that changes this surface's
+        // vertices, folded to one value by the caller (issue #1229). Today that
+        // is the morph weights: they are applied on the CPU straight into the
+        // rest vertex buffer, so an expressing head with a still skeleton
+        // rewrites its geometry without moving the palette one bit.
+        //
+        // A HASH rather than the weights themselves because this header must
+        // not grow a variable-length payload, and because every consumer asks
+        // the same question of it — "is this the same surface as last frame" —
+        // which is exactly what a hash answers.
+        u64 m_MorphStateHash = 0;
+
         // Filled by the extraction path from the producer's answer, not by the
         // caller: only the deformed-vertex cache knows whether it rewrote this
         // surface's vertices this frame.

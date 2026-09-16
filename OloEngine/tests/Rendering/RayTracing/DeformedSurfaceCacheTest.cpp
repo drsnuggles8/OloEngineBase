@@ -200,7 +200,7 @@ namespace OloEngine::Tests
 
         cache.BeginFrame();
         const RT::DeformedSurfaceBinding binding =
-            cache.Acquire(RT::DeformedSurfaceKey{ .EntityId = 1, .RestVertexBuffer = 2 }, /*isAnimated=*/true, {}, {});
+            cache.Acquire(RT::DeformedSurfaceKey{ .EntityId = 1, .RestVertexBuffer = 2 }, /*isAnimated=*/true, {}, {}, 0);
         cache.EndFrame();
 
         EXPECT_FALSE(binding.IsValid());
@@ -225,7 +225,7 @@ namespace OloEngine::Tests
         RT::DeformedSurfaceCache cache;
         cache.BeginFrame();
         static_cast<void>(cache.Acquire(RT::DeformedSurfaceKey{ .EntityId = 1, .RestVertexBuffer = 2 },
-                                        /*isAnimated=*/false, {}, {}));
+                                        /*isAnimated=*/false, {}, {}, 0));
         cache.EndFrame();
 
         EXPECT_EQ(cache.GetStats().SurfacesRequested, 0u);
