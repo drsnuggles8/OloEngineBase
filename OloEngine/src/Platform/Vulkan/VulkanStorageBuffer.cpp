@@ -108,7 +108,7 @@ namespace OloEngine
         // host-writable (BAR/host-visible) placement when one exists, falling
         // back to device-local + a transfer path otherwise. DynamicCopy is
         // GPU-writes/GPU-reads and stays pure device-local.
-        if (m_Usage == StorageBufferUsage::DynamicDraw)
+        if (m_Usage != StorageBufferUsage::DynamicCopy)
         {
             allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
                               VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
@@ -298,10 +298,11 @@ namespace OloEngine
         auto& arena = VulkanFrameArena::Get();
         const u64 generation = arena.GetFrameGeneration();
         const bool liveSnapshot = m_SnapshotAddress != 0 && m_SnapshotFrameGeneration == generation;
-        // Invariant since #1080: every snapshot this function publishes is
-        // whole-buffer, and Resize drops the snapshot alongside the storage,
-        // so a LIVE snapshot always measures exactly m_Size.
-        OLO_CORE_ASSERT(!liveSnapshot || m_SnapshotBytes == m_Size,
+        const bool exactUpload = m_Usage == StorageBufferUsage::DynamicDrawExactUpload;
+        // Normal snapshots cover their backing buffer. Exact-upload buffers
+        // are intentionally different: their draw count bounds all shader
+        // indexing, so their live snapshot can be a valid uploaded prefix.
+        OLO_CORE_ASSERT(!liveSnapshot || exactUpload || m_SnapshotBytes == m_Size,
                         "VulkanStorageBuffer: live snapshot is not whole-buffer");
 
         // Nothing has read this snapshot yet: rewrite it in place. A snapshot
@@ -318,7 +319,8 @@ namespace OloEngine
         // exhausting it drops root data for the WHOLE frame, not just for this
         // buffer. With reuse, that batch costs one whole-buffer fill plus N
         // small memcpys.
-        if (liveSnapshot && !m_SnapshotConsumed.load(std::memory_order_relaxed))
+        if (liveSnapshot && !m_SnapshotConsumed.load(std::memory_order_relaxed) &&
+            (!exactUpload || m_SnapshotBytes >= size))
         {
             std::memcpy(static_cast<u8*>(m_SnapshotCpu) + offset, data, size);
             arena.FlushWrite(VulkanFrameArenaAllocation{ m_SnapshotCpu, m_SnapshotAddress, m_SnapshotArenaOffset },
@@ -335,7 +337,13 @@ namespace OloEngine
         // makes that an out-of-bounds device read under buffer-device-address
         // root data, not a wrong pixel. The sibling VulkanUniformBuffer has
         // always pushed its whole shadow for exactly this reason.
-        const u32 newBytes = m_Size;
+        if (exactUpload && offset != 0)
+        {
+            OLO_CORE_ERROR("VulkanStorageBuffer: exact-upload snapshot requires offset 0; dropping {}+{} update", offset, size);
+            InvalidateSnapshot();
+            return;
+        }
+        const u32 newBytes = exactUpload ? size : m_Size;
 
         // Bytes this write does not define — the prefix [0, offset) and the
         // tail [offset + size, m_Size) — have to come from somewhere CPU-
@@ -353,7 +361,7 @@ namespace OloEngine
         // bytes that write was issued to replace — a cleared range reappearing
         // for every draw recorded after the next partial SetData.
         const void* fillSource = liveSnapshot ? m_SnapshotCpu : (GpuWroteThisFrame() ? nullptr : m_Mapped);
-        const bool coversWholeBuffer = offset == 0 && size == m_Size;
+        const bool coversWholeBuffer = exactUpload || (offset == 0 && size == m_Size);
         if (!coversWholeBuffer && fillSource == nullptr)
         {
             static std::atomic<bool> s_WarnedPartial{ false };
@@ -377,8 +385,9 @@ namespace OloEngine
             if (!s_WarnedOverflow.exchange(true, std::memory_order_relaxed))
             {
                 OLO_CORE_WARN("[RHI/Vulkan] VulkanStorageBuffer snapshot dropped — frame arena overflow "
-                              "({} bytes); draw reads fall back to last-write-wins ordering (warn-once)",
-                              newBytes);
+                              "({} bytes, binding {}, usage {}, {}) ; draw reads fall back to last-write-wins "
+                              "ordering (warn-once)",
+                              newBytes, m_Binding, static_cast<u32>(m_Usage), m_DebugAllocationName);
             }
             s_SnapshotRefusedCount.fetch_add(1, std::memory_order_relaxed);
             InvalidateSnapshot();

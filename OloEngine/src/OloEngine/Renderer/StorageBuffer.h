@@ -13,6 +13,10 @@ namespace OloEngine
     enum class StorageBufferUsage : u8
     {
         DynamicDraw, // CPU writes, GPU reads (default)
+        // CPU uploads an element-zero prefix and every consumer's index is
+        // bounded by its draw count. Vulkan may snapshot just that prefix
+        // instead of the backing capacity (InstanceBuffer).
+        DynamicDrawExactUpload,
         DynamicCopy, // GPU writes, GPU reads (compute output)
     };
 
