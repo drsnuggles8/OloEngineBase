@@ -216,6 +216,13 @@ namespace OloEngine
         if (s_Data.GPUSceneExtractionActive)
         {
             ExtractGPUSceneEnvironment();
+            // Close the deformed-vertex producer's frame BEFORE GPU Scene
+            // commits (#1229). It uploads the bone palettes its queued
+            // dispatches read and retires the surfaces nothing offered this
+            // frame — the same retire-by-absence rule GPU Scene applies to its
+            // own records, on the same frame, so a despawned character's
+            // deformed buffer and the record that named it die together.
+            s_Data.DeformedSurfaces.EndFrame();
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
             if (s_Data.Settings.Path == RenderingPath::Deferred)

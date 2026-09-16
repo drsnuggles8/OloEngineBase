@@ -49,6 +49,15 @@ namespace OloEngine::RenderPipelineBuilderInternal
         // Registered on every path and on every backend; it self-disables in
         // Execute when the device has no ray tracing (topology is cached, so
         // gating registration on a capability would cull it for the session).
+        // ...and the deformation that feeds it goes before THAT (#1229): the
+        // animated BLASes are built from buffers this node writes. Registered
+        // on every path and every backend, self-disabling in Execute for the
+        // same topology-caching reason as the node below it.
+        if (inputs.Passes->SkeletalDeform)
+        {
+            graph.AddNode(PrepareGraphNode("SkeletalDeformPass", inputs.Passes->SkeletalDeform));
+        }
+
         if (inputs.Passes->RayTracingScene)
         {
             graph.AddNode(PrepareGraphNode("RayTracingScenePass", inputs.Passes->RayTracingScene));

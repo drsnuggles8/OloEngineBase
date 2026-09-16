@@ -423,6 +423,7 @@ add_executable(OloEngine-Tests
 		# everywhere including CI. The device-backed half builds real BLAS/TLAS
 		# structures and traces real rays; same SKIP ladder + zero-validation
 		# bar as every other Vulkan tenant.
+		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
 		# #1055: the GPU reference path tracer against the CPU reference on a

@@ -132,6 +132,19 @@ namespace OloEngine::Tests
         // than inside the worker body: this is the ownership boundary the whole
         // design rests on.
         Renderer3D::BeginGPUSceneExtraction(/*ownerToken*/ 0xC0FFEEull);
+        // Closed on EVERY exit from here, not just the happy one. Registered
+        // immediately after the call that opens it, because every ASSERT_*
+        // below returns from the test — and a return that skipped the cleanup
+        // would leak the extraction flag into the next test, which then dies on
+        // "called twice before EndScene" and buries the assertion that actually
+        // failed under an abort several thousand tests later.
+        const struct ExtractionScope
+        {
+            ~ExtractionScope()
+            {
+                Renderer3D::ResetGPUScene();
+            }
+        } extractionScope;
 
         std::vector<Renderer3D::MeshSubmitDesc> descriptors;
         std::vector<u32> mintedLinks;

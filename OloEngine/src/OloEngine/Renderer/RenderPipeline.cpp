@@ -5718,6 +5718,7 @@ namespace OloEngine
         inputs.Passes.Shadow = FrameCorePasses.Shadow.Raw();
         inputs.Passes.DDGIProbeUpdate = FrameCorePasses.DDGIProbeUpdate.Raw();
         inputs.Passes.VirtualShadowMapMark = FrameCorePasses.VirtualShadowMapMark.Raw();
+        inputs.Passes.SkeletalDeform = FrameCorePasses.SkeletalDeform.Raw();
         inputs.Passes.RayTracingScene = FrameCorePasses.RayTracingScene.Raw();
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
@@ -5802,6 +5803,15 @@ namespace OloEngine
         // a TLAS the graph's resource model cannot represent, which is why it
         // is NeverCull. Wired with the two things it borrows for the session;
         // on a backend without ray tracing its Execute is one predicate.
+        // Skinning to memory (#1229). Registered and wired immediately before
+        // the acceleration-structure build because it writes the vertex buffers
+        // that build reads; the graph carries the edge by name so the ordering
+        // survives someone reordering the pipeline.
+        FrameCorePasses.SkeletalDeform = Ref<SkeletalDeformPass>::Create();
+        FrameCorePasses.SkeletalDeform->SetName("SkeletalDeformPass");
+        FrameCorePasses.SkeletalDeform->SetDeformedSurfaceCache(&Renderer3D::GetDeformedSurfaceCache());
+        FrameCorePasses.SkeletalDeform->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
+
         FrameCorePasses.RayTracingScene = Ref<RayTracingScenePass>::Create();
         FrameCorePasses.RayTracingScene->SetName("RayTracingScenePass");
         FrameCorePasses.RayTracingScene->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
