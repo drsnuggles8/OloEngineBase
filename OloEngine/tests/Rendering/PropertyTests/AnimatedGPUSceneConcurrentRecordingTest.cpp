@@ -255,6 +255,5 @@ namespace OloEngine::Tests
                 << "a worker recorded an animated draw with no link at all, so that draw silently falls back to "
                    "the per-entity transform cache the records exist to replace";
         }
-
     }
 } // namespace OloEngine::Tests

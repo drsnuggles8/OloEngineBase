@@ -405,7 +405,7 @@ namespace OloEngine
                 animatedSurface.m_BonePalette != nullptr ? animatedSurface.m_BoneCount : 0u
             };
             deformed = s_Data.DeformedSurfaces.Acquire(deformedKey, animatedSurface.m_IsAnimated, meshSource,
-                                                      bonePalette, animatedSurface.m_MorphStateHash);
+                                                       bonePalette, animatedSurface.m_MorphStateHash);
         }
         const bool useDeformed = deformed.IsValid();
         // The producer's answer, not the caller's: only the cache knows whether
