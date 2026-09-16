@@ -376,6 +376,34 @@ TEST(GroomStrandMesh, ThePlanMatchesWhatTheBuildProduces)
     }
 }
 
+TEST(GroomStrandMesh, ThePlanMatchesTheBuildWhenOneCurveStraddlesTheSegmentCap)
+{
+    // The case the MaxStrands sweep above cannot reach: the budget falls in
+    // the MIDDLE of a curve. The build truncates there and says
+    // SegmentBudgetLimited; a plan that instead refused the whole curve would
+    // report 0 segments and 0 MiB, with no warning, while the pass built five
+    // — and the inspector shows the PLAN on every frame, so that is a panel
+    // confidently describing a coat that is not the one on screen.
+    const auto groom = MakeStraightGroom(1u, 11u); // one curve, 10 segments
+    ASSERT_TRUE(groom);
+
+    GroomStrandBuildSettings settings;
+    settings.MaxSegments = 5u;
+
+    const GroomStrandMeshStats plan = PlanGroomStrandMesh(*groom, settings);
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats built = BuildGroomStrandMesh(*groom, settings, vertices, indices);
+
+    EXPECT_EQ(built.SegmentCount, 5u);
+    EXPECT_EQ(plan.SegmentCount, built.SegmentCount);
+    EXPECT_EQ(plan.VertexBytes, built.VertexBytes);
+    EXPECT_TRUE(plan.SegmentBudgetLimited)
+        << "the plan truncated a curve without saying the budget did it";
+    EXPECT_TRUE(built.SegmentBudgetLimited);
+    EXPECT_EQ(vertices.size(), 5u * 4u);
+}
+
 TEST(GroomStrandMesh, TheBuildIsPureSoACacheMayKeyOnTheGroomAndTheSettings)
 {
     const auto coat = Tests::GroomStrandFixture::MakePelt(300u, 4u);

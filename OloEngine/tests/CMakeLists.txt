@@ -512,6 +512,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PathTracing/ReferenceBRDFGpuParityTest.cpp
+		# Strand visibility (#1246). Pins the CPU coverage arithmetic against the
+		# real compiled GroomStrandCommon.glsl: the measured comparison is computed
+		# on the CPU, so a drift between the two makes every stochastic number a
+		# description of a pattern that is not on screen.
+		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp

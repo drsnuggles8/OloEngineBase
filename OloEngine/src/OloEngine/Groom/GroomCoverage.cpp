@@ -109,10 +109,30 @@ namespace OloEngine::GroomCoverage
             const f32 minY = std::min(a.y, b.y) - maxHalfWidth;
             const f32 maxY = std::max(a.y, b.y) + maxHalfWidth;
 
-            bounds.MinX = std::max(0, static_cast<i32>(std::floor(minX)));
-            bounds.MinY = std::max(0, static_cast<i32>(std::floor(minY)));
-            bounds.MaxX = std::min(static_cast<i32>(width) - 1, static_cast<i32>(std::ceil(maxX)));
-            bounds.MaxY = std::min(static_cast<i32>(height) - 1, static_cast<i32>(std::ceil(maxY)));
+            // CLAMPED IN FLOAT SPACE, BEFORE THE CAST. ProjectGroom rejects a
+            // non-positive or non-finite clip w, but a point at w ~ 1e-9 is
+            // neither: it projects to a finite coordinate around 1e12, and
+            // casting that to i32 is undefined behaviour. In practice it wraps
+            // to a bound that excludes the segment, so the coverage map
+            // quietly loses it — a measurement error that looks like a
+            // rendering one.
+            const auto toPixel = [](f32 value, i32 lo, i32 hi)
+            {
+                const f32 clamped = std::clamp(value, static_cast<f32>(lo), static_cast<f32>(hi));
+                return std::clamp(static_cast<i32>(clamped), lo, hi);
+            };
+            const i32 lastX = static_cast<i32>(width) - 1;
+            const i32 lastY = static_cast<i32>(height) - 1;
+            bounds.MinX = toPixel(std::floor(minX), 0, lastX);
+            bounds.MinY = toPixel(std::floor(minY), 0, lastY);
+            bounds.MaxX = toPixel(std::ceil(maxX), 0, lastX);
+            bounds.MaxY = toPixel(std::ceil(maxY), 0, lastY);
+            // A segment entirely off one edge now yields an EMPTY range rather
+            // than a clamped one-pixel sliver at the border.
+            if (maxX < 0.0f || maxY < 0.0f || minX > static_cast<f32>(lastX) || minY > static_cast<f32>(lastY))
+            {
+                bounds.MaxX = bounds.MinX - 1;
+            }
             return bounds;
         }
 
@@ -467,7 +487,13 @@ namespace OloEngine::GroomCoverage
                 // distinct for two segments of the same strand so the
                 // stochastic hash decorrelates along a strand as well as
                 // between strands.
-                segment.Id = GroomSegmentIdentity(curve, i);
+                // i - 1, not i: this loop indexes the END point of the
+                // segment (it starts at 1), while GroomStrandMesh indexes the
+                // START point (it starts at 0). Both must name the same
+                // segment the same way, or the CPU model hashes a different
+                // sample set than the shader and the measured stochastic
+                // numbers describe a pattern that is not on screen.
+                segment.Id = GroomSegmentIdentity(curve, i - 1u);
                 outSegments.push_back(segment);
 
                 ++stats.SegmentsProjected;

@@ -230,8 +230,18 @@ void main()
 	{
 		// The fragment survives when the hash falls under its coverage, so the
 		// expectation of the surviving set IS the coverage. gl_FragCoord is in
-		// pixels with a half-pixel offset; the floor makes the pixel index the
-		// same integer the CPU model uses.
+		// pixels with a half-pixel offset, so the floor gives an integer pixel
+		// index.
+		//
+		// That index is NOT guaranteed to be the row the CPU coverage model calls
+		// the same pixel: gl_FragCoord.y is bottom-up on OpenGL and top-down on
+		// Vulkan, while GroomCoverage::ProjectGroom flips Y to match the PNG
+		// convention. Deliberately not reconciled — what the estimator needs is a
+		// value decorrelated per pixel, per frame and per segment, and the row
+		// convention changes WHICH pixel draws which sample, not the distribution
+		// or any statistic measured from it. What must agree exactly is the hash
+		// FUNCTION, and GroomStrandGpuParityTest pins that against this very
+		// include, texel for texel.
 		uint px = uint(floor(gl_FragCoord.x));
 		uint py = uint(floor(gl_FragCoord.y));
 		float threshold = oloGroomStochasticHash(px, py, uint(u_GroomModeFrame.y), v_SegmentId,

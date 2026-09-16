@@ -32,6 +32,7 @@
 
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomCoverage.h"
+#include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -653,6 +654,47 @@ TEST(GroomCoverageModel, EveryModeIsIndependentOfSubmissionOrder)
             // "order-independent" means for it.
             EXPECT_NEAR(forward[i], backward[i], 1.0e-5f) << ToString(mode) << " at pixel " << i;
         }
+    }
+}
+
+// The CPU model and the GPU mesh must label the SAME segment with the SAME
+// identity, or the stochastic mode's measured numbers describe a different
+// sample set than the one the shader draws.
+//
+// This is asserted across the two producers rather than each against the
+// shared helper, because that is exactly the gap the bug lived in: both called
+// GroomSegmentIdentity correctly and passed it different indices. ProjectGroom
+// walks segments by their END point (its loop starts at 1) and
+// BuildGroomStrandMesh by their START point (its loop starts at 0), so for a
+// while segment k was (curve, k+1) on one side and (curve, k) on the other.
+TEST(GroomCoverageModel, SegmentIdentityAgreesWithTheGpuStrandMesh)
+{
+    const auto coat = Tests::GroomStrandFixture::MakeScalp(64u, 6u);
+    ASSERT_TRUE(coat.Groom) << coat.FailureReason;
+
+    constexpr u32 kWidth = 256;
+    constexpr u32 kHeight = 256;
+    const Camera camera = MakeCamera({ 0.0f, 0.0f, 0.6f }, { 0.0f, 0.0f, 0.0f }, kWidth, kHeight);
+
+    std::vector<ScreenSegment> segments;
+    const ProjectionStats projection = ProjectGroom(*coat.Groom, glm::mat4(1.0f), camera.View, camera.Projection,
+                                                    kWidth, kHeight, 1.0f, segments);
+    ASSERT_GT(projection.SegmentsProjected, 0u);
+    ASSERT_EQ(projection.SegmentsDroppedBehindCamera, 0u)
+        << "a dropped segment would desynchronise the two orderings and make this comparison meaningless";
+
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats mesh = BuildGroomStrandMesh(*coat.Groom, {}, vertices, indices);
+    ASSERT_EQ(mesh.SegmentCount, segments.size())
+        << "the two producers did not even emit the same number of segments";
+
+    // Both walk the groom in curve order, so segment i on one side is segment
+    // i on the other.
+    for (sizet i = 0; i < segments.size(); ++i)
+    {
+        const u32 meshId = std::bit_cast<u32>(vertices[i * 4u].SegmentId);
+        EXPECT_EQ(segments[i].Id, meshId) << "segment " << i;
     }
 }
 

@@ -133,7 +133,7 @@ namespace OloEngine
     //      the impostor work) with the default 22-30 m band. Both distances are
     //      validated finite and ordered on load: they feed a smoothstep in the
     //      vertex stage, where a NaN silently drops the layer's geometry.
-    static constexpr u32 kSaveGameFormatVersion = 32;
+    static constexpr u32 kSaveGameFormatVersion = 33;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

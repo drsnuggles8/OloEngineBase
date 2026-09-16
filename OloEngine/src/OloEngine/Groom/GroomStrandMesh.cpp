@@ -121,12 +121,23 @@ namespace OloEngine
             }
             if ((taken % selection.Stride) == 0u)
             {
-                const u64 next = segments + CountCurveSegments(groom, curve);
-                if (next > static_cast<u64>(settings.MaxSegments))
+                // TRUNCATES MID-CURVE, exactly as BuildGroomStrandMesh does.
+                // Refusing the whole curve instead would make the plan and the
+                // build disagree whenever one curve straddles the cap: a groom
+                // of one ten-segment curve with MaxSegments 5 would be planned
+                // as 0 segments and 0 MiB — with no budget warning — while the
+                // pass built 5. The inspector shows the PLAN on every frame, so
+                // that divergence is a panel confidently describing a coat that
+                // is not the one on screen.
+                const u64 remaining = static_cast<u64>(settings.MaxSegments) - segments;
+                const u64 wanted = CountCurveSegments(groom, curve);
+                if (wanted > remaining)
                 {
+                    segments += remaining;
+                    stats.SegmentBudgetLimited = true;
                     break;
                 }
-                segments = next;
+                segments += wanted;
             }
             ++taken;
         }

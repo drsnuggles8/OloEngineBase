@@ -3070,11 +3070,19 @@ namespace OloEngine
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
-        // Production strand rendering (issue #1246). Appended, never
-        // interleaved: a save written before these existed still reads its
-        // preview fields at the same offsets.
-        ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
-        ar << c.m_RenderStrands << c.m_CompositionMode;
+        // Production strand rendering appended in save-format v33 (issue
+        // #1246). VERSION-GATED, not merely appended: a v32-or-older save that
+        // contains a GroomComponent was written without these 22 bytes, and
+        // reading them anyway does not just mis-fill this component — it
+        // desynchronises the stream for every component after it.
+        // kMinSupportedSaveGameFormatVersion is 1, so the header check accepts
+        // those files and the gate is the only thing standing between them and
+        // a corrupt load.
+        if (HasFieldsSince(ar, 33))
+        {
+            ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
+            ar << c.m_RenderStrands << c.m_CompositionMode;
+        }
 
         if (ar.IsLoading())
         {
@@ -3092,6 +3100,12 @@ namespace OloEngine
             // The strand budget sizes a GPU BUFFER rather than a command
             // stream, so an unbounded value here is an allocation, not a
             // stall. GroomLimits::MaxCurveCount is the format's own ceiling.
+            //
+            // Sanitised unconditionally, including on a pre-v33 save where the
+            // fields were not read at all: the component was default-
+            // constructed, so this is a no-op there, and gating the clamp on
+            // the version would be one more place for the two conditions to
+            // drift apart.
             c.m_MaxRenderStrands = std::clamp(c.m_MaxRenderStrands, 1u, GroomLimits::MaxCurveCount);
 
             if (!std::isfinite(c.m_WidthScale))

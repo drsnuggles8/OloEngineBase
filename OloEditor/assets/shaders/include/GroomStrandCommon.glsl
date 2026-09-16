@@ -7,9 +7,13 @@
 // differently, or hashed differently, would make every measured number a
 // measurement of something that is not on screen.
 //
-// GroomStrandGpuParityTest compiles the hash below into a compute shader and
-// compares its output against GroomCoverage::StochasticHash over a grid. If
-// you change either side, that test is what tells you.
+// GroomStrandGpuParityTest renders tests/GroomStrandHashParityProbe.glsl —
+// which includes THIS file — over a 64x64 integer grid and compares every
+// texel against GroomCoverage::StochasticHash and the widened alpha. It asks
+// for EXACT equality, because none of this is a floating-point estimator: the
+// hash is integer arithmetic whose wraparound is defined identically in C++
+// and GLSL, and its result is a 24-bit integer scaled by an exact power of
+// two. If you change either side, that test is what tells you.
 
 #ifndef GROOM_STRAND_COMMON_GLSL
 #define GROOM_STRAND_COMMON_GLSL
