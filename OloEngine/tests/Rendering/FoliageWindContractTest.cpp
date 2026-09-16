@@ -120,5 +120,14 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(weights.x, 0.0f);
         EXPECT_FLOAT_EQ(weights.y, 0.0f);
         EXPECT_FLOAT_EQ(weights.z, 1.0f);
+        for (const f32 invalid : { std::numeric_limits<f32>::quiet_NaN(),
+                                   std::numeric_limits<f32>::infinity(),
+                                   -std::numeric_limits<f32>::infinity() })
+        {
+            const auto sanitized = SanitizeFoliageWind(invalid, invalid, invalid);
+            EXPECT_FLOAT_EQ(sanitized.x, 0.0f);
+            EXPECT_FLOAT_EQ(sanitized.y, 0.0f);
+            EXPECT_FLOAT_EQ(sanitized.z, 0.0f);
+        }
     }
 } // namespace OloEngine::Tests
