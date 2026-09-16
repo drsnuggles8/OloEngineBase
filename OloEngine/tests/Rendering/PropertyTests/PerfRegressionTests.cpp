@@ -2514,19 +2514,29 @@ namespace OloEngine::Tests
                 {
                     f64 minimum = std::numeric_limits<f64>::max();
                     u32 samples = 0;
-                    for (u32 frame = 0; frame < 20; ++frame)
+                    auto& timer = GPUPassTimerPool::GetInstance();
+                    u64 lastResolvedFrame = timer.GetCurrentFrameNumber();
+                    // Preserve the minimum of 20 samples. Query publication can
+                    // lag or report zero; collect fresh reports within a bound.
+                    for (u32 frame = 0; frame < 80 && samples < 20; ++frame)
                     {
                         RunEditorFrames(camera, 1);
                         glFinish();
-                        for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastPassTimingsCopy())
-                            if (timing.Name == pass && timing.GpuMs > 0.0)
+                        const u64 resolvedFrame = timer.GetLastResolvedFrameNumber();
+                        if (resolvedFrame <= lastResolvedFrame)
+                            continue;
+                        lastResolvedFrame = resolvedFrame;
+                        for (const auto& timing : timer.GetLastPassTimingsCopy())
+                            if (timing.Name == pass && std::isfinite(timing.GpuMs) && timing.GpuMs > 0.0)
                             {
                                 minimum = std::min(minimum, static_cast<f64>(timing.GpuMs));
                                 ++samples;
+                                break; // at most one report from this resolved frame
                             }
                     }
                     EXPECT_EQ(samples, 20u) << pass;
-                    return samples ? static_cast<u64>(std::llround(minimum * 1e6)) : 0;
+                    ::testing::Test::RecordProperty(key + "_positive_samples", std::to_string(samples));
+                    return samples == 20u ? static_cast<u64>(std::llround(minimum * 1e6)) : 0;
                 };
                 const auto ns = MeasureBenchmarkStableNs(key, measure);
                 ASSERT_GT(ns, 0u) << pass;
