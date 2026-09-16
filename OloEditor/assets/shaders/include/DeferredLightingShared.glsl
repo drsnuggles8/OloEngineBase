@@ -23,6 +23,9 @@
 //   - include/PBRCommon.glsl, include/LightProbeSampling.glsl,
 //     include/ForwardPlusCommon.glsl (with FPLUS_ATLAS_SHADOWS defined, AFTER
 //     the ShadowData block + atlas samplers)
+//   - the DeferredLightingControls block's u_LeafProfileTint /
+//     u_LeafProfileLobe arrays (issue #1234) — the leaf-profile table, indexed
+//     by the same three-bit G-Buffer slot field skin's profile uses
 //   - include/ReflectionProbes.glsl with OLO_REFLECTION_PROBE_SAMPLERS
 //     defined (distance-impostor probe arrays at bindings 14/15, probe UBO
 //     58, probe grid SSBO 53 — issue #705)
@@ -44,6 +47,16 @@
 // VirtualShadowMap::BindForSampling publishes a DISABLED globals block when the
 // system is off, which is what makes the always-compiled branch free.
 #include "VirtualShadowSampling.glsl"
+
+// The vegetation material's LOBE half (issue #1234) — no resources of its own,
+// so it compiles into this fullscreen pass as easily as into the foliage
+// shaders. This is what makes "forward and deferred evaluate the same
+// transmission" a fact about the build rather than a claim: both call
+// oloFoliageTransmissionDirect / ...Ambient from THIS file. The SURFACE half
+// (OLO_FOLIAGE_SURFACE_SAMPLING) is deliberately NOT compiled here — it needs
+// the foliage UBO and the leaf samplers, which a fullscreen pass has neither of,
+// and its output already reached us through the G-Buffer.
+#include "FoliageSurface.glsl"
 
 vec3 OctDecodeGB(vec2 e)
 {
@@ -286,6 +299,59 @@ vec3 ComputeDeferredLitSplit(
     int skinProfileSlot = (materialKind == OLO_MATERIAL_KIND_SKIN)
                               ? oloGBufferFlagsSkinProfileSlot(gbFlags)
                               : OLO_SKIN_PROFILE_SLOT_NONE;
+
+    // ── The LEAF material (issue #1234) ─────────────────────────────────────
+    // The SECOND tenant of that same three-bit slot field, read under the
+    // Foliage test exactly as skin's is read under the Skin test. A pixel has
+    // one kind, so the two can never both claim these bits — and the
+    // slot-is-only-meaningful-under-its-kind discipline is why a Terrain pixel's
+    // zero lane is not mistaken for "leaf profile 0".
+    bool isFoliage = (materialKind == OLO_MATERIAL_KIND_FOLIAGE);
+    int leafProfileSlot = isFoliage ? oloGBufferFlagsSkinProfileSlot(gbFlags)
+                                    : OLO_SKIN_PROFILE_SLOT_NONE;
+    bool hasLeafProfile = leafProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE;
+    vec3 leafTint = vec3(0.0);
+    vec4 leafLobe = vec4(0.0);
+    if (hasLeafProfile)
+    {
+        // .rgb is tint PRE-MULTIPLIED by strength, packed by
+        // FoliageLeafProfileTintLane — the same product the forward path's
+        // u_LeafTransmit.rgb carries, in the same order.
+        leafTint = u_LeafProfileTint[leafProfileSlot].rgb;
+        leafLobe = u_LeafProfileLobe[leafProfileSlot];
+    }
+    // THE THICKNESS LANE. Foliage's G-Buffer writer parks the pixel's thickness
+    // in RT5's RED channel with coverage 0 — see Foliage_Instance_GBuffer.glsl
+    // for why that is free.
+    //
+    // GATED ON THE PROFILE SLOT, NOT MERELY ON THE KIND, and the difference is
+    // a real surface. A Material's kind is authorable in the editor, so a
+    // MESH material can be set to Foliage — and a mesh goes through
+    // PBR_GBuffer, which writes RT5 as BAKED LIGHTMAP IRRADIANCE and names no
+    // leaf profile. Keying on the kind alone would read that irradiance as a
+    // thickness. Only a pixel a foliage shader wrote carries a leaf slot, so
+    // the slot is the honest test for "RT5 is a thickness here".
+    // AND A COVERAGE TEST, which is about RESOLVED MSAA. GBuffer::Resolve
+    // average-blits RT5 but overwrites RT2's flags with ONE REAL SAMPLE
+    // (GBufferFlagsResolve.glsl), so a silhouette pixel that is part foliage and
+    // part lightmapped receiver can resolve its FLAGS to Foliage while its RT5
+    // red channel is an average that includes the neighbour's baked irradiance
+    // — which is in physical units and routinely exceeds 1. Read as a thickness
+    // that is a bright transmission fringe along every such edge.
+    //
+    // Foliage writes coverage 0 and a lightmapped receiver writes 1, so the
+    // averaged alpha IS the mix fraction: requiring it below 0.5 drops the
+    // pixels where the irradiance dominates, and the clamp bounds what is left.
+    // This does not make a mixed pixel exact — nothing short of resolving RT5
+    // the way the flags lane is resolved would — it bounds the error to the
+    // side where foliage is the majority and the contamination is small.
+    float leafThickness = (hasLeafProfile && bakedGI.a < 0.5) ? clamp(bakedGI.r, 0.0, 1.0) : 0.0;
+    // The transmission term, accumulated beside Lo and composited at the end.
+    // Kept OUT of the diffuse/specular split on purpose: it is a third
+    // transport, and folding it into the diffuse half would make the
+    // `materialdiffuse` debug view answer a question nobody asked and leave
+    // #1234's fourth criterion (inspect transmission separately) unanswerable.
+    vec3 transmitted = vec3(0.0);
     vec3 skinSpecularTint = vec3(1.0);
     int skinEvaluationModel = OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT;
     if (skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
@@ -358,6 +424,16 @@ vec3 ComputeDeferredLitSplit(
     // the multi-light array is ordered directional-first, so the truncated count
     // walks exactly the lights the other mechanism did NOT cover. Walking all of
     // them would double-count every punctual and area light.
+    // AND THE SAME TRUNCATION BOUNDS THE TRANSMISSION LOBE, WHICH IS A STATED
+    // GAP RATHER THAN AN OVERSIGHT (issue #1234). When ReSTIR DI or Forward+
+    // owns the punctual lights, this loop walks only the directional ones, so
+    // foliage transmission from a torch or a lamp is not evaluated on those
+    // tiers — the reflected lobe for those lights arrives already combined
+    // (ReSTIR) or through a tile evaluator with no transmission arm (Forward+),
+    // and splitting either to recover a per-light L is that tier's own work.
+    //
+    // The demonstrating case is unaffected: transmission is a SUN effect, and
+    // the sun is a directional light, which is exactly what stays on this loop.
     int loopCount = (restirActive || fplusActive) ? min(u_DirectionalLightCount, MAX_LIGHTS)
                                                   : min(u_LightCount, MAX_LIGHTS);
     for (int i = 0; i < loopCount; ++i)
@@ -366,9 +442,39 @@ vec3 ComputeDeferredLitSplit(
         OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
                                                                           roughness, worldPos, pbrModel);
 
+        // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1234).
+        //
+        // Every branch below used to call oloSurfaceLightingScale on
+        // lightContrib in place. They now multiply into ONE float that is
+        // applied once, at the bottom of the loop.
+        //
+        // EXACTLY EQUIVALENT for the reflected lobe: those were a chain of
+        // multiplies by a scalar broadcast to vec3, and multiplication is
+        // associative, so folding the cloud shadow and the shadow-map factor
+        // into one scalar first produces the same product. What it BUYS is that
+        // the transmission lobe can be gated by the same number — which is what
+        // #1234's second criterion demands, and what a per-branch in-place scale
+        // made impossible without evaluating the shadow a second time.
+        float lightVisibility = 1.0;
+
+        // THE NORMAL THE SHADOW IS BIASED ALONG. For a foliage pixel this is the
+        // LIT-SIDE normal, not the shading normal: a backlit leaf's shading
+        // normal points away from the light, so the receiver normal-offset would
+        // push the sample point into the leaf's own shadow-map depth and collapse
+        // the very term it is gating. oloFoliageShadowNormal returns N unchanged
+        // wherever dot(N, L) > 0 — i.e. wherever the reflected lobe is non-zero —
+        // so ONE lookup serves both lobes, and this is identity for every
+        // non-foliage surface.
+        vec3 shadowN = N;
+        vec3 lightL;
+        vec3 lightRadiance;
+        bool lightHasDirection = oloLightSample(u_Lights[i], worldPos, lightL, lightRadiance);
+        if (isFoliage && lightHasDirection)
+            shadowN = oloFoliageShadowNormal(N, lightL);
+
         if (lightType == DIRECTIONAL_LIGHT)
         {
-            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(cloudShadow));
+            lightVisibility *= cloudShadow;
         }
         // The ray-traced branch is tested BEFORE u_DirectionalShadowEnabled,
         // not inside it. That flag belongs to the CSM: only the FIRST
@@ -379,7 +485,7 @@ vec3 ComputeDeferredLitSplit(
         float rayTracedDirectional;
         if (lightType == DIRECTIONAL_LIGHT && oloRayTracedShadowFactor(i, rayTracedDirectional))
         {
-            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(rayTracedDirectional));
+            lightVisibility *= rayTracedDirectional;
         }
         else if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -392,7 +498,7 @@ vec3 ComputeDeferredLitSplit(
             float shadow;
             if (VSM_ENABLED != 0)
             {
-                shadow = vsmShadowFactor(worldPos, N);
+                shadow = vsmShadowFactor(worldPos, shadowN);
             }
             else
             {
@@ -402,7 +508,7 @@ vec3 ComputeDeferredLitSplit(
                     u_ShadowMapCSM,
                     u_ShadowMapCSMRaw,
                     worldPos,
-                    N,
+                    shadowN,
                     viewDepth,
                     u_DirectionalLightSpaceMatrices,
                     u_CascadePlaneDistances,
@@ -410,7 +516,7 @@ vec3 ComputeDeferredLitSplit(
                     u_ShadowMapResolution,
                     u_SoftShadowMode);
             }
-            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+            lightVisibility *= shadow;
         }
         else if (lightType == SPOT_LIGHT)
         {
@@ -423,11 +529,11 @@ vec3 ComputeDeferredLitSplit(
             float localShadow;
             if (oloRayTracedShadowFactor(i, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
-            else if (vsmLocalShadow(worldPos, N, atlasEntry, false, localShadow))
+            else if (vsmLocalShadow(worldPos, shadowN, atlasEntry, false, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
@@ -441,7 +547,7 @@ vec3 ComputeDeferredLitSplit(
                     u_AtlasResolution,
                     u_SoftShadowMode,
                     u_ShadowParams.z);
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+                lightVisibility *= shadow;
             }
         }
         else if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
@@ -453,11 +559,11 @@ vec3 ComputeDeferredLitSplit(
             float localShadow;
             if (oloRayTracedShadowFactor(i, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
-            else if (vsmLocalShadow(worldPos, N, baseEntry, true, localShadow))
+            else if (vsmLocalShadow(worldPos, shadowN, baseEntry, true, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
@@ -473,11 +579,26 @@ vec3 ComputeDeferredLitSplit(
                     u_AtlasResolution,
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z);
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+                lightVisibility *= shadow;
             }
         }
 
-        Lo = oloSurfaceLightingAdd(Lo, lightContrib);
+        Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
+
+        // The TRANSMITTED lobe, gated by the SAME visibility the reflected lobe
+        // just was. That single shared factor is the whole of #1234's second
+        // criterion: a leaf behind a trunk stops glowing, because whatever
+        // darkens its lit face also darkens what comes through it.
+        //
+        // Skipped for a sphere area light, which oloLightSample declines to give
+        // a direction for — that evaluator's representative point depends on N
+        // and V, so there is no single L to transmit along. Declined in the
+        // helper rather than approximated here.
+        if (lightHasDirection && leafThickness > 0.0)
+        {
+            transmitted += oloFoliageTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
+                                                        leafThickness, leafTint, leafLobe);
+        }
     }
 
     // Specular reflection source (issue #705): the global prefilter map at
@@ -531,8 +652,20 @@ vec3 ComputeDeferredLitSplit(
     else if (bakedGI.a > 0.5)
     {
         // Rung 1 — baked lightmap, mirroring include/AmbientLadder.glsl's first
-        // branch (the forward path's definition of this rung). The gate is
-        // COVERAGE, never the colour: a validly baked pure-black texel is an
+        // branch (the forward path's definition of this rung).
+        //
+        // NO FOLIAGE GATE HERE, AND THAT IS THE POINT OF PUTTING THE THICKNESS
+        // IN RT5 (issue #1234). Every foliage G-Buffer writer writes coverage
+        // 0, and this rung is gated on coverage — so a foliage pixel never
+        // reached it before #1234 and still does not, with no new test. The one
+        // RESOLVED MSAA leaks BOTH WAYS across a foliage/lightmapped
+        // silhouette, and both are bounded. Into this rung: a mixed pixel
+        // averages in `thickness / sampleCount` on red where it used to average
+        // in 0. Out of it: the thickness read above can pick up averaged
+        // irradiance, which is why that read carries its own coverage test.
+        // Silhouette pixels only, in resolved-MSAA mode only.
+        //
+        // The gate is COVERAGE, never the colour: a validly baked pure-black texel is an
         // enclosed surface no indirect light reaches and must keep its darkness
         // instead of falling through and glowing with sky IBL — the exact leak
         // the bake exists to kill. Deliberately not gated on enableProbes: baked
@@ -595,6 +728,26 @@ vec3 ComputeDeferredLitSplit(
     if (restirGIActive)
         lighting.Diffuse += restirIndirect;
 
+    // The INDIRECT half of the leaf transmission (issue #1234) — the
+    // environment arriving on the FAR face, added ONCE rather than per light.
+    //
+    // The irradiance is sampled along -N from the same cubemap the ambient
+    // ladder's IBL rungs read, which is exactly what the forward path does with
+    // its own copy of that map. So this term responds to the sky and the time of
+    // day, and is the reason the transmission is not the "unshadowed ambient
+    // constant" the issue rules out: the SHADOWED direct half above carries the
+    // sun, and this half carries the sky.
+    // Gated on enableIBL for the same reason the FORWARD path gates on
+    // u_LeafIds.y: "there is no environment" and "the environment is black"
+    // must not be told apart by reading a typed-null sampler and hoping. With
+    // IBL off this term is zero on BOTH paths by the same test, rather than by
+    // two different accidents.
+    if (leafThickness > 0.0 && enableIBL)
+    {
+        vec3 backEnvIrradiance = texture(u_IrradianceMap, -N).rgb * iblIntensity;
+        transmitted += oloFoliageTransmissionAmbient(leafThickness, leafTint, backEnvIrradiance, leafLobe);
+    }
+
     // The skin profile, applied to the SPECULAR half alone and at the last
     // moment the two halves are still separable (issue #1231) — the same place
     // and the same order as PBR_MultiLight.glsl. A non-skin pixel reads a
@@ -629,12 +782,26 @@ vec3 ComputeDeferredLitSplit(
     }
     if (materialDebug == OLO_MATERIAL_DEBUG_SCATTERING_MASK)
         return vec3(oloSkinScatteringMask(materialKind, metallic)); // unitless [0,1]
+    if (materialDebug == OLO_MATERIAL_DEBUG_TRANSMISSION)
+    {
+        // The leaf transmission term ALONE, linear HDR radiance (issue #1234).
+        // Black on every pixel that is not MaterialKind::Foliage — which makes
+        // this view a direct test of whether the kind and the thickness lane
+        // reached the G-Buffer at all, not just of the lobe's shape.
+        return transmitted;
+    }
 
     // Ordered `lighting + unsplitDirect + emissive` so the sum stays as close to
     // the pre-#1231 `ambient * ao + Lo + emissive` as the regrouping allows: the
     // resampled direct term used to live inside Lo, which is where it lands
     // again here, just outside the split.
-    vec3 color = oloSurfaceLightingSum(lighting) + unsplitDirect + emissive;
+    // `transmitted` joins OUTSIDE the diffuse/specular split, beside
+    // unsplitDirect and for the same reason: it is a third transport, not a
+    // half of the BRDF. Folding it into the diffuse term would have made
+    // `materialdiffuse` show something that is not the diffuse lobe and left
+    // #1234's fourth criterion — inspect transmission separately — with nowhere
+    // to look.
+    vec3 color = oloSurfaceLightingSum(lighting) + unsplitDirect + transmitted + emissive;
 
     if (cascadeDebug && u_DirectionalShadowEnabled != 0)
         color = ApplyCascadeDebug(color, worldPos);

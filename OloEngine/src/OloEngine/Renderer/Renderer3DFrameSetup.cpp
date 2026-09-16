@@ -75,6 +75,12 @@ namespace OloEngine
         s_Data.RayTracedShadowLightRequests.clear();
         // Groom submissions are per-frame for the same reason (issue #1246).
         s_Data.GroomStrandRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -101,6 +107,12 @@ namespace OloEngine
         s_Data.RayTracedShadowLightRequests.clear();
         // Groom submissions are per-frame for the same reason (issue #1246).
         s_Data.GroomStrandRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
@@ -127,6 +139,12 @@ namespace OloEngine
         s_Data.RayTracedShadowLightRequests.clear();
         // Groom submissions are per-frame for the same reason (issue #1246).
         s_Data.GroomStrandRequests.clear();
+        // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
+        // #1234). Cleared here for the same reason as the line above: an
+        // assignment that accumulated across frames would fill up from the
+        // transient values an editor slider passes through, and the deferred
+        // path would then lose transmission that forward kept.
+        s_Data.FoliageLeafProfiles.BeginFrame();
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);

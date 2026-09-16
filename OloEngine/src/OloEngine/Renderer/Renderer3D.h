@@ -43,6 +43,7 @@
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterFoam.h"
 #include "OloEngine/Renderer/Water/WaterWakeSystem.h"
+#include "OloEngine/Renderer/FoliageLeafProfileTable.h"
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -1057,6 +1058,17 @@ namespace OloEngine
             return s_Data.SkinProfiles;
         }
 
+        // The SECOND tenant of that same three-bit G-Buffer field (issue
+        // #1234): a leaf material -> slot, read only under
+        // MaterialKind::Foliage exactly as the skin table above is read only
+        // under MaterialKind::Skin. A pixel has one kind, so the two can never
+        // both claim a pixel's slot bits. Reset alongside the skin table, for
+        // the same reason.
+        [[nodiscard]] static FoliageLeafProfileTable& GetFoliageLeafProfileTable()
+        {
+            return s_Data.FoliageLeafProfiles;
+        }
+
         // (The ephemeral MCP sun-direction override from #316 was
         // retired by issue #633: olo_scene_set_time_of_day / set_sun_angle now
         // write the scene's TimeOfDayComponent — a real, serialized clock —
@@ -1727,6 +1739,46 @@ namespace OloEngine
             f32 ParallaxScale = 0.5f;
         };
 
+        // The layer's LEAF MATERIAL (issue #1234) — the per-layer half of the
+        // vegetation surface, carried as one struct because it travels as a
+        // unit from FoliageRenderer through Scene to the command and on into
+        // the FoliageUBO, and because DrawFoliageLayer already takes twenty
+        // arguments.
+        //
+        // Strength 0 means "this layer is not a leaf material". Every path then
+        // behaves exactly as it did before #1234: the G-Buffer writes
+        // MaterialKind::Generic and no thickness lane, and the forward shader
+        // evaluates no transmission lobe. That is what a scene or save authored
+        // before this material existed gets, and it is a property of the data
+        // rather than of a second code path.
+        struct FoliageLeafMaterial
+        {
+            // Null handles are the "not authored" signal and are what sets the
+            // map bitfield the shader reads. A layer that names a map the
+            // loader could not open arrives here null, so the shader samples
+            // the constant instead of the engine's typed-null black — see
+            // FoliageUBO::LeafSurface.w.
+            RHI::ResourceHandle NormalTextureID{};
+            RHI::ResourceHandle RoughnessTextureID{};
+            RHI::ResourceHandle ThicknessTextureID{};
+
+            f32 Roughness = 0.8f;
+            f32 NormalStrength = 1.0f;
+            f32 Thickness = 0.0f;
+
+            f32 TransmissionStrength = 0.0f; // 0 == not a leaf material
+            glm::vec3 TransmissionColor{ 0.42f, 0.62f, 0.18f };
+            f32 TransmissionDistortion = 0.35f;
+            f32 TransmissionPower = 4.0f;
+            f32 TransmissionWrap = 0.5f;
+            f32 TransmissionAmbient = 0.35f;
+
+            [[nodiscard]] bool IsLeaf() const noexcept
+            {
+                return TransmissionStrength > 0.0f;
+            }
+        };
+
         // Foliage rendering. This function owns submission as well as packet
         // allocation so the two operations cannot select different streams.
         static void DrawFoliageLayer(
@@ -1745,6 +1797,9 @@ namespace OloEngine
             // rejects (MSVC accepts it non-conformingly). The sole caller passes
             // it explicitly.
             const FoliageImpostorParams& impostor,
+            // The layer's leaf material (issue #1234). Not defaulted, for the
+            // same reason `impostor` is not.
+            const FoliageLeafMaterial& leaf,
             // Authored plant mesh (issue #1233): this draw is the layer's real
             // geometry rather than its flat card, and both carry the SAME
             // hand-over band so the two partition the pixels between them.
@@ -2661,6 +2716,9 @@ namespace OloEngine
 
             // Skin profile identity table (issue #1231).
             SkinProfileTable SkinProfiles;
+            // Leaf material identity table (issue #1234) — the other tenant of
+            // the G-Buffer's three-bit profile-slot field.
+            FoliageLeafProfileTable FoliageLeafProfiles;
 
             // Nearest water-surface depth texture for underwater fog (§7.2);
             // published by WaterRenderPass, consumed by ToneMap. 0 = no water.

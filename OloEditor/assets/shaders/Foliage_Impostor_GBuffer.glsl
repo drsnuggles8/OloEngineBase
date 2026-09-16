@@ -83,6 +83,15 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 u_ImpostorParams1;
     vec4 u_MeshParams; // issue #1233 — see FoliageInstanceGeometry.glsl
     vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO // x=enabled, y=meshRadius, z=parallaxScale, w=unused
+    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
+    // block is declared identically in every stage of every foliage program:
+    // std140 blocks must match across the stages of one program, so a lane
+    // appended to one declaration and not the others is a LINK failure, not a
+    // wrong pixel.
+    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
+    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
+    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
+    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
 };
 
 // u_EntityID rides the per-draw instance SSBO (foliage uploads ONE shared
@@ -91,6 +100,20 @@ layout(std140, binding = 12) uniform FoliageParams
 #include "include/FoliageImpostorSampling.glsl"
 #include "include/GBufferNormalEncode.glsl"
 
+// The shared vegetation material (issue #1234). No sampling half: an impostor
+// has no leaf maps to sample — its atlas already baked them in — so it takes
+// the kind, the lobe parameters and the constant thickness from the UBO.
+#include "include/PBRCommon.glsl"
+#include "include/FoliageSurface.glsl"
+
+// oloLeafEnabled lives behind OLO_FOLIAGE_SURFACE_SAMPLING (it reads the
+// foliage UBO), and this shader deliberately does not compile that half. The
+// one predicate it needs is one line, spelled here against the same lane.
+bool oloLeafEnabled()
+{
+    return u_LeafTransmit.w > 0.0;
+}
+
 void main()
 {
     ImpostorSample card = SampleImpostorCard();
@@ -98,16 +121,44 @@ void main()
     // The baked object-space normal, rotated into world space by the instance
     // rotation — the same normal the forward card relights with, handed to
     // DeferredLightingPass instead.
-    vec3 worldN = normalize(rotateY(card.LocalNormal, v_Rotation));
+    vec3 geometricN = normalize(rotateY(card.LocalNormal, v_Rotation));
+    // THE SAME TWO-SIDED RULE THE OTHER THREE PROGRAMS APPLY (issue #1234).
+    // Without it this was the one foliage program writing an un-flipped normal:
+    // an impostor whose baked normal happens to face away from the viewer would
+    // invert BOTH transmission terms — glowing when front-lit and going black
+    // when backlit, the exact opposite of the near card it hands over from, so
+    // a plant would visibly flip as it crossed the band. `V` is surface -> eye.
+    vec3 V = normalize(u_CameraPosition - v_CardWorld);
+    vec3 worldN = oloFoliageFaceNormal(geometricN, V);
 
-    // Matches Foliage_Instance_GBuffer: foliage is diffuse, non-metallic, rough.
+    // Matches Foliage_Instance_GBuffer: foliage is diffuse and non-metallic.
+    // The ROUGHNESS is the layer's authored value since issue #1234 — it used
+    // to be a hard-coded 0.9 here and in the instance shader, which meant a
+    // plant changed its specular response as it crossed the impostor hand-over.
     float metallic = 0.0;
-    float roughness = 0.9;
+    float roughness = clamp(u_LeafSurface.x, 0.02, 1.0);
     float ao = 1.0;
 
+    // THE SAME MATERIAL KIND AND THE SAME LOBE PARAMETERS as the near-field
+    // card and the authored mesh (issue #1234), so a plant does not stop being
+    // a leaf when it becomes an impostor.
+    //
+    // THE THICKNESS IS CONSTANT HERE, AND THAT IS A PROPERTY OF THE
+    // REPRESENTATION, NOT AN OMISSION. An octahedral impostor atlas bakes
+    // albedo + coverage and an object-space normal/depth pair; it has no
+    // thickness channel, and adding one would mean re-baking every atlas to
+    // carry a quantity that varies across a leaf nobody can resolve at the
+    // distance an impostor is used. So the card transmits at the layer's
+    // authored thickness scale uniformly. The map's VARIATION is what is lost
+    // at distance, not the transmission.
+    bool isLeaf = oloLeafEnabled();
     o_GBufferAlbedo   = vec4(card.Albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(worldN), roughness, ao);
-    o_GBufferEmissive = vec4(0.0, 0.0, 0.0, 0.0); // lit
+    o_GBufferEmissive = vec4(0.0, 0.0, 0.0,
+                             isLeaf ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY,
+                                                                 OLO_MATERIAL_KIND_FOLIAGE,
+                                                                 int(u_LeafIds.x + 0.5))
+                                    : 0.0); // lit
 
     // Camera-motion velocity (impostor has no per-instance prev history).
     vec4 clipCurr = u_ViewProjection * vec4(v_CardWorld, 1.0);
@@ -117,5 +168,8 @@ void main()
     o_GBufferVelocity = (ndcCurr - ndcPrev) * 0.5;
 
     o_GBufferEntityID = u_EntityID;
-    o_GBufferBakedGI = vec4(0.0); // no baked lightmap on this surface (issue #865)
+    // RT5's red channel is the THICKNESS LANE for a foliage pixel (issue
+    // #1234) — see Foliage_Instance_GBuffer.glsl for why coverage 0 makes that
+    // free. Constant across the card, for the reason stated above.
+    o_GBufferBakedGI = vec4(isLeaf ? clamp(u_LeafSurface.z, 0.0, 1.0) : 0.0, 0.0, 0.0, 0.0);
 }

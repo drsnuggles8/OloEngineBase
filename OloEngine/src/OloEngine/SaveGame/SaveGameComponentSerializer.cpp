@@ -594,7 +594,57 @@ namespace OloEngine
                 l.MeshFadeStartDistance = std::clamp(l.MeshFadeStartDistance, 0.0f, l.MeshViewDistance);
             }
         }
-        // AlbedoTexture (Ref<Texture2D>) is runtime — not serialized
+        // Leaf material appended in save-format v33 (issue #1234). v32 and
+        // older saves stop before it and keep the constructor defaults, whose
+        // TransmissionStrength is 0 — so an older save loads with the material
+        // OFF and the layer renders exactly as that save's build rendered it,
+        // rather than acquiring a glow nobody authored.
+        if (HasFieldsSince(ar, 33))
+        {
+            ar << l.NormalMapPath << l.RoughnessMapPath << l.ThicknessMapPath;
+            ar << l.NormalStrength;
+            ar << l.TransmissionStrength << l.TransmissionColor;
+            ar << l.Thickness;
+            ar << l.TransmissionDistortion << l.TransmissionPower;
+            ar << l.TransmissionWrap << l.TransmissionAmbient;
+
+            if (ar.IsLoading())
+            {
+                // The same bounds the scene deserializer applies, for the same
+                // reason: every one of these reaches a shader (a pow exponent,
+                // a normalize, a clamp bound), and a save file is no more
+                // trusted than a .olo. Kept textually parallel to
+                // DeserializeFoliageComponent so a future edit to one is
+                // visibly missing from the other.
+                if (!std::isfinite(l.NormalStrength))
+                    l.NormalStrength = 1.0f;
+                l.NormalStrength = std::clamp(l.NormalStrength, 0.0f, 4.0f);
+                if (!std::isfinite(l.TransmissionStrength))
+                    l.TransmissionStrength = 0.0f;
+                l.TransmissionStrength = std::clamp(l.TransmissionStrength, 0.0f, 8.0f);
+                if (!std::isfinite(l.TransmissionColor.x) || !std::isfinite(l.TransmissionColor.y) ||
+                    !std::isfinite(l.TransmissionColor.z))
+                    l.TransmissionColor = glm::vec3(0.42f, 0.62f, 0.18f);
+                l.TransmissionColor = glm::clamp(l.TransmissionColor, glm::vec3(0.0f), glm::vec3(1.0f));
+                if (!std::isfinite(l.Thickness))
+                    l.Thickness = 0.5f;
+                l.Thickness = std::clamp(l.Thickness, 0.0f, 1.0f);
+                if (!std::isfinite(l.TransmissionDistortion))
+                    l.TransmissionDistortion = 0.35f;
+                l.TransmissionDistortion = std::clamp(l.TransmissionDistortion, 0.0f, 1.0f);
+                if (!std::isfinite(l.TransmissionPower))
+                    l.TransmissionPower = 4.0f;
+                l.TransmissionPower = std::clamp(l.TransmissionPower, 1.0f, 64.0f);
+                if (!std::isfinite(l.TransmissionWrap))
+                    l.TransmissionWrap = 0.5f;
+                l.TransmissionWrap = std::clamp(l.TransmissionWrap, 0.0f, 1.0f);
+                if (!std::isfinite(l.TransmissionAmbient))
+                    l.TransmissionAmbient = 0.35f;
+                l.TransmissionAmbient = std::clamp(l.TransmissionAmbient, 0.0f, 4.0f);
+            }
+        }
+        // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
+        // runtime — the PATHS above are what round-trips.
     }
 
     // ========================================================================
@@ -3070,15 +3120,20 @@ namespace OloEngine
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
-        // Production strand rendering appended in save-format v33 (issue
-        // #1246). VERSION-GATED, not merely appended: a v32-or-older save that
+        // Production strand rendering appended in save-format v34 (issue
+        // #1246). VERSION-GATED, not merely appended: a v33-or-older save that
         // contains a GroomComponent was written without these 22 bytes, and
         // reading them anyway does not just mis-fill this component — it
         // desynchronises the stream for every component after it.
         // kMinSupportedSaveGameFormatVersion is 1, so the header check accepts
         // those files and the gate is the only thing standing between them and
         // a corrupt load.
-        if (HasFieldsSince(ar, 33))
+        //
+        // v34, not the v33 this was authored as: #1234 took v33 on master while
+        // this branch was open. Sharing a version would have made a v33 save
+        // from either branch satisfy the other's gate and be read with the
+        // wrong fields at the wrong offsets.
+        if (HasFieldsSince(ar, 34))
         {
             ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
             ar << c.m_RenderStrands << c.m_CompositionMode;

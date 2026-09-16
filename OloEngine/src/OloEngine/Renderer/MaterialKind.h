@@ -41,18 +41,35 @@ namespace OloEngine
         // Authored skin. Selects the split diffuse/specular transport and names
         // a SkinProfile asset (Renderer/SkinProfile.h) for the scattering
         // parameters #1241 will consume.
-        Skin = 2
+        Skin = 2,
+        // Authored vegetation (issue #1234). A THIN TWO-SIDED SURFACE, not a
+        // scattering volume: a leaf is one lamina a fraction of a millimetre
+        // thick, so light that enters the lit face leaves the other face in
+        // essentially the same place. That is why this is its own kind rather
+        // than a Skin profile with a small radius -- Skin's transport diffuses
+        // energy ACROSS the surface (screen-space in #1241), which is exactly
+        // the effect a leaf does not have, and borrowing it would have blurred
+        // every leaf edge into its neighbour.
+        //
+        // What it selects is the transmission lobe in include/FoliageSurface.glsl,
+        // evaluated from a per-pixel THICKNESS map and shadowed by the same
+        // factor the reflected lobe uses. Everything else about the surface --
+        // albedo, normal, roughness, the reflected BRDF -- stays generic.
+        Foliage = 3
     };
 
     // One past the last valid kind — the shared upper bound for every
     // reject-to-Generic validation site (scene YAML, save-games, Lua, the
     // material UBO).
-    inline constexpr i32 kMaterialKindCount = 3;
+    inline constexpr i32 kMaterialKindCount = 4;
 
     // The G-Buffer flags lane gives the kind a FIXED-WIDTH two-bit field (see
-    // oloEncodeGBufferPbrFlags in include/PBRCommon.glsl), so a fourth kind is
-    // free and a fifth is a deliberate re-encoding of the lane rather than an
-    // enumerator. This is where that conversation starts.
+    // oloEncodeGBufferPbrFlags in include/PBRCommon.glsl). Foliage (#1234) took
+    // the fourth and LAST value the field can carry, so the static_assert below
+    // is now exactly tight: a fifth kind is a deliberate re-encoding of the
+    // lane -- a wider kind field paid for out of the model field's headroom, or
+    // a dedicated attachment -- and not an enumerator that silently aliases
+    // onto Generic. This is where that conversation starts.
     inline constexpr i32 kMaterialKindGBufferMax = 3;
     static_assert(kMaterialKindCount - 1 <= kMaterialKindGBufferMax,
                   "MaterialKind index exceeds the two-bit kind field in the deferred G-Buffer flags "
@@ -68,6 +85,8 @@ namespace OloEngine
                 return "Snow";
             case MaterialKind::Skin:
                 return "Skin";
+            case MaterialKind::Foliage:
+                return "Foliage";
         }
         return "Generic";
     }

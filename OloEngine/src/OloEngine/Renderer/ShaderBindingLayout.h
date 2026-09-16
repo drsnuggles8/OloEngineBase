@@ -504,6 +504,48 @@ namespace OloEngine
             // exactly what the first attempt did.
             glm::vec4 MeshViewPos{ 0.0f };
 
+            // ── Leaf material (issue #1234) ─────────────────────────────────
+            // Read by include/FoliageSurface.glsl, which the forward, deferred
+            // and impostor foliage shaders all include — so these three lanes
+            // are the whole per-layer vegetation material, in one block, with
+            // one meaning.
+            //
+            //   x — roughness, the authored constant a roughness map multiplies
+            //   y — normal-map strength (tangential scale; 0 == geometric N)
+            //   z — thickness scale, modulated per pixel by a thickness map
+            //   w — WHICH MAPS ARE BOUND, a bitfield (1 normal | 2 roughness |
+            //       4 thickness) carried as a float because it is a small exact
+            //       integer. Load-bearing: an unbound sampler reads the engine's
+            //       typed null, and its black would mean "thickness 0" (a leaf
+            //       that never transmits) and "roughness 0" (a mirror leaf) —
+            //       both of which look like the feature being broken rather
+            //       than simply not authored.
+            glm::vec4 LeafSurface{ 0.8f, 1.0f, 0.0f, 0.0f };
+            // rgb = transmission tint, w = STRENGTH. Strength 0 is the off
+            // switch and the default: the shaders write MaterialKind::Generic
+            // and no thickness lane, which is the pre-#1234 behaviour exactly.
+            glm::vec4 LeafTransmit{ 0.42f, 0.62f, 0.18f, 0.0f };
+            // The lobe's shape: x = distortion, y = power, z = wrap,
+            // w = environment scale. See oloFoliageTransmission.
+            glm::vec4 LeafLobe{ 0.35f, 4.0f, 0.5f, 0.35f };
+            // x = the three-bit G-Buffer PROFILE SLOT this layer's leaf
+            // material interned to (FoliageLeafProfileTable). 7 == names no
+            // profile. Only the DEFERRED foliage program reads it — it is what
+            // that program writes into the RT2 flags lane so the fullscreen
+            // lighting pass can look the lobe parameters back up. The forward
+            // program has LeafTransmit / LeafLobe in hand and ignores it.
+            //
+            // y = IS THE GLOBAL IBL BOUND (1/0), z = its intensity. Only the
+            // FORWARD programs read these, and they exist because foliage has
+            // no Material and therefore no per-material IBL handles: the
+            // dispatch binds Renderer3D's global trio explicitly, and a scene
+            // with no EnvironmentMap binds nothing at all. Without this flag
+            // the shader would sample the engine's typed-null cubemap, read
+            // black, and every foliage surface in an IBL-less scene would go
+            // dark on its unlit side — which is exactly what replacing the old
+            // flat `albedo * 0.3` ambient would otherwise have caused.
+            glm::vec4 LeafIds{ 7.0f, 0.0f, 1.0f, 0.0f };
+
             static constexpr u32 GetSize()
             {
                 return sizeof(FoliageUBO);
@@ -2416,10 +2458,12 @@ namespace OloEngine
     static_assert(sizeof(UBOStructures::TerrainUBO) == 2256, "TerrainUBO unexpected size — update include/TerrainParamsBlock.glsl");
     static_assert(sizeof(UBOStructures::BrushPreviewUBO) == 32, "BrushPreviewUBO unexpected size — update GLSL layout");
     // 48 before issue #433 appended the two impostor vec4s (-> 80); #1233
-    // appended MeshParams and MeshViewPos (-> 112). Every foliage shader declares the block
+    // appended MeshParams and MeshViewPos (-> 112); #1234 appended the four
+    // leaf-material vec4s (-> 176). Every foliage shader declares the block
     // WHOLE — including the vec4s it does not read — so a field appended for
-    // one of them cannot land at a different offset in another.
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 112, "FoliageUBO unexpected size — update GLSL layout");
+    // one of them cannot land at a different offset in another, and this
+    // assertion is what catches a C++ lane that never reached the GLSL side.
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 176, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");
@@ -3868,6 +3912,15 @@ namespace OloEngine
                     return name.contains("Specular") || name.contains("specular") ||
                            name.contains("Metallic") || name.contains("metallic") ||
                            name.contains("Depth") || name.contains("Bloom") ||
+                           // The octahedral impostor's normal+depth atlas
+                           // (issue #433), MOVED here from TEX_USER_0 by #1234:
+                           // the foliage programs gained image-based ambient, so
+                           // TEX_USER_0/1/2 now carry the IBL trio and a
+                           // sampler2D on 10 would collide with a samplerCube in
+                           // the SAME shader and the same namespace. (It also
+                           // matches "Depth" above; naming it is what makes the
+                           // move visible rather than accidental.)
+                           name == "u_NormalDepthAtlas" ||
                            // Skin diffusion (issue #1241): the vertical pass
                            // reads the UNBLURRED hand-off here so it can output
                            // `blur - original` for the additive blend into scene
@@ -4048,6 +4101,16 @@ namespace OloEngine
                            name == "u_HistoryReservoir2";
                 case TEX_METALLIC:
                     return name.contains("Metallic") || name.contains("metallic") ||
+                           // The LEAF THICKNESS map (issue #1234). Foliage is
+                           // never metallic, so this slot is definitionally free
+                           // on that surface, and the engine already repurposes a
+                           // semantic slot per shader this way (PBR_MultiLight's
+                           // u_MetallicRoughnessMap sits on TEX_SPECULAR). Unlike
+                           // most entries here this is NOT a fullscreen pass —
+                           // foliage rasterizes real geometry — but foliage never
+                           // goes through the material system, so no material can
+                           // occupy the slot underneath it.
+                           name == "u_LeafThicknessMap" ||
                            // ReSTIR DI (issue #1140): the four reservoir draws are
                            // fullscreen passes with no material bound, so they reuse the
                            // pass-local low slots the same way every entry above does.
