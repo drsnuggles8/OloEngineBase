@@ -2840,7 +2840,8 @@ namespace OloEngine
             }
             return false;
         }
-        const auto rootAllocation = VulkanFrameArena::Get().Push(ctx.RootScratch.data(), ctx.RootScratch.size(), 16);
+        const auto rootAllocation = VulkanFrameArena::Get().Push(
+            ctx.RootScratch.data(), ctx.RootScratch.size(), 16, VulkanFrameArenaConsumer::RootData);
         if (!rootAllocation.IsValid())
         {
             return false; // arena overflow — dropped work, counted by the arena

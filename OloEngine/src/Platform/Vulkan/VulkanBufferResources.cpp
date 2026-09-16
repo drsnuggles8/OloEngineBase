@@ -567,7 +567,7 @@ namespace OloEngine
 
         // 256 is the spec's maximum minUniformBufferOffsetAlignment — always a
         // legal uniform-block address on every device.
-        const auto allocation = arena.Push(m_LocalData, m_Size, 256);
+        const auto allocation = arena.Push(m_LocalData, m_Size, 256, VulkanFrameArenaConsumer::UniformSnapshot);
         if (!allocation.IsValid())
         {
             return 0; // arena overflow — caller drops the draw (arena contract)
@@ -810,7 +810,7 @@ namespace OloEngine
         // 256 is the spec's ceiling for minStorageBufferOffsetAlignment, so it
         // is a legal storage-block address on every device — the pull block is
         // an SSBO (binding 57 / 63), not a vertex binding.
-        const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256);
+        const auto allocation = arena.Push(m_Shadow.data(), m_ShadowSize, 256, VulkanFrameArenaConsumer::VertexSnapshot);
         if (!allocation.IsValid())
         {
             // Arena overflow. The caller substitutes the null block, and its

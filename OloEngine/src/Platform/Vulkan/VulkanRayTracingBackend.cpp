@@ -907,7 +907,8 @@ namespace OloEngine::RayTracing
             // build reads the bytes this frame recorded rather than whatever a
             // mapped write left behind.
             const auto staged = VulkanFrameArena::Get().Push(
-                packed.data(), packed.size() * sizeof(VkAccelerationStructureInstanceKHR), kInstanceDataAlignment);
+                packed.data(), packed.size() * sizeof(VkAccelerationStructureInstanceKHR), kInstanceDataAlignment,
+                VulkanFrameArenaConsumer::RayTracingStaging);
             if (!staged.IsValid())
             {
                 OLO_CORE_WARN("[RayTracing/Vulkan] frame arena overflow staging {} TLAS instances", packed.size());

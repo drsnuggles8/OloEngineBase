@@ -370,7 +370,7 @@ namespace OloEngine
         }
 
         // std430 block alignment: 16 covers any scalar/vector/matrix start.
-        const auto allocation = arena.Allocate(newBytes, 16);
+        const auto allocation = arena.Allocate(newBytes, 16, VulkanFrameArenaConsumer::StorageSnapshot);
         if (!allocation.IsValid())
         {
             static std::atomic<bool> s_WarnedOverflow{ false };
