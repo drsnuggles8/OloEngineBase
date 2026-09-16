@@ -5687,7 +5687,13 @@ namespace OloEngine
         // Groom/GroomVisibility.h. Stored as a u8 rather than as the enum so
         // the component keeps its pinned, hole-free, trivially-copyable
         // layout; the range is validated on load rather than trusted.
-        OLO_SERIALIZE(Clamp, Min = 0, Max = 3)
+        // REJECT, not Clamp: this is a discriminated mode index, so saturating
+        // turns a corrupt value into a different VALID one. Clamp(0, 3) mapped
+        // an authored `CompositionMode: 7` to 3 — WeightedBlendedOIT, a mode
+        // that writes no depth — which the selection seam would then refuse for
+        // the wrong reason. Reject leaves the constructor default instead.
+        // ComponentReflection.h names exactly this case as the motivating one.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 3)
         u8 m_CompositionMode = static_cast<u8>(GroomCompositionMode::StochasticAlpha);
 
         OLO_SERIALIZE(Skip)

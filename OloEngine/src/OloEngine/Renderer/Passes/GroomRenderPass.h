@@ -151,6 +151,13 @@ namespace OloEngine
         };
 
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
+
+        /// Cache key: the asset handle AND the build settings. Two entities can
+        /// reference one groom at different budgets, and keying on the handle
+        /// alone made each of their draws evict the other every frame —
+        /// rebuilding the CPU mesh and both GPU buffers twice per frame, which
+        /// is precisely the cost the cache exists to remove.
+        [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
         void EvictToBudget();
 
         std::vector<GroomStrandRequest> m_Requests;
@@ -160,6 +167,14 @@ namespace OloEngine
         std::unordered_map<u64, CacheEntry> m_Cache;
         u64 m_CacheBudgetBytes = 256ull * 1024ull * 1024ull;
         u64 m_CacheBytes = 0;
+
+        /// The cache's OWN monotonic tick, not GroomFrameState::FrameIndex.
+        /// That one is the stochastic sample index and is deliberately wrapped
+        /// (`& 0xFFFFF` in RenderPipeline), so an entry used just before the
+        /// wrap reads as a million frames old and is evicted, while one from
+        /// the previous cycle reads as newly used and stays. A 64-bit counter
+        /// that only this pass advances cannot do either.
+        u64 m_CacheTick = 0;
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;

@@ -231,6 +231,10 @@ TEST(GroomCompositionSelection, ACorruptRequestIsRefusedRatherThanReadAsTheBasel
     // is something to fix, and folding it into "the user asked for the
     // baseline" is how it would never be noticed.
     EXPECT_TRUE(decision.IsFallback());
+    // And with its OWN reason, not a borrowed capability one. Reporting this
+    // as AlphaToCoverageUnimplemented sent a reader to fix a device that was
+    // working perfectly well.
+    EXPECT_EQ(decision.Reason, GroomCompositionFallbackReason::RequestedModeInvalid);
 }
 
 TEST(GroomCompositionSelection, TheSelectionIsUsableInAConstantExpression)

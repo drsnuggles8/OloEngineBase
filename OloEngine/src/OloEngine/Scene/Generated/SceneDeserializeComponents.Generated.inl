@@ -521,7 +521,8 @@ if (auto node = entity["GroomComponent"]; node)
     comp.m_ColorByGroup = node["ColorByGroup"].as<bool>(comp.m_ColorByGroup);
     comp.m_GuidesOnly = node["GuidesOnly"].as<bool>(comp.m_GuidesOnly);
     comp.m_RenderStrands = node["RenderStrands"].as<bool>(comp.m_RenderStrands);
-    comp.m_CompositionMode = std::clamp(node["CompositionMode"].as<decltype(comp.m_CompositionMode)>(comp.m_CompositionMode), static_cast<decltype(comp.m_CompositionMode)>(0), static_cast<decltype(comp.m_CompositionMode)>(3));
+    if (const decltype(comp.m_CompositionMode) v = node["CompositionMode"].as<decltype(comp.m_CompositionMode)>(comp.m_CompositionMode); v >= static_cast<decltype(comp.m_CompositionMode)>(0) && v <= static_cast<decltype(comp.m_CompositionMode)>(3))
+        comp.m_CompositionMode = v;
 }
 
 if (auto node = entity["InstancePortalComponent"]; node)

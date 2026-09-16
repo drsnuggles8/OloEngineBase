@@ -506,8 +506,12 @@ case 2551117928u: // GroomComponent
     if (!SceneBinIO::Read(reader, comp.m_ColorByGroup)) return false;
     if (!SceneBinIO::Read(reader, comp.m_GuidesOnly)) return false;
     if (!SceneBinIO::Read(reader, comp.m_RenderStrands)) return false;
-    if (!SceneBinIO::Read(reader, comp.m_CompositionMode)) return false;
-    comp.m_CompositionMode = std::clamp(comp.m_CompositionMode, static_cast<decltype(comp.m_CompositionMode)>(0), static_cast<decltype(comp.m_CompositionMode)>(3));
+    {
+        decltype(comp.m_CompositionMode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_CompositionMode)>(0) && v <= static_cast<decltype(comp.m_CompositionMode)>(3))
+            comp.m_CompositionMode = v;
+    }
     break;
 }
 case 1784713623u: // InstancePortalComponent

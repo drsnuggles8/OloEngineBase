@@ -127,9 +127,16 @@ namespace OloEngine::GroomCoverage
             bounds.MinY = toPixel(std::floor(minY), 0, lastY);
             bounds.MaxX = toPixel(std::ceil(maxX), 0, lastX);
             bounds.MaxY = toPixel(std::ceil(maxY), 0, lastY);
-            // A segment entirely off one edge now yields an EMPTY range rather
-            // than a clamped one-pixel sliver at the border.
-            if (maxX < 0.0f || maxY < 0.0f || minX > static_cast<f32>(lastX) || minY > static_cast<f32>(lastY))
+            // A segment entirely off one edge yields an EMPTY range rather than
+            // a clamped one-pixel sliver at the border.
+            //
+            // Against width/height, NOT lastX/lastY: the visible region is
+            // x in [0, width), and pixel lastX covers [lastX, lastX + 1). A
+            // segment starting at lastX + 0.5 is INSIDE the last column, so
+            // testing minX > lastX discarded real coverage along the right and
+            // bottom edges of every measurement.
+            if (maxX < 0.0f || maxY < 0.0f || minX >= static_cast<f32>(width) ||
+                minY >= static_cast<f32>(height))
             {
                 bounds.MaxX = bounds.MinX - 1;
             }

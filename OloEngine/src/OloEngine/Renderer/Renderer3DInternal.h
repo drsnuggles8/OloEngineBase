@@ -246,6 +246,7 @@ namespace OloEngine
         {
             ForwardOverlay.Reset();
             Foliage.Reset();
+            Groom.Reset();
             Water.Reset();
             Decal.Reset();
             GPUOcclusion.Reset();

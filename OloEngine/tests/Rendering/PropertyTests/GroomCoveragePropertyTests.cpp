@@ -698,6 +698,63 @@ TEST(GroomCoverageModel, SegmentIdentityAgreesWithTheGpuStrandMesh)
     }
 }
 
+// Coverage in the LAST pixel column and row must survive. The off-screen
+// rejection compares against width/height, not against the last pixel INDEX:
+// pixel (width - 1) covers [width - 1, width), so a segment starting at
+// width - 0.5 is inside it. Testing against the index discarded that segment,
+// and with it real coverage along the right and bottom edges of every
+// measurement in this file.
+TEST(GroomCoverageModel, CoverageAtTheRightAndBottomEdgesIsNotDiscarded)
+{
+    constexpr u32 kWidth = 32;
+    constexpr u32 kHeight = 16;
+
+    // A fat vertical bar whose left edge sits inside the LAST column, and a
+    // horizontal one inside the last row.
+    std::vector<ScreenSegment> segments;
+    ScreenSegment right;
+    right.A = { static_cast<f32>(kWidth) - 0.25f, 2.0f };
+    right.B = { static_cast<f32>(kWidth) - 0.25f, 12.0f };
+    right.HalfWidthA = 0.6f;
+    right.HalfWidthB = 0.6f;
+    segments.push_back(right);
+
+    ScreenSegment bottom;
+    bottom.A = { 4.0f, static_cast<f32>(kHeight) - 0.25f };
+    bottom.B = { 20.0f, static_cast<f32>(kHeight) - 0.25f };
+    bottom.HalfWidthA = 0.6f;
+    bottom.HalfWidthB = 0.6f;
+    segments.push_back(bottom);
+
+    const std::vector<f32> reference = ReferenceCoverage(segments, kWidth, kHeight, kSupersample);
+    ASSERT_EQ(reference.size(), static_cast<sizet>(kWidth) * kHeight);
+    EXPECT_GT(TotalCoverage(reference), 0.0)
+        << "a segment inside the last column/row produced no coverage at all";
+
+    // Specifically in the last column and the last row, not merely somewhere.
+    f64 lastColumn = 0.0;
+    for (u32 y = 0; y < kHeight; ++y)
+    {
+        lastColumn += static_cast<f64>(reference[static_cast<sizet>(y) * kWidth + (kWidth - 1u)]);
+    }
+    f64 lastRow = 0.0;
+    for (u32 x = 0; x < kWidth; ++x)
+    {
+        lastRow += static_cast<f64>(reference[static_cast<sizet>(kHeight - 1u) * kWidth + x]);
+    }
+    EXPECT_GT(lastColumn, 0.0) << "the right-hand column lost its coverage";
+    EXPECT_GT(lastRow, 0.0) << "the bottom row lost its coverage";
+
+    // A segment genuinely off the edge still contributes nothing — the
+    // rejection must not have been widened into never rejecting.
+    std::vector<ScreenSegment> offscreen;
+    ScreenSegment away = right;
+    away.A.x = static_cast<f32>(kWidth) + 8.0f;
+    away.B.x = static_cast<f32>(kWidth) + 8.0f;
+    offscreen.push_back(away);
+    EXPECT_DOUBLE_EQ(TotalCoverage(ReferenceCoverage(offscreen, kWidth, kHeight, kSupersample)), 0.0)
+        << "a segment well past the right edge contributed coverage";
+}
 TEST(GroomCoverageModel, MemoryCostIsAPropertyOfTheModeAndTheResolution)
 {
     constexpr u32 kWidth = 1920;

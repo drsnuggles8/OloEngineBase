@@ -260,7 +260,50 @@ perfectly, and so does the cross-stage uniform-block mismatch that preceded it (
 
 ## GPU cost and memory, on named hardware
 
-<!-- Filled in from the live editor run; see the PR body for the captures these came from. -->
+**Machine:** NVIDIA GeForce RTX 4090, Intel Core i7-14700KF, Windows 11.
+**Build:** Debug, `build-cached` (clang-cl). **Scene:** `Scenes/GroomStrandCoat.olo`,
+1411x942 render resolution, fixed camera, OpenGL, forward path, TAA off (so the measured
+mode is the OpaqueRibbon tier — the stochastic tier discards a different NUMBER of
+fragments but rasterises the identical geometry, so the pass cost is the same work).
+**Subject:** two grooms, 2 000 strands each, 14 000 segments each — 56 000 triangles and
+2 draw calls added to the frame.
+
+**Method.** The frame's GPU time with the strands on and off, alternating A,B,A,B... for
+12 rounds with a 900 ms settle after each toggle, median of each arm. Interleaved rather
+than two contiguous blocks because this box also hosts CI runners for another repo and GPU
+timings here swing up to 4x under a sibling build; alternating spreads that drift across
+both arms instead of attributing it to the feature.
+
+| arm | frame GPU (median) | frame CPU | draw calls | triangles |
+|---|---|---|---|---|
+| strands ON | 1.68 ms | 1.40 ms | 29 | 66 751 |
+| strands OFF | 1.65 ms | 1.40 ms | 27 | 10 751 |
+| **groom pass** | **0.03 ms** | below the counter's resolution | +2 | +56 000 |
+
+The two distributions do not overlap — ON spanned 1.68-1.71 ms and OFF 1.64-1.66 ms across
+all 12 rounds — so the 0.03 ms is a separation, not noise. The CPU medians are identical,
+which says the per-frame submission cost (two UBO uploads and two indexed draws, with the
+geometry served from the cache) is under the counter's resolution rather than zero.
+
+**Memory.** 2.88 MiB of GPU vertex + index data per groom at 2 000 strands / 14 000
+segments, from `GroomRenderPass`'s own accounting: 48 B per ribbon corner, four corners and
+six indices per segment. It scales linearly in segments, is cached per (asset, build
+settings) pair, and is bounded by `SetCacheBudgetBytes` (256 MiB by default). The selected
+composition mode adds **no render-target memory at all** — see the table above, where that
+is the whole of its advantage over the two rejected modes.
+
+### What could not be measured, and why
+
+**The per-pass GPU time on Vulkan.** The same interleaved A/B on the Vulkan backend is not
+reportable: `olo_perf_snapshot` returns `drawCalls: 0` and an unchanged triangle count on
+both arms there, so its counters are not tracking this path, and the GPU samples swing
+between 0.00 and 7.08 ms with the two arms completely overlapping. A number extracted from
+that would be a number about the instrument.
+
+This is a gap in the measurement, not in the feature: the Vulkan frame itself is verified
+(the coat renders, the slab occludes it, 0 errors and 0 VUIDs), and the pass submits the
+same two indexed draws of the same cached buffers on both backends. Isolating it properly
+needs a per-pass GPU timer on the Vulkan path rather than a frame-level counter.
 
 ## Considered options
 

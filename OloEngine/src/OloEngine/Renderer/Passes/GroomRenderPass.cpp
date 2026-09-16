@@ -119,18 +119,39 @@ namespace OloEngine
         }
     }
 
+    u64 GroomRenderPass::CacheKey(const GroomStrandRequest& request) noexcept
+    {
+        // Handle AND settings. Two entities may reference one groom asset at
+        // different budgets — the same asset at two LODs is the obvious
+        // authoring case — and keying on the handle alone made each of their
+        // draws evict the other, rebuilding the CPU mesh and both GPU buffers
+        // twice per frame for as long as both were visible.
+        //
+        // The WHOLE settings struct is folded in, byte by byte, rather than the
+        // fields that currently "matter": a field added later is then covered
+        // by construction instead of by someone remembering this function.
+        u64 key = static_cast<u64>(request.Handle);
+        const auto* bytes = reinterpret_cast<const u8*>(&request.Build);
+        for (sizet i = 0; i < sizeof(GroomStrandBuildSettings); ++i)
+        {
+            key ^= static_cast<u64>(bytes[i]);
+            key *= 1099511628211ull; // FNV-1a prime, as elsewhere in the groom code
+        }
+        return key;
+    }
+
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireGeometry(const GroomStrandRequest& request)
     {
-        const u64 key = static_cast<u64>(request.Handle);
+        const u64 key = CacheKey(request);
         if (const auto it = m_Cache.find(key); it != m_Cache.end())
         {
-            // A settings change is a different mesh, so the entry is rebuilt
-            // rather than reused. Comparing the WHOLE settings struct rather
-            // than the fields that "matter" is deliberate: a field added later
-            // is then covered by construction.
+            // The settings are in the KEY, so a hit is already a settings
+            // match; the comparison survives only to catch a hash collision,
+            // which would otherwise hand back geometry built for a different
+            // budget.
             if (it->second.Settings == request.Build && it->second.Array)
             {
-                it->second.LastUsedFrame = m_FrameState.FrameIndex;
+                it->second.LastUsedFrame = m_CacheTick;
                 return &it->second;
             }
             m_CacheBytes -= it->second.Bytes;
@@ -152,7 +173,7 @@ namespace OloEngine
         entry.Settings = request.Build;
         entry.Stats = stats;
         entry.Bytes = stats.VertexBytes + stats.IndexBytes;
-        entry.LastUsedFrame = m_FrameState.FrameIndex;
+        entry.LastUsedFrame = m_CacheTick;
 
         entry.Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
         entry.Vertices->SetLayout(StrandVertexLayout());
@@ -186,7 +207,7 @@ namespace OloEngine
         candidates.reserve(m_Cache.size());
         for (const auto& [key, entry] : m_Cache)
         {
-            if (m_FrameState.FrameIndex - entry.LastUsedFrame < kCacheRetentionFrames)
+            if (m_CacheTick - entry.LastUsedFrame < kCacheRetentionFrames)
             {
                 continue;
             }
@@ -228,6 +249,9 @@ namespace OloEngine
 
         m_Stats.Reset();
         m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
+        // One tick per executed frame, 64-bit and owned by this pass. See
+        // m_CacheTick for why GroomFrameState::FrameIndex cannot serve.
+        ++m_CacheTick;
 
         if (const auto sceneHandle = GetPrimaryInputFramebufferHandle(); sceneHandle.IsValid())
         {
@@ -393,6 +417,7 @@ namespace OloEngine
         // dropped here rather than left to be rebuilt against a dead context.
         m_Cache.clear();
         m_CacheBytes = 0;
+        m_CacheTick = 0;
         m_Requests.clear();
         m_SceneFramebuffer = nullptr;
         m_LastReportedReason = GroomCompositionFallbackReason::None;

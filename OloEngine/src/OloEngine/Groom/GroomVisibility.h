@@ -186,6 +186,14 @@ namespace OloEngine
         /// that never opted in as a failure.
         NotRequested,
 
+        /// The requested mode is not a GroomCompositionMode at all. A corrupt
+        /// component field or a raw cast at the API boundary, not a preference
+        /// — and distinct from every reason below because those all describe a
+        /// capability the frame lacks, which is a different thing to fix.
+        /// Reported first among the genuine fallbacks, since a request that is
+        /// not a mode cannot meaningfully trip a capability check.
+        RequestedModeInvalid,
+
         /// Alpha-to-coverage was requested and the strand pass does not
         /// implement a per-sample coverage mask. Today that is true on BOTH
         /// backends and is a deliberate, recorded outcome of the criterion-1
@@ -227,6 +235,9 @@ namespace OloEngine
                 return "the requested strand composition mode is active";
             case GroomCompositionFallbackReason::NotRequested:
                 return "opaque ribbons were requested (GroomComponent::CompositionMode)";
+            case GroomCompositionFallbackReason::RequestedModeInvalid:
+                return "the requested composition mode is not a valid GroomCompositionMode; the component "
+                       "field is corrupt or a raw value reached the selection API";
             case GroomCompositionFallbackReason::AlphaToCoverageUnimplemented:
                 return "the strand pass implements no per-sample coverage mask; the criterion-1 "
                        "comparison measured alpha-to-coverage and did not select it (see "
@@ -378,9 +389,11 @@ namespace OloEngine
         }
 
         // An out-of-range request is corruption, not a preference: fall to the
-        // always-available tier and report it as unsupported rather than
-        // pretending the groom asked for the baseline.
-        decision.Reason = GroomCompositionFallbackReason::AlphaToCoverageUnimplemented;
+        // always-available tier and say SO, rather than pretending the groom
+        // asked for the baseline (which would hide it) or borrowing a
+        // capability reason (which would send someone to fix a device that is
+        // working fine).
+        decision.Reason = GroomCompositionFallbackReason::RequestedModeInvalid;
         return decision;
     }
 
