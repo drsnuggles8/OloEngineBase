@@ -282,6 +282,9 @@ namespace OloEngine::MCP::RenderOverrides
         MaterialSpecular,
         SkinProfileId,
         SkinScatteringMask,
+        // The leaf transmission term alone (issue #1234) — the third of the
+        // three separated outputs #1234's fourth criterion names.
+        MaterialTransmission,
     };
 
     struct DebugViewInfo
@@ -291,7 +294,7 @@ namespace OloEngine::MCP::RenderOverrides
         std::string_view Description;
     };
 
-    inline constexpr std::array<DebugViewInfo, 13> kDebugViews = { {
+    inline constexpr std::array<DebugViewInfo, 14> kDebugViews = { {
         { "none", DebugView::None, "Normal composite (clear all debug views)" },
         { "ssao", DebugView::SSAO, "Raw SSAO occlusion buffer" },
         { "gtao", DebugView::GTAO, "Raw GTAO occlusion buffer" },
@@ -312,6 +315,8 @@ namespace OloEngine::MCP::RenderOverrides
           "Per-pixel skin profile identity as a hue; black = names no profile (Deferred path only)" },
         { "skinmask", DebugView::SkinScatteringMask,
           "Per-pixel skin scattering mask, unitless 0..1 greyscale (Deferred path only)" },
+        { "materialtransmission", DebugView::MaterialTransmission,
+          "Leaf transmission term alone, linear HDR radiance Rec.709; black off foliage (Deferred path only)" },
     } };
 
     // The MaterialDebugView a DebugView token maps to. None for every other
@@ -334,6 +339,8 @@ namespace OloEngine::MCP::RenderOverrides
                 return MaterialDebugView::ProfileIdentity;
             case DebugView::SkinScatteringMask:
                 return MaterialDebugView::ScatteringMask;
+            case DebugView::MaterialTransmission:
+                return MaterialDebugView::Transmission;
             case DebugView::None:
             case DebugView::SSAO:
             case DebugView::GTAO:

@@ -3291,6 +3291,44 @@ namespace OloEngine
             foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
             foliageData.MeshViewPos =
                 glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
+
+            // ── Leaf material (issue #1234) ─────────────────────────────────
+            // The map bitfield is derived from the HANDLES, not from the
+            // authored paths: a layer that names a normal map the loader could
+            // not open arrives here with a null handle, and the bit stays
+            // clear, so the shader samples the authored constant instead of the
+            // engine's typed-null black. A path that says "normal map" and a
+            // sampler that reads black is how a leaf ends up shaded by a normal
+            // of (-1,-1,-1) with nothing in the log.
+            f32 leafMapFlags = 0.0f;
+            if (cmd->leafNormalTextureID.IsValid())
+                leafMapFlags += 1.0f; // OLO_LEAF_MAP_NORMAL
+            if (cmd->leafRoughnessTextureID.IsValid())
+                leafMapFlags += 2.0f; // OLO_LEAF_MAP_ROUGHNESS
+            if (cmd->leafThicknessTextureID.IsValid())
+                leafMapFlags += 4.0f; // OLO_LEAF_MAP_THICKNESS
+            foliageData.LeafSurface = glm::vec4(cmd->leafRoughness, cmd->leafNormalStrength,
+                                                cmd->leafThickness, leafMapFlags);
+            // Tint PRE-MULTIPLIED by strength, exactly as
+            // FoliageLeafProfileTintLane packs it for the deferred table — so
+            // the forward path and the deferred path multiply in the same order
+            // and cannot differ by a rounding of the product.
+            foliageData.LeafTransmit = glm::vec4(cmd->leafTransmissionColor * cmd->leafTransmissionStrength,
+                                                 cmd->leafTransmissionStrength);
+            foliageData.LeafLobe = glm::vec4(cmd->leafTransmissionDistortion, cmd->leafTransmissionPower,
+                                             cmd->leafTransmissionWrap, cmd->leafTransmissionAmbient);
+            // .y says whether the global IBL trio is actually bound, .z is its
+            // intensity. Foliage carries no Material, so these cannot ride a
+            // material UBO the way every mesh's do — and a scene with no
+            // EnvironmentMap binds nothing, which the shader must be able to
+            // tell from "bound and black".
+            const bool globalIblBound = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
+                                        Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+                                        Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
+            foliageData.LeafIds = glm::vec4(static_cast<f32>(cmd->leafProfileSlot),
+                                            globalIblBound ? 1.0f : 0.0f,
+                                            Renderer3D::GetGlobalIBLIntensity(), 0.0f);
+
             foliageUBO->SetData(&foliageData, ShaderBindingLayout::FoliageUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_FOLIAGE, foliageUBO->GetRHIHandle());
         }
@@ -3311,7 +3349,48 @@ namespace OloEngine
 
         // Bind the octahedral normal+depth atlas (impostor path only).
         // BindTrackedTextureUnit skips a 0 id and does the redundancy check.
-        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_USER_0, cmd->impostorNormalDepthTextureID);
+        //
+        // MOVED OFF TEX_USER_0 by issue #1234. TEX_USER_0/1/2 are the engine's
+        // IBL trio (irradiance / prefilter / BRDF LUT) everywhere else, and the
+        // foliage shaders now need them for environment lighting — so the
+        // impostor atlas on slot 10 would have been a WITHIN-SHADER collision in
+        // Foliage_Impostor.glsl, which is the one rule that actually has to
+        // hold (ShaderBindingLayout, namespace note A2). TEX_SPECULAR is unused
+        // by every foliage program.
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_SPECULAR, cmd->impostorNormalDepthTextureID);
+
+        // The leaf maps (issue #1234) on their semantic slots, plus TEX_METALLIC
+        // repurposed for thickness — foliage is never metallic, and the engine
+        // already repurposes a semantic slot per shader this way (see
+        // PBR_MultiLight's u_MetallicRoughnessMap on TEX_SPECULAR). A null
+        // handle is skipped by BindTrackedTextureUnit, and the map bitfield
+        // uploaded above is what stops the shader sampling the slot anyway.
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_NORMAL, cmd->leafNormalTextureID);
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_ROUGHNESS, cmd->leafRoughnessTextureID);
+        BindTrackedTextureUnit(api, ShaderBindingLayout::TEX_METALLIC, cmd->leafThicknessTextureID);
+
+        // The full shadow contract, for the same reason the terrain draw binds
+        // it (issue #1234): the forward foliage program samples the CSM and the
+        // local-light atlas now, and a pass that relied on an earlier mesh draw
+        // having bound units 8/13/33/34 in the same frame would light a canopy
+        // correctly only when something else drew first. On the DEFERRED route
+        // the foliage program writes the G-Buffer and samples none of these —
+        // the binds are redundant there and BindTrackedTextureUnit's cache
+        // makes them free after the first draw.
+        BindShadowTextures(api);
+
+        // The scene's global IBL, bound EXPLICITLY rather than inherited.
+        // BindPBRTextures publishes the same trio on the same slots from a
+        // material, so in a frame with lit meshes these would usually already be
+        // right — "usually" being the problem. Reading them from
+        // Renderer3D's global IBL state makes a canopy's ambient and its
+        // transmission's environment half independent of draw order.
+        // TEX_USER_0/1 are samplerCube here, so the typed null kind matters.
+        BindTrackedTexture(api, Renderer3D::GetGlobalIrradianceMapHandle(), ShaderBindingLayout::TEX_USER_0,
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, Renderer3D::GetGlobalPrefilterMapHandle(), ShaderBindingLayout::TEX_USER_1,
+                           RHI::NullSamplerKind::Cube);
+        BindTrackedTexture(api, Renderer3D::GetGlobalBRDFLutMapHandle(), ShaderBindingLayout::TEX_USER_2);
 
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(api, cmd->vertexArrayID);

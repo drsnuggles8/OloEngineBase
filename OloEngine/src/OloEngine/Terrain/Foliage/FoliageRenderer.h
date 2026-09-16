@@ -69,6 +69,28 @@ namespace OloEngine
         // Octahedral impostor LOD (issue #433). UseImpostor + valid atlas IDs
         // route this layer through the impostor card shader instead of the flat
         // billboard; zero/false leaves the existing billboard path untouched.
+        // ── The layer's LEAF MATERIAL (issue #1234) ──────────────────────
+        // Carried on EVERY draw a layer emits — the authored mesh, the flat
+        // card and the impostor card — so a plant cannot change what it is
+        // made of as it crosses a LOD hand-over. A null map handle means the
+        // layer authored none (or the file would not open), and the shader
+        // then uses the authored constant rather than sampling a typed null.
+        //
+        // LeafTransmissionStrength == 0 is the off switch and the default:
+        // everything downstream then behaves exactly as it did before #1234.
+        RHI::ResourceHandle LeafNormalTextureID{};
+        RHI::ResourceHandle LeafRoughnessTextureID{};
+        RHI::ResourceHandle LeafThicknessTextureID{};
+        f32 LeafRoughness = 0.8f;
+        f32 LeafNormalStrength = 1.0f;
+        f32 LeafThickness = 0.0f;
+        f32 LeafTransmissionStrength = 0.0f;
+        glm::vec3 LeafTransmissionColor{ 0.42f, 0.62f, 0.18f };
+        f32 LeafTransmissionDistortion = 0.35f;
+        f32 LeafTransmissionPower = 4.0f;
+        f32 LeafTransmissionWrap = 0.5f;
+        f32 LeafTransmissionAmbient = 0.35f;
+
         bool UseImpostor = false;
         RHI::ResourceHandle ImpostorAlbedoAtlasID{};
         RHI::ResourceHandle ImpostorNormalDepthAtlasID{};
@@ -230,6 +252,29 @@ namespace OloEngine
             glm::vec3 BaseColor{ 1.0f };
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;
+
+            // The leaf material (issue #1234). The maps are cached BY PATH —
+            // `Loaded*Path` records what each Ref was opened from, so editing
+            // the path in the inspector re-opens it and NOT editing it does not
+            // re-open anything. (The albedo above predates this and reloads
+            // only when its Ref is null, which is a separate pre-existing
+            // limitation, not one these three inherit.)
+            Ref<Texture2D> LeafNormalTexture;
+            Ref<Texture2D> LeafRoughnessTexture;
+            Ref<Texture2D> LeafThicknessTexture;
+            std::string LoadedNormalPath;
+            std::string LoadedRoughnessPath;
+            std::string LoadedThicknessPath;
+            f32 LeafRoughness = 0.8f;
+            f32 LeafNormalStrength = 1.0f;
+            f32 LeafThickness = 0.0f;
+            f32 LeafTransmissionStrength = 0.0f;
+            glm::vec3 LeafTransmissionColor{ 0.42f, 0.62f, 0.18f };
+            f32 LeafTransmissionDistortion = 0.35f;
+            f32 LeafTransmissionPower = 4.0f;
+            f32 LeafTransmissionWrap = 0.5f;
+            f32 LeafTransmissionAmbient = 0.35f;
+
             BoundingBox Bounds; // Precomputed AABB encompassing all instances
 
             // Octahedral impostor (issue #433). Baked lazily from the layer mesh;

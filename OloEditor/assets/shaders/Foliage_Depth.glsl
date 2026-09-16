@@ -92,6 +92,15 @@ layout(std140, binding = 12) uniform FoliageParams
     // render-relative space as the instance pivots. NOT u_CameraPosition: the
     // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
     vec4 u_MeshViewPos;
+    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
+    // block is declared identically in every stage of every foliage program:
+    // std140 blocks must match across the stages of one program, so a lane
+    // appended to one declaration and not the others is a LINK failure, not a
+    // wrong pixel.
+    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
+    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
+    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
+    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
 };
 
 #include "include/FoliageInstanceGeometry.glsl"
@@ -184,6 +193,15 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 _foliageImpostorParams1; // consumed by the impostor card only
     vec4 u_MeshParams;
     vec4 u_MeshViewPos;
+    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
+    // block is declared identically in every stage of every foliage program:
+    // std140 blocks must match across the stages of one program, so a lane
+    // appended to one declaration and not the others is a LINK failure, not a
+    // wrong pixel.
+    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
+    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
+    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
+    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
 };
 
 #include "include/FoliageInstanceGeometry.glsl"

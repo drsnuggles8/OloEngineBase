@@ -12,9 +12,14 @@ diffuse/specular outputs it blurs.
 
 | Selector | Question | Set where |
 |---|---|---|
-| `MaterialKind` | What is this surface? `Generic` / `Snow` / `Skin` | Material inspector → **Material Kind** |
+| `MaterialKind` | What is this surface? `Generic` / `Snow` / `Skin` / `Foliage` | Material inspector → **Material Kind** |
 | `PBRModel` | Which version of the closure evaluates it? `Legacy` / `Closure V2` | Material inspector → **PBR Model** |
 | `SkinEvaluationModel` | Which version of the skin transport was this profile authored against? | The `.oloskin` file's `EvaluationModel` — 0 = split only, 1 = with diffusion |
+
+`Foliage` (issue #1234) is the fourth and last value the G-Buffer's two-bit kind field can carry, and
+it is the SECOND tenant of the three-bit profile-slot field this page's profiles use — read only under
+its own kind, so the two can never collide on one pixel. See
+[the foliage leaf material](foliage-leaf-material.md); it deliberately does NOT reuse skin's transport.
 
 They are independent. A skin material shades with either closure version; correcting a BRDF does
 not change what a surface is; and #1241 shipped its transport version (`ScreenSpaceDiffusion`, 1)

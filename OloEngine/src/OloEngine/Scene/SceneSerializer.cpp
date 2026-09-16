@@ -1546,6 +1546,39 @@ namespace OloEngine
                 layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
                 layer.Roughness = layerNode["Roughness"].as<f32>(layer.Roughness);
                 layer.AlphaCutoff = layerNode["AlphaCutoff"].as<f32>(layer.AlphaCutoff);
+
+                // Leaf material (issue #1234). Every float here reaches a
+                // shader — a pow() exponent, a normalize(), a clamp bound — so
+                // each is validated with std::isfinite and range-clamped, and a
+                // bad value keeps the constructor default rather than being
+                // written through. A key that is ABSENT keeps the default too,
+                // which is what makes a scene authored before this material
+                // existed load with transmission off and render exactly as it
+                // used to.
+                layer.NormalMapPath = layerNode["NormalMapPath"].as<std::string>(layer.NormalMapPath);
+                layer.RoughnessMapPath = layerNode["RoughnessMapPath"].as<std::string>(layer.RoughnessMapPath);
+                layer.ThicknessMapPath = layerNode["ThicknessMapPath"].as<std::string>(layer.ThicknessMapPath);
+                if (const f32 v = layerNode["NormalStrength"].as<f32>(layer.NormalStrength); std::isfinite(v))
+                    layer.NormalStrength = std::clamp(v, 0.0f, 4.0f);
+                if (const f32 v = layerNode["TransmissionStrength"].as<f32>(layer.TransmissionStrength); std::isfinite(v))
+                    layer.TransmissionStrength = std::clamp(v, 0.0f, 8.0f);
+                if (const glm::vec3 v = layerNode["TransmissionColor"].as<glm::vec3>(layer.TransmissionColor);
+                    std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z))
+                    layer.TransmissionColor = glm::clamp(v, glm::vec3(0.0f), glm::vec3(1.0f));
+                if (const f32 v = layerNode["Thickness"].as<f32>(layer.Thickness); std::isfinite(v))
+                    layer.Thickness = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["TransmissionDistortion"].as<f32>(layer.TransmissionDistortion); std::isfinite(v))
+                    layer.TransmissionDistortion = std::clamp(v, 0.0f, 1.0f);
+                // Lower bound 1: the exponent feeds pow(), and an exponent
+                // below 1 turns the lobe inside out (brightest AWAY from the
+                // light), which is not a look anyone authors on purpose.
+                if (const f32 v = layerNode["TransmissionPower"].as<f32>(layer.TransmissionPower); std::isfinite(v))
+                    layer.TransmissionPower = std::clamp(v, 1.0f, 64.0f);
+                if (const f32 v = layerNode["TransmissionWrap"].as<f32>(layer.TransmissionWrap); std::isfinite(v))
+                    layer.TransmissionWrap = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["TransmissionAmbient"].as<f32>(layer.TransmissionAmbient); std::isfinite(v))
+                    layer.TransmissionAmbient = std::clamp(v, 0.0f, 4.0f);
+
                 layer.UseImpostor = layerNode["UseImpostor"].as<bool>(layer.UseImpostor);
                 // Validate: non-finite or negative would break Impostor::ImpostorFade
                 // (NaN start / negative band feeds the smoothstep). Keep the default on bad input.
@@ -5723,6 +5756,21 @@ namespace OloEngine
                     out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
                     out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;
                     out << YAML::Key << "AlphaCutoff" << YAML::Value << layer.AlphaCutoff;
+                    // Leaf material (issue #1234) — written unconditionally so a
+                    // round-trip is lossless even for a layer that leaves
+                    // transmission off; the reader's defaults cover the older
+                    // scenes that have none of these keys.
+                    out << YAML::Key << "NormalMapPath" << YAML::Value << layer.NormalMapPath;
+                    out << YAML::Key << "RoughnessMapPath" << YAML::Value << layer.RoughnessMapPath;
+                    out << YAML::Key << "ThicknessMapPath" << YAML::Value << layer.ThicknessMapPath;
+                    out << YAML::Key << "NormalStrength" << YAML::Value << layer.NormalStrength;
+                    out << YAML::Key << "TransmissionStrength" << YAML::Value << layer.TransmissionStrength;
+                    out << YAML::Key << "TransmissionColor" << YAML::Value << layer.TransmissionColor;
+                    out << YAML::Key << "Thickness" << YAML::Value << layer.Thickness;
+                    out << YAML::Key << "TransmissionDistortion" << YAML::Value << layer.TransmissionDistortion;
+                    out << YAML::Key << "TransmissionPower" << YAML::Value << layer.TransmissionPower;
+                    out << YAML::Key << "TransmissionWrap" << YAML::Value << layer.TransmissionWrap;
+                    out << YAML::Key << "TransmissionAmbient" << YAML::Value << layer.TransmissionAmbient;
                     out << YAML::Key << "UseImpostor" << YAML::Value << layer.UseImpostor;
                     out << YAML::Key << "ImpostorStartDistance" << YAML::Value << layer.ImpostorStartDistance;
                     out << YAML::Key << "ImpostorTransitionBand" << YAML::Value << layer.ImpostorTransitionBand;

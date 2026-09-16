@@ -487,6 +487,70 @@ namespace OloEngine
                 renderData.AlbedoTexture = Texture2D::Create(layer.AlbedoPath, /*srgb=*/true);
             }
 
+            // ── The leaf material (issue #1234) ─────────────────────────────
+            // All three maps are LINEAR data, not authored colour: a tangent
+            // normal, a roughness and a thickness. sRGB-decoding any of them
+            // would bend the normals and darken the roughness by a gamma
+            // nobody could see in the inspector.
+            //
+            // Keyed on the PATH: a changed path re-opens, an unchanged one does
+            // not, and CLEARING the path drops the Ref so the map bitfield goes
+            // back to "not authored" instead of leaving the last texture bound.
+            const auto loadLeafMap = [](const std::string& path, std::string& loadedPath,
+                                        Ref<Texture2D>& texture)
+            {
+                // The PATH is the cache key, and it is recorded even when the
+                // load FAILS — same rule as the authored mesh above, for the
+                // same reason: a broken path is re-opened and re-logged on
+                // every regeneration otherwise. Clearing the path in the
+                // inspector drops the Ref, so the map bitfield goes back to
+                // "not authored" rather than leaving the last texture bound.
+                if (loadedPath == path)
+                    return;
+                loadedPath = path;
+                texture = path.empty() ? nullptr : Texture2D::Create(path, /*srgb=*/false);
+
+                // Texture2D::Create NEVER RETURNS NULL — a file that will not
+                // open still yields a Ref, and IsLoaded() is the only thing
+                // that says so. Dropping the Ref here is what makes the failure
+                // behave as "no map authored" (the shader uses the layer's
+                // constant, because the map bitfield is derived from the
+                // HANDLE) instead of sampling whatever the failed texture
+                // object contains. Never a silent fallback: a leaf shaded by a
+                // normal the author did not write is worse than one shaded by
+                // the constant they did.
+                if (texture && !texture->IsLoaded())
+                {
+                    OLO_CORE_WARN("FoliageRenderer - leaf map '{}' could not be loaded; the layer shades with its "
+                                  "authored constant instead of the map.",
+                                  path);
+                    texture = nullptr;
+                }
+            };
+            loadLeafMap(layer.NormalMapPath, renderData.LoadedNormalPath, renderData.LeafNormalTexture);
+            loadLeafMap(layer.RoughnessMapPath, renderData.LoadedRoughnessPath, renderData.LeafRoughnessTexture);
+            loadLeafMap(layer.ThicknessMapPath, renderData.LoadedThicknessPath, renderData.LeafThicknessTexture);
+
+            // The scalars, sanitised here as well as at both deserializers —
+            // the inspector writes straight into the component, so a value
+            // typed into the editor never passes through either of those.
+            // Every one of these reaches a pow() exponent, a normalize() or a
+            // clamp bound in the shared shader evaluation.
+            const auto finiteOr = [](f32 v, f32 fallback, f32 lo, f32 hi)
+            { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+            renderData.LeafRoughness = finiteOr(layer.Roughness, 0.8f, 0.02f, 1.0f);
+            renderData.LeafNormalStrength = finiteOr(layer.NormalStrength, 1.0f, 0.0f, 4.0f);
+            renderData.LeafThickness = finiteOr(layer.Thickness, 0.5f, 0.0f, 1.0f);
+            renderData.LeafTransmissionStrength = finiteOr(layer.TransmissionStrength, 0.0f, 0.0f, 8.0f);
+            renderData.LeafTransmissionColor =
+                glm::vec3(finiteOr(layer.TransmissionColor.x, 0.42f, 0.0f, 1.0f),
+                          finiteOr(layer.TransmissionColor.y, 0.62f, 0.0f, 1.0f),
+                          finiteOr(layer.TransmissionColor.z, 0.18f, 0.0f, 1.0f));
+            renderData.LeafTransmissionDistortion = finiteOr(layer.TransmissionDistortion, 0.35f, 0.0f, 1.0f);
+            renderData.LeafTransmissionPower = finiteOr(layer.TransmissionPower, 4.0f, 1.0f, 64.0f);
+            renderData.LeafTransmissionWrap = finiteOr(layer.TransmissionWrap, 0.5f, 0.0f, 1.0f);
+            renderData.LeafTransmissionAmbient = finiteOr(layer.TransmissionAmbient, 0.35f, 0.0f, 4.0f);
+
             // Octahedral impostor LOD (issue #433): store the per-layer params and
             // bake/re-bake the atlas from the layer mesh if needed.
             renderData.UseImpostor = layer.UseImpostor;
@@ -658,6 +722,61 @@ namespace OloEngine
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
                                                       draw.HandoverStart, draw.HandoverEnd, 0.0f);
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+
+                // The leaf material (issue #1234). Filled here so this path
+                // stays coherent: a default-constructed FoliageUBO would upload
+                // LeafSurface.x = 0 — a roughness of zero, i.e. a mirror leaf —
+                // rather than the layer's authored value.
+                //
+                // NOT AT PARITY WITH THE COMMAND PATH, AND SAY SO. Render() has
+                // no callers anywhere in the tree today — every foliage draw
+                // goes through Renderer3D::DrawFoliageLayer and the command
+                // bucket — and unlike that dispatch it binds neither the shadow
+                // contract nor the global IBL trio. Reviving it means porting
+                // those binds too, or a canopy here lights from whatever a
+                // previous draw happened to leave on those slots.
+                f32 leafMapFlags = 0.0f;
+                if (layer.LeafNormalTexture)
+                    leafMapFlags += 1.0f; // OLO_LEAF_MAP_NORMAL
+                if (layer.LeafRoughnessTexture)
+                    leafMapFlags += 2.0f; // OLO_LEAF_MAP_ROUGHNESS
+                if (layer.LeafThicknessTexture)
+                    leafMapFlags += 4.0f; // OLO_LEAF_MAP_THICKNESS
+                foliageUBOData.LeafSurface = glm::vec4(layer.LeafRoughness, layer.LeafNormalStrength,
+                                                       layer.LeafThickness, leafMapFlags);
+                foliageUBOData.LeafTransmit =
+                    glm::vec4(layer.LeafTransmissionColor * layer.LeafTransmissionStrength,
+                              layer.LeafTransmissionStrength);
+                foliageUBOData.LeafLobe =
+                    glm::vec4(layer.LeafTransmissionDistortion, layer.LeafTransmissionPower,
+                              layer.LeafTransmissionWrap, layer.LeafTransmissionAmbient);
+                // This path never writes a G-Buffer, so no slot is interned for
+                // it: the forward program carries the lobe in the two lanes
+                // above and reads no slot. kFoliageLeafSlotNone says so.
+                {
+                    const bool globalIblBound = Renderer3D::GetGlobalIrradianceMapHandle().IsValid() &&
+                                                Renderer3D::GetGlobalPrefilterMapHandle().IsValid() &&
+                                                Renderer3D::GetGlobalBRDFLutMapHandle().IsValid();
+                    foliageUBOData.LeafIds = glm::vec4(static_cast<f32>(kFoliageLeafSlotNone),
+                                                       globalIblBound ? 1.0f : 0.0f,
+                                                       Renderer3D::GetGlobalIBLIntensity(), 0.0f);
+                }
+
+                // The leaf maps, through the SAME seam the albedo goes through
+                // below — a direct Texture::Bind is invisible to the heap.
+                if (layer.LeafNormalTexture)
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_NORMAL,
+                                                     layer.LeafNormalTexture->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+                if (layer.LeafRoughnessTexture)
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_ROUGHNESS,
+                                                     layer.LeafRoughnessTexture->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+                if (layer.LeafThicknessTexture)
+                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_METALLIC,
+                                                     layer.LeafThicknessTexture->GetRHIHandle(),
+                                                     RHI::HeapSlotLifetime::Persistent);
+
                 auto foliageUBO = Renderer3D::GetFoliageUBO();
                 foliageUBO->SetData(&foliageUBOData, ShaderBindingLayout::FoliageUBO::GetSize());
 
@@ -870,6 +989,25 @@ namespace OloEngine
                 info.BaseColor = layer.BaseColor;
                 info.AlphaCutoff = layer.AlphaCutoff;
                 info.Bounds = layer.Bounds;
+
+                // The leaf material (issue #1234), identical on every draw the
+                // layer emits — see FoliageLayerDrawInfo for why that is the
+                // point rather than a convenience.
+                info.LeafNormalTextureID =
+                    layer.LeafNormalTexture ? layer.LeafNormalTexture->GetRHIHandle() : RHI::NullResource;
+                info.LeafRoughnessTextureID =
+                    layer.LeafRoughnessTexture ? layer.LeafRoughnessTexture->GetRHIHandle() : RHI::NullResource;
+                info.LeafThicknessTextureID =
+                    layer.LeafThicknessTexture ? layer.LeafThicknessTexture->GetRHIHandle() : RHI::NullResource;
+                info.LeafRoughness = layer.LeafRoughness;
+                info.LeafNormalStrength = layer.LeafNormalStrength;
+                info.LeafThickness = layer.LeafThickness;
+                info.LeafTransmissionStrength = layer.LeafTransmissionStrength;
+                info.LeafTransmissionColor = layer.LeafTransmissionColor;
+                info.LeafTransmissionDistortion = layer.LeafTransmissionDistortion;
+                info.LeafTransmissionPower = layer.LeafTransmissionPower;
+                info.LeafTransmissionWrap = layer.LeafTransmissionWrap;
+                info.LeafTransmissionAmbient = layer.LeafTransmissionAmbient;
 
                 // Octahedral impostor (issue #433) — only when the atlas baked OK,
                 // and only for the CARD draw: the impostor IS the far-field card,

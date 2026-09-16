@@ -1786,6 +1786,8 @@ namespace OloEngine::MCP
                     return DebugView::SkinProfileId;
                 case MaterialDebugView::ScatteringMask:
                     return DebugView::SkinScatteringMask;
+                case MaterialDebugView::Transmission:
+                    return DebugView::MaterialTransmission;
                 case MaterialDebugView::None:
                 case MaterialDebugView::Count:
                     break;
@@ -1877,6 +1879,7 @@ namespace OloEngine::MCP
                 case DebugView::MaterialSpecular:
                 case DebugView::SkinProfileId:
                 case DebugView::SkinScatteringMask:
+                case DebugView::MaterialTransmission:
                     // The deferred lighting pass substitutes these for the
                     // composite, so there is no backing effect pass to enable —
                     // but there IS a path requirement, and saying so here is
@@ -7673,7 +7676,8 @@ namespace OloEngine::MCP
             tool.Description =
                 "Switch the viewport to a raw intermediate buffer for AO/reflection/GI/overdraw/virtual-geometry "
                 "debugging. 'mode' is one of none (the normal composite), ssao, gtao, ssr, ssgi, overdraw, "
-                "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask "
+                "vgclusterid, vglod, vgoverdraw, materialdiffuse, materialspecular, skinprofileid, skinmask, "
+                "materialtransmission "
                 "— exactly one is shown at a time; mode 'none' (or "
                 "'enabled':false) clears them all. 'overdraw' heat-maps per-pixel fragment count (how many "
                 "layers deep the frame is: black=none, blue/green/yellow/red=increasing overlap) by re-drawing "

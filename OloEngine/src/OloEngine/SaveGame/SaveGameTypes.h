@@ -133,7 +133,16 @@ namespace OloEngine
     //      the impostor work) with the default 22-30 m band. Both distances are
     //      validated finite and ordered on load: they feed a smoothstep in the
     //      vertex stage, where a NaN silently drops the layer's geometry.
-    static constexpr u32 kSaveGameFormatVersion = 32;
+    // v33: FoliageLayer gained its LEAF MATERIAL (#1234) — the three map paths
+    //      (normal / roughness / thickness), the normal strength, and the
+    //      transmission lobe's strength, tint, thickness and shape. v32 and
+    //      older saves stop before them and keep the defaults, whose
+    //      TransmissionStrength is 0: the material is OFF, the G-Buffer keeps
+    //      writing MaterialKind::Generic for that layer, and the save renders
+    //      as the build that wrote it rendered. Every float is validated finite
+    //      and clamped on load — they reach a pow() exponent and a normalize()
+    //      in the shared shader evaluation.
+    static constexpr u32 kSaveGameFormatVersion = 33;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

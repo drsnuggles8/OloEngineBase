@@ -64,6 +64,10 @@
 #define OLO_MATERIAL_KIND_GENERIC 0
 #define OLO_MATERIAL_KIND_SNOW 1
 #define OLO_MATERIAL_KIND_SKIN 2
+// Authored vegetation (issue #1234) - a THIN TWO-SIDED surface, not a volume.
+// The fourth and LAST value the G-Buffer's two-bit kind field can carry; see
+// Renderer/MaterialKind.h for why a leaf is not a small-radius skin profile.
+#define OLO_MATERIAL_KIND_FOLIAGE 3
 
 // The versioned SKIN transport, mirroring SkinEvaluationModel in
 // Renderer/SkinProfile.h. A third independent axis, for the third independent
@@ -90,6 +94,9 @@
 #define OLO_MATERIAL_DEBUG_SPECULAR 2
 #define OLO_MATERIAL_DEBUG_PROFILE_ID 3
 #define OLO_MATERIAL_DEBUG_SCATTERING_MASK 4
+// The leaf transmission term alone (issue #1234) — the third of the three
+// separated outputs that issue's fourth criterion asks to inspect.
+#define OLO_MATERIAL_DEBUG_TRANSMISSION 5
 
 // The G-Buffer RT2 alpha "MaterialFlags" lane, encoded here so its layout has
 // ONE executable home shared by every G-Buffer writer (PBR_GBuffer{,_Skinned},
@@ -1503,6 +1510,65 @@ vec3 calculateSphereAreaLightContribution(vec3 N, vec3 V, vec3 lightPos, float s
 // MULTI-LIGHT CALCULATION
 // =============================================================================
 
+// The light's GEOMETRY, factored out of the BRDF (issue #1234).
+//
+// Returns the unit direction TO the light and the radiance arriving along it,
+// with every type's attenuation and spot cone already folded in -- everything
+// calculateLightContributionSplit below needs before it knows anything about
+// the surface. Returns false for a light that contributes nothing (unknown
+// type, or attenuated to zero), and the caller must treat that as "skip", not
+// as "zero radiance from a valid direction".
+//
+// IT EXISTS BECAUSE TWO LOBES HAVE TO AGREE. A thin two-sided surface's
+// TRANSMISSION lobe (include/FoliageSurface.glsl) is evaluated for the same
+// light as the reflected lobe but on the OTHER side of the surface, so the
+// reflected evaluator's `NdotL <= 0 -> return zero` early-out -- which is
+// exactly the case a backlit leaf is in -- cannot be the thing that supplies
+// it. Before this existed the only way to get L and the radiance was to copy
+// the fifteen lines above, and a copy that drifts by one spot-cone term is a
+// leaf that transmits light the reflected lobe says is not there.
+//
+// SPHERE_AREA_LIGHT is deliberately absent: it has no single L (the split
+// evaluator uses a representative point that depends on N and V), so a caller
+// that wants a direction for one must say which representative it means.
+// Returning false here makes that omission loud rather than approximate.
+bool oloLightSample(LightData light, vec3 worldPos, out vec3 L, out vec3 radiance)
+{
+    L = vec3(0.0, 1.0, 0.0);
+    radiance = vec3(0.0);
+
+    int lightType = int(light.position.w);
+    float attenuation = 1.0;
+
+    if (lightType == DIRECTIONAL_LIGHT)
+    {
+        L = normalize(-light.direction.xyz);
+        // No attenuation for directional lights
+    }
+    else if (lightType == POINT_LIGHT)
+    {
+        L = normalize(light.position.xyz - worldPos);
+        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
+    }
+    else if (lightType == SPOT_LIGHT)
+    {
+        L = normalize(light.position.xyz - worldPos);
+        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
+        float spotIntensity = calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
+        attenuation *= spotIntensity;
+    }
+    else
+    {
+        return false; // Unknown type, or a sphere area light -- see above.
+    }
+
+    if (attenuation <= EPSILON)
+        return false;
+
+    radiance = light.color.rgb * light.color.w * attenuation;
+    return true;
+}
+
 // Calculate contribution from a single light. THIS split overload is the real
 // body (issue #1231); the two vec3 spellings below sum it. The trailing selector
 // routes the punctual-light BRDF through evaluatePBRClosureSplit (Legacy pixels
@@ -1530,39 +1596,12 @@ OloSurfaceLighting calculateLightContributionSplit(LightData light, vec3 N, vec3
     }
 
     vec3 L;
-    float attenuation = 1.0;
-
-    // Calculate light direction and attenuation based on type
-    if (lightType == DIRECTIONAL_LIGHT)
-    {
-        L = normalize(-light.direction.xyz);
-        // No attenuation for directional lights
-    }
-    else if (lightType == POINT_LIGHT)
-    {
-        L = normalize(light.position.xyz - worldPos);
-        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
-    }
-    else if (lightType == SPOT_LIGHT)
-    {
-        L = normalize(light.position.xyz - worldPos);
-        attenuation = calculateAttenuation(light.position.xyz, worldPos, light.attenuationParams);
-        float spotIntensity = calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
-        attenuation *= spotIntensity;
-    }
-    else
-    {
-        return oloSurfaceLightingZero(); // Unknown light type
-    }
-
-    // Early exit if light has no contribution
-    if (attenuation <= EPSILON) return oloSurfaceLightingZero();
+    vec3 radiance;
+    if (!oloLightSample(light, worldPos, L, radiance))
+        return oloSurfaceLightingZero();
 
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= EPSILON) return oloSurfaceLightingZero();
-
-    // Calculate BRDF
-    vec3 radiance = lightColor * lightIntensity * attenuation;
     OloSurfaceLighting brdf = evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness);
 
     return oloSurfaceLightingScale(brdf, radiance * NdotL);
