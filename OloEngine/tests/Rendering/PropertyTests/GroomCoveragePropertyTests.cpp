@@ -33,6 +33,7 @@
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomCoverage.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -44,6 +45,8 @@
 #include <cstdio>
 #include <format>
 #include <limits>
+#include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -754,6 +757,54 @@ TEST(GroomCoverageModel, CoverageAtTheRightAndBottomEdgesIsNotDiscarded)
     offscreen.push_back(away);
     EXPECT_DOUBLE_EQ(TotalCoverage(ReferenceCoverage(offscreen, kWidth, kHeight, kSupersample)), 0.0)
         << "a segment well past the right edge contributed coverage";
+}
+// The strand cache keys on (asset handle, build settings). Two properties must
+// hold, and the second is the one that bit:
+//
+//   * different settings must produce different keys, or one entity hands
+//     another geometry built for a different budget;
+//   * IDENTICAL settings must produce IDENTICAL keys, every time, for objects
+//     constructed independently. GroomStrandBuildSettings is 9 bytes of members
+//     in 12, and the default member initializers do not touch the padding — so
+//     a key hashed over the OBJECT REPRESENTATION could differ between two
+//     logically equal settings, miss the cache, rebuild the mesh and leave a
+//     duplicate set of GPU buffers behind.
+TEST(GroomStrandCacheKey, SeparatesDifferentSettingsAndIgnoresPadding)
+{
+    const auto makeRequest = [](AssetHandle handle, u32 maxStrands, u32 maxSegments, bool guidesOnly) {
+        GroomStrandRequest request;
+        request.Handle = handle;
+        request.Build.MaxStrands = maxStrands;
+        request.Build.MaxSegments = maxSegments;
+        request.Build.GuidesOnly = guidesOnly;
+        return request;
+    };
+
+    const u64 base = GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, false));
+
+    // Every field separates.
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(8u, 1000u, 50000u, false))) << "handle";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1001u, 50000u, false))) << "MaxStrands";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50001u, false))) << "MaxSegments";
+    EXPECT_NE(base, GroomRenderPass::CacheKey(makeRequest(7u, 1000u, 50000u, true))) << "GuidesOnly";
+
+    // And identical settings agree, across independently constructed objects
+    // whose padding bytes are whatever the stack happened to hold. Buffers of
+    // deliberately dirtied storage make that concrete rather than hoping the
+    // stack differs.
+    for (const u8 fill : { u8{ 0x00 }, u8{ 0xCD }, u8{ 0xFF } })
+    {
+        alignas(GroomStrandRequest) std::array<u8, sizeof(GroomStrandRequest)> storage{};
+        storage.fill(fill);
+        auto* dirty = new (storage.data()) GroomStrandRequest();
+        dirty->Handle = 7u;
+        dirty->Build.MaxStrands = 1000u;
+        dirty->Build.MaxSegments = 50000u;
+        dirty->Build.GuidesOnly = false;
+        EXPECT_EQ(GroomRenderPass::CacheKey(*dirty), base)
+            << "the key changed with the padding bytes (fill 0x" << std::hex << static_cast<int>(fill) << ")";
+        std::destroy_at(dirty);
+    }
 }
 TEST(GroomCoverageModel, MemoryCostIsAPropertyOfTheModeAndTheResolution)
 {

@@ -127,16 +127,27 @@ namespace OloEngine
         // draws evict the other, rebuilding the CPU mesh and both GPU buffers
         // twice per frame for as long as both were visible.
         //
-        // The WHOLE settings struct is folded in, byte by byte, rather than the
-        // fields that currently "matter": a field added later is then covered
-        // by construction instead of by someone remembering this function.
-        u64 key = static_cast<u64>(request.Handle);
-        const auto* bytes = reinterpret_cast<const u8*>(&request.Build);
-        for (sizet i = 0; i < sizeof(GroomStrandBuildSettings); ++i)
-        {
-            key ^= static_cast<u64>(bytes[i]);
+        // FIELD BY FIELD, never over the object representation.
+        // GroomStrandBuildSettings is 9 bytes of members in 12, and the default
+        // member initializers do not touch the three padding bytes — Scene
+        // default-constructs the request and assigns only the named fields, so
+        // two logically identical settings can carry different padding and hash
+        // differently. That misses the cache, rebuilds the geometry and leaves a
+        // duplicate set of GPU buffers behind: precisely the failure this key
+        // was widened to prevent.
+        //
+        // The cost is that a field added to the struct must be added here too.
+        // GroomStrandMeshTest.TheCacheKeySeparatesSettingsThatProduceDifferentMeshes
+        // is what catches forgetting.
+        const auto mix = [](u64 key, u64 value) {
+            key ^= value;
             key *= 1099511628211ull; // FNV-1a prime, as elsewhere in the groom code
-        }
+            return key;
+        };
+        u64 key = static_cast<u64>(request.Handle);
+        key = mix(key, static_cast<u64>(request.Build.MaxStrands));
+        key = mix(key, static_cast<u64>(request.Build.MaxSegments));
+        key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
         return key;
     }
 

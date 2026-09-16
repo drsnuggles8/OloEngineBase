@@ -7909,6 +7909,15 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Foliage,
             static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
+        // One tick per groom, meaning "this path does not consume GPU Scene
+        // instance records" — a groom is curves, and the records have no
+        // representation for one (issue #1246). Counted rather than silent so
+        // a coat appears in the profiler's inventory; see
+        // GPUSceneLegacyAdapters for why the path still owns its own
+        // previous-frame transforms.
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Groom,
+            static_cast<u32>(m_Registry.view<GroomComponent>().size()));
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Particles,
             static_cast<u32>(m_Registry.view<ParticleSystemComponent>().size()));

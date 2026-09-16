@@ -137,6 +137,18 @@ namespace OloEngine
         /// what it asked for should be answerable from the panel that sets it.
         [[nodiscard]] GroomCompositionDecision DecideComposition(GroomCompositionMode requested) const noexcept;
 
+        /// Strand-geometry cache key: the asset handle AND the build settings.
+        /// Keying on the handle alone made two entities sharing one groom at
+        /// different budgets evict each other every frame, rebuilding the CPU
+        /// mesh and both GPU buffers — the cost the cache exists to remove.
+        ///
+        /// Public because it is a pure function and the cache's correctness
+        /// rests on it: it is hashed FIELD BY FIELD rather than over the object
+        /// representation, because GroomStrandBuildSettings carries
+        /// uninitialised padding, and that distinction is only defensible if
+        /// something tests it.
+        [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
+
       private:
         // One groom's GPU geometry, keyed by asset handle.
         struct CacheEntry
@@ -151,13 +163,6 @@ namespace OloEngine
         };
 
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
-
-        /// Cache key: the asset handle AND the build settings. Two entities can
-        /// reference one groom at different budgets, and keying on the handle
-        /// alone made each of their draws evict the other every frame —
-        /// rebuilding the CPU mesh and both GPU buffers twice per frame, which
-        /// is precisely the cost the cache exists to remove.
-        [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
         void EvictToBudget();
 
         std::vector<GroomStrandRequest> m_Requests;
