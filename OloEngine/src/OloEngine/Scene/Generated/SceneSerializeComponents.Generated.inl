@@ -441,12 +441,17 @@ if (entity.HasComponent<GroomComponent>())
     out << YAML::Key << "Groom" << YAML::Value << static_cast<u64>(comp.m_Groom);
     out << YAML::Key << "RootMarkerSize" << YAML::Value << comp.m_RootMarkerSize;
     out << YAML::Key << "MaxPreviewStrands" << YAML::Value << comp.m_MaxPreviewStrands;
+    out << YAML::Key << "MaxRenderStrands" << YAML::Value << comp.m_MaxRenderStrands;
+    out << YAML::Key << "WidthScale" << YAML::Value << comp.m_WidthScale;
+    out << YAML::Key << "StrandColor" << YAML::Value << comp.m_StrandColor;
     out << YAML::Key << "ShowPreview" << YAML::Value << comp.m_ShowPreview;
     out << YAML::Key << "ShowStrands" << YAML::Value << comp.m_ShowStrands;
     out << YAML::Key << "ShowRoots" << YAML::Value << comp.m_ShowRoots;
     out << YAML::Key << "ShowDirection" << YAML::Value << comp.m_ShowDirection;
     out << YAML::Key << "ColorByGroup" << YAML::Value << comp.m_ColorByGroup;
     out << YAML::Key << "GuidesOnly" << YAML::Value << comp.m_GuidesOnly;
+    out << YAML::Key << "RenderStrands" << YAML::Value << comp.m_RenderStrands;
+    out << YAML::Key << "CompositionMode" << YAML::Value << static_cast<u32>(comp.m_CompositionMode);
     out << YAML::EndMap; // GroomComponent
 }
 

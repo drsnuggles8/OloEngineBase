@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "OloEngine/Groom/GroomAsset.h" // GroomLimits: the .ologroom format's own curve-count ceiling
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/SpringBoneComponent.h"
@@ -3119,6 +3120,24 @@ namespace OloEngine
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
         ar << c.m_ShowPreview << c.m_ShowStrands << c.m_ShowRoots;
         ar << c.m_ShowDirection << c.m_ColorByGroup << c.m_GuidesOnly;
+        // Production strand rendering appended in save-format v34 (issue
+        // #1246). VERSION-GATED, not merely appended: a v33-or-older save that
+        // contains a GroomComponent was written without these 22 bytes, and
+        // reading them anyway does not just mis-fill this component — it
+        // desynchronises the stream for every component after it.
+        // kMinSupportedSaveGameFormatVersion is 1, so the header check accepts
+        // those files and the gate is the only thing standing between them and
+        // a corrupt load.
+        //
+        // v34, not the v33 this was authored as: #1234 took v33 on master while
+        // this branch was open. Sharing a version would have made a v33 save
+        // from either branch satisfy the other's gate and be read with the
+        // wrong fields at the wrong offsets.
+        if (HasFieldsSince(ar, 34))
+        {
+            ar << c.m_MaxRenderStrands << c.m_WidthScale << c.m_StrandColor;
+            ar << c.m_RenderStrands << c.m_CompositionMode;
+        }
 
         if (ar.IsLoading())
         {
@@ -3132,6 +3151,42 @@ namespace OloEngine
             }
             c.m_RootMarkerSize = std::clamp(c.m_RootMarkerSize, 0.0f, 10.0f);
             c.m_MaxPreviewStrands = std::clamp(c.m_MaxPreviewStrands, 1u, 200000u);
+
+            // The strand budget sizes a GPU BUFFER rather than a command
+            // stream, so an unbounded value here is an allocation, not a
+            // stall. GroomLimits::MaxCurveCount is the format's own ceiling.
+            //
+            // Sanitised unconditionally, including on a pre-v33 save where the
+            // fields were not read at all: the component was default-
+            // constructed, so this is a no-op there, and gating the clamp on
+            // the version would be one more place for the two conditions to
+            // drift apart.
+            c.m_MaxRenderStrands = std::clamp(c.m_MaxRenderStrands, 1u, GroomLimits::MaxCurveCount);
+
+            if (!std::isfinite(c.m_WidthScale))
+            {
+                c.m_WidthScale = 1.0f;
+            }
+            c.m_WidthScale = std::clamp(c.m_WidthScale, 0.01f, 100.0f);
+
+            if (!std::isfinite(c.m_StrandColor.x) || !std::isfinite(c.m_StrandColor.y) ||
+                !std::isfinite(c.m_StrandColor.z))
+            {
+                c.m_StrandColor = glm::vec3(0.55f, 0.48f, 0.42f);
+            }
+            else
+            {
+                c.m_StrandColor = glm::clamp(c.m_StrandColor, glm::vec3(0.0f), glm::vec3(1.0f));
+            }
+
+            // An out-of-range mode is corruption, not a preference. Reset to
+            // the always-available tier rather than indexing a switch with it;
+            // SelectGroomComposition would refuse it anyway, but arriving
+            // there with a valid value keeps the reason it reports honest.
+            if (!IsValidGroomCompositionMode(static_cast<i32>(c.m_CompositionMode)))
+            {
+                c.m_CompositionMode = static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
+            }
         }
     }
 

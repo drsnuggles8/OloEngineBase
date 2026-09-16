@@ -494,12 +494,24 @@ case 2551117928u: // GroomComponent
     comp.m_RootMarkerSize = std::clamp(comp.m_RootMarkerSize, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
     if (!SceneBinIO::Read(reader, comp.m_MaxPreviewStrands)) return false;
     comp.m_MaxPreviewStrands = std::clamp(comp.m_MaxPreviewStrands, static_cast<u32>(1), static_cast<u32>(200000));
+    if (!SceneBinIO::Read(reader, comp.m_MaxRenderStrands)) return false;
+    comp.m_MaxRenderStrands = std::clamp(comp.m_MaxRenderStrands, static_cast<u32>(1), static_cast<u32>(8000000));
+    if (!SceneBinIO::Read(reader, comp.m_WidthScale)) return false;
+    comp.m_WidthScale = std::clamp(comp.m_WidthScale, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_StrandColor)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShowPreview)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShowStrands)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShowRoots)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ShowDirection)) return false;
     if (!SceneBinIO::Read(reader, comp.m_ColorByGroup)) return false;
     if (!SceneBinIO::Read(reader, comp.m_GuidesOnly)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RenderStrands)) return false;
+    {
+        decltype(comp.m_CompositionMode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_CompositionMode)>(0) && v <= static_cast<decltype(comp.m_CompositionMode)>(3))
+            comp.m_CompositionMode = v;
+    }
     break;
 }
 case 1784713623u: // InstancePortalComponent

@@ -395,12 +395,17 @@ registry.push_back(OLO_GFW_FIELD(GoapAgentComponent, "Enabled", Enabled));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "Groom", m_Groom));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "MaxPreviewStrands", m_MaxPreviewStrands, OLO_GFW_BOUND(1), OLO_GFW_BOUND(200000)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "MaxRenderStrands", m_MaxRenderStrands, OLO_GFW_BOUND(1), OLO_GFW_BOUND(8000000)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "WidthScale", m_WidthScale, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD(GroomComponent, "StrandColor", m_StrandColor));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "ShowPreview", m_ShowPreview));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "ShowStrands", m_ShowStrands));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "ShowRoots", m_ShowRoots));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "ShowDirection", m_ShowDirection));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "ColorByGroup", m_ColorByGroup));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "GuidesOnly", m_GuidesOnly));
+registry.push_back(OLO_GFW_FIELD(GroomComponent, "RenderStrands", m_RenderStrands));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "CompositionMode", m_CompositionMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
 
 // IKTargetComponent
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex));
@@ -442,6 +447,10 @@ registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "FrustumCullPerInstance
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CastShadows", CastShadows));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CullDistance", CullDistance));
 
+}
+
+static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
+{
 // InventoryComponent
 registry.push_back(OLO_GFW_FIELD(InventoryComponent, "PlayerInventory.MaxWeight", PlayerInventory.MaxWeight));
 registry.push_back(OLO_GFW_FIELD(InventoryComponent, "Currency", Currency));
@@ -452,10 +461,6 @@ registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "IsShop", IsShop));
 registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "LootTableID", LootTableID));
 registry.push_back(OLO_GFW_FIELD(ItemContainerComponent, "HasBeenLooted", HasBeenLooted));
 
-}
-
-static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
-{
 // ItemPickupComponent
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.InstanceID", Item.InstanceID));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "Item.ItemDefinitionID", Item.ItemDefinitionID));
@@ -511,6 +516,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk7(std::vector<FieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_GFW_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile));
 
@@ -523,10 +532,6 @@ registry.push_back(OLO_GFW_FIELD(MeshCollider3DComponent, "Offset", m_Offset));
 registry.push_back(OLO_GFW_FIELD(MeshCollider3DComponent, "Scale", m_Scale));
 registry.push_back(OLO_GFW_FIELD(MeshCollider3DComponent, "UseComplexAsSimple", m_UseComplexAsSimple));
 
-}
-
-static void BuildRegistryChunk7(std::vector<FieldEntry>& registry)
-{
 // MeshComponent
 registry.push_back(OLO_GFW_FIELD(MeshComponent, "Primitive", m_Primitive));
 registry.push_back(OLO_GFW_FIELD(MeshComponent, "LightmapStatic", m_LightmapStatic));

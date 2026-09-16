@@ -23,6 +23,9 @@
 #include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomPreview.h"
+#include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomVisibility.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetImporter.h"
 #include "OloEngine/Asset/SoundConfigAsset.h"
@@ -8091,6 +8094,119 @@ namespace OloEngine
             {
                 ImGui::SetTooltip("World units. The preview never goes below a bounds-relative size, so 0 means "
                                   "scale it to the groom.");
+            }
+
+            // -- Production strand rendering (issue #1246) -----------------
+            //
+            // A SEPARATE section from the debug preview above, with its own
+            // strand budget. The two draw the same asset and answer different
+            // questions, and criterion 4 is that the diagnostic one is not
+            // advertised as a finished quality tier -- which is a statement
+            // about this panel as much as about the renderer.
+            ImGui::SeparatorText("Strand rendering");
+            ImGui::Checkbox("Render Strands", &component.m_RenderStrands);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Draw the groom as real ribbon geometry that writes depth, instead of (or as "
+                                  "well as) the debug lines above. Neutral-lit on purpose: this feature is about "
+                                  "VISIBILITY. Fibre scattering and self-shadowing are #1247 and #1248.");
+            }
+
+            {
+                // The four modes, in GroomCompositionMode order.
+                const char* groomModeNames[] = { "Opaque ribbon", "Stochastic alpha", "Alpha to coverage",
+                                                 "Weighted-blended OIT" };
+                int mode = static_cast<int>(component.m_CompositionMode);
+                if (ImGui::Combo("Composition", &mode, groomModeNames, IM_ARRAYSIZE(groomModeNames)))
+                {
+                    component.m_CompositionMode =
+                        static_cast<u8>(std::clamp(mode, 0, static_cast<int>(GroomCompositionMode::Count) - 1));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("What this groom ASKS for. What it gets depends on the frame and is "
+                                      "reported below. Stochastic alpha needs a temporal resolve (TAA or FSR2) "
+                                      "to converge; without one it falls back rather than shipping noise.");
+                }
+
+                // WHAT IT ACTUALLY GETS, and why. Without this line a user who
+                // picks Stochastic on a frame with TAA off sees the hard
+                // silhouette of the baseline tier and has nowhere to find out
+                // that the request was refused, or by what.
+                if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass())
+                {
+                    const auto requested =
+                        IsValidGroomCompositionMode(static_cast<i32>(component.m_CompositionMode))
+                            ? static_cast<GroomCompositionMode>(component.m_CompositionMode)
+                            : GroomCompositionMode::OpaqueRibbon;
+                    const GroomCompositionDecision decision = groomPass->DecideComposition(requested);
+                    if (decision.IsFallback())
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::TextWrapped("Active: %s - %s", std::string(ToString(decision.Effective)).c_str(),
+                                           std::string(ToString(decision.Reason)).c_str());
+                        ImGui::PopStyleColor();
+                    }
+                    else
+                    {
+                        ImGui::Text("Active: %s", std::string(ToString(decision.Effective)).c_str());
+                    }
+                }
+            }
+
+            ImGui::ColorEdit3("Strand Color", glm::value_ptr(component.m_StrandColor));
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Neutral albedo. There is no lighting term on strands in #1246 - the only "
+                                  "modulation is a geometric root-to-tip ramp.");
+            }
+
+            ImGui::DragFloat("Width Scale", &component.m_WidthScale, 0.01f, 0.01f, 100.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Multiplies the cooked object-space DIAMETERS. An authoring lever for a groom "
+                                  "exported at a different unit scale, not a quality knob: at 1.0 a 70 um hair is "
+                                  "70 um, which is what the coverage comparison was run at.");
+            }
+
+            {
+                int renderStrands = static_cast<int>(component.m_MaxRenderStrands);
+                if (ImGui::DragInt("Max Render Strands", &renderStrands, 256.0f, 1, 8000000))
+                {
+                    component.m_MaxRenderStrands = static_cast<u32>(std::clamp(renderStrands, 1, 8000000));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Bounds the ribbon vertex buffer, not a command stream - 4 vertices and 6 "
+                                      "indices per curve segment. Over this count the mesh STRIDES over the whole "
+                                      "groom rather than taking its first N strands, which after the cook would "
+                                      "be one side of the animal.");
+                }
+
+                // What the buffer will actually hold. Same argument as the
+                // preview plan above: a budget that silently thins a coat is
+                // indistinguishable from a broken asset.
+                if (component.m_RenderStrands && component.m_Groom != 0)
+                {
+                    if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(component.m_Groom))
+                    {
+                        GroomStrandBuildSettings build;
+                        build.MaxStrands = component.m_MaxRenderStrands;
+                        build.GuidesOnly = component.m_GuidesOnly;
+                        const GroomStrandMeshStats plan = PlanGroomStrandMesh(*groom, build);
+                        ImGui::Text("Geometry: %u of %u strands (every %u%s), %u segments, %.2f MiB",
+                                    plan.StrandsSelected, plan.StrandsAvailable, plan.Stride,
+                                    plan.Stride == 1u ? "" : "th", plan.SegmentCount,
+                                    static_cast<f64>(plan.VertexBytes + plan.IndexBytes) / (1024.0 * 1024.0));
+                        if (plan.SegmentBudgetLimited)
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                            ImGui::TextWrapped("Held back by the SEGMENT budget rather than by Max Render "
+                                               "Strands: this groom has long strands, so fewer of them fit.");
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                }
             } });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)

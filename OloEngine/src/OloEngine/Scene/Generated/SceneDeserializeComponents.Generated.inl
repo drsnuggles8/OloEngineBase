@@ -510,12 +510,19 @@ if (auto node = entity["GroomComponent"]; node)
     if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RootMarkerSize"], v))
         comp.m_RootMarkerSize = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
     comp.m_MaxPreviewStrands = std::clamp(node["MaxPreviewStrands"].as<u32>(comp.m_MaxPreviewStrands), static_cast<u32>(1), static_cast<u32>(200000));
+    comp.m_MaxRenderStrands = std::clamp(node["MaxRenderStrands"].as<u32>(comp.m_MaxRenderStrands), static_cast<u32>(1), static_cast<u32>(8000000));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WidthScale"], v))
+        comp.m_WidthScale = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(100.0f));
+    comp.m_StrandColor = node["StrandColor"].as<glm::vec3>(comp.m_StrandColor);
     comp.m_ShowPreview = node["ShowPreview"].as<bool>(comp.m_ShowPreview);
     comp.m_ShowStrands = node["ShowStrands"].as<bool>(comp.m_ShowStrands);
     comp.m_ShowRoots = node["ShowRoots"].as<bool>(comp.m_ShowRoots);
     comp.m_ShowDirection = node["ShowDirection"].as<bool>(comp.m_ShowDirection);
     comp.m_ColorByGroup = node["ColorByGroup"].as<bool>(comp.m_ColorByGroup);
     comp.m_GuidesOnly = node["GuidesOnly"].as<bool>(comp.m_GuidesOnly);
+    comp.m_RenderStrands = node["RenderStrands"].as<bool>(comp.m_RenderStrands);
+    if (const decltype(comp.m_CompositionMode) v = node["CompositionMode"].as<decltype(comp.m_CompositionMode)>(comp.m_CompositionMode); v >= static_cast<decltype(comp.m_CompositionMode)>(0) && v <= static_cast<decltype(comp.m_CompositionMode)>(3))
+        comp.m_CompositionMode = v;
 }
 
 if (auto node = entity["InstancePortalComponent"]; node)

@@ -137,6 +137,11 @@ namespace OloEngine
         return s_Data.Pipeline ? s_Data.Pipeline->SceneCompositePasses.RayTracedShadow.Raw() : nullptr;
     }
 
+    const GroomRenderPass* Renderer3D::GetGroomRenderPass()
+    {
+        return s_Data.Pipeline ? s_Data.Pipeline->RenderStreamPasses.Groom.Raw() : nullptr;
+    }
+
     RayTracedReflectionPass* Renderer3D::GetRayTracedReflectionPass()
     {
         return s_Data.Pipeline ? s_Data.Pipeline->PostProcessPasses.RayTracedReflection.Raw() : nullptr;
@@ -186,6 +191,11 @@ namespace OloEngine
     void Renderer3D::SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests)
     {
         s_Data.RayTracedShadowLightRequests = std::move(requests);
+    }
+
+    void Renderer3D::SetGroomStrandRequests(std::vector<GroomStrandRequest> requests)
+    {
+        s_Data.GroomStrandRequests = std::move(requests);
     }
 
     void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)

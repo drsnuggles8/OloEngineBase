@@ -22,6 +22,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
+#include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
@@ -75,6 +76,7 @@ namespace OloEngine
     class DeferredGPUOcclusionPass;
     class DDGIProbeUpdatePass;
     class RayTracedShadowPass;
+    class GroomRenderPass;
     class RayTracedReflectionPass;
     class GpuPathTracerPass;
     class ReSTIRDIPass;
@@ -928,6 +930,20 @@ namespace OloEngine
         // the only place that knows whether the trace actually ran, so it is
         // the only place allowed to turn the routing on. See ShadowTechnique.h.
         static void SetRayTracedShadowLightRequests(std::vector<RayTracedShadowLightRequest> requests);
+
+        // This frame's grooms (issue #1246). Published by Scene, which is the
+        // only place that holds the component AND the resolved GroomAsset;
+        // GroomRenderPass decides what each one actually gets, because it is
+        // the only place that knows what the frame resolved. Same
+        // producer/transport/consumer split as the ray-traced shadow
+        // candidates above, and for the same reason.
+        static void SetGroomStrandRequests(std::vector<GroomStrandRequest> requests);
+        // Cleared at BeginScene, so an empty list means "no groom was
+        // submitted this frame", never "last frame's is still here".
+        [[nodiscard]] static const std::vector<GroomStrandRequest>& GetGroomStrandRequests()
+        {
+            return s_Data.GroomStrandRequests;
+        }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static const std::vector<RayTracedShadowLightRequest>& GetRayTracedShadowLightRequests()
@@ -1371,6 +1387,13 @@ namespace OloEngine
         // panel MUST handle that: on a machine without ray tracing the pass
         // still exists, but before Init there is no pipeline at all.
         [[nodiscard]] static RayTracedShadowPass* GetRayTracedShadowPass();
+        // The groom strand pass (issue #1246), for the Groom inspector's
+        // "Active: <mode> - <reason>" line. Same null contract as above: the
+        // panel must handle a null return, because before Init there is no
+        // pipeline at all. Const because the panel only ASKS the seam what it
+        // would decide — a panel that could set pass state would be a second
+        // place the technique gets chosen.
+        [[nodiscard]] static const GroomRenderPass* GetGroomRenderPass();
         // The ray-query reflection tier (issue #1057), for the post-process
         // panel's fallback and ray counters. Same null contract as above —
         // and the same reason the counters exist at all: both of this slice's
@@ -2308,6 +2331,8 @@ namespace OloEngine
             RayTracing::DeformedSurfaceCache DeformedSurfaces;
             // See SetRayTracedShadowLightRequests (issue #1056).
             std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
+            // See SetGroomStrandRequests (issue #1246).
+            std::vector<GroomStrandRequest> GroomStrandRequests;
             bool GPUSceneExtractionActive = false;
             // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
             // BeginGPUSceneExtraction, appended during submission, resolved

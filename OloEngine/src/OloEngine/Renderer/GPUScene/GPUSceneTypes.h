@@ -584,6 +584,13 @@ namespace OloEngine
         LegacySubmesh,
         Tiles,
         Cloth,
+        // Groom curves (issue #1246). A groom is a set of CURVES — the records
+        // have no representation for one, and the strand pass expands them to
+        // ribbons in its own vertex buffer rather than offering geometry the
+        // canonical scene could hold. Counted so a coat shows up in the
+        // renderer profiler's inventory instead of being geometry nothing can
+        // account for.
+        Groom,
         // Renderable geometry that was OFFERED to the canonical scene and
         // produced no instance (issue #1065): no vertex array, no GPU buffers,
         // a submesh index the source does not hold. Reported by
@@ -613,6 +620,8 @@ namespace OloEngine
                 return "Terrain";
             case GPUSceneUnsupportedCategory::Foliage:
                 return "Foliage";
+            case GPUSceneUnsupportedCategory::Groom:
+                return "Groom";
             case GPUSceneUnsupportedCategory::Particles:
                 return "Particles";
             case GPUSceneUnsupportedCategory::Fluids:

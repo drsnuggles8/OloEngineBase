@@ -121,6 +121,20 @@ namespace OloEngine::GPUSceneLegacyAdapters
                       "#977 defines the policy and hook, a later issue gives it a representation.",
         },
         Adapter{
+            .m_File = "OloEngine/src/OloEngine/Scene/Scene.cpp",
+            .m_Name = "Groom strand submission",
+            .m_UnsupportedCategory = GPUSceneUnsupportedCategory::Groom,
+            .m_Exit = "The ONE site in this file: Scene publishes a groom's world transform and "
+                      "its previous-frame twin into GroomStrandRequest, because a groom is CURVES "
+                      "and the records have no representation for one to link to. It cannot alias "
+                      "prev to current the way the shadow and occlusion adapters do — the strand "
+                      "pass writes the velocity buffer, and the selected composition mode is only "
+                      "granted when a temporal resolve is running to consume it, so a moving coat "
+                      "with no history would ghost exactly where the mode is meant to converge. "
+                      "Goes when the records can hold curve geometry, which is what #1249 needs "
+                      "anyway to bind grooms to skeletal and morph surfaces.",
+        },
+        Adapter{
             .m_File = "OloEngine/src/OloEngine/Terrain/Foliage/FoliageRenderer.cpp",
             .m_Name = "Foliage instancing",
             .m_UnsupportedCategory = GPUSceneUnsupportedCategory::Foliage,

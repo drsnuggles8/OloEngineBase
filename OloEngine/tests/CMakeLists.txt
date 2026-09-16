@@ -98,6 +98,11 @@ add_executable(OloEngine-Tests
 		Groom/GroomRejectionTest.cpp
 		Groom/GroomReferenceAssetsTest.cpp
 		Groom/GroomPreviewTest.cpp
+		# Strand visibility (#1246). The composition-mode seam is pure CPU, so the
+		# machine that takes every capability fallback is also the machine that
+		# tests it.
+		Groom/GroomCompositionSelectionTest.cpp
+		Groom/GroomStrandMeshTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -508,6 +513,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/PostProcessPropertyTests.cpp
 		Rendering/PropertyTests/PbrPropertyTests.cpp
 		Rendering/PathTracing/ReferenceBRDFGpuParityTest.cpp
+		# Strand visibility (#1246). Pins the CPU coverage arithmetic against the
+		# real compiled GroomStrandCommon.glsl: the measured comparison is computed
+		# on the CPU, so a drift between the two makes every stochastic number a
+		# description of a pattern that is not on screen.
+		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp
@@ -575,6 +585,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ClusteredLightingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
@@ -643,6 +654,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GBufferBakedGIContractTest.cpp
 		Rendering/PropertyTests/GBufferFlagsResolveEvidenceTest.cpp
 		Rendering/PropertyTests/OITPropertyTests.cpp
+		# Strand visibility (#1246). This file IS the criterion-1 comparison:
+		# four composition modes against a 16x16-supersampled analytic reference,
+		# on the CPU so the measured evidence is re-run by CI rather than quoted
+		# from a PR body.
+		Rendering/PropertyTests/GroomCoveragePropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);

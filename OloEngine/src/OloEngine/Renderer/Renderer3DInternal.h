@@ -17,6 +17,7 @@
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 #include "OloEngine/Renderer/Passes/FXAARenderPass.h"
 #include "OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.h"
@@ -233,6 +234,7 @@ namespace OloEngine
     {
         Ref<ForwardOverlayRenderPass> ForwardOverlay;
         Ref<FoliageRenderPass> Foliage;
+        Ref<GroomRenderPass> Groom; // #1246 strand visibility
         Ref<WaterRenderPass> Water;
         Ref<DecalRenderPass> Decal;
         Ref<GPUDrivenOcclusionPass> GPUOcclusion;
@@ -250,6 +252,7 @@ namespace OloEngine
         {
             ForwardOverlay.Reset();
             Foliage.Reset();
+            Groom.Reset();
             Water.Reset();
             Decal.Reset();
             GPUOcclusion.Reset();

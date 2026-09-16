@@ -142,7 +142,20 @@ namespace OloEngine
     //      as the build that wrote it rendered. Every float is validated finite
     //      and clamped on load — they reach a pow() exponent and a normalize()
     //      in the shared shader evaluation.
-    static constexpr u32 kSaveGameFormatVersion = 33;
+    // v34: GroomComponent gained its PRODUCTION STRAND RENDERING (#1246) —
+    //      MaxRenderStrands, WidthScale, StrandColor, RenderStrands and the
+    //      requested CompositionMode. v33 and older saves stop before them and
+    //      keep the defaults, whose RenderStrands is false: the groom draws its
+    //      #1232 debug preview and nothing else, which is how the build that
+    //      wrote them rendered.
+    //
+    //      This band was authored as v33 on its own branch and MOVED to v34 on
+    //      merge, because #1234 had taken v33 meanwhile. Two features cannot
+    //      share a version: a v33 save from either branch would have satisfied
+    //      the other's HasFieldsSince and been read with the wrong fields at
+    //      the wrong offsets, desynchronising everything after it. If you are
+    //      adding the next band, check what master took while you were away.
+    static constexpr u32 kSaveGameFormatVersion = 34;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

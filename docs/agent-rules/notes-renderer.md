@@ -1324,3 +1324,44 @@ and re-logged on every regeneration. `FoliageRenderer`'s authored-mesh import al
 the leaf maps now match it.
 
 Found on #1234 (foliage leaf maps), reviewing code whose null check could never fire.
+
+## Adding a `GPUSceneUnsupportedCategory` is four edits, and `using enum` hides the fourth
+
+A new diagnostics category needs: the enumerator, `GetGPUSceneUnsupportedCategoryName`'s case
+(`GPUSceneTypes.h`), a `Renderer3D::ReportUnsupportedGPUScene` call so something actually counts
+it, and **`UnsupportedCategoryKey`'s case in `OloEditor/src/MCP/McpRayTracingStats.h`**. Miss the
+last one and the MCP stats report the category as `"unknown"`; the arrays are `Count`-sized so
+nothing else complains.
+
+**The obvious way to find every switch does not work here.** Grepping
+`GPUSceneUnsupportedCategory::<SomeExistingValue>` — the qualified name — finds the enum, the
+reporter and a test, and misses the MCP switch entirely, because that function opens with
+`using enum` and writes its cases bare (`case Cloth:`). Grep the unqualified enumerator too, or
+grep the thing the switch RETURNS (`"cloth"`).
+
+**And do not trust that switch's own comment.** It said a category added without a key "fails to
+compile". It does not: `Groom` compiled fine and fell through to the trailing `return "unknown"`.
+What catches it is `McpRayTracingStats.EveryDiagnosticsCategoryGetsItsOwnKey`, which is not in any
+filter you would think to run while working on the renderer — it went red on the UBSan and TSan
+shards instead. The comment now says so.
+
+Corollary, and the reason this cost a CI round: **a targeted `--gtest_filter` structurally cannot
+catch a shared-enum change.** Filters built from the subsystem you are editing (`Groom*`,
+`GPUScene*`, `*Foliage*`) all passed. When a change touches a type other subsystems switch on,
+the filter has to follow the TYPE, not the feature.
+
+Found on #1246 (groom strand visibility), which added the `Groom` category.
+
+## A full local `ctest` sweep is ~1841 tests and rewrites ~180 tracked evidence PNGs
+
+Worth knowing before you reach for one as a pre-push check: it runs for hours, and the
+visual-evidence tests rewrite their committed PNGs as they go — `git checkout --
+OloEditor/assets/tests/visual/` afterwards, and `git clean -fd` the same path for the untracked
+outputs other features' tests drop there. Never `git add -A` after one.
+
+It is also not the same population CI runs: CI excludes `*VisualEvidence*`, `*Evidence*`,
+`VulkanPassSuite.*` and more (the filter is in the sanitizer workflow). So a sweep is the only way
+to see those — and a failure in one may be cross-test state rather than a real defect. Re-run the
+failing case ALONE before believing it:
+`ReSTIRDIVisualEvidenceTest.ArmingTheTierOnANonRTDeviceStaysInsideTheRendererNoiseFloor` fails in a
+full sweep and passes in isolation.

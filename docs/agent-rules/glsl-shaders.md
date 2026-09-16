@@ -23,6 +23,36 @@ The engine compiles all GLSL through **shaderc → SPIR-V**, which imposes stric
   three shaders at once; it is a hard SPIR-V error, so it is invisible to every OpenGL test and
   fails only on the Vulkan arm.
 
+- **A UBO block declared in two stages of one file must match FIELD FOR FIELD, member names
+  included.** This is a cross-stage interface rule, and it is the one shader error `glslc` cannot
+  show you: compiling each `#type` section on its own succeeds, and the failure arrives at LINK
+  time as
+
+  ```
+  error: struct fields mismatch between shaders for uniform (named BlockName.BlockName_1)
+  ```
+
+  It bites precisely when you follow §3's advice and rename the members one stage does not read to
+  the underscore-prefixed "deliberately unused" form. That form is for a block shared across
+  *different shaders*; within ONE shader's two stages the declarations must be identical, so the
+  fragment stage keeps `u_Model` even though only the vertex stage reads it. Symptom if you miss
+  it: the pass runs, reports its draws, and changes not one pixel — a linked-program failure is
+  logged once at compile time and never again.
+
+- **`projection[1][1]` is NEGATIVE on Vulkan — `abs()` it before using it as a SCALE.** Vulkan's
+  clip space has +Y downwards, so the engine uploads a projection whose `[1][1]` is negated there.
+  A shader deriving a pixels-per-world-unit scale from it (`projection[1][1] * viewportHeight *
+  0.5`) gets a negative scale on one backend only. The engine guards the same element the same way
+  on the C++ side — `Renderer3D.h` stores `|cull projection[1][1]|`, `RenderPipeline.cpp` takes
+  `std::abs` of it.
+
+  **Both halves of this are silent.** It is invisible on OpenGL, where the sign is positive, and on
+  Vulkan it produces no error, no VUID and no validation message — just a negative width that a
+  later `clamp` turns into a discarded fragment. The groom strand pass lost its ENTIRE output on
+  Vulkan this way (#1246) while reporting thousands of segments drawn; see
+  [groom-strand-visibility.md](groom-strand-visibility.md) for the two-run shader bisect that
+  localises this class of bug without reading code.
+
 ---
 
 ## 1a. A new `#extension` must be within the toolchain floor — check it before you commit

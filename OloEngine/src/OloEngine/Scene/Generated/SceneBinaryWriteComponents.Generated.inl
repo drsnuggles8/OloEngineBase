@@ -375,12 +375,17 @@ if (entity.HasComponent<GroomComponent>())
     SceneBinIO::Write(out, comp.m_Groom);
     SceneBinIO::Write(out, comp.m_RootMarkerSize);
     SceneBinIO::Write(out, comp.m_MaxPreviewStrands);
+    SceneBinIO::Write(out, comp.m_MaxRenderStrands);
+    SceneBinIO::Write(out, comp.m_WidthScale);
+    SceneBinIO::Write(out, comp.m_StrandColor);
     SceneBinIO::Write(out, comp.m_ShowPreview);
     SceneBinIO::Write(out, comp.m_ShowStrands);
     SceneBinIO::Write(out, comp.m_ShowRoots);
     SceneBinIO::Write(out, comp.m_ShowDirection);
     SceneBinIO::Write(out, comp.m_ColorByGroup);
     SceneBinIO::Write(out, comp.m_GuidesOnly);
+    SceneBinIO::Write(out, comp.m_RenderStrands);
+    SceneBinIO::Write(out, comp.m_CompositionMode);
 }
 
 if (entity.HasComponent<InstancePortalComponent>())

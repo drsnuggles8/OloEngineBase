@@ -73,6 +73,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -103,6 +105,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the
@@ -133,6 +137,8 @@ namespace OloEngine
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
         s_Data.RayTracedShadowLightRequests.clear();
+        // Groom submissions are per-frame for the same reason (issue #1246).
+        s_Data.GroomStrandRequests.clear();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
         // #1234). Cleared here for the same reason as the line above: an
         // assignment that accumulated across frames would fill up from the

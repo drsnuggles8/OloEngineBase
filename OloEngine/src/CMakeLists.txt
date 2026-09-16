@@ -216,6 +216,15 @@
 		"OloEngine/Groom/GroomCooker.cpp"
 		"OloEngine/Groom/GroomPreview.h"
 		"OloEngine/Groom/GroomPreview.cpp"
+		# Strand visibility (#1246). GroomVisibility is the pure composition-mode
+		# seam and GroomCoverage the CPU coverage model the comparison is built
+		# on; neither needs a GL context, which is what lets both run in CI.
+		"OloEngine/Groom/GroomVisibility.h"
+		"OloEngine/Groom/GroomCoverage.h"
+		"OloEngine/Groom/GroomCoverage.cpp"
+		"OloEngine/Groom/GroomStrandMesh.h"
+		"OloEngine/Groom/GroomStrandMesh.cpp"
+		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"
 		# Build pipeline
@@ -1015,6 +1024,8 @@
 		"OloEngine/Renderer/Passes/FinalRenderPass.cpp"
 		"OloEngine/Renderer/Passes/FoliageRenderPass.h"
 		"OloEngine/Renderer/Passes/FoliageRenderPass.cpp"
+		"OloEngine/Renderer/Passes/GroomRenderPass.h"
+		"OloEngine/Renderer/Passes/GroomRenderPass.cpp"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.cpp"
 		"OloEngine/Renderer/Passes/GPUDrivenOcclusionPass.h"

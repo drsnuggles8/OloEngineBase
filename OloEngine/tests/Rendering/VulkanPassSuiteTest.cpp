@@ -7835,21 +7835,39 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
         return std::array<int, 3>{ rendered[i], rendered[i + 1], rendered[i + 2] };
     };
 
-    // ambient = 0.3 * tint * white => 76 on the tinted channel. Cards span
+    // ambient = 0.03 * tint * white => 8 on the tinted channel. Cards span
     // y NDC -0.25..0.25 (row 64 covered under either y orientation); centres
     // x = 25 / 64 / 103.
+    //
+    // 8, NOT the 76 this asserted until #1246 ran it. #1234 replaced
+    // Foliage_Instance.glsl's flat `albedo * 0.3` ambient with image-based
+    // ambient, whose no-environment fallback is calculateSimpleAmbient —
+    // `vec3(0.03) * albedo`, the same rung Terrain_PBR and the deferred ladder
+    // use. This fixture binds no IBL trio, so u_LeafIds.y is 0 and that
+    // fallback is the branch under test. The shader is behaving as #1234
+    // designed it; only this expectation was left behind.
+    //
+    // Worth knowing WHY it survived: VulkanPassSuite needs a real Vulkan
+    // device, and CI has none (the self-hosted box cannot — RADV has no
+    // descriptor heap), so this suite is skipped there. A green PR says
+    // nothing about it. It is only ever caught by someone running the suite
+    // locally on NVIDIA.
+    //
+    // The TINT is what this test is about, and 8-against-0 still separates the
+    // three channels well outside the +/-3 tolerance, so the contract it
+    // guards is unchanged — only its brightness moved.
     const auto red = px(25, 64);
-    EXPECT_NEAR(red[0], 76, 3) << "instance 0 tint (stream-1 lane 8..10 at instance stride 12 floats)";
+    EXPECT_NEAR(red[0], 8, 3) << "instance 0 tint (stream-1 lane 8..10 at instance stride 12 floats)";
     EXPECT_NEAR(red[1], 0, 3);
     EXPECT_NEAR(red[2], 0, 3);
     const auto green = px(64, 64);
     EXPECT_NEAR(green[0], 0, 3);
-    EXPECT_NEAR(green[1], 76, 3) << "instance 1 tint";
+    EXPECT_NEAR(green[1], 8, 3) << "instance 1 tint";
     EXPECT_NEAR(green[2], 0, 3);
     const auto blue = px(103, 64);
     EXPECT_NEAR(blue[0], 0, 3);
     EXPECT_NEAR(blue[1], 0, 3);
-    EXPECT_NEAR(blue[2], 76, 3) << "instance 2 tint";
+    EXPECT_NEAR(blue[2], 8, 3) << "instance 2 tint";
     const auto background = px(5, 120);
     EXPECT_EQ(background[0], 0) << "uncovered pixels keep the clear";
     EXPECT_EQ(background[1], 0);

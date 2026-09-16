@@ -401,12 +401,17 @@ registry.push_back(OLO_VSF_FIELD(GoapAgentComponent, "Enabled", Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "Groom", m_Groom, Asset));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "MaxPreviewStrands", m_MaxPreviewStrands, Int, OLO_VSF_BOUND(1), OLO_VSF_BOUND(200000)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "MaxRenderStrands", m_MaxRenderStrands, Int, OLO_VSF_BOUND(1), OLO_VSF_BOUND(8000000)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "WidthScale", m_WidthScale, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "StrandColor", m_StrandColor, Vec3));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowPreview", m_ShowPreview, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowStrands", m_ShowStrands, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowRoots", m_ShowRoots, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "ShowDirection", m_ShowDirection, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "ColorByGroup", m_ColorByGroup, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "GuidesOnly", m_GuidesOnly, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomComponent, "RenderStrands", m_RenderStrands, Bool));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "CompositionMode", m_CompositionMode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(3)));
 
 // IKTargetComponent
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex, Int));
@@ -448,6 +453,10 @@ registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "FrustumCullPerInstance
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "CastShadows", CastShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "CullDistance", CullDistance, Float));
 
+}
+
+static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
+{
 // InventoryComponent
 registry.push_back(OLO_VSF_FIELD(InventoryComponent, "PlayerInventory.MaxWeight", PlayerInventory.MaxWeight, Float));
 registry.push_back(OLO_VSF_FIELD(InventoryComponent, "Currency", Currency, Int));
@@ -458,10 +467,6 @@ registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "IsShop", IsShop, Bool)
 registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "LootTableID", LootTableID, String));
 registry.push_back(OLO_VSF_FIELD(ItemContainerComponent, "HasBeenLooted", HasBeenLooted, Bool));
 
-}
-
-static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
-{
 // ItemPickupComponent
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "Item.InstanceID", Item.InstanceID, Entity));
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "Item.ItemDefinitionID", Item.ItemDefinitionID, String));
@@ -517,6 +522,10 @@ registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_VSF_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile, String));
 
@@ -529,10 +538,6 @@ registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "Offset", m_Offset, Ve
 registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "Scale", m_Scale, Vec3));
 registry.push_back(OLO_VSF_FIELD(MeshCollider3DComponent, "UseComplexAsSimple", m_UseComplexAsSimple, Bool));
 
-}
-
-static void BuildRegistryChunk7(std::vector<ComponentFieldEntry>& registry)
-{
 // MeshComponent
 registry.push_back(OLO_VSF_FIELD(MeshComponent, "Primitive", m_Primitive, Int));
 registry.push_back(OLO_VSF_FIELD(MeshComponent, "LightmapStatic", m_LightmapStatic, Bool));

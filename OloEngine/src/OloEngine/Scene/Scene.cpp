@@ -7972,6 +7972,15 @@ namespace OloEngine
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Foliage,
             static_cast<u32>(m_Registry.view<FoliageComponent>().size()));
+        // One tick per groom, meaning "this path does not consume GPU Scene
+        // instance records" — a groom is curves, and the records have no
+        // representation for one (issue #1246). Counted rather than silent so
+        // a coat appears in the profiler's inventory; see
+        // GPUSceneLegacyAdapters for why the path still owns its own
+        // previous-frame transforms.
+        Renderer3D::ReportUnsupportedGPUScene(
+            GPUSceneUnsupportedCategory::Groom,
+            static_cast<u32>(m_Registry.view<GroomComponent>().size()));
         Renderer3D::ReportUnsupportedGPUScene(
             GPUSceneUnsupportedCategory::Particles,
             static_cast<u32>(m_Registry.view<ParticleSystemComponent>().size()));
@@ -8548,6 +8557,64 @@ namespace OloEngine
             // tile is still a legitimate ray-tracing candidate — the two tiers
             // are independent, which is the point of the technique seam.
             Renderer3D::SetRayTracedShadowLightRequests(std::move(rayTracedShadowRequests));
+
+            // Publish this frame's grooms for the production strand pass
+            // (issue #1246).
+            //
+            // Separate from the debug-preview loop in RenderScene3D and NOT
+            // gated on ShowComponentGizmos: the preview is a diagnostic that a
+            // capture turns off, while these strands are the scene's actual
+            // geometry. A groom can have both on at once, which is how the two
+            // get compared, and #1246's criterion 4 is precisely that the
+            // diagnostic one is not mistaken for the finished one.
+            //
+            // Resolved HERE rather than in the pass: GetAsset is the only
+            // lookup that finds a groom built at runtime (it lives in the
+            // manager's memory-asset map and in no registry), and doing it on
+            // the render thread would be an asset-manager lock inside a pass.
+            {
+                std::vector<GroomStrandRequest> groomRequests;
+                const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
+                for (const auto entity : groomView)
+                {
+                    const auto& groomComponent = groomView.get<GroomComponent>(entity);
+                    if (!groomComponent.m_RenderStrands || groomComponent.m_Groom == 0)
+                    {
+                        continue;
+                    }
+
+                    auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
+                    if (!groom)
+                    {
+                        continue; // the asset manager already logged the miss
+                    }
+
+                    const i32 entityID = static_cast<i32>(std::to_underlying(entity));
+                    const glm::mat4 worldTransform = GetWorldTransform(Entity{ entity, this });
+
+                    GroomStrandRequest request;
+                    request.Groom = groom;
+                    request.Handle = groomComponent.m_Groom;
+                    request.Transform = worldTransform;
+                    // The shared per-entity cache, so a groom that MOVES emits
+                    // real motion vectors rather than the zero a self-aliased
+                    // transform would give. It aliases on an entity's first
+                    // frame, which is what makes a newly spawned groom's
+                    // velocity zero instead of undefined.
+                    request.PreviousTransform = Renderer3D::GetAndRecordPrevTransform(entityID, worldTransform);
+                    request.Color = groomComponent.m_StrandColor;
+                    request.WidthScale = groomComponent.m_WidthScale;
+                    request.EntityID = entityID;
+                    request.RequestedMode =
+                        IsValidGroomCompositionMode(static_cast<i32>(groomComponent.m_CompositionMode))
+                            ? static_cast<GroomCompositionMode>(groomComponent.m_CompositionMode)
+                            : GroomCompositionMode::OpaqueRibbon;
+                    request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
+                    request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
+                    groomRequests.push_back(std::move(request));
+                }
+                Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
+            }
 
             // Shadow sampling matrices go up camera-relative (issue #429) so
             // they match the render-relative world positions the lit pass uses.
