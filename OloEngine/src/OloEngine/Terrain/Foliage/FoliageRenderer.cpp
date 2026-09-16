@@ -913,10 +913,13 @@ namespace OloEngine
                 foliageUBO->Bind();
 
                 // Bind albedo for alpha test in shadow pass (see the seam note above).
-                if (!impostor && draw.Albedo)
+                if (!impostor)
                 {
+                    const auto albedo = draw.Albedo ? draw.Albedo : Renderer3D::GetWhiteTexture();
+                    if (!albedo || !albedo->IsLoaded())
+                        continue;
                     HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
-                                                     draw.Albedo->GetRHIHandle(),
+                                                     albedo->GetRHIHandle(),
                                                      RHI::HeapSlotLifetime::Persistent);
                 }
 

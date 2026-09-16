@@ -9,8 +9,13 @@
 #include "RendererStateCheck.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -351,6 +356,81 @@ namespace OloEngine::Tests
                 VisualEvidence::ExpectFrameHasSubject(pixels, "forward AO", [](u32 r, u32 g, u32 b)
                                                       { return g > 12u && g > 1.4 * r && g > 1.4 * b; });
             }
+    }
+
+    TEST_F(FoliageWindEvidenceTest, MissingAlbedoShadowDoesNotReuseThePreviousAtlas)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
+        auto& layer = foliage.m_Layers[0];
+        layer.AlbedoPath.clear();
+        layer.UseAuthoredMesh = false;
+        layer.UseImpostor = false;
+        layer.WindStrength = 0.0f;
+        foliage.m_NeedsRebuild = true;
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.5f, 2000.0f);
+        camera.SetViewportSize(kWidth, kHeight);
+        camera.SetPose({ 128.0f, 14.0f, 196.0f }, 0.0f, 6.0f);
+        RunEditorFrames(camera, 4);
+        ASSERT_TRUE(foliage.m_Renderer);
+        const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
+        ASSERT_FALSE(draws.empty());
+        ASSERT_TRUE(std::ranges::all_of(draws, [](const auto& draw)
+                                        { return draw.InstanceCount > 0 && !draw.AlbedoTextureID.IsValid(); }));
+
+        GLStateGuard guard("MissingAlbedoShadow", GLStateGuard::Policy::Restore);
+        FramebufferSpecification spec;
+        spec.Width = spec.Height = 256;
+        spec.Attachments = { FramebufferTextureFormat::DEPTH_COMPONENT32F };
+        auto target = Framebuffer::Create(spec);
+        auto shader = Shader::Create("assets/shaders/Foliage_Depth.glsl");
+        ASSERT_TRUE(target && shader && shader->IsReady());
+        auto cameraBuffer = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        UBOStructures::CameraUBO light{};
+        const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+        light.View = glm::lookAt(glm::vec3(128.0f, 80.0f, 300.0f) - origin,
+                                 glm::vec3(128.0f, 8.0f, 128.0f) - origin, glm::vec3(0.0f, 1.0f, 0.0f));
+        light.Projection = glm::ortho(-150.0f, 150.0f, -150.0f, 150.0f, 1.0f, 600.0f);
+        light.ViewProjection = light.Projection * light.View;
+        cameraBuffer->SetData(&light, UBOStructures::CameraUBO::GetSize());
+        TextureSpecification textureSpec;
+        textureSpec.GenerateMips = false;
+        auto transparent = Texture2D::Create(textureSpec);
+        std::array<u8, 4> transparentPixel{ 255, 255, 255, 0 };
+        transparent->SetData(transparentPixel.data(), static_cast<u32>(transparentPixel.size()));
+        const auto capture = [&](const Ref<Texture2D>& previouslyBound)
+        {
+            target->Bind();
+            glViewport(0, 0, 256, 256);
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LESS);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_CULL_FACE);
+            glDisable(GL_BLEND);
+            glClearDepth(1.0);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            cameraBuffer->Bind();
+            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
+                                             previouslyBound->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent);
+            foliage.m_Renderer->RenderShadows(shader, 0.0f);
+            std::vector<f32> depths(256 * 256);
+            glGetTextureImage(target->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                              static_cast<GLsizei>(depths.size() * sizeof(f32)), depths.data());
+            target->Unbind();
+            return depths;
+        };
+        const auto afterTransparentAtlas = capture(transparent);
+        const auto afterOpaqueTexture = capture(Renderer3D::GetWhiteTexture());
+        sizet covered = 0;
+        f32 maximumDifference = 0.0f;
+        for (sizet i = 0; i < afterOpaqueTexture.size(); ++i)
+        {
+            ASSERT_TRUE(std::isfinite(afterOpaqueTexture[i]) && std::isfinite(afterTransparentAtlas[i]));
+            covered += afterOpaqueTexture[i] < 0.99999f;
+            maximumDifference = std::max(maximumDifference, std::abs(afterOpaqueTexture[i] - afterTransparentAtlas[i]));
+        }
+        EXPECT_GT(covered, 20u) << "positive control rendered no foliage shadow";
+        EXPECT_LE(maximumDifference, 1e-6f) << "null-albedo shadow depends on the previous atlas alpha";
     }
 
     TEST_F(FoliageWindEvidenceTest, ShadowImpostorAndLodResetFollowTheDeformation)
