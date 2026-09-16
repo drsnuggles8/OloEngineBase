@@ -486,4 +486,4 @@ Both belong to #1230; see
 
 ### FoliageHierarchicalWind.olo
 
-Grass bend and woody trunk/branch/leaf motion under spatial gusts, including the near mesh and far octahedral impostor. Toggle the layer displacement debug view and inspect velocity while pausing and crossing the 55–70 m mesh hand-over. See `docs/guides/foliage-hierarchical-wind.md`.
+Grass bend and woody trunk/branch/leaf motion under spatial gusts, including the near mesh and far octahedral impostor. Toggle the layer displacement debug view and inspect velocity while pausing and crossing the 55-70 m mesh hand-over. See `docs/guides/foliage-hierarchical-wind.md`.

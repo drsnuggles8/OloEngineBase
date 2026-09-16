@@ -21,7 +21,7 @@ position, so regeneration and row ordering do not rephase surviving plants.
 
 The hierarchical global response is capped to velocity length 20 before applying
 the layer strength. Legacy zero-weight layers retain their uncapped response;
-their bounds track `abs(speed) * (1 + abs(gust)) * .1` instead. Registry instance, spatial-group, and layer bounds include
+their bounds track `abs(strength) * max(abs(speed) * (1 + abs(gust)) * .1, 1.118034)` instead. Registry instance, spatial-group, and layer bounds include
 `strength * (2 + .35 * branch + .15 * leaf)` on each axis. This covers the trunk
 cap and the maximum lengths of both independent fine modes. Impostor card bounds
 also include `sqrt(2) * atlas radius`, covering square-card corners at oblique
@@ -51,8 +51,8 @@ card placement, main-view atlas selection, and cutout as colour.
 Scene YAML and cooked scene blobs carry `WindStiffness`, `WindBranchWeight`,
 `WindLeafWeight`, and `WindDebugDisplacement`. Save-game format v36 appends those
 fields after the landed v35 habitat block. Older scenes and v35-or-earlier saves default all
-weights and debug to zero. Both loaders reject non-finite weights and clamp
-them to [0, 1].
+weights and debug to zero. Both loaders replace non-finite weights with defaults
+and clamp finite weights to [0, 1].
 
 The inspector's **Wind Displacement** toggle displays an unlit blue-to-magenta
 diagnostic colour. Red encodes displacement length divided by the maximum
@@ -77,7 +77,9 @@ Hardware: NVIDIA RTX 4090 (24 GiB, driver 616.64), Intel i7-14700KF,
 and recorded camera poses on both backends, and disabled editor guide overlays.
 The [measurement record](../validation/foliage-hierarchical-wind-1236.json)
 contains image hashes, wind-on/off pixel differences, raw velocity maxima,
-pass timings, allocation totals, and the exact test counts.
+pass timings, allocation totals, and exact test counts. Initial images remain
+from `6b7c97132`; `postMergeReviewValidation` records all eight cells and the
+121-test rerun on final code `44180d762`, including merged habitat v35/wind v36.
 
 All eight reachable cells have ground and oblique wind-on/off captures, visible
 foliage and shadows, finite RG16F motion over all 518,400 texels, and exactly zero
@@ -86,21 +88,21 @@ single-sample production path; deferred exercises both 1x and 4x MSAA.
 
 | Backend | Path | MSAA | Colour pass minimum (ms) | CSM minimum (ms) | Memory (MiB) |
 |---|---|---:|---:|---:|---:|
-| GL | forward | 1 | 0.406 | 1.437 | 618.12 |
-| GL | forwardplus | 1 | 0.559 | 1.445 | 618.12 |
-| GL | deferred | 1 | 0.936 | 1.372 | 637.89 |
-| GL | deferred | 4 | 1.200 | 1.405 | 651.74 |
-| Vulkan | forward | 1 | 0.345 | 0.733 | 1058.20 |
-| Vulkan | forwardplus | 1 | 0.361 | 0.729 | 1058.20 |
-| Vulkan | deferred | 1 | 0.462 | 0.726 | 956.01 |
-| Vulkan | deferred | 4 | 0.591 | 0.726 | 1048.83 |
+| GL | forward | 1 | 0.292 | 1.380 | 618.12 |
+| GL | forwardplus | 1 | 0.571 | 1.478 | 618.12 |
+| GL | deferred | 1 | 1.069 | 1.543 | 637.89 |
+| GL | deferred | 4 | 1.214 | 1.384 | 651.74 |
+| Vulkan | forward | 1 | 0.361 | 0.751 | 918.51 |
+| Vulkan | forwardplus | 1 | 0.809 | 1.765 | 918.51 |
+| Vulkan | deferred | 1 | 0.503 | 1.655 | 956.01 |
+| Vulkan | deferred | 4 | 0.979 | 1.290 | 1048.83 |
 
 These are whole live pass costs, including export synchronization. Deferred
 colour is `ScenePass` and includes other opaque work; CSM includes terrain and
 foliage depth. Twenty live timing reports followed five warmup reports, with GPU
-results at most two frames old. One zero ShadowPass report in each Vulkan
-forward cell was excluded; the JSON records 19 positive samples there and 20
-elsewhere. These timings establish a budget, not an isolated deformation speed-up.
+results at most two frames old. Vulkan Forward+ had one zero ScenePass and
+one zero ShadowPass report excluded; affected passes retain 19 positive samples,
+with 20 elsewhere. These timings establish a budget, not an isolated deformation speed-up.
 
 OpenGL memory is engine-tracked allocation bytes. Vulkan memory is VMA
 **device-local block bytes**; its engine allocation tracker is uninstrumented
@@ -111,15 +113,15 @@ wind texture or instance stream.
 
 The controlled OpenGL L6 fixture rendered 1,310 authored plants, using five
 warmups and minimum-of-20 sampling with the shared retry/median policy. The
-strict comparison recorded foliage/CSM costs of 0.132096/0.180224 ms for legacy
-weights and 0.100352/0.180224 ms for hierarchical weights. GPU boost and timing
+strict comparison recorded foliage/CSM costs of 0.102400/0.183296 ms for legacy
+weights and 0.103424/0.185344 ms for hierarchical weights. GPU boost and timing
 variation prevent treating the difference as a speed-up.
 
-The CPU/persistence run passed 78 tests, buffer/shader run 5, Vulkan device run 3,
-strict visual comparison 3, and strict performance comparison 1: **90 passed,
+The CPU/persistence run passed 106 tests, buffer/shader run 6, Vulkan device run 4,
+strict visual comparison 4, and strict performance comparison 1: **121 passed,
 zero skipped, all exits 0**. Fourteen foliage shader stages also compiled through
 the Vulkan SDK. Persistence includes YAML, an actual cooked scene blob, current
-save round trips, and an actual on-disk v34 archive. The pre-existing
+save round trips, actual on-disk v34/v35 archives, and habitat compatibility. The pre-existing
 `FoliageLeafTransmission.olo` also opened on both live backends.
 
 CSM captures at different wind times changed 74,245 OpenGL and 49,028 Vulkan
@@ -130,11 +132,11 @@ OpenGL L8 test pin the first reset/regeneration frame. Live stop captures check
 finite resumed motion after settling; they do not claim to capture the first
 reset frame.
 
-Both final editor logs contain no VUID, synchronization hazard, or shader
-compilation failure. OpenGL shader diagnostics report zero errors. Vulkan
-still logs missing optional GPU-terrain SSBO occupants at 59/79 in the unchanged
-terrain shaders; that terrain diagnostic is disclosed and no terrain correction
-is claimed here. The compiled graph hazard sweep is empty on both backends;
+The final Vulkan matrix log and fresh GL deferred-4x control log have no VUID,
+synchronization hazard, or shader compilation failure. GL shader diagnostics
+report zero errors; the Vulkan shader debugger is not initialized, so it gives
+no count. Vulkan logs five terrain-only optional SSBO occupant diagnostics;
+clean-base attribution remains unestablished and no terrain fix is claimed. The compiled graph hazard sweep is empty on both backends;
 Vulkan's census records all six foliage shaders with positive draws and zero
 dropped draws.
 
