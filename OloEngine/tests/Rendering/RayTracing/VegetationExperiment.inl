@@ -1,6 +1,15 @@
-// Scratch experiment: real AS costs and alpha-masked ray silhouettes; no production caller.
+// The #1240 detailed-versus-proxy design experiment: real AS costs and
+// alpha-masked ray silhouettes. It is a MEASUREMENT, not a regression guard,
+// and it rewrites tracked evidence under assets/tests/visual, so it is opt-in
+// the way the other manual benchmarks here are — an explicit flag and a clean
+// skip, never DISABLED_ (CLAUDE.md, testing-architecture.md §8).
+//   OloEngine-Tests.exe --olo-vegetation-experiment \
+//     --gtest_filter=RayTracingDevice.VegetationDetailedVersusCardExperiment
 TEST_F(RayTracingDevice, VegetationDetailedVersusCardExperiment)
 {
+    if (!OloEngine::Tests::Options().VegetationExperiment)
+        GTEST_SKIP() << "pass --olo-vegetation-experiment to run the #1240 detailed-versus-proxy "
+                        "measurement (it rewrites assets/tests/visual/vegetation-experiment)";
     ScopedVulkanRenderCommandSelection selection;
     auto model = Ref<Model>::Create("SandboxProject/Assets/Models/Vegetation/pine.obj");
     auto source = model->CreateCombinedMeshSource();

@@ -78,6 +78,7 @@ namespace OloEngine
         }
 
         auto& gpuTimers = GPUPassTimerPool::GetInstance();
+        bool vegetationOutputTrusted = true;
         if (m_Vegetation != nullptr)
         {
             const bool hasWork = m_Vegetation->HasWork();
@@ -89,11 +90,15 @@ namespace OloEngine
             if (dispatched > 0u)
                 m_Scene->RecordDeformToBuildBarrier();
             m_Scene->SetVegetationReady(m_Vegetation->GetStats().Complete);
-            if (m_Vegetation->GetStats().ProducerFailed)
-                return;
+            // A failed producer withholds the CANOPY, not the rest of the
+            // scene. Returning here instead would skip every other build, the
+            // retire-by-absence sweep, the multi-frame compaction handshake
+            // and the TLAS — the same class of mistake the unconditional
+            // RecordBlasBuilds call inside Update() exists to avoid.
+            vegetationOutputTrusted = !m_Vegetation->GetStats().ProducerFailed;
         }
         gpuTimers.BeginSubPass("AccelerationStructureBuild");
-        m_Scene->Update(*m_GPUScene);
+        m_Scene->Update(*m_GPUScene, vegetationOutputTrusted);
         gpuTimers.EndSubPass();
 
         // The build -> read edge. Emitted here rather than by each consumer so

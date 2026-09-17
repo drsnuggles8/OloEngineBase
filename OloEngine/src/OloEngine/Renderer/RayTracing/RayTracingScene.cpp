@@ -334,7 +334,7 @@ namespace OloEngine::RayTracing
         return TlasBuildReason::Update;
     }
 
-    void RayTracingScene::Update(const GPUScene& scene)
+    void RayTracingScene::Update(const GPUScene& scene, bool vegetationOutputTrusted)
     {
         m_Stats.Frame.Reset();
         if (!IsAvailable())
@@ -541,7 +541,14 @@ namespace OloEngine::RayTracing
                 state.Class = buildClass;
                 state.GeometryFingerprint = entry.Fingerprint;
             }
-            if (reason.has_value())
+            // A vegetation record whose deformed output was never written this
+            // frame must not be built over: the buffer still holds the previous
+            // frame's contents, or nothing at all. Dropping the request leaves
+            // the previous structure resident and untouched, which is exactly
+            // what a build the backend declines to record already means.
+            const bool buildableThisFrame =
+                vegetationOutputTrusted || (entry.Record->Flags & GPUSceneGeometryFlagVegetation) == 0u;
+            if (reason.has_value() && buildableThisFrame)
             {
                 // The pose and the refit run are NOT committed here. Reaching
                 // this point means the build was REQUESTED; whether the backend
@@ -613,9 +620,13 @@ namespace OloEngine::RayTracing
         // directly still passes.
         const u32 recorded = m_Backend->RecordBlasBuilds(m_PendingBuilds);
         const bool everyBuildRecorded = recorded == m_PendingBuilds.size();
+        // Vegetation readiness follows the VEGETATION builds, not the batch: a
+        // dropped build somewhere else in the scene is not a reason to withhold
+        // the canopy. A backend that reports only a count answers false from
+        // WasBlasBuildRecorded, which keeps the conservative all-or-nothing.
         m_VegetationBuildsReady = everyBuildRecorded ||
-                                  std::none_of(m_PendingBuilds.begin(), m_PendingBuilds.end(), [](const auto& build)
-                                               { return build.Vegetation; });
+                                  std::all_of(m_PendingBuilds.begin(), m_PendingBuilds.end(), [this](const auto& build)
+                                              { return !build.Vegetation || m_Backend->WasBlasBuildRecorded(build.Key); });
         if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",

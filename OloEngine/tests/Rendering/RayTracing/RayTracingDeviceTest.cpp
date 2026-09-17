@@ -53,6 +53,7 @@
 #include <chrono>
 
 #include "../RenderingTestUtils.h"
+#include "TestOptions.h"
 
 #if OLO_WITH_VULKAN
 // VulkanTestSupport.h pulls <volk.h>, which only exists on the include path

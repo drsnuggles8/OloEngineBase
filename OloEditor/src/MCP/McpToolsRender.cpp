@@ -8945,11 +8945,17 @@ namespace OloEngine::MCP
             tool.InputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).NoAdditional();
             tool.OutputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).Required({ "forceDetailed" });
             tool.MainMarshaled = true;
-            tool.Handler = [](IAutomationHost&, const Json& args) -> ToolResult
+            tool.Handler = [](IAutomationHost& host, const Json& args) -> ToolResult
             {
-                if (args.contains("forceDetailed"))
-                    RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
-                return ToolResult::Structured(Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() } });
+                // The override is render-thread state. Set AND read inside one
+                // marshalled job: touching it from the MCP worker races the
+                // producer, and splitting the two would let a frame observe the
+                // write yet report the pre-write value back to the caller.
+                return ToolResult::Structured(host.MarshalRead([&args]() -> Json
+                                                               {
+                    if (args.contains("forceDetailed"))
+                        RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
+                    return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() } }; }));
             };
             registry.Register(std::move(tool));
         }
@@ -9044,7 +9050,7 @@ namespace OloEngine::MCP
                                           .Prop("notStagedTotal", Schema::Int().Min(0).Desc("Renderable geometry this frame that produced NO canonical instance. Large next to a small 'instances' means the ray tracer is tracing a fraction of the scene (issue #1065)."))
                                           .Prop("notStagedByCategory", Schema::Object().Desc("The same total split by diagnostics category; 'notExtractable' is geometry that was offered and rejected, the rest is geometry a path knows it cannot represent."))
                                           .Required({ "available" }))
-                    .Required({ "availability", "freshness", "capability", "gpuScene" });
+                    .Required({ "availability", "freshness", "capability", "gpuScene", "vegetation" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
             registry.Register(std::move(tool));

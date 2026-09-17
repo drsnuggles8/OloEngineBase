@@ -386,6 +386,15 @@ namespace OloEngine
             record.m_GroupIndex = it->second;
         }
 
+        // Ascending canonical ID, once per rebuild. Record order follows slot
+        // reuse, so consumers that key off identity — the ray-tracing producer
+        // groups plants into BLASes by it — would otherwise re-sort a copy
+        // every frame to get a stable grouping.
+        for (auto& group : m_Groups)
+        {
+            std::sort(group.m_Instances.begin(), group.m_Instances.end());
+        }
+
         RecomputeWorldBounds();
     }
 

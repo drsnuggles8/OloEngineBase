@@ -59,6 +59,12 @@ namespace OloEngine::Tests
         std::string GoldenVendor;
         // --olo-perf-rebase : overwrite the perf baseline for this machine.
         bool PerfRebase = false;
+        // --olo-vegetation-experiment : run the #1240 detailed-versus-proxy
+        // design experiment. It is a one-off measurement, not a regression
+        // guard: it needs a real ray-tracing device, takes seconds, and
+        // rewrites tracked evidence under assets/tests/visual, so an ordinary
+        // suite run must not leave that churn in the working tree.
+        bool VegetationExperiment = false;
         // --olo-perf-strict : fail on a perf regression instead of warning.
         bool PerfStrict = false;
         // --olo-perf-machine=<name> : baseline key, overriding the hostname.

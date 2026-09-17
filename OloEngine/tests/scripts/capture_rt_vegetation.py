@@ -41,6 +41,55 @@ def cases(backend):
             yield dict(path=path, samples=sample, upscale=upscale, size=size, rt=enabled)
 
 
+def enable_ray_traced_sun(call):
+    """Opt every directional light into ray-traced shadows, in Edit mode.
+
+    `raytracedshadows: on` only selects the TECHNIQUE. Each light carries its own
+    DirectionalLightComponent.RayTracedShadows flag, and the reference fixture
+    ships it false, so the pass reports zero ray-traced AND zero fallback lights
+    and an RT cell proves nothing. The field write goes through the editor undo
+    stack, so it is refused outside Edit mode.
+    """
+    call('olo_scene_stop')
+    enabled = []
+    for entity in call('olo_scene_list_entities').get('entities', []):
+        fields = call('olo_entity_list_fields', {'entity': entity['id']})
+        for component in fields.get('components', []):
+            if component.get('component') != 'DirectionalLightComponent':
+                continue
+            if any(f.get('field') == 'RayTracedShadows' for f in component.get('fields', [])):
+                call('olo_entity_set_field', {'entity': entity['id'],
+                                              'component': 'DirectionalLightComponent',
+                                              'field': 'RayTracedShadows', 'value': True})
+                enabled.append(entity['id'])
+    if not enabled:
+        raise RuntimeError('no directional light exposes RayTracedShadows; an RT cell cannot be proven')
+    return enabled
+
+
+def rt_consumer_active(stats, settings):
+    """Why this RT cell is not evidence, or None when it is.
+
+    Checked in the order the failures actually happen: no device, no TLAS, a
+    vegetation producer that refused work (which withholds the TLAS by design),
+    and finally a shadow tier that reached no light at all.
+    """
+    if not stats.get('capability', {}).get('supported'):
+        return 'ray tracing unsupported on this device'
+    status = stats.get('availability', {}).get('status')
+    if status != 'ready':
+        return f'ray-tracing scene status is {status!r}, not ready'
+    vegetation = stats.get('vegetation') or {}
+    if not vegetation.get('ready'):
+        return ('vegetation not ready: '
+                f"{vegetation.get('refused')} refused of {vegetation.get('requested')} requested")
+    shadows = next((s for s in settings if s.get('setting') == 'raytracedshadows'), {})
+    if shadows.get('rayTracedLights', 0) < 1:
+        return (f"no light reached the ray-traced tier (rayTracedLights="
+                f"{shadows.get('rayTracedLights')}, fallbackLights={shadows.get('fallbackLights')})")
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run', action='store_true')
@@ -59,6 +108,9 @@ def main():
     client = Client(args.port)
     call = lambda name, values=None: unwrap(client.tool(name, values))
     call('olo_scene_open', {'path': 'Scenes/FoliageHierarchicalWind.olo'})
+    rt_planned = any(cell['rt'] for cell in plan)
+    if rt_planned:
+        enable_ray_traced_sun(call)
     call('olo_scene_simulate')
     call('olo_editor_pause', {'paused': True})
     call('olo_editor_debug_draw_set', {'category': 'all', 'enabled': False})
@@ -75,6 +127,21 @@ def main():
                 call('olo_postprocess_settings_set', {'field': 'RTReflectionEnabled', 'value': cell['rt']})
                 time.sleep(.4)
                 record['rtScene'] = call('olo_rt_scene_stats')
+                if cell['rt']:
+                    # Re-read the light counters AFTER the settings settled; the
+                    # set call reports the PREVIOUS frame's numbers.
+                    record['settings'] = [call('olo_renderer_settings_set',
+                                               {'setting': 'raytracedshadows', 'value': 'on'})]
+                    record['rtScene'] = call('olo_rt_scene_stats')
+                    rejected = rt_consumer_active(record['rtScene'], record['settings'])
+                    if rejected:
+                        # Storing images here would file a raster frame as RT
+                        # evidence. Record the reason and move on.
+                        record['skipped'] = rejected
+                        log.write(json.dumps(record) + chr(10))
+                        log.flush()
+                        print(ident, 'SKIPPED:', rejected, flush=True)
+                        continue
                 record['performance'] = call('olo_perf_snapshot')
                 record['timings'] = call('olo_perf_pass_timings')
                 record['targets'] = call('olo_render_list_targets')

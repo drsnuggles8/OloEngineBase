@@ -66,9 +66,8 @@ namespace OloEngine
                 continue;
             }
             std::vector<const FoliageInstanceRecord*> meshRecords, impostorRecords, cardRecords;
-            auto ids = group.m_Instances;
-            std::sort(ids.begin(), ids.end());
-            for (const auto id : ids)
+            // RebuildGroups keeps these in ascending canonical ID for us.
+            for (const auto id : group.m_Instances)
             {
                 const auto* record = m_Registry.Find(id);
                 if (!record)

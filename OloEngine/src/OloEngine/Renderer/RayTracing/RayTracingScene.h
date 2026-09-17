@@ -262,7 +262,15 @@ namespace OloEngine::RayTracing
         //
         // Safe and cheap to call when RT is unavailable: it resets the frame
         // counters and returns.
-        void Update(const GPUScene& scene);
+        // `vegetationOutputTrusted` false means the deformation producer did
+        // not write its output this frame, so no vegetation BLAS may be built
+        // over it. Everything else — non-vegetation builds, retirement, the
+        // compaction handshake and the TLAS — still runs: a producer hiccup
+        // must not stall the whole scene's structure maintenance. It is a
+        // frame-level flag rather than a per-key set because readiness is
+        // already all-or-nothing, so the TLAS is withheld from consumers on
+        // that frame anyway and the unaffected groups rebuild on the next one.
+        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true);
 
         // Emit the AS-build -> AS-read barrier. Called by the render graph
         // pass that owns the hazard, not by Update, so the barrier sits where
