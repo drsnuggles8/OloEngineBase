@@ -78,6 +78,14 @@ jobs:
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    # BOUNDED, because this job is cold BY DESIGN. Disabling the compiler cache means
+    # every run is a full from-scratch build, so it never gets the warm path that lets
+    # the sanitizer jobs sit under the 360-minute default. asan.yml's TSan note measures
+    # a cold instrumented Linux build at ~57 min of build time (~75 min for the arm);
+    # this job compiles the same tree and runs no tests, so 180 is generous. The point
+    # is the ceiling: a runaway must not hold one of the box's two slots for six hours
+    # while the queue behind it grows (#1219, #1284).
+    timeout-minutes: 180
     strategy:
       # ONE AT A TIME. Both cells are full cold builds, and the box has exactly two
       # olo-ci slots — running them together would hold the whole box and starve every

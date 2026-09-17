@@ -45,6 +45,9 @@ RECORD_RE = re.compile(
 )
 
 OBJECT_SUFFIXES = (".o", ".obj")
+# Directories under the build tree whose objects were not produced by a compile in this
+# build, and so must not reach the coverage denominator.
+EXCLUDED_OBJECT_DIRS = frozenset({"vcpkg_installed", "CMakeScratch", "Testing"})
 # A preprocessor or intermediate output, NOT a translation unit's real compile. ccache
 # in preprocessor mode runs `-E` into its own tmp dir, and that pass carries the same
 # flag, so a single cache MISS appends TWO records. Counted and reported separately —
@@ -108,6 +111,14 @@ def describe(output: str) -> str:
     for suffix in OBJECT_SUFFIXES:
         if rest.lower().endswith(suffix):
             rest = rest[: -len(suffix)]
+            break
+    # A multi-config generator inserts the config as a path component
+    # (CMakeFiles/T.dir/Debug/src/Foo.cpp.obj). Drop it so the label names the source,
+    # matched against the known config names rather than "strip the first component" —
+    # a single-config tree has a real source directory there.
+    for config in ("Debug", "Release", "Dist", "RelWithDebInfo", "MinSizeRel"):
+        if rest.startswith(config + "/"):
+            rest = rest[len(config) + 1 :]
             break
     return f"{target}: {rest}"
 
@@ -214,7 +225,13 @@ def expected_compiles(build_dir: str | None, explicit: int | None) -> tuple[int 
     if not os.path.isdir(build_dir):
         return None, f"'{build_dir}' is not a directory"
     count = 0
-    for _root, _dirs, files in os.walk(build_dir):
+    for root, dirs, files in os.walk(build_dir):
+        # Prune directories holding objects this build did not compile. vcpkg installs
+        # prebuilt artifacts into <build>/vcpkg_installed and some ports ship .o files;
+        # counting those would inflate the denominator and fail CI's coverage gate for a
+        # reason that has nothing to do with the measurement. Pruned in `dirs` rather
+        # than filtered afterwards so the walk does not descend a large tree at all.
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_OBJECT_DIRS]
         for name in files:
             if name.lower().endswith(OBJECT_SUFFIXES):
                 count += 1
