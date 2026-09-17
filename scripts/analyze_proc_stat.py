@@ -29,6 +29,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -238,6 +239,68 @@ def expected_compiles(build_dir: str | None, explicit: int | None) -> tuple[int 
     return count, f"object files under {build_dir}"
 
 
+# The build settings that change what a TU costs, and therefore decide whether two
+# rankings are comparable at all. Recorded WITH the numbers, because the figures this
+# work replaced — per-TU peak RSS in MB, committed as CMakeLists.txt comments by an #822
+# follow-up — say nothing about how they were taken. Re-measured on today's tree they
+# move in BOTH directions (Prefab.cpp 6,400 -> 1,488 MB and 22 s -> 7.4 s;
+# LuaScriptGlue_EngineApi.cpp 1,308 -> 1,516 MB), and with no provenance there is no way
+# to tell drift from a difference in PCH state or compiler version. An artifact that
+# cannot be compared to its predecessor decays exactly like a comment.
+PROVENANCE_KEYS = (
+    "CMAKE_CXX_COMPILER",
+    "CMAKE_BUILD_TYPE",
+    "CMAKE_GENERATOR",
+    "OLO_ENABLE_PCH",
+    "OLO_ENABLE_UNITY_BUILD",
+    "OLO_ENABLE_COMPILER_CACHE",
+    "OLO_ENABLE_ASAN",
+    "OLO_ENABLE_UBSAN",
+    "OLO_ENABLE_TSAN",
+    "OLO_ENABLE_LTO",
+    "OLO_HEAVY_COMPILE_JOBS",
+    "OLO_LINK_JOBS",
+)
+
+
+def read_provenance(build_dir: str) -> dict:
+    """Pull the comparability-relevant settings out of the build tree's CMakeCache.txt."""
+    found: dict[str, str] = {}
+    cache = os.path.join(build_dir, "CMakeCache.txt")
+    try:
+        with open(cache, "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                if ":" not in line or "=" not in line or line.startswith(("#", "//")):
+                    continue
+                name = line.split(":", 1)[0].strip()
+                if name in PROVENANCE_KEYS:
+                    found[name] = line.split("=", 1)[1].strip()
+    except OSError:
+        # Not fatal, and not silently blank either: the report says it could not read
+        # the settings, so a reader knows the comparison is unsupported rather than
+        # assuming the defaults.
+        return {}
+    # The clang version is not a cache entry; it lives in the compiler-detection module.
+    for candidate in ("CMakeFiles", os.path.join("CMakeFiles", "4.4.2")):
+        probe = os.path.join(build_dir, candidate)
+        if not os.path.isdir(probe):
+            continue
+        for root, _dirs, files in os.walk(probe):
+            if "CMakeCXXCompiler.cmake" in files:
+                try:
+                    text = open(os.path.join(root, "CMakeCXXCompiler.cmake"), encoding="utf-8").read()
+                except OSError:
+                    break
+                for key in ("CMAKE_CXX_COMPILER_ID", "CMAKE_CXX_COMPILER_VERSION"):
+                    marker = f'set({key} "'
+                    if marker in text:
+                        found[key] = text.split(marker, 1)[1].split('"', 1)[0]
+                break
+        if "CMAKE_CXX_COMPILER_VERSION" in found:
+            break
+    return found
+
+
 def derive_parallel(compiles: list[Record], cap_gib: float, max_lanes: int) -> list[dict]:
     """The worst-case cost of N concurrent compiles, for N = 1..max_lanes.
 
@@ -269,6 +332,26 @@ def render(report: dict, top: int) -> str:
     totals = report["totals"]
 
     add("## Build memory: per-invocation peak RSS")
+    add("")
+    add(f"Measured {report['measured_utc']}.")
+    add("")
+    provenance = report["provenance"]
+    if provenance:
+        # A ranking is only comparable to another taken with the same settings, so these
+        # travel WITH the numbers rather than in whatever prose cites them later.
+        add("<details><summary>Build configuration (a ranking is only comparable to one taken the same way)</summary>")
+        add("")
+        add("| setting | value |")
+        add("|---|---|")
+        for key in sorted(provenance):
+            add(f"| `{key}` | `{provenance[key]}` |")
+        add("")
+        add("</details>")
+    else:
+        add(
+            "> **Build configuration unknown** — no readable `CMakeCache.txt` in the build "
+            "tree, so this ranking cannot be compared against another run. Pass `--build-dir`."
+        )
     add("")
     files = report["records_files"]
     if len(files) == 1:
@@ -339,6 +422,23 @@ def render(report: dict, top: int) -> str:
                 f"`{entry['tool']}` | `{entry['output']}` |"
             )
         add("")
+    else:
+        # NOT the same statement as "links are cheap", and the difference matters: a
+        # 0.00 GiB row in the totals table above would otherwise read as a measurement
+        # that found linking free. Under clang-cl there are no link records at all
+        # because CMake drives lld-link directly (cmake/ProcStatReport.cmake), so the
+        # honest report is an absence, not a zero.
+        add("### Link steps")
+        add("")
+        add(
+            "**No link records — links were NOT MEASURED in this build, which is not the "
+            "same as links being free.** Read the 0.00 GiB link row above as 'no data'. "
+            "The usual cause is a clang-cl build: CMake invokes `lld-link` directly there, "
+            "so there is no clang driver on the link line to carry `-fproc-stat-report`. "
+            "Use a Linux clang build, where the compiler drives the link and `ld.lld` is "
+            "reported as a driver subprocess."
+        )
+        add("")
 
     derivation = report["derivation"]
     add("### Worst-case concurrent compile cost")
@@ -355,11 +455,33 @@ def render(report: dict, top: int) -> str:
         add(f"| {row['lanes']} | {row['worst_case_gib']:.2f} GiB | {verdict} |")
     add("")
     if derivation["largest_fitting_lanes"] is not None:
+        if report["links"]:
+            link_note = (
+                "Compiles only — a link can run concurrently with compiles, and the "
+                f"heaviest link measured here is {totals['link']['max_gib']:.2f} GiB, "
+                "which this bound does not include."
+            )
+        else:
+            link_note = (
+                "Compiles only, and **links were not measured in this build** (see above), "
+                "so the real ceiling is higher by whatever a concurrent link costs."
+            )
         add(
             f"**Largest N whose worst case fits {derivation['cap_gib']:.0f} GiB: "
-            f"{derivation['largest_fitting_lanes']}.** Compiles only — a link can run "
-            "concurrently with compiles, and the heaviest link measured here is "
-            f"{totals['link']['max_gib']:.2f} GiB."
+            f"{derivation['largest_fitting_lanes']}.** {link_note}"
+        )
+        add("")
+        # Say plainly how pessimistic this is. The bound assumes the scheduler may start
+        # the N heaviest TUs together; the olo_heavy Ninja pool exists precisely to stop
+        # that, so a tree with a correctly-populated pool sits well under these numbers.
+        # Without this caveat the table argues for a lower -j than the evidence supports.
+        add(
+            "> This is a deliberately PESSIMISTIC bound: it assumes the build scheduler "
+            "may start the N heaviest TUs at the same moment. The `olo_heavy` job pool "
+            "(`OLO_HEAVY_COMPILE_JOBS`, Ninja only) exists to prevent exactly that, so a "
+            "tree whose pool membership matches this ranking runs below these figures — "
+            "and on the Makefiles generator every Linux CI job uses, the pool does not "
+            "exist at all and this bound is the operative one."
         )
         add("")
 
@@ -468,6 +590,8 @@ def main(argv: list[str]) -> int:
     fitting = [row["lanes"] for row in rows if row["fits"]]
 
     report = {
+        "measured_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "provenance": read_provenance(build_dir),
         "records_files": sorted(os.path.abspath(p) for p in record_files),
         "malformed_lines": malformed,
         "totals": {
