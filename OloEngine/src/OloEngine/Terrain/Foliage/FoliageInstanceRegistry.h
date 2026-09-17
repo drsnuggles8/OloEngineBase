@@ -134,6 +134,12 @@ namespace OloEngine
         f32 m_MinY = 0.0f;
         f32 m_MaxY = 1.0f;
         f32 m_WindDisplacement = 0.0f;
+        // The interaction bend's own padding (issue #1238), kept separate from
+        // the wind term because the two are derived from different authored
+        // values and a reader tracing a too-small bound needs to know which one
+        // is short. They ADD: a gust and a foot can displace the same plant at
+        // the same time, and the bound has to hold when they do.
+        f32 m_InteractionDisplacement = 0.0f;
 
         // Bitwise, not defaulted: cpp-coding-quality §2a forbids `==` on a
         // float-containing type, and §2a's whole-struct form is this one-liner
@@ -156,7 +162,8 @@ namespace OloEngine
                                     profile.m_HalfExtentXZHeightScaled * heightScale);
         const glm::vec3 lo = position + glm::vec3(-halfXZ, profile.m_MinY * heightScale, -halfXZ);
         const glm::vec3 hi = position + glm::vec3(halfXZ, profile.m_MaxY * heightScale, halfXZ);
-        return BoundingBox(lo - glm::vec3(profile.m_WindDisplacement), hi + glm::vec3(profile.m_WindDisplacement));
+        const f32 pad = profile.m_WindDisplacement + profile.m_InteractionDisplacement;
+        return BoundingBox(lo - glm::vec3(pad), hi + glm::vec3(pad));
     }
 
     // The generator inputs an instance's identity is keyed on. See the class

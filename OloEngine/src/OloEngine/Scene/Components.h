@@ -4820,6 +4820,79 @@ namespace OloEngine
         }
     };
 
+    // ── Foliage interaction source (issue #1238) ─────────────────────────
+    //
+    // Put this on anything that should push foliage aside — a character, an
+    // animal, a rolling boulder. Its ENTITY TRANSFORM is the influence's
+    // position, so nothing else has to be kept in sync and a source parented to
+    // a bone works without a line of code; Scene's shared 3D path collects one
+    // influence per enabled component each frame and hands the set to
+    // FoliageInteractionField.
+    //
+    // THIS COMPONENT IS THE FEATURE'S SWITCH. A scene with none of them
+    // publishes an empty influence set, and the foliage shaders then contribute
+    // exactly 0.0 — so adding the component is what turns bending on, and no
+    // existing scene changes because someone shipped this code. Per-species
+    // sensitivity lives on the other side, in FoliageLayer::InteractionResponse.
+    struct FoliageInteractionComponent
+    {
+        // World-space radius of the influence cylinder. The bend falls off to
+        // nothing at exactly this distance, so it is also the culling bound
+        // every plant outside it is spared by.
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 64.0f)
+        f32 m_Radius = 1.0f;
+        // How far ABOVE the entity a plant's root may sit and still bend. A
+        // cylinder, not a sphere: a character's origin is at its feet and grass
+        // roots are on the ground, so a sphere would either miss the grass
+        // underfoot or reach up onto the terrace above.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 64.0f)
+        f32 m_Height = 1.5f;
+        // Peak displacement in world units, at the centre, at full response.
+        // The ceiling mirrors kFoliageInteractionMaxStrength, which is what the
+        // instance bounds are padded by — raising one without the other would
+        // let a plant bend out of the box that decides whether it is drawn.
+        // A bigger bend is asked for on the LAYER, via InteractionResponse,
+        // because that is what also widens the bound.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Strength = 1.0f;
+        // Radial falloff exponent. 1 is linear, higher concentrates the bend
+        // under the actor instead of spreading it over the whole radius.
+        OLO_SERIALIZE(Clamp, Min = 0.25f, Max = 16.0f)
+        f32 m_Falloff = 2.0f;
+        // SECONDS for the bend to relax once the actor has gone — a time
+        // constant, never a per-frame rate. See FoliageSpringStep: this is what
+        // makes the recovery identical at 30 and at 144 fps.
+        OLO_SERIALIZE(Clamp, Min = 0.02f, Max = 8.0f)
+        f32 m_RecoverySeconds = 0.6f;
+        // How far the actor travels before it plants a new influence and leaves
+        // the old one behind to recover on its own. 0 means no trail: the
+        // influence simply follows the actor and the grass springs up the
+        // instant it passes. Roughly a stride length is what reads as
+        // footprints.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 64.0f)
+        f32 m_TrailSpacing = 0.0f;
+        bool m_Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp,
+        // so no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
+
+        FoliageInteractionComponent() = default;
+        FoliageInteractionComponent(const FoliageInteractionComponent&) = default;
+        FoliageInteractionComponent& operator=(const FoliageInteractionComponent&) = default;
+        FoliageInteractionComponent(FoliageInteractionComponent&&) noexcept = default;
+        FoliageInteractionComponent& operator=(FoliageInteractionComponent&&) noexcept = default;
+
+        auto operator==(const FoliageInteractionComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(FoliageInteractionComponent) == 28,
+                  "FoliageInteractionComponent must have no padding: see BitwiseEqualLayoutTest");
+
     // ── Water Surface ────────────────────────────────────────────────────
 
     struct WaterComponent

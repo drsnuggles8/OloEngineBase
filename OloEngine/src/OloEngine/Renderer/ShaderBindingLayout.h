@@ -8,6 +8,12 @@
 // point: the C++ struct, the GLSL block and the CPU-side queue are then one
 // number, and the header itself pulls in nothing but Core/Base.h + glm.
 #include "OloEngine/Renderer/Water/WaterDisturbanceField.h"
+// The foliage interaction field (issue #1238). Included for the same reason as
+// the line above: FoliageInteractionSlot and kFoliageInteractionSlots size the
+// influence array in FoliageUBO, and taking the type and the count from their
+// owner is what keeps the C++ block, the GLSL block and the CPU-side field one
+// description. That header pulls in nothing but Core/Base.h + glm.
+#include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include <glm/glm.hpp>
 #include <algorithm>
 #include <array>
@@ -551,6 +557,26 @@ namespace OloEngine
             glm::vec4 WindFlags{ 0.0f };       // xyz=absolute render origin, w=enabled
             glm::vec4 WindClock{ 0.0f };       // current/previous legacy field clocks
             glm::vec4 PrevMeshViewPos{ 0.0f }; // previous main eye, relative to this frame origin
+
+            // -- Local interaction bending (issue #1238) --------------------
+            //
+            //   x - how many of Interactions below are live. ZERO IS THE OFF
+            //       SWITCH and the default: the shader returns exactly 0.0
+            //       rather than a small number, so a scene with no influence
+            //       source renders bit-identically to the pre-#1238 build.
+            //   y - the LAYER's response scale, the only per-draw part of the
+            //       feature. The influence set itself is global per frame and
+            //       read straight from FoliageInteractionField::GetGPUData at
+            //       each of the three UBO-fill sites, exactly as the wind
+            //       snapshot is - so it cannot ride a draw command and arrive
+            //       stale in one pass while another has this frame's.
+            //   z - the ceiling on the summed push, in world units. Equals
+            //       FoliageInteractionMaximumDisplacement(y), which is what
+            //       FoliageBoundsProfile::m_InteractionDisplacement pads the
+            //       instance AABB by. The shader clamps to it, so no number of
+            //       overlapping actors can push a plant out of its own bound.
+            glm::vec4 InteractionParams{ 0.0f };
+            FoliageInteractionSlot Interactions[kFoliageInteractionSlots]{};
 
             static constexpr u32 GetSize()
             {
@@ -2473,7 +2499,13 @@ namespace OloEngine
     // WHOLE — including the vec4s it does not read — so a field appended for
     // one of them cannot land at a different offset in another, and this
     // assertion is what catches a C++ lane that never reached the GLSL side.
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 272, "FoliageUBO unexpected size — update GLSL layout");
+    // ... and #1238 appended the interaction params lane plus the 16-slot
+    // influence array (-> 1312). The array is why this number jumped: four
+    // vec4 per slot, sized from kFoliageInteractionSlots so the C++ block,
+    // include/FoliageParams.glsl and the CPU field cannot disagree about how
+    // many influences one frame carries.
+    static_assert(sizeof(FoliageInteractionSlot) == 64, "FoliageInteractionSlot must stay four std140 vec4");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 1312, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");

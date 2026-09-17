@@ -437,6 +437,24 @@ case 1503688276u: // FogVolumeComponent
     if (!SceneBinIO::Read(reader, comp.m_DensityVolume)) return false;
     break;
 }
+case 4038336927u: // FoliageInteractionComponent
+{
+    auto& comp = deserializedEntity.AddComponent<FoliageInteractionComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Radius)) return false;
+    comp.m_Radius = std::clamp(comp.m_Radius, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Height)) return false;
+    comp.m_Height = std::clamp(comp.m_Height, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Strength)) return false;
+    comp.m_Strength = std::clamp(comp.m_Strength, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Falloff)) return false;
+    comp.m_Falloff = std::clamp(comp.m_Falloff, static_cast<f32>(0.25f), static_cast<f32>(16.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RecoverySeconds)) return false;
+    comp.m_RecoverySeconds = std::clamp(comp.m_RecoverySeconds, static_cast<f32>(0.02f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_TrailSpacing)) return false;
+    comp.m_TrailSpacing = std::clamp(comp.m_TrailSpacing, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 1414616508u: // FootIKComponent
 {
     auto& comp = deserializedEntity.AddComponent<FootIKComponent>();

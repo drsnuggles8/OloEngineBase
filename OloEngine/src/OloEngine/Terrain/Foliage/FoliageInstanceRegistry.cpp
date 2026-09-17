@@ -172,6 +172,7 @@ namespace OloEngine
             HashCombine(h, FloatBits(boundsProfile.m_MinY));
             HashCombine(h, FloatBits(boundsProfile.m_MaxY));
             HashCombine(h, FloatBits(boundsProfile.m_WindDisplacement));
+            HashCombine(h, FloatBits(boundsProfile.m_InteractionDisplacement));
             m_CurrentMaterialHash = h;
         }
 

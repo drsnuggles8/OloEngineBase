@@ -51,6 +51,7 @@ SAVE_COMPONENT(FluidEmitterComponent, entity, writer);
 SAVE_COMPONENT(FluidKillVolumeComponent, entity, writer);
 SAVE_COMPONENT(FogVolumeComponent, entity, writer);
 SAVE_COMPONENT(FoliageComponent, entity, writer);
+SAVE_COMPONENT(FoliageInteractionComponent, entity, writer);
 SAVE_COMPONENT(FootIKComponent, entity, writer);
 SAVE_COMPONENT(GoapAgentComponent, entity, writer);
 SAVE_COMPONENT(GroomComponent, entity, writer);

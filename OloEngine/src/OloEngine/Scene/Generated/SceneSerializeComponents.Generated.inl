@@ -394,6 +394,21 @@ if (entity.HasComponent<FogVolumeComponent>())
     out << YAML::EndMap; // FogVolumeComponent
 }
 
+if (entity.HasComponent<FoliageInteractionComponent>())
+{
+    out << YAML::Key << "FoliageInteractionComponent";
+    out << YAML::BeginMap; // FoliageInteractionComponent
+    auto const& comp = entity.GetComponent<FoliageInteractionComponent>();
+    out << YAML::Key << "Radius" << YAML::Value << comp.m_Radius;
+    out << YAML::Key << "Height" << YAML::Value << comp.m_Height;
+    out << YAML::Key << "Strength" << YAML::Value << comp.m_Strength;
+    out << YAML::Key << "Falloff" << YAML::Value << comp.m_Falloff;
+    out << YAML::Key << "RecoverySeconds" << YAML::Value << comp.m_RecoverySeconds;
+    out << YAML::Key << "TrailSpacing" << YAML::Value << comp.m_TrailSpacing;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // FoliageInteractionComponent
+}
+
 if (entity.HasComponent<FootIKComponent>())
 {
     out << YAML::Key << "FootIKComponent";

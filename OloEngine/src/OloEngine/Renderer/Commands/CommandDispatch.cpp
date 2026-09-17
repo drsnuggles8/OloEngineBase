@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -3317,6 +3318,13 @@ namespace OloEngine
             foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
             foliageData.MeshViewPos =
                 glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
+
+            // The interaction field (issue #1238), read HERE rather than
+            // carried on the command, exactly as the wind snapshot above is.
+            // The set is global per frame, so a command recorded before the
+            // field ticked would otherwise bend this layer against last frame's
+            // influences while the shadow pass used this frame's.
+            ApplyFoliageInteraction(foliageData, cmd->interactionResponse);
 
             // ── Leaf material (issue #1234) ─────────────────────────────────
             // The map bitfield is derived from the HANDLES, not from the

@@ -351,6 +351,15 @@ registry.push_back(OLO_GFW_FIELD(FogVolumeComponent, "DensityVolume", m_DensityV
 // FoliageComponent
 registry.push_back(OLO_GFW_FIELD(FoliageComponent, "Enabled", m_Enabled));
 
+// FoliageInteractionComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(64.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "Height", m_Height, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(64.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "Strength", m_Strength, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "Falloff", m_Falloff, OLO_GFW_BOUND(0.25f), OLO_GFW_BOUND(16.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "RecoverySeconds", m_RecoverySeconds, OLO_GFW_BOUND(0.02f), OLO_GFW_BOUND(8.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(FoliageInteractionComponent, "TrailSpacing", m_TrailSpacing, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(64.0f)));
+registry.push_back(OLO_GFW_FIELD(FoliageInteractionComponent, "Enabled", m_Enabled));
+
 // FootIKComponent
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "LeftFootBone", LeftFootBone));
 registry.push_back(OLO_GFW_FIELD(FootIKComponent, "RightFootBone", RightFootBone));

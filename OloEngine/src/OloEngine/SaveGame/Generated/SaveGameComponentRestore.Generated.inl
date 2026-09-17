@@ -51,6 +51,7 @@ TRY_LOAD_COMPONENT(FluidEmitterComponent);
 TRY_LOAD_COMPONENT(FluidKillVolumeComponent);
 TRY_LOAD_COMPONENT(FogVolumeComponent);
 TRY_LOAD_COMPONENT(FoliageComponent);
+TRY_LOAD_COMPONENT(FoliageInteractionComponent);
 TRY_LOAD_COMPONENT(FootIKComponent);
 TRY_LOAD_COMPONENT(GoapAgentComponent);
 TRY_LOAD_COMPONENT(GroomComponent);
