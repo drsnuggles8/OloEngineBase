@@ -13,18 +13,14 @@ pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
 python scripts/analyze_proc_stat.py build-cached --cap-gib 14
 ```
 
-**`OLO_BUILD_INSTRUMENTATION=ON` cannot build this project on Windows (issue #1306), and
-that is not this measurement's fault.** `cmake_instrumentation()` wraps every custom command in
-`ctest --instrument -- <argv>`, which *executes* argv rather than handing it to a shell.
-Vendored glad's generator rule is four `COMMAND echo …` lines, one of them
-`COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}` — under `cmd.exe` `echo` is a builtin with
-no executable and `>` is shell redirection, so the build dies at `glad-generate` with
-`Batch file failed at line 3 with errorcode 1` and no diagnostic. Reproduced in isolation
-on CMake 4.4.2: the same wrapped `echo` succeeds under a POSIX shell (where `echo` is a
-real binary) and fails under `cmd.exe`, which is why Linux CI is unaffected and why §5d's
-numbers were obtainable at the time. `OLO_PROC_STAT_REPORT` is the per-TU-memory half on
-its own: a compiler flag, no launcher, no CMake floor, no generator restriction. The
-umbrella still turns it on, so nothing about the issue's "one switch" contract changed.
+**`OLO_BUILD_INSTRUMENTATION=ON` cannot build this project on Windows — issue #1306, which
+has the reproduction.** `cmake_instrumentation()` wraps every custom command in
+`ctest --instrument -- <argv>`, which *executes* argv instead of handing it to a shell, and
+vendored glad's generator rule needs a shell for both `echo` and `>`. The build dies at
+`glad-generate` with `Batch file failed at line 3 with errorcode 1` and no diagnostic.
+Linux is unaffected because `echo` is a real binary there. `OLO_PROC_STAT_REPORT` is the
+per-TU-memory half alone — a compiler flag, no launcher, no CMake floor, no generator
+restriction — and the umbrella still turns it on.
 
 CI publishes the same report weekly as the `build-memory-*` artifact
 (`.github/workflows/build-memory.yml`), for `Debug` and `Debug + ASan`. That artifact
@@ -120,6 +116,36 @@ destroy the per-TU ranking outright. Pass `-DOLO_ENABLE_PCH=OFF
 -DOLO_ENABLE_UNITY_BUILD=OFF` explicitly on any cache-off measurement run, as
 `build-memory.yml` does, or the numbers are not comparable to CI's.
 
+## What the first full measurement found (2026-09-17, Windows)
+
+clang-cl 23.1.0, Debug, PCH and unity off, `OloEditor` + `OloEngine-Tests`, 1833 compiles
+at 99.0% coverage. **Not** the sanitizer configuration the caps were derived from — Linux
+`Debug` and `Debug + ASan` come from the weekly artifact, and links are unmeasurable here.
+
+Distribution: **median 0.38 GiB, p95 1.08 GiB, max 5.38 GiB.** 17 TUs over 2 GiB, 5 over
+3 GiB, 2 over 5 GiB. So the shape #759 guessed at is right — a handful of TUs set the peak
+— but the handful is a different handful than either of the earlier surveys named.
+
+**The `olo_heavy` pool is populated wrong in both directions** — not badly, but it tracks
+an older ranking. It holds four TUs ranked #180, #278, #25 and #24 while eight ranked
+#5–#20 sit outside it, led by `SceneHierarchyPanel.cpp` (#5, 3.08 GiB) and `Scene.cpp`
+(#6, 2.72 GiB). Two entries are worth naming, because each is a rule rather than a datum:
+
+- `LuaScriptGlue.cpp` was deliberately excluded when the glue was split, on the grounds
+  that "the dispatcher left behind is an ordinary small TU"
+  (`OloEngine/src/CMakeLists.txt`). It is **13th of 1833**.
+- `Prefab.cpp` carries a committed `6,400 MB peak compiler RSS in 22 s` and now measures
+  **1,488 MB in 7.4 s**. The TU got cheaper; the comment beside it did not.
+
+What the pool gets right: `McpFieldRegistry.cpp` is #1 and #2 (5.38 / 5.37 GiB, compiled
+independently into `OloEditor` and `OloEngine-Tests`), and eight of the nine
+`LuaScriptGlue_*` parts land in the top 18. #822's split worked.
+
+**Do not read the `--parallel` table as an argument for a lower `-j`.** It sums the N
+heaviest TUs, which assumes the scheduler starts them together — on a Ninja tree the
+`olo_heavy` pool prevents that, and this is not the sanitizer configuration. Take the
+number from the Linux `Debug + ASan` artifact.
+
 ## Scope: what this cannot see
 
 - **MSVC.** `-fproc-stat-report` is clang-only and there is no equivalent; the `msvc`
@@ -148,8 +174,8 @@ The three levers #1305 listed, checked rather than assumed:
 | lever | verdict |
 |---|---|
 | ThinLTO instead of full LTO | **Cannot help the sanitizer jobs.** `cmake/CommonProperties.cmake` sets `INTERPROCEDURAL_OPTIMIZATION_RELEASE`/`_DIST` only, and every sanitizer job is `CMAKE_BUILD_TYPE=Debug`. No LTO is enabled there to convert. |
-| `-gsplit-dwarf` + `--gdb-index` | **ccache handles it.** Measured on ccache 4.13.6: a cold compile produced `.o` + `.dwo`, and after deleting both, a cache **hit** restored both at identical sizes. The `.o` names its companion as a bare `t.dwo`, with the directory coming from `DW_AT_comp_dir` — which this repo already rewrites to `/olo` via `-ffile-prefix-map`, so the object stays path-independent and cross-slot sharing is unaffected. **Unverified risk before adopting:** that same `/olo` mapping is what ASan's symbolizer would have to resolve the `.dwo` through. Confirm a sanitizer stack still symbolises before turning this on for the sanitizer jobs. |
-| `-g1` on sanitizer CI only | Keeps line tables and function names, which is what ASan needs to symbolise, and drops variable/type DWARF. Price it against the ranking on the specific TUs the ranking names, not against the tree average — the whole point of #1305 is that the peak is set by a handful of TUs. |
+| `-gsplit-dwarf` + `--gdb-index` | **ccache handles it**, which #1305 asked to verify rather than assume. Measured on ccache 4.13.6: a cold compile produced `.o` + `.dwo`; with both deleted, a cache **hit** restored both at identical sizes. The `.o` names its companion as a bare `t.dwo` and takes the directory from `DW_AT_comp_dir`, which this repo already rewrites to `/olo`, so objects stay path-independent and cross-slot sharing is unaffected. **Unverified risk:** that same `/olo` mapping is what ASan's symbolizer must resolve the `.dwo` through. Confirm a sanitizer stack still symbolises before adopting. |
+| `-g1` on sanitizer CI only | Keeps line tables and function names — what ASan needs to symbolise — and drops variable/type DWARF. Price it on the TUs the ranking names, not on the tree average: the peak is set by a handful. |
 
 ## History
 
