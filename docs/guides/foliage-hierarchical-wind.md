@@ -22,7 +22,7 @@ position, so regeneration and row ordering do not rephase surviving plants.
 The hierarchical global response is capped to velocity length 20 before applying
 the layer strength. Legacy zero-weight layers retain their uncapped response;
 their bounds track `abs(strength) * max(abs(speed) * (1 + abs(gust)) * .1, 1.118034)` instead. Registry instance, spatial-group, and layer bounds include
-`strength * (2 + .35 * branch + .15 * leaf)` on each axis. This covers the trunk
+`abs(strength) * (2 + .35 * branch + .15 * leaf)` on each axis. This covers the trunk
 cap and the maximum lengths of both independent fine modes. Impostor card bounds
 also include `sqrt(2) * atlas radius`, covering square-card corners at oblique
 angles. Vulkan RT is a separate consumer (#1240); this
@@ -56,7 +56,7 @@ and clamp finite weights to [0, 1].
 
 The inspector's **Wind Displacement** toggle displays an unlit blue-to-magenta
 diagnostic colour. Red encodes displacement length divided by the maximum
-all-modes envelope (2.5 times layer strength). Geometry, alpha coverage, depth,
+all-modes envelope (2.5 times absolute layer strength). Geometry, alpha coverage, depth,
 and velocity remain active in this view.
 
 Open `FoliageHierarchicalWind.olo` for grass, woody plants, shadows, and a far
@@ -70,16 +70,17 @@ CSM pass timings for zero-weight and authored layers at 960x540, using five
 warmup frames and the minimum of twenty samples. Its measurements use the
 shared L6 baseline/retry policy rather than a wall-clock frame estimate.
 
-## Recorded validation (2026-09-16)
+## Recorded validation (2026-09-17)
 
 Hardware: NVIDIA RTX 4090 (24 GiB, driver 616.64), Intel i7-14700KF,
 64 GiB RAM, Windows 11. The live editor used a 960x540 viewport, the same scene
 and recorded camera poses on both backends, and disabled editor guide overlays.
 The [measurement record](../validation/foliage-hierarchical-wind-1236.json)
-contains image hashes, wind-on/off pixel differences, raw velocity maxima,
-pass timings, allocation totals, and exact test counts. Initial images remain
-from `6b7c97132`; `postMergeReviewValidation` records all eight cells and the
-121-test rerun on final code `44180d762`, including merged habitat v35/wind v36.
+contains hashes, pixel differences, velocity, timings, allocations, and test counts.
+Initial images are from `6b7c97132`; `postMergeReviewValidation` records the
+eight-cell live matrix below and 121 tests at the post-merge snapshot `44180d762`.
+`reviewFollowupValidation` separately records 132 focused tests at `791ac723d`;
+these later tests did not repeat the live captures.
 
 All eight reachable cells have ground and oblique wind-on/off captures, visible
 foliage and shadows, finite RG16F motion over all 518,400 texels, and exactly zero
@@ -111,18 +112,21 @@ VRAM usage. VMA heap rows are retained in the record. Wind adds 96 bytes to each
 foliage UBO and stores canonical phase in an existing instance lane; it adds no
 wind texture or instance stream.
 
-The controlled OpenGL L6 fixture rendered 1,310 authored plants, using five
-warmups and minimum-of-20 sampling with the shared retry/median policy. The
-strict comparison recorded foliage/CSM costs of 0.102400/0.183296 ms for legacy
-weights and 0.103424/0.185344 ms for hierarchical weights. GPU boost and timing
-variation prevent treating the difference as a speed-up.
+The controlled OpenGL L6 fixture at `1ae024479` rendered 1,310 plants with five
+warmups, twenty fresh positive samples per pass, and the shared retry/median
+policy. Legacy foliage/CSM costs were 0.346112/0.445440 ms; hierarchical costs
+were 0.254976/0.338944 ms. Timing variation prevents claiming a speed-up.
 
-The CPU/persistence run passed 106 tests, buffer/shader run 6, Vulkan device run 4,
-strict visual comparison 4, and strict performance comparison 1: **121 passed,
-zero skipped, all exits 0**. Fourteen foliage shader stages also compiled through
-the Vulkan SDK. Persistence includes YAML, an actual cooked scene blob, current
-save round trips, actual on-disk v34/v35 archives, and habitat compatibility. The pre-existing
+The 132-test follow-up passed 113 CPU/persistence/SSIM, 6 buffer/shader, 4 Vulkan,
+8 strict visual/golden, and 1 strict performance test, with zero skips and all exits 0.
+Fourteen foliage stages compiled through the Vulkan SDK. Persistence covers
+YAML, cooked blobs, current saves, on-disk v34/v35 archives, and habitat compatibility.
 `FoliageLeafTransmission.olo` also opened on both live backends.
+
+`blitPreconditionValidation` records the latest 133-test rerun. Vulkan format
+rejections preserve layouts and contents at 1x/4x. Both engine depth enums allocate
+combined D32/S8; native depth-only mismatches are unreachable. Colour conversion
+for deferred albedo/velocity debug channels remains unsupported.
 
 CSM captures at different wind times changed 74,245 OpenGL and 49,028 Vulkan
 foreground/background silhouette pixels, rather than relying on beauty images
@@ -132,7 +136,7 @@ OpenGL L8 test pin the first reset/regeneration frame. Live stop captures check
 finite resumed motion after settling; they do not claim to capture the first
 reset frame.
 
-The final Vulkan matrix log and fresh GL deferred-4x control log have no VUID,
+The recorded Vulkan matrix log and fresh GL deferred-4x control log have no VUID,
 synchronization hazard, or shader compilation failure. GL shader diagnostics
 report zero errors; the Vulkan shader debugger is not initialized, so it gives
 no count. Vulkan logs five terrain-only optional SSBO occupant diagnostics;
@@ -152,7 +156,5 @@ Representative live captures (the full on/off and velocity grid is committed):
   [depth](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Depth.png),
   and [shadow](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ShadowA.png).
 
-Species/clumping PR #1302 landed save format v35 while this PR was running CI.
-This published branch merges that master commit and appends wind fields at v36,
-after the landed habitat block. Persistence tests cover actual on-disk v34 and
-v35 payloads, including preserved habitat fields and defaulted wind weights.
+Master's species/clumping PR #1302 lands habitat v35; this branch appends wind
+at v36. On-disk v34/v35 tests preserve habitat and default wind fields.

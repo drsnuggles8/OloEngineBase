@@ -1470,5 +1470,120 @@
       "reviewThread": "PRRT_kwDOGiS2f86jH8ch",
       "reason": "Repository Sonar alignment explicitly permits duplicated test scaffolds"
     }
+  },
+  "blitPreconditionValidation": {
+    "codeHead": "1ae024479a5f50b265459e9b479bb95cc776f77b",
+    "utc": "2026-09-17T03:01:52.319843+00:00",
+    "priorRoundCiHead": "115de30f657d529c9bf12a88356f686fb9cd5cf3",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35163410543,
+      "sanitizerRun": 35163410361,
+      "expectedUnusedSkippedChecks": [
+        "ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.asan-lsan-shards }}",
+        "ASan + LSan (Linux) shard coverage"
+      ]
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-three.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-cpu-round-three-verification.xml"
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-buffer-shader-round-three-verification.xml"
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 5,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-vulkan-device-round-three-verification.xml"
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-visual-round-three-verification.xml"
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-perf-round-three-verification.xml"
+      }
+    ],
+    "totalPassed": 133,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "346112",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "1.270677",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "445440",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "1.322188",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "254976",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "1.406780",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "338944",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "1.367769"
+    },
+    "gpuRegressions": {
+      "depthStencilPreservationCases": 24,
+      "actualMetadataAssertions": "Both engine depth enums allocate combined D32_SFLOAT_S8_UINT with matching native format and depth/stencil aspects",
+      "colourRejectionCases": 4,
+      "colourPairs": [
+        "RGBA8 -> RG16F (size-compatible bits, unsupported value conversion)",
+        "RGBA8 -> RGBA16F (different texel size)"
+      ],
+      "samples": [
+        1,
+        4
+      ],
+      "rejectionOracle": [
+        "Exactly one PreconditionFailure",
+        "Source and destination tracked layouts unchanged",
+        "Source and destination colour values unchanged",
+        "Zero Vulkan validation errors"
+      ]
+    },
+    "notRun": [
+      {
+        "case": "Native stencil-free/combined depth aspect mismatch; differing native depth formats",
+        "reason": "All current VulkanTexture2D/framebuffer/raw-facade depth factories widen to D32_SFLOAT_S8_UINT; no native depth import or override constructor exists"
+      }
+    ],
+    "limitation": "Deferred albedo RGBA8 and velocity RG16F debug channels target RGBA16F; Vulkan colour conversion is unlowered and now rejected before barriers. Wind displacement shading uses matching formats.",
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "liveCapturesRepeated": false,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "reviewFindings": [
+      4032089787,
+      4032089801,
+      4032089811
+    ]
   }
 }
