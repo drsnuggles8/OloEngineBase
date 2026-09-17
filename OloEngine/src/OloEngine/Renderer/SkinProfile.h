@@ -386,12 +386,23 @@ namespace OloEngine
         // dropped for this material, and the author is told.
         RefractiveTransmissionConflict,
 
-        // The DEFERRED path could not carry this pixel's per-pixel thickness
-        // because the surface is lightmapped and RT5 is holding its baked
-        // irradiance (see include/SkinTransmission.glsl). The scalar factor is
-        // used alone — same loss as ThicknessMapMissing, different cause, and
-        // worth telling apart because this one is fixed by unlightmapping the
-        // head rather than by fixing an asset.
+        // The DEFERRED path cannot carry this pixel's thickness because the
+        // surface is LIGHTMAPPED and RT5 is holding its baked irradiance (see
+        // oloSkinPackGBufferThickness in include/SkinTransmission.glsl).
+        //
+        // On that path the term does NOT FIRE — the reader returns 0 mm rather
+        // than falling back to the material's scalar, because the scalar never
+        // reaches the deferred lighting pass: that channel is the thickness's
+        // only route there. Forward and Forward+ sample the material directly
+        // and are unaffected, which is why this is worth telling apart from
+        // ThicknessMapMissing: the fix is to unlightmap the head or use a
+        // forward path, not to repair an asset.
+        //
+        // Raised at SUBMISSION (Renderer3DMeshSubmission.cpp), the only site
+        // that can see both the material and the draw's lightmap region, and
+        // raised on every path — the condition is a property of the ASSET, so a
+        // scene that later switches to Deferred would lose the effect silently
+        // unless it had been counted beforehand.
         DeferredThicknessLaneUnavailable,
 
         Count

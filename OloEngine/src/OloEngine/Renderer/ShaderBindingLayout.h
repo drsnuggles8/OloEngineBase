@@ -4341,6 +4341,18 @@ namespace OloEngine
                     // ReSTIR GI's resolved indirect diffuse (issue #1169).
                     // Declared once, in include/DeferredLightingShared.glsl.
                     return name == "u_ReSTIRGIRadiance";
+                case TEX_SKIN_THICKNESS:
+                    // The skin thickness map (issue #1242). Declared by the four
+                    // PBR shaders that sample it — PBR_MultiLight{,_Skinned} and
+                    // PBR_GBuffer{,_Skinned}.
+                    //
+                    // AN ARM IS REQUIRED, not optional: the `default` below
+                    // accepts 10..42 and >= TEX_SHADER_GRAPH_0, so a new slot
+                    // wedged between those two ranges is rejected as
+                    // non-standard. That fails
+                    // ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
+                    // and makes ValidateStandardBindings trace every skin draw.
+                    return name == "u_ThicknessMap";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

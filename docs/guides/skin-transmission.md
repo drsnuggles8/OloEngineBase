@@ -83,7 +83,7 @@ first four are also called out in the material inspector. Grep `OloEngine.log` f
 | `NoThickness` | version 2, but `Thickness Factor` is 0 — so there is nothing for a map to modulate | set the factor, in metres |
 | `ThicknessMapMissing` | a map was authored but could not be loaded; the **scalar** thickness is used alone, so the ear reads uniformly thick | fix the texture path |
 | `RefractiveTransmissionConflict` | `KHR_materials_transmission` is *also* raised — two transmission closures over one surface. Skin's wins | set `Transmission Factor` to 0 |
-| `DeferredThicknessLaneUnavailable` | the surface is lightmapped, so G-Buffer RT5 is holding baked irradiance and cannot carry a per-pixel thickness; the scalar is used alone | unlightmap the head (it is animated geometry anyway) |
+| `DeferredThicknessLaneUnavailable` | the surface is lightmapped, so G-Buffer RT5 is holding baked irradiance and cannot carry a per-pixel thickness. On **Deferred** the term does not fire at all — the scalar never reaches that pass, since the channel is its only route. Forward and Forward+ are unaffected | unlightmap the head (it is animated geometry anyway), or use a forward path |
 | profile below version 2 | the author never opted in. Not a fallback — it is the design | set `EvaluationModel: 2` |
 
 **A missing thickness transmits *nothing*, not everything.** A zero thickness has two readings, and
@@ -96,7 +96,7 @@ unauthored head looks *unfinished* rather than *wrong*.
 | path | thickness source | notes |
 |---|---|---|
 | Forward, Forward+ | sampled directly in `PBR_MultiLight{,_Skinned}.glsl` | full per-pixel map |
-| Deferred | G-Buffer **RT5 red channel**, coverage 0 | second tenant of the channel foliage uses (#1234); see `oloSkinPackGBufferThickness` |
+| Deferred | G-Buffer **RT5 red channel**, coverage 0 | second tenant of the channel foliage uses (#1234); see `oloSkinPackGBufferThickness`. A **lightmapped** skin surface keeps its irradiance and gets no transmission here |
 | Virtual Geometry | **not reached in this slice** | a VG skin surface writes no thickness, so it reads 0 and transmits nothing — the conservative fallback, but by omission rather than by design |
 | Vulkan RT | raster fallback, as the issue's contract states | — |
 

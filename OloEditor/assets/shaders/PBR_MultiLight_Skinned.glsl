@@ -748,7 +748,27 @@ void main()
     //
     // Sampling at `roughness * MAX_REFLECTION_LOD` is what makes rough glass
     // frosted, matching the mip the reflection lobe above already uses.
-    if (u_TransmissionFactor > 0.0)
+    // TWO TRANSMISSION CLOSURES CANNOT BOTH RUN ON ONE SURFACE (issue #1242).
+    //
+    // A MaterialKind::Skin material at transport version 2 already transmitted
+    // above, through the thin-region term. If this material ALSO carries
+    // KHR_materials_transmission the refractive closure below would add a
+    // second transport over the same energy — and because it is applied LAST it
+    // would dominate, which is the exact double-count the issue's third
+    // criterion forbids.
+    //
+    // SKIN WINS, because that is what the material KIND asked for, and because
+    // the refractive closure's own assumptions (a smooth dielectric interface,
+    // a single refracted ray) are wrong for skin. The conflict is counted and
+    // logged on the CPU as
+    // SkinTransmissionFallbackReason::RefractiveTransmissionConflict, and the
+    // material inspector says which term was dropped — so the author is told
+    // rather than left to wonder why their transmissionFactor does nothing.
+    //
+    // Gated on `isSkinTransmitting` rather than on the kind alone: a skin
+    // material at version 0 or 1 does not transmit here, so it must keep the
+    // refractive closure it had before #1242 existed.
+    if (u_TransmissionFactor > 0.0 && !isSkinTransmitting)
     {
         vec3 refractDir = oloTransmissionRefractDir(V, N, u_IOR);
         vec3 transmittedEnv = textureLod(u_PrefilterMap, refractDir, roughness * MAX_REFLECTION_LOD).rgb;

@@ -2514,6 +2514,46 @@ namespace OloEngine
                     if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+
+                        // A LIGHTMAPPED SKIN SURFACE LOSES ITS PER-PIXEL
+                        // THICKNESS ON THE DEFERRED PATH (issue #1242), because
+                        // G-Buffer RT5 is holding this pixel's baked irradiance
+                        // and the thickness lane is the same channel. The
+                        // irradiance wins — see oloSkinPackGBufferThickness for
+                        // why that is the right way round — so the transmission
+                        // term reads a thickness of 0 and does not fire.
+                        //
+                        // REPORTED HERE because this is the only site that knows
+                        // BOTH facts: the material (through MaterialData) and
+                        // whether this draw carries a lightmap region. The
+                        // shader cannot log, and the material-fill function
+                        // cannot see the lightmap.
+                        //
+                        // Counted even on the forward paths, where the term
+                        // actually works, because the condition is a property of
+                        // the ASSET rather than of the path: the same scene
+                        // switched to Deferred will silently lose the effect, and
+                        // that is worth knowing before the switch rather than
+                        // after. The reason's name says which path it bites.
+                        // `desc.MaterialData` is a Material, not the resolved
+                        // POD, so the transport version has to come from the
+                        // profile. Resolve() is the right call rather than a
+                        // surprise: its own header says the slot is sticky and
+                        // the cost is one asset-manager lookup per skin
+                        // submission, and this site only reaches it for a
+                        // lightmapped skin draw.
+                        if (const Material& mat = desc.MaterialData;
+                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
+                        {
+                            const SkinProfileResolution profile =
+                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            {
+                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
+                                    mat.GetSkinProfileHandle());
+                            }
+                        }
                     }
                     SubmitPacket(packet);
                     ++totalSubmitted;
