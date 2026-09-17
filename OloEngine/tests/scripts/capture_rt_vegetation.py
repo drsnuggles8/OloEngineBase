@@ -129,11 +129,14 @@ def main():
                 record['rtScene'] = call('olo_rt_scene_stats')
                 if cell['rt']:
                     # Re-read the light counters AFTER the settings settled; the
-                    # set call reports the PREVIOUS frame's numbers.
-                    record['settings'] = [call('olo_renderer_settings_set',
-                                               {'setting': 'raytracedshadows', 'value': 'on'})]
+                    # set call reports the PREVIOUS frame's numbers. Kept under
+                    # its own key: record['settings'] is the evidence that this
+                    # cell's renderpath/msaa/upscale were actually applied, and
+                    # an RT cell is exactly the one whose log must keep it.
+                    record['settingsAfterSettle'] = [call('olo_renderer_settings_set',
+                                                          {'setting': 'raytracedshadows', 'value': 'on'})]
                     record['rtScene'] = call('olo_rt_scene_stats')
-                    rejected = rt_consumer_active(record['rtScene'], record['settings'])
+                    rejected = rt_consumer_active(record['rtScene'], record['settingsAfterSettle'])
                     if rejected:
                         # Storing images here would file a raster frame as RT
                         # evidence. Record the reason and move on.
