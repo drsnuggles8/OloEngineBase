@@ -5718,6 +5718,101 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomComponent) == 48, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
 
+    // ── Groom surface binding (issue #1249) ──────────────────────
+    //
+    // Attaches the GroomComponent on this entity to a body surface, so the coat
+    // follows skeletal bending and facial morphs instead of standing in its bind
+    // pose while the character moves.
+    //
+    // A SEPARATE COMPONENT, NOT FIELDS ON GroomComponent, for three reasons and
+    // the third is the one that decides it:
+    //   * A groom is perfectly usable unbound (a coat on a prop, #1246's
+    //     scenes), and a component that is always present but usually inert is
+    //     a component whose absence means nothing.
+    //   * GroomComponent's layout is PINNED at 48 bytes with a whole-object
+    //     memcmp equality, and widening it revs the save-game format for every
+    //     scene that has a groom in it, bound or not.
+    //   * The binding is a RELATIONSHIP, and its natural lifetime is the pairing
+    //     rather than the groom — removing the component is how a coat is
+    //     unbound, which is one operation instead of clearing three fields.
+    //
+    // Runtime state lives in Scene, keyed by UUID, NOT here: the previous
+    // frame's transforms, the history-reset bookkeeping and the target's last
+    // known topology are per-frame working data, and keeping them out of the
+    // component is what lets it stay trivially copyable, hole-free and
+    // automatically serialized — the same split ClothComponent makes for its
+    // weld offsets.
+    //
+    // Not annotated OLO_PROPERTY, and deliberately NOT registered in
+    // LuaScriptGlue's component table either — the same decision GroomComponent
+    // made, for the same reason. Which body a coat grows on is authoring state:
+    // repointing it from a script mid-frame would mean a binding whose topology
+    // check has to be re-run against an arbitrary mesh on an arbitrary tick, and
+    // the honest answer for a script that wants a different coat is a different
+    // entity. Stated here as a decision rather than left as an omission, because
+    // the next reader's question is "was this forgotten?".
+    struct GroomBindingComponent
+    {
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// The cooked .ologroombinding. Zero means "bound to nothing", which is
+        /// reported as GroomBindingRejectReason::NoBinding rather than treated
+        /// as an unbound groom — a component that is present is a request.
+        AssetHandle m_Binding = 0;
+
+        /// The entity carrying the body this groom grows on — the one with the
+        /// MeshComponent whose MeshSource the binding was built against. Zero
+        /// means this entity's own mesh, which is the common authoring case for
+        /// a groom parented under its character.
+        UUID m_TargetEntity = 0;
+
+        /// World-space distance a bound groom's target may jump in one frame
+        /// before the previous-frame strand positions are thrown away.
+        ///
+        /// This is the TELEPORT half of the invalidation criterion, and it needs
+        /// a number because a teleport is not otherwise distinguishable from
+        /// very fast movement: both are a large delta between two poses. 5 m in
+        /// one frame is 300 m/s at 60 fps — far above anything a character
+        /// animates through and far below a level transition.
+        ///
+        /// The consequence of getting it wrong is asymmetric, which is why the
+        /// default is generous rather than tight: too LOW throws history away
+        /// during fast motion and costs a frame of motion blur, too HIGH smears
+        /// the whole coat across the screen on a cut.
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10000.0f)
+        f32 m_TeleportDistance = 5.0f;
+
+        /// Deform at all. Off leaves the coat at its bind pose, which is the
+        /// A/B control every capture in this feature's evidence is measured
+        /// against — not a performance switch.
+        bool m_Enabled = true;
+
+        /// Draw the binding preview: each bound root marked on the DEFORMED
+        /// surface with its frame. The editor answer to "is this coat attached
+        /// where I think it is", and the only view in which a root that is
+        /// bound to the wrong triangle is visible before it is animated.
+        bool m_ShowBindingPreview = false;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomBindingComponent() = default;
+        GroomBindingComponent(const GroomBindingComponent&) = default;
+        GroomBindingComponent& operator=(const GroomBindingComponent&) = default;
+        GroomBindingComponent(GroomBindingComponent&&) noexcept = default;
+        GroomBindingComponent& operator=(GroomBindingComponent&&) noexcept = default;
+
+        auto operator==(const GroomBindingComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomBindingComponent) == 24,
+                  "GroomBindingComponent must have no padding: see BitwiseEqualLayoutTest");
+
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 
     enum class FluidSolverMode : i32

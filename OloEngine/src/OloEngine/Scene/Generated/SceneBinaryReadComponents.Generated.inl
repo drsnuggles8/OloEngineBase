@@ -486,6 +486,17 @@ case 1414616508u: // FootIKComponent
     if (!SceneBinIO::Read(reader, comp.RightHandEnabled)) return false;
     break;
 }
+case 799220825u: // GroomBindingComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomBindingComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Binding)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TargetEntity)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TeleportDistance)) return false;
+    comp.m_TeleportDistance = std::clamp(comp.m_TeleportDistance, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ShowBindingPreview)) return false;
+    break;
+}
 case 2551117928u: // GroomComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();

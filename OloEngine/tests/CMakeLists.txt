@@ -103,6 +103,9 @@ add_executable(OloEngine-Tests
 		# tests it.
 		Groom/GroomCompositionSelectionTest.cpp
 		Groom/GroomStrandMeshTest.cpp
+		Groom/GroomBindingBuilderTest.cpp
+		Groom/GroomBindingRoundTripTest.cpp
+		Groom/GroomDeformationTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -587,6 +590,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp

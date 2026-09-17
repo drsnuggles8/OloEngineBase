@@ -3203,6 +3203,42 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomBindingComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component itself is new in
+        // #1249, and a save's components are keyed by an FNV hash of the type
+        // name (see RegisterSaveComponent). A save written before this component
+        // existed simply does not contain the key, so the load never reaches
+        // this function — there is no older layout of these bytes to be
+        // compatible with. That is also why this band did NOT take a
+        // kSaveGameFormatVersion number: spending one would have collided with
+        // whatever another branch is appending to an EXISTING component, for no
+        // benefit here.
+        //
+        // The binding ASSET is referenced by handle and never inlined: it is a
+        // cooked artifact on disk, and a save that carried a copy of 40 000 root
+        // records would be both enormous and a second source of truth for them.
+        ar << c.m_Binding << c.m_TargetEntity << c.m_TeleportDistance;
+        ar << c.m_Enabled << c.m_ShowBindingPreview;
+
+        // Sanitize untrusted on-disk values, mirroring the OLO_SERIALIZE(Clamp)
+        // annotation on the field — the annotation reaches scene YAML and the
+        // live-write registries, NOT this archive, so the floor has to be
+        // restated here or a corrupt save is the one route that bypasses it.
+        //
+        // A non-finite teleport distance is the dangerous value rather than
+        // merely a wrong one: every comparison against a NaN is false, so the
+        // teleport test would never fire and a cut would smear the whole coat.
+        if (ar.IsLoading())
+        {
+            if (!std::isfinite(c.m_TeleportDistance))
+            {
+                c.m_TeleportDistance = 5.0f;
+            }
+            c.m_TeleportDistance = std::clamp(c.m_TeleportDistance, 0.01f, 10000.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
     {
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
@@ -5303,6 +5339,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(GroomComponent);
+        REGISTER_SAVE_COMPONENT(GroomBindingComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

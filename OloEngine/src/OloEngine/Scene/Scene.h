@@ -17,6 +17,15 @@
 #include "OloEngine/Navigation/NavMesh.h"
 #include "OloEngine/Navigation/NavMeshQuery.h"
 #include "OloEngine/Navigation/CrowdManager.h"
+// The groom deformation's per-entity runtime state is held below, and
+// GroomRootTransform / GroomHistoryResetCause are members of it rather than
+// pointers to it — so the complete type is needed here, not a declaration.
+#include "OloEngine/Groom/GroomDeformation.h"
+#include "OloEngine/Groom/GroomStrandRequest.h"
+// Scene builds the groom/target signatures itself to answer
+// GroomBindingAsset::CheckCompatibility before it deforms, so the builder is a
+// complete type here rather than the declaration GroomBinding.h leaves.
+#include "OloEngine/Groom/GroomBindingBuilder.h"
 
 #include <limits>
 #include <mutex>
@@ -52,6 +61,12 @@ namespace OloEngine
     struct FootIKStateComponent;
     struct AudioSoundGraphComponent;
     struct ClothComponent;
+    // The groom binding's two public surface resolvers take these; a
+    // declaration is enough because both are passed by pointer or reference
+    // and this header must not pull Components.h in behind it.
+    struct MeshComponent;
+    struct LODGroupComponent;
+    struct SkeletonComponent;
     class DialogueSystem;
     class SubtitleSystem;
     class GameplayEventBus;
@@ -963,6 +978,32 @@ namespace OloEngine
             return GetStaticType();
         }
 
+        /// The MeshSource an animated entity is actually drawn from this frame:
+        /// the LOD level the deformation pass wrote, or the entity's own source
+        /// when it has no animated LOD selection (#1227).
+        ///
+        /// PUBLIC because it is the one resolver, and #1249 found out what
+        /// happens when a second consumer guesses. The editor's "does this
+        /// binding still fit?" read-out and its Build Binding action were
+        /// resolving `MeshComponent::m_MeshSource` directly while the runtime
+        /// resolved this — so on an LOD-grouped body the inspector cooked and
+        /// validated against one surface and the renderer refused against
+        /// another, showing a green "Attaches" next to a coat stuck at its bind
+        /// pose. Every consumer asks this and nothing else.
+        [[nodiscard]] static Ref<MeshSource> ResolveAnimatedSurface(const LODGroupComponent* lodComp,
+                                                                    const MeshComponent& meshComp);
+
+        /// The Skeleton behind a body, resolved the way the deformation resolves
+        /// it: the entity's SkeletonComponent first, then the surface's own.
+        /// Both authoring shapes exist in this repo and a consumer that
+        /// understood only one would silently stop deforming on the other.
+        ///
+        /// Returns a CONST pointer: every consumer of it only reads the palettes
+        /// and the history flags, and the deformation must never be the thing
+        /// that writes a pose.
+        [[nodiscard]] static const Skeleton* ResolveSurfaceSkeleton(const SkeletonComponent* skeletonComp,
+                                                                    const Ref<MeshSource>& surface);
+
       private:
         template<typename T>
         void OnComponentAdded(Entity entity, T& component);
@@ -1300,6 +1341,130 @@ namespace OloEngine
             std::vector<glm::vec3> m_AttachedLocalOffsets;
         };
         std::unordered_map<UUID, ClothRuntimeState> m_ClothRuntime;
+
+        // ── Groom surface binding runtime (issue #1249) ───────────────
+        //
+        // Per-entity working state for a groom bound to a body: the scratch
+        // buffers the per-frame deformation fills, and the identity of
+        // everything the previous frame's strand positions depend on.
+        //
+        // KEYED BY UUID and held HERE rather than on GroomBindingComponent, the
+        // same split m_ClothRuntime makes for its weld offsets: this is
+        // per-frame working data, and keeping it out of the component is what
+        // lets the component stay trivially copyable, hole-free and
+        // automatically scene-serialized.
+        //
+        // The identity fields exist to answer ONE question every frame — "are
+        // this entity's previous-frame strand positions still about the same
+        // coat on the same body in a continuous pose?" — and every field is
+        // there because a NO answer to it has a different cause that has to be
+        // nameable (GroomHistoryResetCause). A single "dirty" bool could not
+        // distinguish an LOD switch from a teleport, and the whole point of
+        // attributing a reset is that a coat that ghosts is diagnosable.
+        struct GroomBindingRuntimeState
+        {
+            // Scratch, reused across frames so a bound groom does not allocate
+            // per frame. SelectedCurves is the strand budget's selection;
+            // Transforms is one entry per curve of the groom.
+            std::vector<u32> m_SelectedCurves;
+            std::vector<GroomRootTransform> m_Transforms;
+
+            // ── History identity ───────────────────────────────
+
+            AssetHandle m_Binding = 0; ///< binding asset last deformed with
+            AssetHandle m_Groom = 0;   ///< groom asset last deformed
+            UUID m_Target = 0;         ///< body entity last deformed against
+
+            /// The target's REST VERTEX BUFFER identity, not its MeshSource
+            /// pointer: a conventional LOD switch hands the entity a different
+            /// MeshSource and a freed one can be replaced at the same address
+            /// (the recycling trap DeformedSurfaceKey and
+            /// MorphTargetComponent::BaseCacheKey both key around). A
+            /// MeshSource generation counter cannot be recycled.
+            u64 m_TargetGeneration = 0;
+            u32 m_TargetVertexCount = 0;
+            u32 m_TargetIndexCount = 0;
+
+            /// The skeleton's deformation revision pair as of the last frame
+            /// this groom was deformed. Compared rather than the palette bytes,
+            /// because the pair is exactly the shared output's own statement of
+            /// continuity (#1228) and re-deriving it here would be a second
+            /// spelling that could disagree with it.
+            u32 m_DeformationRevision = 0;
+            u32 m_PrevDeformationRevision = 0;
+
+            /// Fold of everything OTHER than the palette that moves the target's
+            /// vertices — today the morph weights, applied on the CPU straight
+            /// into the vertex array. A hash for the reason
+            /// GPUSceneAnimatedSurface::m_MorphStateHash is one: every consumer
+            /// asks the same question of it.
+            u64 m_MorphStateHash = 0;
+
+            /// World-space position of the target last frame, for the teleport
+            /// test. The TARGET's, not the groom's: the coat is carried by the
+            /// body, so a body that cuts across the level invalidates the coat's
+            /// history whether or not the groom entity itself moved.
+            glm::vec3 m_TargetWorldPosition{ 0.0f };
+
+            // ── The compatibility verdict, cached ───────────────────────
+            //
+            // Signing a target means an FNV pass over every index AND every
+            // vertex position, byte at a time; signing a groom means one over
+            // every curve root; and CheckCompatibility then scans every record.
+            // Run per groom per camera per frame on the tick thread, that is
+            // millions of serial steps for an answer that changes only when one
+            // of the identities below does.
+            //
+            // So the verdict is cached and re-derived only when the CHEAP keys
+            // move — the asset handles, the mesh generation, the counts. Those
+            // are exactly the things the signatures are derived FROM, so a
+            // change that could alter the verdict cannot slip past them: a
+            // re-cooked groom is a new handle or a new curve count, a rebuilt
+            // mesh bumps its generation, an LOD switch changes the counts.
+            //
+            // What this deliberately does not do is re-hash to confirm. A hash
+            // that agrees with itself every frame is not a check, it is a cost.
+            GroomBindingRejectReason m_CachedVerdict = GroomBindingRejectReason::None;
+            bool m_HasCachedVerdict = false;
+
+            bool m_HasHistory = false;
+            /// Why the CURRENT frame has no usable history. Meaningful only
+            /// while m_HasHistory is false — a coat that has recovered its
+            /// history has no live discontinuity to name, and reporting the last
+            /// one would make a debug view name a reset that is over.
+            GroomHistoryResetCause m_ResetCause = GroomHistoryResetCause::FirstUse;
+
+            /// The refusal already written to the log for this entity, so the
+            /// warning fires on a CHANGE of reason rather than once per frame.
+            /// A binding refusal is permanent until someone rebuilds something,
+            /// so without this one misconfigured groom writes sixty lines a
+            /// second and the log stops being readable at all — the same
+            /// rate-limit GroomRenderPass keeps for its composition fallback.
+            GroomBindingRejectReason m_LastReportedReject = GroomBindingRejectReason::None;
+        };
+        std::unordered_map<UUID, GroomBindingRuntimeState> m_GroomBindingRuntime;
+
+        /// Publish this frame's grooms for the production strand pass, deforming
+        /// the bound ones against their body surfaces first (issues #1246,
+        /// #1249). Called once per frame from ProcessScene3DSharedLogic.
+        void PublishGroomStrandRequests();
+
+        /// Fill in `request`'s binding half: resolve the body, check the binding
+        /// against it, decide whether the previous frame is comparable, and
+        /// evaluate the root transforms for the strands the budget will draw.
+        ///
+        /// Leaves the request UNBOUND and records a reason on every refusal.
+        /// There is deliberately no path here that rebinds, re-snaps or falls
+        /// back to a nearest point: a coat that is quietly attached to the wrong
+        /// part of the body is the failure this whole feature exists to prevent
+        /// (GroomBinding.h says so at more length).
+        void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request);
+
+        /// Drop every bound groom's previous-frame data, attributing the cause.
+        /// For wholesale discontinuities: scene load, play-mode transitions —
+        /// the groom twin of SkeletalDeformationSystem::ResetHistory, and called
+        /// from the same places for the same reason.
+        void ResetGroomBindingHistory(GroomHistoryResetCause cause);
 
         // ── Cloth skeleton attachment (issue #460 cape slice) ──────────────────
         // Declared here (not up by PostPhysicsSync) because they reference the

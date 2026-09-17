@@ -391,6 +391,13 @@ static void BuildRegistryChunk5(std::vector<FieldEntry>& registry)
 // GoapAgentComponent
 registry.push_back(OLO_GFW_FIELD(GoapAgentComponent, "Enabled", Enabled));
 
+// GroomBindingComponent
+registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "Binding", m_Binding));
+registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "TargetEntity", m_TargetEntity));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomBindingComponent, "TeleportDistance", m_TeleportDistance, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(10000.0f)));
+registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "Enabled", m_Enabled));
+registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "ShowBindingPreview", m_ShowBindingPreview));
+
 // GroomComponent
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "Groom", m_Groom));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
@@ -439,6 +446,10 @@ registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", Target
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "InstanceType", InstanceType));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers));
 
+}
+
+static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
+{
 // InstancedMeshComponent
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "Primitive", Primitive));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic));
@@ -447,10 +458,6 @@ registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "FrustumCullPerInstance
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CastShadows", CastShadows));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "CullDistance", CullDistance));
 
-}
-
-static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
-{
 // InventoryComponent
 registry.push_back(OLO_GFW_FIELD(InventoryComponent, "PlayerInventory.MaxWeight", PlayerInventory.MaxWeight));
 registry.push_back(OLO_GFW_FIELD(InventoryComponent, "Currency", Currency));

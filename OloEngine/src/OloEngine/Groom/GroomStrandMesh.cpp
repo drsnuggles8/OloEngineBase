@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <limits>
 
 namespace OloEngine
 {
@@ -102,6 +103,35 @@ namespace OloEngine
         }
     } // namespace
 
+    void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                 std::vector<u32>& outCurves)
+    {
+        outCurves.clear();
+
+        // Deliberately the SAME eligibility test and the SAME stride arithmetic
+        // the build uses, reached through the same helpers rather than
+        // reimplemented: a selection that disagreed with the build by one curve
+        // would deform a strand that is not drawn and draw a strand that was
+        // not deformed, and the second of those is a coat with one stiff hair
+        // in it that no assertion would ever catch.
+        const Selection selection = SelectCurves(groom, settings);
+        outCurves.reserve(selection.Selected);
+
+        u32 taken = 0;
+        for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+        {
+            if (!CurveIsEligible(groom, curve, settings))
+            {
+                continue;
+            }
+            if ((taken % selection.Stride) == 0u)
+            {
+                outCurves.push_back(curve);
+            }
+            ++taken;
+        }
+    }
+
     GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings)
     {
         GroomStrandMeshStats stats;
@@ -151,10 +181,18 @@ namespace OloEngine
     }
 
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
-                                              std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices)
+                                              std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
+                                              const GroomStrandDeformation* deformation)
     {
         outVertices.clear();
         outIndices.clear();
+
+        // A deformation that does not span this groom is treated as ABSENT
+        // rather than partially applied. Half a deformed coat is the plausible
+        // wrong image #1249 exists to prevent; an undeformed one is visibly at
+        // the bind pose, and the caller already counted the refusal that got it
+        // here (GroomBindingRejectReason).
+        const bool deformed = deformation != nullptr && deformation->IsUsable(groom.GetCurveCount());
 
         GroomStrandMeshStats stats;
         const Selection selection = SelectCurves(groom, settings);
@@ -169,6 +207,9 @@ namespace OloEngine
 
         const auto& points = groom.GetPoints();
         const auto& widths = groom.GetPointWidths();
+
+        glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
+        glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
 
         u32 taken = 0;
         u32 emittedSegments = 0;
@@ -195,6 +236,31 @@ namespace OloEngine
             const u32 count = groom.GetCurvePointCount(curve);
             const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
 
+            // One lookup per CURVE, not per point: the root transform is a
+            // property of the strand, and re-reading it per segment would be the
+            // dominant cost of a long coat for no change in the result.
+            const GroomRootBinding* record = nullptr;
+            const GroomRootTransform* transform = nullptr;
+            if (deformed)
+            {
+                record = &deformation->Binding->GetRoot(curve);
+                transform = &deformation->RootTransforms[curve];
+                if (!transform->Valid)
+                {
+                    // Held at rest, and counted, exactly as
+                    // EvaluateGroomRootTransforms intends: a patch of coat that
+                    // does not move is diagnosable, a patch that flies off is a
+                    // bug report about the wrong subsystem.
+                    ++stats.StrandsHeldAtRest;
+                }
+            }
+
+            const auto place = [&](const glm::vec3& restPoint, bool previous)
+            {
+                return transform != nullptr ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
+                                            : restPoint;
+            };
+
             for (u32 i = 0; i + 1u < count; ++i)
             {
                 if (emittedSegments >= settings.MaxSegments)
@@ -208,12 +274,24 @@ namespace OloEngine
                     break;
                 }
 
-                const glm::vec3& p0 = points[first + i];
-                const glm::vec3& p1 = points[first + i + 1u];
+                // The REST points from the asset, then the deformed pair this
+                // frame and the deformed pair last frame. An undeformed groom
+                // takes the identity path through `place`, so `p0 == rest0` and
+                // `prev0 == p0` and the emitted bytes are what they were before
+                // #1249.
+                const glm::vec3& rest0 = points[first + i];
+                const glm::vec3& rest1 = points[first + i + 1u];
+                const glm::vec3 p0 = place(rest0, false);
+                const glm::vec3 p1 = place(rest1, false);
+                const glm::vec3 prev0 = place(rest0, true);
+                const glm::vec3 prev1 = place(rest1, true);
                 // Stored the same way for every corner of the quad so the
                 // vertex shader derives ONE screen-space tangent per segment.
                 // See GroomStrandVertex::Other for what goes wrong otherwise.
                 const glm::vec3 delta = p1 - p0;
+
+                boundsMin = glm::min(boundsMin, glm::min(p0, p1));
+                boundsMax = glm::max(boundsMax, glm::max(p0, p1));
 
                 // The cooked widths are DIAMETERS (the Alembic/USD
                 // convention); the halving happens exactly once, here.
@@ -235,6 +313,7 @@ namespace OloEngine
                 // (-side at P1) — a quad, not a bowtie, because `Other` gives
                 // all four the same tangent.
                 vertex.Position = p0;
+                vertex.PrevPosition = prev0;
                 vertex.Other = p0 + delta;
                 vertex.Radius = r0;
                 vertex.Side = -1.0f;
@@ -246,6 +325,7 @@ namespace OloEngine
                 outVertices.push_back(vertex);
 
                 vertex.Position = p1;
+                vertex.PrevPosition = prev1;
                 vertex.Other = p1 + delta;
                 vertex.Radius = r1;
                 vertex.Side = 1.0f;
@@ -277,6 +357,17 @@ namespace OloEngine
         stats.IndexCount = static_cast<u32>(outIndices.size());
         stats.VertexBytes = static_cast<u64>(stats.VertexCount) * sizeof(GroomStrandVertex);
         stats.IndexBytes = static_cast<u64>(stats.IndexCount) * sizeof(u32);
+
+        // The box is published only if something was emitted. The sentinel
+        // (max, lowest) is a perfectly valid-looking box that contains
+        // everything, and handing it to a culler as though it were a measurement
+        // is how an empty groom becomes a groom that is never culled.
+        stats.BoundsValid = emittedSegments != 0u;
+        if (stats.BoundsValid)
+        {
+            stats.BoundsMin = boundsMin;
+            stats.BoundsMax = boundsMax;
+        }
         return stats;
     }
 } // namespace OloEngine

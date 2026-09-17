@@ -46,7 +46,15 @@ namespace OloEngine
                                  { ShaderDataType::Float, "a_Radius" },
                                  { ShaderDataType::Float2, "a_Coords" },
                                  { ShaderDataType::Float, "a_SegmentId" },
-                                 { ShaderDataType::Float, "a_Pad0" } };
+                                 { ShaderDataType::Float, "a_Pad0" },
+                                 // #1249: last frame's centreline point. Declared
+                                 // even though an unbound groom writes it equal to
+                                 // a_Position, because a layout that varied with
+                                 // the binding would make NVIDIA specialize a
+                                 // vertex-shader variant per groom (GL debug id
+                                 // 131218) and would need a second shader.
+                                 { ShaderDataType::Float3, "a_PrevPosition" },
+                                 { ShaderDataType::Float, "a_Pad1" } };
         }
     } // namespace
 
@@ -149,30 +157,72 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        // A DEFORMED groom's vertices depend on a body's pose, so its geometry
+        // is per ENTITY: two characters sharing one groom asset at one budget
+        // must not share one buffer. Mixing the entity id in only on the
+        // deformed arm keeps the unbound key, and therefore every unbound
+        // groom's sharing, exactly as it was.
+        if (IsDeformed(request))
+        {
+            key = mix(key, static_cast<u64>(static_cast<u32>(request.EntityID)));
+            key = mix(key, 0x1249ull);
+        }
         return key;
+    }
+
+    bool GroomRenderPass::IsDeformed(const GroomStrandRequest& request) noexcept
+    {
+        // The transform array must span the whole groom, not merely be
+        // non-empty: the build indexes it by curve, and a short array would read
+        // past its end on the first strand past the boundary.
+        return request.Groom && request.Binding &&
+               request.RootTransforms.size() == request.Groom->GetCurveCount();
     }
 
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireGeometry(const GroomStrandRequest& request)
     {
+        const bool deformed = IsDeformed(request);
         const u64 key = CacheKey(request);
-        if (const auto it = m_Cache.find(key); it != m_Cache.end())
+
+        const auto existing = m_Cache.find(key);
+        if (existing != m_Cache.end())
         {
             // The settings are in the KEY, so a hit is already a settings
             // match; the comparison survives only to catch a hash collision,
             // which would otherwise hand back geometry built for a different
             // budget.
-            if (it->second.Settings == request.Build && it->second.Array)
+            const bool usable = existing->second.Settings == request.Build && existing->second.Array &&
+                                existing->second.Dynamic == deformed;
+            if (usable && !deformed)
             {
-                it->second.LastUsedFrame = m_CacheTick;
-                return &it->second;
+                existing->second.LastUsedFrame = m_CacheTick;
+                return &existing->second;
             }
-            m_CacheBytes -= it->second.Bytes;
-            m_Cache.erase(it);
+            if (!usable)
+            {
+                m_CacheBytes -= existing->second.Bytes;
+                m_Cache.erase(existing);
+            }
+        }
+
+        // A bound groom is rebuilt EVERY frame and its buffers are refilled in
+        // place. There is no skip-if-unchanged here, deliberately: the pose that
+        // would have to be compared lives on the tick thread and is rewritten
+        // before this pass runs, so a comparison made here would be against the
+        // wrong frame's palette. The producer is where a skip belongs if one is
+        // ever wanted, and it has the pose (see
+        // RayTracing::DeformedSurfaceCache, which does exactly that).
+        GroomStrandDeformation deformation;
+        if (deformed)
+        {
+            deformation.Binding = request.Binding.Raw();
+            deformation.RootTransforms = request.RootTransforms;
         }
 
         std::vector<GroomStrandVertex> vertices;
         std::vector<u32> indices;
-        const GroomStrandMeshStats stats = BuildGroomStrandMesh(*request.Groom, request.Build, vertices, indices);
+        const GroomStrandMeshStats stats =
+            BuildGroomStrandMesh(*request.Groom, request.Build, vertices, indices, deformed ? &deformation : nullptr);
         if (vertices.empty() || indices.empty())
         {
             // An empty groom is not an error — a guides-only view of a groom
@@ -181,13 +231,50 @@ namespace OloEngine
             return nullptr;
         }
 
+        // The refill path: same entity, same budget, same vertex and index
+        // counts, so only the BYTES changed. Reallocating instead would churn a
+        // GPU buffer every frame for every bound groom in the scene, which is
+        // the cost this branch exists to remove — and the counts are stable by
+        // construction, because deforming a strand moves its points and never
+        // changes how many segments it has.
+        if (const auto entryIt = m_Cache.find(key); deformed && entryIt != m_Cache.end())
+        {
+            CacheEntry& entry = entryIt->second;
+            if (entry.Dynamic && entry.Array && entry.Vertices && entry.Stats.VertexCount == stats.VertexCount &&
+                entry.Stats.IndexCount == stats.IndexCount)
+            {
+                entry.Vertices->SetData({ vertices.data(), static_cast<u32>(stats.VertexBytes) });
+                entry.Stats = stats;
+                entry.LastUsedFrame = m_CacheTick;
+                ++m_Stats.DeformedRebuilds;
+                return &entry;
+            }
+            m_CacheBytes -= entry.Bytes;
+            m_Cache.erase(entryIt);
+        }
+
         CacheEntry entry;
         entry.Settings = request.Build;
         entry.Stats = stats;
         entry.Bytes = stats.VertexBytes + stats.IndexBytes;
         entry.LastUsedFrame = m_CacheTick;
+        entry.Dynamic = deformed;
 
-        entry.Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
+        if (deformed)
+        {
+            // Sized-then-filled, so the buffer is created with a usage the
+            // backend can refill. Create(data, size) mints an immutable one on
+            // the GL backend, and SetData on it is a silent no-op — the coat
+            // would render at whatever pose it was first built in, forever, with
+            // nothing logged.
+            entry.Vertices = VertexBuffer::Create(static_cast<u32>(stats.VertexBytes));
+            entry.Vertices->SetData({ vertices.data(), static_cast<u32>(stats.VertexBytes) });
+            ++m_Stats.DeformedRebuilds;
+        }
+        else
+        {
+            entry.Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
+        }
         entry.Vertices->SetLayout(StrandVertexLayout());
         entry.Indices = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
         entry.Array = VertexArray::Create();
@@ -316,6 +403,26 @@ namespace OloEngine
 
             const GroomCompositionDecision decision = DecideComposition(request.RequestedMode);
             m_Stats.Composition.Record(decision);
+
+            // Counted BEFORE the geometry is acquired, so a refused binding is
+            // reported even on a frame whose groom produced no geometry at all.
+            // Counting it after the `continue` below is how a counter that means
+            // "a coat is stuck at its bind pose" reads zero on exactly the
+            // frames it matters.
+            if (request.BindingReject != GroomBindingRejectReason::None)
+            {
+                ++m_Stats.GroomsBindingRefused;
+            }
+            if (IsDeformed(request))
+            {
+                ++m_Stats.GroomsDeformed;
+                m_Stats.RootsDeformed += request.DeformationStats.RootsDeformed;
+                m_Stats.RootsHeldAtRest += request.DeformationStats.RootsHeldDegenerate;
+                if (!request.DeformationStats.HasHistory)
+                {
+                    ++m_Stats.GroomsHistoryRejected;
+                }
+            }
 
             CacheEntry* entry = AcquireGeometry(request);
             if (entry == nullptr || !entry->Array)

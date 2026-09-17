@@ -112,6 +112,10 @@ namespace OloEngine
         // the importer detecting ICurves, not by its extension, because one
         // extension carries both schemas.
         s_ExtensionMap["ologroom"] = AssetType::Groom;
+        // Cooked groom-to-body binding (#1249) — the OUTPUT of
+        // GroomBindingBuilder, cooked by GroomBindingCooker. Like .ologroom it
+        // needs no importer dependency to read: the decode is pure binary.
+        s_ExtensionMap["ologroombinding"] = AssetType::GroomBinding;
         // Dense volumetric density grid (#724) — the cook-time OUTPUT of the
         // OpenVDB importer (OloEngine-VolumeCook, editor-only). Registered
         // unconditionally (not behind an OLO_WITH_* gate like the .abc/.usd*

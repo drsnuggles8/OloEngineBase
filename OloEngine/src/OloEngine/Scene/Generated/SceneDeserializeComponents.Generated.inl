@@ -503,6 +503,17 @@ if (auto node = entity["FootIKComponent"]; node)
     comp.RightHandEnabled = node["RightHandEnabled"].as<bool>(comp.RightHandEnabled);
 }
 
+if (auto node = entity["GroomBindingComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomBindingComponent>();
+    comp.m_Binding = node["Binding"].as<u64>(static_cast<u64>(comp.m_Binding));
+    comp.m_TargetEntity = node["TargetEntity"].as<u64>(static_cast<u64>(comp.m_TargetEntity));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TeleportDistance"], v))
+        comp.m_TeleportDistance = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_ShowBindingPreview = node["ShowBindingPreview"].as<bool>(comp.m_ShowBindingPreview);
+}
+
 if (auto node = entity["GroomComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();

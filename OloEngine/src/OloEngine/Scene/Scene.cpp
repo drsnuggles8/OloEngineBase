@@ -847,6 +847,19 @@ namespace OloEngine
             m_ClothRuntime.erase(entityUUID);
         }
 
+        // The groom binding's per-entity runtime state, for the same reason the
+        // cloth's is dropped above: it is keyed by UUID and nothing else ever
+        // removes it, so a destroyed bound groom would leave its per-curve
+        // transform vector resident for the Scene's lifetime — 64 bytes per
+        // strand, which on a 200k-strand coat is 12 MB per despawned character.
+        //
+        // Unconditional rather than gated on HasComponent<GroomBindingComponent>:
+        // erase on a key that is not there costs a lookup and returns zero, and
+        // gating on the component would miss an entity whose component was
+        // removed after it was last deformed — which is precisely when the
+        // state is stale (#1249).
+        m_GroomBindingRuntime.erase(entityUUID);
+
         // Release the crowd agent slot (issue #616) — m_Registry.destroy() below
         // doesn't fire OnComponentRemoved<NavAgentComponent>, so without this an
         // agent belonging to a destroyed entity keeps occupying a DetourCrowd slot
@@ -1463,6 +1476,11 @@ namespace OloEngine
             this, Animation::DeformationHistoryResetCause::SceneTransition);
         Animation::MorphDeformationSystem::ResetHistory(
             this, Animation::DeformationHistoryResetCause::SceneTransition);
+        // ...and so is every bound groom's, for exactly the same reason: the
+        // previous strand positions were produced from the edit-mode pose, so a
+        // velocity measured against them is a jump across the session boundary
+        // and TAA smears the whole coat on the first runtime frame (#1249).
+        ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
 
         // Item definitions are runtime data, not an editor-only cache. Loading
         // them at the shared Scene entry point covers Editor Play, OloRuntime,
@@ -1805,6 +1823,11 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        // Leaving Play is the same discontinuity as entering it, seen from the
+        // other side: the coat that is about to be drawn is the edit-mode one
+        // and the positions held describe the runtime pose (#1249).
+        ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+
         // Unified diagnostics timeline (#306): the authoritative "left Play mode"
         // fire. Recorded up front, while the scene is still intact. Teardown below tears
         // down systems but does not route through Scene::DestroyEntity, so no spurious
@@ -1964,6 +1987,9 @@ namespace OloEngine
 
     void Scene::OnSimulationStart()
     {
+        // Same discontinuity as OnRuntimeStart (#1249).
+        ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+
         // Same reset as OnRuntimeStart — simulation mode also re-baselines the
         // animation clock so first-frame velocity reprojection isn't bogus, and
         // zeroes the deterministic fixed-timestep clock so each Simulate session
@@ -2009,6 +2035,9 @@ namespace OloEngine
 
     void Scene::OnSimulationStop()
     {
+        // Same discontinuity as OnRuntimeStop (#1249).
+        ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+
         OnPhysics2DStop();
         OnPhysics3DStop();
 
@@ -2169,6 +2198,30 @@ namespace OloEngine
     // BY VALUE, not by reference: Mesh::GetMeshSource() returns a Ref by value, so
     // a reference return would bind to a temporary and dangle the moment the caller
     // used it.
+    // Declared ahead of the definition below so the two public resolvers can sit
+    // next to each other rather than being split around it.
+    static Ref<MeshSource> AnimatedSurfaceSource(const LODGroupComponent* lodComp, const MeshComponent& meshComp);
+
+    Ref<MeshSource> Scene::ResolveAnimatedSurface(const LODGroupComponent* lodComp,
+                                                  const MeshComponent& meshComp)
+    {
+        return AnimatedSurfaceSource(lodComp, meshComp);
+    }
+
+    const Skeleton* Scene::ResolveSurfaceSkeleton(const SkeletonComponent* skeletonComp,
+                                                  const Ref<MeshSource>& surface)
+    {
+        if (skeletonComp != nullptr && skeletonComp->m_Skeleton)
+        {
+            return skeletonComp->m_Skeleton.Raw();
+        }
+        // A body whose skeleton lives on the MeshSource rather than on a
+        // SkeletonComponent. Both authoring shapes exist in this repo, and a
+        // consumer that understood only one would silently stop deforming on
+        // the other.
+        return surface && surface->HasSkeleton() ? surface->GetSkeleton() : nullptr;
+    }
+
     static Ref<MeshSource> AnimatedSurfaceSource(const LODGroupComponent* lodComp,
                                                  const MeshComponent& meshComp)
     {
@@ -7929,6 +7982,463 @@ namespace OloEngine
         return input;
     }
 
+    // =========================================================================
+    // Groom surface binding (issue #1249)
+    // =========================================================================
+
+    namespace
+    {
+        // The history cause a binding refusal amounts to.
+        //
+        // A refusal IS a discontinuity, and which one matters: the editor and
+        // the statistics panel show the cause, so answering "BindingChanged" for
+        // a body that has not finished loading sends the reader to the wrong
+        // asset. One mapping, in one place, rather than a cause chosen at each
+        // of the eight refusal sites.
+        [[nodiscard]] GroomHistoryResetCause GroomHistoryCauseFor(GroomBindingRejectReason reason)
+        {
+            switch (reason)
+            {
+                case GroomBindingRejectReason::NoTarget:
+                case GroomBindingRejectReason::TargetNotReady:
+                    return GroomHistoryResetCause::TargetChanged;
+                case GroomBindingRejectReason::TargetTopologyMismatch:
+                case GroomBindingRejectReason::TriangleOutOfRange:
+                    return GroomHistoryResetCause::TargetTopologyChanged;
+                case GroomBindingRejectReason::None:
+                case GroomBindingRejectReason::NoBinding:
+                case GroomBindingRejectReason::BinderVersionMismatch:
+                case GroomBindingRejectReason::RootCountMismatch:
+                case GroomBindingRejectReason::SourceSignatureMismatch:
+                case GroomBindingRejectReason::Count:
+                    break;
+            }
+            return GroomHistoryResetCause::BindingChanged;
+        }
+
+        // Identity of the skeleton behind a surface, for
+        // GroomBindingTargetSignature::SkeletonNameHash.
+        //
+        // The BONE NAMES rather than the pointer, because the check has to
+        // survive a reload: the same rig loaded twice is two Skeleton objects
+        // and one rig, and keying on the address would refuse every binding
+        // after the first asset reload. Names in order, so a re-rig that merely
+        // reorders bones is still a change — which it is, because the palette
+        // the runtime indexes is ordered.
+        [[nodiscard]] u64 HashSkeletonIdentity(const Skeleton* skeleton)
+        {
+            if (skeleton == nullptr)
+            {
+                return 0;
+            }
+            u64 hash = 1469598103934665603ull;
+            for (const auto& name : skeleton->m_BoneNames)
+            {
+                for (const char c : name)
+                {
+                    hash ^= static_cast<u64>(static_cast<unsigned char>(c));
+                    hash *= 1099511628211ull;
+                }
+                hash ^= 0xFFull; // a separator, so {"ab","c"} and {"a","bc"} differ
+                hash *= 1099511628211ull;
+            }
+            return hash;
+        }
+
+        // The surface as the binder and the deformation both see it.
+        //
+        // The positions are the mesh's LIVE vertex array, which the morph pass
+        // has already deformed in place — that is what makes a facial morph
+        // reach the coat with no morph-specific code in the groom at all. The
+        // INDEX hash is recomputed here every frame and that is deliberate: it
+        // is the one topology check that survives morphing, so it has to be
+        // taken from the same array the deformation will read rather than from
+        // something cached beside it.
+        [[nodiscard]] GroomSurfaceView MakeGroomSurfaceView(const MeshSource& surface, const Skeleton* skeleton)
+        {
+            GroomSurfaceView view;
+            const auto& vertices = surface.GetVertices();
+            const auto& indices = surface.GetIndices();
+            if (vertices.IsEmpty() || indices.IsEmpty())
+            {
+                return view;
+            }
+
+            static_assert(offsetof(Vertex, Position) == 0,
+                          "GroomSurfaceView addresses positions at the start of a Vertex");
+            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
+            view.PositionStride = static_cast<u32>(sizeof(Vertex));
+            view.VertexCount = static_cast<u32>(vertices.Num());
+            view.Indices = indices.GetData();
+            view.IndexCount = static_cast<u32>(indices.Num());
+            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
+            view.SkeletonNameHash = HashSkeletonIdentity(skeleton);
+            return view;
+        }
+
+        // The bone influences as the deformation sees them.
+        //
+        // Both pointers address the SAME BoneInfluence array at different
+        // offsets and share its stride — see GroomSkinningView. The offsetof
+        // asserts are what make that a build failure rather than a coat skinned
+        // by whatever four floats happened to sit where the weights used to.
+        [[nodiscard]] GroomSkinningView MakeGroomSkinningView(const MeshSource& surface, const Skeleton* skeleton)
+        {
+            GroomSkinningView view;
+            if (skeleton == nullptr || skeleton->m_FinalBoneMatrices.empty())
+            {
+                return view;
+            }
+            const auto& influences = surface.GetBoneInfluences();
+            if (influences.IsEmpty() || influences.Num() != surface.GetVertices().Num())
+            {
+                // A surface with no influences, or a partial stream after an
+                // external edit, is treated as ABSENT rather than sampled out of
+                // range — the rule MeshSource::HasLightmapUVs states for its own
+                // parallel stream. The coat then follows the morphed positions
+                // only, which is right for a morph-only face rig and visibly
+                // wrong for a skinned body, so it is not a silent degradation.
+                return view;
+            }
+
+            static_assert(offsetof(BoneInfluence, m_BoneIDs) == 0);
+            static_assert(offsetof(BoneInfluence, m_Weights) == 16);
+            static_assert(sizeof(BoneInfluence) == 32);
+
+            const auto* base = reinterpret_cast<const std::byte*>(influences.GetData());
+            view.BoneIds = reinterpret_cast<const u32*>(base + offsetof(BoneInfluence, m_BoneIDs));
+            view.Weights = reinterpret_cast<const f32*>(base + offsetof(BoneInfluence, m_Weights));
+            view.Stride = static_cast<u32>(sizeof(BoneInfluence));
+            view.VertexCount = static_cast<u32>(influences.Num());
+            view.Palette = { skeleton->m_FinalBoneMatrices.data(), skeleton->m_FinalBoneMatrices.size() };
+            view.PrevPalette = { skeleton->m_PrevFinalBoneMatrices.data(),
+                                 skeleton->m_PrevFinalBoneMatrices.size() };
+            // READ from the shared output, never re-derived: a second spelling
+            // of "does this skeleton have a previous pose" is a second thing
+            // that can disagree with the palettes it describes (#1226).
+            view.HasPreviousPose = skeleton->HasBoneHistory();
+            return view;
+        }
+    } // anonymous namespace
+
+    void Scene::ResetGroomBindingHistory(GroomHistoryResetCause cause)
+    {
+        // The state is KEPT and its history flag cleared, rather than the map
+        // being emptied. Emptying it would make the next frame report FirstUse
+        // for every groom and lose the cause the caller just named — and the
+        // whole point of attributing a reset is that the editor can say
+        // "SceneTransition" rather than "something happened".
+        for (auto& [id, state] : m_GroomBindingRuntime)
+        {
+            state.m_HasHistory = false;
+            state.m_ResetCause = cause;
+        }
+    }
+
+    void Scene::PublishGroomStrandRequests()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        std::vector<GroomStrandRequest> groomRequests;
+        const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
+        for (const auto entity : groomView)
+        {
+            const auto& groomComponent = groomView.get<GroomComponent>(entity);
+            if (!groomComponent.m_RenderStrands || groomComponent.m_Groom == 0)
+            {
+                continue;
+            }
+
+            auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
+            if (!groom)
+            {
+                continue; // the asset manager already logged the miss
+            }
+
+            const i32 entityID = static_cast<i32>(std::to_underlying(entity));
+            const Entity groomEntity{ entity, this };
+            const glm::mat4 worldTransform = GetWorldTransform(groomEntity);
+
+            GroomStrandRequest request;
+            request.Groom = groom;
+            request.Handle = groomComponent.m_Groom;
+            request.Transform = worldTransform;
+            // The shared per-entity cache, so a groom that MOVES emits real
+            // motion vectors rather than the zero a self-aliased transform would
+            // give. It aliases on an entity's first frame, which is what makes a
+            // newly spawned groom's velocity zero instead of undefined.
+            request.PreviousTransform = Renderer3D::GetAndRecordPrevTransform(entityID, worldTransform);
+            request.Color = groomComponent.m_StrandColor;
+            request.WidthScale = groomComponent.m_WidthScale;
+            request.EntityID = entityID;
+            request.RequestedMode = IsValidGroomCompositionMode(static_cast<i32>(groomComponent.m_CompositionMode))
+                                        ? static_cast<GroomCompositionMode>(groomComponent.m_CompositionMode)
+                                        : GroomCompositionMode::OpaqueRibbon;
+            request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
+            request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
+
+            DeformGroomAgainstSurface(groomEntity, *groom, request);
+
+            groomRequests.push_back(std::move(request));
+        }
+        Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
+    }
+
+    void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)
+    {
+        auto* binding = m_Registry.try_get<GroomBindingComponent>(groomEntity);
+        if (binding == nullptr || !binding->m_Enabled)
+        {
+            // Not a refusal. A groom with no binding component never asked to be
+            // attached to anything, and reporting it as refused would make every
+            // #1246 scene read as a scene full of errors.
+            return;
+        }
+
+        const UUID groomId = groomEntity.GetUUID();
+        auto& state = m_GroomBindingRuntime[groomId];
+
+        const auto refuse = [&](GroomBindingRejectReason reason)
+        {
+            request.BindingReject = reason;
+            request.Binding = nullptr;
+            request.RootTransforms.clear();
+            // A refusal is a discontinuity: on the frame it happens, whatever
+            // previous positions this entity held describe a coat that is no
+            // longer being deformed. Clearing the flag makes the frame AFTER a
+            // recovery emit zero motion rather than a jump from the bind pose.
+            //
+            // The cause is MAPPED from the refusal rather than fixed at one
+            // value, because the cause is what the editor shows and "the binding
+            // changed" is an actively misleading thing to say about a body that
+            // has not finished loading.
+            state.m_HasHistory = false;
+            state.m_ResetCause = GroomHistoryCauseFor(reason);
+            // The cached verdict is NOT cleared here: it is keyed on the same
+            // identity fields this function leaves untouched, so the next frame
+            // re-derives it exactly when one of them moves. Clearing it would
+            // re-hash every vertex of the body on every frame a groom is
+            // unbound, which is the case a scene full of authored-but-unbound
+            // grooms is in.
+        };
+
+        if (binding->m_Binding == 0)
+        {
+            refuse(GroomBindingRejectReason::NoBinding);
+            return;
+        }
+        auto bindingAsset = AssetManager::GetAsset<GroomBindingAsset>(binding->m_Binding);
+        if (!bindingAsset)
+        {
+            refuse(GroomBindingRejectReason::NoBinding);
+            return;
+        }
+
+        // ── Resolve the body ────────────────────────────────────────────────
+        // A zero target entity means "this entity's own mesh", which is the
+        // common authoring case for a groom parented under its character.
+        Entity targetEntity =
+            binding->m_TargetEntity != 0 ? GetEntityByUUID(binding->m_TargetEntity) : groomEntity;
+        if (!targetEntity)
+        {
+            refuse(GroomBindingRejectReason::NoTarget);
+            return;
+        }
+        auto* meshComponent = m_Registry.try_get<MeshComponent>(targetEntity);
+        if (meshComponent == nullptr)
+        {
+            refuse(GroomBindingRejectReason::NoTarget);
+            return;
+        }
+
+        // The surface the deformation pass WROTE, not the authored LOD 0 — the
+        // same resolver the animated draw loop and the morph pass ask, and for
+        // the same reason (#1227): a binding that read a different level than
+        // the body draws would deform the coat by a mesh nobody can see.
+        Ref<MeshSource> surface =
+            AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(targetEntity), *meshComponent);
+        if (!surface || surface->GetVertices().IsEmpty() || surface->GetIndices().IsEmpty())
+        {
+            refuse(GroomBindingRejectReason::TargetNotReady);
+            return;
+        }
+
+        const Skeleton* skeleton =
+            ResolveSurfaceSkeleton(m_Registry.try_get<SkeletonComponent>(targetEntity), surface);
+        const auto* morph = m_Registry.try_get<MorphTargetComponent>(targetEntity);
+
+        const GroomSurfaceView view = MakeGroomSurfaceView(*surface, skeleton);
+        if (!view.IsUsable())
+        {
+            refuse(GroomBindingRejectReason::TargetNotReady);
+            return;
+        }
+
+        // ── Compatibility, and it REFUSES rather than rebinding ─────────────
+        // Re-derived only when one of the cheap identity keys moved — see
+        // GroomBindingRuntimeState::m_CachedVerdict for why hashing every vertex
+        // and every index on every frame is a cost rather than a check. The keys
+        // are compared BEFORE the signatures are taken, so the expensive path
+        // runs on an asset swap, a mesh rebuild or an LOD switch and not
+        // otherwise.
+        const bool identityMoved = !state.m_HasCachedVerdict || state.m_Binding != binding->m_Binding ||
+                                   state.m_Groom != request.Handle ||
+                                   state.m_Target != targetEntity.GetUUID() ||
+                                   state.m_TargetGeneration != surface->GetGeneration() ||
+                                   state.m_TargetVertexCount != view.VertexCount ||
+                                   state.m_TargetIndexCount != view.IndexCount;
+        if (identityMoved)
+        {
+            state.m_CachedVerdict = bindingAsset->CheckCompatibility(GroomBindingBuilder::SignGroom(groom),
+                                                                     GroomBindingBuilder::SignTarget(view));
+            state.m_HasCachedVerdict = true;
+        }
+        if (const GroomBindingRejectReason reason = state.m_CachedVerdict;
+            reason != GroomBindingRejectReason::None)
+        {
+            // Logged on a CHANGE of reason, never per frame: the same refusal
+            // sixty times a second is a log flood rather than a diagnostic, and
+            // the counter in GroomRenderStats is what makes it countable.
+            if (state.m_LastReportedReject != reason)
+            {
+                state.m_LastReportedReject = reason;
+                OLO_CORE_WARN("Groom binding refused for entity {}: {}", static_cast<u64>(groomId),
+                              DescribeGroomBindingReject(reason));
+            }
+            refuse(reason);
+            return;
+        }
+        state.m_LastReportedReject = GroomBindingRejectReason::None;
+
+        // ── History: is the previous frame comparable? ───────────────────────
+        //
+        // Every branch names a DIFFERENT cause, because a coat that ghosts has
+        // to be diagnosable — "the history was dropped" is not an answer anyone
+        // can act on. The order is most-fundamental first, like every other
+        // refusal ladder in this subsystem.
+        const glm::vec3 targetWorldPosition = glm::vec3(GetWorldTransform(targetEntity)[3]);
+        const u64 morphStateHash = HashMorphState(morph);
+
+        GroomHistoryResetCause cause = GroomHistoryResetCause::None;
+        if (!state.m_HasHistory)
+        {
+            cause = state.m_ResetCause; // whatever dropped it, already attributed
+        }
+        else if (state.m_Binding != binding->m_Binding || state.m_Groom != request.Handle)
+        {
+            cause = GroomHistoryResetCause::BindingChanged;
+        }
+        else if (state.m_Target != targetEntity.GetUUID() || state.m_TargetGeneration != surface->GetGeneration())
+        {
+            cause = GroomHistoryResetCause::TargetChanged;
+        }
+        else if (state.m_TargetVertexCount != view.VertexCount || state.m_TargetIndexCount != view.IndexCount)
+        {
+            // An LOD switch that kept the same MeshSource generation but changed
+            // the surface. Different topology is a different surface, so the
+            // previous strand positions describe a coat that no longer exists.
+            cause = GroomHistoryResetCause::TargetTopologyChanged;
+        }
+        else if (skeleton != nullptr && !skeleton->HasContinuousDeformation())
+        {
+            // Read from the shared deformation output's OWN verdict (#1228)
+            // rather than re-derived from the palettes: the producer owns the
+            // rule, and a consumer that re-decided it would emit a velocity the
+            // body's shaders did not compute.
+            cause = GroomHistoryResetCause::AnimationReset;
+        }
+        else if (skeleton != nullptr && state.m_DeformationRevision != skeleton->m_DeformationRevision &&
+                 state.m_DeformationRevision != skeleton->m_PrevDeformationRevision)
+        {
+            // The BODY is continuous but this COAT is not: it was disabled,
+            // refused or simply not submitted on the frame the previous palette
+            // describes, so there is no previous coat to measure against it.
+            // Deriving a velocity anyway would apply the body's motion to a
+            // strand that was standing at its bind pose last frame — the exact
+            // smear the history contract exists to prevent, arriving on the
+            // frame a coat is re-enabled.
+            //
+            // TWO accepted values, not one, and the first is what makes this
+            // safe to evaluate more than once per frame: a scene rendered for a
+            // second camera re-enters this function with the palette unmoved, so
+            // `state` already holds the CURRENT revision. Accepting only the
+            // previous one would reject history on every second viewport.
+            cause = GroomHistoryResetCause::DeformationSkipped;
+        }
+        else if (state.m_MorphStateHash != morphStateHash)
+        {
+            // The morphed rest surface this frame is not the one last frame
+            // drew. There is only ever ONE morphed vertex array, so a previous
+            // position derived from it would be this frame's expression in last
+            // frame's pose — a hybrid that is neither, and exactly the rejection
+            // MorphDeformationSystem already makes for the body itself.
+            cause = GroomHistoryResetCause::MorphSurfaceChanged;
+        }
+        else if (const f32 jump = glm::length(targetWorldPosition - state.m_TargetWorldPosition);
+                 jump > binding->m_TeleportDistance)
+        {
+            cause = GroomHistoryResetCause::Teleport;
+        }
+
+        const bool hasHistory = cause == GroomHistoryResetCause::None;
+
+        // ── Deform, but only the strands that will be drawn ─────────────────
+        SelectGroomStrandCurves(groom, request.Build, state.m_SelectedCurves);
+
+        GroomDeformationInputs inputs;
+        inputs.Surface = view;
+        inputs.Skinning = MakeGroomSkinningView(*surface, skeleton);
+        inputs.HasHistory = hasHistory;
+
+        request.DeformationStats = EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
+                                                               state.m_SelectedCurves, state.m_Transforms);
+        request.Binding = bindingAsset;
+        request.BindingReject = GroomBindingRejectReason::None;
+
+        // The binding preview is drawn HERE, not in the gizmo loop, and the
+        // reason is the whole value of the view: these are the transforms the
+        // strand geometry is about to be built from, this frame. Drawing it
+        // from a later pass would mean reading the state one frame after the
+        // coat it describes, so a frame that was visibly wrong would be a frame
+        // the renderer had already stopped using.
+        //
+        // Gated on the same two editor-debug flags every other component
+        // visualisation is, so a capture turns it off.
+        if (binding->m_ShowBindingPreview)
+        {
+            if (const auto& settings = Renderer3D::GetRendererSettings();
+                settings.EditorDebugDrawsEnabled && settings.ShowComponentGizmos)
+            {
+                GroomBindingPreviewSettings previewSettings;
+                (void)DrawGroomBindingPreview(*bindingAsset, state.m_Transforms, request.Transform,
+                                              previewSettings);
+            }
+        }
+
+        // SWAPPED, not copied, and only after the preview above has read it.
+        // The request needs the transforms and the state only needs an
+        // allocation to refill next frame, so a swap gives both without copying
+        // a 64-byte record per curve per frame — which for a 200k-strand coat is
+        // 12 MB of memcpy that the scratch buffer exists to avoid.
+        std::swap(request.RootTransforms, state.m_Transforms);
+
+        // Recorded AFTER the evaluation, so the next frame compares against the
+        // state this frame actually deformed with rather than against what it
+        // intended to.
+        state.m_Binding = binding->m_Binding;
+        state.m_Groom = request.Handle;
+        state.m_Target = targetEntity.GetUUID();
+        state.m_TargetGeneration = surface->GetGeneration();
+        state.m_TargetVertexCount = view.VertexCount;
+        state.m_TargetIndexCount = view.IndexCount;
+        state.m_DeformationRevision = skeleton != nullptr ? skeleton->m_DeformationRevision : 0u;
+        state.m_PrevDeformationRevision = skeleton != nullptr ? skeleton->m_PrevDeformationRevision : 0u;
+        state.m_MorphStateHash = morphStateHash;
+        state.m_TargetWorldPosition = targetWorldPosition;
+        state.m_HasHistory = true;
+        state.m_ResetCause = GroomHistoryResetCause::None;
+    }
+
     void Scene::ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                           const glm::vec3& cameraPosition,
                                           [[maybe_unused]] f32 cameraNearClip, [[maybe_unused]] f32 cameraFarClip)
@@ -8572,49 +9082,7 @@ namespace OloEngine
             // lookup that finds a groom built at runtime (it lives in the
             // manager's memory-asset map and in no registry), and doing it on
             // the render thread would be an asset-manager lock inside a pass.
-            {
-                std::vector<GroomStrandRequest> groomRequests;
-                const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
-                for (const auto entity : groomView)
-                {
-                    const auto& groomComponent = groomView.get<GroomComponent>(entity);
-                    if (!groomComponent.m_RenderStrands || groomComponent.m_Groom == 0)
-                    {
-                        continue;
-                    }
-
-                    auto groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
-                    if (!groom)
-                    {
-                        continue; // the asset manager already logged the miss
-                    }
-
-                    const i32 entityID = static_cast<i32>(std::to_underlying(entity));
-                    const glm::mat4 worldTransform = GetWorldTransform(Entity{ entity, this });
-
-                    GroomStrandRequest request;
-                    request.Groom = groom;
-                    request.Handle = groomComponent.m_Groom;
-                    request.Transform = worldTransform;
-                    // The shared per-entity cache, so a groom that MOVES emits
-                    // real motion vectors rather than the zero a self-aliased
-                    // transform would give. It aliases on an entity's first
-                    // frame, which is what makes a newly spawned groom's
-                    // velocity zero instead of undefined.
-                    request.PreviousTransform = Renderer3D::GetAndRecordPrevTransform(entityID, worldTransform);
-                    request.Color = groomComponent.m_StrandColor;
-                    request.WidthScale = groomComponent.m_WidthScale;
-                    request.EntityID = entityID;
-                    request.RequestedMode =
-                        IsValidGroomCompositionMode(static_cast<i32>(groomComponent.m_CompositionMode))
-                            ? static_cast<GroomCompositionMode>(groomComponent.m_CompositionMode)
-                            : GroomCompositionMode::OpaqueRibbon;
-                    request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
-                    request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
-                    groomRequests.push_back(std::move(request));
-                }
-                Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
-            }
+            PublishGroomStrandRequests();
 
             // Shadow sampling matrices go up camera-relative (issue #429) so
             // they match the render-relative world positions the lit pass uses.

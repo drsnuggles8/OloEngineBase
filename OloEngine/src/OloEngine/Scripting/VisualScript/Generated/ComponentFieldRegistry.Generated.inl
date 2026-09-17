@@ -397,6 +397,13 @@ static void BuildRegistryChunk5(std::vector<ComponentFieldEntry>& registry)
 // GoapAgentComponent
 registry.push_back(OLO_VSF_FIELD(GoapAgentComponent, "Enabled", Enabled, Bool));
 
+// GroomBindingComponent
+registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "Binding", m_Binding, Asset));
+registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "TargetEntity", m_TargetEntity, Entity));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomBindingComponent, "TeleportDistance", m_TeleportDistance, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(10000.0f)));
+registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "Enabled", m_Enabled, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "ShowBindingPreview", m_ShowBindingPreview, Bool));
+
 // GroomComponent
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "Groom", m_Groom, Asset));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));
@@ -445,6 +452,10 @@ registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "TargetZoneID", Target
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "InstanceType", InstanceType, Int));
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers, Int));
 
+}
+
+static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
+{
 // InstancedMeshComponent
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "Primitive", Primitive, Int));
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic, Bool));
@@ -453,10 +464,6 @@ registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "FrustumCullPerInstance
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "CastShadows", CastShadows, Bool));
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "CullDistance", CullDistance, Float));
 
-}
-
-static void BuildRegistryChunk6(std::vector<ComponentFieldEntry>& registry)
-{
 // InventoryComponent
 registry.push_back(OLO_VSF_FIELD(InventoryComponent, "PlayerInventory.MaxWeight", PlayerInventory.MaxWeight, Float));
 registry.push_back(OLO_VSF_FIELD(InventoryComponent, "Currency", Currency, Int));
