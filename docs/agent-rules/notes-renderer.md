@@ -1270,6 +1270,25 @@ Two conditions on using it:
 
 Found on #1234 (per-pixel leaf thickness on the deferred path).
 
+**A SECOND tenant needs a third condition: defer to the lightmap if your writer can be lightmapped.**
+#1234 could write the channel unconditionally because a foliage shader never reaches the baked rung —
+no foliage surface is lightmapped, so its RT5 was always `vec4(0)`. Skin is not like that: a skin
+material goes through `PBR_GBuffer`, which writes *real* irradiance there, so #1242's writer has to
+keep the irradiance and drop the thickness wherever `coverage > 0.5`.
+
+Get that priority the wrong way round and you trade a **visible lighting regression** (a lightmapped
+surface loses its indirect light and falls through to sky IBL) for a **subtle gain** (a transmission
+term), which is the wrong trade in every scene. Write the per-pixel scalar only where the channel was
+genuinely unused, and **count the pixels you gave up on** — #1242 raises
+`SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable`, so "why is this head's ear
+uniformly thick?" has an answer in the log instead of being invisible.
+
+The corollary is that a tenancy's range is per tenant and not per channel: foliage's thickness is
+unitless `[0,1]` and skin's is millimetres up to 2000. Both fit an RGBA16F half, both clamp on read,
+and because the two are gated on different kinds they never have to agree.
+
+Found on #1234, refined on #1242 (per-pixel skin thickness, whose writer *can* be lightmapped).
+
 ## Two profile tables can share one G-Buffer slot field, if each is read only under its own kind
 
 The RT2 flags lane's three-bit slot field (bits 3..5) has had two tenants since #1234: the skin

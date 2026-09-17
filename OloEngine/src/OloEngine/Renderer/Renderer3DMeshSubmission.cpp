@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
@@ -532,6 +533,58 @@ namespace OloEngine
                 data.skinProfileSlot = profile.Slot;
                 data.skinSpecularTint = profile.Parameters.SpecularTint;
                 data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+
+                // THIN-REGION TRANSMISSION (issue #1242). The lanes are packed
+                // here, once per submission, for the same reason the tint is
+                // resolved here: the Burley albedo fit behind
+                // SkinTransmissionScalingLane is a physical decision, and
+                // Renderer/SkinTransmission.h's opening rule puts those on the
+                // CPU where a test can look at them.
+                //
+                // ONLY AT TRANSPORT VERSION 2, and the branch is here rather
+                // than only in the shader so a version-1 profile does not even
+                // upload a lobe. A version this code has no arm for leaves the
+                // lanes zero, which shades as no transmission.
+                if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                {
+                    data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
+                    data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
+                    // The metres -> millimetres conversion, done HERE and not in
+                    // GLSL. It is the one number this feature is most likely to
+                    // get wrong, and a unit slip in a shader is a thing no test
+                    // can reach (Renderer/SkinTransmission.h, opening rule).
+                    data.skinThicknessBaseMM =
+                        SkinThicknessBaseMM(material.GetThicknessFactor(), profile.Parameters.ThicknessScale);
+
+                    // THE TWO AUTHORING FAULTS, COUNTED AND LOGGED HERE — the
+                    // only place that can see them, because it is the only place
+                    // that has the material AND the resolved profile together.
+                    // Neither is silently absorbed (CLAUDE.md house rule): a head
+                    // that quietly stopped transmitting looks exactly like a head
+                    // that never should have.
+                    if (!material.HasAuthoredThickness())
+                    {
+                        // No thicknessFactor, so nothing for a map to modulate.
+                        // The conservative fallback is NO transmission — see
+                        // SkinTransmittance for why the other reading of a zero
+                        // thickness is the uniformly emissive head.
+                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                            SkinTransmissionFallbackReason::NoThickness, material.GetSkinProfileHandle());
+                    }
+                    if (material.IsTransmissive())
+                    {
+                        // KHR_materials_transmission AND skin transport on one
+                        // surface is two transmission closures over the same
+                        // energy — the double-count the issue's third criterion
+                        // forbids, arriving by the authoring path rather than by
+                        // the maths. Skin's term wins because that is what the
+                        // material kind asked for; the author is told which one
+                        // was dropped.
+                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                            SkinTransmissionFallbackReason::RefractiveTransmissionConflict,
+                            material.GetSkinProfileHandle());
+                    }
+                }
             }
         }
 
@@ -549,6 +602,11 @@ namespace OloEngine
         data.normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRHIHandle() : RHI::NullResource;
         data.aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRHIHandle() : RHI::NullResource;
         data.emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRHIHandle() : RHI::NullResource;
+        // The thickness map (issue #1242). Carried for EVERY material kind, not
+        // only skin: it is KHR_materials_volume data that a material owns, and
+        // gating the upload on the kind would mean a material switched to Skin in
+        // the editor sampled nothing until the next resubmission.
+        data.thicknessMapID = material.GetThicknessMap() ? material.GetThicknessMap()->GetRHIHandle() : RHI::NullResource;
         data.environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource;
         data.irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRHIHandle() : RHI::NullResource;
         data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRHIHandle() : RHI::NullResource;

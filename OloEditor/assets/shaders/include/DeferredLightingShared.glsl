@@ -354,6 +354,11 @@ vec3 ComputeDeferredLitSplit(
     vec3 transmitted = vec3(0.0);
     vec3 skinSpecularTint = vec3(1.0);
     int skinEvaluationModel = OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT;
+    // All-zero until a slot claims them, and an all-zero scatter lane makes the
+    // transmittance black — so an unclaimed or stale slot loses the effect
+    // rather than acquiring someone else's lobe.
+    vec4 skinTransmitScatter = vec4(0.0);
+    vec4 skinTransmitScaling = vec4(0.0);
     if (skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
     {
         skinSpecularTint = u_SkinProfileParams[skinProfileSlot].rgb;
@@ -362,7 +367,32 @@ vec3 ComputeDeferredLitSplit(
         // deferred paths take the same arm of oloApplySkinProfile's version
         // branch for the same profile.
         skinEvaluationModel = int(u_SkinProfileParams[skinProfileSlot].w + 0.5);
+        // The thin-region transmission lanes (issue #1242) — the same two vec4s
+        // the forward path reads out of the material UBO, packed by the same
+        // SkinTransmissionScatterLane / SkinTransmissionScalingLane, so the two
+        // paths cannot differ about the order the factors multiply in.
+        skinTransmitScatter = u_SkinTransmitScatter[skinProfileSlot];
+        skinTransmitScaling = u_SkinTransmitScaling[skinProfileSlot];
     }
+
+    // THE SKIN THICKNESS LANE (issue #1242). The second tenant of RT5's red
+    // channel — see oloSkinPackGBufferThickness in include/SkinTransmission.glsl
+    // for the tenancy rules and for why the coverage test inside the unpack is
+    // about resolved MSAA rather than about authoring.
+    //
+    // Gated on the PROFILE SLOT, not on the kind: a mesh material can be set to
+    // Skin in the editor, and only a pixel that also names a profile went
+    // through the writer. Identical discipline to the leaf thickness above.
+    float skinThicknessMM = oloSkinUnpackGBufferThickness(bakedGI, skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE);
+
+    // THE VERSION TEST, HERE AND NOT IN THE G-BUFFER. The writer publishes a
+    // thickness for every skin pixel that names a profile, because it has no
+    // SkinEvaluationModel to test; the version lives in the slot table, which
+    // is here. So this is the ONE place on this path that decides whether the
+    // profile's author asked for transmission — and a version this shader has
+    // no arm for transmits NOTHING rather than guessing.
+    bool isSkinTransmitting = (skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) &&
+                              (skinThicknessMM > 0.0);
 
     vec3 V = normalize(u_CameraPosition - worldPos);
 
@@ -471,6 +501,16 @@ vec3 ComputeDeferredLitSplit(
         bool lightHasDirection = oloLightSample(u_Lights[i], worldPos, lightL, lightRadiance);
         if (isFoliage && lightHasDirection)
             shadowN = oloFoliageShadowNormal(N, lightL);
+        // A BACKLIT SKIN pixel needs the same lit-side bias, for the same
+        // reason (issue #1242): its shading normal points away from the light,
+        // so the receiver normal-offset would push the shadow sample into the
+        // head's own depth and collapse the term it is gating.
+        //
+        // `else if`, not a second `if`: the two are mutually exclusive because a
+        // pixel has ONE material kind, and writing them as independent tests
+        // would suggest a pixel could be both and leave the order mattering.
+        else if (isSkinTransmitting && lightHasDirection)
+            shadowN = oloSkinShadowNormal(N, lightL);
 
         if (lightType == DIRECTIONAL_LIGHT)
         {
@@ -598,6 +638,22 @@ vec3 ComputeDeferredLitSplit(
         {
             transmitted += oloFoliageTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
                                                         leafThickness, leafTint, leafLobe);
+        }
+
+        // THE SKIN TRANSMITTED LOBE (issue #1242), gated by the SAME
+        // `lightVisibility` — which is the whole of that issue's second
+        // criterion, and it is only expressible because #1234 had already
+        // refactored this loop to accumulate one visibility factor instead of
+        // scaling in place.
+        //
+        // The two transmission terms share the `transmitted` accumulator and can
+        // never both fire: a pixel has one material kind, so isFoliage and
+        // isSkinTransmitting are mutually exclusive by construction.
+        if (lightHasDirection && isSkinTransmitting)
+        {
+            transmitted += oloSkinTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
+                                                     albedo, skinThicknessMM,
+                                                     skinTransmitScatter, skinTransmitScaling);
         }
     }
 
@@ -784,10 +840,17 @@ vec3 ComputeDeferredLitSplit(
         return vec3(oloSkinScatteringMask(materialKind, metallic)); // unitless [0,1]
     if (materialDebug == OLO_MATERIAL_DEBUG_TRANSMISSION)
     {
-        // The leaf transmission term ALONE, linear HDR radiance (issue #1234).
-        // Black on every pixel that is not MaterialKind::Foliage — which makes
-        // this view a direct test of whether the kind and the thickness lane
-        // reached the G-Buffer at all, not just of the lobe's shape.
+        // The transmission term ALONE, linear HDR radiance — the LEAF lobe
+        // (issue #1234) or the SKIN lobe (issue #1242), whichever this pixel's
+        // material kind selected, since the two share the accumulator and are
+        // mutually exclusive.
+        //
+        // Black on every pixel that is neither Foliage nor transmitting Skin,
+        // which makes this view a direct test of whether the kind, the profile
+        // slot and the thickness lane reached the G-Buffer at all — not just of
+        // the lobe's shape. It is the first thing to look at when a backlit ear
+        // does not glow: black here means the DATA did not arrive, non-black
+        // here with a dark composite means the compositing did.
         return transmitted;
     }
 

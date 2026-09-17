@@ -137,6 +137,14 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     // A slot nobody claimed stays all-zero, which shades as no transmission.
     vec4 u_LeafProfileTint[7];
     vec4 u_LeafProfileLobe[7];
+    // The skin transmission table (issue #1242), indexed by the same three-bit
+    // slot as u_SkinProfileParams and read under the same MaterialKind::Skin
+    // test. Mirrors DeferredControlsData::SkinTransmitScatter / SkinTransmitScaling.
+    //
+    //   Scatter: xyz = ScatterColor * Strength, w = Anisotropy
+    //   Scaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+    vec4 u_SkinTransmitScatter[7];
+    vec4 u_SkinTransmitScaling[7];
 };
 
 layout(binding = 10) uniform samplerCube u_IrradianceMap;

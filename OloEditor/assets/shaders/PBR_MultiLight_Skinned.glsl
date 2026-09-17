@@ -217,6 +217,24 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_SkinSpecularTintG;
     float u_SkinSpecularTintB;
     int u_SkinEvaluationModel;   // OLO_SKIN_MODEL_*, NOT the PBR closure version
+    // THIN-REGION TRANSMISSION (issue #1242). Mirrors PBRMaterialUBO's
+    // SkinTransmitScatter / SkinTransmitScaling, which sit on a 16-byte boundary
+    // at offset 144 so std140 pads nothing in front of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets, like the #970 and #1231
+    // lanes above -- omitting them would relayout the heap offsets by 48 B and
+    // every texture would sample the wrong descriptor.
+    //
+    //   u_SkinTransmitScatter: xyz = ScatterColor * Strength, w = Anisotropy
+    //   u_SkinTransmitScaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+    //
+    // See include/SkinTransmission.glsl for what reads them and
+    // Renderer/SkinTransmission.h for where the numbers come from.
+    vec4 u_SkinTransmitScatter;
+    vec4 u_SkinTransmitScaling;
+    int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
+    uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
+    float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
+    float u_SkinTransmitPad0;         // explicit padding -- takes the prefix to 192 B
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -267,6 +285,7 @@ layout(std140, binding = 13) uniform SnowParams {
 #define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
 #define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
 #define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_ThicknessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_THICKNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
 
 #elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
@@ -275,12 +294,14 @@ layout(std140, binding = 13) uniform SnowParams {
 #define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
 #define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
 #define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#define u_ThicknessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_THICKNESS_OFFSET)
 #else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;          // TEX_DIFFUSE
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap; // TEX_SPECULAR (repurposed)
 layout(binding = 2) uniform sampler2D u_NormalMap;          // TEX_NORMAL
 layout(binding = 4) uniform sampler2D u_AOMap;              // TEX_AMBIENT
 layout(binding = 5) uniform sampler2D u_EmissiveMap;        // TEX_EMISSIVE
+layout(binding = 76) uniform sampler2D u_ThicknessMap;      // TEX_SKIN_THICKNESS (issue #1242)
 #endif
 
 // THE PUBLISHED ENVIRONMENT, IBL AND SHADOW SET, and it is a SEPARATE fork on
@@ -444,6 +465,51 @@ void main()
     atmosphereApplyWetness(albedo, roughness, N);
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
+    // ---- THIN-REGION TRANSMISSION SETUP (issue #1242) -------------------
+    //
+    // THREE CONDITIONS, AND EACH RULES OUT A DIFFERENT WRONG FRAME.
+    //
+    //  * the material kind, because transmission is a property of skin and a
+    //    Generic material must shade exactly as it did before this feature;
+    //  * the transport VERSION, because a profile authored against #1231 or
+    //    #1241 must not acquire a new term just because the renderer can
+    //    evaluate one (docs/adr/0024). Spelled as an equality against version 2
+    //    rather than `>= 2`, so a version this shader has no arm for transmits
+    //    NOTHING instead of guessing;
+    //  * a non-zero THICKNESS, because a zero thickness means "no volume
+    //    authored here" and the other reading of it -- exp(0) = 1, fully
+    //    transparent -- is the uniformly emissive head the issue forbids.
+    //
+    // The thickness is u_SkinThicknessBaseMM (thicknessFactor x the profile's
+    // ThicknessScale, converted to MILLIMETRES on the CPU) modulated by the
+    // map's red channel. With no map the modulation is 1, so the material's
+    // scalar thickness applies uniformly -- which is what makes a head that
+    // loses its map fall back to a uniform thickness rather than to none.
+    bool isSkinTransmitting = (u_MaterialKind == OLO_MATERIAL_KIND_SKIN) &&
+                              (u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION);
+    float skinThicknessMM = 0.0;
+    if (isSkinTransmitting)
+    {
+        float thicknessSample = (u_UseThicknessMap != 0) ? texture(u_ThicknessMap, v_TexCoord).r : 1.0;
+        skinThicknessMM = u_SkinThicknessBaseMM * clamp(thicknessSample, 0.0, 1.0);
+        // Fold the thickness test into the gate so the loop asks one question
+        // instead of two, and so a profile at version 2 on a material with no
+        // authored thickness costs nothing per light. The CPU has already
+        // COUNTED that case as SkinTransmissionFallbackReason::NoThickness
+        // (Renderer3DMeshSubmission.cpp) -- this is the shading consequence of
+        // that report, not a silent second opinion about it.
+        isSkinTransmitting = skinThicknessMM > 0.0;
+    }
+
+    // The transmitted lobe, accumulated beside Lo and composited at the end.
+    // Kept OUT of the diffuse/specular split on purpose: it is a third
+    // transport, not a half of the BRDF, and folding it into the diffuse half
+    // would hand #1241's diffusion pass energy that never went through the
+    // surface -- which is exactly the double-count #1242's third criterion
+    // forbids. Same placement, and the same argument, as the foliage lobe in
+    // include/DeferredLightingShared.glsl.
+    vec3 transmitted = vec3(0.0);
+
     // Calculate direct lighting from all lights
     // Direct lighting, diffuse and specular kept apart all the way to the
     // composite (issue #1231). The two halves are summed once, at the end, so a
@@ -470,9 +536,43 @@ void main()
 
         OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
                                                                           roughness, v_WorldPos, u_PBRModel);
+
+        // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1242).
+        //
+        // Every branch below used to call oloSurfaceLightingScale on
+        // lightContrib in place. They now multiply into ONE float that is
+        // applied once, at the bottom of the loop.
+        //
+        // EXACTLY EQUIVALENT for the reflected lobe: those were a chain of
+        // multiplies by a scalar broadcast to vec3, and multiplication is
+        // associative, so folding the cloud shadow and the shadow-map factor
+        // into one scalar first produces the same product. What it BUYS is that
+        // the transmission lobe can be gated by the same number -- which is what
+        // #1242's second criterion demands, and what a per-branch in-place scale
+        // made impossible without evaluating the shadow a second time.
+        //
+        // This is the same refactor #1234 made to the DEFERRED path
+        // (include/DeferredLightingShared.glsl), done here so the two paths gate
+        // their two lobes identically rather than by two different accidents.
+        float lightVisibility = 1.0;
+
+        // THE NORMAL THE SHADOW IS BIASED ALONG. For a BACKLIT skin pixel the
+        // shading normal points at the viewer and therefore away from the light,
+        // so the receiver normal-offset would push the sample point into the
+        // head's own shadow-map depth and collapse the very term it is gating.
+        // oloSkinShadowNormal returns N unchanged wherever dot(N, L) > 0 -- i.e.
+        // wherever the reflected lobe is non-zero -- so ONE lookup serves both
+        // lobes, and this is the identity for every non-skin surface.
+        vec3 shadowN = N;
+        vec3 lightL;
+        vec3 lightRadiance;
+        bool lightHasDirection = oloLightSample(u_Lights[i], v_WorldPos, lightL, lightRadiance);
+        if (isSkinTransmitting && lightHasDirection)
+            shadowN = oloSkinShadowNormal(N, lightL);
+
         if (lightType == DIRECTIONAL_LIGHT)
         {
-            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(cloudShadow));
+            lightVisibility *= cloudShadow;
         }
         if (lightType == DIRECTIONAL_LIGHT && u_DirectionalShadowEnabled != 0)
         {
@@ -486,7 +586,7 @@ void main()
             float shadow;
             if (VSM_ENABLED != 0)
             {
-                shadow = vsmShadowFactor(v_WorldPos, N);
+                shadow = vsmShadowFactor(v_WorldPos, shadowN);
             }
             else
             {
@@ -494,7 +594,7 @@ void main()
                     u_ShadowMapCSM,
                     u_ShadowMapCSMRaw,
                     v_WorldPos,
-                    N,
+                    shadowN,
                     viewDepth,
                     u_DirectionalLightSpaceMatrices,
                     u_CascadePlaneDistances,
@@ -503,7 +603,7 @@ void main()
                     u_SoftShadowMode
                 );
             }
-            lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+            lightVisibility *= shadow;
         }
         // Apply spot light shadows (atlas entry, issue #435)
         else if (lightType == SPOT_LIGHT)
@@ -511,9 +611,9 @@ void main()
             // Atlas entry or VSM layer base, decided by vsmLocalShadow (#703).
             int atlasEntry = int(u_Lights[i].direction.w);
             float localShadow;
-            if (vsmLocalShadow(v_WorldPos, N, atlasEntry, false, localShadow))
+            if (vsmLocalShadow(v_WorldPos, shadowN, atlasEntry, false, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
             else if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
             {
@@ -528,7 +628,7 @@ void main()
                     u_SoftShadowMode,
                     u_ShadowParams.z
                 );
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+                lightVisibility *= shadow;
             }
         }
         // Apply point light shadows (6 consecutive atlas cube-face entries)
@@ -539,9 +639,9 @@ void main()
             // direction.w carries the BASE atlas entry of the 6 face tiles.
             int baseEntry = int(u_Lights[i].direction.w);
             float localShadow;
-            if (vsmLocalShadow(v_WorldPos, N, baseEntry, true, localShadow))
+            if (vsmLocalShadow(v_WorldPos, shadowN, baseEntry, true, localShadow))
             {
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(localShadow));
+                lightVisibility *= localShadow;
             }
             else if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
             {
@@ -558,11 +658,27 @@ void main()
                     0, // PCF only on cube faces (matches the old cubemap path)
                     u_ShadowParams.z
                 );
-                lightContrib = oloSurfaceLightingScale(lightContrib, vec3(shadow));
+                lightVisibility *= shadow;
             }
         }
 
-        Lo = oloSurfaceLightingAdd(Lo, lightContrib);
+        Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
+
+        // THE TRANSMITTED LOBE, gated by the SAME visibility the reflected lobe
+        // just was. That single shared factor is the whole of #1242's second
+        // criterion: an ear behind a raised hand stops glowing, because whatever
+        // darkens its lit face also darkens what comes through it.
+        //
+        // Skipped for a sphere area light, which oloLightSample declines to give
+        // a direction for -- that evaluator's representative point depends on N
+        // and V, so there is no single L to transmit along. Declined in the
+        // helper rather than approximated here.
+        if (isSkinTransmitting && lightHasDirection)
+        {
+            transmitted += oloSkinTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
+                                                     albedo, skinThicknessMM,
+                                                     u_SkinTransmitScatter, u_SkinTransmitScaling);
+        }
     }
 
     // Specular reflection source — parallax-corrected by the distance-impostor
@@ -602,7 +718,18 @@ void main()
     OloSurfaceLighting lighting = oloSurfaceLightingAdd(oloSurfaceLightingScale(ambient, vec3(ao)), Lo);
     lighting = oloApplySkinProfile(lighting, u_MaterialKind, u_SkinEvaluationModel,
                                    vec3(u_SkinSpecularTintR, u_SkinSpecularTintG, u_SkinSpecularTintB));
-    vec3 color = oloSurfaceLightingSum(lighting) + emissive;
+    // `transmitted` joins OUTSIDE the diffuse/specular split (issue #1242),
+    // beside emissive and for the same reason: it is a third transport, not a
+    // half of the BRDF.
+    //
+    // AND THAT PLACEMENT IS THE ENERGY ARGUMENT, not a tidiness preference. The
+    // DIFFUSE half is what o_SkinDiffuse hands #1241's diffusion pass below; if
+    // the transmitted term were folded in there, the diffusion pass would blur
+    // and re-add energy that never travelled through the surface, and the same
+    // photons would be counted by both transports. Outside the split, the
+    // diffusion pass cannot see it. See Renderer/SkinTransmission.h for the
+    // full three-premise argument.
+    vec3 color = oloSurfaceLightingSum(lighting) + transmitted + emissive;
 
     // Physical transmission / IOR / volume (issue #970).
     //

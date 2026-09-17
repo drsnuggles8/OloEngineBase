@@ -94,6 +94,29 @@ namespace OloEngine
         // per handle.
         void ReportFallback(SkinProfileFallbackReason reason, AssetHandle handle);
 
+        // Count and log a TRANSMISSION fallback (issue #1242) — a skin material
+        // that asked for the thin-region term and did not get it, or not all of
+        // it. Same contract as ReportFallback above: counted every time, logged
+        // once per (reason, handle) pair.
+        //
+        // HERE RATHER THAN IN A SECOND COUNTER SET, because this class is
+        // already the skin diagnostics hub and because the two question sets are
+        // asked together — "did this head shade with the profile it named, and
+        // did it transmit?" is one question in a bug report. It also reuses the
+        // per-handle log dedupe, without which a missing thickness on a
+        // 40 000-submission frame would produce 40 000 lines.
+        //
+        // KEYED ON (REASON, HANDLE), not on the handle alone like ReportFallback
+        // is. A material can legitimately raise two different transmission
+        // reasons at once — no thickness AND a refractive conflict — and a
+        // handle-only key would log the first and silently swallow the second,
+        // which is the half-truth SkinProfileTable's own m_FailedHandles comment
+        // warns about.
+        void ReportTransmissionFallback(SkinTransmissionFallbackReason reason, AssetHandle handle);
+
+        // How many transmission fallbacks, by reason, since the last Reset().
+        [[nodiscard]] u64 GetTransmissionFallbackCount(SkinTransmissionFallbackReason reason) const;
+
         // Forget that `handle` failed, so the next resolve consults the asset
         // manager again. Called from Renderer3D::OnAssetReloaded: a profile the
         // author has just fixed and saved must stop shading with the fallback
@@ -106,6 +129,10 @@ namespace OloEngine
         std::unordered_map<u64, u32> m_SlotByHandle;
         std::array<SkinProfileParameters, kMaxSkinProfileSlots> m_Parameters{};
         std::array<u64, static_cast<sizet>(SkinProfileFallbackReason::Count)> m_FallbackCounts{};
+        // The transmission counters (issue #1242) and their own log dedupe,
+        // keyed on (reason, handle) — see ReportTransmissionFallback.
+        std::array<u64, static_cast<sizet>(SkinTransmissionFallbackReason::Count)> m_TransmissionFallbackCounts{};
+        std::unordered_set<u64> m_LoggedTransmissionKeys;
         // Handles already logged, so a missing profile on 40 000 submissions
         // produces one line rather than 40 000.
         std::unordered_set<u64> m_LoggedHandles;

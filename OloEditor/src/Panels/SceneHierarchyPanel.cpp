@@ -45,6 +45,7 @@
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/SkinDiffusion.h"
 #include "OloEngine/Renderer/SkinProfile.h"
+#include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Material.h"
@@ -3624,6 +3625,54 @@ namespace OloEngine
                     }
                     ImGui::EndDragDropTarget();
                 }
+                // ---- THE PER-MATERIAL THICKNESS (issue #1242) -----------
+                //
+                // EDITABLE HERE, unlike every profile field above, and the split
+                // is the point: the scattering parameters are shared by every
+                // material on the head, while the THICKNESS is what makes an ear
+                // different from a cheek. One asset, many materials, each with
+                // its own thickness — so the thickness lives on the material.
+                //
+                // In METRES, per glTF KHR_materials_volume, with the millimetre
+                // equivalent shown beside it because 0.002 is a number no one
+                // recognises as "a 2 mm ear".
+                {
+                    f32 thicknessFactor = component.m_Material.GetThicknessFactor();
+                    if (ImGui::DragFloat("Thickness Factor (m)", &thicknessFactor, 0.0005f, 0.0f, 1.0f, "%.4f"))
+                        component.m_Material.SetThicknessFactor(thicknessFactor);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %.2f mm", static_cast<f64>(thicknessFactor * 1000.0f));
+
+                    // The thickness MAP slot — a per-pixel modulation of the
+                    // factor above, red channel, unitless [0,1].
+                    const bool hasMap = component.m_Material.HasThicknessMap();
+                    ImGui::Button(hasMap ? "Thickness Map: assigned"
+                                         : "Thickness Map: <none — drag a texture here>",
+                                  ImVec2(-1.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                            // LINEAR, not sRGB: it is a thickness, not a colour.
+                            // Loading it as sRGB would put a gamma curve through
+                            // the optical depth and make thin regions read thick.
+                            if (auto texture = Texture2D::Create(assetPath.string(), /*srgb=*/false);
+                                texture && texture->IsLoaded())
+                            {
+                                component.m_Material.SetThicknessMap(texture);
+                            }
+                            else
+                            {
+                                OLO_WARN("Drag-dropped thickness map could not be loaded: {0}", assetPath.string());
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (hasMap && ImGui::SmallButton("Clear##ThicknessMap"))
+                        component.m_Material.SetThicknessMap(nullptr);
+                }
+
                 if (profileHandle != 0)
                 {
                     if (ImGui::SmallButton("Clear##SkinProfile"))
@@ -3654,7 +3703,14 @@ namespace OloEngine
                         // built from them, and it is roughly eight times larger.
                         // Showing only the input is how "1.5 mm" becomes a
                         // surprise at 12 mm of visible bleed.
-                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion)
+                        // BOTH DIFFUSING VERSIONS. Version 2 is "everything
+                        // version 1 does, plus transmission", so a version-2
+                        // profile diffuses too — testing only for version 1 here
+                        // would tell an author their head had stopped scattering
+                        // the moment they enabled transmission, which is exactly
+                        // the wrong thing for a diagnostic readout to claim.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion ||
+                            parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
                         {
                             ImGui::Text("Diffusion reach (mm, derived): %.2f",
                                         static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
@@ -3667,6 +3723,61 @@ namespace OloEngine
                                     static_cast<f64>(parameters.SpecularTint.r),
                                     static_cast<f64>(parameters.SpecularTint.g),
                                     static_cast<f64>(parameters.SpecularTint.b));
+
+                        // ---- THIN-REGION TRANSMISSION (issue #1242) --------
+                        //
+                        // Read-only like everything above it, for the same
+                        // reason: a profile is a shared asset and is edited in
+                        // its own file. What the inspector owes the author here
+                        // is the ability to see WHY a backlit ear is not
+                        // glowing, which is almost never the lobe's shape and
+                        // almost always one of three data problems — the
+                        // version, the strength, or a missing thickness.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                        {
+                            ImGui::Text("Transmission: strength %.2f, anisotropy %.2f, power %.1f",
+                                        static_cast<f64>(parameters.Transmission.Strength),
+                                        static_cast<f64>(parameters.Transmission.Anisotropy),
+                                        static_cast<f64>(parameters.Transmission.Power));
+
+                            // THE DERIVED THICKNESS, in the units the transport
+                            // actually uses. The author typed metres into
+                            // Thickness Factor below and millimetres into the
+                            // profile's scale; this is the product, which is the
+                            // number the optical depth divides. Showing only the
+                            // two inputs is how a factor-of-1000 slip survives.
+                            const f32 thicknessMM = SkinThicknessBaseMM(component.m_Material.GetThicknessFactor(),
+                                                                        parameters.ThicknessScale);
+                            ImGui::Text("Thickness (mm, derived): %.3f%s", static_cast<f64>(thicknessMM),
+                                        component.m_Material.HasThicknessMap() ? " x map" : " (uniform, no map)");
+
+                            // THE THREE WAYS IT SILENTLY DOES NOTHING, each
+                            // named. These mirror SkinTransmissionFallbackReason
+                            // — the log counts them, and this says the same
+                            // thing where the author is already looking.
+                            if (!component.m_Material.HasAuthoredThickness())
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "No thickness authored — transmission is OFF. Set Thickness "
+                                                   "Factor below (metres).");
+                            }
+                            else if (parameters.Transmission.Strength <= 0.0f)
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "Transmission strength is 0 — the term is disabled by the "
+                                                   "profile.");
+                            }
+                            if (component.m_Material.IsTransmissive())
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                                   "Also has KHR_materials_transmission — two transmission "
+                                                   "closures. Skin's wins; set Transmission Factor to 0.");
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("No thin-region transmission — authored below transport version 2.");
+                        }
                     }
                     else
                     {

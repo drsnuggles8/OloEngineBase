@@ -864,6 +864,11 @@ namespace OloEngine
                     out << YAML::Key << "AOMap" << YAML::Value << material->GetAOMap()->m_Handle;
                 if (material->GetEmissiveMap() && material->GetEmissiveMap()->m_Handle != 0)
                     out << YAML::Key << "EmissiveMap" << YAML::Value << material->GetEmissiveMap()->m_Handle;
+                // KHR_materials_volume thickness texture (issue #1242). The key
+                // must match the table in DeserializeFromYAML, which routes it
+                // to SetThicknessMap.
+                if (material->GetThicknessMap() && material->GetThicknessMap()->m_Handle != 0)
+                    out << YAML::Key << "ThicknessMap" << YAML::Value << material->GetThicknessMap()->m_Handle;
 
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
@@ -1068,16 +1073,18 @@ namespace OloEngine
             // unaffected, which is why the break survived: one of the two
             // serializers was correct.
             //
-            // A TABLE RATHER THAN AN IF-CHAIN so adding a map is one line, and
-            // so the key strings sit next to each other where the save side's
+            // A TABLE RATHER THAN AN IF-CHAIN so adding a sixth map is one line,
+            // and so the key strings sit next to each other where the save side's
             // strings can be compared against them.
             using TypedMapSetter = void (Material::*)(const Ref<Texture2D>&);
-            static const std::array<std::pair<std::string_view, TypedMapSetter>, 5> kTypedMaps{ {
+            static const std::array<std::pair<std::string_view, TypedMapSetter>, 6> kTypedMaps{ {
                 { "AlbedoMap", &Material::SetAlbedoMap },
                 { "MetallicRoughnessMap", &Material::SetMetallicRoughnessMap },
                 { "NormalMap", &Material::SetNormalMap },
                 { "AOMap", &Material::SetAOMap },
                 { "EmissiveMap", &Material::SetEmissiveMap },
+                // KHR_materials_volume thickness texture (issue #1242).
+                { "ThicknessMap", &Material::SetThicknessMap },
             } };
 
             for (const auto& textureNode : materialNode["Textures"])

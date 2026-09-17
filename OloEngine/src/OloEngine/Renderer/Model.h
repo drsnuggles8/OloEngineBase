@@ -174,7 +174,13 @@ namespace OloEngine
       private:
         void ProcessNode(const aiNode* node, const aiScene* scene);
         Ref<Mesh> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
-        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene);
+        // `semanticIndex` >= 0 probes EXACTLY that semantic index instead of
+        // iterating GetTextureCount -- which is the only way to reach glTF's
+        // volume THICKNESS map, since it shares aiTextureType_TRANSMISSION with
+        // the transmission map and is distinguished only by index 1 (issue
+        // #1242). -1, the default, keeps the historical count-driven behaviour.
+        std::vector<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
+                                                         const aiScene* scene, i32 semanticIndex = -1);
         Ref<Material> ProcessMaterial(const aiMaterial* mat, const aiScene* scene);
         // Builds the virtualized-geometry cluster DAG (issue #629) for the
         // combined source and serializes it into m_CookedVirtualMeshBlob, so

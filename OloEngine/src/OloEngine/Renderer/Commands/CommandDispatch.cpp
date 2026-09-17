@@ -838,6 +838,13 @@ namespace OloEngine
         const u32 normal = resolve(mat.normalMapID, ubo.UseNormalMap);
         const u32 ao = resolve(mat.aoMapID, ubo.UseAOMap);
         const u32 emissive = resolve(mat.emissiveMapID, ubo.UseEmissiveMap);
+        // The thickness map (issue #1242) rides a BARE SCALAR lane rather than a
+        // fourth HeapOffsets uvec4 — every lane of the three is taken ([2].w is
+        // the Vulkan sampler offset), and the uvec4 shaping exists to dodge
+        // `uint[9]`'s std140 stride, which a single scalar does not have. Same
+        // `resolve` as every other map, so a map that cannot be published to the
+        // heap stands its flag down here instead of sampling a null descriptor.
+        ubo.ThicknessMapHeapOffset = resolve(mat.thicknessMapID, ubo.UseThicknessMap);
 
         ubo.HeapOffsets[0] = { albedo, metallicRoughness, normal, ao };
         // Vulkan-only reuse of the unused environment/IBL lanes: a deferred
@@ -982,6 +989,11 @@ namespace OloEngine
         ubo.HeapOffsets[2] = { resolve(mat.brdfLutMapID, k2DSampler, k2D),
                                resolve(mat.diffuseMapID, k2DSampler, k2D),
                                resolve(mat.specularMapID, k2DSampler, k2D), RHI::kNullHeapOffset };
+        // The thickness map (issue #1242) on the ENGINE-heap arm. The second of
+        // the two arms this function forks into — forgetting it here is how a
+        // feature works on Vulkan and silently does not on a bindless GL build,
+        // so both arms are filled or neither is.
+        ubo.ThicknessMapHeapOffset = resolve(mat.thicknessMapID, k2DSampler, k2D);
     }
 
     // Helper: Bind all PBR material textures (albedo, metallic-roughness, normal,
@@ -1017,6 +1029,10 @@ namespace OloEngine
             BindTrackedTexture(api, mat.normalMapID, ShaderBindingLayout::TEX_NORMAL);
             BindTrackedTexture(api, mat.aoMapID, ShaderBindingLayout::TEX_AMBIENT);
             BindTrackedTexture(api, mat.emissiveMapID, ShaderBindingLayout::TEX_EMISSIVE);
+            // The thickness map (issue #1242). Inside the same slot-path guard
+            // as the other five: on the bindless arm the offset travelled in the
+            // material UBO and this bind would be pure waste.
+            BindTrackedTexture(api, mat.thicknessMapID, ShaderBindingLayout::TEX_SKIN_THICKNESS);
         }
         // TEX_USER_0/1 are samplerCube here (irradiance, prefilter) and plain 2D in
         // other consumers — which is why the kind cannot be derived from the SLOT
@@ -1121,6 +1137,16 @@ namespace OloEngine
                 pbrMaterialData.SkinSpecularTintG = mat.skinSpecularTint.g;
                 pbrMaterialData.SkinSpecularTintB = mat.skinSpecularTint.b;
                 pbrMaterialData.SkinEvaluationModel = mat.skinEvaluationModel;
+                // Thin-region transmission (issue #1242). The two lanes were
+                // packed at submission by SkinTransmissionScatterLane /
+                // SkinTransmissionScalingLane, so — like every block above —
+                // dispatch copies and does not decide. All-zero on a non-skin
+                // material and below transport version 2, which shades as no
+                // transmission.
+                pbrMaterialData.SkinTransmitScatter = mat.skinTransmitScatter;
+                pbrMaterialData.SkinTransmitScaling = mat.skinTransmitScaling;
+                pbrMaterialData.UseThicknessMap = mat.thicknessMapID.IsValid() ? 1 : 0;
+                pbrMaterialData.SkinThicknessBaseMM = mat.skinThicknessBaseMM;
                 // Issue #632: this was a hard-coded 0, which made the forward
                 // path's probe-ambient shader code dead. Wire it to the same
                 // master toggle the deferred path uses so Forward+ scenes get

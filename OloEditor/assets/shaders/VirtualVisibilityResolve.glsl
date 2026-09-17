@@ -156,6 +156,24 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_SkinSpecularTintG;
     float u_SkinSpecularTintB;
     int u_SkinEvaluationModel;   // OLO_SKIN_MODEL_*, NOT the PBR closure version
+    // THIN-REGION TRANSMISSION (issue #1242). Mirrors PBRMaterialUBO's
+    // SkinTransmitScatter / SkinTransmitScaling, which sit on a 16-byte boundary
+    // at offset 144 so std140 pads nothing in front of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets, like the #970 and #1231
+    // lanes above -- omitting them would relayout the heap offsets by 48 B and
+    // every texture would sample the wrong descriptor.
+    //
+    //   u_SkinTransmitScatter: xyz = ScatterColor * Strength, w = Anisotropy
+    //   u_SkinTransmitScaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+    //
+    // See include/SkinTransmission.glsl for what reads them and
+    // Renderer/SkinTransmission.h for where the numbers come from.
+    vec4 u_SkinTransmitScatter;
+    vec4 u_SkinTransmitScaling;
+    int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
+    uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
+    float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
+    float u_SkinTransmitPad0;         // explicit padding -- takes the prefix to 192 B
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
