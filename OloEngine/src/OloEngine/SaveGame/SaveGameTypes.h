@@ -170,7 +170,10 @@ namespace OloEngine
     //      Every float is validated finite and clamped on load: they reach the
     //      placement generator, where a NaN band silently empties the layer and
     //      a zero clump scale is a division by zero.
-    static constexpr u32 kSaveGameFormatVersion = 35;
+    // v36: FoliageLayer hierarchical wind weights and displacement debug (#1236),
+    //      appended after the landed v35 habitat band. v35 and older saves
+    //      keep zero weights and debug disabled.
+    static constexpr u32 kSaveGameFormatVersion = 36;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

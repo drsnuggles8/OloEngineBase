@@ -548,6 +548,11 @@ namespace OloEngine
         ar << l.RandomRotation;
         ar << l.ViewDistance << l.FadeStartDistance;
         ar << l.WindStrength << l.WindSpeed;
+        if (ar.IsLoading())
+        {
+            l.WindStrength = std::isfinite(l.WindStrength) ? std::clamp(l.WindStrength, 0.0f, 20.0f) : 0.3f;
+            l.WindSpeed = std::isfinite(l.WindSpeed) ? std::clamp(l.WindSpeed, 0.0f, 20.0f) : 1.0f;
+        }
         ar << l.BaseColor;
         ar << l.Roughness << l.AlphaCutoff;
         ar << l.Enabled;
@@ -710,6 +715,21 @@ namespace OloEngine
                     l.SlopeSinkFactor = 0.0f;
                 l.SlopeSinkFactor = std::clamp(l.SlopeSinkFactor, 0.0f, 4.0f);
             }
+        }
+        // Hierarchical wind appended at v36 after the v35 habitat block. Keep after every older field.
+        if (HasFieldsSince(ar, 36))
+        {
+            ar << l.WindStiffness << l.WindBranchWeight << l.WindLeafWeight << l.WindDebugDisplacement;
+            if (ar.IsLoading())
+            {
+                for (f32* weight : { &l.WindStiffness, &l.WindBranchWeight, &l.WindLeafWeight })
+                    *weight = std::isfinite(*weight) ? std::clamp(*weight, 0.0f, 1.0f) : 0.0f;
+            }
+        }
+        else if (ar.IsLoading())
+        {
+            l.WindStiffness = l.WindBranchWeight = l.WindLeafWeight = 0.0f;
+            l.WindDebugDisplacement = false;
         }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.

@@ -121,6 +121,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site; f32 cancellation shows as jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract mirrored in three places, and a miss sentinel that shades from stale sky.
 - [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md): three ways impostor cards go missing, separable only by reading PNGs from several azimuths; and a layer draws two shapes, so read `EnumerateLayerDraws` rather than any one pass's shader.
+- [foliage-hierarchical-wind.md](../guides/foliage-hierarchical-wind.md): share deformation across raster passes, bound square impostor corners, and evaluate each motion-history facing basis independently.
 - [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md): judge a placement hash by its distinct-offset count, keep gating rules out of the placement signature and moving ones in, and default every new scatter rule to the multiplicative identity.
 - [capture-paths-take-the-projection-seam.md](capture-paths-take-the-projection-seam.md): every matrix a vertex stage feeds to `gl_Position` goes through `RHIProjectionSeam`, a bake's private ortho included, and a capture that skips the y flip draws with culling off.
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree; a dropped GPU struct field is a dead knob.
@@ -200,6 +201,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 |---|---|
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [jolt-softbody-kinematic-attachment.md](jolt-softbody-kinematic-attachment.md) | Unit tests pass whether the cape detaches, jitters or freezes rigid. |
+| [foliage-hierarchical-wind.md](../guides/foliage-hierarchical-wind.md) | Reusing the current camera-facing card basis for previous positions loses wind-induced orientation motion even with a stationary camera. |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | Three separate bugs each rendered a plausible frame that read as "impostors missing". |
 | [foliage-impostor-card-rendering.md](foliage-impostor-card-rendering.md) | A foliage layer draws its authored mesh near and its card far; a pass that decides that for itself renders a plant whose shadow is a different shape. |
 | [procedural-scatter-hash-and-habitat-rules.md](procedural-scatter-hash-and-habitat-rules.md) | A scatter hash whose two jitter draws differ by a constant: 32 distinct offsets over 6400 cells, Pearson correlation 0.02, and a screenshot that looks random. |

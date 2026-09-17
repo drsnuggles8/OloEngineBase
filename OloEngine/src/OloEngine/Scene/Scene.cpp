@@ -9476,6 +9476,11 @@ namespace OloEngine
                         foliage.m_NeedsRebuild = true;
                     }
 
+                    const auto& globalWind = Renderer3D::GetWindSettings();
+                    const f32 envelope = globalWind.Enabled ? std::abs(globalWind.Speed) * (1.0f + std::abs(globalWind.GustStrength)) * 0.1f : 1.118034f;
+                    if (foliage.m_Renderer->SetLegacyWindEnvelope(envelope))
+                        foliage.m_NeedsRebuild = true;
+
                     // Instance positions are terrain-LOCAL, so the renderer needs
                     // the owning terrain's transform to place them. The main draw
                     // gets it via DrawFoliageLayer's modelTransform, but the SHADOW
@@ -10054,7 +10059,7 @@ namespace OloEngine
                             layer.AlbedoTextureID,
                             modelMat,
                             animationTime,
-                            prevAnimationTime,
+                            foliage.m_Renderer->GetPreviousTime(),
                             layer.WindStrength, layer.WindSpeed,
                             layer.ViewDistance, layer.FadeStartDistance, layer.AlphaCutoff,
                             glm::vec4(layer.BaseColor, 0.0f),
@@ -10063,7 +10068,7 @@ namespace OloEngine
                             impostor,
                             leaf,
                             layer.IsAuthoredMesh,
-                            layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance);
+                            layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance, layer.WindWeights);
                     }
                 }
             }
@@ -12473,6 +12478,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        Renderer3D::SetWindPaused(m_IsPaused);
         Renderer3D::BeginScene(camera);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
@@ -13018,12 +13024,14 @@ namespace OloEngine
                                                   ParticleBatchRenderer::EndBatch(); });
 
         Renderer3D::EndScene();
+        Renderer3D::SetWindPaused(false);
     }
 
     void Scene::RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform)
     {
         OLO_PROFILE_FUNCTION();
 
+        Renderer3D::SetWindPaused(m_IsPaused);
         Renderer3D::BeginScene(camera, cameraTransform);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
@@ -13086,6 +13094,7 @@ namespace OloEngine
                                                   ParticleBatchRenderer::EndBatch(); });
 
         Renderer3D::EndScene();
+        Renderer3D::SetWindPaused(false);
     }
 
     void Scene::RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip)

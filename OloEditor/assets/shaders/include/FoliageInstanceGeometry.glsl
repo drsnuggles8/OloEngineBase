@@ -114,3 +114,12 @@ bool foliageLodKeep(bool isAuthoredMesh, float coverage, vec2 fragCoord)
 }
 
 #endif // OLO_FOLIAGE_INSTANCE_GEOMETRY_GLSL
+
+// Camera-facing square, shared by current/previous impostor evaluations.
+vec3 foliageImpostorPoint(vec3 centre, vec3 eye, vec2 offset)
+{
+    vec3 z = normalize(eye - centre);
+    vec3 up = abs(z.y) > 0.999 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
+    vec3 x = normalize(cross(up, z));
+    return centre + x * offset.x + normalize(cross(z, x)) * offset.y;
+}

@@ -133,6 +133,7 @@ namespace OloEngine
         // bound has to follow it down.
         f32 m_MinY = 0.0f;
         f32 m_MaxY = 1.0f;
+        f32 m_WindDisplacement = 0.0f;
 
         // Bitwise, not defaulted: cpp-coding-quality §2a forbids `==` on a
         // float-containing type, and §2a's whole-struct form is this one-liner
@@ -155,7 +156,7 @@ namespace OloEngine
                                     profile.m_HalfExtentXZHeightScaled * heightScale);
         const glm::vec3 lo = position + glm::vec3(-halfXZ, profile.m_MinY * heightScale, -halfXZ);
         const glm::vec3 hi = position + glm::vec3(halfXZ, profile.m_MaxY * heightScale, halfXZ);
-        return BoundingBox(lo, hi);
+        return BoundingBox(lo - glm::vec3(profile.m_WindDisplacement), hi + glm::vec3(profile.m_WindDisplacement));
     }
 
     // The generator inputs an instance's identity is keyed on. See the class

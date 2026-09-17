@@ -47,33 +47,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding1;
 };
 
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3  u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 _foliageImpostorParams0; // consumed by the impostor card only
-    vec4 _foliageImpostorParams1; // consumed by the impostor card only
-    // x = this draw is the authored mesh (1) or the flat card (0);
-    // yz = the layer's mesh-to-card hand-over band (issue #1233).
-    vec4 u_MeshParams;
-    // xyz = the view position the hand-over is measured from, in the same
-    // render-relative space as the instance pivots. NOT u_CameraPosition: the
-    // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
-    vec4 u_MeshViewPos;
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"
 
@@ -166,7 +140,7 @@ void main()
     float metallic = 0.0;
     float ao = 1.0;
 
-    o_GBufferAlbedo   = vec4(leaf.Albedo, metallic);
+    o_GBufferAlbedo   = vec4(u_WindWeights.w > 0.5 ? vec3(0.0) : leaf.Albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(leaf.Normal), leaf.Roughness, ao);
 
     // The flags lane. OLO_PBR_MODEL_LEGACY is not a choice so much as the
@@ -179,7 +153,7 @@ void main()
                       ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY, OLO_MATERIAL_KIND_FOLIAGE,
                                                    int(u_LeafIds.x + 0.5))
                       : 0.0;
-    o_GBufferEmissive = vec4(0.0, 0.0, 0.0, flags); // lit; rgb = no emission
+    o_GBufferEmissive = vec4(u_WindWeights.w > 0.5 ? v_Color : vec3(0.0), u_WindWeights.w > 0.5 ? 1.0 : flags); // debug sets unlit bit 0; normal foliage is lit
 
     // Camera + wind-reprojection velocity. v_PrevWorldPos already includes the
     // prev-frame wind displacement (evaluated at u_PrevTime in the VS).

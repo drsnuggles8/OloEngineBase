@@ -151,6 +151,12 @@ namespace OloEngine
             HashCombine(h, FloatBits(layer.BaseColor.b));
             HashCombine(h, FloatBits(layer.Roughness));
             HashCombine(h, FloatBits(layer.AlphaCutoff));
+            HashCombine(h, FloatBits(layer.WindStrength));
+            HashCombine(h, FloatBits(layer.WindSpeed));
+            HashCombine(h, FloatBits(layer.WindStiffness));
+            HashCombine(h, FloatBits(layer.WindBranchWeight));
+            HashCombine(h, FloatBits(layer.WindLeafWeight));
+            HashCombine(h, layer.WindDebugDisplacement ? 1ull : 0ull);
             // The bounds profile too, because AddInstance derives m_LocalBounds
             // from it: without this a placement that survives a regeneration
             // with a DIFFERENT profile changes its bounds while its state hash
@@ -165,6 +171,7 @@ namespace OloEngine
             HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZHeightScaled));
             HashCombine(h, FloatBits(boundsProfile.m_MinY));
             HashCombine(h, FloatBits(boundsProfile.m_MaxY));
+            HashCombine(h, FloatBits(boundsProfile.m_WindDisplacement));
             m_CurrentMaterialHash = h;
         }
 

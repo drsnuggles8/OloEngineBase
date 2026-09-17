@@ -56,6 +56,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "RendererStateCheck.h"
 #include "../../TestOptions.h"
 
 #include "RenderPropertyTest.h"
@@ -97,6 +98,11 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Terrain/TerrainGenerator.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <algorithm>
 #include <array>
@@ -2378,6 +2384,166 @@ namespace OloEngine::Tests
                 return std::numeric_limits<u64>::max();
             return static_cast<u64>(std::llround(*std::ranges::min_element(retrySamples) * 1.0e6)); });
         CheckPerfRegression(std::string(kBaselineKey), stableDepthAwareNs);
+    }
+
+    // Actual authored foliage draws, including CSM depth.
+    class FoliageWindPerf : public RendererAttachedTest
+    {
+      protected:
+        static constexpr u32 kWidth = 960, kHeight = 540;
+        static constexpr f32 kMeshFadeStart = 55.0f, kMeshViewDistance = 70.0f;
+        static constexpr const char* kPineMesh = "SandboxProject/Assets/Models/Vegetation/pine.obj";
+        static constexpr const char* kFoliageAlbedo = "assets/textures/grass.png";
+        Entity m_TerrainEntity;
+        RendererState::Snapshot m_SavedState;
+
+        void TearDown() override
+        {
+            RendererAttachedTest::TearDown();
+            RendererState::Restore(m_SavedState);
+        }
+
+        void BuildScene() override
+        {
+            ASSERT_TRUE(RendererState::Capture(m_SavedState));
+            auto& wind = Renderer3D::GetWindSettings();
+            wind = WindSettings{};
+            wind.Enabled = true;
+            wind.Direction = glm::normalize(glm::vec3(1.0f, 0.0f, 0.3f));
+            wind.Speed = 8.0f;
+            wind.GustStrength = 0.6f;
+            wind.GustFrequency = 0.4f;
+            Scene& scene = GetScene();
+            EnableRendering(kWidth, kHeight);
+
+            {
+                Entity light = scene.CreateEntity("Sun");
+                auto& dl = light.AddComponent<DirectionalLightComponent>();
+                dl.m_Direction = glm::normalize(glm::vec3(-0.4f, -0.8f, -0.3f));
+                dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
+                dl.m_Intensity = 3.0f;
+            }
+
+            m_TerrainEntity = scene.CreateEntityWithUUID(UUID(1236), "Terrain");
+            {
+                auto& terrain = m_TerrainEntity.AddComponent<TerrainComponent>();
+                terrain.m_ProceduralEnabled = true;
+                terrain.m_ProceduralSeed = 11;
+                terrain.m_ProceduralResolution = 128;
+                terrain.m_ProceduralOctaves = 4;
+                terrain.m_ProceduralFrequency = 1.5f;
+                terrain.m_WorldSizeX = 256.0f;
+                terrain.m_WorldSizeZ = 256.0f;
+                // Low relief: the plants, not the hillside, have to be what
+                // changes between the two arms.
+                terrain.m_HeightScale = 6.0f;
+                terrain.m_TessellationEnabled = false;
+                terrain.m_Material = Ref<TerrainMaterial>::Create();
+                for (auto layer : TerrainGenerator::MakeDefaultLayers())
+                {
+                    layer.BaseColor = glm::vec3(0.4f); // neutral terrain cannot satisfy the green plant mask
+                    terrain.m_Material->AddLayer(layer);
+                }
+
+                auto& foliage = m_TerrainEntity.AddComponent<FoliageComponent>();
+                foliage.m_Enabled = true;
+
+                FoliageLayer pines;
+                pines.Name = "Pines";
+                pines.MeshPath = kPineMesh;
+                pines.AlbedoPath = kFoliageAlbedo;
+                pines.Density = 0.02f;
+                pines.SplatmapChannel = -1;
+                pines.MinSlopeAngle = 0.0f;
+                pines.MaxSlopeAngle = 60.0f;
+                pines.MinScale = 1.0f;
+                pines.MaxScale = 1.0f;
+                // Sizeable plants: the mesh and the card have to be
+                // distinguishable at the near camera's distance.
+                pines.MinHeight = 8.0f;
+                pines.MaxHeight = 12.0f;
+                pines.ViewDistance = 400.0f;
+                pines.FadeStartDistance = 360.0f;
+                pines.UseAuthoredMesh = true;
+                pines.MeshViewDistance = kMeshViewDistance;
+                pines.MeshFadeStartDistance = kMeshFadeStart;
+                pines.AlphaCutoff = 0.25f;
+                pines.WindStrength = 2.0f;
+                pines.WindStiffness = 0.4f;
+                pines.WindBranchWeight = 0.7f;
+                pines.WindLeafWeight = 0.8f;
+                pines.BaseColor = glm::vec3(0.18f, 0.42f, 0.14f);
+                foliage.m_Layers.push_back(pines);
+                foliage.m_NeedsRebuild = true;
+            }
+        }
+    };
+
+    TEST_F(FoliageWindPerf, HierarchicalColourAndShadowBudget)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.5f, 2000.0f);
+        camera.SetViewportSize(kWidth, kHeight);
+        camera.SetPose({ 128.0f, 12.0f, 150.0f }, 0.0f, 0.06f);
+        auto& wind = Renderer3D::GetWindSettings();
+        wind.Enabled = true;
+        wind.Speed = 8.0f;
+        wind.GustStrength = 0.6f;
+        for (bool hierarchical : { false, true })
+        {
+            auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
+            auto& layer = foliage.m_Layers[0];
+            layer.WindStiffness = hierarchical ? 0.4f : 0.0f;
+            layer.WindBranchWeight = hierarchical ? 0.7f : 0.0f;
+            layer.WindLeafWeight = hierarchical ? 0.8f : 0.0f;
+            foliage.m_NeedsRebuild = true;
+            RunEditorFrames(camera, 5);
+            ASSERT_TRUE(foliage.m_Renderer);
+            ASSERT_GT(foliage.m_Renderer->GetTotalInstanceCount(), 0u);
+            const auto draws = foliage.m_Renderer->GetActiveLayerDrawInfo();
+            ASSERT_TRUE(std::ranges::any_of(draws, [](const auto& draw)
+                                            { return draw.IsAuthoredMesh && draw.InstanceCount > 0; }));
+            ::testing::Test::RecordProperty("foliage_instance_count", std::to_string(foliage.m_Renderer->GetTotalInstanceCount()));
+            for (const std::string pass : { "FoliagePass", "ShadowPass" })
+            {
+                const std::string key = "foliage_wind_960x540_" + std::string(hierarchical ? "hierarchical_" : "legacy_") + pass;
+                const auto measure = [&]() -> u64
+                {
+                    f64 minimum = std::numeric_limits<f64>::max();
+                    u32 samples = 0;
+                    auto& timer = GPUPassTimerPool::GetInstance();
+                    u64 lastResolvedFrame = timer.GetCurrentFrameNumber();
+                    // Preserve the minimum of 20 samples. Query publication can
+                    // lag or report zero; collect fresh reports within a bound.
+                    for (u32 frame = 0; frame < 80 && samples < 20; ++frame)
+                    {
+                        RunEditorFrames(camera, 1);
+                        glFinish();
+                        const u64 resolvedFrame = timer.GetLastResolvedFrameNumber();
+                        if (resolvedFrame <= lastResolvedFrame)
+                            continue;
+                        lastResolvedFrame = resolvedFrame;
+                        for (const auto& timing : timer.GetLastPassTimingsCopy())
+                            if (timing.Name == pass && std::isfinite(timing.GpuMs) && timing.GpuMs > 0.0)
+                            {
+                                minimum = std::min(minimum, static_cast<f64>(timing.GpuMs));
+                                ++samples;
+                                break; // at most one report from this resolved frame
+                            }
+                    }
+                    EXPECT_EQ(samples, 20u) << pass;
+                    ::testing::Test::RecordProperty(key + "_positive_samples", std::to_string(samples));
+                    return samples == 20u ? static_cast<u64>(std::llround(minimum * 1e6)) : std::numeric_limits<u64>::max();
+                };
+                const auto ns = MeasureBenchmarkStableNs(key, measure);
+                ASSERT_GT(ns, 0u) << pass;
+                ASSERT_LT(ns, std::numeric_limits<u64>::max()) << pass;
+                CheckPerfRegression(key, ns);
+            }
+        }
     }
 
 } // namespace OloEngine::Tests

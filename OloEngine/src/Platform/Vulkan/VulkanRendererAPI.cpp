@@ -4201,6 +4201,10 @@ namespace OloEngine
         region.extent = { width, height, 1u };
         vkCmdCopyImage(ctx.Cmd, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+        // Copy exports are not represented by the graph's attachment access.
+        // Release them to all subsequent commands, including layout transitions
+        // through aliased framebuffer views and readback's restored layouts.
+        MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
     }
 
     void VulkanRendererAPI::CopyImageSubDataFull(RHI::ResourceHandle src, TextureTargetType srcTarget, i32 srcLevel, i32 srcZ, RHI::ResourceHandle dst, TextureTargetType dstTarget, i32 dstLevel, i32 dstZ, u32 width, u32 height)
@@ -4995,8 +4999,9 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         // The engine's production blits are 1:1 full-surface copies (depth
-        // seeds, entity-ID handoffs, G-buffer resolves), lowered here as
-        // vkCmdCopyImage with the CopyImageSubData transition discipline. A
+        // seeds, entity-ID handoffs, G-buffer resolves). Equal sample counts
+        // copy; multisample-to-single-sample blits resolve colour or depth.
+        // Both use the CopyImageSubData transition discipline. A
         // scaling blit would need vkCmdBlitImage + per-aspect filter rules —
         // no current caller scales, so that arm is a loud warn-once (report,
         // don't guess) rather than silent wrong output. The filter argument
@@ -5015,21 +5020,49 @@ namespace OloEngine
             UnimplementedStub("BlitFramebuffer(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
-        const i32 width = srcX1 - srcX0;
-        const i32 height = srcY1 - srcY0;
+        VkImageAspectFlags requestedMask = 0u;
+        switch (aspect)
+        {
+            case RHI::BlitAspect::Color:
+                requestedMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                break;
+            case RHI::BlitAspect::Depth:
+                requestedMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                break;
+            case RHI::BlitAspect::Stencil:
+                requestedMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+                break;
+            case RHI::BlitAspect::DepthStencil:
+                requestedMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+                break;
+            default:
+                UnimplementedStub("BlitFramebuffer(unknown aspect)", StubKind::PreconditionFailure);
+                return;
+        }
+        // Widen before subtraction, including unsupported offset/scaling arms.
+        const i64 width = static_cast<i64>(srcX1) - srcX0;
+        const i64 height = static_cast<i64>(srcY1) - srcY0;
+        const i64 destinationWidth = static_cast<i64>(dstX1) - dstX0;
+        const i64 destinationHeight = static_cast<i64>(dstY1) - dstY0;
         if (width <= 0 || height <= 0)
         {
             return;
         }
-        if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || (dstX1 - dstX0) != width ||
-            (dstY1 - dstY0) != height)
+        if (width > std::numeric_limits<i32>::max() || height > std::numeric_limits<i32>::max() ||
+            destinationWidth > std::numeric_limits<i32>::max() || destinationHeight > std::numeric_limits<i32>::max())
+        {
+            UnimplementedStub("BlitFramebuffer(rectangle span out of range)", StubKind::PreconditionFailure);
+            return;
+        }
+        if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || destinationWidth != width ||
+            destinationHeight != height)
         {
             static std::atomic<bool> s_WarnedScaled{ false };
             if (!s_WarnedScaled.exchange(true, std::memory_order_relaxed))
             {
                 OLO_CORE_WARN("[RHI/Vulkan] BlitFramebuffer with offset/scaling rects is not lowered yet "
                               "(src {}x{} at {},{} -> dst {}x{} at {},{}) — blit skipped",
-                              width, height, srcX0, srcY0, dstX1 - dstX0, dstY1 - dstY0, dstX0, dstY0);
+                              width, height, srcX0, srcY0, destinationWidth, destinationHeight, dstX0, dstY0);
             }
             return;
         }
@@ -5037,7 +5070,7 @@ namespace OloEngine
         // Transfer commands are illegal inside a dynamic-rendering scope.
         EndRenderingScope();
 
-        const auto copyOne = [&](const Ref<VulkanTexture2D>& srcImage, const Ref<VulkanTexture2D>& dstImage)
+        const auto copyOne = [&](Ref<VulkanTexture2D> srcImage, Ref<VulkanTexture2D> dstImage)
         {
             if (srcImage == nullptr || dstImage == nullptr)
             {
@@ -5045,47 +5078,145 @@ namespace OloEngine
             }
             const VkImage srcVk = srcImage->GetVkImage();
             const VkImage dstVk = dstImage->GetVkImage();
-            // The aspect comes from the IMAGE, not from the caller's
-            // BlitAspect: a combined depth/stencil format must name BOTH
-            // aspects in a layout-transition barrier (VUID 03320 — no
-            // separateDepthStencilLayouts on the floor), and a matched-format
-            // copy legally moves both (the unused stencil rides along, which
-            // is also what GL's depth blit leaves behaviourally). The blit
-            // pairs are format-matched by the caller contract, so one aspect
-            // set serves src and dst alike.
+            // The supported zero-origin rectangles overlap on a shared image.
+            // Different attachments of the same framebuffer can still be valid.
+            if (srcVk == dstVk)
+            {
+                UnimplementedStub("BlitFramebuffer(overlapping image alias)", StubKind::PreconditionFailure);
+                return;
+            }
+            // Combined depth/stencil images need BOTH aspects in layout
+            // transitions (no separateDepthStencilLayouts on the floor).
+            // The copy/resolve itself must preserve the caller's aspect mask.
             const auto* srcInfo = VulkanImageInfoRegistry::Get().Lookup(srcVk);
             const auto* dstInfo = VulkanImageInfoRegistry::Get().Lookup(dstVk);
             if (srcInfo == nullptr || dstInfo == nullptr)
             {
                 return;
             }
-            const VkImageAspectFlags aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            const VkImageAspectFlags srcAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            const VkImageAspectFlags dstAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
+            if (srcInfo->Width == 0u || srcInfo->Height == 0u || dstInfo->Width == 0u || dstInfo->Height == 0u ||
+                width > srcInfo->Width || height > srcInfo->Height || width > dstInfo->Width || height > dstInfo->Height)
+            {
+                UnimplementedStub("BlitFramebuffer(rectangle exceeds image extent)", StubKind::PreconditionFailure);
+                return;
+            }
+            if ((srcAspectMask & requestedMask) != requestedMask || (dstAspectMask & requestedMask) != requestedMask)
+            {
+                UnimplementedStub("BlitFramebuffer(requested aspect missing)", StubKind::PreconditionFailure);
+                return;
+            }
+            // This lowering copies values in matching formats; it does not
+            // implement GL's colour conversion (e.g. deferred debug channels
+            // into RGBA16F). Even size-compatible colour copies reinterpret
+            // bits rather than convert values, so refuse that unsupported arm.
+            if (srcInfo->Format != dstInfo->Format)
+            {
+                UnimplementedStub("BlitFramebuffer(format conversion not lowered)", StubKind::PreconditionFailure);
+                return;
+            }
+            const VkImageAspectFlags operationMask = requestedMask;
+            const bool resolving = srcInfo->Samples > 1u && dstInfo->Samples == 1u;
+            if (srcInfo->Samples != dstInfo->Samples && !resolving)
+            {
+                UnimplementedStub("BlitFramebuffer(unsupported sample counts)", StubKind::PreconditionFailure);
+                return;
+            }
             std::vector<VkImageMemoryBarrier2> toTransfer;
-            const VkImageSubresourceRange srcRange{ aspectMask, 0u, 1u, 0u, 1u };
-            const VkImageSubresourceRange dstRange{ aspectMask, 0u, 1u, 0u, 1u };
+            const VkImageSubresourceRange srcRange{ srcAspectMask, 0u, 1u, 0u, 1u };
+            const VkImageSubresourceRange dstRange{ dstAspectMask, 0u, 1u, 0u, 1u };
+            if (resolving && (operationMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0u)
+            {
+                // Depth has no vkCmdResolveImage arm. A LOAD-only rendering
+                // instance resolves sample zero when it ends; no draw is needed.
+                // SAMPLE_ZERO is required for depth/stencil resolve on our API floor.
+                const VkImageView sourceView = srcImage->GetOrCreateAttachmentView();
+                const VkImageView destinationView = dstImage->GetOrCreateAttachmentView();
+                if (sourceView == VK_NULL_HANDLE || destinationView == VK_NULL_HANDLE)
+                {
+                    UnimplementedStub("BlitFramebuffer(depth/stencil attachment view unavailable)", StubKind::PreconditionFailure);
+                    return;
+                }
+                constexpr auto layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                StageTransferTransition(srcVk, srcRange, layout,
+                                        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, toTransfer);
+                StageTransferTransition(dstVk, dstRange, layout,
+                                        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, toTransfer);
+                for (auto& barrier : toTransfer)
+                {
+                    // Attachment resolves (including depth/stencil) execute
+                    // as colour-output writes at the end of rendering.
+                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT |
+                                           VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                    barrier.dstAccessMask |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+                }
+                VkDependencyInfo dep{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
+                dep.pImageMemoryBarriers = toTransfer.data();
+                ctx.RecordBarrier(dep);
+                VkRenderingAttachmentInfo attachment{ VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+                attachment.imageView = sourceView;
+                attachment.imageLayout = layout;
+                attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                attachment.resolveImageView = destinationView;
+                attachment.resolveImageLayout = layout;
+                attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                VkRenderingInfo rendering{ VK_STRUCTURE_TYPE_RENDERING_INFO };
+                rendering.renderArea.extent = { static_cast<u32>(width), static_cast<u32>(height) };
+                rendering.layerCount = 1;
+                rendering.pDepthAttachment = (operationMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0u ? &attachment : nullptr;
+                rendering.pStencilAttachment = (operationMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0u ? &attachment : nullptr;
+                vkCmdBeginRendering(ctx.Cmd, &rendering);
+                vkCmdEndRendering(ctx.Cmd);
+                MemoryBarrier(MemoryBarrierFlags::Framebuffer);
+                return;
+            }
             StageTransferTransition(srcVk, srcRange, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                     VK_ACCESS_2_TRANSFER_READ_BIT, toTransfer);
             StageTransferTransition(dstVk, dstRange, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, toTransfer);
+            if (resolving)
+                for (auto& barrier : toTransfer)
+                    barrier.dstStageMask = VK_PIPELINE_STAGE_2_RESOLVE_BIT;
             VkDependencyInfo dep{};
             dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             dep.imageMemoryBarrierCount = static_cast<u32>(toTransfer.size());
             dep.pImageMemoryBarriers = toTransfer.data();
             ctx.RecordBarrier(dep);
 
-            VkImageCopy region{};
-            region.srcSubresource = { aspectMask, 0u, 0u, 1u };
-            region.dstSubresource = { aspectMask, 0u, 0u, 1u };
-            region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+            if (resolving)
+            {
+                VkImageResolve region{};
+                region.srcSubresource = { operationMask, 0u, 0u, 1u };
+                region.dstSubresource = { operationMask, 0u, 0u, 1u };
+                region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+                vkCmdResolveImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                return;
+            }
+            std::array<VkImageCopy, 2> regions{};
+            u32 regionCount = 0;
+            for (const VkImageAspectFlags bit : { VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_ASPECT_STENCIL_BIT })
+                if ((operationMask & bit) != 0u)
+                {
+                    auto& region = regions[regionCount++];
+                    region.srcSubresource = { bit, 0u, 0u, 1u };
+                    region.dstSubresource = { bit, 0u, 0u, 1u };
+                    region.extent = { static_cast<u32>(width), static_cast<u32>(height), 1u };
+                }
             vkCmdCopyImage(ctx.Cmd, srcVk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVk,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1u, &region);
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regionCount, regions.data());
+            MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
         };
 
         if (aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ||
             aspect == RHI::BlitAspect::Stencil)
         {
-            // The BlitAspect selects the ATTACHMENT PAIR; the copied aspect
-            // set comes from the images themselves (see copyOne).
+            // Select the depth/stencil attachment pair; copyOne also respects
+            // which of its two aspects the caller requested.
             copyOne(src->GetDepthAttachmentImage(), dst->GetDepthAttachmentImage());
             return;
         }

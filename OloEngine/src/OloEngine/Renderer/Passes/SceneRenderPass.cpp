@@ -206,6 +206,7 @@ namespace OloEngine
         if (deferredActive && m_GBuffer)
         {
             renderFB->ClearAttachment(std::to_underlying(GBuffer::BakedGI), glm::vec4(0.0f));
+            renderFB->ClearAttachment(std::to_underlying(GBuffer::Velocity), glm::vec4(0.0f));
         }
 
         // Velocity RT (scene FB attachment 3 in Forward / Forward+) must clear
@@ -483,7 +484,7 @@ namespace OloEngine
         const bool aoNeedsResolvedNormals =
             (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
             (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
+        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || postProcessSettings.TAAEnabled || m_SelectedVelocityExport.IsValid(); perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
         {
             m_GBuffer->Resolve();
         }

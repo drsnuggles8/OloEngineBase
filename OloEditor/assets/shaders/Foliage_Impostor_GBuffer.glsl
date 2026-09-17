@@ -52,6 +52,7 @@ layout(location = 1) in vec3 v_PivotWorld;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
+layout(location = 8) in float v_WindDisplacement;
 layout(location = 7) in float v_Radius;
 layout(location = 2) in float v_MeshCoverage; // WORLD-space card radius
 
@@ -67,32 +68,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     float _padding1;
 };
 
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3 u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1;
-    vec4 u_MeshParams; // issue #1233 — see FoliageInstanceGeometry.glsl
-    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO // x=enabled, y=meshRadius, z=parallaxScale, w=unused
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 // u_EntityID rides the per-draw instance SSBO (foliage uploads ONE shared
 // entry — OLO_INSTANCE_SINGLE in the vertex stage).
@@ -117,6 +93,7 @@ bool oloLeafEnabled()
 void main()
 {
     ImpostorSample card = SampleImpostorCard();
+    if (u_WindWeights.w > 0.5) card.Albedo = vec3(v_WindDisplacement, 0.0, 1.0);
 
     // The baked object-space normal, rotated into world space by the instance
     // rotation — the same normal the forward card relights with, handed to
@@ -151,14 +128,14 @@ void main()
     // distance an impostor is used. So the card transmits at the layer's
     // authored thickness scale uniformly. The map's VARIATION is what is lost
     // at distance, not the transmission.
-    bool isLeaf = oloLeafEnabled();
-    o_GBufferAlbedo   = vec4(card.Albedo, metallic);
+    bool isLeaf = oloLeafEnabled() && u_WindWeights.w <= 0.5;
+    o_GBufferAlbedo   = vec4(u_WindWeights.w > 0.5 ? vec3(0.0) : card.Albedo, metallic);
     o_GBufferNormal   = vec4(octEncodeGB(worldN), roughness, ao);
-    o_GBufferEmissive = vec4(0.0, 0.0, 0.0,
-                             isLeaf ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY,
+    o_GBufferEmissive = vec4(u_WindWeights.w > 0.5 ? card.Albedo : vec3(0.0),
+                             u_WindWeights.w > 0.5 ? 1.0 : isLeaf ? oloEncodeGBufferPbrFlagsEx(OLO_PBR_MODEL_LEGACY,
                                                                  OLO_MATERIAL_KIND_FOLIAGE,
                                                                  int(u_LeafIds.x + 0.5))
-                                    : 0.0); // lit
+                                    : 0.0); // debug sets unlit bit 0
 
     // Camera-motion velocity (impostor has no per-instance prev history).
     vec4 clipCurr = u_ViewProjection * vec4(v_CardWorld, 1.0);

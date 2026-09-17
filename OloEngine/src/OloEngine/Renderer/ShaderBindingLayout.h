@@ -470,7 +470,7 @@ namespace OloEngine
             f32 FadeStart;
             f32 AlphaCutoff;
             f32 PrevTime = 0.0f; // Previous-frame time for per-fragment wind reprojection
-            f32 Pad1 = 0.0f;
+            f32 WindHistoryValid = 1.0f;
             glm::vec4 BaseColor; // xyz = color, w = unused
 
             // Octahedral impostor params (issue #433). Consumed only by the
@@ -545,6 +545,12 @@ namespace OloEngine
             // dark on its unlit side — which is exactly what replacing the old
             // flat `albedo * 0.3` ambient would otherwise have caused.
             glm::vec4 LeafIds{ 7.0f, 0.0f, 1.0f, 0.0f };
+            glm::vec4 WindWeights{ 0.0f };
+            glm::vec4 WindDirection{ 0.0f };
+            glm::vec4 WindGust{ 0.0f };
+            glm::vec4 WindFlags{ 0.0f };       // xyz=absolute render origin, w=enabled
+            glm::vec4 WindClock{ 0.0f };       // current/previous legacy field clocks
+            glm::vec4 PrevMeshViewPos{ 0.0f }; // previous main eye, relative to this frame origin
 
             static constexpr u32 GetSize()
             {
@@ -2463,7 +2469,7 @@ namespace OloEngine
     // WHOLE — including the vec4s it does not read — so a field appended for
     // one of them cannot land at a different offset in another, and this
     // assertion is what catches a C++ lane that never reached the GLSL side.
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 176, "FoliageUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 272, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");

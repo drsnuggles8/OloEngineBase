@@ -149,37 +149,7 @@ layout(binding = 12) uniform sampler2D u_BRDFLutMap;       // TEX_USER_2
 #endif
 
 // Foliage UBO (binding 12) — shared with vertex stage
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3  u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 _foliageImpostorParams0; // consumed by the impostor card only
-    vec4 _foliageImpostorParams1; // consumed by the impostor card only
-    // x = this draw is the authored mesh (1) or the flat card (0);
-    // yz = the layer's mesh-to-card hand-over band (issue #1233).
-    vec4 u_MeshParams;
-    // xyz = the view position the hand-over is measured from, in the same
-    // render-relative space as the instance pivots. NOT u_CameraPosition: the
-    // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
-    vec4 u_MeshViewPos;
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"
 
@@ -371,7 +341,7 @@ void main()
 
     vec3 litColor = ambient * ao + oloSurfaceLightingSum(Lo) + transmitted;
 
-    FragColor = vec4(litColor, color.a);
+    FragColor = vec4(u_WindWeights.w > 0.5 ? v_Color : litColor, color.a);
 
     // Camera-motion + wind-reprojection velocity. v_PrevWorldPos already
     // includes the prev-frame wind displacement (re-evaluated at u_PrevTime).

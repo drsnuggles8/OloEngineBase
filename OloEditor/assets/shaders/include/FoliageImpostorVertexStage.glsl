@@ -73,43 +73,19 @@ layout(std140, binding = 0) uniform CameraMatrices
 #define OLO_INSTANCE_SINGLE 1
 #include "InstanceBlock_Vertex.glsl"
 
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3 u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1; // x=enabled, y=meshRadius, z=parallaxScale, w=unused
-    // x = this draw is the authored mesh (1) or the card (0) — always 0 here,
-    // because the impostor IS the far-field card; yz = the layer's
-    // mesh-to-card hand-over band (issue #1233).
-    vec4 u_MeshParams;
-    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "FoliageParams.glsl"
 
 #include "FoliageInstanceGeometry.glsl"
+#include "FoliageWind.glsl"
 
 layout(location = 0) out vec3 v_CardWorld;  // this fragment's card world position
 layout(location = 1) out vec3 v_PivotWorld; // card centre (world)
 layout(location = 4) out float v_AlphaCutoff;
 layout(location = 5) out float v_Rotation;  // instance Y rotation
+#ifndef OLO_FOLIAGE_SHADOW
 layout(location = 6) out vec3 v_PrevCardWorld;
+layout(location = 8) out float v_WindDisplacement;
+#endif
 layout(location = 7) out float v_Radius;    // WORLD-space card radius (object radius * scale)
 // This plant's authored-mesh share (issue #1233). The impostor is the FAR side
 // of the hand-over, so it keeps the pixels the near mesh does not.
@@ -193,30 +169,33 @@ void main()
     // as a placement bug rather than an anchoring one.
     vec3 cardCenter = instWorld + vec3(0.0, 0.5 * height * scale, 0.0);
 
-    // Subtle whole-card wind sway (legacy sine model, matching the near
-    // billboard's fallback branch) so a distant tree still moves with the wind.
-    float windPhase = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_Time * u_WindSpeed;
-    float windPhasePrev = (a_PositionScale.x + a_PositionScale.z) * 0.1 + u_PrevTime * u_WindSpeed;
-    float sway = sin(windPhase) * cos(windPhase * 0.7 + 1.3) * u_WindStrength * 0.15;
-    float swayPrev = sin(windPhasePrev) * cos(windPhasePrev * 0.7 + 1.3) * u_WindStrength * 0.15;
-    vec3 cardCenterCur = cardCenter + vec3(sway, 0.0, sway * 0.5);
-    vec3 cardCenterPrev = cardCenter + vec3(swayPrev, 0.0, swayPrev * 0.5);
+    // Far field retains coherent whole-card trunk/branch motion. Fine leaf
+    // flutter is baked away; the near mesh remains its detailed consumer.
+    float influence = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ? 0.5 : 0.15;
+    FoliageDeformation sway = foliageDeform(vec3(0.0), vec3(0.0, influence, 0.0), a_PositionScale.xyz, a_RotationHeight.w);
+    vec3 cardCenterCur = cardCenter + mat3(u_Model) * sway.Current;
+    vec3 prevInstWorld = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 cardCenterPrev = prevInstWorld + vec3(0.0, 0.5 * height * scale, 0.0) + mat3(u_PrevModel) * sway.Previous;
 
     // Camera-facing basis. u_CameraPosition is treated in the same space as the
     // render-relative pivot (renderOrigin ~ 0 for authored scenes) — matches the
     // existing foliage distance/fade convention.
+    #ifdef OLO_FOLIAGE_SHADOW
+    vec3 toCam = u_MeshViewPos.xyz - cardCenterCur;
+#else
     vec3 toCam = u_CameraPosition - cardCenterCur;
-    vec3 zAxis = normalize(toCam);
-    vec3 upRef = (abs(zAxis.y) > 0.999) ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
-    vec3 xAxis = normalize(cross(upRef, zAxis));
-    vec3 yAxis = normalize(cross(zAxis, xAxis));
-
+#endif
     vec2 offset = (a_TexCoord - 0.5) * (2.0 * radius);
-    vec3 cardWorld = cardCenterCur + xAxis * offset.x + yAxis * offset.y;
-    vec3 cardWorldPrev = cardCenterPrev + xAxis * offset.x + yAxis * offset.y;
+    vec3 cardWorld = foliageImpostorPoint(cardCenterCur, cardCenterCur + toCam, offset);
+    // Carry the previous main eye explicitly. VP alone cannot recover an
+    // orthographic eye; a current-eye fallback loses camera-facing history.
+    vec3 cardWorldPrev = foliageImpostorPoint(cardCenterPrev, u_PrevMeshViewPos.xyz, offset);
 
     v_CardWorld = cardWorld;
+    #ifndef OLO_FOLIAGE_SHADOW
     v_PrevCardWorld = cardWorldPrev;
+    v_WindDisplacement = clamp(length(sway.Current) / max(abs(u_WindStrength) * 2.5, 1e-5), 0.0, 1.0);
+#endif
     v_PivotWorld = cardCenterCur;
     v_AlphaCutoff = a_ColorAlpha.a;
     v_Rotation = rotation;

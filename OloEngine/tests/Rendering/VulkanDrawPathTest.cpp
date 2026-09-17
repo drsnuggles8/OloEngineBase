@@ -57,9 +57,13 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanBindingState.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanResourceInspectorBackend.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
+#include "Platform/Vulkan/VulkanFramebuffer.h"
+#include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
@@ -77,6 +81,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -2244,6 +2249,533 @@ void main() {
     Images missingMap;
     capture(true, 0u, 0u, missingMap);
     EXPECT_EQ(pixel(missingMap[0], kSize / 4u), (std::array<u8, 3>{ 255, 255, 255 }));
+}
+
+TEST_F(VulkanDrawPath, CopyExportsRemainOrderedThroughAliasedGraphBarriers)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    TextureSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+    auto source = Texture2D::Create(spec);
+    auto destination = Texture2D::Create(spec);
+    ASSERT_TRUE(source && destination);
+    SubmitFrame(api, [&]()
+                {
+        api.ClearTextureFloat(source->GetRHIHandle(), 0, glm::vec4(0.25f));
+        api.CopyImageSubData(source->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D,
+                            destination->GetRHIHandle(), RendererAPI::TextureTargetType::Texture2D, 16, 16);
+        // Framebuffer base/version attachment views can resolve to one image.
+        // Both transitions execute in one batch, so neither may forget the
+        // copy just because the first declaration advanced recorded layout.
+        std::array<RHI::Barrier, 4> aliases{};
+        for (sizet i = 0; i < aliases.size(); ++i)
+        {
+            aliases[i].Resource = i < 2 ? source->GetRHIHandle() : destination->GetRHIHandle();
+            aliases[i].Before = RHI::Access::ColorAttachmentWrite;
+            aliases[i].After = RHI::Access::ColorAttachmentWrite;
+        }
+        api.IssueBarrierBatch(MemoryBarrierFlags::None, aliases); });
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitResolvesMultisampleColourAndDepth)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    FramebufferSpecification spec;
+    spec.Width = 16;
+    spec.Height = 16;
+    spec.Samples = 4;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::DEPTH_COMPONENT32F };
+    auto source = Framebuffer::Create(spec);
+    spec.Samples = 1;
+    auto destination = Framebuffer::Create(spec);
+    ASSERT_TRUE(source && destination);
+    SubmitFrame(api, [&]()
+                {
+        source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+        api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+        api.SetFramebufferReadAttachment(source->GetRHIHandle(), 0);
+        api.SetFramebufferDrawAttachments(destination->GetRHIHandle(), std::array<u32, 1>{0});
+        api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                            0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+        api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                            0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Depth, RHI::Filter::Nearest); });
+    std::array<u8, 4> colour{};
+    ASSERT_TRUE(api.ReadTextureSubImage(destination->GetColorAttachmentHandle(0), 0, 0, 0, 0,
+                                        1, 1, 1, RHI::Format::RGBA8UNorm, colour.size(), colour.data()));
+    EXPECT_NEAR(colour[0], 64, 1);
+    EXPECT_NEAR(colour[1], 128, 1);
+    EXPECT_NEAR(colour[2], 191, 1);
+    EXPECT_EQ(colour[3], 255);
+    f32 depth = 0.0f;
+    ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, 0, 0, 0,
+                                        1, 1, 1, RHI::Format::D32Float, sizeof(depth), &depth));
+    EXPECT_NEAR(depth, 0.4f, 1e-6f);
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitPreservesUnrequestedDepthStencilAspects)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    struct StencilReadback
+    {
+        VmaAllocator Allocator;
+        VkBuffer Buffer = VK_NULL_HANDLE;
+        VmaAllocation Allocation = VK_NULL_HANDLE;
+        ~StencilReadback()
+        {
+            if (Buffer != VK_NULL_HANDLE)
+                vmaDestroyBuffer(Allocator, Buffer, Allocation);
+        }
+    } readback{ m_Device->GetAllocator() };
+    VkBufferCreateInfo bufferInfo{ VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    bufferInfo.size = 16 * 16;
+    bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo allocationInfo{};
+    allocationInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VmaAllocationInfo mapped{};
+    ASSERT_EQ(vmaCreateBuffer(readback.Allocator, &bufferInfo, &allocationInfo,
+                              &readback.Buffer, &readback.Allocation, &mapped),
+              VK_SUCCESS);
+    ASSERT_NE(mapped.pMappedData, nullptr);
+    for (const u32 samples : { 1u, 4u })
+        for (const auto sourceFormat : { FramebufferTextureFormat::DEPTH_COMPONENT32F, FramebufferTextureFormat::DEPTH24STENCIL8 })
+            for (const auto destinationFormat : { FramebufferTextureFormat::DEPTH_COMPONENT32F, FramebufferTextureFormat::DEPTH24STENCIL8 })
+                for (const auto aspect : { RHI::BlitAspect::Depth, RHI::BlitAspect::Stencil, RHI::BlitAspect::DepthStencil })
+                {
+                    SCOPED_TRACE(::testing::Message() << "samples=" << samples << " source=" << static_cast<u32>(sourceFormat)
+                                                      << " destination=" << static_cast<u32>(destinationFormat) << " aspect=" << static_cast<u32>(aspect));
+                    FramebufferSpecification spec;
+                    spec.Width = spec.Height = 16;
+                    spec.Samples = samples;
+                    spec.Attachments = { sourceFormat };
+                    auto source = Framebuffer::Create(spec);
+                    spec.Samples = 1;
+                    spec.Attachments = { destinationFormat };
+                    auto destination = Framebuffer::Create(spec);
+                    ASSERT_TRUE(source && destination);
+                    auto* sourceVK = static_cast<VulkanFramebuffer*>(source.Raw());
+                    auto* destinationVK = static_cast<VulkanFramebuffer*>(destination.Raw());
+                    const VkImage sourceImage = sourceVK->GetDepthAttachmentImage()->GetVkImage();
+                    const VkImage destinationImage = destinationVK->GetDepthAttachmentImage()->GetVkImage();
+                    // Both engine depth enums currently widen to the same combined
+                    // native format. Test the actual metadata instead of pretending
+                    // DEPTH_COMPONENT32F creates a stencil-free Vulkan image.
+                    const auto* sourceInfo = VulkanImageInfoRegistry::Get().Lookup(sourceImage);
+                    const auto* destinationInfo = VulkanImageInfoRegistry::Get().Lookup(destinationImage);
+                    ASSERT_TRUE(sourceInfo && destinationInfo);
+                    ASSERT_TRUE(sourceInfo->HasDepth && sourceInfo->HasStencil && destinationInfo->HasDepth && destinationInfo->HasStencil);
+                    ASSERT_EQ(sourceInfo->Format, destinationInfo->Format);
+                    SubmitFrame(api, [&]()
+                                {
+                // Seed both aspects with different values. The facade's depth
+                // clear establishes/tracks TRANSFER_DST; raw clears retain it.
+                api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+                api.ClearFramebufferDepth(destination->GetRHIHandle(), 0.8f);
+                api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+                const VkClearDepthStencilValue sourceValue{ 0.4f, 37 };
+                const VkClearDepthStencilValue destinationValue{ 0.8f, 19 };
+                vkCmdClearDepthStencilImage(m_Cmd, sourceImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &sourceValue, 1, &range);
+                vkCmdClearDepthStencilImage(m_Cmd, destinationImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &destinationValue, 1, &range);
+                api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                    0, 0, 16, 16, 0, 0, 16, 16, aspect, RHI::Filter::Nearest);
+                RHI::Barrier barrier;
+                barrier.Resource = destination->GetDepthAttachmentHandle();
+                barrier.Range = { RHI::TextureAspect::DepthStencil, 0, 1, 0, 1 };
+                barrier.Before = samples == 1 ? RHI::Access::TransferWrite : RHI::Access::DepthStencilAttachmentWrite;
+                barrier.After = RHI::Access::TransferRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::TextureUpdate, std::span{ &barrier, 1u });
+                VkBufferImageCopy region{};
+                region.imageSubresource = { VK_IMAGE_ASPECT_STENCIL_BIT, 0, 0, 1 };
+                region.imageExtent = { 16, 16, 1 };
+                vkCmdCopyImageToBuffer(m_Cmd, destinationImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.Buffer, 1, &region);
+                VkBufferMemoryBarrier2 host{ VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
+                host.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                host.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                host.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+                host.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+                host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                host.buffer = readback.Buffer;
+                host.size = VK_WHOLE_SIZE;
+                VkDependencyInfo dependency{ VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+                dependency.bufferMemoryBarrierCount = 1;
+                dependency.pBufferMemoryBarriers = &host;
+                vkCmdPipelineBarrier2(m_Cmd, &dependency); });
+                    ASSERT_EQ(vmaInvalidateAllocation(readback.Allocator, readback.Allocation, 0, VK_WHOLE_SIZE), VK_SUCCESS);
+                    const u8 expectedStencil = aspect == RHI::BlitAspect::Depth ? 19 : 37;
+                    const auto* stencil = static_cast<const u8*>(mapped.pMappedData);
+                    for (u32 pixel = 0; pixel < 16 * 16; ++pixel)
+                        EXPECT_EQ(stencil[pixel], expectedStencil);
+                    f32 depth = 0.0f;
+                    ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, 0, 0, 0,
+                                                        1, 1, 1, RHI::Format::D32Float, sizeof(depth), &depth));
+                    EXPECT_NEAR(depth, aspect == RHI::BlitAspect::Stencil ? 0.8f : 0.4f, 1e-6f);
+                }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitRejectsUnloweredColourConversionWithoutMutation)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    for (const u32 samples : { 1u, 4u })
+        for (const auto destinationFormat : { FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RGBA16F })
+        {
+            SCOPED_TRACE(::testing::Message() << "samples=" << samples << " destination=" << static_cast<u32>(destinationFormat));
+            FramebufferSpecification spec;
+            spec.Width = spec.Height = 16;
+            spec.Samples = samples;
+            spec.Attachments = { FramebufferTextureFormat::RGBA8 };
+            auto source = Framebuffer::Create(spec);
+            spec.Samples = 1;
+            auto sourceProbe = Framebuffer::Create(spec);
+            spec.Attachments = { destinationFormat };
+            auto destination = Framebuffer::Create(spec);
+            ASSERT_TRUE(source && sourceProbe && destination);
+            const auto imageOf = [](const Ref<Framebuffer>& framebuffer)
+            {
+                return static_cast<const VulkanFramebuffer*>(framebuffer.Raw())->GetColorAttachmentImage(0)->GetVkImage();
+            };
+            SubmitFrame(api, [&]()
+                        {
+                source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+                destination->ClearAttachment(0, glm::vec4(0.8f, 0.6f, 0.4f, 1.0f));
+                api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+                const auto sourceLayout = api.LayoutTracker().CurrentLayout(imageOf(source), range);
+                const auto destinationLayout = api.LayoutTracker().CurrentLayout(imageOf(destination), range);
+                const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+                api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                    0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1);
+                EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(source), range), sourceLayout);
+                EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(destination), range), destinationLayout);
+                api.BlitFramebuffer(source->GetRHIHandle(), sourceProbe->GetRHIHandle(),
+                                    0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+                EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1); });
+            for (const bool probe : { false, true })
+            {
+                const auto& framebuffer = probe ? sourceProbe : destination;
+                std::array<f32, 4> colour{};
+                ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetColorAttachmentHandle(0), 0, 0, 0, 0,
+                                                    1, 1, 1, RHI::Format::RGBA32Float, sizeof(colour), colour.data()));
+                EXPECT_NEAR(colour[0], probe ? 0.25f : 0.8f, 1.0f / 255.0f);
+                EXPECT_NEAR(colour[1], probe ? 0.5f : 0.6f, 1.0f / 255.0f);
+            }
+        }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitRejectsInvalidBoundariesWithoutMutation)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    enum class Boundary
+    {
+        SourceWidth,
+        SourceHeight,
+        DestinationWidth,
+        DestinationHeight,
+        SameFramebuffer,
+        SharedAttachment,
+        UnknownAspect,
+        SourceXSpan,
+        SourceYSpan,
+        DestinationXSpan,
+        DestinationYSpan
+    };
+    const std::array boundaries{
+        Boundary::SourceWidth, Boundary::SourceHeight, Boundary::DestinationWidth, Boundary::DestinationHeight,
+        Boundary::SameFramebuffer, Boundary::SharedAttachment, Boundary::UnknownAspect,
+        Boundary::SourceXSpan, Boundary::SourceYSpan, Boundary::DestinationXSpan, Boundary::DestinationYSpan
+    };
+    u32 cases = 0;
+    for (const auto aspect : { RHI::BlitAspect::Color, RHI::BlitAspect::DepthStencil })
+        for (const u32 samples : { 1u, 4u })
+            for (const auto boundary : boundaries)
+            {
+                SCOPED_TRACE(::testing::Message() << "aspect=" << static_cast<u32>(aspect) << " samples=" << samples
+                                                  << " boundary=" << static_cast<u32>(boundary));
+                const bool depth = aspect == RHI::BlitAspect::DepthStencil;
+                const bool alias = boundary == Boundary::SameFramebuffer || boundary == Boundary::SharedAttachment;
+                FramebufferSpecification spec;
+                spec.Width = boundary == Boundary::SourceWidth ? 8 : 16;
+                spec.Height = boundary == Boundary::SourceHeight ? 8 : 16;
+                spec.Samples = samples;
+                spec.Attachments = { depth ? FramebufferTextureFormat::DEPTH24STENCIL8 : FramebufferTextureFormat::RGBA8 };
+                auto source = Framebuffer::Create(spec);
+                const auto sourceWidth = spec.Width;
+                const auto sourceHeight = spec.Height;
+                spec.Samples = 1;
+                auto sourceProbe = Framebuffer::Create(spec);
+                spec.Width = boundary == Boundary::DestinationWidth ? 8 : 16;
+                spec.Height = boundary == Boundary::DestinationHeight ? 8 : 16;
+                spec.Samples = alias ? samples : 1;
+                auto destination = Framebuffer::Create(spec);
+                ASSERT_TRUE(source && sourceProbe && destination);
+                if (boundary == Boundary::SameFramebuffer)
+                    destination = source;
+                if (boundary == Boundary::SharedAttachment)
+                {
+                    auto* sourceVK = static_cast<VulkanFramebuffer*>(source.Raw());
+                    auto* destinationVK = static_cast<VulkanFramebuffer*>(destination.Raw());
+                    if (depth)
+                        destinationVK->AttachExternalDepthTexture(sourceVK->GetDepthAttachmentImage());
+                    else
+                        destinationVK->AttachExternalColorTexture(0, sourceVK->GetColorAttachmentImage(0));
+                    ASSERT_NE(source->GetRHIHandle(), destination->GetRHIHandle());
+                }
+                const auto imageOf = [depth](const Ref<Framebuffer>& framebuffer)
+                {
+                    const auto* vk = static_cast<const VulkanFramebuffer*>(framebuffer.Raw());
+                    return (depth ? vk->GetDepthAttachmentImage() : vk->GetColorAttachmentImage(0))->GetVkImage();
+                };
+                ASSERT_EQ(imageOf(source) == imageOf(destination), alias);
+                std::array<i32, 8> rect{ 0, 0, 16, 16, 0, 0, 16, 16 };
+                if (boundary == Boundary::SourceXSpan || boundary == Boundary::SourceYSpan ||
+                    boundary == Boundary::DestinationXSpan || boundary == Boundary::DestinationYSpan)
+                {
+                    const u32 start = boundary == Boundary::SourceXSpan ? 0 : boundary == Boundary::SourceYSpan    ? 1
+                                                                          : boundary == Boundary::DestinationXSpan ? 4
+                                                                                                                   : 5;
+                    rect[start] = std::numeric_limits<i32>::min();
+                    rect[start + 2] = std::numeric_limits<i32>::max();
+                }
+                SubmitFrame(api, [&]()
+                            {
+                    if (depth)
+                    {
+                        api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+                        if (!alias)
+                            api.ClearFramebufferDepth(destination->GetRHIHandle(), 0.8f);
+                    }
+                    else
+                    {
+                        source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+                        if (!alias)
+                            destination->ClearAttachment(0, glm::vec4(0.8f, 0.6f, 0.4f, 1.0f));
+                    }
+                    api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                    const VkImageAspectFlags mask = depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+                    const VkImageSubresourceRange range{ mask, 0, 1, 0, 1 };
+                    const auto sourceLayout = api.LayoutTracker().CurrentLayout(imageOf(source), range);
+                    const auto destinationLayout = api.LayoutTracker().CurrentLayout(imageOf(destination), range);
+                    const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+                    const auto requestedAspect = boundary == Boundary::UnknownAspect ? static_cast<RHI::BlitAspect>(255u) : aspect;
+                    api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                        rect[0], rect[1], rect[2], rect[3], rect[4], rect[5], rect[6], rect[7], requestedAspect, RHI::Filter::Nearest);
+                    EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1);
+                    EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(source), range), sourceLayout);
+                    EXPECT_EQ(api.LayoutTracker().CurrentLayout(imageOf(destination), range), destinationLayout);
+                    // Reading multisample images directly is unsupported: export
+                    // the source to a matching single-sample probe after the guard.
+                    api.BlitFramebuffer(source->GetRHIHandle(), sourceProbe->GetRHIHandle(),
+                                        0, 0, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight, aspect, RHI::Filter::Nearest);
+                    EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures + 1); });
+                for (const bool probe : { false, true })
+                {
+                    const bool sourceValue = probe || alias;
+                    const auto& framebuffer = sourceValue ? sourceProbe : destination;
+                    if (depth)
+                    {
+                        f32 value = 0.0f;
+                        ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetDepthAttachmentHandle(), 0, 0, 0, 0,
+                                                            1, 1, 1, RHI::Format::D32Float, sizeof(value), &value));
+                        EXPECT_NEAR(value, sourceValue ? 0.4f : 0.8f, 1e-6f);
+                    }
+                    else
+                    {
+                        std::array<u8, 4> value{};
+                        ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetColorAttachmentHandle(0), 0, 0, 0, 0,
+                                                            1, 1, 1, RHI::Format::RGBA8UNorm, value.size(), value.data()));
+                        EXPECT_NEAR(value[0], sourceValue ? 64 : 204, 1);
+                        EXPECT_NEAR(value[1], sourceValue ? 128 : 153, 1);
+                        EXPECT_NEAR(value[2], sourceValue ? 191 : 102, 1);
+                        EXPECT_EQ(value[3], 255);
+                    }
+                }
+                ++cases;
+            }
+    ::testing::Test::RecordProperty("negative_cases", cases);
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitAcceptsFittingUnequalImageExtents)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    for (const auto aspect : { RHI::BlitAspect::Color, RHI::BlitAspect::DepthStencil })
+        for (const u32 samples : { 1u, 4u })
+            for (const bool largerSource : { false, true })
+            {
+                SCOPED_TRACE(::testing::Message() << "aspect=" << static_cast<u32>(aspect) << " samples=" << samples << " largerSource=" << largerSource);
+                const bool depth = aspect == RHI::BlitAspect::DepthStencil;
+                FramebufferSpecification spec;
+                spec.Width = spec.Height = largerSource ? 16 : 8;
+                spec.Samples = samples;
+                spec.Attachments = { depth ? FramebufferTextureFormat::DEPTH24STENCIL8 : FramebufferTextureFormat::RGBA8 };
+                auto source = Framebuffer::Create(spec);
+                spec.Width = spec.Height = largerSource ? 8 : 16;
+                spec.Samples = 1;
+                auto destination = Framebuffer::Create(spec);
+                ASSERT_TRUE(source && destination);
+                SubmitFrame(api, [&]()
+                            {
+                    if (depth)
+                    {
+                        api.ClearFramebufferDepth(source->GetRHIHandle(), 0.4f);
+                        api.ClearFramebufferDepth(destination->GetRHIHandle(), 0.8f);
+                    }
+                    else
+                    {
+                        source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+                        destination->ClearAttachment(0, glm::vec4(0.8f, 0.6f, 0.4f, 1.0f));
+                    }
+                    api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+                    const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+                    api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                        0, 0, 8, 8, 0, 0, 8, 8, aspect, RHI::Filter::Nearest);
+                    EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures); });
+                for (const bool outside : { false, true })
+                {
+                    if (outside && largerSource)
+                        continue;
+                    const i32 coordinate = outside ? 15 : 0;
+                    if (depth)
+                    {
+                        f32 value = 0.0f;
+                        ASSERT_TRUE(api.ReadTextureSubImage(destination->GetDepthAttachmentHandle(), 0, coordinate, coordinate, 0,
+                                                            1, 1, 1, RHI::Format::D32Float, sizeof(value), &value));
+                        EXPECT_NEAR(value, outside ? 0.8f : 0.4f, 1e-6f);
+                    }
+                    else
+                    {
+                        std::array<u8, 4> value{};
+                        ASSERT_TRUE(api.ReadTextureSubImage(destination->GetColorAttachmentHandle(0), 0, coordinate, coordinate, 0,
+                                                            1, 1, 1, RHI::Format::RGBA8UNorm, value.size(), value.data()));
+                        EXPECT_NEAR(value[0], outside ? 204 : 64, 1);
+                        EXPECT_EQ(value[3], 255);
+                    }
+                }
+            }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitAcceptsDistinctAttachmentsOfSameFramebuffer)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    FramebufferSpecification spec;
+    spec.Width = spec.Height = 16;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA8 };
+    auto framebuffer = Framebuffer::Create(spec);
+    ASSERT_TRUE(framebuffer);
+    SubmitFrame(api, [&]()
+                {
+        framebuffer->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+        framebuffer->ClearAttachment(1, glm::vec4(0.8f, 0.6f, 0.4f, 1.0f));
+        api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+        api.SetFramebufferReadAttachment(framebuffer->GetRHIHandle(), 0);
+        api.SetFramebufferDrawAttachments(framebuffer->GetRHIHandle(), std::array<u32, 1>{ 1 });
+        const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+        api.BlitFramebuffer(framebuffer->GetRHIHandle(), framebuffer->GetRHIHandle(),
+                            0, 0, 16, 16, 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+        EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures); });
+    for (const u32 index : { 0u, 1u })
+    {
+        std::array<u8, 4> value{};
+        ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetColorAttachmentHandle(index), 0, 0, 0, 0,
+                                            1, 1, 1, RHI::Format::RGBA8UNorm, value.size(), value.data()));
+        EXPECT_NEAR(value[0], 64, 1);
+        EXPECT_NEAR(value[1], 128, 1);
+        EXPECT_NEAR(value[2], 191, 1);
+        EXPECT_EQ(value[3], 255);
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, FramebufferBlitEmptyOrReversedSourceRemainsNoOp)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto& api = selection.Get();
+    const i32 minimum = std::numeric_limits<i32>::min();
+    const i32 maximum = std::numeric_limits<i32>::max();
+    const std::array rectangles{
+        std::array<i32, 4>{ 0, 0, 0, 16 }, std::array<i32, 4>{ 0, 0, 16, 0 },
+        std::array<i32, 4>{ maximum, 0, minimum, 16 }, std::array<i32, 4>{ 0, maximum, 16, minimum }
+    };
+    FramebufferSpecification spec;
+    spec.Width = spec.Height = 16;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    auto source = Framebuffer::Create(spec);
+    auto destination = Framebuffer::Create(spec);
+    ASSERT_TRUE(source && destination);
+    SubmitFrame(api, [&]()
+                {
+        source->ClearAttachment(0, glm::vec4(0.25f, 0.5f, 0.75f, 1.0f));
+        destination->ClearAttachment(0, glm::vec4(0.8f, 0.6f, 0.4f, 1.0f));
+        api.MemoryBarrier(MemoryBarrierFlags::TextureUpdate);
+        const auto* sourceVK = static_cast<const VulkanFramebuffer*>(source.Raw());
+        const auto* destinationVK = static_cast<const VulkanFramebuffer*>(destination.Raw());
+        const VkImage sourceImage = sourceVK->GetColorAttachmentImage(0)->GetVkImage();
+        const VkImage destinationImage = destinationVK->GetColorAttachmentImage(0)->GetVkImage();
+        const VkImageSubresourceRange range{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        const auto sourceLayout = api.LayoutTracker().CurrentLayout(sourceImage, range);
+        const auto destinationLayout = api.LayoutTracker().CurrentLayout(destinationImage, range);
+        const auto failures = api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure);
+        for (const auto& rect : rectangles)
+            api.BlitFramebuffer(source->GetRHIHandle(), destination->GetRHIHandle(),
+                                rect[0], rect[1], rect[2], rect[3], 0, 0, 16, 16, RHI::BlitAspect::Color, RHI::Filter::Nearest);
+        EXPECT_EQ(api.GetStubHitCount(VulkanRendererAPI::StubKind::PreconditionFailure), failures);
+        EXPECT_EQ(api.LayoutTracker().CurrentLayout(sourceImage, range), sourceLayout);
+        EXPECT_EQ(api.LayoutTracker().CurrentLayout(destinationImage, range), destinationLayout); });
+    for (const bool sourceValue : { false, true })
+    {
+        const auto& framebuffer = sourceValue ? source : destination;
+        std::array<u8, 4> value{};
+        ASSERT_TRUE(api.ReadTextureSubImage(framebuffer->GetColorAttachmentHandle(0), 0, 0, 0, 0,
+                                            1, 1, 1, RHI::Format::RGBA8UNorm, value.size(), value.data()));
+        EXPECT_NEAR(value[0], sourceValue ? 64 : 204, 1);
+        EXPECT_EQ(value[3], 255);
+    }
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
+}
+
+TEST_F(VulkanDrawPath, InspectorDistinguishesComputeAndGraphicsShaderObjects)
+{
+    ScopedVulkanRenderCommandSelection selection;
+    auto compute = Ref<VulkanComputeShader>::Create("InspectorCompute", R"(
+#version 460 core
+layout(local_size_x = 1) in;
+void main() {}
+)");
+    auto graphics = Ref<VulkanShader>::Create("InspectorGraphics", kVertexSrc, kFragmentSrc);
+    ASSERT_NE(compute->GetModule(), VK_NULL_HANDLE);
+    ASSERT_EQ(graphics->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    VulkanResourceInspectorBackend inspector;
+    std::vector<IResourceInspectorBackend::DiscoveredResource> resources;
+    inspector.DiscoverResources(resources);
+    for (const auto& [handle, name] : std::array{
+             std::pair{ compute->GetRHIHandle(), std::string("InspectorCompute") },
+             std::pair{ graphics->GetRHIHandle(), std::string("InspectorGraphics") } })
+    {
+        const auto row = std::ranges::find(resources, handle, &IResourceInspectorBackend::DiscoveredResource::Handle);
+        ASSERT_NE(row, resources.end());
+        EXPECT_EQ(row->Name, name);
+    }
+    VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+    EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);
+    VulkanRootObjectRegistry::Get().ReleaseSurvivingShaderModules();
+    EXPECT_EQ(compute->GetModule(), VK_NULL_HANDLE);
 }
 
 #endif // OLO_WITH_VULKAN

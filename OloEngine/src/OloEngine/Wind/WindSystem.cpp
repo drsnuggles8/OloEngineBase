@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -34,6 +35,9 @@ namespace OloEngine
             return;
         }
 
+        // No frame from a previous lifecycle can supply valid wind history.
+        s_Data = WindSystemData{};
+
         // Create 3D wind-field texture (128³ RGBA16F)
         Texture3DSpecification spec;
         spec.Width = 128;
@@ -68,11 +72,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.m_GenerateShader = nullptr;
-        s_Data.m_WindField = nullptr;
-        s_Data.m_WindUBO = nullptr;
-        s_Data.m_GenerateUBO = nullptr;
-        s_Data.m_Initialized = false;
+        s_Data = WindSystemData{};
 
         OLO_CORE_INFO("WindSystem shut down");
     }
@@ -113,6 +113,7 @@ namespace OloEngine
         }
 
         // Pack UBO data
+        const auto oldGPU = s_Data.m_GPUData;
         auto& gpu = s_Data.m_GPUData;
         gpu.DirectionAndSpeed = glm::vec4(safeDir, settings.Speed);
         gpu.GustAndTurbulence = glm::vec4(settings.GustStrength, settings.GustFrequency,
@@ -122,6 +123,12 @@ namespace OloEngine
                                      settings.Enabled ? 1.0f : 0.0f,
                                      static_cast<f32>(resolvedResolution),
                                      s_Data.m_PrevAccumulatedTime);
+
+        s_Data.m_FoliageHistoryValid = s_Data.m_HasPreviousUpdate &&
+                                       Math::BitwiseEqual(oldGPU.DirectionAndSpeed, gpu.DirectionAndSpeed) &&
+                                       Math::BitwiseEqual(oldGPU.GustAndTurbulence, gpu.GustAndTurbulence) &&
+                                       Math::BitwiseEqual(oldGPU.TimeAndFlags.y, gpu.TimeAndFlags.y);
+        s_Data.m_HasPreviousUpdate = true;
 
         // Upload UBO
         s_Data.m_WindUBO->SetData(&gpu, WindUBOData::GetSize());

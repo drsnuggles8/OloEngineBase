@@ -105,4 +105,77 @@ namespace OloEngine::Tests::VisualEvidence
             }
         }
     }
+    f32 Rgba8Ssim(const std::vector<u8>& a, const std::vector<u8>& b, u32 width, u32 height)
+    {
+        if (a.size() != b.size() || (a.size() % 4 != 0 || a.size() / 4 != static_cast<u64>(width) * height) || a.empty() || width == 0 || height == 0)
+            return 0.0f;
+
+        constexpr u32 kWindow = 8;
+        constexpr f64 kC1 = (0.01 * 255.0) * (0.01 * 255.0);
+        constexpr f64 kC2 = (0.03 * 255.0) * (0.03 * 255.0);
+
+        const u32 winsX = width / kWindow + (width % kWindow != 0u ? 1u : 0u);
+        const u32 winsY = height / kWindow + (height % kWindow != 0u ? 1u : 0u);
+
+        f64 ssimSum = 0.0;
+        u64 ssimCount = 0;
+
+        for (u32 wy = 0; wy < winsY; ++wy)
+        {
+            for (u32 wx = 0; wx < winsX; ++wx)
+            {
+                const u32 windowWidth = std::min(kWindow, width - wx * kWindow);
+                const u32 windowHeight = std::min(kWindow, height - wy * kWindow);
+                const f64 sampleCount = static_cast<f64>(windowWidth * windowHeight);
+                // A singleton edge window has zero variance/covariance.
+                const f64 varianceDivisor = std::max(sampleCount - 1.0, 1.0);
+                for (u32 ch = 0; ch < 3; ++ch)
+                {
+                    // Two passes per window: mean, then variance + covariance.
+                    f64 sumA = 0.0, sumB = 0.0;
+                    for (u32 yy = 0; yy < windowHeight; ++yy)
+                    {
+                        for (u32 xx = 0; xx < windowWidth; ++xx)
+                        {
+                            const u32 x = wx * kWindow + xx;
+                            const u32 y = wy * kWindow + yy;
+                            const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
+                            sumA += static_cast<f64>(a[idx]);
+                            sumB += static_cast<f64>(b[idx]);
+                        }
+                    }
+                    const f64 meanA = sumA / sampleCount;
+                    const f64 meanB = sumB / sampleCount;
+
+                    f64 varA = 0.0, varB = 0.0, covAB = 0.0;
+                    for (u32 yy = 0; yy < windowHeight; ++yy)
+                    {
+                        for (u32 xx = 0; xx < windowWidth; ++xx)
+                        {
+                            const u32 x = wx * kWindow + xx;
+                            const u32 y = wy * kWindow + yy;
+                            const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
+                            const f64 da = static_cast<f64>(a[idx]) - meanA;
+                            const f64 db = static_cast<f64>(b[idx]) - meanB;
+                            varA += da * da;
+                            varB += db * db;
+                            covAB += da * db;
+                        }
+                    }
+                    varA /= varianceDivisor;
+                    varB /= varianceDivisor;
+                    covAB /= varianceDivisor;
+
+                    const f64 numerator = (2.0 * meanA * meanB + kC1) * (2.0 * covAB + kC2);
+                    const f64 denominator = (meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2);
+                    const f64 ssim = denominator > 0.0 ? (numerator / denominator) : 1.0;
+                    ssimSum += ssim;
+                    ++ssimCount;
+                }
+            }
+        }
+
+        return static_cast<f32>(ssimSum / static_cast<f64>(ssimCount));
+    }
+
 } // namespace OloEngine::Tests::VisualEvidence

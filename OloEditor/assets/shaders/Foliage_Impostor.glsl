@@ -43,6 +43,7 @@ layout(location = 1) in vec3 v_PivotWorld;
 layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
+layout(location = 8) in float v_WindDisplacement;
 layout(location = 7) in float v_Radius;
 layout(location = 2) in float v_MeshCoverage; // WORLD-space card radius
 
@@ -116,38 +117,14 @@ layout(binding = 11) uniform samplerCube u_PrefilterMap;   // TEX_USER_1
 layout(binding = 12) uniform sampler2D u_BRDFLutMap;       // TEX_USER_2
 #endif
 
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;
-    float _foliagePad1;
-    vec3 u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 u_ImpostorParams0; // x=framesPerAxis, y=hemi, z=startDistance, w=transitionBand
-    vec4 u_ImpostorParams1;
-    vec4 u_MeshParams; // issue #1233 — see FoliageInstanceGeometry.glsl
-    vec4 u_MeshViewPos; // see ShaderBindingLayout::FoliageUBO // x=enabled, y=meshRadius, z=parallaxScale, w=unused
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 #include "include/FoliageImpostorSampling.glsl"
 
 void main()
 {
     ImpostorSample card = SampleImpostorCard();
+    if (u_WindWeights.w > 0.5) card.Albedo = vec3(v_WindDisplacement, 0.0, 1.0);
 
     // Relight from the baked object-space normal (dynamic sun direction),
     // through the SAME evaluation the near-field card and the authored mesh use
@@ -278,7 +255,7 @@ void main()
 
     // Foliage blends are OFF (opaque alpha-tested), so this alpha is never
     // seen; the visible fade is the discard SampleImpostorCard applies.
-    FragColor = vec4(litColor, card.Coverage * card.DistFade);
+    FragColor = vec4(u_WindWeights.w > 0.5 ? card.Albedo : litColor, card.Coverage * card.DistFade);
 
     // Camera-motion velocity (impostor has no per-instance prev history).
     vec4 clipCurr = u_ViewProjection * vec4(v_CardWorld, 1.0);

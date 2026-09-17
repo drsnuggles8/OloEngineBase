@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanFramebuffer.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanShader.h"
@@ -253,6 +254,7 @@ namespace OloEngine
                 }
                 case VulkanRootObjectKind::VertexArray:
                 case VulkanRootObjectKind::Shader:
+                case VulkanRootObjectKind::ComputeShader:
                 case VulkanRootObjectKind::Framebuffer:
                     break;
             }
@@ -368,10 +370,12 @@ namespace OloEngine
                 case RHI::ResourceKind::ShaderProgram:
                 {
                     const auto* rootEntry = VulkanRootObjectRegistry::Get().Lookup(slot.Handle);
-                    if (rootEntry != nullptr && rootEntry->Kind == VulkanRootObjectKind::Shader &&
-                        rootEntry->Object != nullptr)
+                    if (rootEntry != nullptr && rootEntry->Object != nullptr)
                     {
-                        entry.Name = static_cast<const VulkanShader*>(rootEntry->Object)->GetName();
+                        if (rootEntry->Kind == VulkanRootObjectKind::Shader)
+                            entry.Name = static_cast<const VulkanShader*>(rootEntry->Object)->GetName();
+                        else if (rootEntry->Kind == VulkanRootObjectKind::ComputeShader)
+                            entry.Name = static_cast<const VulkanComputeShader*>(rootEntry->Object)->GetName();
                     }
                     if (entry.Name.empty())
                         entry.Name = "Shader";
@@ -614,6 +618,8 @@ namespace OloEngine
                 return "VertexArray";
             case VulkanRootObjectKind::Shader:
                 return "Shader";
+            case VulkanRootObjectKind::ComputeShader:
+                return "ComputeShader";
             case VulkanRootObjectKind::Framebuffer:
                 return "Framebuffer";
         }

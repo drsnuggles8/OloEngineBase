@@ -8,11 +8,9 @@
 // criterion). A shadow cast by a quad while the lit plant is an authored pine
 // passes every CPU test and reads downstream as a completely different bug.
 //
-// It keeps a vertex stage of its own rather than including
-// FoliageInstanceVertexStage.glsl because it runs under a different contract:
-// the shadow camera UBO carries the light VP and no previous-frame matrix, and
-// no wind field is bound, so it uses the legacy sine wind both stages fall back
-// to. Everything geometric is shared; only that contract differs.
+// The shadow camera carries the light VP; FoliageParams carries the same wind
+// snapshot and animation clock used by colour. FoliageWind.glsl owns deformation.
+// Octahedral cards use Foliage_Impostor_Depth.glsl, with the colour atlas cutout.
 // =============================================================================
 
 #type vertex
@@ -71,39 +69,10 @@ layout(std140, binding = 0) uniform CameraMatrices
 #include "include/InstanceBlock_Vertex.glsl"
 
 // Foliage UBO (binding 12)
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float _foliagePad0;
-    float _foliagePad1;
-    vec3  u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 _foliageImpostorParams0; // consumed by the impostor card only
-    vec4 _foliageImpostorParams1; // consumed by the impostor card only
-    // x = this draw is the authored mesh (1) or the flat card (0);
-    // yz = the layer's mesh-to-card hand-over band (issue #1233).
-    vec4 u_MeshParams;
-    // xyz = the view position the hand-over is measured from, in the same
-    // render-relative space as the instance pivots. NOT u_CameraPosition: the
-    // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
-    vec4 u_MeshViewPos;
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"
+#include "include/FoliageWind.glsl"
 
 layout(location = 0) out vec2 v_TexCoord;
 layout(location = 1) out float v_AlphaCutoff;
@@ -132,11 +101,7 @@ void main()
     vec3 rotatedPos = foliageInstanceRotation(rotation) *
                       foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
 
-    // Wind (must match the main shader for consistent shadows — same function,
-    // so it cannot merely resemble it). The wind FIELD is not bound under the
-    // shadow camera, so this is the legacy branch both stages share.
-    rotatedPos += foliageLegacyWindOffset(a_PositionScale.xz, u_Time, u_WindSpeed, u_WindStrength,
-                                          a_Position.y);
+    rotatedPos = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w).Current;
 
     vec3 instancePos = a_PositionScale.xyz;
     vec3 worldPos = (u_Model * vec4(instancePos + rotatedPos, 1.0)).xyz;
@@ -177,32 +142,7 @@ layout(binding = 0) uniform sampler2D u_DiffuseTexture;
 #endif
 
 // Foliage UBO (binding 12) — shared with vertex stage
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float _foliagePad0;
-    float _foliagePad1;
-    vec3  u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 _foliageImpostorParams0; // consumed by the impostor card only
-    vec4 _foliageImpostorParams1; // consumed by the impostor card only
-    vec4 u_MeshParams;
-    vec4 u_MeshViewPos;
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "include/FoliageParams.glsl"
 
 #include "include/FoliageInstanceGeometry.glsl"
 

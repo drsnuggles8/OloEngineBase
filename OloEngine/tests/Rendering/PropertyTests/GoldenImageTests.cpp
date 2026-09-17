@@ -40,6 +40,7 @@
 #include "../../TestOptions.h"
 
 #include "RenderPropertyTest.h"
+#include "VisualEvidenceGuards.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -271,78 +272,7 @@ namespace OloEngine::Tests
         // band where perceptual metrics are genuinely needed.
         static f32 ComputeRgbSsim(const std::vector<u8>& a, const std::vector<u8>& b, u32 width, u32 height)
         {
-            if (a.size() != b.size() || a.empty() || width == 0 || height == 0)
-                return 0.0f;
-
-            constexpr u32 kWindow = 8;
-            constexpr f64 kC1 = (0.01 * 255.0) * (0.01 * 255.0);
-            constexpr f64 kC2 = (0.03 * 255.0) * (0.03 * 255.0);
-
-            const u32 winsX = width / kWindow;
-            const u32 winsY = height / kWindow;
-            if (winsX == 0 || winsY == 0)
-            {
-                // Frame smaller than one window — SSIM is ill-defined, fall
-                // back to "very similar iff RMSE is tiny".
-                const f32 rmse = ComputeRgbRmse(a, b);
-                return rmse < 0.002f ? 1.0f : 0.0f;
-            }
-
-            f64 ssimSum = 0.0;
-            u64 ssimCount = 0;
-
-            for (u32 wy = 0; wy < winsY; ++wy)
-            {
-                for (u32 wx = 0; wx < winsX; ++wx)
-                {
-                    for (u32 ch = 0; ch < 3; ++ch)
-                    {
-                        // Two passes per window: mean, then variance + covariance.
-                        f64 sumA = 0.0, sumB = 0.0;
-                        for (u32 yy = 0; yy < kWindow; ++yy)
-                        {
-                            for (u32 xx = 0; xx < kWindow; ++xx)
-                            {
-                                const u32 x = wx * kWindow + xx;
-                                const u32 y = wy * kWindow + yy;
-                                const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
-                                sumA += static_cast<f64>(a[idx]);
-                                sumB += static_cast<f64>(b[idx]);
-                            }
-                        }
-                        constexpr f64 kN = static_cast<f64>(kWindow * kWindow);
-                        const f64 meanA = sumA / kN;
-                        const f64 meanB = sumB / kN;
-
-                        f64 varA = 0.0, varB = 0.0, covAB = 0.0;
-                        for (u32 yy = 0; yy < kWindow; ++yy)
-                        {
-                            for (u32 xx = 0; xx < kWindow; ++xx)
-                            {
-                                const u32 x = wx * kWindow + xx;
-                                const u32 y = wy * kWindow + yy;
-                                const std::size_t idx = (static_cast<std::size_t>(y) * width + x) * 4 + ch;
-                                const f64 da = static_cast<f64>(a[idx]) - meanA;
-                                const f64 db = static_cast<f64>(b[idx]) - meanB;
-                                varA += da * da;
-                                varB += db * db;
-                                covAB += da * db;
-                            }
-                        }
-                        varA /= (kN - 1.0);
-                        varB /= (kN - 1.0);
-                        covAB /= (kN - 1.0);
-
-                        const f64 numerator = (2.0 * meanA * meanB + kC1) * (2.0 * covAB + kC2);
-                        const f64 denominator = (meanA * meanA + meanB * meanB + kC1) * (varA + varB + kC2);
-                        const f64 ssim = denominator > 0.0 ? (numerator / denominator) : 1.0;
-                        ssimSum += ssim;
-                        ++ssimCount;
-                    }
-                }
-            }
-
-            return static_cast<f32>(ssimSum / static_cast<f64>(ssimCount));
+            return VisualEvidence::Rgba8Ssim(a, b, width, height);
         }
 
         // Detailed per-pixel diff statistics. Produced on failure for L10
@@ -726,7 +656,7 @@ namespace OloEngine::Tests
     // =========================================================================
     // [Layer-1 — Unit] SSIM math property checks.
     //
-    // These four `GoldenImageSsimTest` cases are plain CPU-side unit tests
+    // These `GoldenImageSsimTest` cases are plain CPU-side unit tests
     // (no GPU required) that pin the perceptual-similarity math used by the
     // §8 RMSE → SSIM cascade. They live in this file — rather than under a
     // dedicated L1 target — because ComputeRgbSsim() and MakeCheckerboard()
@@ -797,6 +727,51 @@ namespace OloEngine::Tests
         const f32 ssimAB = ComputeRgbSsim(a, b, kW, kH);
         const f32 ssimBA = ComputeRgbSsim(b, a, kW, kH);
         EXPECT_NEAR(ssimAB, ssimBA, 1e-5f);
+    }
+
+    // =========================================================================
+    TEST(GoldenImageSsimTest, PartialRightAndBottomWindowsDetectChanges)
+    {
+        for (const auto& dimensions : { std::pair{ 9u, 8u }, std::pair{ 8u, 9u }, std::pair{ 9u, 9u } })
+        {
+            const auto [width, height] = dimensions;
+            const auto a = MakeCheckerboard(width, height, 40, 200, 4);
+            auto b = a;
+            for (u32 y = 0; y < height; ++y)
+                for (u32 x = 0; x < width; ++x)
+                    if (x >= 8u || y >= 8u)
+                        for (u32 channel = 0; channel < 3; ++channel)
+                            b[(static_cast<sizet>(y) * width + x) * 4 + channel] = 0;
+            const f32 forward = ComputeRgbSsim(a, b, width, height);
+            EXPECT_LT(forward, 0.985f) << width << 'x' << height;
+            EXPECT_NEAR(forward, ComputeRgbSsim(b, a, width, height), 1e-5f);
+            EXPECT_NEAR(ComputeRgbSsim(a, a, width, height), 1.0f, 1e-5f);
+        }
+    }
+
+    TEST(GoldenImageSsimTest, SingletonEdgeWindowDetectsCornerChange)
+    {
+        const auto a = MakeCheckerboard(9, 9, 40, 200, 4);
+        auto b = a;
+        for (u32 channel = 0; channel < 3; ++channel)
+            b[(8u * 9u + 8u) * 4u + channel] = 255;
+        EXPECT_LT(ComputeRgbSsim(a, b, 9, 9), 0.985f);
+    }
+
+    TEST(GoldenImageSsimTest, SmallImagesHaveFiniteSymmetricSimilarity)
+    {
+        for (const auto& dimensions : { std::pair{ 1u, 1u }, std::pair{ 3u, 5u } })
+        {
+            const auto [width, height] = dimensions;
+            const auto a = MakeCheckerboard(width, height, 40, 200, 2);
+            auto b = a;
+            b[0] = 255;
+            const f32 forward = ComputeRgbSsim(a, b, width, height);
+            EXPECT_TRUE(std::isfinite(forward));
+            EXPECT_LT(forward, 1.0f);
+            EXPECT_NEAR(forward, ComputeRgbSsim(b, a, width, height), 1e-5f);
+            EXPECT_NEAR(ComputeRgbSsim(a, a, width, height), 1.0f, 1e-5f);
+        }
     }
 
     // =========================================================================

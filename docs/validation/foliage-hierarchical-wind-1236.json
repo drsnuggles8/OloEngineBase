@@ -1,0 +1,1724 @@
+{
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "driver": "616.64",
+    "vramMiB": 24564,
+    "cpu": "Intel Core i7-14700KF",
+    "ramMiB": 65324
+  },
+  "viewport": [
+    960,
+    540
+  ],
+  "scene": "FoliageHierarchicalWind.olo",
+  "poses": {
+    "Ground": {
+      "eye": [
+        128,
+        14,
+        196
+      ],
+      "yawDegrees": 0,
+      "pitchDegrees": 6
+    },
+    "Oblique": {
+      "eye": [
+        170,
+        24,
+        180
+      ],
+      "yawDegrees": 30,
+      "pitchDegrees": 17
+    }
+  },
+  "cells": [
+    {
+      "backend": "GL",
+      "path": "forward",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0178070068359375,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.00033283233642578125,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Forward_MSAA1_Ground.png",
+          "changedPixelsAbove1": 469755,
+          "rmseNormalized": 0.114024
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Forward_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 344700,
+          "rmseNormalized": 0.119858
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 2,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 1.437,
+            "medianMs": 1.69,
+            "maxMs": 4.652,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 0.546,
+            "medianMs": 0.8089999999999999,
+            "maxMs": 1.496,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "FoliagePass": {
+            "minMs": 0.406,
+            "medianMs": 0.763,
+            "maxMs": 1.608,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "engine tracked allocation bytes",
+        "bytes": 648142074
+      }
+    },
+    {
+      "backend": "GL",
+      "path": "forwardplus",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0006113052368164062,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0007276535034179688,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_ForwardPlus_MSAA1_Ground.png",
+          "changedPixelsAbove1": 514737,
+          "rmseNormalized": 0.182516
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_ForwardPlus_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 341567,
+          "rmseNormalized": 0.109466
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 2,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 1.445,
+            "medianMs": 1.4515,
+            "maxMs": 3.778,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 0.543,
+            "medianMs": 0.5645,
+            "maxMs": 1.618,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "FoliagePass": {
+            "minMs": 0.559,
+            "medianMs": 0.569,
+            "maxMs": 1.59,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "engine tracked allocation bytes",
+        "bytes": 648142074
+      }
+    },
+    {
+      "backend": "GL",
+      "path": "deferred",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.00048828125,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0007262229919433594,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA1_Ground.png",
+          "changedPixelsAbove1": 514715,
+          "rmseNormalized": 0.188903
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 343613,
+          "rmseNormalized": 0.109493
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 2,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 1.372,
+            "medianMs": 1.4895,
+            "maxMs": 3.01,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 0.936,
+            "medianMs": 0.9455,
+            "maxMs": 3.259,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "engine tracked allocation bytes",
+        "bytes": 668878074
+      }
+    },
+    {
+      "backend": "GL",
+      "path": "deferred",
+      "msaa": 4,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0007567405700683594,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.001163482666015625,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA4_Ground.png",
+          "changedPixelsAbove1": 514749,
+          "rmseNormalized": 0.188493
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA4_Oblique.png",
+          "changedPixelsAbove1": 345032,
+          "rmseNormalized": 0.113799
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 2,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 1.405,
+            "medianMs": 1.4155,
+            "maxMs": 3.728,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 1.2,
+            "medianMs": 1.2120000000000002,
+            "maxMs": 3.537,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "engine tracked allocation bytes",
+        "bytes": 683397558
+      }
+    },
+    {
+      "backend": "Vulkan",
+      "path": "forward",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0016937255859375,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.001621246337890625,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Forward_MSAA1_Ground.png",
+          "changedPixelsAbove1": 493484,
+          "rmseNormalized": 0.158606
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Forward_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 331170,
+          "rmseNormalized": 0.123655
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 1,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 0.733,
+            "medianMs": 0.736,
+            "maxMs": 1.705,
+            "positiveSamples": 19,
+            "zeroReportsExcluded": 1
+          },
+          "ScenePass": {
+            "minMs": 0.164,
+            "medianMs": 0.1655,
+            "maxMs": 0.177,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "FoliagePass": {
+            "minMs": 0.345,
+            "medianMs": 0.355,
+            "maxMs": 0.368,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "VMA device-local block bytes",
+        "bytes": 1109603328,
+        "heaps": [
+          {
+            "allocationCount": 314,
+            "blockBytes": 1109603328,
+            "blockCount": 65,
+            "budgetBytes": 20248421990,
+            "deviceLocal": true,
+            "index": 0,
+            "usageBytes": 1109603328
+          },
+          {
+            "allocationCount": 3,
+            "blockBytes": 33554432,
+            "blockCount": 1,
+            "budgetBytes": 27399261388,
+            "deviceLocal": false,
+            "index": 1,
+            "usageBytes": 33554432
+          }
+        ],
+        "engineTrackedBytes": 0
+      }
+    },
+    {
+      "backend": "Vulkan",
+      "path": "forwardplus",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0014352798461914062,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0008335113525390625,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_ForwardPlus_MSAA1_Ground.png",
+          "changedPixelsAbove1": 514816,
+          "rmseNormalized": 0.181233
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_ForwardPlus_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 305748,
+          "rmseNormalized": 0.102059
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 1,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 0.729,
+            "medianMs": 1.185,
+            "maxMs": 1.737,
+            "positiveSamples": 19,
+            "zeroReportsExcluded": 1
+          },
+          "ScenePass": {
+            "minMs": 0.161,
+            "medianMs": 0.172,
+            "maxMs": 0.178,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "FoliagePass": {
+            "minMs": 0.361,
+            "medianMs": 0.368,
+            "maxMs": 0.386,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "VMA device-local block bytes",
+        "bytes": 1109603328,
+        "heaps": [
+          {
+            "allocationCount": 314,
+            "blockBytes": 1109603328,
+            "blockCount": 65,
+            "budgetBytes": 20248421990,
+            "deviceLocal": true,
+            "index": 0,
+            "usageBytes": 1109603328
+          },
+          {
+            "allocationCount": 3,
+            "blockBytes": 33554432,
+            "blockCount": 1,
+            "budgetBytes": 27399261388,
+            "deviceLocal": false,
+            "index": 1,
+            "usageBytes": 33554432
+          }
+        ],
+        "engineTrackedBytes": 0
+      }
+    },
+    {
+      "backend": "Vulkan",
+      "path": "deferred",
+      "msaa": 1,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0007796287536621094,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.00101470947265625,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA1_Ground.png",
+          "changedPixelsAbove1": 514863,
+          "rmseNormalized": 0.1889
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA1_Oblique.png",
+          "changedPixelsAbove1": 336237,
+          "rmseNormalized": 0.121028
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 1,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 0.726,
+            "medianMs": 1.0505,
+            "maxMs": 2.105,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 0.462,
+            "medianMs": 0.466,
+            "maxMs": 1.365,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "VMA device-local block bytes",
+        "bytes": 1002451968,
+        "heaps": [
+          {
+            "allocationCount": 304,
+            "blockBytes": 1002451968,
+            "blockCount": 55,
+            "budgetBytes": 20248421990,
+            "deviceLocal": true,
+            "index": 0,
+            "usageBytes": 1002451968
+          },
+          {
+            "allocationCount": 3,
+            "blockBytes": 33554432,
+            "blockCount": 1,
+            "budgetBytes": 27399261388,
+            "deviceLocal": false,
+            "index": 1,
+            "usageBytes": 33554432
+          }
+        ],
+        "engineTrackedBytes": 0
+      }
+    },
+    {
+      "backend": "Vulkan",
+      "path": "deferred",
+      "msaa": 4,
+      "velocity": {
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0008864402770996094,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0009050369262695312,
+        "capture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Velocity.png",
+        "pausedCapture": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Pause.png"
+      },
+      "views": {
+        "Ground": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Ground.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA4_Ground.png",
+          "changedPixelsAbove1": 514801,
+          "rmseNormalized": 0.190155
+        },
+        "Oblique": {
+          "wind": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Oblique.png",
+          "off": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA4_Oblique.png",
+          "changedPixelsAbove1": 334669,
+          "rmseNormalized": 0.119318
+        }
+      },
+      "gpuTimingReports": {
+        "warmupReports": 5,
+        "samples": 20,
+        "maxAgeFrames": 1,
+        "passes": {
+          "ShadowPass": {
+            "minMs": 0.726,
+            "medianMs": 1.0505,
+            "maxMs": 1.762,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          },
+          "ScenePass": {
+            "minMs": 0.591,
+            "medianMs": 1.1235,
+            "maxMs": 1.599,
+            "positiveSamples": 20,
+            "zeroReportsExcluded": 0
+          }
+        }
+      },
+      "memory": {
+        "kind": "VMA device-local block bytes",
+        "bytes": 1099772928,
+        "heaps": [
+          {
+            "allocationCount": 311,
+            "blockBytes": 1099772928,
+            "blockCount": 62,
+            "budgetBytes": 20248421990,
+            "deviceLocal": true,
+            "index": 0,
+            "usageBytes": 1099772928
+          },
+          {
+            "allocationCount": 3,
+            "blockBytes": 33554432,
+            "blockCount": 1,
+            "budgetBytes": 27399261388,
+            "deviceLocal": false,
+            "index": 1,
+            "usageBytes": 33554432
+          }
+        ],
+        "engineTrackedBytes": 0
+      }
+    }
+  ],
+  "extras": {
+    "GL": {
+      "shadowChangedPixels": 91547,
+      "shadowSilhouetteChangedPixels": 74245,
+      "impostorMovingMaxAbs": 3.546476364135742e-05,
+      "lodPausedMaxAbs": 0.0,
+      "renderGraphHazards": [],
+      "shaderOrBindingDiagnostics": [],
+      "foliageDrawCensus": {}
+    },
+    "Vulkan": {
+      "shadowChangedPixels": 71428,
+      "shadowSilhouetteChangedPixels": 49028,
+      "impostorMovingMaxAbs": 5.555152893066406e-05,
+      "lodPausedMaxAbs": 0.0,
+      "renderGraphHazards": [],
+      "shaderOrBindingDiagnostics": [
+        "[19:45:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:04] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:11] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+        "[19:45:16] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
+      ],
+      "foliageDrawCensus": {
+        "Foliage_Depth": {
+          "dropped": 0,
+          "prepared": 37400
+        },
+        "Foliage_Impostor": {
+          "dropped": 0,
+          "prepared": 332
+        },
+        "Foliage_Impostor_Depth": {
+          "dropped": 0,
+          "prepared": 6620
+        },
+        "Foliage_Impostor_GBuffer": {
+          "dropped": 0,
+          "prepared": 2646
+        },
+        "Foliage_Instance": {
+          "dropped": 0,
+          "prepared": 664
+        },
+        "Foliage_Instance_GBuffer": {
+          "dropped": 0,
+          "prepared": 17372
+        }
+      }
+    }
+  },
+  "tests": [
+    {
+      "run": "cpu-final",
+      "tests": 78,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0
+    },
+    {
+      "run": "buffer-shader-final",
+      "tests": 5,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0
+    },
+    {
+      "run": "vulkan-device-final",
+      "tests": 3,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0
+    },
+    {
+      "run": "visual-final",
+      "tests": 3,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0
+    },
+    {
+      "run": "perf-final",
+      "tests": 1,
+      "failures": 0,
+      "skips": 0,
+      "exit": 0
+    }
+  ],
+  "microbenchmark": {
+    "foliage_instance_count": "1310",
+    "foliage_wind_960x540_legacy_FoliagePass_ns_median": "132096",
+    "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "0.484962",
+    "foliage_wind_960x540_legacy_ShadowPass_ns_median": "180224",
+    "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "0.534954",
+    "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "100352",
+    "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "0.553672",
+    "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "180224",
+    "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "0.727273"
+  },
+  "artifacts": [
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Ground.png",
+      "sha256": "df21900ad939f60501925690d3befc0b8fa41fa3a11738f8c6f3e2cf73ff563d"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Forward_MSAA1_Ground.png",
+      "sha256": "999f273cb6776b97a644d029cff7d9bc13105a15fe3afc5ac876d91f8aa2491a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Oblique.png",
+      "sha256": "32bee970d4007b834974825d6054a3ab01eaa4f2c599974e8874b01db08c0bb4"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Forward_MSAA1_Oblique.png",
+      "sha256": "68568cd22e943016491f6985dbd6a3698b8d45c51738acf4b324e14bdc83aafb"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Velocity.png",
+      "sha256": "63713e57c59bbc8c3f82cc7ff2221255b3c88ae0e01953eb6cac9d4a5c3f5810"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Ground.png",
+      "sha256": "86830f4a33ccf7e578ba40624c0d885ce7600b69d7f6a99071f73ab924df8b4f"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_ForwardPlus_MSAA1_Ground.png",
+      "sha256": "999f273cb6776b97a644d029cff7d9bc13105a15fe3afc5ac876d91f8aa2491a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Oblique.png",
+      "sha256": "2034914cc1da5683cd1ae31e53629b4455f97724b84f7263c534cdf3e59c4fb8"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_ForwardPlus_MSAA1_Oblique.png",
+      "sha256": "68568cd22e943016491f6985dbd6a3698b8d45c51738acf4b324e14bdc83aafb"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Velocity.png",
+      "sha256": "cd0cbd8c0b5908b1bad574d78f31af85213468410034b4a39de25f27fdf3a224"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ForwardPlus_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Ground.png",
+      "sha256": "2dfd245f61ac02be2fabbb223ea96806e4cdf1d39884a665b30daff3f7ddbf25"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA1_Ground.png",
+      "sha256": "4b48dcd35b59ec23e786f6277a6312de4987cd6378b0262732d11fcf2e53f59e"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Oblique.png",
+      "sha256": "ed9ed63523fcb668e52db52b92c08a645a46aab174cc9a603e2e62c44a8a5768"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA1_Oblique.png",
+      "sha256": "023010b9730b863e4c2a793714ee6e52c8735b128b6d977ff11c77a3649144a5"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Velocity.png",
+      "sha256": "7591c49c0237f8298184d8d66747a70e16e9d92f731b5b47e3efa93a70197166"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Ground.png",
+      "sha256": "057425e0eab2cf9693c2bde41571a2f9b2654e2f7d6af114ea7a486eec98e5d6"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA4_Ground.png",
+      "sha256": "a2ee0b77b54e48f17314bae09f5b984a81998a455cf8fec2ba114c110ae0712e"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Oblique.png",
+      "sha256": "a67d97049cac1965aa9e297d6dd32093c2d09dc78cd13b26dd665dad804ede3d"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_GL_Deferred_MSAA4_Oblique.png",
+      "sha256": "20f12336fd7ee441394cf95eeec9d7d691fcd8b5f6c71b92ac0b14409a34e20a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Velocity.png",
+      "sha256": "1f137bf99c4a56e3069a208fc288a606b6edb159959cb529501d5b5be1778f40"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Debug.png",
+      "sha256": "1afabb23ce2de89d20d0752d94ac356510a82009134ab834ca34ed0461138f08"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ShadowA.png",
+      "sha256": "54fd69699f6f9f0a2c5463d93212a983dc4c512fd3424cd727e44f8d6397a4fb"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_ShadowB.png",
+      "sha256": "a138acfe79115f873eb93f9845983a4b71f5290dcc8cd9f0251277ee7ee9e942"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Depth.png",
+      "sha256": "2025c590fddffeb9abf3864c218e5bc9b30815f914a5f5382941dc5103509d66"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_Impostor.png",
+      "sha256": "2569542301d7dd1600c3c173b6f779521e5f4a2a4318c7c7bdcbb247b565e287"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_PriorScene.png",
+      "sha256": "20c5bc58b0a08c494c9b7acef9df8129f4e1a0debe7f87c0b085d5072971e697"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_GL_LodPaused.png",
+      "sha256": "17dff571f85a3bd711e7cd4d79d960028d4ae1e7893acc6f1ba26910c4aa74f9"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Ground.png",
+      "sha256": "24597c54cf43ff3ec0b9ba624f4569f50efaf9cf7271186f7ffbc38ad9864751"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Forward_MSAA1_Ground.png",
+      "sha256": "1eccfc72a9eaf40ae28b4c9e7c14c46b99e8af50f0ade87d6942d433618c389c"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Oblique.png",
+      "sha256": "d4dc3152e10e220166854b8ebb9f0362dfdb89a17df04d8da66d90f3aa64d2fd"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Forward_MSAA1_Oblique.png",
+      "sha256": "62d80725578169c80719912a8de3c718530243ceba233d7e952d37a6555fc2da"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Velocity.png",
+      "sha256": "401ea40237f64104c1f6032d1894d8248d4ef0fa4f51620a625747a016958a4a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Ground.png",
+      "sha256": "edbad166dee2e409edfe312f4e20cd2c0fd965261062a3bab3cacd00f0760ce5"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_ForwardPlus_MSAA1_Ground.png",
+      "sha256": "1eccfc72a9eaf40ae28b4c9e7c14c46b99e8af50f0ade87d6942d433618c389c"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Oblique.png",
+      "sha256": "705bcc9507a2a78e639c5eefb3dfbdb23faaee90fb022e5aaa94edccee7fcabe"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_ForwardPlus_MSAA1_Oblique.png",
+      "sha256": "62d80725578169c80719912a8de3c718530243ceba233d7e952d37a6555fc2da"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Velocity.png",
+      "sha256": "ab40eb97d9b1b3e5d8aec15f03aa010efcbf231716ea9696ad4468125703e14a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ForwardPlus_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Ground.png",
+      "sha256": "8c80109bba2d641891715c9b4ceba149115166ea4383bf28a7463a60213af0a9"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA1_Ground.png",
+      "sha256": "274e1d319f5c040363d73243eb0febd02cc6064f9b74fb966204050494ab1a9d"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Oblique.png",
+      "sha256": "fd4b1eceeb10d54bd04f46c5ab2be868a376d2e61fa6fadf7298358785828073"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA1_Oblique.png",
+      "sha256": "1ee47f5bf371093911b1e000a60c15289cc17b9cc8ee9645b590ae38f53d34f0"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Velocity.png",
+      "sha256": "f2705767b4345be4983e424490ee3dd6c6ad515f70b588d6898d772595fac2e8"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA1_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Ground.png",
+      "sha256": "7f02bc44f5c1c9664fb79c09767a4404dd72655f727f56a2e5527d79ac0eb568"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA4_Ground.png",
+      "sha256": "651d282dffa962d0b50aba863a5da71734a8957dab0d1f449611dfbe7d5a1dfa"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Oblique.png",
+      "sha256": "d8a58507fbafd28b37dfce15cdbbd3742f0085827a8ec0772f01a13bcb71c800"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindOffLive_Vulkan_Deferred_MSAA4_Oblique.png",
+      "sha256": "525b83de0dbbb6faf4edb6600d86afc2963e04671be78af36c03026950903455"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Velocity.png",
+      "sha256": "2237774435a5487a11b07048f2d94fc065404d40d3c7ee126d5b39effab7b15f"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Pause.png",
+      "sha256": "537fe574bc17fc326b3ad70c7885bac0cd5ac5b6a34a9f0a83d781080209db70"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Debug.png",
+      "sha256": "de439a19adf36d4ebc8f91bad562511df8d06ef38b2e6831ddbdb686965dd189"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ShadowA.png",
+      "sha256": "88eb24a40328a9de2ef288e560df4b26d3dabeecc4d60c7890be920d87b362ce"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ShadowB.png",
+      "sha256": "3f8fc639da50a409aef79b68a10de034bf608f4a86ab29612c4ecceb89cd9142"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Depth.png",
+      "sha256": "c53ea9b44f6b55ad70cd723d0716a3a26cb46871df93f54346426c058181b0dc"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Impostor.png",
+      "sha256": "42cddf610b9ffa2a6dec018c032092633f1990dabf2ed51cf7b271e6cb26bf0a"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_PriorScene.png",
+      "sha256": "3c87057f026fb7db8c9c49fb989ce34ab834e03b5be318f2edd496394895967c"
+    },
+    {
+      "file": "OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_LodPaused.png",
+      "sha256": "06bc947cb78e5c0551a9ee01bb6e1af35f5179d31538becc04bdb287991caf3b"
+    }
+  ],
+  "initialCaptureCodeHead": "6b7c971320ce641776a4d50bab365eb4d668625e",
+  "postMergeReviewValidation": {
+    "codeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+    "recordedUTC": "2026-09-16T21:09:50.341194+00:00",
+    "saveFormatVersion": 36,
+    "priorArchiveVersionsTested": [
+      34,
+      35
+    ],
+    "cells": [
+      {
+        "backend": "GL",
+        "path": "forward",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0185546875,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.006259918212890625,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 2,
+          "passes": {
+            "FoliagePass": {
+              "minMs": 0.292,
+              "medianMs": 0.296,
+              "maxMs": 0.302,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ScenePass": {
+              "minMs": 0.543,
+              "medianMs": 0.546,
+              "maxMs": 0.781,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.38,
+              "medianMs": 1.385,
+              "maxMs": 1.981,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "engine tracked allocation bytes",
+          "bytes": 648142074
+        }
+      },
+      {
+        "backend": "GL",
+        "path": "forwardplus",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.00124359130859375,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.00046133995056152344,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 2,
+          "passes": {
+            "FoliagePass": {
+              "minMs": 0.571,
+              "medianMs": 0.596,
+              "maxMs": 0.616,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ScenePass": {
+              "minMs": 0.541,
+              "medianMs": 0.573,
+              "maxMs": 0.878,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.478,
+              "medianMs": 1.5715,
+              "maxMs": 2.278,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "engine tracked allocation bytes",
+          "bytes": 648142074
+        }
+      },
+      {
+        "backend": "GL",
+        "path": "deferred",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0003719329833984375,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0006022453308105469,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 2,
+          "passes": {
+            "ScenePass": {
+              "minMs": 1.069,
+              "medianMs": 1.074,
+              "maxMs": 1.085,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.543,
+              "medianMs": 1.547,
+              "maxMs": 2.2,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "engine tracked allocation bytes",
+          "bytes": 668878074
+        }
+      },
+      {
+        "backend": "GL",
+        "path": "deferred",
+        "msaa": 4,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0005865097045898438,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.00021958351135253906,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 2,
+          "passes": {
+            "ScenePass": {
+              "minMs": 1.214,
+              "medianMs": 1.2215,
+              "maxMs": 1.736,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.384,
+              "medianMs": 1.3935,
+              "maxMs": 1.966,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "engine tracked allocation bytes",
+          "bytes": 683397558
+        }
+      },
+      {
+        "backend": "Vulkan",
+        "path": "forward",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0008935928344726562,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0008664131164550781,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 1,
+          "passes": {
+            "FoliagePass": {
+              "minMs": 0.361,
+              "medianMs": 0.3655,
+              "maxMs": 0.37,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ScenePass": {
+              "minMs": 0.162,
+              "medianMs": 0.166,
+              "maxMs": 0.19,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 0.751,
+              "medianMs": 1.1045,
+              "maxMs": 1.266,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "VMA device-local block bytes",
+          "bytes": 963130368,
+          "engineTrackedBytes": 0
+        }
+      },
+      {
+        "backend": "Vulkan",
+        "path": "forwardplus",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0017290115356445312,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.001834869384765625,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 1,
+          "passes": {
+            "FoliagePass": {
+              "minMs": 0.809,
+              "medianMs": 0.8374999999999999,
+              "maxMs": 3.002,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ScenePass": {
+              "minMs": 0.446,
+              "medianMs": 0.473,
+              "maxMs": 1.447,
+              "positiveSamples": 19,
+              "zeroReportsExcluded": 1
+            },
+            "ShadowPass": {
+              "minMs": 1.765,
+              "medianMs": 1.959,
+              "maxMs": 2.429,
+              "positiveSamples": 19,
+              "zeroReportsExcluded": 1
+            }
+          }
+        },
+        "memory": {
+          "kind": "VMA device-local block bytes",
+          "bytes": 963130368,
+          "engineTrackedBytes": 0
+        }
+      },
+      {
+        "backend": "Vulkan",
+        "path": "deferred",
+        "msaa": 1,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.0269317626953125,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0288543701171875,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 1,
+          "passes": {
+            "ScenePass": {
+              "minMs": 0.503,
+              "medianMs": 0.594,
+              "maxMs": 1.614,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.655,
+              "medianMs": 1.8825,
+              "maxMs": 1.948,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "VMA device-local block bytes",
+          "bytes": 1002451968,
+          "engineTrackedBytes": 0
+        }
+      },
+      {
+        "backend": "Vulkan",
+        "path": "deferred",
+        "msaa": 4,
+        "finiteTexelsPerChannel": 518400,
+        "movingMaxAbs": 0.003475189208984375,
+        "pausedMaxAbs": 0.0,
+        "resumedAfterStopMaxAbs": 0.0017538070678710938,
+        "gpuTimingReports": {
+          "warmupReports": 5,
+          "samples": 20,
+          "maxAgeFrames": 1,
+          "passes": {
+            "ScenePass": {
+              "minMs": 0.979,
+              "medianMs": 1.037,
+              "maxMs": 2.429,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            },
+            "ShadowPass": {
+              "minMs": 1.29,
+              "medianMs": 1.401,
+              "maxMs": 4.767,
+              "positiveSamples": 20,
+              "zeroReportsExcluded": 0
+            }
+          }
+        },
+        "memory": {
+          "kind": "VMA device-local block bytes",
+          "bytes": 1099772928,
+          "engineTrackedBytes": 0
+        }
+      }
+    ],
+    "tests": [
+      {
+        "run": "cpu-review-verification",
+        "tests": 106,
+        "failures": 0,
+        "skips": 0,
+        "exit": 0
+      },
+      {
+        "run": "buffer-shader-review-verification",
+        "tests": 6,
+        "failures": 0,
+        "skips": 0,
+        "exit": 0
+      },
+      {
+        "run": "vulkan-device-review-verification",
+        "tests": 4,
+        "failures": 0,
+        "skips": 0,
+        "exit": 0
+      },
+      {
+        "run": "visual-review-verification",
+        "tests": 4,
+        "failures": 0,
+        "skips": 0,
+        "exit": 0
+      },
+      {
+        "run": "perf-review-verification",
+        "tests": 1,
+        "failures": 0,
+        "skips": 0,
+        "exit": 0
+      }
+    ],
+    "backends": {
+      "GL": {
+        "renderGraphHazards": [],
+        "barrierDiagnostics": [
+          {
+            "kind": "MissingProducer",
+            "message": "No producer declared for read resource 'GBufferMS' before pass 'DeferredLightingPass'",
+            "pass": "DeferredLightingPass",
+            "resource": "GBufferMS"
+          },
+          {
+            "kind": "MissingProducer",
+            "message": "No producer declared for read resource 'GBufferBakedGIMS' before pass 'DeferredLightingPass'",
+            "pass": "DeferredLightingPass",
+            "resource": "GBufferBakedGIMS"
+          }
+        ],
+        "shaderDiagnosticAvailability": {
+          "available": true,
+          "count": 0,
+          "errors": [],
+          "status": "ready"
+        },
+        "logErrors": [],
+        "foliageDrawCensus": {},
+        "logSha256": "b6a9709599baeada1c0f26034097bc8ed8bd4d14c845de5358c7d47b405bd4af",
+        "logScope": "Fresh deferred 4x control after the four-cell live matrix"
+      },
+      "Vulkan": {
+        "renderGraphHazards": [],
+        "barrierDiagnostics": [
+          {
+            "kind": "MissingProducer",
+            "message": "No producer declared for read resource 'GBufferMS' before pass 'DeferredLightingPass'",
+            "pass": "DeferredLightingPass",
+            "resource": "GBufferMS"
+          },
+          {
+            "kind": "MissingProducer",
+            "message": "No producer declared for read resource 'GBufferBakedGIMS' before pass 'DeferredLightingPass'",
+            "pass": "DeferredLightingPass",
+            "resource": "GBufferBakedGIMS"
+          }
+        ],
+        "shaderDiagnosticAvailability": {
+          "available": false,
+          "count": null,
+          "detail": "Shader tracking is compiled in but ShaderDebugger::Initialize() has not run in this process, so no shader has registered. Nothing was checked; a zero here would be a guess, not a result.",
+          "errors": [],
+          "status": "notInitialized"
+        },
+        "logErrors": [
+          "[23:05:44] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_Depth' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:49] [error] OloEngine: [RHI/Vulkan] 'Terrain_PBR' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:05:56] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 79 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it.",
+          "[23:06:00] [error] OloEngine: [RHI/Vulkan] 'Terrain_GBuffer' STORAGE binding 59 has no published occupant — substituting the null block, which a shader that indexes this buffer will read past (issue #1052). Bind it, or stop declaring it."
+        ],
+        "foliageDrawCensus": {
+          "Foliage_Depth": {
+            "dropped": 0,
+            "prepared": 22960
+          },
+          "Foliage_Impostor": {
+            "dropped": 0,
+            "prepared": 355
+          },
+          "Foliage_Impostor_Depth": {
+            "dropped": 0,
+            "prepared": 11480
+          },
+          "Foliage_Impostor_GBuffer": {
+            "dropped": 0,
+            "prepared": 5030
+          },
+          "Foliage_Instance": {
+            "dropped": 0,
+            "prepared": 710
+          },
+          "Foliage_Instance_GBuffer": {
+            "dropped": 0,
+            "prepared": 10060
+          }
+        },
+        "logSha256": "da1abd9b63570bcfd2a8a056dfc41d563e292e717a01ebe0447ad2fc1cc71796",
+        "logScope": "Final live matrix interval"
+      }
+    },
+    "resetCaptureLimitation": "Live stop statistics follow settled resumed frames, not the exact first reset frame. CPU contracts and OpenGL production tests pin the first reset/regeneration frame.",
+    "microbenchmark": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "102400",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "0.375940",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "183296",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "0.544073",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "103424",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "0.570621",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "185344",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "0.747934"
+    },
+    "newRegressions": [
+      "FoliageWindShader.ReinitializationRequiresAFrameBeforeWindHistoryIsValid",
+      "FoliageWindEvidenceTest.MissingAlbedoShadowDoesNotReuseThePreviousAtlas",
+      "VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects"
+    ]
+  },
+  "reviewFollowupValidation": {
+    "codeHead": "791ac723d6871fd58b7d6f09fd15f076cb1847d7",
+    "utc": "2026-09-16T23:41:05.853980+00:00",
+    "priorRoundCiHead": "d0cb250002774149291df63c0fb2a6e7d9dddb75",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35151151790,
+      "sanitizerRun": 35151151585,
+      "linuxAsanCtestEntriesPassed": 1851
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-two.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "flags": [
+          "none"
+        ]
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu"
+        ]
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 4,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu"
+        ]
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu",
+          "strict-renderer-state"
+        ]
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "flags": [
+          "glfw",
+          "require-gpu",
+          "strict-renderer-state",
+          "perf-strict"
+        ]
+      }
+    ],
+    "totalPassed": 132,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "101376",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "0.372180",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "183296",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "0.544073",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "103424",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "0.570621",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "184320",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "0.743802"
+    },
+    "corrections": [
+      "Reject unavailable Vulkan DS resolve views before transitions",
+      "Include SSIM edge windows and singleton variance with three new L1 tests",
+      "Collect twenty fresh finite positive GPU reports within eighty attempts without changing budgets",
+      "Test NaN and both infinity signs in every wind weight"
+    ],
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "successfulRenderingPathUnchanged": true,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "dismissedFinding": {
+      "reviewThread": "PRRT_kwDOGiS2f86jH8ch",
+      "reason": "Repository Sonar alignment explicitly permits duplicated test scaffolds"
+    }
+  },
+  "blitPreconditionValidation": {
+    "codeHead": "1ae024479a5f50b265459e9b479bb95cc776f77b",
+    "utc": "2026-09-17T03:01:52.319843+00:00",
+    "priorRoundCiHead": "115de30f657d529c9bf12a88356f686fb9cd5cf3",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35163410543,
+      "sanitizerRun": 35163410361,
+      "expectedUnusedSkippedChecks": [
+        "ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.asan-lsan-shards }}",
+        "ASan + LSan (Linux) shard coverage"
+      ]
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-three.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-cpu-round-three-verification.xml"
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-buffer-shader-round-three-verification.xml"
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 5,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-vulkan-device-round-three-verification.xml"
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-visual-round-three-verification.xml"
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-perf-round-three-verification.xml"
+      }
+    ],
+    "totalPassed": 133,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "346112",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "1.270677",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "445440",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "1.322188",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "254976",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "1.406780",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "338944",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "1.367769"
+    },
+    "gpuRegressions": {
+      "depthStencilPreservationCases": 24,
+      "actualMetadataAssertions": "Both engine depth enums allocate combined D32_SFLOAT_S8_UINT with matching native format and depth/stencil aspects",
+      "colourRejectionCases": 4,
+      "colourPairs": [
+        "RGBA8 -> RG16F (size-compatible bits, unsupported value conversion)",
+        "RGBA8 -> RGBA16F (different texel size)"
+      ],
+      "samples": [
+        1,
+        4
+      ],
+      "rejectionOracle": [
+        "Exactly one PreconditionFailure",
+        "Source and destination tracked layouts unchanged",
+        "Source and destination colour values unchanged",
+        "Zero Vulkan validation errors"
+      ]
+    },
+    "notRun": [
+      {
+        "case": "Native stencil-free/combined depth aspect mismatch; differing native depth formats",
+        "reason": "All current VulkanTexture2D/framebuffer/raw-facade depth factories widen to D32_SFLOAT_S8_UINT; no native depth import or override constructor exists"
+      }
+    ],
+    "limitation": "Deferred albedo RGBA8 and velocity RG16F debug channels target RGBA16F; Vulkan colour conversion is unlowered and now rejected before barriers. Wind displacement shading uses matching formats.",
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "liveCapturesRepeated": false,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "reviewFindings": [
+      4032089787,
+      4032089801,
+      4032089811
+    ]
+  },
+  "blitBoundaryValidation": {
+    "codeHead": "b41656df47869c8a8ee552d3f96046b0890c247c",
+    "utc": "2026-09-17T05:39:41.157115+00:00",
+    "priorRoundCiHead": "2854bf0305d7207c384c4dc8561ec2854ce08347",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35176662877,
+      "sanitizerRun": 35176662936,
+      "expectedUnusedSkippedChecks": [
+        "ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.asan-lsan-shards }}",
+        "ASan + LSan (Linux) shard coverage"
+      ]
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-four.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-cpu-round-four-verification.xml"
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-buffer-shader-round-four-verification.xml"
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 9,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-vulkan-device-round-four-verification.xml"
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-visual-round-four-verification.xml"
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-perf-round-four-verification.xml"
+      }
+    ],
+    "totalPassed": 137,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "310272",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "1.139098",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "412672",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "1.224924",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "229376",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "1.265537",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "318464",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "1.285124"
+    },
+    "gpuRegressions": {
+      "boundaryRejectionCases": 44,
+      "boundaries": [
+        "Source width",
+        "Source height",
+        "Destination width",
+        "Destination height",
+        "Same framebuffer/image",
+        "Distinct framebuffer/shared external attachment",
+        "Unknown aspect",
+        "Oversized signed source X/Y spans",
+        "Oversized signed destination X/Y spans"
+      ],
+      "samples": [
+        1,
+        4
+      ],
+      "aspects": [
+        "Color",
+        "DepthStencil"
+      ],
+      "rejectionOracle": [
+        "Exactly one PreconditionFailure",
+        "Both tracked layouts unchanged",
+        "Source and destination values unchanged",
+        "Zero Vulkan validation errors"
+      ],
+      "sourceReadback": "Matching single-sample copy/resolve probe after guard assertions; never read a multisample image directly",
+      "unequalExtentPositiveCases": 8,
+      "unequalExtentOracle": "Fitting 8x8 rectangle copies/resolves between 8x8 and 16x16 images; destination pixels outside rectangle stay unchanged",
+      "sameFramebufferDistinctAttachmentPositiveCases": 1,
+      "emptyOrReversedSourceNoOpCases": 4,
+      "existingDepthStencilPreservationCases": 24,
+      "existingColourConversionRejectionCases": 4
+    },
+    "samplingFailurePolicy": "Incomplete attempts return maximum u64 rather than zero; retain EXPECT_EQ(samples,20), ASSERT_GT(ns,0), and add ASSERT_LT(ns,max). Shared retry helper and budgets unchanged.",
+    "notRun": [
+      {
+        "case": "Unknown native image dimensions",
+        "reason": "Current texture/framebuffer constructors clamp attachment dimensions to at least 1x1 and Resize ignores zero extents; no forged registry metadata used"
+      },
+      {
+        "case": "Native depth-only/combined aspect mismatch and differing native depth formats",
+        "reason": "Current factories widen both engine depth enums to D32_SFLOAT_S8_UINT; no native depth import/override constructor exists"
+      }
+    ],
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "liveCapturesRepeated": false,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "reviewFindings": {
+      "outsideDiffExtentReview": 5230580374,
+      "fullReview": 5230945511,
+      "samplingComment": 4033043630
+    }
+  }
+}

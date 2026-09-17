@@ -74,7 +74,7 @@ layout(std140, binding = 0) uniform CameraMatrices
     vec3 u_CameraPosition;
     float _padding0;
     // Previous-frame VP for scene FB RT3 velocity. Wind displacement is
-    // time-varying and not reprojected; camera + per-object motion only.
+    // reprojected through the shared current/previous deformation producer.
     mat4 u_PrevViewProjection;
     vec3 u_RenderOrigin; // camera-relative render origin (issue #429)
     float _padding1;
@@ -90,41 +90,11 @@ layout(std140, binding = 0) uniform CameraMatrices
 #include "InstanceBlock_Vertex.glsl"
 
 // Foliage UBO (binding 12)
-layout(std140, binding = 12) uniform FoliageParams
-{
-    float u_Time;
-    float u_WindStrength;
-    float u_WindSpeed;
-    float u_ViewDistance;
-    float u_FadeStart;
-    float u_AlphaCutoff;
-    float u_PrevTime;       // Previous-frame time for wind velocity reprojection
-    float _foliagePad1;
-    vec3  u_FoliageBaseColor;
-    float _foliagePad2;
-    vec4 _foliageImpostorParams0; // consumed by the impostor card only
-    vec4 _foliageImpostorParams1; // consumed by the impostor card only
-    // x = this draw is the authored mesh (1) or the flat card (0);
-    // yz = the layer's mesh-to-card hand-over band (issue #1233).
-    vec4 u_MeshParams;
-    // xyz = the view position the hand-over is measured from, in the same
-    // render-relative space as the instance pivots. NOT u_CameraPosition: the
-    // shadow pass's camera is the light. See ShaderBindingLayout::FoliageUBO.
-    vec4 u_MeshViewPos;
-    // Leaf material (issue #1234) — see ShaderBindingLayout::FoliageUBO. The
-    // block is declared identically in every stage of every foliage program:
-    // std140 blocks must match across the stages of one program, so a lane
-    // appended to one declaration and not the others is a LINK failure, not a
-    // wrong pixel.
-    vec4 u_LeafSurface;   // x=roughness y=normalStrength z=thicknessScale w=mapFlags
-    vec4 u_LeafTransmit;  // rgb=tint*strength w=strength (0 == not a leaf material)
-    vec4 u_LeafLobe;      // x=distortion y=power z=wrap w=environment scale
-    vec4 u_LeafIds;       // x = leaf-profile slot for the deferred lighting pass
-};
+#include "FoliageParams.glsl"
 
 // Wind field (optional — provides direction-aware wind when enabled)
-#include "WindSampling.glsl"
 #include "FoliageInstanceGeometry.glsl"
+#include "FoliageWind.glsl"
 
 // Outputs
 layout(location = 0) out vec3 v_WorldPos;
@@ -170,37 +140,16 @@ void main()
     // card's normal comes out as the vec3(0, 1, 0) this stage used to hard-code.
     vec3 rotatedNormal = rotY * a_Normal;
 
-    // Wind animation — direction-aware when WindSystem is enabled,
-    // otherwise falls back to legacy sine-wave model.
-    // a_Position.y is 0 at the base and 1 at the tip for BOTH shapes: the card
-    // is a unit quad and plant meshes are authored base-at-origin unit-height
-    // (the convention the impostor bake already assumes; FoliageRenderer warns
-    // when a mesh breaks it).
-    float windInfluence = a_Position.y;
-
-    // Compute both current and previous rotated tip positions so the fragment
-    // stage can emit a per-fragment motion vector that captures the wind sway
-    // itself (not just camera/rigid motion).
-    vec3 rotatedPosPrev = rotatedPos;
-
-    if (windEnabled())
+    FoliageDeformation deformation = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w);
+    vec3 rotatedPosPrev = deformation.Previous;
+    rotatedPos = deformation.Current;
+    vec3 displacement = deformation.Current - rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
+    if (dot(u_WindWeights.xyz, vec3(1.0)) > 0.0)
     {
-        // Sample wind field at blade root world position
-        // Camera-relative (issue #429): u_Model is render-relative, so add the
-        // render origin back — the wind field is anchored in absolute world.
-        vec3 bladeWorldPos = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
-        vec3 bladeWorldPosPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz + u_RenderOrigin;
-        vec3 windVel = analyticalWind(bladeWorldPos); // Fast analytical path for vertex shader
-        vec3 windVelPrev = analyticalWindAtTime(bladeWorldPosPrev, windPrevTime());
-        // Displace blade tip along wind direction, scaled by per-layer strength
-        rotatedPos.xyz     += windVel     * u_WindStrength * windInfluence * 0.1;
-        rotatedPosPrev.xyz += windVelPrev * u_WindStrength * windInfluence * 0.1;
-    }
-    else
-    {
-        // Legacy sine-wave wind
-        rotatedPos     += foliageLegacyWindOffset(a_PositionScale.xz, u_Time,     u_WindSpeed, u_WindStrength, windInfluence);
-        rotatedPosPrev += foliageLegacyWindOffset(a_PositionScale.xz, u_PrevTime, u_WindSpeed, u_WindStrength, windInfluence);
+        vec3 size = isAuthoredMesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
+        mat3 shapeJacobian = rotY * mat3(vec3(size.x, 0.0, 0.0), vec3(0.0, size.y, 0.0), vec3(0.0, 0.0, size.z));
+        rotatedNormal = foliageWindNormal(a_Normal, a_Position, a_PositionScale.xyz, a_RotationHeight.w,
+                                          shapeJacobian, displacement);
     }
 
     // World position
@@ -220,7 +169,7 @@ void main()
     v_PrevWorldPos = worldPosPrev;
     v_Normal = normalize(mat3(u_Normal) * rotatedNormal);
     v_TexCoord = a_TexCoord;
-    v_Color = a_ColorAlpha.rgb;
+    v_Color = u_WindWeights.w > 0.5 ? vec3(clamp(length(displacement) / max(abs(u_WindStrength) * 2.5, 1e-5), 0.0, 1.0), 0.0, 1.0) : a_ColorAlpha.rgb;
     v_AlphaCutoff = a_ColorAlpha.a;
     v_Fade = fade;
 

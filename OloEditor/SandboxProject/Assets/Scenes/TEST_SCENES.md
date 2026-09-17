@@ -483,3 +483,7 @@ Both belong to #1230; see
 - Each scene saves its own post-process settings, so in-scene tuning persists across reloads.
 - Scenes intentionally use Khronos sample assets (DamagedHelmet, SciFiHelmet, Suzanne, Sponza) so visual diffs against published reference renders are meaningful.
 - HDR environment (Newport Loft) is a standard PBR validation HDRI.
+
+### FoliageHierarchicalWind.olo
+
+Grass bend and woody trunk/branch/leaf motion under spatial gusts, including the near mesh and far octahedral impostor. Toggle the layer displacement debug view and inspect velocity while pausing and crossing the 55-70 m mesh hand-over. See `docs/guides/foliage-hierarchical-wind.md`.

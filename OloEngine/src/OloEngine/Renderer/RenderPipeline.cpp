@@ -2388,7 +2388,7 @@ namespace OloEngine
             // See SampleMockableDt.
             const f32 dt = SampleMockableDt(data.WindPrevTimeSeconds, 0.1f);
 
-            WindSystem::Update(data.Wind, data.ViewPos, Timestep(dt));
+            WindSystem::Update(data.Wind, data.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
             WindSystem::BindWindTexture();
 
             // Update snow accumulation system

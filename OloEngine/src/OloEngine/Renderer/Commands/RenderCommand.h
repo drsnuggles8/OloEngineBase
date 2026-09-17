@@ -1060,6 +1060,7 @@ namespace OloEngine
         f32 time = 0.0f;
         f32 windStrength = 0.3f;
         f32 windSpeed = 1.0f;
+        glm::vec4 windWeights{ 0.0f };
         f32 viewDistance = 100.0f;
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;

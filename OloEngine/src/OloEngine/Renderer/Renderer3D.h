@@ -1138,6 +1138,11 @@ namespace OloEngine
         // Shadow passes, light uploads, decals, etc. read this to stay in the
         // same relative space as the main camera. Set once per frame in
         // RenderPipeline::PrepareFrame.
+        static const glm::vec3& GetPreviousViewPosition()
+        {
+            return s_Data.HasPreviousViewPosition ? s_Data.PreviousViewPos : s_Data.ViewPos;
+        }
+
         static const glm::vec3& GetRenderOrigin()
         {
             return s_Data.RenderOrigin;
@@ -1736,7 +1741,8 @@ namespace OloEngine
             // hand-over band so the two partition the pixels between them.
             bool isAuthoredMesh = false,
             f32 meshHandoverStart = 0.0f,
-            f32 meshHandoverEnd = 0.0f);
+            f32 meshHandoverEnd = 0.0f,
+            const glm::vec4& windWeights = glm::vec4(0.0f));
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams
@@ -1796,6 +1802,11 @@ namespace OloEngine
             const WaterDrawParams& params,
             const BoundingBox& bounds,
             i32 entityID = -1);
+
+        static void SetWindPaused(bool paused)
+        {
+            s_Data.WindPaused = paused;
+        }
 
         static WindSettings& GetWindSettings()
         {
@@ -2359,6 +2370,8 @@ namespace OloEngine
             bool OcclusionResultsAvailable = false;
 
             glm::vec3 ViewPos;
+            glm::vec3 PreviousViewPos{ 0.0f };
+            bool HasPreviousViewPosition = false;
             // Direction of the scene's primary (first) directional light. Used
             // by the fog/atmosphere sun-direction derivation; defaults to
             // straight-down when the scene has no directional light.
@@ -2570,6 +2583,7 @@ namespace OloEngine
             UnderwaterFogState UnderwaterFog{};
             Ref<UniformBuffer> UnderwaterFogBuffer;
             WindSettings Wind;
+            bool WindPaused = false;
             // Boat / actor wake foam (issue #967). Written each frame by
             // Scene::ProcessScene3DSharedLogic from the dominant enabled
             // WaterComponent, read by RenderPipeline to drive the disturbance

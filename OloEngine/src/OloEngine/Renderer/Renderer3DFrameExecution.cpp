@@ -384,6 +384,8 @@ namespace OloEngine
 
         // Store current VP as previous for next frame's motion blur
         s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
+        s_Data.PreviousViewPos = s_Data.ViewPos;
+        s_Data.HasPreviousViewPosition = true;
         // The culling camera's own history rotates only while unfrozen, so it
         // keeps describing the pyramid GenerateOcclusionHZB() last produced
         // (issue #726). Two matrices because they answer different questions:

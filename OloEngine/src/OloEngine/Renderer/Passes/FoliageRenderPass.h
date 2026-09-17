@@ -31,5 +31,7 @@ namespace OloEngine
 
       private:
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGTextureHandle m_SelectedVelocityExport;
+        RGTextureHandle m_SelectedSceneDepthExport;
     };
 } // namespace OloEngine
