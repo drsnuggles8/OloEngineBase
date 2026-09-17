@@ -104,6 +104,7 @@ namespace OloEngine::RayTracing
         u32 FirstIndex = 0;
         u32 IndexCount = 0;
         i32 BaseVertex = 0;
+        bool Vegetation = false;
 
         [[nodiscard]] u32 TriangleCount() const
         {
@@ -154,6 +155,13 @@ namespace OloEngine::RayTracing
         // requested when a size query or an allocation failed, which the
         // caller reports rather than asserting.
         virtual u32 RecordBlasBuilds(std::span<const BlasBuildRequest> requests) = 0;
+
+        // Optional per-key acknowledgement for partial batches. A backend that
+        // reports only a count retains the conservative all-or-nothing commit.
+        [[nodiscard]] virtual bool WasBlasBuildRecorded(const GeometryKey&) const
+        {
+            return false;
+        }
 
         // Retire a BLAS whose geometry record died. Frame-safe: the handle and
         // its backing storage go to deferred reclaim, never an inline destroy.
@@ -254,7 +262,15 @@ namespace OloEngine::RayTracing
         //
         // Safe and cheap to call when RT is unavailable: it resets the frame
         // counters and returns.
-        void Update(const GPUScene& scene);
+        // `vegetationOutputTrusted` false means the deformation producer did
+        // not write its output this frame, so no vegetation BLAS may be built
+        // over it. Everything else — non-vegetation builds, retirement, the
+        // compaction handshake and the TLAS — still runs: a producer hiccup
+        // must not stall the whole scene's structure maintenance. It is a
+        // frame-level flag rather than a per-key set because readiness is
+        // already all-or-nothing, so the TLAS is withheld from consumers on
+        // that frame anyway and the unaffected groups rebuild on the next one.
+        void Update(const GPUScene& scene, bool vegetationOutputTrusted = true);
 
         // Emit the AS-build -> AS-read barrier. Called by the render graph
         // pass that owns the hazard, not by Update, so the barrier sits where
@@ -267,6 +283,14 @@ namespace OloEngine::RayTracing
         void RecordDeformToBuildBarrier();
 
         [[nodiscard]] u64 GetTlasDeviceAddress() const;
+        void SetVegetationReady(bool ready)
+        {
+            m_VegetationProducerReady = ready;
+        }
+        [[nodiscard]] bool IsVegetationReady() const
+        {
+            return m_VegetationProducerReady && m_VegetationBuildsReady;
+        }
 
         [[nodiscard]] const SceneStats& GetStats() const
         {
@@ -367,6 +391,8 @@ namespace OloEngine::RayTracing
         std::vector<GeometryKey> m_PendingRetires;
 
         SceneStats m_Stats{};
+        bool m_VegetationProducerReady = true;
+        bool m_VegetationBuildsReady = true;
         u64 m_FrameNumber = 0;
         u32 m_PreviousInstanceCount = 0;
         bool m_EverBuiltTlas = false;

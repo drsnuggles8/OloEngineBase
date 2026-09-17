@@ -148,6 +148,9 @@ namespace OloEngine
         // sharing a skinned mesh share the REST buffer and therefore used to
         // share a geometry record; they hold different poses and must not.
         GPUSceneGeometryFlagDeformed = 1u << 1,
+        // Bounded canonical vegetation groups produced before the AS build.
+        // The device builder applies the separate vegetation AS-memory budget.
+        GPUSceneGeometryFlagVegetation = 1u << 2,
     };
 
     // Mirrors Material's authored state one bit per knob, so the deferred
@@ -224,6 +227,9 @@ namespace OloEngine
         // extraction for it, and ExtractGPUSceneMesh rejects the same source,
         // so nothing can reference it.
         Unresolvable = 3,
+        // Private foliage geometry buffer + draw part. Shared across spatial
+        // groups of a layer, separate from imported and entity material keys.
+        Foliage = 4,
     };
 
     // Which component supplied an EntityOverride material; it is the key's

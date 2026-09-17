@@ -1,0 +1,140 @@
+{
+ "moving": {
+  "vegetation": {
+   "complete": true,
+   "detailedGroups": 51,
+   "dispatchBatches": 3,
+   "dispatched": 533,
+   "historyReset": false,
+   "plantsRepresented": 61824,
+   "producerFailed": false,
+   "proxyGroups": 482,
+   "ready": true,
+   "refused": 0,
+   "requested": 533,
+   "residentBytes": 25486992,
+   "reused": 0,
+   "verticesDeformed": 600888
+  },
+  "resident": {
+   "accelerationStructureBytes": 20112256,
+   "animatedInstancesRefused": 0,
+   "blasByClass": {
+    "deformed": 533,
+    "masked": 0,
+    "rigidDynamic": 0,
+    "static": 0,
+    "unsupported": 0
+   },
+   "compactionSavedBytes": 0,
+   "scratchBytes": 1980928,
+   "tlasInstances": 533,
+   "unsupportedInstances": 0
+  },
+  "frame": {
+   "blasBuildGpuNs": 0,
+   "blasBuilds": 0,
+   "blasCompactions": 0,
+   "blasRefits": 533,
+   "blasRetired": 0,
+   "instancesSkipped": 0,
+   "instancesTraced": 533,
+   "tlasBuildGpuNs": 0,
+   "tlasBuilds": 0,
+   "tlasUpdates": 1
+  },
+  "perf": {
+   "commandPackets": 13,
+   "cpuMs": 126.1,
+   "cullingMs": 0.0,
+   "drawCalls": 0,
+   "fps": 7.31,
+   "frameTimeMs": 136.81,
+   "gpuMs": 0.0,
+   "gpuWaitMs": 129.98,
+   "instancedDrawCalls": 0,
+   "instancesBatched": 0,
+   "instancesRendered": 0,
+   "liveness": {
+    "captureUnready": false,
+    "focused": false,
+    "frameIndex": 3967,
+    "iconified": false,
+    "msSinceLastFrame": 122.73,
+    "ticking": true,
+    "visible": true
+   },
+   "renderHeight": 540,
+   "renderWidth": 960,
+   "shaderBinds": 0,
+   "sortingMs": 0.0,
+   "stateChanges": 0,
+   "textureBinds": 0,
+   "triangles": 0,
+   "vertices": 0
+  }
+ },
+ "forceDetailed": {
+  "vegetation": {
+   "complete": true,
+   "detailedGroups": 533,
+   "dispatchBatches": 3,
+   "dispatched": 533,
+   "historyReset": false,
+   "plantsRepresented": 61824,
+   "producerFailed": false,
+   "proxyGroups": 0,
+   "ready": true,
+   "refused": 0,
+   "requested": 533,
+   "residentBytes": 25486992,
+   "reused": 0,
+   "verticesDeformed": 600888
+  },
+  "resident": {
+   "accelerationStructureBytes": 20112256,
+   "animatedInstancesRefused": 0,
+   "blasByClass": {
+    "deformed": 533,
+    "masked": 0,
+    "rigidDynamic": 0,
+    "static": 0,
+    "unsupported": 0
+   },
+   "compactionSavedBytes": 0,
+   "scratchBytes": 1980928,
+   "tlasInstances": 533,
+   "unsupportedInstances": 0
+  },
+  "perf": {
+   "commandPackets": 13,
+   "cpuMs": 127.64,
+   "cullingMs": 0.0,
+   "drawCalls": 0,
+   "fps": 7.58,
+   "frameTimeMs": 131.89,
+   "gpuMs": 0.0,
+   "gpuWaitMs": 131.63,
+   "instancedDrawCalls": 0,
+   "instancesBatched": 0,
+   "instancesRendered": 0,
+   "liveness": {
+    "captureUnready": false,
+    "focused": false,
+    "frameIndex": 3990,
+    "iconified": false,
+    "msSinceLastFrame": 132.67,
+    "ticking": true,
+    "visible": true
+   },
+   "renderHeight": 540,
+   "renderWidth": 960,
+   "shaderBinds": 0,
+   "sortingMs": 0.0,
+   "stateChanges": 0,
+   "textureBinds": 0,
+   "triangles": 0,
+   "vertices": 0
+  }
+ }
+}

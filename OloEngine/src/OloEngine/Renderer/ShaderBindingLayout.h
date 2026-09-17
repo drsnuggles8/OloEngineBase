@@ -671,12 +671,15 @@ namespace OloEngine
             // Per channel: x = tan(angular radius) for a directional light or
             // the emitter radius in metres for a punctual one, y = range,
             // zw reserved.
-            glm::vec4 LightShapes[4];        // 256
-            glm::uvec4 TlasAddressAndCounts; // 320 — xy = TLAS device address, z = active channels, w = frame index
-            glm::vec4 RayParams;             // 336 — x = raysPerPixel, y = maxRayDistance, z = normalBias, w reserved
-            glm::vec4 ScreenParams;          // 352 — x = width, y = height, z = 1/width, w = 1/height
-            glm::vec4 TemporalParams;        // 368 — x = feedback, y = hasVelocity, z = historyUsable, w = clipGamma
-            glm::vec4 FilterParams;          // 384 — x = spatialRadiusPixels, y = spatialEnabled, zw reserved
+            glm::vec4 LightShapes[4];                // 256
+            glm::uvec4 TlasAddressAndCounts;         // 320 — xy = TLAS device address, z = active channels, w = frame index
+            glm::vec4 RayParams;                     // 336 — x = raysPerPixel, y = maxRayDistance, z = normalBias, w reserved
+            glm::vec4 ScreenParams;                  // 352 — x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 TemporalParams;                // 368 — x = feedback, y = hasVelocity, z = historyUsable, w = clipGamma
+            glm::vec4 FilterParams;                  // 384 — x = spatialRadiusPixels, y = spatialEnabled, zw reserved
+            glm::uvec4 InstanceAndGeometryAddresses; // 400 — xy instances, zw geometries (command-ordered snapshots)
+            glm::uvec4 MaterialAndHeapAddresses;     // 416 — xy canonical materials, zw raster material heap
+            glm::uvec4 SceneSlotCountsAndSampler;    // 432 — xyz scene slots, w sampler heap offset
 
             static constexpr u32 GetSize()
             {
@@ -685,8 +688,8 @@ namespace OloEngine
         };
         static_assert(sizeof(RayTracingShadowUBO) % 16 == 0,
                       "RayTracingShadowUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(RayTracingShadowUBO) == 400,
-                      "RayTracingShadowUBO std140 size drifted from the GLSL RayTracingShadowParams block (400 B)");
+        static_assert(sizeof(RayTracingShadowUBO) == 448,
+                      "RayTracingShadowUBO std140 size drifted from the GLSL RayTracingShadowParams block (448 B)");
 
         // @brief Ray-query reflection tier parameters (issue #1057), uploaded at
         // UBO_RAY_TRACING (65). GLSL twin: the RayTracingReflectionParams block
@@ -709,17 +712,18 @@ namespace OloEngine
         // Only the SLOT COUNTS travel here, for the bounds checks.
         struct RayTracingReflectionUBO
         {
-            glm::mat4 InvProjection; //   0 — clip -> view, for the depth reconstruction
-            glm::mat4 InvView;       //  64 — view -> world, where the ray starts
-            glm::mat4 View;          // 128
-            glm::uvec4 TlasAddress;  // 192 — xy = TLAS device address, z = instance mask, w = frame index
-            glm::uvec4 SlotCounts;   // 208 — x = instance slots, y = geometry slots, z = material slots, w = pad
-            glm::vec4 SunDirection;  // 224 — xyz = world direction TOWARD the sun, w = 1 when a sun exists
-            glm::vec4 SunColor;      // 240 — rgb = radiance, a unused
-            glm::vec4 RayParams;     // 256 — x = maxRayDistance, y = normalBias, z = intensity, w = traceShadowRay
-            glm::vec4 RoughnessGate; // 272 — x = gateStart, y = gateEnd, z = skyAmbientLod, w = maxPrefilterLod
-            glm::vec4 ScreenParams;  // 288 — x = width, y = height, z = 1/width, w = 1/height
-            glm::vec4 Flags;         // 304 — x = tierDebugView (0/1), yzw pad
+            glm::mat4 InvProjection;                  //   0 — clip -> view, for the depth reconstruction
+            glm::mat4 InvView;                        //  64 — view -> world, where the ray starts
+            glm::mat4 View;                           // 128
+            glm::uvec4 TlasAddress;                   // 192 — xy = TLAS device address, z = instance mask, w = frame index
+            glm::uvec4 SlotCounts;                    // 208 — x = instance slots, y = geometry slots, z = material slots, w = pad
+            glm::vec4 SunDirection;                   // 224 — xyz = world direction TOWARD the sun, w = 1 when a sun exists
+            glm::vec4 SunColor;                       // 240 — rgb = radiance, a unused
+            glm::vec4 RayParams;                      // 256 — x = maxRayDistance, y = normalBias, z = intensity, w = traceShadowRay
+            glm::vec4 RoughnessGate;                  // 272 — x = gateStart, y = gateEnd, z = skyAmbientLod, w = maxPrefilterLod
+            glm::vec4 ScreenParams;                   // 288 — x = width, y = height, z = 1/width, w = 1/height
+            glm::vec4 Flags;                          // 304 — x = tierDebugView (0/1), yzw pad
+            glm::uvec4 MaterialHeapAddressAndSampler; // 320 — xy address, z count, w sampler heap offset
 
             static constexpr u32 GetSize()
             {
@@ -728,8 +732,8 @@ namespace OloEngine
         };
         static_assert(sizeof(RayTracingReflectionUBO) % 16 == 0,
                       "RayTracingReflectionUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(RayTracingReflectionUBO) == 320,
-                      "RayTracingReflectionUBO std140 size drifted from the GLSL RayTracingReflectionParams block (320 B)");
+        static_assert(sizeof(RayTracingReflectionUBO) == 336,
+                      "RayTracingReflectionUBO std140 size drifted from the GLSL RayTracingReflectionParams block (336 B)");
 
         // @brief GPU reference path tracer parameters (issue #1055), uploaded at
         // UBO_RAY_TRACING (65). GLSL twin: the RayTracingPathTracerParams block

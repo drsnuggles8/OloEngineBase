@@ -25,11 +25,167 @@
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/MaterialKind.h"
+#include "OloEngine/Renderer/PBRModel.h"
 
 #include <glm/gtc/constants.hpp>
 
 namespace OloEngine
 {
+    void FoliageRenderer::QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const
+    {
+        if (!Renderer3D::WantsRayTracingVegetation())
+            return;
+        auto& cache = Renderer3D::GetVegetationSurfaceCache();
+        const auto field = WindSystem::GetGPUData();
+        // sqrt(||A||_1 * ||A||_infinity) bounds the spectral norm and retains
+        // norm 1 for an identity terrain (unlike the Frobenius bound).
+        f32 maxColumn = 0.0f, maxRow = 0.0f;
+        for (u32 axis = 0u; axis < 3u; ++axis)
+        {
+            f32 column = 0.0f, row = 0.0f;
+            for (u32 lane = 0u; lane < 3u; ++lane)
+            {
+                column += std::abs(m_TerrainTransform[axis][lane]);
+                row += std::abs(m_TerrainTransform[lane][axis]);
+            }
+            maxColumn = std::max(maxColumn, column);
+            maxRow = std::max(maxRow, row);
+        }
+        const f32 transformNorm = std::sqrt(maxColumn * maxRow);
+        for (const auto& group : m_Registry.GetGroups())
+        {
+            if (group.m_LayerIndex >= m_Layers.size())
+                continue;
+            const auto& layer = m_Layers[group.m_LayerIndex];
+            if (layer.UseImpostor && layer.Impostor.IsValid() && !layer.MeshVBO)
+            {
+                // An atlas without its source mesh cannot produce a ray-space
+                // canopy. Count refusal and retain the whole raster tier.
+                cache.Queue({});
+                continue;
+            }
+            std::vector<const FoliageInstanceRecord*> meshRecords, impostorRecords, cardRecords;
+            // RebuildGroups keeps these in ascending canonical ID for us.
+            for (const auto id : group.m_Instances)
+            {
+                const auto* record = m_Registry.Find(id);
+                if (!record)
+                    continue;
+                const glm::vec3 worldRoot = glm::vec3(m_TerrainTransform * glm::vec4(record->m_Position, 1.0f));
+                const f32 distance = glm::length(worldRoot - cameraPosition);
+                if (distance > layer.ViewDistance)
+                    continue;
+                // Retain the authored canopy for an octahedral far LOD: a
+                // single main-view-facing card is not a ray-space silhouette.
+                const bool mesh = layer.MeshVBO && (!layer.MeshParts.empty()) &&
+                                  ((layer.UseImpostor && layer.Impostor.IsValid()) || distance <= layer.MeshViewDistance);
+                const bool impostor = mesh && layer.UseImpostor && layer.Impostor.IsValid() &&
+                                      distance > layer.MeshViewDistance;
+                (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).push_back(record);
+            }
+            for (const u32 representation : { 0u, 1u, 2u })
+            {
+                const bool mesh = representation != 2u, impostor = representation == 1u;
+                const auto& records = impostor ? impostorRecords : (mesh ? meshRecords : cardRecords);
+                const u32 plantsPerGroup = mesh ? RayTracing::VegetationPolicy::PlantsPerGroup : RayTracing::VegetationPolicy::CardPlantsPerGroup;
+                for (sizet first = 0u; first < records.size(); first += plantsPerGroup)
+                {
+                    const sizet count = std::min(records.size() - first, static_cast<sizet>(plantsPerGroup));
+                    const u64 estimatedBytes = count * ((mesh ? static_cast<u64>(layer.MeshVertexCount) : 4u) * sizeof(Vertex) +
+                                                        (mesh ? static_cast<u64>(layer.MeshRayTracingIndices.size()) : 6u) * sizeof(u32) + sizeof(FoliageInstanceData));
+                    if (!cache.HasQueueCapacity() || estimatedBytes > RayTracing::VegetationPolicy::GeometryBytes)
+                    {
+                        cache.Queue({});
+                        continue;
+                    }
+                    RayTracing::VegetationSurfaceInput input;
+                    input.Owner = owner;
+                    input.FirstPlantId = records[first]->m_Id;
+                    input.Rest = mesh ? layer.MeshVBO : layer.QuadVBO;
+                    input.VertexCount = mesh ? layer.MeshVertexCount : 4u;
+                    input.WorldTransform = m_TerrainTransform;
+                    input.DetailedDistance = mesh ? std::max(50.0f, layer.MeshFadeStartDistance) : RayTracing::VegetationPolicy::DetailedCardDistance;
+                    input.DistanceToView = std::numeric_limits<f32>::infinity();
+                    const u32 partCount = mesh ? static_cast<u32>(layer.MeshParts.size()) : 1u;
+                    bool validParts = true;
+                    for (u32 part = 0u; part < partCount; ++part)
+                    {
+                        RayTracing::VegetationSurfacePart surface;
+                        surface.Slot = part;
+                        if (mesh)
+                        {
+                            const auto& range = layer.MeshParts[part];
+                            if (range.IndexCount == 0u)
+                                continue;
+                            if (static_cast<u64>(range.BaseIndex) + range.IndexCount > layer.MeshRayTracingIndices.size())
+                            {
+                                validParts = false;
+                                break;
+                            }
+                            surface.Indices.assign(layer.MeshRayTracingIndices.begin() + range.BaseIndex,
+                                                   layer.MeshRayTracingIndices.begin() + range.BaseIndex + range.IndexCount);
+                        }
+                        else
+                            surface.Indices = { 0u, 1u, 2u, 2u, 3u, 0u };
+                        surface.Material.m_BaseColorFactor = glm::vec4(layer.BaseColor, 1.0f);
+                        surface.Material.m_RoughnessFactor = layer.LeafRoughness;
+                        surface.Material.m_AlphaMode = std::to_underlying(AlphaMode::Mask);
+                        surface.Material.m_AlphaCutoff = layer.AlphaCutoff;
+                        surface.Material.m_ClosureVersion = std::to_underlying(PBRModel::ClosureV2);
+                        surface.Material.m_MaterialKind = std::to_underlying(MaterialKind::Foliage);
+                        surface.Material.m_Flags = GPUSceneMaterialFlagPBR | GPUSceneMaterialFlagTwoSided | GPUSceneMaterialFlagDepthTest;
+                        const auto albedo = mesh && layer.MeshParts[part].Albedo ? layer.MeshParts[part].Albedo : layer.AlbedoTexture;
+                        if (albedo && albedo->IsLoaded())
+                        {
+                            surface.Material.m_Albedo.m_Handle = albedo->GetRHIHandle();
+                            surface.Material.m_Albedo.m_HeapOffset = HeapBinding::ResolveRecordTextureOffset(
+                                                                         albedo->GetRHIHandle(), HeapBinding::MaterialTexture2DSampler())
+                                                                         .Value;
+                        }
+                        input.Parts.push_back(std::move(surface));
+                    }
+                    if (!validParts)
+                    {
+                        cache.Queue({});
+                        continue;
+                    }
+                    const sizet end = std::min(records.size(), first + plantsPerGroup);
+                    for (sizet plant = first; plant < end; ++plant)
+                    {
+                        const auto& record = *records[plant];
+                        input.Rows.push_back({ glm::vec4(record.m_Position, record.m_Scale),
+                                               glm::vec4(record.m_Rotation, record.m_Height, 1.0f, FoliageWindPhase(record.m_Id)),
+                                               glm::vec4(layer.BaseColor, layer.AlphaCutoff) });
+                        const auto worldRoot = glm::vec3(m_TerrainTransform * glm::vec4(record.m_Position, 1.0f));
+                        input.DistanceToView = std::min(input.DistanceToView, glm::length(worldRoot - cameraPosition));
+                    }
+                    auto& wind = input.Wind;
+                    wind.Time = m_Time;
+                    wind.PrevTime = m_PrevTime;
+                    wind.WindStrength = layer.WindStrength;
+                    wind.WindSpeed = layer.WindSpeed;
+                    wind.WindWeights = layer.WindWeights;
+                    wind.WindDirection = field.DirectionAndSpeed;
+                    wind.WindGust = field.GustAndTurbulence;
+                    wind.WindClock = field.TimeAndFlags;
+                    wind.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), field.TimeAndFlags.y);
+                    wind.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
+                    wind.MeshParams.x = mesh ? 1.0f : 0.0f;
+                    wind.MeshParams.z = impostor ? 1.0f : 0.0f;
+                    wind.ImpostorParams1.x = impostor ? 1.0f : 0.0f;
+                    input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
+                    const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
+                    input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
+                        layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
+                        hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
+                        field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
+                    cache.Queue(std::move(input));
+                }
+            }
+        }
+    }
+
     FoliageRenderer::~FoliageRenderer()
     {
         for (auto& layer : m_Layers)
@@ -72,6 +228,7 @@ namespace OloEngine
         data.MeshVBO = nullptr;
         data.MeshIBO = nullptr;
         data.MeshParts.clear();
+        data.MeshRayTracingIndices.clear();
         data.MeshModel = nullptr;
         data.MeshVertexCount = 0;
         data.MeshIndexCount = 0;
@@ -179,6 +336,7 @@ namespace OloEngine
                                             static_cast<u32>(srcVertices.Num() * sizeof(Vertex)));
         data.MeshVBO->SetLayout(Vertex::GetLayout());
         data.MeshIBO = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        data.MeshRayTracingIndices = indices;
         data.MeshVertexCount = static_cast<u32>(srcVertices.Num());
         data.MeshIndexCount = static_cast<u32>(indices.size());
         data.MeshModel = model;

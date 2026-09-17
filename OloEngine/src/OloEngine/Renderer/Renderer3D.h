@@ -36,6 +36,7 @@
 #include "OloEngine/Renderer/PathTracing/MaterialTextureTable.h"
 #include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -425,6 +426,8 @@ namespace OloEngine
         [[nodiscard]] static RayTracing::RayTracingScene& GetRayTracingScene();
         // The deformed-vertex producer behind the animated BLASes (#1229).
         [[nodiscard]] static RayTracing::DeformedSurfaceCache& GetDeformedSurfaceCache();
+        [[nodiscard]] static RayTracing::VegetationSurfaceCache& GetVegetationSurfaceCache();
+        [[nodiscard]] static bool WantsRayTracingVegetation();
         [[nodiscard]] static const RayTracing::SceneStats& GetRayTracingStats();
         // Turns every link staged this frame into the record it names. Called
         // once, from EndScene, after EndExtraction and Upload; a consumer that
@@ -2268,6 +2271,7 @@ namespace OloEngine
             // Armed from SceneRT's capability at init, so it allocates nothing
             // on OpenGL or on any device without ray tracing.
             RayTracing::DeformedSurfaceCache DeformedSurfaces;
+            RayTracing::VegetationSurfaceCache VegetationSurfaces;
             // See SetRayTracedShadowLightRequests (issue #1056).
             std::vector<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
             // See SetGroomStrandRequests (issue #1246).

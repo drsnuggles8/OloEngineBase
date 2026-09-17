@@ -1,0 +1,47 @@
+#version 460 core
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x = 64) in;
+#include "../include/FoliageParams.glsl"
+#include "../include/FoliageInstanceGeometry.glsl"
+#define u_Model mat4(1.0)
+#define u_PrevModel mat4(1.0)
+#include "../include/FoliageWind.glsl"
+layout(buffer_reference, std430, buffer_reference_align = 16) buffer Floats { float Values[]; };
+layout(std140, binding = 65) uniform RayTracingVegetationParams
+{
+    uvec2 Rest;
+    uvec2 Rows;
+    uvec2 Output;
+    uint VertexCount;
+    uint PlantCount;
+} p;
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= p.VertexCount * p.PlantCount) return;
+    uint v = (i % p.VertexCount) * 8u;
+    uint row = (i / p.VertexCount) * 12u;
+    Floats src = Floats(p.Rest);
+    Floats rows = Floats(p.Rows);
+    Floats dst = Floats(p.Output);
+    vec3 vertex = vec3(src.Values[v], src.Values[v+1u], src.Values[v+2u]);
+    vec3 pivot = vec3(rows.Values[row], rows.Values[row+1u], rows.Values[row+2u]);
+    float scale = rows.Values[row+3u];
+    float rotation = rows.Values[row+4u];
+    float height = rows.Values[row+5u];
+    float phase = rows.Values[row+7u];
+    vec3 rest = foliageInstanceRotation(rotation) * foliageInstanceLocalPos(vertex, scale, height, u_MeshParams.x > 0.5);
+    vec3 point = pivot + foliageDeform(rest, vertex, pivot, phase).Current;
+    if (u_MeshParams.y > 0.5 && u_MeshParams.y < 1.5)
+        point = pivot + rest + vertex.y * foliageWindOffset(vec3(0, 1, 0), pivot, pivot.xz, phase, u_Time);
+    if (u_MeshParams.y > 1.5)
+        point = pivot + rest + foliageWindOffset(vertex, pivot, pivot.xz, phase, floor(u_Time * 20.0) / 20.0);
+    uint outV = i * 8u;
+    dst.Values[outV] = point.x;
+    dst.Values[outV+1u] = point.y;
+    dst.Values[outV+2u] = point.z;
+    for (uint lane = 3u; lane < 8u; ++lane) dst.Values[outV+lane] = src.Values[v+lane];
+}

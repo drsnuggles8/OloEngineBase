@@ -118,6 +118,9 @@ layout(std140, binding = 65) uniform RayTracingShadowParams
     vec4 u_ScreenParams;
     vec4 u_TemporalParams; // x = feedback, y = hasVelocity, z = historyUsable, w = clipGamma
     vec4 u_FilterParams;
+    uvec4 u_InstanceAndGeometryAddresses;
+    uvec4 u_MaterialAndHeapAddresses;
+    uvec4 u_SceneSlotCountsAndSampler;
 };
 
 // Relative view-depth tolerance for the disocclusion test. The same 5% SSGI

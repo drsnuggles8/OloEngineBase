@@ -195,6 +195,7 @@ namespace OloEngine
         // Returns draw info for all active layers (InstanceCount > 0 && VAO valid).
         // Used by Scene to create DrawFoliageLayerCommand packets per layer.
         [[nodiscard]] std::vector<FoliageLayerDrawInfo> GetActiveLayerDrawInfo() const;
+        void QueueRayTracing(u64 owner, const glm::vec3& cameraPosition) const;
 
         void SetTime(f32 time, f32 prevTime)
         {
@@ -246,6 +247,7 @@ namespace OloEngine
             Ref<VertexBuffer> MeshVBO;
             Ref<IndexBuffer> MeshIBO;
             std::vector<LayerDrawPart> MeshParts;
+            std::vector<u32> MeshRayTracingIndices;
             // Keeps the imported materials' textures alive for as long as the
             // parts reference them.
             Ref<Model> MeshModel;

@@ -35,6 +35,13 @@ namespace OloEngine
         virtual void SetMat4(const std::string& name, const glm::mat4& value) const = 0;
 
         [[nodiscard]] virtual bool IsValid() const = 0;
+        // Monotonic acknowledgement of recorded commands, not GPU completion.
+        // Producers can refuse downstream reads after a dropped dispatch.
+        // Backends without acknowledgement report zero conservatively.
+        [[nodiscard]] virtual u64 GetRecordedDispatchCount() const
+        {
+            return 0u;
+        }
         [[nodiscard]] virtual u32 GetRendererID() const = 0;
 
         // Generation-checked identity, minted by RHI::ResourceRegistry

@@ -141,6 +141,10 @@ namespace OloEngine::Tests
             {
                 s_Options.PerfRebase = true;
             }
+            else if (arg == "--olo-vegetation-experiment")
+            {
+                s_Options.VegetationExperiment = true;
+            }
             else if (arg == "--olo-perf-strict")
             {
                 s_Options.PerfStrict = true;

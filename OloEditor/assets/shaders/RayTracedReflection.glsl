@@ -90,20 +90,9 @@ void main()
 // .rgb) — and it is written ONLY when the debug view is on, so no production
 // frame ever carries a non-1.0 alpha down the chain.
 //
-// TWO LIMITS OF THIS FIRST SLICE, both deliberate and both stated in ADR 0020:
-//
-//   * UNTEXTURED HITS (#805). Shading a hit needs arbitrary-material sampling,
-//     which needs the shader-visible sampler heap (ADR 0011 §1.2a, issue #805,
-//     open). What IS reachable without it is the whole untextured material
-//     record, so a hit is shaded from BaseColorFactor / MetallicFactor /
-//     RoughnessFactor / EmissiveFactor. A textured surface therefore reflects
-//     its base-colour FACTOR, not its texture: a brick wall reflects flat
-//     brick-red. Counted, not commented — see ReflectionTierStats.
-//   * MASKED GEOMETRY REFLECTS AS SOLID, the same trade RayTracedShadow.glsl
-//     makes and for the same reason: an alpha test needs the texture fetch #805
-//     gates, so gl_RayFlagsOpaqueEXT states the outcome directly rather than
-//     paying for a traversal loop that always confirms. An alpha-cutout leaf
-//     reflects as its quad.
+// Hit lighting retains the tier's material-factor approximation. Masked
+// geometry uses actual albedo alpha from the raster material sampler heap,
+// with the canonical material cutoff shared by shadows and reflections.
 //
 // THE RAY IS THE MIRROR DIRECTION, not a VNDF sample. That is defensible only
 // because the roughness gate below is narrow: the tier is faded out well before
@@ -115,6 +104,8 @@ void main()
 // =============================================================================
 
 #extension GL_EXT_ray_query : require
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_buffer_reference_uvec2 : require
@@ -145,7 +136,6 @@ layout(binding = 44) uniform sampler2D u_GBufferNormal;  // RT1: rg = oct world 
 // The vertex/index stream references and the 32-byte Vertex layout live in the
 // #978 helper; including it here reuses those types rather than declaring a
 // second, drift-prone copy. Its include guard makes that safe.
-#include "include/RayTracingAlphaTest.glsl"
 
 #include "include/GPUSceneInstances.glsl"
 #include "include/GPUSceneGeometries.glsl"
@@ -166,7 +156,13 @@ layout(std140, binding = 65) uniform RayTracingReflectionParams
     vec4 u_RoughnessGate;        // x = gateStart, y = gateEnd, z = skyAmbientLod, w = hasEnvironment (0/1)
     vec4 u_ScreenParams;         // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;                // x = tierDebugView (0/1), yzw = pad
+    uvec4 u_MaterialHeapAddressAndSampler;
 };
+
+#define OLO_HYBRID_RT_SLOT_COUNTS u_SlotCounts
+#define OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT u_MaterialHeapAddressAndSampler.xyz
+#define OLO_HYBRID_RT_SAMPLER u_MaterialHeapAddressAndSampler.w
+#include "include/HybridRayTracingAlpha.glsl"
 
 // Every ray starts this far along its own direction, on top of the normal
 // offset. The normal offset alone cannot fix a ray leaving a surface at a
@@ -250,11 +246,11 @@ bool SunVisible(vec3 worldPos, vec3 normal)
 
     rayQueryEXT shadowQuery;
     rayQueryInitializeEXT(shadowQuery, accelerationStructureEXT(u_TlasAddress.xy),
-                          gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+                          gl_RayFlagsTerminateOnFirstHitEXT,
                           u_TlasAddress.z & 0xFFu,
                           worldPos + normal * u_RayParams.y, RT_REFLECTION_RAY_TMIN,
                           normalize(u_SunDirection.xyz), max(u_RayParams.x, 1.0));
-    rayQueryProceedEXT(shadowQuery);
+    oloHybridRayTracingProceed(shadowQuery);
     return rayQueryGetIntersectionTypeEXT(shadowQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 }
 
@@ -320,10 +316,10 @@ void main()
 
     rayQueryEXT rayQuery;
     rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddress.xy),
-                          gl_RayFlagsOpaqueEXT, u_TlasAddress.z & 0xFFu,
+                          gl_RayFlagsNoneEXT, u_TlasAddress.z & 0xFFu,
                           worldPos + N * u_RayParams.y, RT_REFLECTION_RAY_TMIN,
                           R, max(u_RayParams.x, 1.0));
-    rayQueryProceedEXT(rayQuery);
+    oloHybridRayTracingProceed(rayQuery);
 
     if (rayQueryGetIntersectionTypeEXT(rayQuery, true) == gl_RayQueryCommittedIntersectionNoneEXT)
         return; // a MISS contributes nothing — the tier below owns the sky

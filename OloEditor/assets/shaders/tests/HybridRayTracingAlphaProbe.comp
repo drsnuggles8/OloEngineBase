@@ -1,0 +1,42 @@
+#version 460 core
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x = 64) in;
+layout(std140, binding = 65) uniform HybridRayTracingProbeParams
+{
+    uvec4 TlasAndRays;
+    uvec4 HitsAndCount;
+    uvec4 InstanceAndGeometryAddresses;
+    uvec4 MaterialAndHeapAddresses;
+    uvec4 SlotCountsAndSampler;
+    uvec4 HeapCountAndPad;
+} p;
+#define u_InstanceAndGeometryAddresses p.InstanceAndGeometryAddresses
+#define u_MaterialAndHeapAddresses p.MaterialAndHeapAddresses
+#define OLO_HYBRID_RT_BUFFER_REFERENCES
+#define OLO_HYBRID_RT_SLOT_COUNTS p.SlotCountsAndSampler
+#define OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT uvec3(p.MaterialAndHeapAddresses.zw, p.HeapCountAndPad.x)
+#define OLO_HYBRID_RT_SAMPLER p.SlotCountsAndSampler.w
+#include "../include/HybridRayTracingAlpha.glsl"
+
+layout(buffer_reference, std430, buffer_reference_align = 16) readonly buffer ProbeRays { vec4 Values[]; };
+layout(buffer_reference, std430, buffer_reference_align = 16) writeonly buffer ProbeHits { vec4 Values[]; };
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= p.HitsAndCount.z) return;
+    ProbeRays rays = ProbeRays(p.TlasAndRays.zw);
+    vec4 origin = rays.Values[i * 2u], direction = rays.Values[i * 2u + 1u];
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, accelerationStructureEXT(p.TlasAndRays.xy), gl_RayFlagsNoneEXT,
+                          0xFFu, origin.xyz, origin.w, direction.xyz, direction.w);
+    oloHybridRayTracingProceed(query);
+    bool hit = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+    ProbeHits(p.HitsAndCount.xy).Values[i] = vec4(hit ? rayQueryGetIntersectionTEXT(query, true) : -1.0,
+                                               hit ? 1.0 : 0.0, 0.0, 0.0);
+}

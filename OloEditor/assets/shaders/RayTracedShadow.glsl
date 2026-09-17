@@ -71,20 +71,13 @@ void main()
 // THE WITHIN-SHADER RULE HOLDS: 65 is also TEX_VSM_PHYSICAL, and this shader
 // declares no VSM sampler and must not start to.
 //
-// MASKED OCCLUDERS SHADOW AS SOLID, DELIBERATELY. A ray query gets no any-hit
-// shader for free, and outside OLO_BINDLESS a shader reaches a material texture
-// through a PER-DRAW slot binding that a single fullscreen dispatch has no
-// scope to supply — see include/RayTracingAlphaTest.glsl's "who supplies the
-// texture" note. Running its POLICY half against a fully-opaque sample (which
-// is what the probe does) confirms every candidate, so this shader states that
-// outcome directly with gl_RayFlagsOpaqueEXT instead of paying for a
-// traversal loop that always says yes. The consequence is real and visible: an
-// alpha-cutout leaf casts the shadow of its quad. It is counted as
-// ShadowTechniqueStats::MaskedOccludersShadowedAsSolid rather than left as a
-// comment, and it is unblocked by the shader-visible sampler heap, #805.
+// Masked candidates use the canonical material cutoff and raster sampler
+// heap record. Unresolved textures select the visible raster fallback on CPU.
 // =============================================================================
 
 #extension GL_EXT_ray_query : require
+#extension GL_EXT_descriptor_heap : require
+#extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference_uvec2 : require
 
@@ -157,7 +150,16 @@ layout(std140, binding = 65) uniform RayTracingShadowParams
     vec4 u_ScreenParams; // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_TemporalParams; // x = feedback, y = hasVelocity, z = historyUsable, w = clipGamma
     vec4 u_FilterParams;   // x = spatialRadiusPixels, y = spatialEnabled, zw reserved
+    uvec4 u_InstanceAndGeometryAddresses;
+    uvec4 u_MaterialAndHeapAddresses;
+    uvec4 u_SceneSlotCountsAndSampler;
 };
+
+#define OLO_HYBRID_RT_BUFFER_REFERENCES
+#define OLO_HYBRID_RT_SLOT_COUNTS u_SceneSlotCountsAndSampler
+#define OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT uvec3(u_MaterialAndHeapAddresses.zw, u_SceneSlotCountsAndSampler.z)
+#define OLO_HYBRID_RT_SAMPLER u_SceneSlotCountsAndSampler.w
+#include "include/HybridRayTracingAlpha.glsl"
 
 // Every ray starts this far along its own direction, on top of the normal
 // offset. The normal offset alone cannot fix a ray that leaves a surface at a
@@ -319,14 +321,11 @@ void main()
             vec3 direction = SampleCone(toLight, shapeTan, u);
 
             rayQueryEXT rayQuery;
-            // gl_RayFlagsOpaqueEXT forces every candidate opaque — see the
-            // masked-occluder note in the header. With TerminateOnFirstHit the
-            // hardware commits the first intersection and stops, which is the
-            // cheapest possible visibility ray and needs no traversal loop.
+            // Stop only on candidates whose leaf alpha confirms a hit.
             rayQueryInitializeEXT(rayQuery, accelerationStructureEXT(u_TlasAddressAndCounts.xy),
-                                  gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT,
+                                  gl_RayFlagsTerminateOnFirstHitEXT,
                                   RT_SHADOW_INSTANCE_MASK, origin, RT_SHADOW_RAY_TMIN, direction, tMax);
-            rayQueryProceedEXT(rayQuery);
+            oloHybridRayTracingProceed(rayQuery);
             if (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionNoneEXT)
             {
                 occluded += 1.0;

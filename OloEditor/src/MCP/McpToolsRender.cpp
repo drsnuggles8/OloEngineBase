@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "MCP/McpEditorLiveness.h"
 #include "MCP/McpToolsCommon.h"
@@ -6638,6 +6639,8 @@ namespace OloEngine::MCP
                 snapshot.GPUSceneAvailable = true;
                 snapshot.GPUScene = Renderer3D::GetGPUSceneStats();
                 snapshot.Deformed = Renderer3D::GetDeformedSurfaceCache().GetStats();
+                snapshot.Vegetation = Renderer3D::GetVegetationSurfaceCache().GetStats();
+                snapshot.VegetationReady = Renderer3D::GetRayTracingScene().IsVegetationReady();
             }
             snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
             return RayTracingStats::BuildReport(snapshot);
@@ -8933,6 +8936,32 @@ namespace OloEngine::MCP
 
         {
             ToolDef tool;
+            tool.Name = "olo_rt_vegetation_diagnostic";
+            tool.Toolset = "render";
+            tool.Title = "Vegetation update benchmark override";
+            tool.Description = "Transient diagnostic override for detailed-versus-temporal benchmarks. Does not change canonical plants, raster LOD, wind or budgets. Not saved to scenes or assets. Omit forceDetailed to read; false restores automatic distance selection.";
+            tool.Annotations = MutatingAnnotations(true);
+            tool.ProjectWrite = true;
+            tool.InputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).NoAdditional();
+            tool.OutputSchema = Schema::Object().Prop("forceDetailed", Schema::Bool()).Required({ "forceDetailed" });
+            tool.MainMarshaled = true;
+            tool.Handler = [](IAutomationHost& host, const Json& args) -> ToolResult
+            {
+                // The override is render-thread state. Set AND read inside one
+                // marshalled job: touching it from the MCP worker races the
+                // producer, and splitting the two would let a frame observe the
+                // write yet report the pre-write value back to the caller.
+                return ToolResult::Structured(host.MarshalRead([&args]() -> Json
+                                                               {
+                    if (args.contains("forceDetailed"))
+                        RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
+                    return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() } }; }));
+            };
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
             tool.Name = "olo_rt_scene_stats";
             tool.Toolset = "render";
             tool.Title = "Ray-tracing scene statistics";
@@ -8996,6 +9025,21 @@ namespace OloEngine::MCP
                                        .Prop("instancesSkipped", Schema::Int().Min(0))
                                        .Prop("blasBuildGpuNs", Schema::Int().Min(0).Desc("Nanoseconds; 0 means no sample has resolved yet, not that it was free."))
                                        .Prop("tlasBuildGpuNs", Schema::Int().Min(0)))
+                    .Prop("vegetation", Schema::Object()
+                                            .Prop("ready", Schema::Bool())
+                                            .Prop("complete", Schema::Bool())
+                                            .Prop("producerFailed", Schema::Bool())
+                                            .Prop("requested", Schema::Int().Min(0))
+                                            .Prop("detailedGroups", Schema::Int().Min(0))
+                                            .Prop("proxyGroups", Schema::Int().Min(0))
+                                            .Prop("plantsRepresented", Schema::Int().Min(0))
+                                            .Prop("residentBytes", Schema::Int().Min(0))
+                                            .Prop("dispatched", Schema::Int().Min(0))
+                                            .Prop("dispatchBatches", Schema::Int().Min(0))
+                                            .Prop("verticesDeformed", Schema::Int().Min(0))
+                                            .Prop("reused", Schema::Int().Min(0))
+                                            .Prop("refused", Schema::Int().Min(0))
+                                            .Prop("historyReset", Schema::Bool()))
                     .Prop("lastTlasReason", Schema::String())
                     .Prop("gpuScene", Schema::Object()
                                           .Prop("available", Schema::Bool().Desc("False when the renderer is not up — NOT 'the scene is empty'."))
@@ -9006,7 +9050,7 @@ namespace OloEngine::MCP
                                           .Prop("notStagedTotal", Schema::Int().Min(0).Desc("Renderable geometry this frame that produced NO canonical instance. Large next to a small 'instances' means the ray tracer is tracing a fraction of the scene (issue #1065)."))
                                           .Prop("notStagedByCategory", Schema::Object().Desc("The same total split by diagnostics category; 'notExtractable' is geometry that was offered and rejected, the rest is geometry a path knows it cannot represent."))
                                           .Required({ "available" }))
-                    .Required({ "availability", "freshness", "capability", "gpuScene" });
+                    .Required({ "availability", "freshness", "capability", "gpuScene", "vegetation" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
             registry.Register(std::move(tool));
