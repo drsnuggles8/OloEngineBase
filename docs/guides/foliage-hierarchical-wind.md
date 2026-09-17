@@ -105,17 +105,15 @@ results at most two frames old. Vulkan Forward+ had one zero ScenePass and
 one zero ShadowPass report excluded; affected passes retain 19 positive samples,
 with 20 elsewhere. These timings establish a budget, not an isolated deformation speed-up.
 
-OpenGL memory is engine-tracked allocation bytes. Vulkan memory is VMA
-**device-local block bytes**; its engine allocation tracker is uninstrumented
-and returns zero. The definitions differ and must not be compared as equivalent
-VRAM usage. VMA heap rows are retained in the record. Wind adds 96 bytes to each
-foliage UBO and stores canonical phase in an existing instance lane; it adds no
-wind texture or instance stream.
+OpenGL reports engine-tracked allocation bytes; Vulkan reports VMA
+**device-local block bytes**. Its engine allocation tracker returns zero.
+These are different memory definitions. The record retains VMA heap rows.
+Wind adds 96 UBO bytes, uses an existing phase lane, and adds no texture or stream.
 
-The controlled OpenGL L6 fixture at `1ae024479` rendered 1,310 plants with five
-warmups, twenty fresh positive samples per pass, and the shared retry/median
-policy. Legacy foliage/CSM costs were 0.346112/0.445440 ms; hierarchical costs
-were 0.254976/0.338944 ms. Timing variation prevents claiming a speed-up.
+The controlled OpenGL L6 fixture at `b41656df4` rendered 1,310 plants with five
+warmups, twenty fresh positive samples per pass, and the shared L6 retry
+policy. Legacy foliage/CSM costs were 0.310272/0.412672 ms; hierarchical costs
+were 0.229376/0.318464 ms. Timing variation prevents claiming a speed-up.
 
 The 132-test follow-up passed 113 CPU/persistence/SSIM, 6 buffer/shader, 4 Vulkan,
 8 strict visual/golden, and 1 strict performance test, with zero skips and all exits 0.
@@ -123,10 +121,12 @@ Fourteen foliage stages compiled through the Vulkan SDK. Persistence covers
 YAML, cooked blobs, current saves, on-disk v34/v35 archives, and habitat compatibility.
 `FoliageLeafTransmission.olo` also opened on both live backends.
 
-`blitPreconditionValidation` records the latest 133-test rerun. Vulkan format
-rejections preserve layouts and contents at 1x/4x. Both engine depth enums allocate
-combined D32/S8; native depth-only mismatches are unreachable. Colour conversion
-for deferred albedo/velocity debug channels remains unsupported.
+`blitPreconditionValidation` records 133 tests at `1ae024479`; `blitBoundaryValidation`
+records 137 at `b41656df4`. Both use 1x/4x blit rejection/readback oracles.
+The latest run adds 44 extent/alias/aspect/span rejections, fitting-rectangle
+controls, and incomplete-sampling protection. Both depth enums allocate combined
+D32/S8, so native depth-only mismatches are unreachable. Deferred albedo/velocity
+debug colour conversion remains unsupported.
 
 CSM captures at different wind times changed 74,245 OpenGL and 49,028 Vulkan
 foreground/background silhouette pixels, rather than relying on beauty images

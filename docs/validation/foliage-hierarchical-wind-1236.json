@@ -1585,5 +1585,140 @@
       4032089801,
       4032089811
     ]
+  },
+  "blitBoundaryValidation": {
+    "codeHead": "b41656df47869c8a8ee552d3f96046b0890c247c",
+    "utc": "2026-09-17T05:39:41.157115+00:00",
+    "priorRoundCiHead": "2854bf0305d7207c384c4dc8561ec2854ce08347",
+    "priorRoundCi": {
+      "successChecks": 31,
+      "failures": 0,
+      "windowsRun": 35176662877,
+      "sanitizerRun": 35176662936,
+      "expectedUnusedSkippedChecks": [
+        "ASan + LSan (Linux) tests ${{ matrix.shard }}/${{ needs.detect-changes.outputs.asan-lsan-shards }}",
+        "ASan + LSan (Linux) shard coverage"
+      ]
+    },
+    "build": {
+      "targets": [
+        "OloEngine-Tests",
+        "OloEditor",
+        "OloRuntime"
+      ],
+      "configuration": "Debug",
+      "exitCode": 0,
+      "log": "build-wind-round-four.log"
+    },
+    "tests": [
+      {
+        "name": "cpu",
+        "passed": 113,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-cpu-round-four-verification.xml"
+      },
+      {
+        "name": "buffer-shader",
+        "passed": 6,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-buffer-shader-round-four-verification.xml"
+      },
+      {
+        "name": "vulkan-device",
+        "passed": 9,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-vulkan-device-round-four-verification.xml"
+      },
+      {
+        "name": "visual",
+        "passed": 8,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-visual-round-four-verification.xml"
+      },
+      {
+        "name": "perf",
+        "passed": 1,
+        "skipped": 0,
+        "exitCode": 0,
+        "xml": "wind-perf-round-four-verification.xml"
+      }
+    ],
+    "totalPassed": 137,
+    "perfProperties": {
+      "foliage_instance_count": "1310",
+      "foliage_wind_960x540_legacy_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_FoliagePass_ns_median": "310272",
+      "foliage_wind_960x540_legacy_FoliagePass_ratio_to_baseline": "1.139098",
+      "foliage_wind_960x540_legacy_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_legacy_ShadowPass_ns_median": "412672",
+      "foliage_wind_960x540_legacy_ShadowPass_ratio_to_baseline": "1.224924",
+      "foliage_wind_960x540_hierarchical_FoliagePass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ns_median": "229376",
+      "foliage_wind_960x540_hierarchical_FoliagePass_ratio_to_baseline": "1.265537",
+      "foliage_wind_960x540_hierarchical_ShadowPass_positive_samples": "20",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ns_median": "318464",
+      "foliage_wind_960x540_hierarchical_ShadowPass_ratio_to_baseline": "1.285124"
+    },
+    "gpuRegressions": {
+      "boundaryRejectionCases": 44,
+      "boundaries": [
+        "Source width",
+        "Source height",
+        "Destination width",
+        "Destination height",
+        "Same framebuffer/image",
+        "Distinct framebuffer/shared external attachment",
+        "Unknown aspect",
+        "Oversized signed source X/Y spans",
+        "Oversized signed destination X/Y spans"
+      ],
+      "samples": [
+        1,
+        4
+      ],
+      "aspects": [
+        "Color",
+        "DepthStencil"
+      ],
+      "rejectionOracle": [
+        "Exactly one PreconditionFailure",
+        "Both tracked layouts unchanged",
+        "Source and destination values unchanged",
+        "Zero Vulkan validation errors"
+      ],
+      "sourceReadback": "Matching single-sample copy/resolve probe after guard assertions; never read a multisample image directly",
+      "unequalExtentPositiveCases": 8,
+      "unequalExtentOracle": "Fitting 8x8 rectangle copies/resolves between 8x8 and 16x16 images; destination pixels outside rectangle stay unchanged",
+      "sameFramebufferDistinctAttachmentPositiveCases": 1,
+      "emptyOrReversedSourceNoOpCases": 4,
+      "existingDepthStencilPreservationCases": 24,
+      "existingColourConversionRejectionCases": 4
+    },
+    "samplingFailurePolicy": "Incomplete attempts return maximum u64 rather than zero; retain EXPECT_EQ(samples,20), ASSERT_GT(ns,0), and add ASSERT_LT(ns,max). Shared retry helper and budgets unchanged.",
+    "notRun": [
+      {
+        "case": "Unknown native image dimensions",
+        "reason": "Current texture/framebuffer constructors clamp attachment dimensions to at least 1x1 and Resize ignores zero extents; no forged registry metadata used"
+      },
+      {
+        "case": "Native depth-only/combined aspect mismatch and differing native depth formats",
+        "reason": "Current factories widen both engine depth enums to D32_SFLOAT_S8_UINT; no native depth import/override constructor exists"
+      }
+    ],
+    "unchangedEvidence": {
+      "liveMatrixCodeHead": "44180d76270ad9cb6c8f0fdb3a0181c014be8d18",
+      "liveCapturesRepeated": false,
+      "goldensRebased": false,
+      "performanceThresholdsChanged": false
+    },
+    "reviewFindings": {
+      "outsideDiffExtentReview": 5230580374,
+      "fullReview": 5230945511,
+      "samplingComment": 4033043630
+    }
   }
 }
