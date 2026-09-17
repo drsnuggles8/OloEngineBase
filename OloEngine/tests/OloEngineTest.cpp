@@ -7,6 +7,7 @@
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
 #include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "Rendering/VulkanCoverageReport.h"
 #include "MemoryCeiling.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
@@ -93,7 +94,29 @@ int main(int argc, char** argv)
     // same process, same path) would otherwise silently take away. See
     // docs/agent-rules/shared-temp-dir-test-isolation.md.
     OloEngine::Tests::RegisterCleanSlateListener();
+    // Say, at the END of the run and below gtest's own summary, whether this
+    // run exercised the Vulkan backend or only skipped it (issue #1300).
+    // Registered last so the banner is the last thing printed: a skip reported
+    // three hundred lines above a `[  PASSED  ]` is a skip nobody reads.
+    OloEngine::Tests::VulkanCoverage::RegisterListener();
     const int result = ::RUN_ALL_TESTS();
+
+    // `--olo-require-vulkan` (issue #1300), the twin of `--olo-require-gpu`.
+    // The gate itself FAILs the first refused test, which covers the ordinary
+    // "no device" case. This second check covers the one it cannot see: a run
+    // in which every device-gated test skipped for a reason PAST the gate, or
+    // in which the active filter selected none of them at all. Either way the
+    // flag's promise — "this run verified the Vulkan backend" — was not kept,
+    // and an exit code is the only part of that a script reads.
+    if (OloEngine::Tests::VulkanCoverage::Required() && OloEngine::Tests::VulkanCoverage::ExecutedCount() == 0)
+    {
+        std::fprintf(stderr,
+                     "OloEngine-Tests: --olo-require-vulkan was given but no device-gated Vulkan test "
+                     "executed. This run verified nothing about the Vulkan backend.\n");
+        OloEngine::Tests::StopMemoryCeilingWatchdog();
+        OloEngine::Renderer::Shutdown();
+        return 3;
+    }
 
     // The capture-mode filter above names a test suite by string; a suite
     // rename would silently turn every capture invocation into a 0-test run

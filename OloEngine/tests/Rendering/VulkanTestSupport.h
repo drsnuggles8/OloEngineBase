@@ -5,8 +5,10 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "VulkanCoverageReport.h"
 #include "../TestOptions.h"
 
+#include <gtest/gtest.h>
 #include <volk.h>
 #include <GLFW/glfw3.h>
 
@@ -21,6 +23,11 @@ namespace OloEngine::Tests
     {
         bool Available = false;
         std::string Reason;
+        // The first device that satisfied the contract. Empty when the gate
+        // refused. Reported in the end-of-run coverage banner so "EXERCISED"
+        // names the hardware it was exercised on — two developers' boxes are
+        // not the same evidence.
+        std::string DeviceName;
     };
 
     class ScopedVulkanProbeInstance
@@ -116,13 +123,54 @@ namespace OloEngine::Tests
 
         for (const VkPhysicalDevice device : devices)
         {
-            if (VulkanCapabilities::Evaluate(device).Satisfied)
-                return finishProbe(true, {});
+            if (!VulkanCapabilities::Evaluate(device).Satisfied)
+                continue;
+
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties(device, &properties);
+            VulkanDeviceTestGateResult admitted = finishProbe(true, {});
+            if (admitted.Available)
+                admitted.DeviceName = properties.deviceName;
+            return admitted;
         }
 
         return finishProbe(false,
                            "No device satisfies the ADR 0010 capability contract here — the gate would refuse --rhi=vulkan.");
     }
+
+    // The one gate every device-backed Vulkan test goes through (issue #1300).
+    //
+    // Use this instead of an inline probe ladder or a bare
+    // `ProbeVulkanDeviceTestGate()` + `GTEST_SKIP`. It does the same skip, and
+    // additionally:
+    //
+    //   * marks the running test as device-gated, so the end-of-run banner can
+    //     say whether this run exercised Vulkan at all rather than leaving
+    //     "green" ambiguous — the #1300 acceptance criterion;
+    //   * honours `--olo-require-vulkan`, turning the skip into a failure for a
+    //     run whose purpose is the Vulkan coverage.
+    //
+    // It must be the FIRST statement of the fixture's `SetUp` (or of a plain
+    // `TEST` body), before any device bring-up.
+#define OLO_VULKAN_DEVICE_OR_SKIP()                                                                    \
+    do                                                                                                 \
+    {                                                                                                  \
+        ::OloEngine::Tests::VulkanCoverage::MarkCurrentTestDeviceGated();                              \
+        const auto oloVulkanGate = ::OloEngine::Tests::ProbeVulkanDeviceTestGate();                    \
+        if (!oloVulkanGate.Available)                                                                  \
+        {                                                                                              \
+            ::OloEngine::Tests::VulkanCoverage::RecordGateRefusal(oloVulkanGate.Reason);               \
+            if (::OloEngine::Tests::VulkanCoverage::Required())                                        \
+            {                                                                                          \
+                FAIL() << "--olo-require-vulkan: the Vulkan device gate refused, and this run would "  \
+                          "otherwise skip every device-gated Vulkan test and pass having verified "    \
+                          "nothing — "                                                                 \
+                       << oloVulkanGate.Reason;                                                        \
+            }                                                                                          \
+            GTEST_SKIP() << oloVulkanGate.Reason;                                                      \
+        }                                                                                              \
+        ::OloEngine::Tests::VulkanCoverage::RecordGateAdmission(oloVulkanGate.DeviceName);             \
+    } while (false)
 
     // Temporarily installs the real process-wide Vulkan RenderCommand facade,
     // then restores the initialized OpenGL facade used by the shared GPU-test

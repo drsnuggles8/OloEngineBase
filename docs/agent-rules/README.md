@@ -24,7 +24,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 
 ## Testing and verification
 
-- [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
+- [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, the registration contract, and (§10) the pass-level Vulkan coverage every rendering feature owes plus the end-of-run banner that says whether a run exercised Vulkan at all.
 - [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
 - [substituted-seams-compound.md](substituted-seams-compound.md): every substitution a test makes is a seam it stops testing, and they compound — including building the same object a different way.
 - [no-silent-fallbacks.md](no-silent-fallbacks.md): a path that cannot do what it was asked says so loudly and countably; rank a fallback by whether the substituted value can be INDEXED, and lower every entry point a caller falls back to.
@@ -253,6 +253,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 | [vulkan-shader-heap-indexing.md](vulkan-shader-heap-indexing.md) | A heap-indexing shader written with the built-in names from memory fails as an undeclared identifier; an index in descriptors cannot address a slot region that starts at a non-multiple offset; a combined sampler passed to a function is rejected as "must appear at point of use"; a material heap offset memoised across a texture reload samples a plausible WRONG texture; two entry shaders sharing one stage body disagreeing about the material arm let a recording thread read the other route's bind decision. |
 | [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md) | Every Vulkan draw wrote colour attachment 0 alone, and the forward path only displays attachment 0. |
 | [substituted-seams-compound.md](substituted-seams-compound.md) | A decal tenant made three substitutions, each hiding a different live bug; no decal had ever produced a pixel. |
+| [testing-architecture.md](testing-architecture.md) §10 | A skipped Vulkan suite reports exactly like a passing one. `VulkanPassSuite` skips with no device, so 58 tests scrolled past as skips above a `[  PASSED  ]` and a stale assertion in it survived #1234 for months; the green PR said nothing about the backend at all. |
 | [no-silent-fallbacks.md](no-silent-fallbacks.md) | Two defensible fallbacks composed into VK_ERROR_DEVICE_LOST on every virtual-geometry scene, three layers from the cause, with both Vulkan VG tests passing. A stub returning `nullptr` then vanished into the caller's own "mapping failed" branch, so no page upload landed and every counter still read green. |
 | [multi-mode-block-format-encoders.md](multi-mode-block-format-encoders.md) | A misplaced field in one of fourteen block layouts corrupts only the blocks that chose that mode, and the aggregate PSNR barely moves. |
 | [compute-written-texture-mip-chain.md](compute-written-texture-mip-chain.md) | A compute kernel wrote mip 0 and left coarser mips stale; the visual test was green because every mip was uniformly stale. |

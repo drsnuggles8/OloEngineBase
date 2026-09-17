@@ -108,6 +108,15 @@ namespace OloEngine::Tests
         // EGL path skips every such test and the run goes green having
         // verified nothing. Rejected together with `--olo-gl-backend=none`.
         bool RequireGpu = false;
+        // --olo-require-vulkan : turn the VULKAN device gate's skip into a
+        // FAILURE, and make a run in which no device-gated Vulkan test
+        // executed exit non-zero (issue #1300). The GL twin above guards the
+        // GL context; this guards the other backend, which until now could
+        // skip its entire coverage and report `[  PASSED  ]`. Pass it from a
+        // job or a script whose whole purpose is the Vulkan tests. Rejected
+        // together with `--olo-gl-backend=none`, which pins "this run tests no
+        // GPU" and which the Vulkan gate honours.
+        bool RequireVulkan = false;
         // --olo-keep-temp : leave per-test temp directories on disk.
         bool KeepTemp = false;
         // --olo-video=<path> : an FFmpeg-decodable file for the real-decode

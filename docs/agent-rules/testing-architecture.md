@@ -330,3 +330,97 @@ Worked example: `VulkanPassSuite.VirtualGeometrySoftwareRasterMatchesTheGLRefere
 **Classification.** The coverage half is a CI-shaped gate (it skips cleanly with no device, so it
 costs nothing on a runner without one) and carries the file's `plumbing` layer. The perf half stays
 a workstation instrument — see `oloengine-perf-tests-are-dev-workstation-only`.
+
+## 10. Every rendering feature adds pass-level Vulkan coverage, and a run says whether it got any (issue #1300)
+
+**Rule, two halves:**
+
+1. **A rendering feature that touches a pass, a shader or the projection seam adds a
+   `VulkanPassSuite` tenant for it**, in the same PR, the way it already adds an L1 contract test.
+   Scene-level `RendererAttachedTest` coverage stays **OpenGL only** — see §9; it is not
+   parameterised by backend and will not be.
+2. **Start every device-gated Vulkan test with `OLO_VULKAN_DEVICE_OR_SKIP()`**
+   (`OloEngine/tests/Rendering/VulkanTestSupport.h`). Never an inline probe ladder, never a bare
+   `ProbeVulkanDeviceTestGate()` + `GTEST_SKIP`. The macro is what makes a skipped run report
+   itself.
+
+### The decision, and what was weighed
+
+#1300 offered three shapes: backend-selectable scene fixtures, a pass-level convention, or a mix.
+**The answer is the mix, and the line falls where §9 already put it** — this section is the missing
+other half of that decision, not a new one.
+
+- **Scene-level, backend-selectable (#1300 option 1) is refused, on the numbers in §9.** 118 test
+  files inherit `RendererAttachedTest`; its Vulkan instantiation would `SKIP` for nearly all of them
+  because `Scene::OnUpdateRuntime` is unreachable once the backend is displaced. Parameterising the
+  fixture does not remove that cost — it multiplies it by 118 and hides it behind a green
+  instantiation that ran nothing.
+- **Pass-level (option 2) is where the bugs actually are.** Both #1106 bugs, #994's `.length()` and
+  #1246's missing `abs()` are single-pass, single-shader faults reachable by driving one pass with
+  production inputs. `VulkanPassSuite::RunSinglePassChain` makes the post-process shape roughly
+  thirty lines; a geometry pass costs more because it has to hand-build its own bindings, and that
+  is the real price of Vulkan coverage today.
+- **So the split is: pass-level is the expectation, scene-level composition stays a GL
+  artefact plus a live Vulkan capture in the PR body.** When a feature's whole point is how it
+  composes against other geometry, say so in the PR and capture the frame — do not fake it with a
+  scene fixture that boots the wrong backend.
+
+### What "cheap" means, concretely
+
+A new tenant owes three things, all of them from §9 and none of them optional:
+
+- Cross the production seam. Feed the camera UBO through `RHI::AdjustProjectionForBackend`, pull
+  vertices the way ADR 0011 §5 says the backend does, and let the pass's own `Execute` run. A tenant
+  that authors NDC by hand is green on exactly the frames that shipped broken.
+- Anchor to an **analytic** reference, not to a GL run. "Vulkan matches GL" cannot be asserted in
+  one process.
+- Assert the seam's per-backend answers outright alongside the pixels — `u_Projection[1][1] < 0` on
+  Vulkan, `RHI::WindowSpaceFrontFaceSign() == -1`, and so on. A regression inside `BackendFlips()`
+  moves the reference and the result together; this is the one thing a seam-read reference cannot
+  self-check.
+
+Worked example for a geometry pass:
+`VulkanPassSuite.GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention`. It fails, in seconds, on
+#1246's exact defect — the missing `abs()` on `projection[1][1]` in `GroomStrandCommon.glsl`, which
+is a no-op on OpenGL and discards every fragment on Vulkan with zero errors and zero validation
+warnings.
+
+### A skipped run must not read as a tested one
+
+`VulkanPassSuite` skips cleanly with no device, no loader, or a driver below the ADR 0010 contract.
+That is correct, and it is why the binary is green on a hosted runner — but gtest reports the skip
+identically whether the backend was exercised and found correct or never touched. The skips scroll
+past hundreds of lines above a `[  PASSED  ]` nobody reads them against.
+`VulkanPassSuite.FoliageInstancePullDrawsThreeTintedCards` asserted a brightness that stopped being
+correct when #1234 landed and went unnoticed for months for exactly this reason.
+
+So `OLO_VULKAN_DEVICE_OR_SKIP()` reports into
+[`VulkanCoverageReport`](../../OloEngine/tests/Rendering/VulkanCoverageReport.h), which prints one of
+three verdicts **after gtest's own summary**, as the last thing on screen:
+
+| verdict | means |
+|---|---|
+| `EXERCISED - n/n device-gated tests ran` + the device name | the run tested Vulkan, on named hardware |
+| `NOT EXERCISED - all n device-gated tests skipped` + the gate's reason | the run's green is green for OpenGL only |
+| `PARTIAL - m of n ran` + the first skip past the gate | a device is present; those tests skipped for a reason of their own |
+
+Nothing prints when no device-gated test was selected, so an ordinary `--gtest_filter` run stays
+quiet.
+
+`--olo-require-vulkan` turns the "not exercised" case into a failure and a non-zero exit — the twin
+of `--olo-require-gpu`, for a script or job whose whole purpose is the Vulkan coverage. It is
+rejected together with `--olo-gl-backend=none`, which the Vulkan gate honours.
+
+```powershell
+build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=VulkanPassSuite.* --olo-require-vulkan
+```
+
+**CI does not run any of this, and that is a fact about the hardware, not an omission.** The AMD
+self-hosted runner cannot run Vulkan at all (RADV has no descriptor heap) and the hosted runners
+have no GPU. Vulkan execution is a developer-box capability here; making CI able to run it is
+#1301. The banner is what keeps that honest in the meantime — a CI log that says `NOT EXERCISED`
+is telling the truth about itself.
+
+**Reusable.** `VulkanCoverage::FormatBanner` is a pure function over a `Tally`, tested device-free
+in `VulkanCoverageReportTest.cpp`. Issue #1294's "make skipped visible" for the L7 ray-query gap
+should extend it rather than grow a second reporter.
