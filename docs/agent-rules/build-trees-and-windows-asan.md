@@ -533,6 +533,13 @@ per this section's rule in one pass regardless, because the flag masks and the r
 
 ## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
 
+**For per-TU MEMORY, read [build-memory-per-tu.md](build-memory-per-tu.md) instead of this
+section.** Everything below measures per-command *time* plus a system-wide host-memory
+sample, and §5c/§5d's "heavy TUs" were identified by compile time, which is a proxy. The
+field this API cannot record — each compile's and each link's own peak RSS — is what
+`-fproc-stat-report` and `scripts/analyze_proc_stat.py` add (#1305), on the same
+`OLO_BUILD_INSTRUMENTATION` switch.
+
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
 
 As of #822 this machine is on CMake 4.4.2. The repo's own `cmake_minimum_required` floor

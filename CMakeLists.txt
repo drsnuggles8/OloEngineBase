@@ -569,10 +569,24 @@ math(EXPR OLO_ARCHIVE_FAIL_BYTES "(4294967296 / 100) * ${OLO_ARCHIVE_FAIL_PERCEN
 # left off: it inflates snippet volume considerably for data this project
 # doesn't currently consume — timing and host memory before/after (the two
 # questions #759 asked) don't need it.
+#
+# THE option() IS DELIBERATELY OUTSIDE THE 4.3 GUARD (issue #1305). It is now the
+# switch for two independent mechanisms with different requirements, and nesting it
+# would lend one of them a gate it does not need:
+#
+#   - cmake_instrumentation() below: needs CMake 4.3+ AND a Makefile/Ninja/FASTBuild
+#     generator. Still guarded, unchanged.
+#   - cmake/ProcStatReport.cmake (per-invocation peak RSS): a clang COMMAND-LINE flag.
+#     No CMake version floor, no generator restriction — it works under the Visual
+#     Studio generator too, which is the one place the instrumentation API cannot go.
+#
+# On CMake < 4.3 the option now simply exists and drives the second mechanism, instead
+# of producing a "Manually-specified variables were not used by the project" warning
+# that made -DOLO_BUILD_INSTRUMENTATION=ON look like a typo.
+option(OLO_BUILD_INSTRUMENTATION
+    "Instrument this build tree: CMake Instrumentation API trace data (compile/link/custom timing + host memory before/after; Ninja/Makefile/FASTBuild only) AND per-invocation peak RSS for every compile and link (clang only — see cmake/ProcStatReport.cmake, issue #1305)."
+    OFF)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
-    option(OLO_BUILD_INSTRUMENTATION
-        "Emit CMake Instrumentation API trace data (compile/link/custom timing + host memory before/after) for this build tree. Ninja/Makefile/FASTBuild only; no effect under other generators (Visual Studio, Xcode, ...)."
-        OFF)
     if(OLO_BUILD_INSTRUMENTATION)
         if(CMAKE_GENERATOR MATCHES "Makefiles|Ninja|FASTBuild")
             cmake_instrumentation(
@@ -590,6 +604,13 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
         endif()
     endif()
 endif()
+
+# The field the API above cannot record: per-invocation PEAK RSS, for compiles and links
+# alike (issue #1305). Rides the same OLO_BUILD_INSTRUMENTATION switch and returns
+# immediately when it is OFF, so an ordinary build is untouched. MUST stay above the
+# add_subdirectory() calls: it works through add_compile_options()/add_link_options(),
+# which are read when a target is created.
+include(cmake/ProcStatReport.cmake)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
