@@ -141,6 +141,11 @@ What the pool gets right: `McpFieldRegistry.cpp` is #1 and #2 (5.38 / 5.37 GiB, 
 independently into `OloEditor` and `OloEngine-Tests`), and eight of the nine
 `LuaScriptGlue_*` parts land in the top 18. #822's split worked.
 
+Re-populating the set is **issue #1307**, deliberately not done in #1305 — and it must take
+its membership from the Linux `Debug + ASan` artifact, not from the Windows ranking above.
+A Linux cgroup cap set from a Windows non-sanitizer build would be the same class of
+mistake this whole exercise is correcting.
+
 **Do not read the `--parallel` table as an argument for a lower `-j`.** It sums the N
 heaviest TUs, which assumes the scheduler starts them together — on a Ninja tree the
 `olo_heavy` pool prevents that, and this is not the sanitizer configuration. Take the

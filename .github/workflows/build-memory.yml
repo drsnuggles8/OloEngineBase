@@ -171,19 +171,21 @@ jobs:
             echo "::error::OLO_BUILD_INSTRUMENTATION did not resolve to ON."
             exit 1
           fi
-          # Unix Makefiles keeps compile and link flags in per-target flags.make/link.txt.
+          # Unix Makefiles keeps a target's compile flags in its own flags.make.
           COMPILES=$(grep -rl 'fproc-stat-report' build --include=flags.make | wc -l)
-          LINKS=$(grep -rl 'fproc-stat-report' build --include=link.txt | wc -l)
           echo "flags.make files carrying the flag: $COMPILES"
-          echo "link.txt files carrying the flag:   $LINKS"
           if [ "$COMPILES" -eq 0 ]; then
             echo "::error::No compile line carries -fproc-stat-report — cmake/ProcStatReport.cmake did not wire up."
             exit 1
           fi
-          if [ "$LINKS" -eq 0 ]; then
-            echo "::error::No link line carries -fproc-stat-report — the link half of issue #1305 is not measured."
-            exit 1
-          fi
+          # NO textual assertion on the LINK line here, deliberately. Where the Makefiles
+          # generator puts an executable's link command is platform-dependent: it writes a
+          # separate link.txt in some configurations and inlines the command into build.make
+          # in others (observed inlined when generating a Unix Makefiles tree with clang++).
+          # A grep for one spelling would fail this job for a correct build. The link half is
+          # asserted on the OUTCOME instead — `--require-link-records` in the Rank step below
+          # fails unless a real ld.lld record came out, which is generator-independent and a
+          # stronger claim than any amount of matching on generated text.
           # The relative path is what keeps the compiler cache shareable across runner
           # slots (measured: an absolute path takes cross-tree hits to 0%). Assert it
           # here so a well-meaning "make this an absolute path" edit fails in CI rather
@@ -241,6 +243,7 @@ jobs:
             --max-lanes 16 \
             --markdown build-memory-report/report.md \
             --json build-memory-report/report.json \
+            --require-link-records \
             --fail-under-coverage 95
 
       # The artifact IS the deliverable — and so is the job summary, because an artifact

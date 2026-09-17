@@ -522,6 +522,15 @@ def main(argv: list[str]) -> int:
         help="override the coverage denominator with an exact TU count",
     )
     parser.add_argument(
+        "--require-link-records",
+        action="store_true",
+        help="exit non-zero unless at least one LINK was recorded. Use it on a Linux clang "
+        "build, where the compiler drives the link: it asserts the OUTCOME rather than the "
+        "generated build-system text, which is the only generator-independent check — the "
+        "Makefiles generator puts an executable's link command in link.txt on some platforms "
+        "and inlines it into build.make on others.",
+    )
+    parser.add_argument(
         "--fail-under-coverage",
         type=float,
         default=0.0,
@@ -646,6 +655,17 @@ def main(argv: list[str]) -> int:
         with open(args.json_out, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(report, handle, indent=2)
             handle.write("\n")
+
+    if args.require_link_records and not report["links"]:
+        print(
+            "error: --require-link-records was given but NO link was recorded. On a Linux "
+            "clang build the compiler drives the link and ld.lld is reported as a driver "
+            "subprocess, so zero link records means the link half of issue #1305 is not "
+            "being measured — check that cmake/ProcStatReport.cmake added the flag to the "
+            "link line (it deliberately does not under clang-cl).",
+            file=sys.stderr,
+        )
+        return 1
 
     # The coverage gate is the anti-decay mechanism, so it fails LOUDLY on an
     # unestablished denominator too rather than passing on a missing check — a report
