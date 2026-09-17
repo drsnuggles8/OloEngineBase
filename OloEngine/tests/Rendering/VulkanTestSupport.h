@@ -152,24 +152,24 @@ namespace OloEngine::Tests
     //
     // It must be the FIRST statement of the fixture's `SetUp` (or of a plain
     // `TEST` body), before any device bring-up.
-#define OLO_VULKAN_DEVICE_OR_SKIP()                                                                    \
-    do                                                                                                 \
-    {                                                                                                  \
-        ::OloEngine::Tests::VulkanCoverage::MarkCurrentTestDeviceGated();                              \
-        const auto oloVulkanGate = ::OloEngine::Tests::ProbeVulkanDeviceTestGate();                    \
-        if (!oloVulkanGate.Available)                                                                  \
-        {                                                                                              \
-            ::OloEngine::Tests::VulkanCoverage::RecordGateRefusal(oloVulkanGate.Reason);               \
-            if (::OloEngine::Tests::VulkanCoverage::Required())                                        \
-            {                                                                                          \
-                FAIL() << "--olo-require-vulkan: the Vulkan device gate refused, and this run would "  \
-                          "otherwise skip every device-gated Vulkan test and pass having verified "    \
-                          "nothing — "                                                                 \
-                       << oloVulkanGate.Reason;                                                        \
-            }                                                                                          \
-            GTEST_SKIP() << oloVulkanGate.Reason;                                                      \
-        }                                                                                              \
-        ::OloEngine::Tests::VulkanCoverage::RecordGateAdmission(oloVulkanGate.DeviceName);             \
+#define OLO_VULKAN_DEVICE_OR_SKIP()                                                                   \
+    do                                                                                                \
+    {                                                                                                 \
+        ::OloEngine::Tests::VulkanCoverage::MarkCurrentTestDeviceGated();                             \
+        const auto oloVulkanGate = ::OloEngine::Tests::ProbeVulkanDeviceTestGate();                   \
+        if (!oloVulkanGate.Available)                                                                 \
+        {                                                                                             \
+            ::OloEngine::Tests::VulkanCoverage::RecordGateRefusal(oloVulkanGate.Reason);              \
+            if (::OloEngine::Tests::VulkanCoverage::Required())                                       \
+            {                                                                                         \
+                FAIL() << "--olo-require-vulkan: the Vulkan device gate refused, and this run would " \
+                          "otherwise skip every device-gated Vulkan test and pass having verified "   \
+                          "nothing — "                                                                \
+                       << oloVulkanGate.Reason;                                                       \
+            }                                                                                         \
+            GTEST_SKIP() << oloVulkanGate.Reason;                                                     \
+        }                                                                                             \
+        ::OloEngine::Tests::VulkanCoverage::RecordGateAdmission(oloVulkanGate.DeviceName);            \
     } while (false)
 
     // Temporarily installs the real process-wide Vulkan RenderCommand facade,

@@ -7883,8 +7883,8 @@ TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
     // this pins is a SIGN, not a magnitude: a negative pixels-per-unit clamps a
     // thick ribbon to zero width exactly as it clamps a thin one.
     auto coat = OloEngine::Tests::GroomStrandFixture::MakeScalp(256u, 8u, /*skullRadius*/ 1.0f,
-                                                               /*strandLength*/ 1.1f,
-                                                               /*rootDiameter*/ 0.05f);
+                                                                /*strandLength*/ 1.1f,
+                                                                /*rootDiameter*/ 0.05f);
     ASSERT_TRUE(coat.Groom) << "scalp generation failed: " << coat.FailureReason;
 
     GroomStrandRequest request;
