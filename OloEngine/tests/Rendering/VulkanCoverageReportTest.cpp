@@ -138,6 +138,30 @@ namespace
         EXPECT_TRUE(Contains(banner, "(unreported)")) << banner;
     }
 
+    // A run where the gate refused SOMETIMES and admitted others: its answer
+    // moved mid-run, which is the most surprising thing the banner can have to
+    // say. The PARTIAL verdict used to swallow it — the downstream-skip slot
+    // was suppressed by the recorded refusal and the refusal itself was never
+    // printed, leaving "the device is present, so these skipped for a reason of
+    // their own" as the only explanation offered, which is the opposite of what
+    // happened.
+    TEST(VulkanCoverageReport, PartialStillReportsAGateRefusalThatHappenedMidRun)
+    {
+        Tally tally;
+        tally.Gated = 4;
+        tally.Executed = 3;
+        tally.NotExercised = 1;
+        tally.DeviceName = "NVIDIA GeForce RTX 4090";
+        tally.GateRefusal = "vkCreateInstance failed (no Vulkan 1.4-capable ICD available).";
+
+        const std::string banner = FormatBanner(tally);
+        EXPECT_TRUE(Contains(banner, "PARTIAL")) << banner;
+        EXPECT_TRUE(Contains(banner, "vkCreateInstance failed")) << banner;
+        // And it must NOT claim the device was present throughout, which is the
+        // sentence that only belongs to a skip past an admitting gate.
+        EXPECT_FALSE(Contains(banner, "The device is present")) << banner;
+    }
+
     // The three verdicts must be mutually exclusive on their own text, because
     // a reader (or a grep in a CI log) distinguishes them by exactly that.
     TEST(VulkanCoverageReport, TheThreeVerdictsAreDistinguishableByText)

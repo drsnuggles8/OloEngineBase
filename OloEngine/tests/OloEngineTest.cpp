@@ -96,10 +96,26 @@ int main(int argc, char** argv)
     OloEngine::Tests::RegisterCleanSlateListener();
     // Say, at the END of the run and below gtest's own summary, whether this
     // run exercised the Vulkan backend or only skipped it (issue #1300).
-    // Registered last so the banner is the last thing printed: a skip reported
-    // three hundred lines above a `[  PASSED  ]` is a skip nobody reads.
+    // The banner lands BELOW gtest's own summary because gtest prints that
+    // from OnTestIterationEnd, which always precedes every listener's
+    // OnTestProgramEnd — a skip reported three hundred lines above a
+    // `[  PASSED  ]` is a skip nobody reads.
     OloEngine::Tests::VulkanCoverage::RegisterListener();
     const int result = ::RUN_ALL_TESTS();
+
+    // The capture-mode filter above names a test suite by string; a suite
+    // rename would silently turn every capture invocation into a 0-test run
+    // that exits 0 having produced nothing. gtest only applies the filter
+    // inside RUN_ALL_TESTS, so the count is checked after it.
+    if (captureToolRun && ::testing::UnitTest::GetInstance()->test_to_run_count() == 0)
+    {
+        std::fprintf(stderr,
+                     "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
+                     "matched no tests (expected the BenchmarkCapture suite).\n");
+        OloEngine::Tests::StopMemoryCeilingWatchdog();
+        OloEngine::Renderer::Shutdown();
+        return 2;
+    }
 
     // `--olo-require-vulkan` (issue #1300), the twin of `--olo-require-gpu`.
     // The gate itself FAILs the first refused test, which covers the ordinary
@@ -115,21 +131,10 @@ int main(int argc, char** argv)
                      "executed. This run verified nothing about the Vulkan backend.\n");
         OloEngine::Tests::StopMemoryCeilingWatchdog();
         OloEngine::Renderer::Shutdown();
-        return 3;
-    }
-
-    // The capture-mode filter above names a test suite by string; a suite
-    // rename would silently turn every capture invocation into a 0-test run
-    // that exits 0 having produced nothing. gtest only applies the filter
-    // inside RUN_ALL_TESTS, so the count is checked after it.
-    if (captureToolRun && ::testing::UnitTest::GetInstance()->test_to_run_count() == 0)
-    {
-        std::fprintf(stderr,
-                     "OloEngine-Tests: --olo-capture-manifest was given but the active gtest filter "
-                     "matched no tests (expected the BenchmarkCapture suite).\n");
-        OloEngine::Tests::StopMemoryCeilingWatchdog();
-        OloEngine::Renderer::Shutdown();
-        return 2;
+        // A real test failure outranks this. A script that special-cases 3
+        // would otherwise be told "Vulkan was not exercised" and never learn
+        // that the run ALSO had failing tests.
+        return result != 0 ? result : 3;
     }
 
     // Tests lazily initialize the renderer (e.g. through Scene rendering) but

@@ -401,7 +401,7 @@ three verdicts **after gtest's own summary**, as the last thing on screen:
 | verdict | means |
 |---|---|
 | `EXERCISED - n/n device-gated tests ran` + the device name | the run tested Vulkan, on named hardware |
-| `NOT EXERCISED - all n device-gated tests skipped` + the gate's reason | the run's green is green for OpenGL only |
+| `NOT EXERCISED - none of the n device-gated tests ran` + the gate's reason | the run's green is green for OpenGL only |
 | `PARTIAL - m of n ran` + the first skip past the gate | a device is present; those tests skipped for a reason of their own |
 
 Nothing prints when no device-gated test was selected, so an ordinary `--gtest_filter` run stays

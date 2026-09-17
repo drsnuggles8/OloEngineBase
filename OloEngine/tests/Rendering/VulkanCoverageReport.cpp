@@ -142,9 +142,14 @@ namespace OloEngine::Tests::VulkanCoverage
             {
                 out += "  first skip past the gate: " + tally.FirstDownstreamSkipTest + "\n    " +
                        tally.FirstDownstreamSkip + "\n";
+                out += "  The device is present, so these skipped for a reason of their own - an\n"
+                       "  optional extension, a refused bring-up, a missing asset root.\n";
             }
-            out += "  The device is present, so these skipped for a reason of their own - an\n"
-                   "  optional extension, a refused bring-up, a missing asset root.\n";
+            // A refusal recorded on a run that ALSO executed something means
+            // the gate's own answer moved mid-run. Never silently drop it: it
+            // is the more surprising of the two reasons, not the less.
+            if (!tally.GateRefusal.empty())
+                out += "  the gate ALSO refused at least once: " + tally.GateRefusal + "\n";
         }
 
         out += kRule;
