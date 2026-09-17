@@ -5020,21 +5020,49 @@ namespace OloEngine
             UnimplementedStub("BlitFramebuffer(unresolved framebuffer)", StubKind::PreconditionFailure);
             return;
         }
-        const i32 width = srcX1 - srcX0;
-        const i32 height = srcY1 - srcY0;
+        VkImageAspectFlags requestedMask = 0u;
+        switch (aspect)
+        {
+            case RHI::BlitAspect::Color:
+                requestedMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                break;
+            case RHI::BlitAspect::Depth:
+                requestedMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                break;
+            case RHI::BlitAspect::Stencil:
+                requestedMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+                break;
+            case RHI::BlitAspect::DepthStencil:
+                requestedMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+                break;
+            default:
+                UnimplementedStub("BlitFramebuffer(unknown aspect)", StubKind::PreconditionFailure);
+                return;
+        }
+        // Widen before subtraction, including unsupported offset/scaling arms.
+        const i64 width = static_cast<i64>(srcX1) - srcX0;
+        const i64 height = static_cast<i64>(srcY1) - srcY0;
+        const i64 destinationWidth = static_cast<i64>(dstX1) - dstX0;
+        const i64 destinationHeight = static_cast<i64>(dstY1) - dstY0;
         if (width <= 0 || height <= 0)
         {
             return;
         }
-        if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || (dstX1 - dstX0) != width ||
-            (dstY1 - dstY0) != height)
+        if (width > std::numeric_limits<i32>::max() || height > std::numeric_limits<i32>::max() ||
+            destinationWidth > std::numeric_limits<i32>::max() || destinationHeight > std::numeric_limits<i32>::max())
+        {
+            UnimplementedStub("BlitFramebuffer(rectangle span out of range)", StubKind::PreconditionFailure);
+            return;
+        }
+        if (srcX0 != 0 || srcY0 != 0 || dstX0 != 0 || dstY0 != 0 || destinationWidth != width ||
+            destinationHeight != height)
         {
             static std::atomic<bool> s_WarnedScaled{ false };
             if (!s_WarnedScaled.exchange(true, std::memory_order_relaxed))
             {
                 OLO_CORE_WARN("[RHI/Vulkan] BlitFramebuffer with offset/scaling rects is not lowered yet "
                               "(src {}x{} at {},{} -> dst {}x{} at {},{}) — blit skipped",
-                              width, height, srcX0, srcY0, dstX1 - dstX0, dstY1 - dstY0, dstX0, dstY0);
+                              width, height, srcX0, srcY0, destinationWidth, destinationHeight, dstX0, dstY0);
             }
             return;
         }
@@ -5050,6 +5078,13 @@ namespace OloEngine
             }
             const VkImage srcVk = srcImage->GetVkImage();
             const VkImage dstVk = dstImage->GetVkImage();
+            // The supported zero-origin rectangles overlap on a shared image.
+            // Different attachments of the same framebuffer can still be valid.
+            if (srcVk == dstVk)
+            {
+                UnimplementedStub("BlitFramebuffer(overlapping image alias)", StubKind::PreconditionFailure);
+                return;
+            }
             // Combined depth/stencil images need BOTH aspects in layout
             // transitions (no separateDepthStencilLayouts on the floor).
             // The copy/resolve itself must preserve the caller's aspect mask.
@@ -5061,7 +5096,12 @@ namespace OloEngine
             }
             const VkImageAspectFlags srcAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
             const VkImageAspectFlags dstAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
-            const VkImageAspectFlags requestedMask = aspect == RHI::BlitAspect::Color ? VK_IMAGE_ASPECT_COLOR_BIT : ((aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_DEPTH_BIT : 0u) | (aspect == RHI::BlitAspect::Stencil || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u));
+            if (srcInfo->Width == 0u || srcInfo->Height == 0u || dstInfo->Width == 0u || dstInfo->Height == 0u ||
+                width > srcInfo->Width || height > srcInfo->Height || width > dstInfo->Width || height > dstInfo->Height)
+            {
+                UnimplementedStub("BlitFramebuffer(rectangle exceeds image extent)", StubKind::PreconditionFailure);
+                return;
+            }
             if ((srcAspectMask & requestedMask) != requestedMask || (dstAspectMask & requestedMask) != requestedMask)
             {
                 UnimplementedStub("BlitFramebuffer(requested aspect missing)", StubKind::PreconditionFailure);
