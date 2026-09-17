@@ -20,12 +20,18 @@
 #      ^tool         ^output file                                 ^wall ^user  ^peak KiB
 #                                                                  (microseconds)
 #
-# It covers LINKING for free, which is why no linker launcher is involved (the issue's
-# step 2 suggested CMAKE_CXX_LINKER_LAUNCHER): `clang++ ... -o app` runs `ld.lld` as a
-# driver subprocess, so the same flag on the LINK command line reports the linker's own
-# peak RSS. Verified locally — a clang-cl link emitted `"lld-link","a.obj",0,0,25812`
-# alongside the compile record. That also keeps LinkSemaphore.cmake's launcher chain
-# completely untouched.
+# It covers LINKING wherever the COMPILER drives the link, which is why no linker launcher
+# is involved (the issue's step 2 suggested CMAKE_CXX_LINKER_LAUNCHER): `clang++ ... -o app`
+# runs `ld.lld` as a driver subprocess, so the same flag on the LINK command line reports
+# the linker's own peak RSS — verified with a standalone clang-cl link, which emitted
+# `"lld-link","a.obj",0,0,25812` alongside the compile record. That keeps
+# LinkSemaphore.cmake's launcher chain completely untouched.
+#
+# CMake's own link rule only drives it that way for a GNU-frontend clang, though; under
+# clang-cl it runs lld-link directly and the flag must NOT be added to the link line at
+# all. See the `_olo_proc_stat_links` branch below — that difference is measured, and it
+# is why the Linux builds (the ones whose caps are in question) get the link half and the
+# local Windows trees do not.
 #
 # WHY THE PATH IS RELATIVE, AND WHY THAT IS NOT A STYLE CHOICE
 # ------------------------------------------------------------
@@ -75,7 +81,52 @@
 # The analyser therefore reports the MAXIMUM peak RSS seen per output, and CI deletes the
 # file before building so a published ranking covers one build.
 
-if(NOT OLO_BUILD_INSTRUMENTATION)
+# TWO SWITCHES, AND THE SECOND ONE IS NOT OPTIONAL POLISH.
+#
+# OLO_BUILD_INSTRUMENTATION stays the umbrella the issue asked this to ride: turning it
+# on turns this on. But it must also be possible to get per-TU memory WITHOUT the CMake
+# Instrumentation API, because on Windows the API cannot build this project at all.
+#
+# cmake_instrumentation() wraps every custom command in `ctest --instrument -- <argv>`,
+# which EXECUTES argv directly instead of handing it to a shell. Vendored glad's own
+# generator rule (OloEngine/vendor/clang/glad-src/cmake/GladConfig.cmake, a FetchContent
+# download that must not be edited) is built from four `COMMAND echo ...` lines, one of
+# which is `COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}`. Under cmd.exe `echo` is a
+# shell BUILTIN with no executable, and `>` is shell redirection — so the wrapped command
+# fails with exit 1 and NO diagnostic, and the build stops at `glad-generate`:
+#
+#     Batch file failed at line 3 with errorcode 1
+#     FAILED: [code=1] .../glad-build/include/glad/gl.h ...
+#
+# Reproduced in isolation (CMake 4.4.2): the same `ctest --instrument ... -- echo x`
+# succeeds under a POSIX shell, where `echo` is a real binary, and fails under cmd.exe.
+# That is a pre-existing incompatibility between #822's wiring and an upstream
+# dependency, not something this file introduced — and fixing it means restructuring a
+# vendored third-party custom command, so it is filed as ISSUE #1306 rather than done here.
+#
+# So: OLO_PROC_STAT_REPORT defaults to the umbrella but can be set on its own, which is
+# the supported way to measure per-TU memory on Windows today:
+#
+#     cmake --preset dev-cached -DOLO_PROC_STAT_REPORT=ON
+#
+# It needs no launcher, no CMake version floor and no particular generator, so it has
+# none of the API's constraints.
+# NOT option() / set(... CACHE ...): that would make the umbrella's value STICKY. The
+# first configure with OLO_BUILD_INSTRUMENTATION=ON would write OLO_PROC_STAT_REPORT=ON
+# into the cache, and every later configure — including one that turns the umbrella back
+# OFF — would keep reading the stale ON and quietly go on instrumenting. That is the
+# "set forever after the first configure" trap spelled out in cmake/CompilerCache.cmake's
+# OLO_COMPILER_CACHE_TOOL comment, and this is the same shape.
+#
+# `if(NOT DEFINED ...)` is what makes both paths work: an explicit
+# -DOLO_PROC_STAT_REPORT=ON creates a real cache entry, so it is DEFINED and wins; with
+# no explicit value the variable is re-derived from the umbrella on EVERY configure and
+# can never go stale.
+if(NOT DEFINED OLO_PROC_STAT_REPORT)
+    set(OLO_PROC_STAT_REPORT ${OLO_BUILD_INSTRUMENTATION})
+endif()
+
+if(NOT OLO_PROC_STAT_REPORT)
     return()
 endif()
 
@@ -90,7 +141,7 @@ endif()
 # input filename and the records file would simply never appear.
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
     message(WARNING
-        "OLO_BUILD_INSTRUMENTATION is ON but per-invocation peak-RSS reporting needs clang: "
+        "Per-invocation peak-RSS reporting was requested but it needs clang: "
         "'${CMAKE_CXX_COMPILER_ID}' has no equivalent of -fproc-stat-report (issue #1305). "
         "Timing and host-memory instrumentation (if the generator supports it) is unaffected; "
         "only the per-TU memory ranking is unavailable. Configure a clang preset — dev-cached, "
@@ -120,8 +171,23 @@ endif()
 
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
     set(_olo_proc_stat_flag "/clang:-fproc-stat-report=${OLO_PROC_STAT_FILE}")
+    # LINKS ARE NOT MEASURABLE UNDER clang-cl, and this is a property of CMake's link
+    # rule rather than of the flag. With a GNU-frontend clang, CMAKE_CXX_LINK_EXECUTABLE
+    # runs the COMPILER as the link driver, which spawns ld.lld as a subprocess — so the
+    # flag on the link line reports the linker's own peak RSS, which is exactly what
+    # issue #1305's step 2 wanted. Under clang-cl, CMake invokes `lld-link` DIRECTLY;
+    # there is no clang driver in the link step, so there is nothing to pass the option
+    # to and no subprocess to report on. `/clang:` is a clang-cl COMPILER option, so
+    # lld-link takes it as an input filename and the link fails outright:
+    #
+    #     lld-link: error: could not open '/clang:-fproc-stat-report=olo-proc-stat.csv'
+    #
+    # Said out loud rather than silently skipped, because "no link records on Windows"
+    # otherwise looks like a measurement that found links to be free.
+    set(_olo_proc_stat_links FALSE)
 else()
     set(_olo_proc_stat_flag "-fproc-stat-report=${OLO_PROC_STAT_FILE}")
+    set(_olo_proc_stat_links TRUE)
 endif()
 
 # Directory-scoped rather than per-target so it reaches every TU this project compiles,
@@ -131,15 +197,25 @@ endif()
 # are out of reach regardless, the same blind spot #759's trace had.
 add_compile_options("${_olo_proc_stat_flag}")
 
-# Links go through the same flag, which is the whole of the issue's step 2: ld.lld at
-# 8.7 GB is the other half of the ceiling and OLO_LINK_JOBS=2 rests on it. Static
-# ARCHIVING is not covered — it goes through CMAKE_<LANG>_ARCHIVE_* rules, which take
-# neither a launcher nor the compiler's own flags. Acceptable, and the same scope note
-# LinkSemaphore.cmake makes: the measured spike is the linker, not the archiver.
-add_link_options("${_olo_proc_stat_flag}")
+# Links go through the same flag wherever the compiler drives them, which is the whole of
+# the issue's step 2: ld.lld at 8.7 GB is the other half of the ceiling and OLO_LINK_JOBS=2
+# rests on it. Static ARCHIVING is not covered either way — it goes through
+# CMAKE_<LANG>_ARCHIVE_* rules, which take neither a launcher nor the compiler's own flags.
+# Acceptable, and the same scope note LinkSemaphore.cmake makes: the measured spike is the
+# linker, not the archiver.
+if(_olo_proc_stat_links)
+    add_link_options("${_olo_proc_stat_flag}")
+    set(_olo_proc_stat_link_note "compiles and links")
+else()
+    set(_olo_proc_stat_link_note
+        "compiles ONLY - links are not measurable under clang-cl, where CMake invokes lld-link directly instead of through the clang driver (see cmake/ProcStatReport.cmake). Use a Linux clang build for link peak RSS")
+endif()
 
 message(STATUS
-    "Per-invocation peak RSS: ON, appending to '${OLO_PROC_STAT_FILE}' in each build directory "
-    "the build tool runs from. Rank with: python scripts/analyze_proc_stat.py ${CMAKE_BINARY_DIR}")
+    "Per-invocation peak RSS: ON for ${_olo_proc_stat_link_note}. Appending to "
+    "'${OLO_PROC_STAT_FILE}' in each build directory the build tool runs from. Rank with: "
+    "python scripts/analyze_proc_stat.py ${CMAKE_BINARY_DIR}")
 
 unset(_olo_proc_stat_flag)
+unset(_olo_proc_stat_links)
+unset(_olo_proc_stat_link_note)
