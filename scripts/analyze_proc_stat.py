@@ -240,13 +240,15 @@ def expected_compiles(build_dir: str | None, explicit: int | None) -> tuple[int 
 
 
 # The build settings that change what a TU costs, and therefore decide whether two
-# rankings are comparable at all. Recorded WITH the numbers, because the figures this
-# work replaced — per-TU peak RSS in MB, committed as CMakeLists.txt comments by an #822
-# follow-up — say nothing about how they were taken. Re-measured on today's tree they
-# move in BOTH directions (Prefab.cpp 6,400 -> 1,488 MB and 22 s -> 7.4 s;
-# LuaScriptGlue_EngineApi.cpp 1,308 -> 1,516 MB), and with no provenance there is no way
-# to tell drift from a difference in PCH state or compiler version. An artifact that
-# cannot be compared to its predecessor decays exactly like a comment.
+# rankings are comparable at all. Recorded WITH the numbers, because the figures this work
+# replaced — per-TU peak RSS in MB, committed as CMakeLists.txt comments by an #822
+# follow-up — say nothing about how they were taken, and are up to 8.7x too high. The
+# cause was a recipe that built a whole target while claiming to build one object and then
+# credited the largest concurrent compile to the named TU; an isolated re-measurement
+# caught it, and this census independently agrees with that correction to within 1.11-1.23x
+# (docs/agent-rules/build-memory-per-tu.md). None of that could be established FROM the
+# committed numbers — only by re-running them. An artifact that does not say how it was
+# produced cannot be checked, and decays exactly like a comment.
 PROVENANCE_KEYS = (
     "CMAKE_CXX_COMPILER",
     "CMAKE_BUILD_TYPE",

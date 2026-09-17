@@ -134,8 +134,8 @@ an older ranking. It holds four TUs ranked #180, #278, #25 and #24 while eight r
 - `LuaScriptGlue.cpp` was deliberately excluded when the glue was split, on the grounds
   that "the dispatcher left behind is an ordinary small TU"
   (`OloEngine/src/CMakeLists.txt`). It is **13th of 1833**.
-- `Prefab.cpp` carries a committed `6,400 MB peak compiler RSS in 22 s` and now measures
-  **1,488 MB in 7.4 s**. The TU got cheaper; the comment beside it did not.
+- `Prefab.cpp` carries a committed `6,400 MB peak compiler RSS in 22 s` and measures
+  **1,488 MB in 7.4 s**. That is not drift — see the cross-check below.
 
 What the pool gets right: `McpFieldRegistry.cpp` is #1 and #2 (5.38 / 5.37 GiB, compiled
 independently into `OloEditor` and `OloEngine-Tests`), and eight of the nine
@@ -145,6 +145,34 @@ Re-populating the set is **issue #1307**, deliberately not done in #1305 — and
 its membership from the Linux `Debug + ASan` artifact, not from the Windows ranking above.
 A Linux cgroup cap set from a Windows non-sanitizer build would be the same class of
 mistake this whole exercise is correcting.
+
+### The committed per-TU figures were wrong when written, and two methods now agree
+
+`OloEngine/src/CMakeLists.txt`, `OloEditor/src/CMakeLists.txt`,
+`OloEngine/tests/CMakeLists.txt` and issue #1113 carry per-TU peak-RSS numbers that are up
+to **8.7x too high**. The cause is known and is a recipe bug, not decay: the survey behind
+them ran `cmake --build <dir> --target X -- '<obj>'`, which passes *both* the target and the
+object to ninja and therefore builds the **whole target**, then credited the largest of a
+dozen concurrent unrelated compiles to whichever TU was asked for. An isolated re-measurement
+on 2026-09-08 (per-PID `PeakWorkingSet64`, one `clang-cl` asserted) corrected them.
+
+This whole-tree census is an independent third method — clang's own `-fproc-stat-report`,
+taken during a 6-wide parallel build — and it agrees with those isolated numbers closely:
+
+| TU | committed | isolated (2026-09-08) | this census | vs isolated |
+|---|---:|---:|---:|---:|
+| `Scene.cpp` | 2,498 MB | 2,499 MB | 2,785 MB | 1.11x |
+| `ComponentRoundTripTest.cpp` | 12,389 MB | 1,415 MB | 1,599 MB | 1.13x |
+| `McpToolsRender.cpp` | 7,838 MB | 1,369 MB | 1,680 MB | 1.23x |
+| `Prefab.cpp` | 6,400 MB | 1,282 MB | 1,488 MB | 1.16x |
+| `RenderGraphTest.cpp` | 8,619 MB | 949 MB | 1,053 MB | 1.11x |
+
+`Scene.cpp` is the control: it is the row that reproduced exactly under the buggy recipe
+(2,498 vs 2,499 MB), and it lands at the same 1.11x here. So the residual 11-23% is the
+parallel-build environment, not a systematic error in either method — **a TU measured while
+five others are running peaks a little higher than the same TU measured alone.** Prefer this
+census for ranking and the isolated recipe for a single TU's absolute figure; treat every
+number in those CMakeLists comments as void until re-measured.
 
 **Do not read the `--parallel` table as an argument for a lower `-j`.** It sums the N
 heaviest TUs, which assumes the scheduler starts them together — on a Ninja tree the
