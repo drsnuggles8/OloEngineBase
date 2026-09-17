@@ -586,7 +586,8 @@ namespace OloEngine::Tests
             // one pixel is noise, the mean over the sphere is the term.
             EXPECT_GT(onStats.MeanLuma, offStats.MeanLuma)
                 << pathName << ": backlighting a version-2 profile produced no extra light — the transmission term "
-                               "never reached the frame. off mean=" << offStats.MeanLuma
+                               "never reached the frame. off mean="
+                << offStats.MeanLuma
                 << " on mean=" << onStats.MeanLuma << ", " << backlitDiff.ChangedPixels << " px differ, max delta "
                 << backlitDiff.MaxDelta;
             EXPECT_GT(backlitDiff.ChangedPixels, 0u) << pathName << ": the two captures are byte-identical";
@@ -634,7 +635,8 @@ namespace OloEngine::Tests
             // balance and not merely about claim 1 again.
             EXPECT_GT(onStats.MeanRedFraction, offStats.MeanRedFraction)
                 << pathName << ": the transmitted light is not redder than the frame it joined — a grey glow is wax, "
-                               "not skin. off=" << offStats.MeanRedFraction << " on=" << onStats.MeanRedFraction;
+                               "not skin. off="
+                << offStats.MeanRedFraction << " on=" << onStats.MeanRedFraction;
 
             // ---- CLAIM 2: FRONT-LIT IDENTITY -------------------------------
             // THE CLAIM THAT RULES OUT THE UNIFORMLY EMISSIVE HEAD, and the one

@@ -252,7 +252,7 @@ namespace OloEngine::Tests
                     const glm::vec3 lightDir{ std::sin(t) * std::cos(p), std::sin(t) * std::sin(p), std::cos(t) };
 
                     const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, lightDir,
-                                                                     kRadiance, kAlbedo, 1.0f, 2.0f, profile);
+                                                                    kRadiance, kAlbedo, 1.0f, 2.0f, profile);
                     for (int c = 0; c < 3; ++c)
                     {
                         ASSERT_TRUE(std::isfinite(term[c]));
@@ -385,8 +385,8 @@ namespace OloEngine::Tests
         EXPECT_EQ(SkinTransmittance(0.0f, profile), glm::vec3(0.0f));
 
         const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                         glm::vec3(50.0f), glm::vec3(1.0f), 1.0f,
-                                                         kSkinThicknessMissing, profile);
+                                                        glm::vec3(50.0f), glm::vec3(1.0f), 1.0f,
+                                                        kSkinThicknessMissing, profile);
         EXPECT_EQ(term, glm::vec3(0.0f))
             << "with no authored thickness the whole term must vanish — a bright backlight must not produce a glow";
     }
@@ -400,17 +400,17 @@ namespace OloEngine::Tests
         const f32 thickness = 2.0f;
 
         const glm::vec3 unshadowed = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                               glm::vec3(4.0f), glm::vec3(0.8f), 1.0f, thickness,
-                                                               profile);
+                                                              glm::vec3(4.0f), glm::vec3(0.8f), 1.0f, thickness,
+                                                              profile);
         ASSERT_GT(unshadowed.r, 0.0f);
 
         const glm::vec3 half = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                         glm::vec3(4.0f), glm::vec3(0.8f), 0.5f, thickness, profile);
+                                                        glm::vec3(4.0f), glm::vec3(0.8f), 0.5f, thickness, profile);
         EXPECT_NEAR(half.r, unshadowed.r * 0.5f, 1.0e-5f);
 
         const glm::vec3 occluded = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                             glm::vec3(4.0f), glm::vec3(0.8f), 0.0f, thickness,
-                                                             profile);
+                                                            glm::vec3(4.0f), glm::vec3(0.8f), 0.0f, thickness,
+                                                            profile);
         EXPECT_EQ(occluded, glm::vec3(0.0f)) << "a fully shadowed thin region must not glow";
     }
 
@@ -432,7 +432,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(profile.Sanitize());
 
             const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                             glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
+                                                            glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
             EXPECT_EQ(term, glm::vec3(0.0f))
                 << ToString(model) << " must not transmit — turning transmission on is an authoring act per profile";
 
@@ -450,7 +450,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(profile.Sanitize());
 
         const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                         glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
+                                                        glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
         EXPECT_EQ(term, glm::vec3(0.0f));
     }
 
@@ -565,11 +565,11 @@ namespace OloEngine::Tests
         EXPECT_EQ(SkinTransmissionLobe(kNormalTowardViewer, glm::vec3(inf), kLightBehind, profile.Transmission), 0.0f);
 
         const glm::vec3 nanRadiance = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                                glm::vec3(nan), glm::vec3(0.8f), 1.0f, 2.0f, profile);
+                                                               glm::vec3(nan), glm::vec3(0.8f), 1.0f, 2.0f, profile);
         EXPECT_EQ(nanRadiance, glm::vec3(0.0f));
 
         const glm::vec3 nanVisibility = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                                  glm::vec3(4.0f), glm::vec3(0.8f), nan, 2.0f, profile);
+                                                                 glm::vec3(4.0f), glm::vec3(0.8f), nan, 2.0f, profile);
         EXPECT_EQ(nanVisibility, glm::vec3(0.0f));
     }
 
@@ -634,7 +634,7 @@ namespace OloEngine::Tests
                 const glm::vec3 lightDir{ std::sin(t), 0.0f, std::cos(t) };
 
                 const glm::vec3 viaProfile = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, lightDir,
-                                                                       kRadiance, kAlbedo, 0.75f, 2.0f, profile);
+                                                                      kRadiance, kAlbedo, 0.75f, 2.0f, profile);
                 const glm::vec3 viaLanes = EvaluateSkinTransmissionLanes(
                     kNormalTowardViewer, kViewTowardViewer, lightDir, kRadiance, kAlbedo, 0.75f, 2.0f,
                     SkinTransmissionScatterLane(profile), SkinTransmissionScalingLane(profile));

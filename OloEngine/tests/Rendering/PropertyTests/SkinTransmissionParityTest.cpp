@@ -239,7 +239,8 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(shadowed.r, 0.0f)
             << "TRANSMISSION SURVIVED A VISIBILITY OF ZERO. #1242's second criterion rules this out by name: the "
                "term is not an unshadowed constant, so an ear behind a raised hand must stop glowing. (The lit arm "
-               "of the same geometry measured " << shadowed.g << ".)";
+               "of the same geometry measured "
+            << shadowed.g << ".)";
         EXPECT_GT(shadowed.g, 0.0f)
             << "the LIT arm of the shadow case is also zero, so the assertion above passed on a dead lobe rather "
                "than on a working gate.";
@@ -311,7 +312,7 @@ namespace OloEngine::Tests
         const glm::vec3 lightDir = glm::normalize(glm::vec3(0.35f, 0.20f, -0.85f));
         const glm::vec3 view = glm::normalize(glm::vec3(0.10f, -0.15f, 1.0f));
         const glm::vec3 expected = EvaluateSkinTransmissionLanes(kNormal, view, lightDir, kRadiance, kAlbedo, 0.6f,
-                                                                  kThicknessMM, kScatterLane, kScalingLane);
+                                                                 kThicknessMM, kScatterLane, kScalingLane);
         const glm::vec4 measured = texel(CaseCpuParity);
 
         ASSERT_GT(expected.r, 0.0f)

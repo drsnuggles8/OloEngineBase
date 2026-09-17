@@ -73,6 +73,15 @@ namespace
         p.ScatterRadiusMM = glm::vec3(2.25f, 1.125f, 0.375f);
         p.ThicknessScale = 850.0f;
         p.SpecularTint = glm::vec3(0.95f, 0.87f, 0.81f);
+        // The transmission lobe (issue #1242). EVERY FIELD IS OFF ITS DEFAULT,
+        // which is the whole job of a sentinel: AuthoredValuesSurviveAYamlRoundTrip
+        // compares with operator==, so a field left at its default would
+        // round-trip "correctly" through the default on BOTH sides and the test
+        // would pass for a serializer that never wrote the key at all. That is
+        // the same trap this file's EvaluationModel assertion already calls out.
+        p.Transmission.Strength = 0.625f;
+        p.Transmission.Anisotropy = 0.375f;
+        p.Transmission.Power = 12.0f;
         return p;
     }
 } // namespace
@@ -249,6 +258,22 @@ namespace OloEngine::Tests
             << "the serializer did not emit the EvaluationModel key, so a profile authored "
                "against a later skin transport would silently load as version 0:\n"
             << yaml;
+
+        // The transmission block, pinned by NAME as well as by value (issue
+        // #1242). The value comparison above already covers it now that the
+        // sentinel moves all three fields, but the nested map is a shape a
+        // future edit could flatten -- and a flattened key the reader still
+        // found by its old path would round-trip while the FILE FORMAT silently
+        // changed under every .oloskin on disk.
+        EXPECT_NE(yaml.find("Transmission"), std::string::npos)
+            << "the serializer did not emit the Transmission block:\n"
+            << yaml;
+        for (const char* key : { "Strength", "Anisotropy", "Power" })
+        {
+            EXPECT_NE(yaml.find(key), std::string::npos)
+                << "the serializer did not emit Transmission." << key << ":\n"
+                << yaml;
+        }
     }
 
     // The serializer is the second half of the validation gate: a hand-edited
