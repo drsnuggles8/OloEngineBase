@@ -2536,10 +2536,11 @@ namespace OloEngine::Tests
                     }
                     EXPECT_EQ(samples, 20u) << pass;
                     ::testing::Test::RecordProperty(key + "_positive_samples", std::to_string(samples));
-                    return samples == 20u ? static_cast<u64>(std::llround(minimum * 1e6)) : 0;
+                    return samples == 20u ? static_cast<u64>(std::llround(minimum * 1e6)) : std::numeric_limits<u64>::max();
                 };
                 const auto ns = MeasureBenchmarkStableNs(key, measure);
                 ASSERT_GT(ns, 0u) << pass;
+                ASSERT_LT(ns, std::numeric_limits<u64>::max()) << pass;
                 CheckPerfRegression(key, ns);
             }
         }
