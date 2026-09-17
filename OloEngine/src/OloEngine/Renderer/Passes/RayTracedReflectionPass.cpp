@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Passes/RayTracedReflectionPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -108,7 +110,7 @@ namespace OloEngine
         // need it. The null shader is what IsReadyForExecution reports, which
         // ResolveAvailabilityForFrame turns into a counted ShaderUnavailable
         // rather than a warning nobody reads.
-        if (!RenderCommand::SupportsRayTracing())
+        if (!RenderCommand::SupportsRayTracing() || !HeapBinding::ShaderHeapIndexingSupported())
         {
             OLO_CORE_INFO("RayTracedReflectionPass: hardware ray tracing unavailable — the ray-query tier stays "
                           "inert and the hierarchy falls back to SSR + probe/IBL.");
@@ -151,6 +153,10 @@ namespace OloEngine
             reason = ReflectionTierFallbackReason::ShaderUnavailable;
         else if (m_RayTracingScene == nullptr || !m_RayTracingScene->IsAvailable())
             reason = ReflectionTierFallbackReason::RayTracingUnavailable;
+        else if (Renderer3D::GetMaterialShaderHeapTable().GetAddressAndCount().z == 0u ||
+                 Renderer3D::GetMaterialShaderHeapTable().GetUnresolvedCount() != 0u ||
+                 !HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler()).IsValid())
+            reason = ReflectionTierFallbackReason::GPUSceneUnavailable;
         // A TLAS device address of zero means no TLAS has ever been built,
         // which is a DIFFERENT state from "no RT device". Conflating them is how
         // "the first frame has no reflections" gets misread as "this GPU cannot
@@ -201,8 +207,7 @@ namespace OloEngine
             // Both are STANDING limitations of this slice rather than occasional
             // ones, so they are true whenever the tier ran at all. Counted
             // instead of commented because neither is visible in a still frame.
-            m_Stats.HitsShadedUntextured = true;          // #805 — untextured material factors
-            m_Stats.MaskedGeometryReflectsAsSolid = true; // no any-hit alpha test without the heap
+            m_Stats.HitsShadedUntextured = true; // #805 — untextured material factors
         }
 
         return m_Stats.RayQueryTierActive;
@@ -256,6 +261,9 @@ namespace OloEngine
             return;
 
         UBOStructures::RayTracingReflectionUBO params{};
+        const auto heap = Renderer3D::GetMaterialShaderHeapTable().GetAddressAndCount();
+        params.MaterialHeapAddressAndSampler = glm::uvec4(heap,
+                                                          HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler()).Value);
 
         // RENDER-RELATIVE, not world. The TLAS is built from the GPU Scene's
         // render-relative instance transforms, so a world-space ray origin

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 #include "StatisticsPanel.h"
 #include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Core/Application.h"
@@ -475,6 +476,17 @@ namespace OloEngine
                                     deformed.SkippedUnchanged, deformed.Allocated, deformed.Reallocated,
                                     deformed.Retired, deformed.Refused);
                     }
+                    bool forceDetailed = RayTracing::VegetationDiagnostics::GetForceDetailed();
+                    if (ImGui::Checkbox("Force detailed vegetation updates (diagnostic)", &forceDetailed))
+                        RayTracing::VegetationDiagnostics::SetForceDetailed(forceDetailed);
+                    const auto& vegetation = Renderer3D::GetVegetationSurfaceCache().GetStats();
+                    ImGui::Text("Vegetation: %u detailed / %u temporal groups (%u plants)",
+                                vegetation.DetailedGroups, vegetation.ProxyGroups, vegetation.PlantsRepresented);
+                    ImGui::Text("  %.2f MB, %u updates in %u dispatches, %u reused, %u refused",
+                                static_cast<f64>(vegetation.ResidentBytes) / (1024.0 * 1024.0),
+                                vegetation.Dispatched, vegetation.DispatchBatches, vegetation.SnapshotsReused, vegetation.Refused);
+                    if (!Renderer3D::GetRayTracingScene().IsVegetationReady())
+                        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "Vegetation incomplete: hybrid raster fallback");
                     ImGui::Text("TLAS instances: %u", rt.Resident.TlasInstances);
 
                     ImGui::Separator();

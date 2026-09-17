@@ -18,6 +18,7 @@
 
 #include "MCP/McpStatsSnapshot.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingStats.h"
@@ -47,6 +48,8 @@ namespace OloEngine::MCP::RayTracingStats
         // surfaces" and "deformed surfaces that could not be produced" give the
         // RT counters the same shape and need opposite fixes.
         OloEngine::RayTracing::DeformedSurfaceStats Deformed;
+        OloEngine::RayTracing::VegetationSurfaceStats Vegetation;
+        bool VegetationReady = true;
     };
 
     // The JSON key for each diagnostics category.
@@ -179,6 +182,27 @@ namespace OloEngine::MCP::RayTracingStats
                 { "unsupportedVariants", animated.m_UnsupportedVariants },
             };
         }
+
+        // BEFORE the readiness early-return, for the same reason as gpuScene:
+        // a producer that refuses its work is exactly what makes the RT scene
+        // report "no TLAS", so its counters must survive that status.
+        const auto& vegetation = snapshot.Vegetation;
+        out["vegetation"] = Json{
+            { "ready", snapshot.VegetationReady },
+            { "complete", vegetation.Complete },
+            { "producerFailed", vegetation.ProducerFailed },
+            { "requested", vegetation.GroupsRequested },
+            { "detailedGroups", vegetation.DetailedGroups },
+            { "proxyGroups", vegetation.ProxyGroups },
+            { "plantsRepresented", vegetation.PlantsRepresented },
+            { "residentBytes", vegetation.ResidentBytes },
+            { "dispatched", vegetation.Dispatched },
+            { "dispatchBatches", vegetation.DispatchBatches },
+            { "verticesDeformed", vegetation.VerticesDeformed },
+            { "reused", vegetation.SnapshotsReused },
+            { "refused", vegetation.Refused },
+            { "historyReset", vegetation.HistoryReset },
+        };
 
         if (StatsSnapshot::Status(snapshot.State) != "ready")
         {

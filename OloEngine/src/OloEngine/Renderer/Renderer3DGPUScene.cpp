@@ -226,6 +226,7 @@ namespace OloEngine
         // frame" means the same thing on both sides and a surface whose entity
         // died is retired by both on the same frame.
         s_Data.DeformedSurfaces.BeginFrame();
+        s_Data.VegetationSurfaces.BeginFrame();
         // The path tracer's area-light gather (#1055) rides the same
         // extraction; it costs nothing while the tracer is off or its shader
         // never loaded, which is the state every CI runner is in. Keyed on the
@@ -661,6 +662,9 @@ namespace OloEngine
         // scene slots must not become valid again merely by reusing their IDs.
         if (s_Data.Pipeline)
             ++s_Data.Pipeline->ReSTIRPTSceneEpoch;
+        s_Data.VegetationSurfaces.Shutdown();
+        s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
+        s_Data.SceneRT.SetVegetationReady(false);
         s_Data.SceneGPU.Reset();
         s_Data.GPUSceneExtractionActive = false;
         // A reload or backend switch tombstones every record, so every link
@@ -697,6 +701,18 @@ namespace OloEngine
     const RayTracing::SceneStats& Renderer3D::GetRayTracingStats()
     {
         return s_Data.SceneRT.GetStats();
+    }
+
+    RayTracing::VegetationSurfaceCache& Renderer3D::GetVegetationSurfaceCache()
+    {
+        return s_Data.VegetationSurfaces;
+    }
+
+    bool Renderer3D::WantsRayTracingVegetation()
+    {
+        return s_Data.GPUSceneExtractionActive && s_Data.SceneRT.IsAvailable() &&
+               s_Data.Settings.Path == RenderingPath::Deferred &&
+               (!s_Data.RayTracedShadowLightRequests.empty() || s_Data.PostProcess.RayTracedReflection.Enabled);
     }
 
     const GPUSceneFrameStats& Renderer3D::GetGPUSceneStats()

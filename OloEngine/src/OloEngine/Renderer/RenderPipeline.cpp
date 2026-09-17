@@ -5843,6 +5843,7 @@ namespace OloEngine
         FrameCorePasses.RayTracingScene->SetName("RayTracingScenePass");
         FrameCorePasses.RayTracingScene->SetRayTracingScene(&Renderer3D::GetRayTracingScene());
         FrameCorePasses.RayTracingScene->SetGPUScene(&Renderer3D::GetGPUScene());
+        FrameCorePasses.RayTracingScene->SetVegetationSurfaceCache(&Renderer3D::GetVegetationSurfaceCache());
 
         FrameCorePasses.Scene = Ref<SceneRenderPass>::Create();
         FrameCorePasses.Scene->SetName("ScenePass");

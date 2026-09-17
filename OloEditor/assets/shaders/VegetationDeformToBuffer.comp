@@ -1,0 +1,89 @@
+#version 460 core
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_buffer_reference_uvec2 : require
+
+layout(local_size_x = 64) in;
+#include "include/FoliageParams.glsl"
+#include "include/FoliageInstanceGeometry.glsl"
+
+layout(buffer_reference, std430, buffer_reference_align = 4) readonly buffer VegetationRestStream
+{
+    float Values[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer VegetationOutputStream
+{
+    float Values[];
+};
+struct VegetationDispatchGroup
+{
+    uvec2 Rows;
+    uvec2 Output;
+    uint VertexCount;
+    uint PlantCount;
+};
+layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer VegetationJobs
+{
+    VegetationDispatchGroup Values[];
+};
+layout(buffer_reference, std430, buffer_reference_align = 8) readonly buffer VegetationTasks
+{
+    uvec2 Values[];
+};
+// std140 twin of VegetationSurfaceCache's 96-byte DeformParams. Model is
+// render-relative; FoliageParams carries the origin so gust roots are absolute.
+layout(std140, binding = 65) uniform RayTracingVegetationParams
+{
+    mat4 Model;
+    uvec2 Rest;
+    uvec2 Jobs;
+    uvec2 Tasks;
+    uint TaskCount;
+    uint Padding;
+} p;
+#define u_Model p.Model
+#define u_PrevModel p.Model
+#include "include/FoliageWind.glsl"
+
+void main()
+{
+    if (gl_WorkGroupID.x >= p.TaskCount) return;
+    uvec2 task = VegetationTasks(p.Tasks).Values[gl_WorkGroupID.x];
+    VegetationDispatchGroup group = VegetationJobs(p.Jobs).Values[task.x];
+    uint i = task.y + gl_LocalInvocationID.x;
+    if (i >= group.VertexCount * group.PlantCount) return;
+    uint v = (i % group.VertexCount) * 8u;
+    uint row = (i / group.VertexCount) * 12u;
+    VegetationRestStream src = VegetationRestStream(p.Rest);
+    VegetationRestStream rows = VegetationRestStream(group.Rows);
+    VegetationOutputStream dst = VegetationOutputStream(group.Output);
+    vec3 vertex = vec3(src.Values[v], src.Values[v + 1u], src.Values[v + 2u]);
+    vec3 normal = vec3(src.Values[v + 3u], src.Values[v + 4u], src.Values[v + 5u]);
+    vec3 pivot = vec3(rows.Values[row], rows.Values[row + 1u], rows.Values[row + 2u]);
+    float scale = rows.Values[row + 3u];
+    float rotation = rows.Values[row + 4u];
+    float height = rows.Values[row + 5u];
+    float phase = rows.Values[row + 7u];
+    bool mesh = u_MeshParams.x > 0.5;
+    mat3 rotationMatrix = foliageInstanceRotation(rotation);
+    vec3 local = foliageInstanceLocalPos(vertex, scale, height, mesh);
+    vec3 rest = rotationMatrix * local;
+    bool impostor = u_MeshParams.z > 0.5;
+    float influence = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ? 0.5 : 0.15;
+    vec3 deformed = foliageDeform(rest, impostor ? vec3(0.0, influence, 0.0) : vertex, pivot, phase).Current;
+    vec3 point = pivot + deformed;
+    vec3 dimensions = mesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
+    mat3 jacobian = rotationMatrix * mat3(vec3(dimensions.x, 0, 0),
+                                        vec3(0, dimensions.y, 0), vec3(0, 0, dimensions.z));
+    normal = impostor ? normalize(rotationMatrix * normal) :
+                        foliageWindNormal(normal, vertex, pivot, phase, jacobian, deformed - rest);
+    uint outV = i * 8u;
+    dst.Values[outV] = point.x;
+    dst.Values[outV + 1u] = point.y;
+    dst.Values[outV + 2u] = point.z;
+    dst.Values[outV + 3u] = normal.x;
+    dst.Values[outV + 4u] = normal.y;
+    dst.Values[outV + 5u] = normal.z;
+    dst.Values[outV + 6u] = src.Values[v + 6u];
+    dst.Values[outV + 7u] = src.Values[v + 7u];
+}

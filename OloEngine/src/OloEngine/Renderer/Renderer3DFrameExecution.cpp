@@ -223,6 +223,16 @@ namespace OloEngine
             // own records, on the same frame, so a despawned character's
             // deformed buffer and the record that named it die together.
             s_Data.DeformedSurfaces.EndFrame();
+            s_Data.VegetationSurfaces.FinishExtraction(s_Data.SceneGPU);
+            if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
+            {
+                // A shape/time-resolution switch cannot be reprojected from
+                // raster velocity. Reset the histories that consume hybrid RT.
+                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                           TemporalHistoryEffect::RayTracedShadow);
+                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                           TemporalHistoryEffect::TAA);
+            }
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
             if (s_Data.Settings.Path == RenderingPath::Deferred)

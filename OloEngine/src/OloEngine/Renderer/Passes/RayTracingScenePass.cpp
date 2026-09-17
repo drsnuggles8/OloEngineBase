@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
+#include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 
 namespace OloEngine
 {
@@ -77,6 +78,20 @@ namespace OloEngine
         }
 
         auto& gpuTimers = GPUPassTimerPool::GetInstance();
+        if (m_Vegetation != nullptr)
+        {
+            const bool hasWork = m_Vegetation->HasWork();
+            if (hasWork)
+                gpuTimers.BeginSubPass("VegetationDeformToBuffer");
+            const u32 dispatched = m_Vegetation->Dispatch();
+            if (hasWork)
+                gpuTimers.EndSubPass();
+            if (dispatched > 0u)
+                m_Scene->RecordDeformToBuildBarrier();
+            m_Scene->SetVegetationReady(m_Vegetation->GetStats().Complete);
+            if (m_Vegetation->GetStats().ProducerFailed)
+                return;
+        }
         gpuTimers.BeginSubPass("AccelerationStructureBuild");
         m_Scene->Update(*m_GPUScene);
         gpuTimers.EndSubPass();

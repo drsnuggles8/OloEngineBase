@@ -10,7 +10,8 @@ namespace OloEngine
     namespace RayTracing
     {
         class RayTracingScene;
-    }
+        class VegetationSurfaceCache;
+    } // namespace RayTracing
 
     // @brief Acceleration-structure build node (issue #978) — the first node in
     // the frame, and the owner of the AS-build -> AS-read hazard.
@@ -56,6 +57,10 @@ namespace OloEngine
         {
             m_GPUScene = gpuScene;
         }
+        void SetVegetationSurfaceCache(RayTracing::VegetationSurfaceCache* cache) noexcept
+        {
+            m_Vegetation = cache;
+        }
 
         // TRUE whenever both sources are attached — deliberately NOT "is ray
         // tracing available". See the class comment.
@@ -64,5 +69,6 @@ namespace OloEngine
       private:
         RayTracing::RayTracingScene* m_Scene = nullptr;
         const GPUScene* m_GPUScene = nullptr;
+        RayTracing::VegetationSurfaceCache* m_Vegetation = nullptr;
     };
 } // namespace OloEngine

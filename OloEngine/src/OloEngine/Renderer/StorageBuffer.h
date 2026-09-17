@@ -90,6 +90,14 @@ namespace OloEngine
             return 0;
         }
 
+        // Read the CPU-uploaded version visible at this point in the command
+        // stream. Vulkan draws normally get it through root data; a ray-query
+        // consumer using buffer references needs the same snapshot address.
+        [[nodiscard]] virtual u64 GetCommandOrderedDeviceAddress()
+        {
+            return GetDeviceAddress();
+        }
+
         // A binding number meaning "publish at no slot". For a buffer that is
         // only ever reached by device address (GL_EXT_buffer_reference): both
         // backends skip the construction-time and Bind()-time publication, so

@@ -14,6 +14,9 @@
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 
 #include <algorithm>
@@ -156,7 +159,7 @@ namespace OloEngine
         // not need them. The null shaders are what IsReadyForExecution reports,
         // and ResolveTechniqueForFrame turns that into a counted
         // RayTracingUnavailable rather than a warning nobody reads.
-        if (!RenderCommand::SupportsRayTracing())
+        if (!RenderCommand::SupportsRayTracing() || !HeapBinding::ShaderHeapIndexingSupported())
         {
             OLO_CORE_INFO("RayTracedShadowPass: hardware ray tracing unavailable — the pass stays inert and every "
                           "light falls back to its shadow map.");
@@ -176,10 +179,19 @@ namespace OloEngine
     u32 RayTracedShadowPass::ResolveTechniqueForFrame(bool graphResourcesResolved)
     {
         m_Stats.Reset();
-        m_Stats.MaskedOccludersShadowedAsSolid = m_MaskedOccluderCount;
         m_ChannelLights.fill(RayTracedShadowLightRequest{});
 
-        const bool rayTracingAvailable = m_RayTracingScene != nullptr && m_RayTracingScene->IsAvailable();
+        const auto& materialHeap = Renderer3D::GetMaterialShaderHeapTable();
+        const auto heapAddress = materialHeap.GetAddressAndCount();
+        // The shadow block has no spare uvec lane for a fourth count, so the
+        // shader bounds heap lookups with the material slot count. That is the
+        // heap's own length only because both come from the same committed GPU
+        // Scene; check it here rather than let a stale table become an
+        // out-of-bounds buffer-reference read.
+        const bool heapMatchesScene = heapAddress.z == Renderer3D::GetGPUScene().GetMaterialSlotCount();
+        const bool rayTracingAvailable = m_RayTracingScene != nullptr && m_RayTracingScene->IsAvailable() &&
+                                         materialHeap.GetUnresolvedCount() == 0u && heapAddress.z > 0u && heapMatchesScene &&
+                                         HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler()).IsValid();
         // A TLAS device address of zero means no TLAS has ever been built —
         // which is a DIFFERENT state from "no RT device", and conflating them
         // is how "the first frame has no shadows" gets misread as "this GPU
@@ -373,6 +385,15 @@ namespace OloEngine
         const u64 tlasAddress = m_RayTracingScene != nullptr ? m_RayTracingScene->GetTlasDeviceAddress() : 0u;
         params.TlasAddressAndCounts = glm::uvec4(static_cast<u32>(tlasAddress & 0xFFFFFFFFull),
                                                  static_cast<u32>(tlasAddress >> 32u), channelCount, m_FrameIndex);
+        const auto& gpuScene = Renderer3D::GetGPUScene();
+        const auto addresses = gpuScene.GetRayTracingReadAddresses();
+        const auto heap = Renderer3D::GetMaterialShaderHeapTable().GetAddressAndCount();
+        params.InstanceAndGeometryAddresses = glm::uvec4(static_cast<u32>(addresses[0]), static_cast<u32>(addresses[0] >> 32u),
+                                                         static_cast<u32>(addresses[1]), static_cast<u32>(addresses[1] >> 32u));
+        params.MaterialAndHeapAddresses = glm::uvec4(static_cast<u32>(addresses[2]), static_cast<u32>(addresses[2] >> 32u), heap.x, heap.y);
+        params.SceneSlotCountsAndSampler = glm::uvec4(gpuScene.GetInstanceSlotCount(), gpuScene.GetGeometrySlotCount(),
+                                                      gpuScene.GetMaterialSlotCount(),
+                                                      HeapBinding::ResolveShaderHeapSampler(HeapBinding::MaterialTexture2DSampler()).Value);
 
         for (u32 channel = 0; channel < channelCount; ++channel)
         {
@@ -413,7 +434,8 @@ namespace OloEngine
         const f32 clipGamma =
             std::isfinite(m_Settings.TemporalClipGamma) ? std::clamp(m_Settings.TemporalClipGamma, 0.1f, 8.0f) : 1.5f;
         const bool historyUsable = m_Settings.TemporalAccumulation && historyID.IsValid() &&
-                                   surfaceHistoryID.IsValid() && momentsHistoryID.IsValid();
+                                   surfaceHistoryID.IsValid() && momentsHistoryID.IsValid() &&
+                                   !Renderer3D::GetVegetationSurfaceCache().GetStats().HistoryReset;
         params.TemporalParams =
             glm::vec4(feedback, velocityID.IsValid() ? 1.0f : 0.0f, historyUsable ? 1.0f : 0.0f, clipGamma);
 

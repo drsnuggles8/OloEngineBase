@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <memory>
+#include <array>
 
 namespace OloEngine
 {
@@ -119,6 +120,8 @@ namespace OloEngine
         [[nodiscard]] RHI::ResourceHandle GetInstanceBufferHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetGeometryBufferHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetMaterialBufferHandle() const;
+        // Pass-local by-address readers share draw root-data snapshot semantics.
+        [[nodiscard]] std::array<u64, 3> GetRayTracingReadAddresses() const;
         [[nodiscard]] RHI::ResourceHandle GetLightBufferHandle() const;
         [[nodiscard]] RHI::ResourceHandle GetEnvironmentBufferHandle() const;
 

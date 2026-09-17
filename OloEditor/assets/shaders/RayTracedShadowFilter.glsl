@@ -90,6 +90,9 @@ layout(std140, binding = 65) uniform RayTracingShadowParams
     vec4 u_ScreenParams;
     vec4 u_TemporalParams;
     vec4 u_FilterParams; // x = spatialRadiusPixels, y = spatialEnabled, zw reserved
+    uvec4 u_InstanceAndGeometryAddresses;
+    uvec4 u_MaterialAndHeapAddresses;
+    uvec4 u_SceneSlotCountsAndSampler;
 };
 
 // Fixed tap count, variable SPACING. A variable tap count would branch

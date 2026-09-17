@@ -69,6 +69,9 @@ namespace OloEngine::Tests
             // Set to fail the Nth build so the "instance whose BLAS never
             // landed must not reach the TLAS" path can be driven.
             bool FailAllBuilds = false;
+            u32 MaximumBuilds = std::numeric_limits<u32>::max();
+            bool ReportRecordedKeys = false;
+            std::vector<RT::GeometryKey> RecordedKeys;
 
             FakeRayTracingBackend()
             {
@@ -85,16 +88,24 @@ namespace OloEngine::Tests
 
             u32 RecordBlasBuilds(std::span<const RT::BlasBuildRequest> requests) override
             {
+                RecordedKeys.clear();
                 if (FailAllBuilds)
                 {
                     return 0;
                 }
+                requests = requests.first(std::min(requests.size(), static_cast<sizet>(MaximumBuilds)));
                 Builds.insert(Builds.end(), requests.begin(), requests.end());
                 for (const RT::BlasBuildRequest& request : requests)
                 {
                     m_Resident.push_back(request.Key);
+                    RecordedKeys.push_back(request.Key);
                 }
                 return static_cast<u32>(requests.size());
+            }
+
+            [[nodiscard]] bool WasBlasBuildRecorded(const RT::GeometryKey& key) const override
+            {
+                return ReportRecordedKeys && std::ranges::find(RecordedKeys, key) != RecordedKeys.end();
             }
 
             void RetireBlas(const RT::GeometryKey& key) override
@@ -1016,6 +1027,36 @@ namespace OloEngine::Tests
                 << "a reused slot must not carry the dead record's generation";
         }
         EXPECT_EQ(m_Backend->Builds[0].IndexCount, 6u);
+    }
+
+    TEST_F(RayTracingSceneFixture, PartialVegetationBuildsAdvanceAcknowledgedRevisionsAndRecoverReadiness)
+    {
+        m_Backend->MaximumBuilds = 1u;
+        m_Backend->ReportRecordedKeys = true;
+        const auto stage = [&]
+        {
+            BeginFrame();
+            auto geometry = MakeTraceableGeometry();
+            geometry.m_Flags |= GPUSceneGeometryFlagVegetation;
+            StageDeformedInstance(1u, MakeGeometryKey(10u, 20u), geometry, MakeMaterial(), 7u);
+            StageDeformedInstance(2u, MakeGeometryKey(30u, 40u), geometry, MakeMaterial(), 7u);
+            EndFrame();
+            m_Scene.Update(m_GPUScene);
+        };
+        stage();
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        const auto first = m_Backend->Builds[0].Key;
+        EXPECT_FALSE(m_Scene.IsVegetationReady());
+        EXPECT_EQ(m_Scene.GetTlasDeviceAddress(), 0u);
+        m_Backend->ClearRecording();
+        stage();
+        ASSERT_EQ(m_Backend->Builds.size(), 1u);
+        EXPECT_NE(m_Backend->Builds[0].Key, first);
+        EXPECT_TRUE(m_Scene.IsVegetationReady());
+        EXPECT_NE(m_Scene.GetTlasDeviceAddress(), 0u);
+        m_Backend->ClearRecording();
+        stage();
+        EXPECT_TRUE(m_Backend->Builds.empty());
     }
 
     TEST_F(RayTracingSceneFixture, AFailedBuildKeepsItsInstanceOutOfTheTlas)

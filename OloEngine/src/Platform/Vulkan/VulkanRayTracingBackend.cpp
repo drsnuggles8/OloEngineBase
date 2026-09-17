@@ -6,6 +6,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Memory/AlignmentTemplates.h"
+#include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
@@ -125,6 +126,10 @@ namespace OloEngine::RayTracing
         }
 
         u32 RecordBlasBuilds(std::span<const BlasBuildRequest> requests) override;
+        [[nodiscard]] bool WasBlasBuildRecorded(const GeometryKey& key) const override
+        {
+            return std::ranges::find(m_RecordedBuildKeys, key) != m_RecordedBuildKeys.end();
+        }
         void RetireBlas(const GeometryKey& key) override;
         [[nodiscard]] bool IsBlasResident(const GeometryKey& key) const override;
         TlasBuildReason RecordTlasBuild(std::span<const InstanceRecord> instances, TlasBuildReason requested) override;
@@ -150,6 +155,7 @@ namespace OloEngine::RayTracing
             // would otherwise be reported resident and a TLAS instance would
             // reference uninitialised memory — undefined, and silent.
             bool Built = false;
+            bool Vegetation = false;
             // Compaction is a multi-frame handshake so nothing ever waits:
             // NotRequested -> SizeQueryPending -> ReadyToCompact -> Compacted.
             enum class Compaction : u8
@@ -180,6 +186,7 @@ namespace OloEngine::RayTracing
 
         Capabilities m_Capabilities{};
         std::unordered_map<GeometryKey, BlasEntry, GeometryKeyHash> m_Blas;
+        std::vector<GeometryKey> m_RecordedBuildKeys;
 
         DeviceBuffer m_Scratch;
         VkDeviceSize m_ScratchAlignment = 256;
@@ -342,6 +349,7 @@ namespace OloEngine::RayTracing
 
     u32 VulkanRayTracingBackend::RecordBlasBuilds(std::span<const BlasBuildRequest> requests)
     {
+        m_RecordedBuildKeys.clear();
         if (!m_Capabilities.Supported)
         {
             return 0;
@@ -390,8 +398,21 @@ namespace OloEngine::RayTracing
         pending.reserve(requests.size());
 
         VkDeviceSize scratchTotal = 0;
+        u64 vegetationBytes = 0u;
+        for (const auto& [key, entry] : m_Blas)
+        {
+            static_cast<void>(key);
+            if (entry.Vegetation)
+                vegetationBytes += entry.Storage.Size;
+        }
+        VegetationFrameBudget vegetationWork;
         for (const BlasBuildRequest& request : requests)
         {
+            // Retries also consume AS work, independently of this frame's
+            // deformation dispatches. Never let a partially warmed scene
+            // turn the retry queue into unbounded vegetation builds.
+            if (request.Vegetation && !vegetationWork.Reserve(request.VertexCount, request.IndexCount / 3u))
+                continue;
             Pending item{};
             item.Request = &request;
 
@@ -486,6 +507,13 @@ namespace OloEngine::RayTracing
             {
                 continue;
             }
+            const u64 previousVegetationBytes = existing != m_Blas.end() && existing->second.Vegetation
+                                                    ? existing->second.Storage.Size
+                                                    : 0u;
+            if (request.Vegetation && !item.IsUpdate &&
+                sizes.accelerationStructureSize > VegetationPolicy::AccelerationStructureBytes -
+                                                      (vegetationBytes - previousVegetationBytes))
+                continue;
 
             if (item.IsUpdate)
             {
@@ -525,6 +553,9 @@ namespace OloEngine::RayTracing
                 entry.Class = request.Class;
                 entry.AllowsUpdate = wantsUpdate;
                 entry.Built = false;
+                entry.Vegetation = request.Vegetation;
+                vegetationBytes = vegetationBytes - previousVegetationBytes +
+                                  (request.Vegetation ? sizes.accelerationStructureSize : 0u);
                 entry.CompactionState = BlasEntry::Compaction::NotRequested;
 
                 VkAccelerationStructureDeviceAddressInfoKHR addressInfo{};
@@ -571,6 +602,7 @@ namespace OloEngine::RayTracing
         // sizing loop above never reaches this line and stays non-resident.
         for (const Pending& item : pending)
         {
+            m_RecordedBuildKeys.push_back(item.Request->Key);
             if (auto found = m_Blas.find(item.Request->Key); found != m_Blas.end())
             {
                 found->second.Built = true;

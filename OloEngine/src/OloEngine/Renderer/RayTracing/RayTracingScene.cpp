@@ -131,6 +131,8 @@ namespace OloEngine::RayTracing
         m_EverBuiltTlas = false;
         m_HasRenderOrigin = false;
         m_Capabilities = Capabilities{};
+        m_VegetationProducerReady = true;
+        m_VegetationBuildsReady = true;
     }
 
     void RayTracingScene::SetBackendForTesting(std::unique_ptr<IRayTracingBackend> backend)
@@ -575,6 +577,7 @@ namespace OloEngine::RayTracing
                     .FirstIndex = entry.Record->FirstIndex,
                     .IndexCount = entry.Record->IndexCount,
                     .BaseVertex = entry.Record->BaseVertex,
+                    .Vegetation = (entry.Record->Flags & GPUSceneGeometryFlagVegetation) != 0u,
                 });
             }
         }
@@ -610,36 +613,29 @@ namespace OloEngine::RayTracing
         // directly still passes.
         const u32 recorded = m_Backend->RecordBlasBuilds(m_PendingBuilds);
         const bool everyBuildRecorded = recorded == m_PendingBuilds.size();
+        m_VegetationBuildsReady = everyBuildRecorded ||
+                                  std::none_of(m_PendingBuilds.begin(), m_PendingBuilds.end(), [](const auto& build)
+                                               { return build.Vegetation; });
         if (!everyBuildRecorded)
         {
             OLO_CORE_WARN("[RayTracing] {} of {} BLAS builds could not be recorded this frame",
                           m_PendingBuilds.size() - recorded, m_PendingBuilds.size());
         }
 
-        // Now the pose bookkeeping, and only if EVERY request was recorded.
-        //
-        // All-or-nothing because the backend reports a COUNT, not which keys:
-        // it can skip an entry mid-loop on a failed size query or allocation,
-        // so a partial success cannot be attributed to particular keys from
-        // here. Re-deciding a handful of surfaces next frame is cheap;
-        // committing a pose for a build that never happened costs that surface
-        // its refits for the rest of the session.
-        //
-        // Widening this to per-key attribution means RecordBlasBuilds returning
-        // the keys it recorded — worth doing if the all-or-nothing ever shows
-        // up as churn, and not worth it before.
-        if (everyBuildRecorded)
+        // Commit only acknowledged writes. Vulkan reports keys so bounded
+        // warming makes progress after a partial batch; count-only backends
+        // retain the conservative all-or-nothing acknowledgement.
+        for (const PendingBlasCommit& commit : m_PendingBlasCommits)
         {
-            for (const PendingBlasCommit& commit : m_PendingBlasCommits)
+            if (!everyBuildRecorded && !m_Backend->WasBlasBuildRecorded(commit.Key))
+                continue;
+            if (auto found = m_Blas.find(commit.Key); found != m_Blas.end())
             {
-                if (auto found = m_Blas.find(commit.Key); found != m_Blas.end())
-                {
-                    found->second.Class = commit.Class;
-                    found->second.GeometryFingerprint = commit.GeometryFingerprint;
-                    found->second.DeformationRevision = commit.DeformationRevision;
-                    found->second.HasDeformation = commit.HasDeformation;
-                    found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
-                }
+                found->second.Class = commit.Class;
+                found->second.GeometryFingerprint = commit.GeometryFingerprint;
+                found->second.DeformationRevision = commit.DeformationRevision;
+                found->second.HasDeformation = commit.HasDeformation;
+                found->second.ConsecutiveRefits = commit.ConsecutiveRefits;
             }
         }
         m_PendingBlasCommits.clear();
@@ -689,6 +685,6 @@ namespace OloEngine::RayTracing
 
     u64 RayTracingScene::GetTlasDeviceAddress() const
     {
-        return IsAvailable() ? m_Backend->GetTlasDeviceAddress() : 0u;
+        return IsAvailable() && IsVegetationReady() ? m_Backend->GetTlasDeviceAddress() : 0u;
     }
 } // namespace OloEngine::RayTracing

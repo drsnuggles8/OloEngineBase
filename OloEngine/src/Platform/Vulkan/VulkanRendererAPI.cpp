@@ -3578,6 +3578,7 @@ namespace OloEngine
         }
         census(&ComputeDispatchCensusEntry::Recorded);
         vkCmdDispatch(ctx.Cmd, std::max(groupsX, 1u), std::max(groupsY, 1u), std::max(groupsZ, 1u));
+        shader->NotifyDispatchRecorded();
     }
 
     void VulkanRendererAPI::DispatchComputeIndirect(RHI::ResourceHandle argsBuffer, u32 offsetBytes)
@@ -3643,6 +3644,7 @@ namespace OloEngine
                                                              sizeof(VkDispatchIndirectCommand));
         info.addressFlags = VulkanAddressCommands::FlagsFor(args.Storage);
         vkCmdDispatchIndirect2KHR(ctx.Cmd, &info);
+        shader->NotifyDispatchRecorded();
     }
 
     void VulkanRendererAPI::SetFrameBackbuffer(const RHI::ResourceHandle handle, const VkImageView view,

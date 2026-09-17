@@ -429,6 +429,7 @@ namespace OloEngine
         // refuses every surface, which is what keeps the raster path
         // byte-identical to what it was before this feature.
         s_Data.DeformedSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
+        s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         // GPU per-instance frustum culler — compute shader is lazy-loaded on
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
@@ -806,6 +807,7 @@ namespace OloEngine
         // exactly the same ordering reason one level down: a BLAS retired above
         // must not be holding a vertex buffer this frees.
         s_Data.DeformedSurfaces.Shutdown();
+        s_Data.VegetationSurfaces.Shutdown();
         s_Data.PathTracerEmissive.Shutdown();
         s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.RasterMaterialTextures.Shutdown();

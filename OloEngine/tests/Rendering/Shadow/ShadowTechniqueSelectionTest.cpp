@@ -365,11 +365,14 @@ namespace OloEngine::Tests
 
     TEST(ShadowTechniqueSettings, TheRayTracingShadowUBOMatchesItsGlslBlock)
     {
-        // 400 B: 3 mat4 + 2 vec4[4] + uvec4 + 4 vec4. The static_assert in
-        // ShaderBindingLayout.h is the real guard; this repeats the number
-        // where a reader of the test suite can see it, and fails loudly if
-        // someone "fixes" the assert instead of the layout.
-        EXPECT_EQ(UBOStructures::RayTracingShadowUBO::GetSize(), 400u);
+        // 448 B: 3 mat4 + 2 vec4[4] + uvec4 + 4 vec4, plus the three uvec4
+        // the hybrid alpha test needs (#1240) — the GPU Scene instance,
+        // geometry and material read addresses, the raster material heap
+        // address, the scene slot counts and the sampler heap offset. The
+        // static_assert in ShaderBindingLayout.h is the real guard; this
+        // repeats the number where a reader of the test suite can see it, and
+        // fails loudly if someone "fixes" the assert instead of the layout.
+        EXPECT_EQ(UBOStructures::RayTracingShadowUBO::GetSize(), 448u);
         EXPECT_EQ(UBOStructures::RayTracingShadowUBO::GetSize() % 16u, 0u);
     }
 

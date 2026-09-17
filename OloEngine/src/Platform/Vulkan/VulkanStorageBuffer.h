@@ -103,6 +103,10 @@ namespace OloEngine
         // and launched EmitMeshTasksEXT(0) every frame. The reasoning lives at
         // the guard in PushSnapshot; do not re-derive it here.
         [[nodiscard]] VkDeviceAddress GetRootDataAddress();
+        [[nodiscard]] u64 GetCommandOrderedDeviceAddress() override
+        {
+            return static_cast<u64>(GetRootDataAddress());
+        }
 
         // Diagnostics and contract tests: the live snapshot's extent, and a
         // read-only view of its CPU-side bytes. Both report "no snapshot"

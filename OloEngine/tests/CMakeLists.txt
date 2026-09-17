@@ -430,6 +430,7 @@ add_executable(OloEngine-Tests
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
+		Rendering/RayTracing/VegetationPolicyTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp
 		# #1055: the GPU reference path tracer against the CPU reference on a
 		# real ray-tracing device — the same Cornell box for both, region means

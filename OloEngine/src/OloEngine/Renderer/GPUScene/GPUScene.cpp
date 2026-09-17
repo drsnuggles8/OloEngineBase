@@ -385,6 +385,10 @@ namespace OloEngine
             {
                 return m_Buffer ? m_Buffer->GetRHIHandle() : RHI::ResourceHandle{};
             }
+            [[nodiscard]] u64 CommandOrderedAddress()
+            {
+                return m_Buffer ? m_Buffer->GetCommandOrderedDeviceAddress() : 0u;
+            }
 
             // Registry counters only; Upload() fills m_UploadBytes afterwards.
             [[nodiscard]] GPUSceneKindStats Stats() const
@@ -803,6 +807,12 @@ namespace OloEngine
     RHI::ResourceHandle GPUScene::GetMaterialBufferHandle() const
     {
         return m_Impl->m_Materials.BufferHandle();
+    }
+
+    std::array<u64, 3> GPUScene::GetRayTracingReadAddresses() const
+    {
+        return { m_Impl->m_Instances.CommandOrderedAddress(), m_Impl->m_Geometries.CommandOrderedAddress(),
+                 m_Impl->m_Materials.CommandOrderedAddress() };
     }
 
     RHI::ResourceHandle GPUScene::GetLightBufferHandle() const

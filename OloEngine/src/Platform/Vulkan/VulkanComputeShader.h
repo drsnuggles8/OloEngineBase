@@ -67,6 +67,14 @@ namespace OloEngine
         {
             return m_Module != VK_NULL_HANDLE;
         }
+        [[nodiscard]] u64 GetRecordedDispatchCount() const override
+        {
+            return m_RecordedDispatches.load(std::memory_order_relaxed);
+        }
+        void NotifyDispatchRecorded() const
+        {
+            m_RecordedDispatches.fetch_add(1u, std::memory_order_relaxed);
+        }
         [[nodiscard]] u32 GetRendererID() const override
         {
             return 0; // no native GL name exists on this backend
@@ -128,6 +136,7 @@ namespace OloEngine
         // flag, built under the mutex. Reload resets both on the render
         // thread, outside any region.
         std::atomic<bool> m_RootLayoutBuilt{ false };
+        mutable std::atomic<u64> m_RecordedDispatches{ 0u };
         std::mutex m_RootLayoutMutex;
         RHI::ScopedResourceHandle m_RHIHandle;
 

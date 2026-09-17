@@ -10014,6 +10014,8 @@ namespace OloEngine
                     }
 
                     foliage.m_Renderer->SetTime(animationTime, prevAnimationTime);
+                    foliage.m_Renderer->QueueRayTracing(
+                        static_cast<u64>(m_Registry.get<IDComponent>(foliageEntity).ID), cameraPosition);
                     i32 entityID = static_cast<i32>(std::to_underlying(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 

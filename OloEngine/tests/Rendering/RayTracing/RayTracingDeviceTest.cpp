@@ -29,7 +29,12 @@
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
+#include "OloEngine/Renderer/GPUScene/GPUScene.h"
+#include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 #include "OloEngine/Renderer/Material.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -37,6 +42,15 @@
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Vertex.h"
+#include "OloEngine/Renderer/Model.h"
+#include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/MeshOptimization.h"
+#include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Foliage/FoliageWind.h"
+#include <stb_image/stb_image_write.h>
+#include <fstream>
+#include <chrono>
 
 #include "../RenderingTestUtils.h"
 
@@ -46,6 +60,8 @@
 #include "../VulkanTestSupport.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanBufferResources.h"
+#include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
@@ -796,5 +812,7 @@ namespace OloEngine::Tests
             << "the masked candidate must be REJECTED once its cutoff exceeds the sample";
     }
 
+#include "VegetationExperiment.inl"
+#include "VegetationSurfaceCacheDevice.inl"
 #endif // OLO_WITH_VULKAN
 } // namespace OloEngine::Tests
