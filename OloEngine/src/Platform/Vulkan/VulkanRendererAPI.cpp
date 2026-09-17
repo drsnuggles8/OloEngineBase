@@ -5059,11 +5059,24 @@ namespace OloEngine
             {
                 return;
             }
-            const VkImageAspectFlags aspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            const VkImageAspectFlags srcAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*srcInfo));
+            const VkImageAspectFlags dstAspectMask = VulkanBarrierLowering::AspectMaskFor(AspectFromInfo(*dstInfo));
             const VkImageAspectFlags requestedMask = aspect == RHI::BlitAspect::Color ? VK_IMAGE_ASPECT_COLOR_BIT : ((aspect == RHI::BlitAspect::Depth || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_DEPTH_BIT : 0u) | (aspect == RHI::BlitAspect::Stencil || aspect == RHI::BlitAspect::DepthStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0u));
-            const VkImageAspectFlags operationMask = aspectMask & requestedMask;
-            if (operationMask == 0u)
+            if ((srcAspectMask & requestedMask) != requestedMask || (dstAspectMask & requestedMask) != requestedMask)
+            {
+                UnimplementedStub("BlitFramebuffer(requested aspect missing)", StubKind::PreconditionFailure);
                 return;
+            }
+            // This lowering copies values in matching formats; it does not
+            // implement GL's colour conversion (e.g. deferred debug channels
+            // into RGBA16F). Even size-compatible colour copies reinterpret
+            // bits rather than convert values, so refuse that unsupported arm.
+            if (srcInfo->Format != dstInfo->Format)
+            {
+                UnimplementedStub("BlitFramebuffer(format conversion not lowered)", StubKind::PreconditionFailure);
+                return;
+            }
+            const VkImageAspectFlags operationMask = requestedMask;
             const bool resolving = srcInfo->Samples > 1u && dstInfo->Samples == 1u;
             if (srcInfo->Samples != dstInfo->Samples && !resolving)
             {
@@ -5071,8 +5084,8 @@ namespace OloEngine
                 return;
             }
             std::vector<VkImageMemoryBarrier2> toTransfer;
-            const VkImageSubresourceRange srcRange{ aspectMask, 0u, 1u, 0u, 1u };
-            const VkImageSubresourceRange dstRange{ aspectMask, 0u, 1u, 0u, 1u };
+            const VkImageSubresourceRange srcRange{ srcAspectMask, 0u, 1u, 0u, 1u };
+            const VkImageSubresourceRange dstRange{ dstAspectMask, 0u, 1u, 0u, 1u };
             if (resolving && (operationMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0u)
             {
                 // Depth has no vkCmdResolveImage arm. A LOAD-only rendering
