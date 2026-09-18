@@ -411,12 +411,20 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // mirroring PBRMaterialProperties depends on both.
     //
     // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile
-    // group, which was INSERTED after the physical scalars and before the heap
-    // offsets — so every offset asserted below is unchanged and only the
-    // trailing two moved. That is the property this test is really guarding.
+    // group, and 192 -> 240 with issue #1242's thin-region transmission group.
+    // BOTH were INSERTED after the physical scalars and before the heap offsets
+    // — so every offset asserted below is unchanged and only the trailing lanes
+    // moved. That is the property this test is really guarding, and it is why
+    // the growth is safe: a shader declaring only a PREFIX of this block (every
+    // non-bindless one does) still reads the same bytes for the same fields.
+    //
+    // Appending after HeapOffsets instead would have been the silent break:
+    // include/BindlessHeap.glsl and WriteMaterialHeapOffsets both index them as
+    // the TRAILING block, so a field after them relayouts every material
+    // texture's descriptor offset while compiling, linking and drawing normally.
     using UBO = ShaderBindingLayout::PBRMaterialUBO;
 
-    EXPECT_EQ(sizeof(UBO), 192u);
+    EXPECT_EQ(sizeof(UBO), 240u);
     EXPECT_EQ(offsetof(UBO, TransmissionFactor), 96u);
     EXPECT_EQ(offsetof(UBO, IOR), 100u);
     EXPECT_EQ(offsetof(UBO, ThicknessFactor), 104u);
@@ -424,7 +432,13 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     EXPECT_EQ(offsetof(UBO, AttenuationSigmaG), 112u);
     EXPECT_EQ(offsetof(UBO, AttenuationSigmaB), 116u);
     EXPECT_EQ(offsetof(UBO, MaterialKind), 120u) << "the #1231 material-kind group starts where the two spare pads were";
-    EXPECT_EQ(offsetof(UBO, HeapOffsets), 144u) << "the heap-offset lanes must stay LAST (issue #691)";
+    // The #1242 transmission lanes sit on a 16-byte boundary, which is WHY they
+    // may be genuine vec4s while the sigma and the specular tint above had to be
+    // bare scalars: on this offset std140 inserts nothing in front of them.
+    EXPECT_EQ(offsetof(UBO, SkinTransmitScatter), 144u)
+        << "the #1242 transmission lanes must start on a 16-byte boundary, or std140 pads in front of them";
+    EXPECT_EQ(offsetof(UBO, SkinTransmitScaling), 160u);
+    EXPECT_EQ(offsetof(UBO, HeapOffsets), 192u) << "the heap-offset lanes must stay LAST (issue #691)";
 
     // A default-constructed UBO is neutral, which is what a draw that never
     // touched a physical material uploads.
@@ -434,5 +448,13 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     EXPECT_FLOAT_EQ(ubo.AttenuationSigmaR, 0.0f);
     EXPECT_FLOAT_EQ(ubo.AttenuationSigmaG, 0.0f);
     EXPECT_FLOAT_EQ(ubo.AttenuationSigmaB, 0.0f);
+    // #1242's lanes are neutral at their defaults too: an all-zero scatter lane
+    // makes the transmittance black, so a material that never touched the new
+    // setters transmits NOTHING rather than acquiring someone else's lobe.
+    EXPECT_FLOAT_EQ(ubo.SkinTransmitScatter.x, 0.0f);
+    EXPECT_FLOAT_EQ(ubo.SkinTransmitScatter.y, 0.0f);
+    EXPECT_FLOAT_EQ(ubo.SkinTransmitScatter.z, 0.0f);
+    EXPECT_FLOAT_EQ(ubo.SkinThicknessBaseMM, 0.0f);
+    EXPECT_EQ(ubo.UseThicknessMap, 0);
     EXPECT_FLOAT_EQ(ubo.IOR, kDefaultIOR);
 }
