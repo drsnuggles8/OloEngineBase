@@ -34,11 +34,15 @@ species, and is also what the instance bounds are padded by — see *Bounds*.
 one step of `dt` is exact for any `dt`:
 
 ```
-e = exp(-w dt)
-b = v + w (x - T)
-x' = T + ((x - T) + b dt) e
-v' = (v - b w dt) e
+e      = exp(-w dt)
+b      = v + w (x - T)
+x_next = T + ((x - T) + b dt) e
+v_next = (v - b w dt) e
 ```
+
+`x` / `v` are `FoliageSpringState::Value` and `::Velocity` before the step and
+`x_next` / `v_next` after it; the primes in the differential equation above are
+derivatives and nothing else.
 
 Three properties follow, and each is a failure this replaces:
 

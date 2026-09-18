@@ -293,6 +293,42 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(FoliageInteractionField::GetMaximumBendRate(), 0.0f);
     }
 
+    // A full field of LIVE actors must not cannibalise itself. Every one of
+    // these wants to plant a footprint every frame and there is no spare slot,
+    // so the field has to degrade to "nobody gets a trail" — never to "whichever
+    // actor the loop reached first takes someone else's slot", which is an
+    // order-dependent drop of a live influence.
+    TEST(FoliageInteractionContract, LiveActorsNeverEvictOneAnother)
+    {
+        FieldReset guard;
+        std::vector<FoliageInteractionSource> sources;
+        for (u64 id = 1; id <= kFoliageInteractionSlots; ++id)
+        {
+            auto source = MakeSource(id, { static_cast<f32>(id) * 40.0f, 0.0f, 0.0f });
+            source.TrailSpacing = 0.1f; // every frame's travel exceeds it
+            sources.push_back(source);
+        }
+
+        for (u32 frame = 0; frame < 120; ++frame)
+        {
+            for (auto& source : sources)
+                source.Position.z += 0.3f;
+            Step(sources, 1.0f / 60.0f);
+        }
+
+        ASSERT_EQ(FoliageInteractionField::GetActiveCount(), kFoliageInteractionSlots);
+        const auto gpu = FoliageInteractionField::GetGPUData();
+        // An evicted slot is wiped and restarts from a zero spring, so the
+        // WEAKEST slot is what gives the theft away — the count alone does not,
+        // because the thief refills the slot it took.
+        f32 weakest = std::numeric_limits<f32>::max();
+        for (u32 i = 0; i < static_cast<u32>(gpu.Params.x); ++i)
+            weakest = std::min(weakest, std::abs(gpu.Slots[i].Push.z));
+        EXPECT_GT(weakest, 0.5f)
+            << "a live influence was evicted by another live influence — weakest radial push "
+            << weakest;
+    }
+
     TEST(FoliageInteractionContract, AWalkingActorShedsATrailThatRecoversBehindIt)
     {
         FieldReset guard;

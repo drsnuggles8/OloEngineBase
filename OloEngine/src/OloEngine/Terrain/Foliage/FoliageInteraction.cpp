@@ -282,13 +282,21 @@ namespace OloEngine
 
         // Full. Evict the faintest RESIDUAL, and only if this source would
         // out-push it — otherwise a crowd of weak influences churns the field
-        // and nothing ever holds still. A slot already stamped this frame is
-        // never a candidate: evicting it would silently drop a live actor.
+        // and nothing ever holds still.
+        //
+        // A LIVE SLOT IS NEVER A CANDIDATE, and `Stamped` alone does not say
+        // that: it is cleared for every slot at the top of the frame and set
+        // again only as each source is reached, so a source still waiting its
+        // turn later in `sources` looks unstamped here. Evicting it would wipe
+        // a live actor's spring state and its identity, and WHICH actor lost
+        // would depend on iteration order. `SourceId == 0` is the residual
+        // marker (Shed and the relax pass both set it), so it is the test that
+        // actually means "nobody owns this".
         Slot* weakest = nullptr;
         f32 weakestWeight = std::numeric_limits<f32>::max();
         for (auto& slot : s_Data.Slots)
         {
-            if (slot.Stamped || &slot == exclude)
+            if (slot.Stamped || slot.SourceId != 0 || &slot == exclude)
                 continue;
             if (const f32 weight = SlotWeight(slot.Spring); weight < weakestWeight)
             {
