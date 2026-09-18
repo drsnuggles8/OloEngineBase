@@ -1691,8 +1691,17 @@ namespace OloEngine::MCP
                                 u32 diffusing = 0;
                                 for (u32 slot = 0; slot < assigned; ++slot)
                                 {
-                                    if (profiles.GetParametersForSlot(slot).EvaluationModel ==
-                                        SkinEvaluationModel::ScreenSpaceDiffusion)
+                                    // BOTH diffusing transports (issue #1242).
+                                    // Version 2 is "everything version 1 does,
+                                    // plus transmission", so it diffuses too —
+                                    // counting only version 1 would tell the
+                                    // caller that an all-version-2 scene's
+                                    // diffusion toggle "changes nothing" while
+                                    // it in fact changes every skin pixel.
+                                    const SkinEvaluationModel model =
+                                        profiles.GetParametersForSlot(slot).EvaluationModel;
+                                    if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
+                                        model == SkinEvaluationModel::ThicknessTransmission)
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

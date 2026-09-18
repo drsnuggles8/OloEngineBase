@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
+#include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Wind/WindSystem.h"
 #include "FoliageRenderer.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -174,12 +175,29 @@ namespace OloEngine
                     wind.MeshParams.x = mesh ? 1.0f : 0.0f;
                     wind.MeshParams.z = impostor ? 1.0f : 0.0f;
                     wind.ImpostorParams1.x = impostor ? 1.0f : 0.0f;
+                    // The ray-traced vegetation representation (issue #1240)
+                    // takes the same influence set as the raster passes, so a
+                    // plant a character is standing on casts a bent ray-traced
+                    // shadow too. It is a SNAPSHOT: the cache's refresh key
+                    // deliberately excludes time (see VegetationSurfaceCache),
+                    // so interaction reaches RT on the same cadence wind phase
+                    // does, not per frame. The velocity bound below is what
+                    // keeps that cadence honest.
+                    ApplyFoliageInteraction(wind, layer.InteractionResponse);
                     input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
                     const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
                     input.VelocityBound = RayTracing::VegetationPolicy::WindVelocityBound(
                         layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
                         hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
                         field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
+                    // A running actor moves a plant far faster than wind does,
+                    // and ProxyAgeLimit is error/velocity — so a bound that
+                    // ignored interaction would keep serving a snapshot taken
+                    // before the actor arrived. Reported by the field from its
+                    // own springs rather than estimated here.
+                    if (const f32 bendRate = FoliageInteractionField::GetMaximumBendRate();
+                        std::isfinite(bendRate) && std::isfinite(input.VelocityBound))
+                        input.VelocityBound += bendRate * layer.InteractionResponse * transformNorm;
                     cache.Queue(std::move(input));
                 }
             }
@@ -619,6 +637,12 @@ namespace OloEngine
             renderData.WindStrength = layer.WindStrength;
             renderData.WindSpeed = layer.WindSpeed;
             renderData.WindWeights = SanitizeFoliageWind(layer.WindStiffness, layer.WindBranchWeight, layer.WindLeafWeight, layer.WindDebugDisplacement);
+            // Sanitised here, once, rather than at each of the three UBO-fill
+            // sites: this number scales a displacement AND derives the bound
+            // that displacement is padded into, so the two must come from the
+            // same value or a layer can bend further than its own AABB.
+            renderData.InteractionResponse =
+                std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
 
@@ -766,6 +790,12 @@ namespace OloEngine
                                             (meshRequested && !meshDrawable);
 
             renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights, m_LegacyWindEnvelope);
+            // Derived from the AUTHORED response, not from whatever the field
+            // happens to hold this frame: the profile is hashed into every
+            // instance's identity, so a bound that moved with a passing actor
+            // would retire and re-issue the whole layer's ids as it walked past.
+            renderData.BoundsProfile.m_InteractionDisplacement =
+                FoliageInteractionMaximumDisplacement(renderData.InteractionResponse);
             m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
                                   FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
                                   FoliagePlacement::SpacingForDensity(layer.Density),
@@ -905,6 +935,10 @@ namespace OloEngine
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
                                                       draw.HandoverStart, draw.HandoverEnd, 0.0f);
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                // The interaction field (issue #1238). Read from the field
+                // itself, exactly as the wind snapshot above is — the set is
+                // global per frame, so only the layer's response is per draw.
+                ApplyFoliageInteraction(foliageUBOData, layer.InteractionResponse);
 
                 // The leaf material (issue #1234). Filled here so this path
                 // stays coherent: a default-constructed FoliageUBO would upload
@@ -1056,6 +1090,10 @@ namespace OloEngine
                 // the lit frame drew the card and the plant's shadow would be a
                 // different shape than the plant (issue #1233, fourth criterion).
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                // The SAME influence set the lit pass reads (issue #1238).
+                // Without it a plant bends and its shadow does not, which reads
+                // as a detached shadow rather than as a missing feature.
+                ApplyFoliageInteraction(foliageUBOData, layer.InteractionResponse);
                 if (impostor)
                 {
                     foliageUBOData.ViewDistance = draw.ViewDistance;
@@ -1198,6 +1236,7 @@ namespace OloEngine
                 info.WindStrength = layer.WindStrength;
                 info.WindSpeed = layer.WindSpeed;
                 info.WindWeights = layer.WindWeights;
+                info.InteractionResponse = layer.InteractionResponse;
                 info.BaseColor = layer.BaseColor;
                 info.AlphaCutoff = layer.AlphaCutoff;
                 info.Bounds = layer.Bounds;

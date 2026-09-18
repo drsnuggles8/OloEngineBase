@@ -48,9 +48,11 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<FluidKillVolumeComponent, true>("FluidKillVolumeComponent");
     visitor.template operator()<FogVolumeComponent, true>("FogVolumeComponent");
     visitor.template operator()<FoliageComponent, true>("FoliageComponent");
+    visitor.template operator()<FoliageInteractionComponent, true>("FoliageInteractionComponent");
     visitor.template operator()<FootIKComponent, true>("FootIKComponent");
     visitor.template operator()<FootIKStateComponent, false>("FootIKStateComponent");
     visitor.template operator()<GoapAgentComponent, true>("GoapAgentComponent");
+    visitor.template operator()<GroomBindingComponent, true>("GroomBindingComponent");
     visitor.template operator()<GroomComponent, true>("GroomComponent");
     visitor.template operator()<IDComponent, false>("IDComponent");
     visitor.template operator()<IKTargetComponent, true>("IKTargetComponent");

@@ -84,6 +84,28 @@ namespace OloEngine
         u32 CachedGrooms = 0;
         u32 CacheBuilds = 0;
         u32 CacheEvictions = 0;
+
+        // ── Surface binding (#1249) ──────────────────────────────────
+
+        /// Grooms drawn deformed by a body surface this frame.
+        u32 GroomsDeformed = 0;
+        /// Grooms that asked to be bound and were refused. Non-zero means a coat
+        /// is at its bind pose while its body animates, which is exactly the
+        /// case that must never be silent.
+        u32 GroomsBindingRefused = 0;
+        /// Strand roots carried by a valid deformed frame this frame.
+        u32 RootsDeformed = 0;
+        /// Strand roots held at rest because their deformed triangle collapsed.
+        u32 RootsHeldAtRest = 0;
+        /// Dynamic vertex-buffer refills a deformed groom cost this frame. One
+        /// per deformed groom is healthy; more means the geometry is being
+        /// reallocated, not refilled.
+        u32 DeformedRebuilds = 0;
+        /// Grooms whose previous-frame strand positions were NOT usable, so the
+        /// frame emitted zero motion for them rather than a velocity across a
+        /// discontinuity.
+        u32 GroomsHistoryRejected = 0;
+
         GroomCompositionStats Composition;
 
         void Reset() noexcept
@@ -149,6 +171,16 @@ namespace OloEngine
         /// something tests it.
         [[nodiscard]] static u64 CacheKey(const GroomStrandRequest& request) noexcept;
 
+        /// Whether this request's geometry is per-ENTITY rather than per-asset.
+        ///
+        /// A bound groom's vertices depend on a body's pose, so two entities
+        /// sharing one groom asset cannot share one buffer — the same reason
+        /// RayTracing::DeformedSurfaceCache keys its surfaces per entity. Named
+        /// and public because the cache key and the rebuild path must agree
+        /// about it, and a disagreement would hand one character's coat to
+        /// another.
+        [[nodiscard]] static bool IsDeformed(const GroomStrandRequest& request) noexcept;
+
       private:
         // One groom's GPU geometry, keyed by asset handle.
         struct CacheEntry
@@ -160,6 +192,12 @@ namespace OloEngine
             GroomStrandMeshStats Stats;
             u64 Bytes = 0;
             u32 LastUsedFrame = 0;
+
+            /// True when the buffers were created for repeated refills, which is
+            /// what a bound groom needs: its vertices change every frame with
+            /// the body's pose. A static entry's buffers are immutable and must
+            /// never be handed to the refill path.
+            bool Dynamic = false;
         };
 
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);

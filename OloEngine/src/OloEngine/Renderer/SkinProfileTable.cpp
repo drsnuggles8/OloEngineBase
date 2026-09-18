@@ -4,6 +4,8 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
 
+#include <utility>
+
 namespace OloEngine
 {
     SkinProfileResolution SkinProfileTable::Resolve(AssetHandle handle)
@@ -168,6 +170,41 @@ namespace OloEngine
         }
     }
 
+    void SkinProfileTable::ReportTransmissionFallback(SkinTransmissionFallbackReason reason, AssetHandle handle)
+    {
+        const u64 handleKey = static_cast<u64>(handle);
+        // The dedupe key mixes the reason in, so two different reasons on ONE
+        // material both get a line. The shift is by the reason count rounded up
+        // to a power of two rather than by 64 bits of hash: the reasons are a
+        // handful and the handles are sparse, so a plain multiply-add cannot
+        // realistically collide, and a collision would cost a missing log line
+        // rather than a wrong count (the counter below is incremented
+        // unconditionally).
+        const u64 dedupeKey = (handleKey * static_cast<u64>(kSkinTransmissionFallbackReasonCount)) +
+                              static_cast<u64>(std::to_underlying(reason));
+
+        std::scoped_lock lock(m_Mutex);
+        ++m_TransmissionFallbackCounts[static_cast<sizet>(reason)];
+        if (m_LoggedTransmissionKeys.insert(dedupeKey).second)
+        {
+            // WARN, not ERROR: unlike a missing profile, every one of these
+            // leaves a correct-looking frame that is simply missing an effect,
+            // and the conservative fallback is a deliberate design answer rather
+            // than a broken asset. Loud enough to find, not loud enough to cry
+            // wolf. See docs/guides/skin-transmission.md for what each reason
+            // means and how to fix it.
+            OLO_CORE_WARN("SkinProfileTable - skin material with profile {} gets no thin-region transmission, or a "
+                          "degraded one ({}); see docs/guides/skin-transmission.md.",
+                          handleKey, ToString(reason));
+        }
+    }
+
+    u64 SkinProfileTable::GetTransmissionFallbackCount(SkinTransmissionFallbackReason reason) const
+    {
+        std::scoped_lock lock(m_Mutex);
+        return m_TransmissionFallbackCounts[static_cast<sizet>(reason)];
+    }
+
     void SkinProfileTable::ForgetFailedHandle(AssetHandle handle)
     {
         const u64 key = static_cast<u64>(handle);
@@ -185,7 +222,9 @@ namespace OloEngine
         m_SlotByHandle.clear();
         m_Parameters.fill(SkinProfileParameters{});
         m_FallbackCounts.fill(0);
+        m_TransmissionFallbackCounts.fill(0);
         m_LoggedHandles.clear();
+        m_LoggedTransmissionKeys.clear();
         m_FailedHandles.clear();
         m_NextSlot = 0;
     }

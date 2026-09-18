@@ -93,7 +93,7 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 // the shared one is wrong.
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[21];
+    uvec4 g_OloHeapOffsets[22];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
@@ -199,6 +199,14 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // MAX_ENGINE_TEXTURE_SLOTS = TEX_SHADER_GRAPH_0 + 1 — so it MOVES whenever an
 // engine texture slot is added, and this literal does not move with it.
 //
+// 78 since issue #1242 inserted TEX_SKIN_THICKNESS (76) and pushed the
+// shader-graph base to 77. That bump ALSO moved the array size above — 86 used
+// entries round to 88 rather than the 84 they rounded to before — so for once
+// both mirrors moved, as they did for #715 below.
+//
+// 76 before that, since issue #1140 inserted TEX_RESTIR_DI_RADIANCE and pushed
+// the shader-graph base to 74, then #1169 added TEX_RESTIR_GI_RADIANCE.
+//
 // 72 since issue #967 inserted TEX_WATER_DISTURBANCE (70) and pushed the
 // shader-graph base to 71.
 //
@@ -220,7 +228,7 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // headless CI. It is now pinned headlessly by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout — if you are here
 // because that failed, update this number, do not relax the test.
-#define OLO_HEAP_IMAGE_BASE 76u
+#define OLO_HEAP_IMAGE_BASE 78u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 
 // Pass this as `mem` for an image you both read and write, or for one with no
@@ -283,5 +291,16 @@ layout(std140, binding = 56) uniform OloHeapOffsetBlock
 // material 2D descriptor is minted with, and it is frame-uniform rather than
 // per-material. [2].w was the block's reserved unused lane (amendment (96)).
 #define OLO_MATERIAL_SAMPLER_OFFSET u_MaterialHeapOffsets[2].w
+
+// THE THICKNESS MAP OFFSET (issue #1242) — NOT a lane of u_MaterialHeapOffsets.
+// Every lane of the three is taken ([2].w is the sampler offset above), so this
+// one rides a bare `uint u_ThicknessMapHeapOffset` scalar in the material block.
+// A scalar has none of the std140 stride problem the uvec4 shaping exists to
+// dodge, because that problem was `uint[9]`'s 16-byte stride.
+//
+// Named here anyway, beside the lane macros, so a shader spells the thickness
+// offset the same way it spells every other one and nobody has to know which of
+// the two shapes it happens to be.
+#define OLO_MATERIAL_THICKNESS_OFFSET u_ThicknessMapHeapOffset
 
 #endif // OLO_BINDLESS_HEAP_GLSL

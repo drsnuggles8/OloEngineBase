@@ -456,6 +456,24 @@ if (auto node = entity["FogVolumeComponent"]; node)
     comp.m_DensityVolume = node["DensityVolume"].as<u64>(static_cast<u64>(comp.m_DensityVolume));
 }
 
+if (auto node = entity["FoliageInteractionComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<FoliageInteractionComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Radius"], v))
+        comp.m_Radius = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(64.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Height"], v))
+        comp.m_Height = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Strength"], v))
+        comp.m_Strength = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Falloff"], v))
+        comp.m_Falloff = std::clamp(v, static_cast<f32>(0.25f), static_cast<f32>(16.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RecoverySeconds"], v))
+        comp.m_RecoverySeconds = std::clamp(v, static_cast<f32>(0.02f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TrailSpacing"], v))
+        comp.m_TrailSpacing = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["FootIKComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<FootIKComponent>();
@@ -501,6 +519,17 @@ if (auto node = entity["FootIKComponent"]; node)
     comp.AlignFootToSlope = node["AlignFootToSlope"].as<bool>(comp.AlignFootToSlope);
     comp.LeftHandEnabled = node["LeftHandEnabled"].as<bool>(comp.LeftHandEnabled);
     comp.RightHandEnabled = node["RightHandEnabled"].as<bool>(comp.RightHandEnabled);
+}
+
+if (auto node = entity["GroomBindingComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomBindingComponent>();
+    comp.m_Binding = node["Binding"].as<u64>(static_cast<u64>(comp.m_Binding));
+    comp.m_TargetEntity = node["TargetEntity"].as<u64>(static_cast<u64>(comp.m_TargetEntity));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TeleportDistance"], v))
+        comp.m_TeleportDistance = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(10000.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_ShowBindingPreview = node["ShowBindingPreview"].as<bool>(comp.m_ShowBindingPreview);
 }
 
 if (auto node = entity["GroomComponent"]; node)

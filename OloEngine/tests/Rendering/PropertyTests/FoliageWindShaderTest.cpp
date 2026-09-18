@@ -16,7 +16,7 @@ namespace OloEngine::Tests
         OLO_ENSURE_GPU_OR_SKIP();
         GLStateGuard guard("FoliageWindShader", GLStateGuard::Policy::Restore);
         FramebufferSpecification spec;
-        spec.Width = 9;
+        spec.Width = 10;
         spec.Height = 1;
         spec.Attachments = { FramebufferTextureFormat::RGBA16F };
         auto framebuffer = Framebuffer::Create(spec);
@@ -24,7 +24,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(shader);
         ASSERT_TRUE(shader->IsReady());
         framebuffer->Bind();
-        glViewport(0, 0, 9, 1);
+        glViewport(0, 0, 10, 1);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_BLEND);
         glDisable(GL_CULL_FACE);
@@ -34,8 +34,8 @@ namespace OloEngine::Tests
         glFinish();
         framebuffer->Unbind();
         std::vector<f32> pixels;
-        ReadbackRgbaFloat(framebuffer->GetColorAttachmentRendererID(0), 9, 1, pixels);
-        ASSERT_EQ(pixels.size(), 36u);
+        ReadbackRgbaFloat(framebuffer->GetColorAttachmentRendererID(0), 10, 1, pixels);
+        ASSERT_EQ(pixels.size(), 40u);
         const auto magnitude = [&pixels](sizet column)
         { return glm::length(glm::vec3(pixels[column * 4], pixels[column * 4 + 1], pixels[column * 4 + 2])); };
         EXPECT_LT(magnitude(0), 1e-5f) << "legacy defaults changed";
@@ -47,6 +47,13 @@ namespace OloEngine::Tests
         EXPECT_LT(magnitude(7), 0.01f) << "legacy enabled field clock or amplitude changed";
         EXPECT_GT(magnitude(8), 1e-3f) << "noncentral impostor history must rotate with its centre";
         EXPECT_LE(magnitude(6), FoliageWindMaximumDisplacement(2.0f, { 0.4f, 1.0f, 1.0f, 0.0f }) + 0.005f);
+        // Column 9 (issue #1238): a LEGACY layer under an enabled wind field,
+        // bent by an interaction, is the first case that reaches
+        // foliageWindNormal with u_WindClock.x != u_Time. If its finite
+        // difference evaluates the wind on the wrong clock, the gap is divided
+        // by epsilon = 0.001 and the transported normal points anywhere; a
+        // small bend near the root must leave it within a few degrees of +Y.
+        EXPECT_GT(pixels[9 * 4], 0.9f) << "the normal Jacobian differenced two different clocks";
     }
     TEST(FoliageWindShader, ReinitializationRequiresAFrameBeforeWindHistoryIsValid)
     {

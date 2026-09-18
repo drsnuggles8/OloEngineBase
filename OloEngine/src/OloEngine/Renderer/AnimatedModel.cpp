@@ -1587,7 +1587,7 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
-    std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type)
+    std::vector<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, i32 semanticIndex)
     {
         std::vector<Ref<Texture2D>> textures;
 
@@ -1602,10 +1602,43 @@ namespace OloEngine
         // different sRGB intents must not share a cached Ref.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
+        // THE SEMANTIC INDEX, when the caller named one.
+        //
+        // Both glTF volume/transmission textures land on
+        // aiTextureType_TRANSMISSION and are told apart ONLY by semantic index:
+        // 0 is KHR_materials_transmission's map, 1 is KHR_materials_volume's
+        // THICKNESS map (issue #1242).
+        //
+        // ITERATING GetTextureCount CANNOT REACH INDEX 1, and that is the trap
+        // GltfPhysicalMaterial.cpp already documents: GetTextureCount returns
+        // how MANY textures carry the semantic, not the highest index in use. A
+        // material with a thickness map and no transmission map has count 1, so
+        // the plain loop below probes index 0 -- which is absent -- and reports
+        // "no texture" about a material that has one.
+        //
+        // So a caller that wants a specific index says so, and gets exactly that
+        // index probed rather than a count-derived guess.
+        std::vector<u32> semanticIndices;
+        if (semanticIndex >= 0)
+        {
+            semanticIndices.push_back(static_cast<u32>(semanticIndex));
+        }
+        else
+        {
+            for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
+                semanticIndices.push_back(i);
+        }
+
+        for (const u32 i : semanticIndices)
         {
             aiString str;
-            mat->GetTexture(type, i, &str);
+            // CHECKED, unlike the count-driven path where the index is known to
+            // exist by construction. An explicitly named index may simply be
+            // absent, and an unchecked GetTexture leaves `str` untouched -- which
+            // would then be read as a path and reported as a load failure rather
+            // than as "this material has no such map".
+            if (mat->GetTexture(type, i, &str) != AI_SUCCESS || str.length == 0)
+                continue;
 
             std::string filename = str.C_Str();
 
@@ -1967,6 +2000,33 @@ namespace OloEngine
         if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.empty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
+        }
+
+        // THE THICKNESS MAP (issue #1242) — KHR_materials_volume's thickness
+        // texture, at semantic index 1 of aiTextureType_TRANSMISSION. Index 1
+        // NAMED EXPLICITLY: GetTextureCount cannot reach it, which is why
+        // LoadMaterialTextures takes an index at all (see its comment).
+        //
+        // Linear, not sRGB — it is a thickness, not a colour, and
+        // LoadMaterialTextures' srgb test already excludes this semantic.
+        //
+        // This closes the gap GltfPhysicalMaterial.cpp used to only COUNT:
+        // before #1242 a thickness texture raised ThicknessMapsIgnored and was
+        // dropped, so an authored ear arrived uniformly thick.
+        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, /*semanticIndex=*/1);
+            !thicknessMaps.empty())
+        {
+            material.SetThicknessMap(thicknessMaps[0]);
+        }
+        else if (aiString declared; mat->GetTexture(aiTextureType_TRANSMISSION, 1, &declared) == AI_SUCCESS)
+        {
+            // Declared but unloadable — see the identical branch in
+            // Model::ProcessMaterial. Both import routes report it, because a
+            // feature added to one and not the other is how the same asset comes
+            // to shade differently static vs skinned (this header's own warning).
+            aiString materialName;
+            mat->Get(AI_MATKEY_NAME, materialName);
+            NoteThicknessMapUnloadable(materialName.C_Str(), material.GetThicknessFactor());
         }
 
         // Diagnostic: what textures ended up where for this material?

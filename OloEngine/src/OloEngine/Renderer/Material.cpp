@@ -30,7 +30,8 @@ namespace OloEngine
           m_MetallicFactor(other.m_MetallicFactor), m_RoughnessFactor(other.m_RoughnessFactor),
           m_NormalScale(other.m_NormalScale), m_OcclusionStrength(other.m_OcclusionStrength), m_EnableIBL(other.m_EnableIBL),
           m_AlbedoMap(other.m_AlbedoMap), m_MetallicRoughnessMap(other.m_MetallicRoughnessMap), m_NormalMap(other.m_NormalMap),
-          m_AOMap(other.m_AOMap), m_EmissiveMap(other.m_EmissiveMap), m_EnvironmentMap(other.m_EnvironmentMap),
+          m_AOMap(other.m_AOMap), m_EmissiveMap(other.m_EmissiveMap), m_ThicknessMap(other.m_ThicknessMap),
+          m_EnvironmentMap(other.m_EnvironmentMap),
           m_IrradianceMap(other.m_IrradianceMap), m_PrefilterMap(other.m_PrefilterMap), m_BRDFLutMap(other.m_BRDFLutMap),
           // The alpha mode + cutoff were MISSING from this hand-written copy (issue #629). A copy
           // of an alpha-masked material therefore came back OPAQUE, and the paths that copy a
@@ -98,6 +99,7 @@ namespace OloEngine
             m_NormalMap = other.m_NormalMap;
             m_AOMap = other.m_AOMap;
             m_EmissiveMap = other.m_EmissiveMap;
+            m_ThicknessMap = other.m_ThicknessMap;
             m_EnvironmentMap = other.m_EnvironmentMap;
             m_IrradianceMap = other.m_IrradianceMap;
             m_PrefilterMap = other.m_PrefilterMap;

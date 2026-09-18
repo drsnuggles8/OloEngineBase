@@ -114,6 +114,7 @@ namespace
     X(OloEngine::WeatherPreset)                             \
     X(OloEngine::LightProbeComponent)                       \
     X(OloEngine::SnowDeformerComponent)                     \
+    X(OloEngine::FoliageInteractionComponent)               \
     X(OloEngine::VirtualMeshComponent)                      \
     X(OloEngine::FluidComponent)                            \
     X(OloEngine::FluidEmitterComponent)                     \

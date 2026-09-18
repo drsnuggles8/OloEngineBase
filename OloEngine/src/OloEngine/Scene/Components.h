@@ -4820,6 +4820,79 @@ namespace OloEngine
         }
     };
 
+    // ── Foliage interaction source (issue #1238) ─────────────────────────
+    //
+    // Put this on anything that should push foliage aside — a character, an
+    // animal, a rolling boulder. Its ENTITY TRANSFORM is the influence's
+    // position, so nothing else has to be kept in sync and a source parented to
+    // a bone works without a line of code; Scene's shared 3D path collects one
+    // influence per enabled component each frame and hands the set to
+    // FoliageInteractionField.
+    //
+    // THIS COMPONENT IS THE FEATURE'S SWITCH. A scene with none of them
+    // publishes an empty influence set, and the foliage shaders then contribute
+    // exactly 0.0 — so adding the component is what turns bending on, and no
+    // existing scene changes because someone shipped this code. Per-species
+    // sensitivity lives on the other side, in FoliageLayer::InteractionResponse.
+    struct FoliageInteractionComponent
+    {
+        // World-space radius of the influence cylinder. The bend falls off to
+        // nothing at exactly this distance, so it is also the culling bound
+        // every plant outside it is spared by.
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 64.0f)
+        f32 m_Radius = 1.0f;
+        // How far ABOVE the entity a plant's root may sit and still bend. A
+        // cylinder, not a sphere: a character's origin is at its feet and grass
+        // roots are on the ground, so a sphere would either miss the grass
+        // underfoot or reach up onto the terrace above.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 64.0f)
+        f32 m_Height = 1.5f;
+        // Peak displacement in world units, at the centre, at full response.
+        // The ceiling mirrors kFoliageInteractionMaxStrength, which is what the
+        // instance bounds are padded by — raising one without the other would
+        // let a plant bend out of the box that decides whether it is drawn.
+        // A bigger bend is asked for on the LAYER, via InteractionResponse,
+        // because that is what also widens the bound.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Strength = 1.0f;
+        // Radial falloff exponent. 1 is linear, higher concentrates the bend
+        // under the actor instead of spreading it over the whole radius.
+        OLO_SERIALIZE(Clamp, Min = 0.25f, Max = 16.0f)
+        f32 m_Falloff = 2.0f;
+        // SECONDS for the bend to relax once the actor has gone — a time
+        // constant, never a per-frame rate. See FoliageSpringStep: this is what
+        // makes the recovery identical at 30 and at 144 fps.
+        OLO_SERIALIZE(Clamp, Min = 0.02f, Max = 8.0f)
+        f32 m_RecoverySeconds = 0.6f;
+        // How far the actor travels before it plants a new influence and leaves
+        // the old one behind to recover on its own. 0 means no trail: the
+        // influence simply follows the actor and the grass springs up the
+        // instant it passes. Roughly a stride length is what reads as
+        // footprints.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 64.0f)
+        f32 m_TrailSpacing = 0.0f;
+        bool m_Enabled = true;
+        // Explicit padding (issue #1019): operator== is a whole-object memcmp,
+        // so no byte may be unnamed. See BitwiseEqualLayoutTest.
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u16 Pad1 = 0;
+
+        FoliageInteractionComponent() = default;
+        FoliageInteractionComponent(const FoliageInteractionComponent&) = default;
+        FoliageInteractionComponent& operator=(const FoliageInteractionComponent&) = default;
+        FoliageInteractionComponent(FoliageInteractionComponent&&) noexcept = default;
+        FoliageInteractionComponent& operator=(FoliageInteractionComponent&&) noexcept = default;
+
+        auto operator==(const FoliageInteractionComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(FoliageInteractionComponent) == 28,
+                  "FoliageInteractionComponent must have no padding: see BitwiseEqualLayoutTest");
+
     // ── Water Surface ────────────────────────────────────────────────────
 
     struct WaterComponent
@@ -5717,6 +5790,101 @@ namespace OloEngine
         }
     };
     static_assert(sizeof(GroomComponent) == 48, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    // ── Groom surface binding (issue #1249) ──────────────────────
+    //
+    // Attaches the GroomComponent on this entity to a body surface, so the coat
+    // follows skeletal bending and facial morphs instead of standing in its bind
+    // pose while the character moves.
+    //
+    // A SEPARATE COMPONENT, NOT FIELDS ON GroomComponent, for three reasons and
+    // the third is the one that decides it:
+    //   * A groom is perfectly usable unbound (a coat on a prop, #1246's
+    //     scenes), and a component that is always present but usually inert is
+    //     a component whose absence means nothing.
+    //   * GroomComponent's layout is PINNED at 48 bytes with a whole-object
+    //     memcmp equality, and widening it revs the save-game format for every
+    //     scene that has a groom in it, bound or not.
+    //   * The binding is a RELATIONSHIP, and its natural lifetime is the pairing
+    //     rather than the groom — removing the component is how a coat is
+    //     unbound, which is one operation instead of clearing three fields.
+    //
+    // Runtime state lives in Scene, keyed by UUID, NOT here: the previous
+    // frame's transforms, the history-reset bookkeeping and the target's last
+    // known topology are per-frame working data, and keeping them out of the
+    // component is what lets it stay trivially copyable, hole-free and
+    // automatically serialized — the same split ClothComponent makes for its
+    // weld offsets.
+    //
+    // Not annotated OLO_PROPERTY, and deliberately NOT registered in
+    // LuaScriptGlue's component table either — the same decision GroomComponent
+    // made, for the same reason. Which body a coat grows on is authoring state:
+    // repointing it from a script mid-frame would mean a binding whose topology
+    // check has to be re-run against an arbitrary mesh on an arbitrary tick, and
+    // the honest answer for a script that wants a different coat is a different
+    // entity. Stated here as a decision rather than left as an omission, because
+    // the next reader's question is "was this forgotten?".
+    struct GroomBindingComponent
+    {
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// The cooked .ologroombinding. Zero means "bound to nothing", which is
+        /// reported as GroomBindingRejectReason::NoBinding rather than treated
+        /// as an unbound groom — a component that is present is a request.
+        AssetHandle m_Binding = 0;
+
+        /// The entity carrying the body this groom grows on — the one with the
+        /// MeshComponent whose MeshSource the binding was built against. Zero
+        /// means this entity's own mesh, which is the common authoring case for
+        /// a groom parented under its character.
+        UUID m_TargetEntity = 0;
+
+        /// World-space distance a bound groom's target may jump in one frame
+        /// before the previous-frame strand positions are thrown away.
+        ///
+        /// This is the TELEPORT half of the invalidation criterion, and it needs
+        /// a number because a teleport is not otherwise distinguishable from
+        /// very fast movement: both are a large delta between two poses. 5 m in
+        /// one frame is 300 m/s at 60 fps — far above anything a character
+        /// animates through and far below a level transition.
+        ///
+        /// The consequence of getting it wrong is asymmetric, which is why the
+        /// default is generous rather than tight: too LOW throws history away
+        /// during fast motion and costs a frame of motion blur, too HIGH smears
+        /// the whole coat across the screen on a cut.
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 10000.0f)
+        f32 m_TeleportDistance = 5.0f;
+
+        /// Deform at all. Off leaves the coat at its bind pose, which is the
+        /// A/B control every capture in this feature's evidence is measured
+        /// against — not a performance switch.
+        bool m_Enabled = true;
+
+        /// Draw the binding preview: each bound root marked on the DEFORMED
+        /// surface with its frame. The editor answer to "is this coat attached
+        /// where I think it is", and the only view in which a root that is
+        /// bound to the wrong triangle is visible before it is animated.
+        bool m_ShowBindingPreview = false;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomBindingComponent() = default;
+        GroomBindingComponent(const GroomBindingComponent&) = default;
+        GroomBindingComponent& operator=(const GroomBindingComponent&) = default;
+        GroomBindingComponent(GroomBindingComponent&&) noexcept = default;
+        GroomBindingComponent& operator=(GroomBindingComponent&&) noexcept = default;
+
+        auto operator==(const GroomBindingComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomBindingComponent) == 24,
+                  "GroomBindingComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 

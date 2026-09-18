@@ -53,6 +53,27 @@ namespace OloEngine
         }
     } // namespace
 
+    bool SkinTransmissionParameters::Sanitize()
+    {
+        const SkinTransmissionParameters defaults{};
+        bool ok = true;
+
+        ok = SanitizeRange(Strength, kMinSkinTransmissionStrength, kMaxSkinTransmissionStrength, defaults.Strength) && ok;
+        ok = SanitizeRange(Anisotropy, kMinSkinTransmissionAnisotropy, kMaxSkinTransmissionAnisotropy,
+                           defaults.Anisotropy) &&
+             ok;
+        ok = SanitizeRange(Power, kMinSkinTransmissionPower, kMaxSkinTransmissionPower, defaults.Power) && ok;
+
+        return ok;
+    }
+
+    bool SkinTransmissionParameters::operator==(const SkinTransmissionParameters& other) const noexcept
+    {
+        // Bit-exact, for the reason SkinProfileParameters::operator== states.
+        return Math::BitwiseEqual(Strength, other.Strength) && Math::BitwiseEqual(Anisotropy, other.Anisotropy) &&
+               Math::BitwiseEqual(Power, other.Power);
+    }
+
     bool SkinProfileParameters::Sanitize()
     {
         const SkinProfileParameters defaults{};
@@ -75,6 +96,13 @@ namespace OloEngine
 
         ok = SanitizeRange(ThicknessScale, kMinSkinThicknessScale, kMaxSkinThicknessScale, defaults.ThicknessScale) && ok;
 
+        // The transmission lobe (issue #1242). Routed through the profile's
+        // Sanitize rather than validated by its own callers, because this is the
+        // ONE validation gate this header promises: the YAML reader, the
+        // asset-pack reader, the save-game reader and the editor inspector all
+        // reach the transmission fields through here and nowhere else.
+        ok = Transmission.Sanitize() && ok;
+
         return ok;
     }
 
@@ -88,7 +116,7 @@ namespace OloEngine
                Math::BitwiseEqual(ScatterColor, other.ScatterColor) &&
                Math::BitwiseEqual(ScatterRadiusMM, other.ScatterRadiusMM) &&
                Math::BitwiseEqual(SpecularTint, other.SpecularTint) &&
-               Math::BitwiseEqual(ThicknessScale, other.ThicknessScale);
+               Math::BitwiseEqual(ThicknessScale, other.ThicknessScale) && Transmission == other.Transmission;
     }
 
     bool SkinProfile::SetParameters(const SkinProfileParameters& parameters)

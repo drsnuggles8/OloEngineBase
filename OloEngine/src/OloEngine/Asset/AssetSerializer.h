@@ -730,6 +730,40 @@ namespace OloEngine
                                                   std::string& outReason);
     };
 
+    class GroomBindingAsset; // Forward declaration
+
+    /**
+     * @brief Reads and writes the cooked .ologroombinding container (issue #1249).
+     *
+     * Pure CPU: a binding is a flat array of 56-byte records plus two
+     * signatures, with no GPU residency at all, so the whole asset can be
+     * deserialized off the main thread. The encode/decode pair below is the
+     * SINGLE source of the layout — the standalone file and the asset-pack
+     * record carry identical bytes, the way GroomSerializer does for .ologroom.
+     */
+    class GroomBindingSerializer : public AssetSerializer
+    {
+      public:
+        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
+
+        [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
+        Ref<Asset> DeserializeFromAssetPack(FileStreamReader& stream, const AssetPackFile::AssetInfo& assetInfo) const override;
+
+        [[nodiscard]] bool CanDeserializeFromAssetPackOffThread() const override
+        {
+            return true; // CPU-only: bytes -> GroomBindingAsset, no GPU resources
+        }
+
+        // The byte-stream layer. Static so the cooker and the tests can reach it
+        // without a project on disk or an asset manager — the determinism test
+        // cooks twice through exactly the code the serializer uses.
+        [[nodiscard]] static bool EncodeToBytes(const GroomBindingAsset& binding, std::vector<u8>& outBytes,
+                                                std::string& outReason);
+        [[nodiscard]] static bool DecodeFromBytes(const void* data, sizet size, Ref<GroomBindingAsset>& outBinding,
+                                                  std::string& outReason);
+    };
+
     class ShaderGraphAsset; // Forward declaration
 
     class ShaderGraphSerializer : public AssetSerializer

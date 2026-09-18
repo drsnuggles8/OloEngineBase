@@ -95,7 +95,6 @@ TEST(VulkanParallelRecording, SkipsWhenNotCompiledIn)
 namespace
 {
     using namespace OloEngine;
-    using OloEngine::Tests::ProbeVulkanDeviceTestGate;
     // The facade's own instance, not a local one: VulkanUpload::TryGetVulkanAPI()
     // resolves RenderCommand's API, so a framebuffer's depth-array selection and
     // the engine-side IsRecordingParallelItem() asserts reach the API under test.
@@ -529,9 +528,7 @@ class VulkanParallelRecordingDevice : public ::testing::Test
   protected:
     void SetUp() override
     {
-        const auto gate = ProbeVulkanDeviceTestGate();
-        if (!gate.Available)
-            GTEST_SKIP() << gate.Reason;
+        OLO_VULKAN_DEVICE_OR_SKIP();
 
         m_Device = std::make_unique<VulkanDevice>();
         try

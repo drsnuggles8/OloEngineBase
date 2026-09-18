@@ -53,6 +53,8 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "VirtualRasterCoverageMirror.h"
+#include "../Groom/GroomStrandFixture.h"
+#include "VulkanTestSupport.h"
 #include "../TestOptions.h"
 #include "OloEngine/Renderer/Passes/AOApplyRenderPass.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
@@ -68,6 +70,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/Passes/FluidIntermediatesPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/GTAORenderPass.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Buffer.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -491,63 +494,12 @@ class VulkanPassSuite : public ::testing::Test
   protected:
     void SetUp() override
     {
-        // `--olo-gl-backend=none` is the suite's "this run tests no GPU" contract
-        // (#1015), and a Vulkan device is a GPU: the sanitizer jobs pass the flag
-        // on the self-hosted box so a run there means what the hosted run means.
-        // VulkanTestSupport.h's ProbeVulkanDeviceTestGate has honoured it since
-        // #1015 and says why; this fixture kept its own inline probe ladder and
-        // never picked the check up, which made the largest Vulkan suite the one
-        // place the box still tested hardware the hosted arm did not (#1107).
-        if (OloEngine::Tests::Options().GlBackend == OloEngine::Tests::GlBackend::None)
-        {
-            GTEST_SKIP() << "No GPU available in this environment (GL backend pinned to 'none' by "
-                            "--olo-gl-backend=none; the Vulkan gate honours it too).";
-        }
-
-        if (volkInitialize() != VK_SUCCESS)
-            GTEST_SKIP() << "No Vulkan loader on this machine.";
-
-        {
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.pApplicationName = "OloEngine-Tests";
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                    devices.resize(deviceCount);
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfies = std::ranges::any_of(
-                devices,
-                [](VkPhysicalDevice device)
-                { return VulkanCapabilities::Evaluate(device).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfies)
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here.";
-            if (volkInitialize() != VK_SUCCESS)
-                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
-        }
+        // The one gate (VulkanTestSupport.h). It replaces the inline probe
+        // ladder this fixture used to carry — which is how the fixture came to
+        // be the last Vulkan suite not honouring `--olo-gl-backend=none`
+        // (#1107) — and additionally reports into the end-of-run coverage
+        // banner, so 58 silent skips can no longer read as 58 passes (#1300).
+        OLO_VULKAN_DEVICE_OR_SKIP();
 
         if (!ChangeToOloEditorDir())
             GTEST_SKIP() << "OloEditor/ not found from the test cwd — shader paths unavailable.";
@@ -7874,6 +7826,241 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     EXPECT_EQ(background[2], 0);
 
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore);
+}
+
+// =============================================================================
+// GROOM STRAND (#1246): the worked example §10 of testing-architecture.md
+// points at, and the reason this suite exists.
+//
+// #1246's strand pass rendered NOTHING on Vulkan: the draw was recorded, the
+// vertex pull was right, the UBO was right, zero errors, zero validation
+// warnings — and not one pixel changed. The cause was a missing `abs()` on
+// `projection[1][1]` in GroomStrandCommon.glsl. Vulkan's clip space has +Y
+// down, so the engine uploads a projection whose [1][1] is NEGATIVE there;
+// without the abs() every strand got a negative half-width, the widened alpha
+// clamped to zero and the alpha test discarded every fragment. On OpenGL the
+// element is positive and the abs() is a no-op, so no OpenGL test — golden,
+// property, scene-level or otherwise — could ever see it. Finding it took a
+// two-run live shader bisect.
+//
+// THE CONTRACT, deliberately not "it looks like hair": the coat covers a
+// NONZERO number of pixels, and pushing it behind an opaque depth prefill
+// takes them away. Both halves are needed. Coverage alone is satisfied by a
+// pass that draws one enormous wrong ribbon; the occlusion half pins that what
+// was drawn sits where the strands are and composes through the ordinary depth
+// test, which is #1246's acceptance criterion 2.
+//
+// AND THE SEAM'S ANSWER IS ASSERTED OUTRIGHT, per §9. The test is only
+// meaningful if the uploaded projection really is y-flipped here — if
+// AdjustProjectionForBackend regressed to identity, a green result would mean
+// "the abs() was not needed", which is the wrong answer arrived at honestly.
+// So the sign is checked before a single pixel is.
+// =============================================================================
+TEST_F(VulkanPassSuite, GroomStrandCoatCoversPixelsUnderTheVulkanClipConvention)
+{
+    constexpr u32 kSize = 256;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+    const u64 stubsBefore = api.GetUnimplementedStubHitCount();
+
+    // --- the coat -----------------------------------------------------------
+    // A generated scalp rather than a committed asset: no project mount and no
+    // asset registry, so this tenant needs nothing the device does not already
+    // give it.
+    //
+    // EDITOR SCALE, NOT ANATOMICAL SCALE, and for the reason
+    // GroomStrandVisualEvidenceTest gives for its own groom: at the real 70 um
+    // of a human hair every ribbon is ~0.02 px wide, the OpaqueRibbon tier's
+    // compensating alpha lands near 0.04 and the 0.5 cutoff discards the whole
+    // coat — which is a true fact about hair, measured properly by
+    // GroomCoveragePropertyTests, and useless as a coverage signal here. The
+    // groom below is that test's radius-1 coat with the widths opened up until
+    // the ribbons are genuinely multi-pixel at THIS tenant's 256 px viewport:
+    // half-width in pixels is radius * |proj[1][1]| * height/2 / w, so
+    // 0.025 * 2.414 * 128 / 5 is about 1.5 px at the root, and the widened
+    // alpha clears the 0.5 cutoff instead of sitting just under it. The defect
+    // this pins is a SIGN, not a magnitude: a negative pixels-per-unit clamps a
+    // thick ribbon to zero width exactly as it clamps a thin one.
+    auto coat = OloEngine::Tests::GroomStrandFixture::MakeScalp(256u, 8u, /*skullRadius*/ 1.0f,
+                                                                /*strandLength*/ 1.1f,
+                                                                /*rootDiameter*/ 0.05f);
+    ASSERT_TRUE(coat.Groom) << "scalp generation failed: " << coat.FailureReason;
+
+    GroomStrandRequest request;
+    request.Groom = coat.Groom;
+    request.Handle = 0x1246u;
+    request.Transform = glm::mat4(1.0f);
+    request.PreviousTransform = glm::mat4(1.0f);
+    request.Color = glm::vec3(0.9f, 0.8f, 0.7f);
+    request.RampFloor = 1.0f; // flat colour: the ramp is not what is under test
+    request.AlphaCutoff = 0.5f;
+    // OpaqueRibbon, not StochasticAlpha: the stochastic tier's hash makes
+    // coverage a distribution, and a coverage assertion should not also be a
+    // statistics assertion. The seam falls back to this anyway with no temporal
+    // resolve running (GroomCompositionFallbackReason).
+    request.RequestedMode = GroomCompositionMode::OpaqueRibbon;
+    request.EntityID = 7;
+
+    // --- the camera, through the production seam ----------------------------
+    // The coat is a unit hemisphere with 1.1-long strands falling off it, so a
+    // camera 5 out on +Z at 45 degrees frames all of it with margin.
+    const glm::vec3 eye(0.0f, 0.4f, 5.0f);
+    const glm::mat4 view = glm::lookAt(eye, glm::vec3(0.0f, 0.2f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 glProjection = glm::perspective(glm::radians(45.0f), 1.0f, 0.05f, 100.0f);
+    const glm::mat4 rasterProjection = RHI::AdjustProjectionForBackend(glProjection);
+
+    // §9's "pin the seam's answers absolutely". Everything below is only
+    // evidence about #1246 if the uploaded matrix really carries the flip.
+    ASSERT_GT(glProjection[1][1], 0.0f) << "the GL-convention source projection must be positive";
+    ASSERT_LT(rasterProjection[1][1], 0.0f)
+        << "the Vulkan rasterizer projection must have a NEGATIVE [1][1] (y-down clip space) — without "
+           "that this test cannot distinguish the missing abs() from a correct shader";
+    ASSERT_FLOAT_EQ(RHI::WindowSpaceFrontFaceSign(), -1.0f)
+        << "the projection seam is not in its Vulkan configuration";
+
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = rasterProjection * view;
+    cameraData.View = view;
+    cameraData.Projection = rasterProjection;
+    cameraData.Position = eye;
+    cameraData.PrevViewProjection = cameraData.ViewProjection;
+    cameraData.RenderOrigin = glm::vec3(0.0f);
+    auto cameraUbo =
+        UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    ASSERT_TRUE(cameraUbo);
+
+    // The production SceneColor attachment SHAPE (five colour targets plus
+    // depth — GroomRenderPass::Execute calls SetDrawBuffers({0..4}) and writing
+    // a subset would leave the others undefined), with attachment 0 as RGBA8 so
+    // the coverage count is read back from bytes rather than halves.
+    FramebufferSpecification sceneSpec;
+    sceneSpec.Width = kSize;
+    sceneSpec.Height = kSize;
+    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
+                              FramebufferTextureFormat::RG16F, FramebufferTextureFormat::RG16F,
+                              FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth };
+
+    // The coat is rendered TWICE into two identical targets: once alone, once
+    // with an opaque depth prefill in front of it. Two runs of one pass rather
+    // than a golden file, because the contract is a RELATION between the two
+    // frames and neither number alone means anything.
+    const auto renderCoat = [&](bool occluded, u32& outCoveredPixels, GroomRenderStats& outStats)
+    {
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        ASSERT_TRUE(sceneFramebuffer);
+
+        auto groomPass = Ref<GroomRenderPass>::Create();
+        groomPass->Init(sceneSpec);
+
+        groomPass->SetRequests({ request });
+        GroomFrameState frameState;
+        frameState.FrameIndex = 1u;
+        frameState.TemporalResolveActive = false;
+        frameState.OITTargetsAvailable = false;
+        groomPass->SetFrameState(frameState);
+
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+
+        graph.AddNode(groomPass);
+        graph.SetFinalPass("GroomRenderPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                // Black scene colour and a cleared depth buffer: every non-black
+                // pixel afterwards is the coat and nothing else. The occluded run
+                // clears depth to the NEAR value instead, which is what an opaque
+                // surface directly in front of the camera would have left there —
+                // the depth test is the mechanism under test, not the geometry
+                // that produced the depth.
+                sceneFramebuffer->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                RenderCommand::SetClearColor({ 0.0f, 0.0f, 0.0f, 1.0f });
+                RenderCommand::SetDepthMask(true);
+                RenderCommand::SetClearDepth(occluded ? 0.0f : 1.0f);
+                RenderCommand::Clear();
+                RenderCommand::SetClearDepth(1.0f);
+
+                graph.Execute();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "GroomRenderPass resolve failure: pass='" << failure.PassName << "' reason='"
+                          << failure.Reason << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u) << "a strand draw dropped silently";
+
+        outStats = groomPass->GetStats();
+
+        std::vector<u8> rendered;
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        ASSERT_NE(vkScene->GetColorAttachmentImage(0), nullptr);
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+        ASSERT_EQ(rendered.size(), static_cast<sizet>(kSize) * kSize * 4);
+
+        outCoveredPixels = 0;
+        for (sizet i = 0; i + 3 < rendered.size(); i += 4)
+        {
+            // Any channel above the black clear. The coat is unlit and flat at
+            // RampFloor 1.0, so a covered pixel is far above this floor.
+            if (rendered[i] > 8 || rendered[i + 1] > 8 || rendered[i + 2] > 8)
+                ++outCoveredPixels;
+        }
+    };
+
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    cameraUbo->Bind();
+
+    u32 visibleCoverage = 0;
+    GroomRenderStats visibleStats;
+    ASSERT_NO_FATAL_FAILURE(renderCoat(false, visibleCoverage, visibleStats));
+
+    // The pass must think it drew — otherwise a zero coverage below would be
+    // "the pass early-returned", a different bug with the same symptom, and the
+    // assertion would be pointing at the wrong thing.
+    EXPECT_EQ(visibleStats.GroomsDrawn, 1u) << "the groom pass drew nothing at all";
+    EXPECT_GT(visibleStats.SegmentsDrawn, 0u);
+
+    // THE #1246 ASSERTION. With the abs() removed from
+    // GroomStrandCommon.glsl::oloGroomPixelsPerUnitAtUnitW this is 0, while
+    // every counter above still reads healthy — which is exactly what made the
+    // original bug a two-run live bisect instead of a test failure.
+    EXPECT_GT(visibleCoverage, 0u)
+        << "the coat covered NO pixels while the pass reported " << visibleStats.SegmentsDrawn
+        << " segments drawn. On Vulkan this is the #1246 shape: check that "
+           "oloGroomPixelsPerUnitAtUnitW still takes abs(projection[1][1]) — the uploaded [1][1] is "
+        << rasterProjection[1][1] << " here";
+
+    u32 occludedCoverage = 0;
+    GroomRenderStats occludedStats;
+    ASSERT_NO_FATAL_FAILURE(renderCoat(true, occludedCoverage, occludedStats));
+    EXPECT_EQ(occludedStats.GroomsDrawn, 1u) << "the occluded run must still SUBMIT the coat";
+    EXPECT_LT(occludedCoverage, visibleCoverage)
+        << "an opaque depth prefill in front of the coat did not hide it — the strand pass is not "
+           "depth-composing ("
+        << occludedCoverage << " covered vs " << visibleCoverage << " unoccluded)";
+
+    EXPECT_EQ(api.GetUnimplementedStubHitCount(), stubsBefore)
+        << "the strand chain fell through to an unimplemented facade stub";
 }
 
 // =============================================================================

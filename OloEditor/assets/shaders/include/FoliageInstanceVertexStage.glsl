@@ -144,7 +144,12 @@ void main()
     vec3 rotatedPosPrev = deformation.Previous;
     rotatedPos = deformation.Current;
     vec3 displacement = deformation.Current - rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
-    if (dot(u_WindWeights.xyz, vec3(1.0)) > 0.0)
+    // Transport the normal whenever the plant is actually deformed. Interaction
+    // bending (issue #1238) reaches layers that never opted into hierarchical
+    // wind, and shading a flattened blade with its upright normal is the same
+    // defect the cofactor transport was added for.
+    if (dot(u_WindWeights.xyz, vec3(1.0)) > 0.0 ||
+        (u_InteractionParams.x >= 0.5 && u_InteractionParams.y > 0.0))
     {
         vec3 size = isAuthoredMesh ? vec3(height * scale) : vec3(scale, height * scale, scale);
         mat3 shapeJacobian = rotY * mat3(vec3(size.x, 0.0, 0.0), vec3(0.0, size.y, 0.0), vec3(0.0, 0.0, size.z));

@@ -1,6 +1,12 @@
 #ifndef OLO_FOLIAGE_WIND_GLSL
 #define OLO_FOLIAGE_WIND_GLSL
 
+// Local interaction bending (issue #1238) composes INSIDE foliageDeform below,
+// so every consumer of this producer — colour, depth, shadow, velocity, and the
+// ray-traced vegetation snapshot — gets wind and interaction as one
+// displacement rather than two that could be applied in different places.
+#include "FoliageInteraction.glsl"
+
 // Every raster consumer evaluates this producer for current and previous
 // positions. The field snapshot travels in FoliageParams, including shadows.
 // Coordinates of the root are absolute; offsets remain terrain local, matching
@@ -8,8 +14,9 @@
 vec3 foliageWindOffset(vec3 vertex, vec3 root, vec2 localRootXZ, float phase, float time)
 {
     float h = clamp(vertex.y, 0.0, 1.0);
-    float stiffness = u_WindWeights.x;
-    float bend = mix(h, h * h / (1.0 + 4.0 * stiffness), stiffness);
+    // The anchored bend profile now lives in FoliageInteraction.glsl, so a foot
+    // and a gust lean the same plant along the same curve.
+    float bend = foliageBendMask(vertex);
     vec3 trunk;
     bool hierarchical = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0;
     if (u_WindFlags.w > 0.5 && (hierarchical || u_ImpostorParams1.x <= 0.5))
@@ -49,17 +56,36 @@ struct FoliageDeformation
     vec3 Previous;
 };
 
+// WHICH CLOCK THIS LAYER ANIMATES ON. A legacy layer (no hierarchical weights)
+// under an enabled wind field rides u_WindClock.x; everything else rides
+// u_Time. Extracted because foliageWindNormal's finite difference has to
+// evaluate the wind at the SAME instant the displacement it differences against
+// was evaluated at — differencing two clocks and dividing by epsilon = 0.001
+// scales the gap by a thousand and the transported normal becomes garbage.
+//
+// Latent until issue #1238: foliageWindNormal was unreachable for legacy layers,
+// so u_Time was always the right answer there. Interaction bending reaches them,
+// which is what made the two expressions have to agree.
+float foliageAnimationClock()
+{
+    bool legacyField = dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && u_WindFlags.w > 0.5 &&
+                       u_ImpostorParams1.x <= 0.5;
+    return legacyField ? u_WindClock.x : u_Time;
+}
+
 FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase)
 {
     vec3 root = (u_Model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     vec3 prevRoot = (u_PrevModel * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     FoliageDeformation result;
     bool legacyField = dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && u_WindFlags.w > 0.5 && u_ImpostorParams1.x <= 0.5;
-    float currentTime = legacyField ? u_WindClock.x : u_Time;
+    float currentTime = foliageAnimationClock();
     float previousTime = legacyField ? u_WindClock.w : u_PrevTime;
     if (u_WindHistoryValid <= 0.5 || abs(u_Time - u_PrevTime) < 1e-6) previousTime = currentTime;
-    result.Current = rest + foliageWindOffset(vertex, root, pivot.xz, phase, currentTime);
-    result.Previous = rest + foliageWindOffset(vertex, prevRoot, pivot.xz, phase, previousTime);
+    result.Current = rest + foliageWindOffset(vertex, root, pivot.xz, phase, currentTime) +
+                     foliageInteractionOffset(vertex, root, 0);
+    result.Previous = rest + foliageWindOffset(vertex, prevRoot, pivot.xz, phase, previousTime) +
+                      foliageInteractionOffset(vertex, prevRoot, 1);
     return result;
 }
 
@@ -68,16 +94,26 @@ FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase
 vec3 foliageWindNormal(vec3 normal, vec3 vertex, vec3 pivot, float phase,
                        mat3 restJacobian, vec3 offset)
 {
-    if (dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0)
+    // Legacy layers (no hierarchical weights) still transport their authored
+    // normal unchanged, EXCEPT where an interaction is bending them — a plant
+    // pushed flat under a foot and shaded as if upright is the same defect the
+    // cofactor transport exists to prevent, and issue #1238's layers are not
+    // required to opt into hierarchical wind first.
+    bool interacting = u_InteractionParams.x >= 0.5 && u_InteractionParams.y > 0.0;
+    if (dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && !interacting)
         return normalize(restJacobian * normal);
     vec3 root = (u_Model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     const float epsilon = 0.001;
     mat3 jacobian = restJacobian;
+    // Hoisted: the influence loop depends on the ROOT, which is the same for all
+    // three perturbations. Only the rooted mask below varies with the vertex.
+    vec3 interaction = foliageInteractionPush(root, 0);
     for (int axis = 0; axis < 3; ++axis)
     {
         vec3 step = vec3(0.0);
         step[axis] = epsilon;
-        jacobian[axis] += (foliageWindOffset(vertex + step, root, pivot.xz, phase, u_Time) - offset) / epsilon;
+        jacobian[axis] += (foliageWindOffset(vertex + step, root, pivot.xz, phase, foliageAnimationClock()) +
+                           foliageInteractionOffsetFromPush(interaction, vertex + step) - offset) / epsilon;
     }
     mat3 cofactor = mat3(cross(jacobian[1], jacobian[2]), cross(jacobian[2], jacobian[0]),
                          cross(jacobian[0], jacobian[1]));

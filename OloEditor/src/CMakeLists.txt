@@ -34,6 +34,10 @@
 		"Automation/AutomationPrefabCommands.cpp"
 		"Automation/AutomationPrefabCommands.h"
 		"Automation/AutomationSceneCommands.h"
+		"Automation/AutomationGroomCommands.cpp"
+		"Automation/AutomationGroomCommands.h"
+		"Groom/GroomBindingAuthoring.cpp"
+		"Groom/GroomBindingAuthoring.h"
 		"Automation/AutomationSceneCommands.cpp"
 		"Automation/AutomationSceneDocument.h"
 		"Automation/AutomationSceneDocument.cpp"
@@ -256,6 +260,12 @@ set(OLO_EDITOR_CORE_SOURCES
 		"MCP/McpToolsValidation.cpp"
 		"Panels/ContentBrowser/ContentBrowserItem.cpp"
 		"Panels/ContentBrowser/DirectoryTree.cpp"
+		# Arrived on master (#1249) while this library was in flight, listed as ordinary
+		# editor sources that OloEngine-Tests recompiled. They belong here for the same
+		# reason as everything above: the test target needs them, and the seam is "what
+		# both consumers use", not "what the editor happens to ship".
+		"Automation/AutomationGroomCommands.cpp"
+		"Groom/GroomBindingAuthoring.cpp"
 )
 list(REMOVE_ITEM EDITOR_SOURCES ${OLO_EDITOR_CORE_SOURCES})
 

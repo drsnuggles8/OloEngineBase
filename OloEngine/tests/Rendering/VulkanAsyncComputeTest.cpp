@@ -381,7 +381,6 @@ TEST(VulkanOwnershipTransfer, BufferHalvesSplitTheSameWay)
 
 namespace
 {
-    using OloEngine::Tests::ProbeVulkanDeviceTestGate;
     using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     class ScopedHiddenVulkanWindow
@@ -453,9 +452,7 @@ namespace
 
 TEST(VulkanAsyncComputeDevice, AnAsyncBatchCrossesToTheComputeQueueAndBack)
 {
-    const auto gate = ProbeVulkanDeviceTestGate();
-    if (!gate.Available)
-        GTEST_SKIP() << gate.Reason;
+    OLO_VULKAN_DEVICE_OR_SKIP();
 
     ScopedHiddenVulkanWindow window;
     if (window.Get() == nullptr)

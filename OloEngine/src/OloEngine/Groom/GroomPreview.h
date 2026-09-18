@@ -24,9 +24,12 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomDeformation.h"
 
 #include <glm/glm.hpp>
 
+#include <span>
 #include <vector>
 
 namespace OloEngine
@@ -132,4 +135,53 @@ namespace OloEngine
     // groom, so the same group index is the same colour in the viewport and in
     // the inspector's group list.
     [[nodiscard]] glm::vec3 GroomGroupColor(u32 groupId) noexcept;
+
+    // ── Binding preview (issue #1249) ────────────────────────────
+
+    struct GroomBindingPreviewSettings
+    {
+        // Hard cap on the roots drawn. Three lines per root and one command
+        // packet per line, so this is the same class of budget GroomPreview's
+        // is and it is deliberately far smaller: the question this view answers
+        // — "is the coat attached where I think it is" — is answered by a
+        // scatter of frames, not by all of them.
+        u32 MaxRoots = 512;
+
+        // Length of each frame's axis arms, in world units.
+        f32 AxisLength = 0.02f;
+
+        // Draw the roots that were HELD AT REST because their deformed triangle
+        // collapsed. They are marked in a different colour and are the reason
+        // this view exists at all: a patch of coat that does not move is
+        // invisible next to one that does, until it is drawn.
+        bool ShowHeldRoots = true;
+    };
+
+    struct GroomBindingPreviewStats
+    {
+        u32 RootsAvailable = 0;
+        u32 RootsDrawn = 0;
+        u32 RootsHeldDrawn = 0;
+        u32 LinesDrawn = 0;
+        u32 Stride = 1;
+
+        [[nodiscard]] bool operator==(const GroomBindingPreviewStats&) const = default;
+    };
+
+    // Draws each bound root's DEFORMED frame through Renderer3D's debug-line
+    // path. Must be called between Renderer3D::BeginScene and EndScene.
+    //
+    // `transforms` is indexed by curve and comes from
+    // EvaluateGroomRootTransforms — the same array the strand geometry was
+    // built from THIS frame, not a second evaluation. That is the whole value
+    // of the view: what it draws is what the coat was drawn with, so a frame
+    // that is visibly on the wrong triangle is a frame the renderer used.
+    //
+    // A stride over the whole binding rather than a prefix, for the reason
+    // GroomStrandMesh.h gives: a prefix of a cooked groom is one contiguous
+    // range of curves, which after the cook is one side of the animal.
+    GroomBindingPreviewStats DrawGroomBindingPreview(const GroomBindingAsset& binding,
+                                                     std::span<const GroomRootTransform> transforms,
+                                                     const glm::mat4& transform,
+                                                     const GroomBindingPreviewSettings& settings);
 } // namespace OloEngine

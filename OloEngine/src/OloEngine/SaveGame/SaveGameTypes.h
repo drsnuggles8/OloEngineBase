@@ -173,7 +173,12 @@ namespace OloEngine
     // v36: FoliageLayer hierarchical wind weights and displacement debug (#1236),
     //      appended after the landed v35 habitat band. v35 and older saves
     //      keep zero weights and debug disabled.
-    static constexpr u32 kSaveGameFormatVersion = 36;
+    // v37 (issue #1238): FoliageLayer::InteractionResponse, and the new
+    // FoliageInteractionComponent. A v36 save stops before the response and
+    // keeps the constructor default of 1 — which is right, because the
+    // feature's off switch is the absence of an influence SOURCE, and a v36
+    // save cannot contain one.
+    static constexpr u32 kSaveGameFormatVersion = 37;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

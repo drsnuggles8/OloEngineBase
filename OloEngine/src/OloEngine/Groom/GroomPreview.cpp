@@ -288,4 +288,91 @@ namespace OloEngine
 
         return stats;
     }
+
+    // ── Binding preview (issue #1249) ─────────────────────────────
+
+    GroomBindingPreviewStats DrawGroomBindingPreview(const GroomBindingAsset& binding,
+                                                     std::span<const GroomRootTransform> transforms,
+                                                     const glm::mat4& transform,
+                                                     const GroomBindingPreviewSettings& settings)
+    {
+        GroomBindingPreviewStats stats;
+        const u32 rootCount = binding.GetRootCount();
+        if (rootCount == 0u || transforms.size() != rootCount)
+        {
+            // A transform array that does not span the binding is treated as
+            // ABSENT rather than partially drawn: half a preview is a picture
+            // that says the other half is unbound, which is the opposite of
+            // what it would mean.
+            return stats;
+        }
+        stats.RootsAvailable = rootCount;
+
+        const u32 maxRoots = std::max(1u, settings.MaxRoots);
+        stats.Stride = rootCount > maxRoots ? ((rootCount + maxRoots - 1u) / maxRoots) : 1u;
+
+        // World-space axes, so the arms are the same length whatever the
+        // entity's scale is — a frame drawn at the entity's scale would vanish
+        // on a small character and swamp a large one, and this view is read by
+        // eye at whatever framing the user has.
+        const f32 axis = std::max(settings.AxisLength, 1.0e-4f);
+
+        // Renderer3D::DrawLine's `thickness` is a WORLD-space width in units of
+        // 5 mm, not a pixel width — see the note in DrawGroomPreview. The frame
+        // arms are read by eye at close range, so they are deliberately fatter
+        // than a strand: 0.2 is one millimetre.
+        constexpr f32 kFrameThickness = 0.2f;
+
+        for (u32 curve = 0; curve < rootCount; curve += stats.Stride)
+        {
+            const GroomRootTransform& rootTransform = transforms[curve];
+            const GroomRootBinding& record = binding.GetRoot(curve);
+
+            if (!rootTransform.Valid)
+            {
+                // A curve the strand budget did not select was never evaluated;
+                // it is not a degeneracy and must not be drawn as one.
+                if (!rootTransform.Held || !settings.ShowHeldRoots)
+                {
+                    continue;
+                }
+                // Held at rest: drawn at the BIND-POSE origin, because that is
+                // where the strand actually is, and in warning orange so it
+                // reads as a diagnosis rather than as another frame.
+                const glm::vec3 origin = glm::vec3(transform * glm::vec4(record.RestOrigin, 1.0f));
+                constexpr glm::vec3 held{ 1.0f, 0.55f, 0.15f };
+                SubmitLine(origin - glm::vec3(axis, 0.0f, 0.0f), origin + glm::vec3(axis, 0.0f, 0.0f), held, kFrameThickness);
+                SubmitLine(origin - glm::vec3(0.0f, axis, 0.0f), origin + glm::vec3(0.0f, axis, 0.0f), held, kFrameThickness);
+                SubmitLine(origin - glm::vec3(0.0f, 0.0f, axis), origin + glm::vec3(0.0f, 0.0f, axis), held, kFrameThickness);
+                stats.LinesDrawn += 3u;
+                ++stats.RootsHeldDrawn;
+                continue;
+            }
+
+            const glm::vec3 origin = glm::vec3(transform * glm::vec4(rootTransform.Origin, 1.0f));
+            // The frame's own axes, rotated into world space by the entity's
+            // transform. mat3 of the world matrix, so a rotated or scaled
+            // entity's frames point where its coat does; normalised so the arm
+            // LENGTH stays the authored one.
+            const glm::mat3 world{ transform };
+            const auto axisIn = [&](const glm::vec3& local)
+            {
+                const glm::vec3 direction = world * (rootTransform.Rotation * local);
+                const f32 length = glm::length(direction);
+                return length > 1.0e-8f ? direction / length * axis : glm::vec3{ 0.0f };
+            };
+
+            // x = tangent (red), y = bitangent (green), z = surface normal
+            // (blue) — the same convention MakeGroomSurfaceFrame builds and the
+            // same one every DCC shows, so a frame that is visibly rolled is a
+            // frame that really is.
+            SubmitLine(origin, origin + axisIn({ 1.0f, 0.0f, 0.0f }), glm::vec3(0.9f, 0.25f, 0.25f), kFrameThickness);
+            SubmitLine(origin, origin + axisIn({ 0.0f, 1.0f, 0.0f }), glm::vec3(0.25f, 0.9f, 0.25f), kFrameThickness);
+            SubmitLine(origin, origin + axisIn({ 0.0f, 0.0f, 1.0f }), glm::vec3(0.3f, 0.5f, 1.0f), kFrameThickness);
+            stats.LinesDrawn += 3u;
+            ++stats.RootsDrawn;
+        }
+
+        return stats;
+    }
 } // namespace OloEngine

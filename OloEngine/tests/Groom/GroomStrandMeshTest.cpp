@@ -12,9 +12,10 @@
 //
 // The vertex LAYOUT is pinned here too, because on Vulkan there is no vertex
 // input state at all (ADR 0011 §5): GroomStrand.glsl indexes the same bytes as
-// a flat float array with a hard-coded stride of 12, so a thirteenth float in
+// a flat float array with a hard-coded stride of 16, so a seventeenth float in
 // the struct reads every strand's data at the wrong offset — on one backend
-// only, with no compile error anywhere.
+// only, with no compile error anywhere. (The stride was 12 until #1249 added
+// the previous-frame centreline; both sides moved together.)
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -73,12 +74,12 @@ namespace
 
 // ── The layout contract ─────────────────────────────────────────────────────
 
-TEST(GroomStrandMesh, VertexIsExactlyTwelveFloats)
+TEST(GroomStrandMesh, VertexIsExactlySixteenFloats)
 {
     // The static_assert in the header is the real guard; this states the same
     // fact where a reader looking for the Vulkan pull's stride will find it.
-    static_assert(sizeof(GroomStrandVertex) == 12u * sizeof(f32));
-    EXPECT_EQ(sizeof(GroomStrandVertex), 48u);
+    static_assert(sizeof(GroomStrandVertex) == 16u * sizeof(f32));
+    EXPECT_EQ(sizeof(GroomStrandVertex), 64u);
     // No padding holes either: the struct is memcpy'd into a vertex buffer and
     // read back as a flat float array on the Vulkan arm.
     EXPECT_EQ(offsetof(GroomStrandVertex, Position), 0u);
@@ -88,6 +89,37 @@ TEST(GroomStrandMesh, VertexIsExactlyTwelveFloats)
     EXPECT_EQ(offsetof(GroomStrandVertex, Coords), 32u);
     EXPECT_EQ(offsetof(GroomStrandVertex, SegmentId), 40u);
     EXPECT_EQ(offsetof(GroomStrandVertex, Pad0), 44u);
+    // #1249: the previous-frame centreline, at float 12. The offsets above are
+    // unchanged on purpose — the four floats were APPENDED, so the Vulkan
+    // pull's existing reads all still land where they did and only the stride
+    // moved.
+    EXPECT_EQ(offsetof(GroomStrandVertex, PrevPosition), 48u);
+    EXPECT_EQ(offsetof(GroomStrandVertex, Pad1), 60u);
+}
+
+TEST(GroomStrandMesh, AnUnboundGroomWritesPreviousPositionEqualToPosition)
+{
+    // The widening claim in GroomStrandVertex::PrevPosition, as a test: an
+    // unbound groom must emit EXACTLY the velocity it emitted before #1249,
+    // which means bit-for-bit equal positions rather than approximately equal
+    // ones. Anything else would make every committed #1246 capture
+    // incomparable with the one beside it.
+    Ref<GroomAsset> groom = MakeStraightGroom(8u, 4u);
+    ASSERT_TRUE(groom);
+
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*groom, GroomStrandBuildSettings{}, vertices, indices);
+    ASSERT_GT(stats.SegmentCount, 0u);
+
+    for (const auto& vertex : vertices)
+    {
+        EXPECT_EQ(std::bit_cast<u32>(vertex.PrevPosition.x), std::bit_cast<u32>(vertex.Position.x));
+        EXPECT_EQ(std::bit_cast<u32>(vertex.PrevPosition.y), std::bit_cast<u32>(vertex.Position.y));
+        EXPECT_EQ(std::bit_cast<u32>(vertex.PrevPosition.z), std::bit_cast<u32>(vertex.Position.z));
+    }
+    EXPECT_EQ(stats.StrandsHeldAtRest, 0u) << "an unbound groom holds nothing at rest";
+    EXPECT_TRUE(stats.BoundsValid);
 }
 
 // ── The quad ────────────────────────────────────────────────────────────────

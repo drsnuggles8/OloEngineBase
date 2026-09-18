@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
+#include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
 #include <array>
@@ -79,6 +80,26 @@ namespace OloEngine
             // acquiring someone else's.
             std::array<glm::vec4, kMaxFoliageLeafSlots> LeafProfileTint{};
             std::array<glm::vec4, kMaxFoliageLeafSlots> LeafProfileLobe{};
+
+            // THE SKIN TRANSMISSION TABLE (issue #1242), indexed by the same
+            // three-bit slot as SkinProfileParams above and read under the same
+            // MaterialKind::Skin test.
+            //
+            // A SECOND PAIR OF ARRAYS RATHER THAN WIDENING SkinProfileParams,
+            // because that block is a vec4 per slot and these are two more: a
+            // vec4[7] cannot grow to a vec4[7][3] in std140 without becoming an
+            // array of structs, which the GLSL side would have to mirror
+            // exactly. Three parallel arrays indexed by one slot is the shape
+            // the leaf table above already uses, for the same reason.
+            //
+            //   Scatter: xyz = ScatterColor * Strength, w = Anisotropy
+            //   Scaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+            //
+            // An unclaimed slot stays all-zero, and a zero scatter lane makes
+            // the transmittance black — so a stale slot loses the effect rather
+            // than acquiring someone else's.
+            std::array<glm::vec4, kMaxSkinProfileSlots> SkinTransmitScatter{};
+            std::array<glm::vec4, kMaxSkinProfileSlots> SkinTransmitScaling{};
         };
         static_assert(kMaxFoliageLeafSlots == kMaxSkinProfileSlots,
                       "The leaf profile table and the skin profile table are two tenants of ONE three-bit "
@@ -86,7 +107,8 @@ namespace OloEngine
         static_assert(sizeof(DeferredControlsData) % 16 == 0,
                       "DeferredControlsData must be 16-byte aligned for std140");
         static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16 +
-                                                          kMaxFoliageLeafSlots * 32,
+                                                          kMaxFoliageLeafSlots * 32 +
+                                                          kMaxSkinProfileSlots * 32,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
     } // namespace
@@ -394,6 +416,18 @@ namespace OloEngine
                 const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);
                 controls.SkinProfileParams[slot] = glm::vec4(parameters.SpecularTint,
                                                              static_cast<f32>(std::to_underlying(parameters.EvaluationModel)));
+                // The transmission lanes (issue #1242), packed by the SAME two
+                // functions the forward path's submission uses — so the two
+                // paths hand include/SkinTransmission.glsl identical numbers for
+                // the same profile, by construction rather than by review.
+                //
+                // Packed for EVERY slot regardless of transport version, unlike
+                // the forward path which skips them below version 2. The version
+                // test on this path lives in the SHADER (it reads the version out
+                // of SkinProfileParams[slot].w), so zeroing them here would put
+                // the same decision in two places and let them disagree.
+                controls.SkinTransmitScatter[slot] = SkinTransmissionScatterLane(parameters);
+                controls.SkinTransmitScaling[slot] = SkinTransmissionScalingLane(parameters);
             }
         }
 

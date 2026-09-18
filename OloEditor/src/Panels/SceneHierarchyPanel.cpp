@@ -21,7 +21,12 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/VolumeAsset.h"
+#include <fstream>
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "Groom/GroomBindingAuthoring.h"
+#include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -45,6 +50,7 @@
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/SkinDiffusion.h"
 #include "OloEngine/Renderer/SkinProfile.h"
+#include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Material.h"
@@ -479,6 +485,40 @@ namespace OloEngine
         {
             // No additional handling required.
         }
+    }
+
+    // ── Groom surface binding helpers (issue #1249) ─────────────────
+    //
+    void SceneHierarchyPanel::BuildGroomBinding(Entity entity, GroomBindingComponent& component)
+    {
+        if (!m_Context)
+        {
+            return;
+        }
+        Entity targetEntity =
+            component.m_TargetEntity != 0 ? m_Context->GetEntityByUUID(component.m_TargetEntity) : entity;
+
+        // One implementation, shared with olo_groom_bind. A second bind path
+        // that differed by the search radius, the output directory or which
+        // space the roots were projected in would be the same class of bug this
+        // feature exists to prevent, wearing different clothes.
+        const auto outcome =
+            GroomAuthoring::BuildAndImportBinding(*m_Context, entity, targetEntity, m_GroomBindSearchRadius);
+        if (!outcome.m_Ok)
+        {
+            OLO_ERROR("Build binding failed: {}", outcome.m_Reason);
+            return;
+        }
+        component.m_Binding = outcome.m_Binding;
+
+        // Reported at INFO with the numbers, not silently: "it bound" is not a
+        // result, and the Distant count is the one that says the groom went on
+        // the wrong body.
+        OLO_INFO("Built groom binding '{}': {} roots ({} exact / {} clamped / {} distant), max rest distance {:.4f}, "
+                 "mean {:.4f}, {} on degenerate triangles",
+                 outcome.m_RelativePath.generic_string(), outcome.m_Stats.RootsBound, outcome.m_Stats.RootsExact,
+                 outcome.m_Stats.RootsClamped, outcome.m_Stats.RootsDistant, outcome.m_Stats.MaxRestDistance,
+                 outcome.m_Stats.MeanRestDistance, outcome.m_Stats.RootsOnDegenerateTriangles);
     }
 
     bool SceneHierarchyPanel::IsEntitySelected(Entity entity) const
@@ -2193,8 +2233,10 @@ namespace OloEngine
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
+            DisplayAddComponentEntry<FoliageInteractionComponent>("Foliage Interaction");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
+            DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -3624,6 +3666,54 @@ namespace OloEngine
                     }
                     ImGui::EndDragDropTarget();
                 }
+                // ---- THE PER-MATERIAL THICKNESS (issue #1242) -----------
+                //
+                // EDITABLE HERE, unlike every profile field above, and the split
+                // is the point: the scattering parameters are shared by every
+                // material on the head, while the THICKNESS is what makes an ear
+                // different from a cheek. One asset, many materials, each with
+                // its own thickness — so the thickness lives on the material.
+                //
+                // In METRES, per glTF KHR_materials_volume, with the millimetre
+                // equivalent shown beside it because 0.002 is a number no one
+                // recognises as "a 2 mm ear".
+                {
+                    f32 thicknessFactor = component.m_Material.GetThicknessFactor();
+                    if (ImGui::DragFloat("Thickness Factor (m)", &thicknessFactor, 0.0005f, 0.0f, 1.0f, "%.4f"))
+                        component.m_Material.SetThicknessFactor(thicknessFactor);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %.2f mm", static_cast<f64>(thicknessFactor * 1000.0f));
+
+                    // The thickness MAP slot — a per-pixel modulation of the
+                    // factor above, red channel, unitless [0,1].
+                    const bool hasMap = component.m_Material.HasThicknessMap();
+                    ImGui::Button(hasMap ? "Thickness Map: assigned"
+                                         : "Thickness Map: <none — drag a texture here>",
+                                  ImVec2(-1.0f, 0.0f));
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                        {
+                            std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                            // LINEAR, not sRGB: it is a thickness, not a colour.
+                            // Loading it as sRGB would put a gamma curve through
+                            // the optical depth and make thin regions read thick.
+                            if (auto texture = Texture2D::Create(assetPath.string(), /*srgb=*/false);
+                                texture && texture->IsLoaded())
+                            {
+                                component.m_Material.SetThicknessMap(texture);
+                            }
+                            else
+                            {
+                                OLO_WARN("Drag-dropped thickness map could not be loaded: {0}", assetPath.string());
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    if (hasMap && ImGui::SmallButton("Clear##ThicknessMap"))
+                        component.m_Material.SetThicknessMap(nullptr);
+                }
+
                 if (profileHandle != 0)
                 {
                     if (ImGui::SmallButton("Clear##SkinProfile"))
@@ -3654,7 +3744,14 @@ namespace OloEngine
                         // built from them, and it is roughly eight times larger.
                         // Showing only the input is how "1.5 mm" becomes a
                         // surprise at 12 mm of visible bleed.
-                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion)
+                        // BOTH DIFFUSING VERSIONS. Version 2 is "everything
+                        // version 1 does, plus transmission", so a version-2
+                        // profile diffuses too — testing only for version 1 here
+                        // would tell an author their head had stopped scattering
+                        // the moment they enabled transmission, which is exactly
+                        // the wrong thing for a diagnostic readout to claim.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion ||
+                            parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
                         {
                             ImGui::Text("Diffusion reach (mm, derived): %.2f",
                                         static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
@@ -3667,6 +3764,61 @@ namespace OloEngine
                                     static_cast<f64>(parameters.SpecularTint.r),
                                     static_cast<f64>(parameters.SpecularTint.g),
                                     static_cast<f64>(parameters.SpecularTint.b));
+
+                        // ---- THIN-REGION TRANSMISSION (issue #1242) --------
+                        //
+                        // Read-only like everything above it, for the same
+                        // reason: a profile is a shared asset and is edited in
+                        // its own file. What the inspector owes the author here
+                        // is the ability to see WHY a backlit ear is not
+                        // glowing, which is almost never the lobe's shape and
+                        // almost always one of three data problems — the
+                        // version, the strength, or a missing thickness.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                        {
+                            ImGui::Text("Transmission: strength %.2f, anisotropy %.2f, power %.1f",
+                                        static_cast<f64>(parameters.Transmission.Strength),
+                                        static_cast<f64>(parameters.Transmission.Anisotropy),
+                                        static_cast<f64>(parameters.Transmission.Power));
+
+                            // THE DERIVED THICKNESS, in the units the transport
+                            // actually uses. The author typed metres into
+                            // Thickness Factor below and millimetres into the
+                            // profile's scale; this is the product, which is the
+                            // number the optical depth divides. Showing only the
+                            // two inputs is how a factor-of-1000 slip survives.
+                            const f32 thicknessMM = SkinThicknessBaseMM(component.m_Material.GetThicknessFactor(),
+                                                                        parameters.ThicknessScale);
+                            ImGui::Text("Thickness (mm, derived): %.3f%s", static_cast<f64>(thicknessMM),
+                                        component.m_Material.HasThicknessMap() ? " x map" : " (uniform, no map)");
+
+                            // THE THREE WAYS IT SILENTLY DOES NOTHING, each
+                            // named. These mirror SkinTransmissionFallbackReason
+                            // — the log counts them, and this says the same
+                            // thing where the author is already looking.
+                            if (!component.m_Material.HasAuthoredThickness())
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "No thickness authored — transmission is OFF. Set the skin "
+                                                   "Thickness Factor (m) above.");
+                            }
+                            else if (parameters.Transmission.Strength <= 0.0f)
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "Transmission strength is 0 — the term is disabled by the "
+                                                   "profile.");
+                            }
+                            if (component.m_Material.IsTransmissive())
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
+                                                   "Also has KHR_materials_transmission — two transmission "
+                                                   "closures. Skin's wins; set Transmission Factor to 0.");
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("No thin-region transmission — authored below transport version 2.");
+                        }
                     }
                     else
                     {
@@ -6957,6 +7109,15 @@ namespace OloEngine
                         ImGui::Checkbox("Wind Displacement", &layer.WindDebugDisplacement);
 
                         ImGui::Separator();
+                        ImGui::Text("Interaction");
+                        ImGui::DragFloat("Interaction Response", &layer.InteractionResponse, 0.01f, 0.0f, 8.0f);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("How strongly this species bends under an actor carrying a\n"
+                                              "Foliage Interaction component. 0 = this layer ignores actors.\n"
+                                              "Nothing in the scene emits influences until some entity has that\n"
+                                              "component, so this slider does nothing on its own.");
+
+                        ImGui::Separator();
                         ImGui::Text("Material");
 
                         ImGui::ColorEdit3("Base Color", glm::value_ptr(layer.BaseColor));
@@ -7906,6 +8067,39 @@ namespace OloEngine
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
 
+        DrawComponent<FoliageInteractionComponent>("Foliage Interaction", entity, [](auto& component)
+                                                   {
+                // This component is the feature's switch: while no entity in the
+                // scene carries one, the foliage shaders contribute exactly
+                // zero. Say so, because an author who has only turned up a
+                // layer's Interaction Response and seen nothing happen has no
+                // other way to find out (issue #1238).
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+                ImGui::DragFloat("Radius", &component.m_Radius, 0.01f, 0.05f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Horizontal reach. Foliage outside it is untouched.");
+                ImGui::DragFloat("Height", &component.m_Height, 0.01f, 0.0f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How far ABOVE this entity a plant's root may sit and still bend.\n"
+                                      "The influence is a cylinder, so an actor on a ledge does not\n"
+                                      "flatten the meadow underneath it.");
+                ImGui::DragFloat("Strength", &component.m_Strength, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Peak displacement in world units, before the layer's response.\n"
+                                      "A bigger bend is asked for on the LAYER, via Interaction Response.");
+                ImGui::DragFloat("Falloff", &component.m_Falloff, 0.1f, 0.25f, 16.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("1 = linear, 2 = quadratic, higher = the bend hugs the centre");
+                ImGui::DragFloat("Recovery Seconds", &component.m_RecoverySeconds, 0.01f, 0.02f, 8.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time constant for standing back up. Frame-rate independent:\n"
+                                      "the same seconds at 30 fps and at 144.");
+                ImGui::DragFloat("Trail Spacing", &component.m_TrailSpacing, 0.01f, 0.0f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Distance between planted footprints. 0 = no trail; the bend\n"
+                                      "follows this entity and the grass springs up as it passes.\n"
+                                      "About one stride is what reads as tracks through grass."); });
+
         DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [entity](auto& component)
                                             {
             // Every "this will silently render nothing / render wrong" condition the
@@ -8331,6 +8525,210 @@ namespace OloEngine
                     }
                 }
             } });
+
+        // ── Groom surface binding (issue #1249) ────────────────────
+        //
+        // The panel's job here is to make a WRONG binding visible before it is
+        // animated. A coat bound to the wrong body, or to a mesh whose topology
+        // has moved since, looks perfectly fine in the bind pose and only comes
+        // apart in motion — so every number this section shows is one that
+        // separates those two cases while the character is standing still.
+        DrawComponent<GroomBindingComponent>("Groom Binding", entity, [this, entity](auto& component)
+                                             {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is nothing to bind. Add a Groom "
+                                   "first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+
+            const std::string bindingLabel =
+                component.m_Binding != 0
+                    ? "Binding: " + std::to_string(static_cast<u64>(component.m_Binding))
+                    : "Binding: <none - build one below, or drag a .ologroombinding here>";
+            ImGui::Button(bindingLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::GroomBinding)
+                        {
+                            component.m_Binding = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a GroomBinding (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::Checkbox("Enabled##GroomBinding", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off leaves the coat at its BIND POSE while the body animates. That is the A/B "
+                                  "control every capture of this feature is measured against, not a performance "
+                                  "switch.");
+            }
+            ImGui::Checkbox("Show Binding Preview", &component.m_ShowBindingPreview);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Marks every bound root on the DEFORMED surface with its frame. The only view in "
+                                  "which a root attached to the wrong triangle is visible before it moves.");
+            }
+            ImGui::DragFloat("Teleport Distance", &component.m_TeleportDistance, 0.1f, 0.01f, 10000.0f, "%.2f m");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How far the BODY may jump in one frame before the previous-frame strand "
+                                  "positions are thrown away. Too low costs a frame of motion blur during fast "
+                                  "motion; too high smears the whole coat across the screen on a cut.");
+            }
+
+            // ── The target body ────────────────────────────────
+            ImGui::SeparatorText("Target body");
+            Entity targetEntity = component.m_TargetEntity != 0 && m_Context
+                                      ? m_Context->GetEntityByUUID(component.m_TargetEntity)
+                                      : entity;
+            {
+                const std::string targetLabel =
+                    component.m_TargetEntity == 0
+                        ? std::string("Target: <this entity's own mesh>")
+                        : (targetEntity ? "Target: " + targetEntity.GetName()
+                                        : "Target: <missing entity " +
+                                              std::to_string(static_cast<u64>(component.m_TargetEntity)) + ">");
+                ImGui::Button(targetLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    // The hierarchy's own drag payload, so a body is chosen by
+                    // dragging it out of the tree rather than by typing a UUID.
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                    {
+                        if (payload->DataSize == static_cast<int>(sizeof(UUID)))
+                        {
+                            component.m_TargetEntity = *static_cast<const UUID*>(payload->Data);
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("The entity carrying the body this coat grows on. Drag one from the scene "
+                                      "hierarchy. Empty means this entity's own mesh, which is the usual case for "
+                                      "a groom parented under its character.");
+                }
+                if (component.m_TargetEntity != 0 && ImGui::Button("Clear Target"))
+                {
+                    component.m_TargetEntity = 0;
+                }
+            }
+
+            // ── What the binding holds, and whether it still fits ────────
+            if (component.m_Binding != 0)
+            {
+                if (Ref<GroomBindingAsset> const binding =
+                        AssetManager::GetAsset<GroomBindingAsset>(component.m_Binding))
+                {
+                    ImGui::SeparatorText("Contents");
+                    ImGui::Text("Roots: %u   Binder v%u", binding->GetRootCount(), binding->GetBinderVersion());
+                    ImGui::Text("Exact: %u   Clamped: %u   Distant: %u",
+                                binding->GetQualityCount(GroomRootBindQuality::Exact),
+                                binding->GetQualityCount(GroomRootBindQuality::Clamped),
+                                binding->GetQualityCount(GroomRootBindQuality::Distant));
+                    ImGui::Text("Max rest distance: %.4f", binding->GetMaxRestDistance());
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("How far the furthest root sits from the surface it is bound to, in "
+                                          "object-space units. A coat bound to the WRONG body misses by metres; "
+                                          "a coat authored with a shell offset misses by millimetres.");
+                    }
+                    ImGui::TextWrapped("Groom source: %s", binding->GetGroomSourcePath().empty()
+                                                               ? "<unrecorded>"
+                                                               : binding->GetGroomSourcePath().c_str());
+                    ImGui::TextWrapped("Target source: %s", binding->GetTargetSourcePath().empty()
+                                                                ? "<unrecorded>"
+                                                                : binding->GetTargetSourcePath().c_str());
+
+                    // THE CHECK, run live against what is actually in the scene.
+                    // This is the whole point of the panel: a binding that will
+                    // be refused at render time says so here, by name, while the
+                    // character is standing still.
+                    const auto& groomComponent = entity.GetComponent<GroomComponent>();
+                    if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom))
+                    {
+                        GroomBindingRejectReason reason = GroomBindingRejectReason::NoTarget;
+                        if (const auto target = GroomAuthoring::ResolveTarget(targetEntity); target)
+                        {
+                            const GroomSurfaceView view =
+                                GroomAuthoring::MakeSurfaceView(*target.m_Surface, target.m_Skeleton);
+                            reason = view.IsUsable()
+                                         ? binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*groom),
+                                                                       GroomBindingBuilder::SignTarget(view))
+                                         : GroomBindingRejectReason::TargetNotReady;
+                        }
+
+                        ImGui::SeparatorText("Compatibility");
+                        if (reason == GroomBindingRejectReason::None)
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 0.4f, 1.0f));
+                            ImGui::TextWrapped("Attaches: this binding matches the groom and the body in front of "
+                                               "it.");
+                            ImGui::PopStyleColor();
+                        }
+                        else
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                            ImGui::TextWrapped("Refused (%s): %s", std::string(ToString(reason)).c_str(),
+                                               std::string(DescribeGroomBindingReject(reason)).c_str());
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("The referenced binding asset did not load - see OloEngine.log for the "
+                                       "reason the .ologroombinding was rejected.");
+                    ImGui::PopStyleColor();
+                }
+            }
+
+            // ── Building one ──────────────────────────────────
+            ImGui::SeparatorText("Build");
+            ImGui::DragFloat("Search Radius", &m_GroomBindSearchRadius, 0.01f, 0.001f, 1000.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Roots further than this from the surface are still bound - dropping them would "
+                                  "leave a bald patch - but are counted as Distant so a groom on the wrong body is "
+                                  "a number rather than a look.");
+            }
+
+            const bool canBuild = m_Context != nullptr && !m_Context->IsRunning();
+            if (!canBuild)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("Stop Play mode to build a binding. A binding records the body's BIND POSE, and "
+                                   "building it from an animated pose produces one that is correct for that frame "
+                                   "and wrong for every other - which nothing downstream can detect.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::BeginDisabled(!canBuild);
+            if (ImGui::Button("Build Binding", ImVec2(-1.0f, 0.0f)))
+            {
+                BuildGroomBinding(entity, component);
+            }
+            ImGui::EndDisabled(); });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

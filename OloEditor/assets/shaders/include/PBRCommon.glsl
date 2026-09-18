@@ -80,6 +80,12 @@
 // being composited sharp. The SPECULAR half is untouched by that pass, which is
 // the whole point of the split and of this file's version branch.
 #define OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION 1
+// Version 2 (issue #1242): everything version 1 does, plus a THIN-REGION
+// TRANSMISSION term -- light entering the far face of a thin region and leaving
+// toward the viewer, attenuated through the authored thickness by the same
+// per-channel mean free paths the diffusion kernel uses. Evaluated by
+// include/SkinTransmission.glsl, which this file includes below.
+#define OLO_SKIN_MODEL_THICKNESS_TRANSMISSION 2
 
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
@@ -2358,7 +2364,8 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
     // property this branch exists for: a version this shader has no arm for
     // applies NOTHING rather than guessing.
     if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT &&
-        evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION)
+        evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
+        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
@@ -2389,6 +2396,12 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
 // thousand lines around it.
 #include "SkinDiffusionCommon.glsl"
 
+// The thin-region transmission term (issue #1242). Included here rather than by
+// each lit pass so every shader that can shade skin gets the SAME arithmetic --
+// the forward paths through this file, the deferred pass through
+// include/DeferredLightingShared.glsl, which includes this one.
+#include "SkinTransmission.glsl"
+
 // The aux value for a pixel that HAS been shaded.
 //
 // `scatteringMask` is oloSkinScatteringMask's [0,1]: the fraction of this
@@ -2401,7 +2414,15 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
 {
     if (materialKind != OLO_MATERIAL_KIND_SKIN)
         return vec4(0.0);
-    if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION)
+    // BOTH DIFFUSING VERSIONS, and the `||` is load-bearing. Version 2 is
+    // "everything version 1 does, plus transmission" (Renderer/SkinProfile.h),
+    // so a version-2 profile must still hand its diffuse half to the diffusion
+    // pass. Testing only for version 1 here would have made moving a profile to
+    // version 2 SILENTLY TURN THE DIFFUSION OFF while turning transmission on --
+    // a head that gains backlit ears and loses its soft terminator in one
+    // authoring click, which reads as "the new feature broke scattering".
+    if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
+        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION)
         return vec4(0.0);
     if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
         return vec4(0.0);

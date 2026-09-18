@@ -846,6 +846,12 @@ TEST(McpAutomationTransactionCensus, EveryRegisteredCommandsTransactabilityIsCla
         { "olo_asset_import", Transactability::Irreversible },
         { "olo_asset_reimport", Transactability::Irreversible },
         { "olo_asset_import_settings", Transactability::Irreversible },
+        // Writes a cooked .ologroombinding and imports it (#1249). Irreversible
+        // for the same reason the asset commands above are: the file and its
+        // registry entry outlive any undo of the component assignment, so a
+        // transaction that rolled back would leave the project in a state the
+        // command cannot describe. Rebinding is deterministic; that is the way back.
+        { "olo_groom_bind", Transactability::Irreversible },
         { "olo_editor_undo", Transactability::HistoryControl },
         { "olo_editor_redo", Transactability::HistoryControl },
         { "olo_transaction_apply", Transactability::HistoryControl },

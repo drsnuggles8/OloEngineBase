@@ -206,6 +206,24 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_SkinSpecularTintG;
     float u_SkinSpecularTintB;
     int u_SkinEvaluationModel;   // OLO_SKIN_MODEL_*, NOT the PBR closure version
+    // THIN-REGION TRANSMISSION (issue #1242). Mirrors PBRMaterialUBO's
+    // SkinTransmitScatter / SkinTransmitScaling, which sit on a 16-byte boundary
+    // at offset 144 so std140 pads nothing in front of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets, like the #970 and #1231
+    // lanes above -- omitting them would relayout the heap offsets by 48 B and
+    // every texture would sample the wrong descriptor.
+    //
+    //   u_SkinTransmitScatter: xyz = ScatterColor * Strength, w = Anisotropy
+    //   u_SkinTransmitScaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+    //
+    // See include/SkinTransmission.glsl for what reads them and
+    // Renderer/SkinTransmission.h for where the numbers come from.
+    vec4 u_SkinTransmitScatter;
+    vec4 u_SkinTransmitScaling;
+    int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
+    uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
+    float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
+    float u_SkinTransmitPad0;         // explicit padding -- takes the prefix to 192 B
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -262,6 +280,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 #define u_NormalMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.z, OLO_MATERIAL_SAMPLER_OFFSET)
 #define u_AOMap OLO_HEAP_MATERIAL_TEX_2D(matHeapTextures.w, OLO_MATERIAL_SAMPLER_OFFSET)
 #define u_EmissiveMap OLO_HEAP_MATERIAL_TEX_2D(matHeapEmissive, OLO_MATERIAL_SAMPLER_OFFSET)
+#define u_ThicknessMap OLO_HEAP_MATERIAL_TEX_2D(OLO_MATERIAL_THICKNESS_OFFSET, OLO_MATERIAL_SAMPLER_OFFSET)
 #elif defined(OLO_BINDLESS)
 #define OLO_MATERIAL_HEAP_READER 1
 #define u_AlbedoMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_ALBEDO_OFFSET)
@@ -269,12 +288,14 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 #define u_NormalMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_NORMAL_OFFSET)
 #define u_AOMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_AO_OFFSET)
 #define u_EmissiveMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_EMISSIVE_OFFSET)
+#define u_ThicknessMap OLO_MATERIAL_TEX_2D(OLO_MATERIAL_THICKNESS_OFFSET)
 #else
 layout(binding = 0) uniform sampler2D u_AlbedoMap;
 layout(binding = 1) uniform sampler2D u_MetallicRoughnessMap;
 layout(binding = 2) uniform sampler2D u_NormalMap;
 layout(binding = 4) uniform sampler2D u_AOMap;
 layout(binding = 5) uniform sampler2D u_EmissiveMap;
+layout(binding = 76) uniform sampler2D u_ThicknessMap;   // TEX_SKIN_THICKNESS (issue #1242)
 #endif
 
 layout(location = 0) in vec3 v_WorldPos;
@@ -418,5 +439,41 @@ void main()
     // falls through to probes/IBL exactly as it did before #865. Coverage is the
     // sampler's alpha, never the colour: a validly baked pure-black texel must
     // keep its darkness rather than glow with sky IBL.
-    o_GBufferBakedGI = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
+
+    // ---- THE DEFERRED THICKNESS LANE (issue #1242) -----------------------
+    //
+    // A skin pixel that names a profile parks its thickness in RT5's red
+    // channel with coverage 0; see oloSkinPackGBufferThickness in
+    // include/SkinTransmission.glsl for why that channel is free and what the
+    // tenancy rules are.
+    //
+    // NO TRANSPORT-VERSION TEST HERE, deliberately. This shader has no
+    // SkinEvaluationModel to test -- the deferred lighting pass reads the
+    // version out of u_SkinProfileParams[slot].w, which is the ONE place it
+    // lives on that path. So the writer publishes the thickness for every skin
+    // pixel that names a profile and the READER decides whether the profile's
+    // version wants it. Duplicating the version test here would mean carrying
+    // the model through the G-Buffer as well, for no gain: an unused thickness
+    // in a channel that was otherwise zero costs nothing.
+    //
+    // The thickness comes from the per-draw UBO lanes rather than from
+    // GPUSceneMaterial, which carries no thickness field. For a single-material
+    // draw those are the same number; a GPU-Scene draw that batched two
+    // materials with different thickness factors would use the UBO's. Stated
+    // rather than hidden -- and the map, which is the per-pixel half, is
+    // unaffected either way.
+    float skinThicknessMM = 0.0;
+    if (matMaterialKind == OLO_MATERIAL_KIND_SKIN && matSkinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
+    {
+        float thicknessSample = (u_UseThicknessMap != 0) ? texture(u_ThicknessMap, v_TexCoord).r : 1.0;
+        skinThicknessMM = u_SkinThicknessBaseMM * clamp(thicknessSample, 0.0, 1.0);
+    }
+
+    vec4 bakedGI = sampleLightmapIrradiance(v_TexCoord2, instances[v_InstanceIndex].LightmapScaleOffset);
+    // The irradiance WINS wherever there is any: taking a lightmapped surface's
+    // indirect light away to make room for a transmission term would trade a
+    // visible lighting regression for a subtle gain. The CPU counts that case as
+    // SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable, so the
+    // lost per-pixel thickness is reported rather than silently dropped.
+    o_GBufferBakedGI = oloSkinPackGBufferThickness(bakedGI, skinThicknessMM > 0.0, skinThicknessMM);
 }

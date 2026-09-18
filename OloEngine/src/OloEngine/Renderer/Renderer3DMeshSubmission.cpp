@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/DrawKey.h"
@@ -532,6 +533,58 @@ namespace OloEngine
                 data.skinProfileSlot = profile.Slot;
                 data.skinSpecularTint = profile.Parameters.SpecularTint;
                 data.skinEvaluationModel = std::to_underlying(profile.Parameters.EvaluationModel);
+
+                // THIN-REGION TRANSMISSION (issue #1242). The lanes are packed
+                // here, once per submission, for the same reason the tint is
+                // resolved here: the Burley albedo fit behind
+                // SkinTransmissionScalingLane is a physical decision, and
+                // Renderer/SkinTransmission.h's opening rule puts those on the
+                // CPU where a test can look at them.
+                //
+                // ONLY AT TRANSPORT VERSION 2, and the branch is here rather
+                // than only in the shader so a version-1 profile does not even
+                // upload a lobe. A version this code has no arm for leaves the
+                // lanes zero, which shades as no transmission.
+                if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                {
+                    data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
+                    data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
+                    // The metres -> millimetres conversion, done HERE and not in
+                    // GLSL. It is the one number this feature is most likely to
+                    // get wrong, and a unit slip in a shader is a thing no test
+                    // can reach (Renderer/SkinTransmission.h, opening rule).
+                    data.skinThicknessBaseMM =
+                        SkinThicknessBaseMM(material.GetThicknessFactor(), profile.Parameters.ThicknessScale);
+
+                    // THE TWO AUTHORING FAULTS, COUNTED AND LOGGED HERE — the
+                    // only place that can see them, because it is the only place
+                    // that has the material AND the resolved profile together.
+                    // Neither is silently absorbed (CLAUDE.md house rule): a head
+                    // that quietly stopped transmitting looks exactly like a head
+                    // that never should have.
+                    if (!material.HasAuthoredThickness())
+                    {
+                        // No thicknessFactor, so nothing for a map to modulate.
+                        // The conservative fallback is NO transmission — see
+                        // SkinTransmittance for why the other reading of a zero
+                        // thickness is the uniformly emissive head.
+                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                            SkinTransmissionFallbackReason::NoThickness, material.GetSkinProfileHandle());
+                    }
+                    if (material.IsTransmissive())
+                    {
+                        // KHR_materials_transmission AND skin transport on one
+                        // surface is two transmission closures over the same
+                        // energy — the double-count the issue's third criterion
+                        // forbids, arriving by the authoring path rather than by
+                        // the maths. Skin's term wins because that is what the
+                        // material kind asked for; the author is told which one
+                        // was dropped.
+                        Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                            SkinTransmissionFallbackReason::RefractiveTransmissionConflict,
+                            material.GetSkinProfileHandle());
+                    }
+                }
             }
         }
 
@@ -549,6 +602,11 @@ namespace OloEngine
         data.normalMapID = material.GetNormalMap() ? material.GetNormalMap()->GetRHIHandle() : RHI::NullResource;
         data.aoMapID = material.GetAOMap() ? material.GetAOMap()->GetRHIHandle() : RHI::NullResource;
         data.emissiveMapID = material.GetEmissiveMap() ? material.GetEmissiveMap()->GetRHIHandle() : RHI::NullResource;
+        // The thickness map (issue #1242). Carried for EVERY material kind, not
+        // only skin: it is KHR_materials_volume data that a material owns, and
+        // gating the upload on the kind would mean a material switched to Skin in
+        // the editor sampled nothing until the next resubmission.
+        data.thicknessMapID = material.GetThicknessMap() ? material.GetThicknessMap()->GetRHIHandle() : RHI::NullResource;
         data.environmentMapID = material.GetEnvironmentMap() ? material.GetEnvironmentMap()->GetRHIHandle() : RHI::NullResource;
         data.irradianceMapID = material.GetIrradianceMap() ? material.GetIrradianceMap()->GetRHIHandle() : RHI::NullResource;
         data.prefilterMapID = material.GetPrefilterMap() ? material.GetPrefilterMap()->GetRHIHandle() : RHI::NullResource;
@@ -2456,6 +2514,46 @@ namespace OloEngine
                     if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+
+                        // A LIGHTMAPPED SKIN SURFACE LOSES ITS PER-PIXEL
+                        // THICKNESS ON THE DEFERRED PATH (issue #1242), because
+                        // G-Buffer RT5 is holding this pixel's baked irradiance
+                        // and the thickness lane is the same channel. The
+                        // irradiance wins — see oloSkinPackGBufferThickness for
+                        // why that is the right way round — so the transmission
+                        // term reads a thickness of 0 and does not fire.
+                        //
+                        // REPORTED HERE because this is the only site that knows
+                        // BOTH facts: the material (through MaterialData) and
+                        // whether this draw carries a lightmap region. The
+                        // shader cannot log, and the material-fill function
+                        // cannot see the lightmap.
+                        //
+                        // Counted even on the forward paths, where the term
+                        // actually works, because the condition is a property of
+                        // the ASSET rather than of the path: the same scene
+                        // switched to Deferred will silently lose the effect, and
+                        // that is worth knowing before the switch rather than
+                        // after. The reason's name says which path it bites.
+                        // `desc.MaterialData` is a Material, not the resolved
+                        // POD, so the transport version has to come from the
+                        // profile. Resolve() is the right call rather than a
+                        // surprise: its own header says the slot is sticky and
+                        // the cost is one asset-manager lookup per skin
+                        // submission, and this site only reaches it for a
+                        // lightmapped skin draw.
+                        if (const Material& mat = desc.MaterialData;
+                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
+                        {
+                            const SkinProfileResolution profile =
+                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            {
+                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
+                                    mat.GetSkinProfileHandle());
+                            }
+                        }
                     }
                     SubmitPacket(packet);
                     ++totalSubmitted;
@@ -2508,6 +2606,31 @@ namespace OloEngine
                     if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+
+                        // AND THE SAME DIAGNOSTIC (issue #1242), for exactly the
+                        // reason the comment above gives. #1242 first added this
+                        // report to the serial branch only, so a batch of
+                        // lightmapped skin materials that merely crossed the
+                        // parallel threshold stopped reporting a conflict that
+                        // was still happening — the split this comment warns
+                        // about, reintroduced by the change that quotes it.
+                        //
+                        // SkinProfileTable::Resolve and ReportTransmissionFallback
+                        // are both documented thread-safe (mesh submission runs
+                        // on more than one thread), which is what makes this
+                        // callable from inside the parallel lambda.
+                        if (const Material& mat = desc.MaterialData;
+                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
+                        {
+                            const SkinProfileResolution profile =
+                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            {
+                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
+                                    mat.GetSkinProfileHandle());
+                            }
+                        }
                     }
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
                     ++stats.Submitted;

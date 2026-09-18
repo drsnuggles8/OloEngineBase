@@ -90,6 +90,7 @@ add_executable(OloEngine-Tests
 		TilesetSerializerTest.cpp
 		SkinDiffusionTest.cpp
 		SkinProfileTest.cpp
+		SkinTransmissionTest.cpp
 		# Groom curve assets (#1232). The round-trip and determinism cases are the
 		# issue's acceptance criteria; the Alembic-dependent halves self-guard on
 		# OLO_WITH_ALEMBIC so the files compile with the option off.
@@ -103,6 +104,9 @@ add_executable(OloEngine-Tests
 		# tests it.
 		Groom/GroomCompositionSelectionTest.cpp
 		Groom/GroomStrandMeshTest.cpp
+		Groom/GroomBindingBuilderTest.cpp
+		Groom/GroomBindingRoundTripTest.cpp
+		Groom/GroomDeformationTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -250,6 +254,7 @@ add_executable(OloEngine-Tests
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
+		Rendering/FoliageInteractionContractTest.cpp
 		Rendering/FoliageImpostorShaderInterfaceTest.cpp
 		Rendering/PODCommandTest.cpp
 		Rendering/ShaderBindingLayoutTest.cpp
@@ -363,6 +368,14 @@ add_executable(OloEngine-Tests
 		Rendering/RHIResourceRegistryTest.cpp
 		Rendering/RHIDescriptorHeapTest.cpp
 		Rendering/RHIEnumLoweringTest.cpp
+		# #1300: the end-of-run "did this run actually exercise Vulkan?" banner
+		# and --olo-require-vulkan. Every device-gated Vulkan test goes through
+		# OLO_VULKAN_DEVICE_OR_SKIP (VulkanTestSupport.h), which reports here;
+		# the banner prints below gtest's own summary so a skipped backend
+		# cannot read as a tested one. Backend-independent: it compiles and
+		# reports the "not selected" no-op when OLO_WITH_VULKAN=OFF.
+		Rendering/VulkanCoverageReport.cpp
+		Rendering/VulkanCoverageReportTest.cpp
 		# #691 Phase 4: Vulkan device-selection gate (ADR 0010 capability contract).
 		# SKIPs cleanly without a loader/device; compiles to a single SKIP when
 		# OLO_WITH_VULKAN=OFF.
@@ -550,6 +563,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ClosureV2DeferredParityEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDiffusionEvidenceTest.cpp
 		Rendering/PropertyTests/SkinProfileParityEvidenceTest.cpp
+		Rendering/PropertyTests/SkinTransmissionEvidenceTest.cpp
+		Rendering/PropertyTests/SkinTransmissionParityTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp
@@ -589,6 +604,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp
@@ -643,6 +659,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
 		Rendering/PropertyTests/FoliageLeafTransmissionTest.cpp
         Rendering/PropertyTests/FoliageWindShaderTest.cpp
+		Rendering/PropertyTests/FoliageInteractionShaderTest.cpp
+		Rendering/PropertyTests/FoliageInteractionEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafTransmissionEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageGenerationEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageInstanceIdentityPropertyTests.cpp
@@ -807,6 +825,7 @@ add_executable(OloEngine-Tests
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
         SaveGame/FoliageWindSaveLoadTest.cpp
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
+		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests
@@ -941,6 +960,13 @@ add_executable(OloEngine-Tests
 		# test: an apply writes into the prefab asset's own Scene, so a fixture
 		# with a real Project + EditorAssetManager is what proves one Ctrl-Z takes
 		# the prefab, the file and every re-synced instance back together.
+		# AutomationPrefabCommands.cpp, AutomationGroomCommands.cpp and
+		# Groom/GroomBindingAuthoring.cpp used to be listed here as OloEditor sources this
+		# target recompiled. They come from OloEditorCore now (#1314) — see the
+		# target_link_libraries below. The groom pair arrived on master while that
+		# refactor was in flight, so they were moved into OLO_EDITOR_CORE_SOURCES rather
+		# than re-added here; the reason they are needed is unchanged (this target links
+		# McpTools.cpp, which registers olo_groom_bind).
 		# Structured build invocation (issue #1163). RegisterBuiltinCommands
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.

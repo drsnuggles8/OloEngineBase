@@ -445,3 +445,21 @@ with a random parent UUID. `GetParent()` returned an empty entity, so the existi
 test passed, while the hierarchy's zero-UUID root filter hid the whole branch and the
 serializer persisted the dangling reference. The default now uses zero, and hierarchy
 and automation round-trip tests assert that root identity directly.
+
+## `MaterialAsset` YAML wrote the typed PBR maps and loaded them into the *generic uniform* map
+
+`MaterialAssetSerializer` serialized `material->GetAlbedoMap()` under the key `"AlbedoMap"`, and its
+deserializer fed every key in the `Textures` node to `Material::Set(name, texture)` — which only ever
+writes `m_Texture2DUniforms`. So a `MaterialAsset` saved and reloaded came back with **all five typed
+maps null** while the handles sat in a uniform map that nothing samples. An untextured material, from
+a file that contains every texture.
+
+It survived because **one of the two serializers was correct**: `SceneSerializer` has always used the
+typed setters (`SetAlbedoMap` and friends), so a material authored on an entity in a scene round-tripped
+fine and only a material saved as its own asset lost its maps.
+
+The fix is a name → setter table in the load loop, next to the save side's key strings. The general
+rule: **when two serializers cover one type, a field is only round-tripping if you tested the one you
+did not write.** Check the *other* serializer before believing a round-trip works.
+
+Found on #1242, while adding a sixth map (`ThicknessMap`) to both.

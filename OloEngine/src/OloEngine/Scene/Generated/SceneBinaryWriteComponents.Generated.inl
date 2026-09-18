@@ -331,6 +331,19 @@ if (entity.HasComponent<FogVolumeComponent>())
     SceneBinIO::Write(out, comp.m_DensityVolume);
 }
 
+if (entity.HasComponent<FoliageInteractionComponent>())
+{
+    SceneBinIO::WriteU32(out, 4038336927u); // FoliageInteractionComponent
+    auto const& comp = entity.GetComponent<FoliageInteractionComponent>();
+    SceneBinIO::Write(out, comp.m_Radius);
+    SceneBinIO::Write(out, comp.m_Height);
+    SceneBinIO::Write(out, comp.m_Strength);
+    SceneBinIO::Write(out, comp.m_Falloff);
+    SceneBinIO::Write(out, comp.m_RecoverySeconds);
+    SceneBinIO::Write(out, comp.m_TrailSpacing);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<FootIKComponent>())
 {
     SceneBinIO::WriteU32(out, 1414616508u); // FootIKComponent
@@ -366,6 +379,17 @@ if (entity.HasComponent<FootIKComponent>())
     SceneBinIO::Write(out, comp.AlignFootToSlope);
     SceneBinIO::Write(out, comp.LeftHandEnabled);
     SceneBinIO::Write(out, comp.RightHandEnabled);
+}
+
+if (entity.HasComponent<GroomBindingComponent>())
+{
+    SceneBinIO::WriteU32(out, 799220825u); // GroomBindingComponent
+    auto const& comp = entity.GetComponent<GroomBindingComponent>();
+    SceneBinIO::Write(out, comp.m_Binding);
+    SceneBinIO::Write(out, comp.m_TargetEntity);
+    SceneBinIO::Write(out, comp.m_TeleportDistance);
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_ShowBindingPreview);
 }
 
 if (entity.HasComponent<GroomComponent>())
