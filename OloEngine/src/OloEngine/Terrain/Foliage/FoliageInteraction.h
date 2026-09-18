@@ -237,6 +237,21 @@ namespace OloEngine
         /// keep serving it. Reported from the spring's own state rather than
         /// estimated — |v| for the motion already under way, plus the
         /// characteristic rate w*|x| for the relaxation that is about to be.
+        ///
+        /// WHY AN INSTANTANEOUS RATE IS ENOUGH, and where it stops being.
+        /// VegetationPolicy caps a proxy at MaximumProxyAge = 50 ms and allows
+        /// MaximumWorldDisplacementError = 0.25 world units of drift. At the
+        /// default 0.6 s recovery a full-speed attack peaks at 3.4 u/s, so it
+        /// moves 0.17 u in a proxy lifetime — inside the budget, meaning
+        /// interaction never shortens the age limit at all. A layer authored
+        /// with a much faster recovery does exceed it (0.2 s -> 0.51 u,
+        /// 0.02 s -> 5.1 u), and there the bound is doing real work.
+        ///
+        /// The reading is never a stale zero: Update always steps a slot in the
+        /// same call that allocates it, so a brand-new influence already
+        /// carries its attack velocity by the time any draw reads this.
+        /// FoliageInteractionContract.ANewInfluenceReportsItsAttackRateImmediately
+        /// is what keeps that true.
         [[nodiscard]] static f32 GetMaximumBendRate();
 
       private:

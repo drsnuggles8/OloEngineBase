@@ -271,6 +271,28 @@ namespace OloEngine::Tests
         EXPECT_LE(std::abs(gpu.Slots[0].Push.z), kFoliageInteractionMaxStrength + 1e-4f);
     }
 
+    // The ray-traced vegetation cache derives its proxy age limit from
+    // GetMaximumBendRate, so a rate that read zero for the first frame of an
+    // influence would let it serve a snapshot taken just before the grass
+    // started moving. It cannot: Update steps a slot in the same call that
+    // allocates it, so the attack velocity is already there.
+    TEST(FoliageInteractionContract, ANewInfluenceReportsItsAttackRateImmediately)
+    {
+        FieldReset guard;
+        EXPECT_FLOAT_EQ(FoliageInteractionField::GetMaximumBendRate(), 0.0f) << "an empty field has no rate";
+
+        const std::vector<FoliageInteractionSource> sources{ MakeSource(21, { 0.0f, 0.0f, 0.0f }) };
+        Step(sources, 1.0f / 60.0f); // the very first frame this actor exists
+        EXPECT_GT(FoliageInteractionField::GetMaximumBendRate(), 0.5f)
+            << "a brand-new influence reported a near-zero bend rate on its first frame";
+
+        // And it returns to zero once the field lets go, so a still scene does
+        // not pay for refits it does not need.
+        for (u32 i = 0; i < 2000 && FoliageInteractionField::GetActiveCount() > 0; ++i)
+            Step({}, 1.0f / 60.0f);
+        EXPECT_FLOAT_EQ(FoliageInteractionField::GetMaximumBendRate(), 0.0f);
+    }
+
     TEST(FoliageInteractionContract, AWalkingActorShedsATrailThatRecoversBehindIt)
     {
         FieldReset guard;
