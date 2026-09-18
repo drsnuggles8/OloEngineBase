@@ -237,19 +237,68 @@ if(OLO_ENABLE_COMPILER_CACHE)
             unset(_olo_dep_lang)
         endif()
 
-        # Disable precompiled headers while caching. sccache/ccache CANNOT cache a
-        # compile that consumes a PCH (it reports the TU non-cacheable for /Fp /Yu),
-        # so with PCH on the whole engine + editor + runtime + tests — the bulk of
-        # the build and the part that changes per push — recompiles every run and
-        # the cache only covers vendor libs. PCH and the cache optimize opposite
-        # cases: PCH speeds a *cold* compile; the cache makes a *warm* compile a
-        # near-instant hit. For CI's common case (incremental pushes = warm cache)
-        # caching the engine is the far bigger win; the occasional cold run (first
-        # build / toolchain bump / cache eviction) pays a re-parse penalty.
-        # Every engine TU #includes OloEnginePCH.h explicitly, so dropping the
-        # precompile (and its force-include) is safe. OLO_ENABLE_PCH is an option()
-        # in the top-level CMakeLists; override it here.
-        set(OLO_ENABLE_PCH OFF CACHE BOOL "Disabled: MSVC PCH (/Fp) is non-cacheable under sccache/ccache" FORCE)
+        # Disable precompiled headers while caching — but ONLY where a PCH is actually
+        # uncacheable, which is not everywhere (issue #1314).
+        #
+        # The rule this replaces was unconditional, and its own reason string named the
+        # constraint it was enforcing: "MSVC PCH (/Fp) is non-cacheable under
+        # sccache/ccache". That is true for the MSVC frontend — cl.exe and clang-cl both
+        # spell a PCH /Yc /Yu /Fp, and the cache reports those TUs non-cacheable — and it
+        # is NOT true for a GNU-frontend clang, where ccache caches PCH-using compiles
+        # given the right sloppiness. This repo already established that:
+        # docs/agent-rules/compiler-cache-uncacheable-compiles.md says "clang needs nothing
+        # beyond what CMake emits", and .github/actions/setup-linux-build ALREADY exports
+        # CCACHE_SLOPPINESS=pch_defines,time_macros,... on both self-hosted setups with the
+        # comment "every engine target uses one". The CI action was configured for a PCH
+        # the CMake then turned off.
+        #
+        # So the disable now tracks the reason instead of outliving it. Three cases:
+        #
+        #   MSVC frontend (cl.exe, clang-cl)  -> OFF. /Fp is genuinely non-cacheable.
+        #   GNU clang/GCC WITHOUT the required ccache sloppiness -> OFF, and say why:
+        #       every engine compile would go uncached, which is far worse than a cold
+        #       re-parse. This is the case a Linux developer hits without the CI env.
+        #   GNU clang/GCC WITH it -> leave OLO_ENABLE_PCH alone (defaults ON).
+        #
+        # The second half of the original argument is general rather than MSVC-specific
+        # and is NOT dismissed here: "PCH speeds a cold compile; the cache makes a warm
+        # compile a near-instant hit". The reason to expect them to compose on clang is
+        # that the PCH's constituent headers are inputs to the cache key either way, so
+        # enabling it should not add invalidation. That is a prediction, not a result —
+        # #1305's build-memory workflow is the instrument, and #1314 tracks pricing it.
+        # If a warm-cache regression shows up, this block is the one conditional to flip.
+        set(_olo_pch_uncacheable TRUE)
+        set(_olo_pch_reason "the MSVC frontend spells a PCH /Fp /Yu, which sccache/ccache report as non-cacheable")
+        if(NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+            # ccache needs pch_defines AND time_macros before it will cache a PCH-using
+            # compile (ccache manual, "Precompiled headers"). Checked rather than assumed:
+            # turning PCH on without them makes EVERY engine TU uncacheable, which is the
+            # failure docs/agent-rules/compiler-cache-uncacheable-compiles.md measured at
+            # 1417/1417 objects.
+            set(_olo_pch_sloppiness "$ENV{CCACHE_SLOPPINESS}")
+            if(_olo_pch_sloppiness MATCHES "pch_defines" AND _olo_pch_sloppiness MATCHES "time_macros")
+                set(_olo_pch_uncacheable FALSE)
+            else()
+                set(_olo_pch_reason
+                    "CCACHE_SLOPPINESS does not contain both pch_defines and time_macros, so every PCH-using compile would be uncacheable (got '${_olo_pch_sloppiness}')")
+            endif()
+        endif()
+
+        if(_olo_pch_uncacheable)
+            # Every engine TU #includes OloEnginePCH.h explicitly, so dropping the
+            # precompile (and its force-include) is safe. OLO_ENABLE_PCH is an option()
+            # in the top-level CMakeLists; override it here.
+            set(OLO_ENABLE_PCH OFF CACHE BOOL "Disabled: ${_olo_pch_reason}" FORCE)
+            message(STATUS "Precompiled headers: OFF while caching — ${_olo_pch_reason}.")
+        else()
+            message(STATUS
+                "Precompiled headers: left enabled alongside the compiler cache — a GNU-frontend "
+                "clang PCH is cacheable and CCACHE_SLOPPINESS carries pch_defines,time_macros "
+                "(issue #1314).")
+        endif()
+        unset(_olo_pch_uncacheable)
+        unset(_olo_pch_reason)
+        unset(_olo_pch_sloppiness)
 
         # Disable unity (jumbo) builds while caching — same reasoning as PCH above, opposite
         # trade-off. Unity batches 16 TUs into one object; editing a single line in any file
