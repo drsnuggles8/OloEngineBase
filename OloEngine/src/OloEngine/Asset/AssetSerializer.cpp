@@ -56,12 +56,15 @@
 #include <yaml-cpp/yaml.h>
 #include <stb_image/stb_image.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <ranges>
+#include <string_view>
 #include <limits>
 
 namespace OloEngine
@@ -861,6 +864,11 @@ namespace OloEngine
                     out << YAML::Key << "AOMap" << YAML::Value << material->GetAOMap()->m_Handle;
                 if (material->GetEmissiveMap() && material->GetEmissiveMap()->m_Handle != 0)
                     out << YAML::Key << "EmissiveMap" << YAML::Value << material->GetEmissiveMap()->m_Handle;
+                // KHR_materials_volume thickness texture (issue #1242). The key
+                // must match the table in DeserializeFromYAML, which routes it
+                // to SetThicknessMap.
+                if (material->GetThicknessMap() && material->GetThicknessMap()->m_Handle != 0)
+                    out << YAML::Key << "ThicknessMap" << YAML::Value << material->GetThicknessMap()->m_Handle;
 
                 // Serialize dynamic texture uniforms
                 const auto& texture2DUniforms = material->GetTexture2DUniforms();
@@ -1052,6 +1060,33 @@ namespace OloEngine
         // Load textures
         if (materialNode["Textures"])
         {
+            // THE NAMED PBR MAPS GO TO THEIR TYPED SETTERS; everything else is a
+            // dynamic uniform.
+            //
+            // This fixes a real round-trip break rather than adding a feature.
+            // Serialization above writes `material->GetAlbedoMap()` under the key
+            // "AlbedoMap", but this loop fed EVERY key to `Material::Set`, which
+            // only ever writes m_Texture2DUniforms — so a MaterialAsset saved and
+            // reloaded came back with all five typed maps NULL while the handles
+            // sat in the uniform map that nothing samples. The scene-YAML path
+            // (SceneSerializer.cpp) always used the typed setters and was
+            // unaffected, which is why the break survived: one of the two
+            // serializers was correct.
+            //
+            // A TABLE RATHER THAN AN IF-CHAIN so adding a sixth map is one line,
+            // and so the key strings sit next to each other where the save side's
+            // strings can be compared against them.
+            using TypedMapSetter = void (Material::*)(const Ref<Texture2D>&);
+            static const std::array<std::pair<std::string_view, TypedMapSetter>, 6> kTypedMaps{ {
+                { "AlbedoMap", &Material::SetAlbedoMap },
+                { "MetallicRoughnessMap", &Material::SetMetallicRoughnessMap },
+                { "NormalMap", &Material::SetNormalMap },
+                { "AOMap", &Material::SetAOMap },
+                { "EmissiveMap", &Material::SetEmissiveMap },
+                // KHR_materials_volume thickness texture (issue #1242).
+                { "ThicknessMap", &Material::SetThicknessMap },
+            } };
+
             for (const auto& textureNode : materialNode["Textures"])
             {
                 std::string textureName = textureNode.first.as<std::string>();
@@ -1062,7 +1097,17 @@ namespace OloEngine
                     auto texture = AssetManager::GetAsset<Texture2D>(textureHandle);
                     if (texture)
                     {
-                        material->Set(textureName, texture);
+                        const auto typed = std::ranges::find_if(
+                            kTypedMaps, [&](const auto& entry)
+                            { return entry.first == textureName; });
+                        if (typed != kTypedMaps.end())
+                        {
+                            (material.get()->*(typed->second))(texture);
+                        }
+                        else
+                        {
+                            material->Set(textureName, texture);
+                        }
                     }
                 }
             }

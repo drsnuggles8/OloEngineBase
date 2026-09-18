@@ -71,6 +71,15 @@ namespace OloEngine
         EmitVec3(out, "ScatterRadiusMM", p.ScatterRadiusMM);
         out << YAML::Key << "ThicknessScale" << YAML::Value << p.ThicknessScale;
         EmitVec3(out, "SpecularTint", p.SpecularTint);
+        // The transmission lobe (issue #1242). A NESTED MAP rather than three
+        // more top-level keys, so a reader can see at a glance which parameters
+        // belong to the transport that only version 2 evaluates — and so adding
+        // a fourth cannot collide with a diffusion key.
+        out << YAML::Key << "Transmission" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "Strength" << YAML::Value << p.Transmission.Strength;
+        out << YAML::Key << "Anisotropy" << YAML::Value << p.Transmission.Anisotropy;
+        out << YAML::Key << "Power" << YAML::Value << p.Transmission.Power;
+        out << YAML::EndMap;
         out << YAML::EndMap;
         out << YAML::EndMap;
         return std::string(out.c_str());
@@ -115,6 +124,23 @@ namespace OloEngine
             parameters.ScatterRadiusMM = ReadFiniteVec3(section["ScatterRadiusMM"], defaults.ScatterRadiusMM, "ScatterRadiusMM");
             parameters.ThicknessScale = ReadFinite(section["ThicknessScale"], defaults.ThicknessScale, "ThicknessScale");
             parameters.SpecularTint = ReadFiniteVec3(section["SpecularTint"], defaults.SpecularTint, "SpecularTint");
+
+            // The transmission lobe (issue #1242). A file written before #1242
+            // has no Transmission node at all, and that is the case this shape
+            // is built for: every field keeps its DEFAULT, and the defaults are
+            // the ones that make a version-2 profile transmit sensibly. Since
+            // such a file is also at transport version 0 or 1, the lobe is not
+            // evaluated anyway — so an old .oloskin round-trips to the same
+            // pixels, which is the property the version exists to protect.
+            if (auto transmission = section["Transmission"]; transmission)
+            {
+                parameters.Transmission.Strength =
+                    ReadFinite(transmission["Strength"], defaults.Transmission.Strength, "Transmission.Strength");
+                parameters.Transmission.Anisotropy =
+                    ReadFinite(transmission["Anisotropy"], defaults.Transmission.Anisotropy, "Transmission.Anisotropy");
+                parameters.Transmission.Power =
+                    ReadFinite(transmission["Power"], defaults.Transmission.Power, "Transmission.Power");
+            }
 
             if (!profile->SetParameters(parameters))
             {

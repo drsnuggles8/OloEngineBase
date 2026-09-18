@@ -156,12 +156,33 @@ namespace OloEngine
                                                  SkinDiffusionQuality quality)
     {
         // THE VERSION BRANCH, CPU SIDE. The shader has the same one (see
-        // oloSkinDiffusionActive in include/PBRCommon.glsl) and both exist for
+        // oloSkinDiffusionOutput in include/PBRCommon.glsl) and both exist for
         // the reason ADR 0024 gives: a profile authored against version 0 must
         // keep shading as it did when a renderer setting turns diffusion on.
         // Returning the identity here means such a profile also uploads a
         // harmless kernel rather than relying on the shader's branch alone.
-        if (parameters.EvaluationModel != SkinEvaluationModel::ScreenSpaceDiffusion)
+        //
+        // EVERY DIFFUSING VERSION, AND THE LIST MUST MATCH THE SHADER'S. Version
+        // 2 (#1242) is "everything version 1 does, plus transmission", so it
+        // diffuses too. This test was `!= ScreenSpaceDiffusion` until #1242 and
+        // that is exactly the shape of bug it caused: the SHADER was taught to
+        // hand a version-2 pixel's diffuse half to the pass, while THIS function
+        // still answered with an identity kernel — so the pass dutifully blurred
+        // by nothing and added `blur(aux) - aux == 0`. A version-2 head lost its
+        // subsurface scattering and gained backlit ears in the same authoring
+        // click, which reads as "the new feature broke #1241".
+        //
+        // It was caught by SkinTransmissionEvidenceTest's front-lit A/B, whose
+        // two arms were a version-1 and a version-2 profile: with the
+        // transmission term correctly zero under front lighting the two frames
+        // should have been identical, and they differed by 19/255 across 25 000
+        // pixels — which was the missing blur, not the term.
+        //
+        // Spelled as an explicit list of the versions that diffuse rather than
+        // as `>= ScreenSpaceDiffusion`, so a version appended to
+        // SkinEvaluationModel that does NOT diffuse cannot inherit it silently.
+        if (parameters.EvaluationModel != SkinEvaluationModel::ScreenSpaceDiffusion &&
+            parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission)
             return SkinDiffusionKernel::Identity();
 
         const f32 supportRadiusMM = SkinDiffusionSupportRadiusMM(parameters);

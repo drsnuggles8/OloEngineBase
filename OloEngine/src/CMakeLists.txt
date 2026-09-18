@@ -636,6 +636,8 @@
 		"OloEngine/Renderer/FoliageLeafProfileTable.h"
 		"OloEngine/Renderer/SkinDiffusion.cpp"
 		"OloEngine/Renderer/SkinDiffusion.h"
+		"OloEngine/Renderer/SkinTransmission.cpp"
+		"OloEngine/Renderer/SkinTransmission.h"
 		"OloEngine/Renderer/MaterialAsset.cpp"
 		"OloEngine/Renderer/MaterialAsset.h"
 		"OloEngine/Renderer/MaterialPresets.cpp"

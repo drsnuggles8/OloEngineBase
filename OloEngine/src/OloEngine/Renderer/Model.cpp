@@ -1300,7 +1300,7 @@ namespace OloEngine
         return primaryMesh;
     }
 
-    std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene)
+    std::vector<Ref<Texture2D>> Model::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene, i32 semanticIndex)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1320,10 +1320,43 @@ namespace OloEngine
         // of the cache logic stays unchanged.
         const std::string_view srgbSuffix = srgb ? "|srgb" : "|linear";
 
-        for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
+        // THE SEMANTIC INDEX, when the caller named one.
+        //
+        // Both glTF volume/transmission textures land on
+        // aiTextureType_TRANSMISSION and are told apart ONLY by semantic index:
+        // 0 is KHR_materials_transmission's map, 1 is KHR_materials_volume's
+        // THICKNESS map (issue #1242).
+        //
+        // ITERATING GetTextureCount CANNOT REACH INDEX 1, and that is the trap
+        // GltfPhysicalMaterial.cpp already documents: GetTextureCount returns
+        // how MANY textures carry the semantic, not the highest index in use. A
+        // material with a thickness map and no transmission map has count 1, so
+        // the plain loop below probes index 0 -- which is absent -- and reports
+        // "no texture" about a material that has one.
+        //
+        // So a caller that wants a specific index says so, and gets exactly that
+        // index probed rather than a count-derived guess.
+        std::vector<u32> semanticIndices;
+        if (semanticIndex >= 0)
+        {
+            semanticIndices.push_back(static_cast<u32>(semanticIndex));
+        }
+        else
+        {
+            for (u32 i = 0; i < mat->GetTextureCount(type); ++i)
+                semanticIndices.push_back(i);
+        }
+
+        for (const u32 i : semanticIndices)
         {
             aiString str;
-            mat->GetTexture(type, i, &str);
+            // CHECKED, unlike the count-driven path where the index is known to
+            // exist by construction. An explicitly named index may simply be
+            // absent, and an unchecked GetTexture leaves `str` untouched -- which
+            // would then be read as a path and reported as a load failure rather
+            // than as "this material has no such map".
+            if (mat->GetTexture(type, i, &str) != AI_SUCCESS || str.length == 0)
+                continue;
 
             // glTF / FBX embed textures inside the file and reference them
             // via Assimp's "*N" URI (asterisk + index into aiScene::mTextures).
@@ -1854,6 +1887,32 @@ namespace OloEngine
             {
                 materialRef->SetEmissiveMap(emissiveMaps[0]);
             }
+        }
+
+        // THE THICKNESS MAP (issue #1242) — KHR_materials_volume's thickness
+        // texture, at semantic index 1 of aiTextureType_TRANSMISSION. Index 1
+        // NAMED EXPLICITLY: GetTextureCount cannot reach it, which is why
+        // LoadMaterialTextures takes an index at all (see its comment).
+        //
+        // Linear, not sRGB — it is a thickness, not a colour, and
+        // LoadMaterialTextures' srgb test already excludes this semantic.
+        //
+        // This closes the gap GltfPhysicalMaterial.cpp used to only COUNT:
+        // before #1242 a thickness texture raised ThicknessMapsIgnored and was
+        // dropped, so an authored ear arrived uniformly thick.
+        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, scene, /*semanticIndex=*/1);
+            !thicknessMaps.empty())
+        {
+            materialRef->SetThicknessMap(thicknessMaps[0]);
+        }
+        else if (aiString declared; mat->GetTexture(aiTextureType_TRANSMISSION, 1, &declared) == AI_SUCCESS)
+        {
+            // DECLARED BUT UNLOADABLE — counted and reported, never absorbed.
+            // The consequence is a uniformly thick surface, which renders as a
+            // perfectly plausible head; that is exactly why it has to be loud.
+            aiString materialName;
+            mat->Get(AI_MATKEY_NAME, materialName);
+            NoteThicknessMapUnloadable(materialName.C_Str(), materialRef->GetThicknessFactor());
         }
 
         // Diagnostic: dump which texture ended up in each PBR slot. This is the

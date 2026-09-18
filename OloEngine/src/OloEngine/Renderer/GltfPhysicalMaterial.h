@@ -2,6 +2,8 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <string_view>
+
 struct aiMaterial;
 
 namespace OloEngine
@@ -61,6 +63,16 @@ namespace OloEngine
 
     // Called from the draw-submission routing when a transmissive material has
     // nowhere correct to go on the Deferred path.
+    // Count and report a KHR_materials_volume thickness TEXTURE that the
+    // material declared but that could not be loaded (issue #1242).
+    //
+    // CALLED BY THE IMPORTERS, NOT BY ImportGltfPhysicalMaterial, because only
+    // they know the outcome: they probe semantic index 1 and call
+    // Material::SetThicknessMap after that function has already run. Raises
+    // PhysicalMaterialStats::ThicknessMapsIgnored, which therefore now means
+    // "declared but unloadable" rather than the old "declared at all".
+    void NoteThicknessMapUnloadable(std::string_view materialName, f32 thicknessFactor);
+
     void NoteTransmissiveDrawWithoutForwardOverlay();
 
     // Test-only: zero the counters so a case can assert on its own work.

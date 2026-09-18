@@ -229,6 +229,60 @@ namespace OloEngine
             // transport, NOT the material kind and NOT the PBR closure version.
             i32 SkinEvaluationModel = 0;
 
+            // THIN-REGION TRANSMISSION (issue #1242). The two lanes
+            // SkinTransmissionScatterLane / SkinTransmissionScalingLane pack, so
+            // that the FORWARD path (this UBO) and the DEFERRED path (the
+            // per-frame profile table in DeferredLightingPass.cpp) hand
+            // include/SkinTransmission.glsl the same two vec4s in the same
+            // order. See Renderer/SkinTransmission.h for what is in them.
+            //
+            // GENUINE vec4s HERE, unlike the sigma and the specular tint above,
+            // and it is the OFFSET that makes them safe rather than a change of
+            // heart about std140: the prefix ends at exactly 144 bytes, which is
+            // 16-byte aligned, so these two land on their natural alignment and
+            // std140 inserts NOTHING. Putting them after the four scalars below
+            // instead would have padded 184 up to 192 invisibly — the very trap
+            // those comments warn about. Order here is load-bearing.
+            //
+            // Neutral at their defaults: an all-zero scatter lane makes the
+            // transmittance black, so a material that never touches the new
+            // setters transmits nothing rather than glowing.
+            glm::vec4 SkinTransmitScatter{ 0.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkinTransmitScaling{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+            // The thickness map (issue #1242). The flag gates the sample; the
+            // offset is how the BINDLESS path reaches the texture.
+            //
+            // WHY THE OFFSET IS A BARE SCALAR AND NOT A FOURTH HeapOffsets LANE.
+            // Every lane of the existing three is taken — [2].w is
+            // OLO_MATERIAL_SAMPLER_OFFSET on Vulkan (ADR 0011 (101)), so there
+            // is no spare — and growing the array to [4] would re-mirror its
+            // size in include/BindlessHeap.glsl, in WriteMaterialHeapOffsets and
+            // in every shader that declares the block. A scalar has none of the
+            // uvec4 padding problem the array exists to dodge, because the
+            // problem was `uint[9]`'s 16-byte stride and this is not an array.
+            i32 UseThicknessMap = 0;
+            u32 ThicknessMapHeapOffset = 0xFFFFFFFFu; // RHI::kNullHeapOffset — "no map"
+
+            // THE PER-DRAW THICKNESS, MILLIMETRES, precomputed on the CPU by
+            // SkinThicknessBaseMM as `thicknessFactor (metres) x ThicknessScale`.
+            //
+            // PRECOMPUTED BECAUSE A UNIT CONVERSION IS A PHYSICAL DECISION, and
+            // Renderer/SkinTransmission.h's opening rule puts those on the CPU
+            // where a test can look at them. It also means the profile's
+            // ThicknessScale does not need a lane of its own: the shader
+            // multiplies this by the thickness map's red channel and has a
+            // thickness in millimetres, with no constant of its own anywhere.
+            //
+            // 0 means "no thickness authored", which transmits nothing.
+            f32 SkinThicknessBaseMM = 0.0f;
+
+            // Explicit, named padding, per CLAUDE.md → Conventions: it takes the
+            // prefix from 188 to 192 so HeapOffsets keeps its natural 16-byte
+            // alignment WITHOUT std140 inserting anything the GLSL side would
+            // have to reproduce by guessing. Never read.
+            f32 Pad0 = 0.0f;
+
             // PER-MATERIAL HEAP OFFSETS (issue #691, ADR 0011 amendment (32)).
             //
             // WHY THESE LIVE HERE AND NOT IN THE SHARED OFFSET TABLE. That table is
@@ -262,7 +316,6 @@ namespace OloEngine
                 return sizeof(PBRMaterialUBO);
             }
         };
-        static_assert(sizeof(PBRMaterialUBO) == 192, "PBRMaterialUBO std140 size drifted from GLSL expectation (192 B)");
         static_assert(sizeof(PBRMaterialUBO) % 16 == 0, "PBRMaterialUBO must be 16-byte aligned for std140");
 
         struct ModelUBO
@@ -2521,7 +2574,11 @@ namespace OloEngine
     // assert is what stops the C++ and GLSL layouts drifting, which std140
     // would otherwise punish by silently shifting every field after the
     // divergence.
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 192, "PBRMaterialUBO unexpected size — update GLSL layout");
+    // 240 since issue #1242 inserted the two thin-region transmission lanes,
+    // the thickness-map flag + heap offset and their explicit padding (192 since
+    // #1231, 160 before it). INSERTED in front of the heap offsets, never
+    // appended after them, for the reason the HeapOffsets assert below states.
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 240, "PBRMaterialUBO unexpected size — update GLSL layout");
     // The physical block sits exactly where the shaders expect it: right after
     // the PBRModel selector at 92 and immediately before the heap offsets.
     // offsetof rather than a comment, so a reordering fails the build instead
@@ -2536,8 +2593,16 @@ namespace OloEngine
     // where Pad0 used to sit and only grows the block by one vec4.
     static_assert(offsetof(UBOStructures::PBRMaterialUBO, MaterialKind) == 120,
                   "PBRMaterialUBO material-kind group must start at 120 B — GLSL mirrors assume it");
-    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 144,
-                  "PBRMaterialUBO heap offsets must stay trailing at 144 B (issue #691 lane layout)");
+    // The #1242 transmission group, between the #1231 group and the offsets.
+    // 144 is 16-byte aligned, which is WHY these two may be genuine vec4s while
+    // the sigma and the specular tint above had to be bare scalars: on this
+    // boundary std140 inserts nothing. Asserted because the alignment is the
+    // whole argument — move this group by 4 bytes and std140 silently pads in
+    // front of it, shifting every field after.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinTransmitScatter) == 144,
+                  "PBRMaterialUBO transmission lanes must start at 144 B, on a 16-byte boundary — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 192,
+                  "PBRMaterialUBO heap offsets must stay trailing at 192 B (issue #691 lane layout)");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");
@@ -3109,12 +3174,32 @@ namespace OloEngine
         // size, so the table size is a coincidence rather than a check.
         static constexpr u32 TEX_RESTIR_GI_RADIANCE = 74;
 
+        // The SKIN THICKNESS MAP (issue #1242) — the KHR_materials_volume
+        // thickness texture, red channel, a per-pixel modulation of the
+        // material's thickness factor. Sampled by the forward PBR shaders and by
+        // the PBR G-Buffer writers; see Renderer/SkinTransmission.h for the unit
+        // chain.
+        //
+        // ITS OWN SLOT rather than a channel of the metallic-roughness texture,
+        // whose red and alpha channels glTF leaves unused and which would
+        // therefore have been free. A separate image is what glTF actually
+        // defines, so riding in the MR texture would make the import a lossy
+        // repack and the re-export impossible — and the issue's first acceptance
+        // criterion is that the thickness source survives a round-trip.
+        static constexpr u32 TEX_SKIN_THICKNESS = 76;
+
         // First shader graph user texture slot — must stay after every
         // engine-reserved slot, which is why it MOVES when one is added rather
-        // than the new slot being wedged in above it. It has moved three times
+        // than the new slot being wedged in above it. It has moved four times
         // now; MAX_ENGINE_TEXTURE_SLOTS derives from it so nothing has to be
         // updated alongside.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 75;
+        //
+        // ⚠ MOVING IT MOVES HEAP_IMAGE_SLOT_BASE, WHICH IS MIRRORED IN GLSL BY
+        // HAND. #1242's slot is the SIXTH to do this, and the first since #1140
+        // to ALSO move the table size (86 used entries round to 88, not the 84
+        // they rounded to before) — so both GLSL mirrors move this time, not just
+        // the base literal. See the HEAP_IMAGE_SLOT_BASE comment below.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 77;
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -4256,6 +4341,18 @@ namespace OloEngine
                     // ReSTIR GI's resolved indirect diffuse (issue #1169).
                     // Declared once, in include/DeferredLightingShared.glsl.
                     return name == "u_ReSTIRGIRadiance";
+                case TEX_SKIN_THICKNESS:
+                    // The skin thickness map (issue #1242). Declared by the four
+                    // PBR shaders that sample it — PBR_MultiLight{,_Skinned} and
+                    // PBR_GBuffer{,_Skinned}.
+                    //
+                    // AN ARM IS REQUIRED, not optional: the `default` below
+                    // accepts 10..42 and >= TEX_SHADER_GRAPH_0, so a new slot
+                    // wedged between those two ranges is rejected as
+                    // non-standard. That fails
+                    // ShaderReflectionBinding.AllProductionShaderBindingsMatchCppLayout
+                    // and makes ValidateStandardBindings trace every skin draw.
+                    return name == "u_ThicknessMap";
                 default:
                     // Accept explicitly defined engine texture slots (TEX_USER_0 through TEX_WATER_SSR, i.e. 10–42)
                     // and shader graph user texture slots (TEX_SHADER_GRAPH_0+)

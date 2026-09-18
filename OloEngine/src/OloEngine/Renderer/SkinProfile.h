@@ -60,6 +60,21 @@ namespace OloEngine
         // the renderer setting only decides whether the pass RUNS.
         ScreenSpaceDiffusion = 1,
 
+        // What #1242 ships: everything version 1 does, plus a THIN-REGION
+        // TRANSMISSION term — light entering the far face of a thin region and
+        // leaving toward the viewer, attenuated through the authored thickness
+        // by the same per-channel mean free paths the diffusion kernel uses.
+        // See Renderer/SkinTransmission.h for the maths, the unit chain and the
+        // energy argument, and docs/guides/skin-transmission.md for the
+        // authoring path and its limits.
+        //
+        // A VERSION, NOT A FLAG, for the reason version 1 is one: a profile
+        // stays where its author left it. Turning transmission on is an
+        // authoring act per profile — a head authored against version 1 does not
+        // start glowing through its ears because a renderer setting moved, and
+        // the renderer setting only decides whether the term is EVALUATED.
+        ThicknessTransmission = 2,
+
         Count
     };
 
@@ -73,6 +88,8 @@ namespace OloEngine
                 return "DiffuseSpecularSplit";
             case SkinEvaluationModel::ScreenSpaceDiffusion:
                 return "ScreenSpaceDiffusion";
+            case SkinEvaluationModel::ThicknessTransmission:
+                return "ThicknessTransmission";
             case SkinEvaluationModel::Count:
                 break;
         }
@@ -106,6 +123,68 @@ namespace OloEngine
     // scales away from it to exaggerate or damp transmission.
     inline constexpr f32 kMinSkinThicknessScale = 0.0f;
     inline constexpr f32 kMaxSkinThicknessScale = 1.0e4f;
+
+    // -------------------------------------------------------------------------
+    // Transmission bounds (issue #1242)
+    // -------------------------------------------------------------------------
+
+    // Scales the whole transmitted term. 0 disables it for this profile even at
+    // transport version 2; 1 is the physical answer. Above 1 would break the
+    // energy bound premise 3 of Renderer/SkinTransmission.h's argument rests on,
+    // so the ceiling is 1 and is NOT a taste bound — it is the bound
+    // SkinTransmissionTest asserts against.
+    inline constexpr f32 kMinSkinTransmissionStrength = 0.0f;
+    inline constexpr f32 kMaxSkinTransmissionStrength = 1.0f;
+
+    // The forward bias of the exit lobe, `g` in SkinTransmissionLobe. 0 is an
+    // isotropic exit (the volume has fully forgotten which way the light came
+    // in); 1 is fully view-dependent. Unitless.
+    inline constexpr f32 kMinSkinTransmissionAnisotropy = 0.0f;
+    inline constexpr f32 kMaxSkinTransmissionAnisotropy = 1.0f;
+
+    // The sharpness of the forward part of the exit lobe, `P` in
+    // SkinTransmissionLobe. Below 1 the pow() is a root and the lobe stops being
+    // monotone in the useful direction; above 64 it is a specular spike, which a
+    // diffuse exit is not.
+    inline constexpr f32 kMinSkinTransmissionPower = 1.0f;
+    inline constexpr f32 kMaxSkinTransmissionPower = 64.0f;
+
+    // The largest authored thickness, MILLIMETRES, the transmission term will
+    // evaluate. Past it the transmittance is below the quantisation of an
+    // RGBA16F target for any plausible radiance and the exp() is wasted work;
+    // more usefully, it bounds what a corrupt thickness map can ask for. A head
+    // is not two metres thick.
+    inline constexpr f32 kMaxSkinThicknessMM = 2.0e3f;
+
+    // @brief The transmission half of a skin profile's authored parameters
+    //        (issue #1242).
+    //
+    // A nested aggregate rather than three more fields on SkinProfileParameters
+    // so that every function in Renderer/SkinTransmission.h that needs only the
+    // lobe shape can take THIS, and the energy bound reads as a property of
+    // three numbers instead of of eight. It is still serialized as part of the
+    // profile and sanitized by the profile's own Sanitize() — SkinProfile.h
+    // promises ONE validation gate and this struct does not open a second.
+    struct SkinTransmissionParameters
+    {
+        // Scales the whole term. Meaningful only at transport version 2
+        // (SkinEvaluationModel::ThicknessTransmission); the version branch, not
+        // this field, is what stops an older profile acquiring transmission.
+        f32 Strength = 1.0f;
+
+        // `g` — how much of the exit lobe is view-dependent.
+        f32 Anisotropy = 0.7f;
+
+        // `P` — the sharpness of the view-dependent part.
+        f32 Power = 4.0f;
+
+        // Clamp every field into its bound and replace every non-finite value
+        // with the default. Returns true when nothing had to be corrected.
+        // Called by SkinProfileParameters::Sanitize, never on its own.
+        bool Sanitize();
+
+        [[nodiscard]] bool operator==(const SkinTransmissionParameters& other) const noexcept;
+    };
 
     // @brief The authored values themselves — a plain aggregate, deliberately
     //        separate from the Asset that owns them.
@@ -147,6 +226,11 @@ namespace OloEngine
         // meaningful BECAUSE the two outputs are separate — a combined term
         // cannot be tinted without tinting the scattering with it.
         glm::vec3 SpecularTint{ 1.0f, 1.0f, 1.0f };
+
+        // The thin-region transmission lobe (issue #1242). Read only at
+        // transport version 2; see SkinTransmissionParameters above and
+        // Renderer/SkinTransmission.h.
+        SkinTransmissionParameters Transmission{};
 
         // Clamp every field into its bound and replace every non-finite value
         // with the default. Returns true when nothing had to be corrected, so
@@ -269,6 +353,83 @@ namespace OloEngine
         }
         return "None";
     }
+
+    // -------------------------------------------------------------------------
+    // Why a material asked for transmission and did not get it
+    // -------------------------------------------------------------------------
+
+    // The house rule on silent fallbacks, applied to the two ways a skin
+    // material can fail to transmit. Counted and logged like
+    // SkinProfileFallbackReason, and for the same reason: a head that quietly
+    // stopped transmitting looks exactly like a head that never should have.
+    enum class SkinTransmissionFallbackReason : u8
+    {
+        None = 0,
+
+        // MaterialKind::Skin with a version-2 profile and NO authored thickness
+        // — no thicknessFactor and no thickness map. The conservative answer is
+        // no transmission, because the other reading of a zero thickness is
+        // "infinitely thin", which renders the uniformly emissive head the
+        // issue's second criterion forbids. Documented in
+        // docs/guides/skin-transmission.md.
+        NoThickness,
+
+        // A thickness map that could not be loaded. Distinct from NoThickness:
+        // the author DID author one, so the scalar factor is used alone and the
+        // per-pixel variation — the ear — is the thing that went missing.
+        ThicknessMapMissing,
+
+        // MaterialKind::Skin with KHR_materials_transmission's TransmissionFactor
+        // also raised. Two transmission closures on one surface IS the
+        // double-count the fourth criterion forbids, arriving by the authoring
+        // path rather than by the maths: skin's term wins, the refractive one is
+        // dropped for this material, and the author is told.
+        RefractiveTransmissionConflict,
+
+        // The DEFERRED path cannot carry this pixel's thickness because the
+        // surface is LIGHTMAPPED and RT5 is holding its baked irradiance (see
+        // oloSkinPackGBufferThickness in include/SkinTransmission.glsl).
+        //
+        // On that path the term does NOT FIRE — the reader returns 0 mm rather
+        // than falling back to the material's scalar, because the scalar never
+        // reaches the deferred lighting pass: that channel is the thickness's
+        // only route there. Forward and Forward+ sample the material directly
+        // and are unaffected, which is why this is worth telling apart from
+        // ThicknessMapMissing: the fix is to unlightmap the head or use a
+        // forward path, not to repair an asset.
+        //
+        // Raised at SUBMISSION (Renderer3DMeshSubmission.cpp), the only site
+        // that can see both the material and the draw's lightmap region, and
+        // raised on every path — the condition is a property of the ASSET, so a
+        // scene that later switches to Deferred would lose the effect silently
+        // unless it had been counted beforehand.
+        DeferredThicknessLaneUnavailable,
+
+        Count
+    };
+
+    [[nodiscard]] constexpr std::string_view ToString(SkinTransmissionFallbackReason reason)
+    {
+        switch (reason)
+        {
+            case SkinTransmissionFallbackReason::None:
+                return "None";
+            case SkinTransmissionFallbackReason::NoThickness:
+                return "NoThickness";
+            case SkinTransmissionFallbackReason::ThicknessMapMissing:
+                return "ThicknessMapMissing";
+            case SkinTransmissionFallbackReason::RefractiveTransmissionConflict:
+                return "RefractiveTransmissionConflict";
+            case SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable:
+                return "DeferredThicknessLaneUnavailable";
+            case SkinTransmissionFallbackReason::Count:
+                break;
+        }
+        return "None";
+    }
+
+    inline constexpr i32 kSkinTransmissionFallbackReasonCount =
+        static_cast<i32>(SkinTransmissionFallbackReason::Count);
 
     // -------------------------------------------------------------------------
     // The per-frame slot table

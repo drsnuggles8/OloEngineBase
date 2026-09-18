@@ -16,6 +16,8 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Particle/EmissionShapeUtils.h"
 #include "OloEngine/Particle/ParticleCurveSerializer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
@@ -2809,6 +2811,42 @@ namespace OloEngine
                     matc.m_Material.SetEmissiveMap(texture);
                 }
             }
+            // The thickness map (issue #1242).
+            //
+            // A MAP THAT FAILS TO LOAD IS REPORTED, not merely skipped, and this
+            // is the one map where that matters: the other five leave a visible
+            // hole (an untextured surface, a flat normal) that nobody can miss,
+            // while a missing thickness map leaves the material's SCALAR
+            // thickness in place and renders a perfectly plausible head with a
+            // uniformly thick ear. Counted as
+            // SkinTransmissionFallbackReason::ThicknessMapMissing so the
+            // degradation is answerable rather than invisible.
+            if (materialComponent["ThicknessMapPath"])
+            {
+                const auto path = materialComponent["ThicknessMapPath"].as<std::string>("");
+                if (auto texture = LoadSceneTexture(path))
+                {
+                    matc.m_Material.SetThicknessMap(texture);
+                }
+                else if (!path.empty())
+                {
+                    // THE HANDLE COMES FROM THE YAML, NOT FROM THE MATERIAL.
+                    // SkinProfile is deserialized further down, so at this point
+                    // the material still holds its default 0 — and reporting 0
+                    // would both name the wrong profile in the log and collapse
+                    // every material in the scene onto ONE dedupe key, so only
+                    // the first missing thickness map in a scene would be
+                    // reported at all.
+                    //
+                    // Read from the node rather than moving this block below the
+                    // profile assignment: a deserializer whose blocks depend on
+                    // each other's order is a trap for the next field added.
+                    const auto profileHandle =
+                        materialComponent["SkinProfile"] ? materialComponent["SkinProfile"].as<u64>(0) : 0ULL;
+                    Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                        SkinTransmissionFallbackReason::ThicknessMapMissing, profileHandle);
+                }
+            }
             if (materialComponent["NormalScale"])
             {
                 f32 scale = materialComponent["NormalScale"].as<f32>(1.0f);
@@ -4999,6 +5037,15 @@ namespace OloEngine
                 emissiveMap && !emissiveMap->GetPath().empty())
             {
                 out << YAML::Key << "EmissiveMapPath" << YAML::Value << emissiveMap->GetPath();
+            }
+            // The thickness map (issue #1242) — KHR_materials_volume's thickness
+            // texture, a per-pixel modulation of ThicknessFactor. Written only
+            // when there is one, exactly like the five maps above, so a scene
+            // that never had one stays byte-identical.
+            if (auto thicknessMap = matComponent.m_Material.GetThicknessMap();
+                thicknessMap && !thicknessMap->GetPath().empty())
+            {
+                out << YAML::Key << "ThicknessMapPath" << YAML::Value << thicknessMap->GetPath();
             }
             if (const f32 normalScale = matComponent.m_Material.GetNormalScale(); std::abs(normalScale - 1.0f) > 1e-6f)
             {

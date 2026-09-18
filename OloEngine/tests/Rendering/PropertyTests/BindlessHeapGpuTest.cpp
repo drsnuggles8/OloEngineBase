@@ -202,17 +202,17 @@ layout(std430, binding = 45) readonly buffer OloResourceHeapBlock
 
 layout(std140, binding = 56) uniform OloHeapOffsetBlock
 {
-    uvec4 g_OloHeapOffsets[21];
+    uvec4 g_OloHeapOffsets[22];
 };
 
 #define OLO_HEAP_OFFSET(texSlot) (g_OloHeapOffsets[(texSlot) >> 2][(texSlot) & 3])
 // Mirrors ShaderBindingLayout::HEAP_IMAGE_SLOT_BASE, which MOVES whenever an
-// engine texture slot is added (71 since #865's TEX_GBUFFER_BAKEDGI, 70 since
-// #715's two terrain-VT slots, 68 since #723's TEX_VOLUMETRIC_SHADOW, 67 since
-// #702's TEX_VSM_PHYSICAL). Pinned by
+// engine texture slot is added (78 since #1242's TEX_SKIN_THICKNESS, 71 since
+// #865's TEX_GBUFFER_BAKEDGI, 70 since #715's two terrain-VT slots, 68 since
+// #723's TEX_VOLUMETRIC_SHADOW, 67 since #702's TEX_VSM_PHYSICAL). Pinned by
 // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout, which reads this
 // literal out of this file for exactly that reason.
-#define OLO_HEAP_IMAGE_BASE 76u
+#define OLO_HEAP_IMAGE_BASE 78u
 #define OLO_HEAP_IMAGE_OFFSET(imgUnit) OLO_HEAP_OFFSET(OLO_HEAP_IMAGE_BASE + uint(imgUnit))
 #define OLO_HEAP_IMAGE_RW
 #define OLO_HEAP_IMAGE(fmt, mem, type, name, imgUnit) \

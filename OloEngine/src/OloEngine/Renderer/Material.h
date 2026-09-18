@@ -577,6 +577,47 @@ namespace OloEngine
         {
             m_EmissiveMap = texture;
         }
+        // THE THICKNESS MAP (issue #1242). Per-pixel MODULATION of
+        // GetThicknessFactor(), unitless [0,1] in the RED channel — 1 means the
+        // authored factor, 0 means "no volume at this pixel". It is the
+        // KHR_materials_volume thickness texture, which the importer used to
+        // count and drop (GltfPhysicalMaterial.cpp).
+        //
+        // A MODULATION AND NOT AN ABSOLUTE THICKNESS, deliberately. glTF
+        // defines the texture that way (thicknessFactor x texture.r), an 8-bit
+        // texture cannot carry a metre range usefully, and it keeps the SCALAR
+        // path and the MAPPED path in the same units — so a material that loses
+        // its map falls back to a uniform thickness rather than to a thickness
+        // of zero. See Renderer/SkinTransmission.h for the rest of the unit
+        // chain.
+        Ref<Texture2D> GetThicknessMap() const
+        {
+            return m_ThicknessMap;
+        }
+        void SetThicknessMap(const Ref<Texture2D>& texture)
+        {
+            m_ThicknessMap = texture;
+        }
+        [[nodiscard]] bool HasThicknessMap() const
+        {
+            return static_cast<bool>(m_ThicknessMap);
+        }
+
+        // Whether this material authored ANY thickness at all — a factor, a map,
+        // or both.
+        //
+        // THE TEST THE TRANSMISSION TERM GATES ON, and it is `factor > 0`
+        // rather than `map || factor`: the map is a MODULATION of the factor, so
+        // a map with a zero factor multiplies out to zero everywhere and is not
+        // an authored thickness, however much texture data it carries. Getting
+        // this the other way round would make a head with a map and a forgotten
+        // factor report "thickness authored" and then transmit nothing, which is
+        // the silent failure SkinTransmissionFallbackReason::NoThickness exists
+        // to make loud.
+        [[nodiscard]] bool HasAuthoredThickness() const
+        {
+            return m_ThicknessFactor > 0.0f;
+        }
         Ref<TextureCubemap> GetEnvironmentMap() const
         {
             return m_EnvironmentMap;
@@ -759,6 +800,7 @@ namespace OloEngine
         Ref<Texture2D> m_NormalMap;            // Normal map
         Ref<Texture2D> m_AOMap;                // Ambient occlusion map
         Ref<Texture2D> m_EmissiveMap;          // Emissive map
+        Ref<Texture2D> m_ThicknessMap;         // KHR_materials_volume thickness texture, red channel (issue #1242)
         Ref<TextureCubemap> m_EnvironmentMap;  // Environment cubemap
         Ref<TextureCubemap> m_IrradianceMap;   // Irradiance cubemap
         Ref<TextureCubemap> m_PrefilterMap;    // Prefiltered environment map

@@ -235,6 +235,27 @@ namespace OloEngine
         glm::vec3 skinSpecularTint = glm::vec3(1.0f); // LINEAR Rec.709, unitless
         i32 skinEvaluationModel = 0;                  // SkinEvaluationModel
 
+        // THIN-REGION TRANSMISSION (issue #1242). The two vec4 lanes
+        // SkinTransmissionScatterLane / SkinTransmissionScalingLane pack,
+        // RESOLVED at submission from the profile for the same reason the
+        // specular tint above is: nothing downstream of submission touches the
+        // asset manager, and this struct's equality compares the values the UBO
+        // cache actually keys on.
+        //
+        //   skinTransmitScatter: xyz = ScatterColor * Strength, w = Anisotropy
+        //   skinTransmitScaling: xyz = Burley scaling d (MILLIMETRES), w = Power
+        //
+        // All-zero on a non-skin material and on a profile below transport
+        // version 2, which shades as no transmission — so their uploaded bytes
+        // stay neutral rather than acquiring someone else's lobe.
+        glm::vec4 skinTransmitScatter = glm::vec4(0.0f);
+        glm::vec4 skinTransmitScaling = glm::vec4(0.0f);
+        // The per-draw thickness in MILLIMETRES — thicknessFactor (metres) times
+        // the profile's ThicknessScale, converted at submission by
+        // SkinThicknessBaseMM. 0 means "no thickness authored", which transmits
+        // nothing.
+        f32 skinThicknessBaseMM = 0.0f;
+
         // PBR texture identities (an invalid handle means no map for that slot;
         // test with .IsValid(), never against a literal 0)
         RHI::ResourceHandle albedoMapID{};
@@ -242,6 +263,8 @@ namespace OloEngine
         RHI::ResourceHandle normalMapID{};
         RHI::ResourceHandle aoMapID{};
         RHI::ResourceHandle emissiveMapID{};
+        // KHR_materials_volume thickness texture, red channel (issue #1242).
+        RHI::ResourceHandle thicknessMapID{};
         RHI::ResourceHandle environmentMapID{};
         RHI::ResourceHandle irradianceMapID{};
         RHI::ResourceHandle prefilterMapID{};
@@ -250,7 +273,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && thicknessMapID == o.thicknessMapID && skinTransmitScatter == o.skinTransmitScatter && skinTransmitScaling == o.skinTransmitScaling && skinThicknessBaseMM == o.skinThicknessBaseMM && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

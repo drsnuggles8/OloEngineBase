@@ -117,15 +117,28 @@ namespace OloEngine
                               materialName.C_Str(), material.GetTransmissionFactor());
             }
 
-            if (hasThicknessMap)
-            {
-                s_ThicknessMapsIgnored.fetch_add(1, std::memory_order_relaxed);
-                OLO_CORE_WARN("ImportGltfPhysicalMaterial: '{}' carries a KHR_materials_volume thickness texture, which "
-                              "is not supported — importing the thicknessFactor {} alone. See "
-                              "docs/guides/gltf-material-extensions.md.",
-                              materialName.C_Str(), material.GetThicknessFactor());
-            }
+            // THE THICKNESS TEXTURE IS NO LONGER REPORTED HERE, and the reason
+            // is ORDERING rather than a change of policy. Since issue #1242 the
+            // map IS supported -- the importers probe semantic index 1 and call
+            // Material::SetThicknessMap -- but they do that AFTER calling this
+            // function, so at this point `material` cannot yet know whether the
+            // load succeeded. Reporting here would warn about every thickness
+            // texture in the project, including the ones that loaded fine.
+            //
+            // So the report moved to NoteThicknessMapUnloadable(), which the
+            // importers call once the outcome is known. `hasThicknessMap` stays
+            // computed above because the transmission branch shares the probe.
+            (void)hasThicknessMap;
         }
+    }
+
+    void NoteThicknessMapUnloadable(std::string_view materialName, f32 thicknessFactor)
+    {
+        s_ThicknessMapsIgnored.fetch_add(1, std::memory_order_relaxed);
+        OLO_CORE_WARN("ImportGltfPhysicalMaterial: '{}' declares a KHR_materials_volume thickness texture that could "
+                      "not be loaded — importing the thicknessFactor {} alone, so any thin region shades as uniformly "
+                      "thick. See docs/guides/skin-transmission.md.",
+                      materialName, thicknessFactor);
     }
 
     void NoteTransmissiveDrawWithoutForwardOverlay()
