@@ -132,9 +132,17 @@ jobs:
       # reason is the NEIGHBOUR ("the cap is on the account, not on the job"), so what a
       # plain Debug TU costs is a question in its own right. Tracking that over time is
       # the weekly run's job, not a PR's.
+      # >>> TEMPORARY (issue #1313): the pull_request arm carries the split-DWARF cell too,
+      # >>> so the lever can be priced ON THE SELF-HOSTED RUNNERS before this merges.
+      # >>> workflow_dispatch cannot do it: GitHub only offers that trigger once the
+      # >>> workflow file is on the DEFAULT branch, and this file is new in this PR.
+      # >>> Both arms must come from ONE run to be comparable — same host, same toolchain,
+      # >>> same pinned LLVM — and max-parallel: 1 keeps them off each other's back.
+      # >>> REVERT to the single debug-asan cell once the number is recorded; two cold
+      # >>> builds per push is not a standing cost a PR should carry.
       matrix:
         include: ${{ github.event_name == 'pull_request'
-          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"}]')
+          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON"}]')
           || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
