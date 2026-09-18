@@ -1745,7 +1745,12 @@ namespace OloEngine
             bool isAuthoredMesh = false,
             f32 meshHandoverStart = 0.0f,
             f32 meshHandoverEnd = 0.0f,
-            const glm::vec4& windWeights = glm::vec4(0.0f));
+            const glm::vec4& windWeights = glm::vec4(0.0f),
+            // The layer's answer to the interaction field (issue #1238).
+            // Defaulted to 1 rather than 0 because the feature's off switch is
+            // the absence of an influence SOURCE, not a per-layer opt-in — see
+            // FoliageLayer::InteractionResponse.
+            f32 interactionResponse = 1.0f);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams

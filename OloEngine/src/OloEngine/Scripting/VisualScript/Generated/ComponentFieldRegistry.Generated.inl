@@ -357,6 +357,15 @@ registry.push_back(OLO_VSF_FIELD(FogVolumeComponent, "DensityVolume", m_DensityV
 // FoliageComponent
 registry.push_back(OLO_VSF_FIELD(FoliageComponent, "Enabled", m_Enabled, Bool));
 
+// FoliageInteractionComponent
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.05f), OLO_VSF_BOUND(64.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "Height", m_Height, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(64.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "Strength", m_Strength, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "Falloff", m_Falloff, Float, OLO_VSF_BOUND(0.25f), OLO_VSF_BOUND(16.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "RecoverySeconds", m_RecoverySeconds, Float, OLO_VSF_BOUND(0.02f), OLO_VSF_BOUND(8.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(FoliageInteractionComponent, "TrailSpacing", m_TrailSpacing, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(64.0f)));
+registry.push_back(OLO_VSF_FIELD(FoliageInteractionComponent, "Enabled", m_Enabled, Bool));
+
 // FootIKComponent
 registry.push_back(OLO_VSF_FIELD(FootIKComponent, "LeftFootBone", LeftFootBone, Int));
 registry.push_back(OLO_VSF_FIELD(FootIKComponent, "RightFootBone", RightFootBone, Int));

@@ -51,6 +51,7 @@ using AllComponents = ComponentGroup<
     FluidKillVolumeComponent,
     FogVolumeComponent,
     FoliageComponent,
+    FoliageInteractionComponent,
     FootIKComponent,
     GoapAgentComponent,
     GroomComponent,

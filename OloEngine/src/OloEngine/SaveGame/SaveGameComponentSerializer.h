@@ -86,6 +86,7 @@ namespace OloEngine
     struct ParticleSystemComponent;
     struct TerrainComponent;
     struct FoliageComponent;
+    struct FoliageInteractionComponent;
     struct WaterComponent;
     struct BuoyancyComponent;
     struct SnowDeformerComponent;
@@ -227,6 +228,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, ParticleSystemComponent& c);
         static void Serialize(FArchive& ar, TerrainComponent& c);
         static void Serialize(FArchive& ar, FoliageComponent& c);
+        static void Serialize(FArchive& ar, FoliageInteractionComponent& c);
         static void Serialize(FArchive& ar, WaterComponent& c);
         static void Serialize(FArchive& ar, BuoyancyComponent& c);
         static void Serialize(FArchive& ar, SnowDeformerComponent& c);

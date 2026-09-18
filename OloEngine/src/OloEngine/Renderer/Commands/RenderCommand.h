@@ -1084,6 +1084,12 @@ namespace OloEngine
         f32 windStrength = 0.3f;
         f32 windSpeed = 1.0f;
         glm::vec4 windWeights{ 0.0f };
+        // This layer's response to the scene's interaction field (issue #1238).
+        // ONLY the response rides the command: the influence set itself is
+        // global per frame and read from FoliageInteractionField when the UBO is
+        // filled, so a command recorded early in a frame cannot carry a stale
+        // set into a pass that executes late in it.
+        f32 interactionResponse = 1.0f;
         f32 viewDistance = 100.0f;
         f32 fadeStart = 80.0f;
         f32 alphaCutoff = 0.5f;

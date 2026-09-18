@@ -1,6 +1,6 @@
 #ifndef OLO_FOLIAGE_PARAMS_GLSL
 #define OLO_FOLIAGE_PARAMS_GLSL
-// ShaderBindingLayout::FoliageUBO, 272 bytes. One declaration for every stage,
+// ShaderBindingLayout::FoliageUBO, 1312 bytes. One declaration for every stage,
 // including depth and impostors, prevents cross-stage block-link mismatches.
 layout(std140, binding = 12) uniform FoliageParams
 {
@@ -28,5 +28,16 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 u_WindFlags; // absolute render origin, field enabled
     vec4 u_WindClock;
     vec4 u_PrevMeshViewPos;
+    // Local interaction bending (issue #1238).
+    //   x = active influence count, y = this layer's response scale (0 = the
+    //   layer does not react at all), z = the summed-push ceiling in world
+    //   units — the same number FoliageInteractionMaximumDisplacement pads the
+    //   instance AABB by, which is what makes a bent plant uncullable.
+    vec4 u_InteractionParams;
+    // OLO_FOLIAGE_INTERACTION_SLOTS influences, four vec4 each, laid out
+    // exactly as FoliageInteractionSlot: Center/radius, Push/falloff,
+    // PrevCenter/height, PrevPush. Flat vec4[] rather than a struct array
+    // because std140's vec4 stride is already the struct's own.
+    vec4 u_Interactions[64];
 };
 #endif

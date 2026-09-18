@@ -64,6 +64,11 @@ namespace OloEngine
         f32 WindStrength = 0.3f;
         f32 WindSpeed = 1.0f;
         glm::vec4 WindWeights{ 0.0f };
+        // This layer's answer to the scene's interaction field (issue #1238).
+        // The influences themselves are global and read from
+        // FoliageInteractionField at UBO-fill time — only the per-species
+        // response rides the draw.
+        f32 InteractionResponse = 1.0f;
         glm::vec3 BaseColor{ 1.0f };
         f32 AlphaCutoff = 0.5f;
         BoundingBox Bounds; // Precomputed AABB encompassing all instances in this layer
@@ -267,6 +272,7 @@ namespace OloEngine
             f32 WindStrength = 0.3f;
             f32 WindSpeed = 1.0f;
             glm::vec4 WindWeights{ 0.0f };
+            f32 InteractionResponse = 1.0f;
             glm::vec3 BaseColor{ 1.0f };
             f32 AlphaCutoff = 0.5f;
             Ref<Texture2D> AlbedoTexture;

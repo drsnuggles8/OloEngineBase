@@ -20,6 +20,12 @@ float u_WindSpeed = 1.0;
 float u_Time = 2.0;
 float u_PrevTime = 1.9;
 float u_WindHistoryValid = 1.0;
+// Issue #1238: FoliageWind.glsl now composes the interaction offset into
+// foliageDeform, so this harness has to declare the lanes it reads. Left EMPTY
+// on purpose — a zero count is the case where the interaction term contributes
+// exactly nothing, so every wind expectation below still measures wind alone.
+vec4 u_InteractionParams = vec4(0.0);
+vec4 u_Interactions[64];
 #include "include/FoliageInstanceGeometry.glsl"
 #include "include/FoliageWind.glsl"
 
@@ -56,6 +62,33 @@ void main()
         o_Result = vec4(correct - stale, 1.0);
         return;
     }
+    // A LEGACY layer (no hierarchical weights) under an ENABLED wind field, with
+    // an interaction bending it — the combination issue #1238 made reachable in
+    // foliageWindNormal for the first time. Its finite difference must evaluate
+    // the wind on the SAME clock the displacement it differences against used;
+    // a legacy layer's is u_WindClock.x, not u_Time. Differencing the two and
+    // dividing by epsilon = 0.001 multiplies the gap by a thousand, and the
+    // cofactor-transported normal ends up pointing anywhere at all. Set the two
+    // clocks APART so the mistake cannot hide.
+    if (column == 9)
+    {
+        u_WindWeights = vec4(0.0);
+        u_WindFlags.w = 1.0;
+        u_ImpostorParams1.x = 0.0;
+        u_WindClock.x = 1.5;
+        u_Time = 2.0;
+        u_InteractionParams = vec4(1.0, 1.0, 1.0, 0.0);
+        u_Interactions[0] = vec4(pivot, 6.0);              // centre, radius
+        u_Interactions[1] = vec4(0.3, 0.1, 0.4, 1.0);      // push xy, radial, falloff
+        u_Interactions[2] = vec4(pivot, 4.0);              // previous centre, height
+        u_Interactions[3] = vec4(0.3, 0.1, 0.4, 0.0);      // previous push
+        vec3 low = vec3(0.2, 0.15, 0.1);                   // near the root: a small bend
+        FoliageDeformation legacy = foliageDeform(vec3(0.0), low, pivot, 1.0);
+        vec3 bent = foliageWindNormal(vec3(0.0, 1.0, 0.0), low, pivot, 1.0, mat3(1.0), legacy.Current);
+        o_Result = vec4(dot(bent, vec3(0.0, 1.0, 0.0)), 0.0, 0.0, 1.0);
+        return;
+    }
+
     u_WindWeights = vec4(0.4, 1.0, 1.0, 0.0);
     u_WindFlags.w = 1.0;
     if (column == 1) vertex.y = 0.0;

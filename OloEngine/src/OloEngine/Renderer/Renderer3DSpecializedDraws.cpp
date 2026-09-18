@@ -206,7 +206,8 @@ namespace OloEngine
         bool isAuthoredMesh,
         f32 meshHandoverStart,
         f32 meshHandoverEnd,
-        const glm::vec4& windWeights)
+        const glm::vec4& windWeights,
+        f32 interactionResponse)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -303,6 +304,7 @@ namespace OloEngine
         cmd->windStrength = windStrength;
         cmd->windSpeed = windSpeed;
         cmd->windWeights = windWeights;
+        cmd->interactionResponse = interactionResponse;
         cmd->viewDistance = viewDistance;
         cmd->fadeStart = fadeStart;
         cmd->alphaCutoff = alphaCutoff;

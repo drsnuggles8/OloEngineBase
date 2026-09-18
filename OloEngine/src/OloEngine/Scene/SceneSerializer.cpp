@@ -1606,6 +1606,16 @@ namespace OloEngine
                     layer.WindLeafWeight = 0.0f;
                 layer.WindLeafWeight = std::clamp(layer.WindLeafWeight, 0.0f, 1.0f);
                 layer.WindDebugDisplacement = layerNode["WindDebugDisplacement"].as<bool>(false);
+                // Interaction response (issue #1238). The default when the key
+                // is ABSENT is 1, not 0: a scene authored before this feature
+                // has no FoliageInteractionComponent either, so its influence
+                // set is empty and a response of 1 multiplies nothing — the
+                // scene renders exactly as it did. See
+                // FoliageLayer::InteractionResponse.
+                layer.InteractionResponse = layerNode["InteractionResponse"].as<f32>(1.0f);
+                if (!std::isfinite(layer.InteractionResponse))
+                    layer.InteractionResponse = 1.0f;
+                layer.InteractionResponse = std::clamp(layer.InteractionResponse, 0.0f, 8.0f);
                 SanitizeFloat(layer.WindStrength, 0.0f, 20.0f, 0.3f);
                 SanitizeFloat(layer.WindSpeed, 0.0f, 20.0f, 1.0f);
                 layer.BaseColor = layerNode["BaseColor"].as<glm::vec3>(layer.BaseColor);
@@ -5891,6 +5901,7 @@ namespace OloEngine
                     out << YAML::Key << "WindBranchWeight" << YAML::Value << layer.WindBranchWeight;
                     out << YAML::Key << "WindLeafWeight" << YAML::Value << layer.WindLeafWeight;
                     out << YAML::Key << "WindDebugDisplacement" << YAML::Value << layer.WindDebugDisplacement;
+                    out << YAML::Key << "InteractionResponse" << YAML::Value << layer.InteractionResponse;
 
                     out << YAML::Key << "BaseColor" << YAML::Value << layer.BaseColor;
                     out << YAML::Key << "Roughness" << YAML::Value << layer.Roughness;

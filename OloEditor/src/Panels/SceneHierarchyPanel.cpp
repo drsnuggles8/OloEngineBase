@@ -2194,6 +2194,7 @@ namespace OloEngine
             DisplayAddComponentEntry<TerrainComponent>("Terrain");
             DisplayAddComponentEntry<FoliageComponent>("Foliage");
             DisplayAddComponentEntry<SnowDeformerComponent>("Snow Deformer");
+            DisplayAddComponentEntry<FoliageInteractionComponent>("Foliage Interaction");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
@@ -7068,6 +7069,15 @@ namespace OloEngine
                         ImGui::Checkbox("Wind Displacement", &layer.WindDebugDisplacement);
 
                         ImGui::Separator();
+                        ImGui::Text("Interaction");
+                        ImGui::DragFloat("Interaction Response", &layer.InteractionResponse, 0.01f, 0.0f, 8.0f);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("How strongly this species bends under an actor carrying a\n"
+                                              "Foliage Interaction component. 0 = this layer ignores actors.\n"
+                                              "Nothing in the scene emits influences until some entity has that\n"
+                                              "component, so this slider does nothing on its own.");
+
+                        ImGui::Separator();
                         ImGui::Text("Material");
 
                         ImGui::ColorEdit3("Base Color", glm::value_ptr(layer.BaseColor));
@@ -8016,6 +8026,39 @@ namespace OloEngine
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("0 = full removal, 1 = compact only");
                 ImGui::Checkbox("Emit Ejecta", &component.m_EmitEjecta); });
+
+        DrawComponent<FoliageInteractionComponent>("Foliage Interaction", entity, [](auto& component)
+                                                   {
+                // This component is the feature's switch: while no entity in the
+                // scene carries one, the foliage shaders contribute exactly
+                // zero. Say so, because an author who has only turned up a
+                // layer's Interaction Response and seen nothing happen has no
+                // other way to find out (issue #1238).
+                ImGui::Checkbox("Enabled", &component.m_Enabled);
+                ImGui::DragFloat("Radius", &component.m_Radius, 0.01f, 0.05f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Horizontal reach. Foliage outside it is untouched.");
+                ImGui::DragFloat("Height", &component.m_Height, 0.01f, 0.0f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("How far ABOVE this entity a plant's root may sit and still bend.\n"
+                                      "The influence is a cylinder, so an actor on a ledge does not\n"
+                                      "flatten the meadow underneath it.");
+                ImGui::DragFloat("Strength", &component.m_Strength, 0.01f, 0.0f, 1.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Peak displacement in world units, before the layer's response.\n"
+                                      "A bigger bend is asked for on the LAYER, via Interaction Response.");
+                ImGui::DragFloat("Falloff", &component.m_Falloff, 0.1f, 0.25f, 16.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("1 = linear, 2 = quadratic, higher = the bend hugs the centre");
+                ImGui::DragFloat("Recovery Seconds", &component.m_RecoverySeconds, 0.01f, 0.02f, 8.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time constant for standing back up. Frame-rate independent:\n"
+                                      "the same seconds at 30 fps and at 144.");
+                ImGui::DragFloat("Trail Spacing", &component.m_TrailSpacing, 0.01f, 0.0f, 64.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Distance between planted footprints. 0 = no trail; the bend\n"
+                                      "follows this entity and the grass springs up as it passes.\n"
+                                      "About one stride is what reads as tracks through grass."); });
 
         DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [entity](auto& component)
                                             {

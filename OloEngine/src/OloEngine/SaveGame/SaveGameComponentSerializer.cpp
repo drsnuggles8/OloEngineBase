@@ -731,6 +731,22 @@ namespace OloEngine
             l.WindStiffness = l.WindBranchWeight = l.WindLeafWeight = 0.0f;
             l.WindDebugDisplacement = false;
         }
+        // Interaction response appended at v37 (issue #1238). Unlike every
+        // older band above, a save that stops before it keeps a default of 1
+        // rather than 0 — and that is still exactly what that save rendered,
+        // because a v36 world has no FoliageInteractionComponent, so its
+        // influence set is empty and the response multiplies nothing.
+        if (HasFieldsSince(ar, 37))
+        {
+            ar << l.InteractionResponse;
+            if (ar.IsLoading())
+                l.InteractionResponse =
+                    std::isfinite(l.InteractionResponse) ? std::clamp(l.InteractionResponse, 0.0f, 8.0f) : 1.0f;
+        }
+        else if (ar.IsLoading())
+        {
+            l.InteractionResponse = 1.0f;
+        }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.
     }
@@ -3177,6 +3193,44 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, FoliageInteractionComponent& c)
+    {
+        // Introduced whole at v37, so no HasFieldsSince band: an older save
+        // cannot contain this component at all, and the generated capture list
+        // simply never names it.
+        ar << c.m_Radius << c.m_Height << c.m_Strength;
+        ar << c.m_Falloff << c.m_RecoverySeconds << c.m_TrailSpacing;
+        ar << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // The same bounds the component's OLO_SERIALIZE(Clamp) annotations
+            // apply on the scene path, spelled out because a save file is no
+            // more trusted than a .olo and the annotation only reaches the
+            // generated YAML/binary scene readers. Every one of these reaches
+            // either a pow exponent or a divisor in the field, where a NaN is a
+            // bend that never recovers.
+            if (!std::isfinite(c.m_Radius))
+                c.m_Radius = 1.0f;
+            c.m_Radius = std::clamp(c.m_Radius, 0.05f, 64.0f);
+            if (!std::isfinite(c.m_Height))
+                c.m_Height = 1.5f;
+            c.m_Height = std::clamp(c.m_Height, 0.0f, 64.0f);
+            if (!std::isfinite(c.m_Strength))
+                c.m_Strength = 1.0f;
+            c.m_Strength = std::clamp(c.m_Strength, 0.0f, 1.0f);
+            if (!std::isfinite(c.m_Falloff))
+                c.m_Falloff = 2.0f;
+            c.m_Falloff = std::clamp(c.m_Falloff, 0.25f, 16.0f);
+            if (!std::isfinite(c.m_RecoverySeconds))
+                c.m_RecoverySeconds = 0.6f;
+            c.m_RecoverySeconds = std::clamp(c.m_RecoverySeconds, 0.02f, 8.0f);
+            if (!std::isfinite(c.m_TrailSpacing))
+                c.m_TrailSpacing = 0.0f;
+            c.m_TrailSpacing = std::clamp(c.m_TrailSpacing, 0.0f, 64.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, SnowDeformerComponent& c)
     {
         ar << c.m_DeformRadius << c.m_DeformDepth;
@@ -5301,6 +5355,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(WaterComponent);
         REGISTER_SAVE_COMPONENT(BuoyancyComponent);
         REGISTER_SAVE_COMPONENT(SnowDeformerComponent);
+        REGISTER_SAVE_COMPONENT(FoliageInteractionComponent);
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(GroomComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);

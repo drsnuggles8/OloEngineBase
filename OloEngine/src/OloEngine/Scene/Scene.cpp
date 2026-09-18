@@ -130,6 +130,7 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Snow/SnowAccumulationSystem.h"
 #include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
@@ -1487,6 +1488,14 @@ namespace OloEngine
         m_RuntimeBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
         WaterWakeSystem::Reset();
+        // Drop every foliage influence (issue #1238). The field's centres are
+        // ABSOLUTE world coordinates and its residuals outlive the actor that
+        // shed them, so a scene switch, an enter/leave Play or a region unload
+        // would otherwise leave a bend pressed into the new content with
+        // nothing standing there to explain it — the "no permanent artifacts"
+        // half of the fourth acceptance criterion, at the one boundary the
+        // per-slot decay cannot cover.
+        FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
         // Skin profile slots (issue #1231), reset here for the same reason as
@@ -1823,6 +1832,14 @@ namespace OloEngine
         // no boat moving to explain it. Reset here rather than only on START,
         // because the stale state is visible BETWEEN sessions, not during one.
         WaterWakeSystem::Reset();
+        // Drop every foliage influence (issue #1238). The field's centres are
+        // ABSOLUTE world coordinates and its residuals outlive the actor that
+        // shed them, so a scene switch, an enter/leave Play or a region unload
+        // would otherwise leave a bend pressed into the new content with
+        // nothing standing there to explain it — the "no permanent artifacts"
+        // half of the fourth acceptance criterion, at the one boundary the
+        // per-slot decay cannot cover.
+        FoliageInteractionField::Reset();
 
         // Hand the OS cursor back (issue #645). A player rig with
         // m_CaptureCursor locks and hides it for mouse-look; leaving that in
@@ -1985,6 +2002,14 @@ namespace OloEngine
         m_EditorBoatWakeTrails.Empty();
         WaterDisturbanceSystem::Reset();
         WaterWakeSystem::Reset();
+        // Drop every foliage influence (issue #1238). The field's centres are
+        // ABSOLUTE world coordinates and its residuals outlive the actor that
+        // shed them, so a scene switch, an enter/leave Play or a region unload
+        // would otherwise leave a bend pressed into the new content with
+        // nothing standing there to explain it — the "no permanent artifacts"
+        // half of the fourth acceptance criterion, at the one boundary the
+        // per-slot decay cannot cover.
+        FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
         // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
@@ -2019,6 +2044,14 @@ namespace OloEngine
         // no boat moving to explain it. Reset here rather than only on START,
         // because the stale state is visible BETWEEN sessions, not during one.
         WaterWakeSystem::Reset();
+        // Drop every foliage influence (issue #1238). The field's centres are
+        // ABSOLUTE world coordinates and its residuals outlive the actor that
+        // shed them, so a scene switch, an enter/leave Play or a region unload
+        // would otherwise leave a bend pressed into the new content with
+        // nothing standing there to explain it — the "no permanent artifacts"
+        // half of the fourth acceptance criterion, at the one boundary the
+        // per-slot decay cannot cover.
+        FoliageInteractionField::Reset();
 
         // Mirror OnRuntimeStop so returning to edit mode doesn't leak stale
         // animation-clock history into shaders that consume PrevAnimationTime.
@@ -9555,6 +9588,48 @@ namespace OloEngine
             const f32 animationTime = m_AnimationClock;
             const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
             m_LastAnimationTime = animationTime;
+
+            // ── Foliage interaction field (issue #1238) ──
+            //
+            // Ticked HERE, in the shared 3D path, so the editor viewport and
+            // the runtime drive one field: a bend that only exists in Play is a
+            // bend nobody can author against. It runs BEFORE the foliage
+            // submission below so the influence set every UBO writer reads is
+            // this frame's, never last frame's.
+            //
+            // The clock is m_AnimationClock — the same mockable one foliage
+            // wind rides — so Time::SetMockTime freezes the bend and a capture
+            // can advance it by an exact number of seconds.
+            {
+                OLO_PROFILE_SCOPE("Scene::FoliageInteractionField");
+                std::vector<FoliageInteractionSource> influences;
+                auto influenceView = m_Registry.view<TransformComponent, FoliageInteractionComponent>();
+                for (auto influenceEntity : influenceView)
+                {
+                    const auto& source = influenceView.get<FoliageInteractionComponent>(influenceEntity);
+                    if (!source.m_Enabled)
+                        continue;
+
+                    FoliageInteractionSource influence;
+                    // The UUID, not the entt handle: a handle is recycled on
+                    // destroy, and a recycled one would hand a brand-new actor
+                    // the spring state of whatever used to live at that index.
+                    influence.Id = static_cast<u64>(m_Registry.get<IDComponent>(influenceEntity).ID);
+                    // WORLD space, so a source parented to a bone or a vehicle
+                    // lands where it actually is rather than where its local
+                    // transform says.
+                    influence.Position = glm::vec3(GetWorldTransform(influenceEntity)[3]);
+                    influence.Radius = source.m_Radius;
+                    influence.Height = source.m_Height;
+                    influence.Strength = source.m_Strength;
+                    influence.Falloff = source.m_Falloff;
+                    influence.RecoverySeconds = source.m_RecoverySeconds;
+                    influence.TrailSpacing = source.m_TrailSpacing;
+                    influences.push_back(influence);
+                }
+                FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences),
+                                                animationTime - prevAnimationTime);
+            }
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
                 auto voxelShader = Renderer3D::GetVoxelPBRShader();
@@ -10070,7 +10145,8 @@ namespace OloEngine
                             impostor,
                             leaf,
                             layer.IsAuthoredMesh,
-                            layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance, layer.WindWeights);
+                            layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance, layer.WindWeights,
+                            layer.InteractionResponse);
                     }
                 }
             }

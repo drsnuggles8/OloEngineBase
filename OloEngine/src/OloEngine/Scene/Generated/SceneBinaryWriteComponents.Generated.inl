@@ -331,6 +331,19 @@ if (entity.HasComponent<FogVolumeComponent>())
     SceneBinIO::Write(out, comp.m_DensityVolume);
 }
 
+if (entity.HasComponent<FoliageInteractionComponent>())
+{
+    SceneBinIO::WriteU32(out, 4038336927u); // FoliageInteractionComponent
+    auto const& comp = entity.GetComponent<FoliageInteractionComponent>();
+    SceneBinIO::Write(out, comp.m_Radius);
+    SceneBinIO::Write(out, comp.m_Height);
+    SceneBinIO::Write(out, comp.m_Strength);
+    SceneBinIO::Write(out, comp.m_Falloff);
+    SceneBinIO::Write(out, comp.m_RecoverySeconds);
+    SceneBinIO::Write(out, comp.m_TrailSpacing);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<FootIKComponent>())
 {
     SceneBinIO::WriteU32(out, 1414616508u); // FootIKComponent
