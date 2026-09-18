@@ -97,12 +97,6 @@ jobs:
     # is the ceiling: a runaway must not hold one of the box's two slots for six hours
     # while the queue behind it grows (#1219, #1284).
     timeout-minutes: 180
-    # ONE CELL ON A PULL REQUEST, both on the schedule and on demand. A matrix `if` is
-    # evaluated per combination, so this skips the `debug` job rather than the whole matrix.
-    # A PR only has to prove the instrumentation still works end to end, and `debug-asan` is
-    # both the stricter cell and the configuration the caps come from; the second cell is
-    # for tracking drift over time, which is the weekly run's job.
-    if: ${{ github.event_name != 'pull_request' || matrix.slug == 'debug-asan' }}
     strategy:
       # ONE AT A TIME. Both cells are full cold builds, and the box has exactly two
       # olo-ci slots — running them together would hold the whole box and starve every
@@ -112,22 +106,28 @@ jobs:
       # A failing cell must not hide the other's numbers: a plain-Debug ranking is
       # useful on its own even if the sanitizer cell OOMs, and vice versa.
       fail-fast: false
+      # ONE CELL ON A PULL REQUEST, both on the schedule and on demand, and the selection
+      # MUST happen here rather than in a job-level `if:`.
+      #
+      # A job-level `if` cannot see the `matrix` context — only github, needs, vars and
+      # inputs are available there. Writing `if: matrix.slug == ...` does not merely
+      # evaluate false, it makes the whole workflow FILE invalid: GitHub rejects the run
+      # with "This run likely failed because of a workflow file issue" and no job starts,
+      # so the workflow silently stops guarding anything. Building the matrix with
+      # fromJSON is the supported way, because `strategy` can read the github context.
+      #
+      # The cells: `debug-asan` is the configuration the sanitizer `--parallel 2` pins and
+      # the 14 GiB unit cap were derived from — Debug, ASan, full -g, no split DWARF — and
+      # is the stricter of the two, so a PR proves the instrumentation end to end with it
+      # alone. Plain `Debug` is NOT redundant on the schedule: steam-stub.yml's
+      # non-sanitizer build is pinned to `--parallel 2` too, and its own comment says the
+      # reason is the NEIGHBOUR ("the cap is on the account, not on the job"), so what a
+      # plain Debug TU costs is a question in its own right. Tracking that over time is
+      # the weekly run's job, not a PR's.
       matrix:
-        include:
-          # The configuration the sanitizer `--parallel 2` pins and the 14 GiB unit cap
-          # were actually derived from: Debug, ASan, full -g, no split DWARF. This is the
-          # ~9 GB claim's own cell.
-          - label: 'Debug + ASan'
-            slug: debug-asan
-            cmake-args: '-DOLO_ENABLE_ASAN=ON'
-          # Plain Debug. Needed because it is NOT redundant: steam-stub.yml's non-sanitizer
-          # build is pinned to `--parallel 2` as well, and its own comment says the reason
-          # is the NEIGHBOUR ("the cap is on the account, not on the job"). Whether that
-          # pin is still necessary depends on what a plain Debug TU actually costs, which
-          # nothing has ever measured either.
-          - label: 'Debug'
-            slug: debug
-            cmake-args: ''
+        include: ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"}]')
+          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
