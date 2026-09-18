@@ -415,7 +415,8 @@ rejected together with `--olo-gl-backend=none`, which the Vulkan gate honours.
 build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=VulkanPassSuite.* --olo-require-vulkan
 ```
 
-**CI does not run any of this, and that is a fact about the hardware, not an omission.** The AMD
+**CI does not run the DEVICE-BACKED half of this, and that is a fact about the hardware, not an
+omission.** (The device-free `VulkanCoverageReportTest` does run there, like any other test.) The AMD
 self-hosted runner cannot run Vulkan at all (RADV has no descriptor heap) and the hosted runners
 have no GPU. Vulkan execution is a developer-box capability here; making CI able to run it is
 #1301. The banner is what keeps that honest in the meantime — a CI log that says `NOT EXERCISED`
