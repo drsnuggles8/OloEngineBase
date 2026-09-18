@@ -35,6 +35,9 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+#include <set>
+
 #include "GroomBindingFixture.h"
 
 #include "OloEngine/Groom/GroomBinding.h"
@@ -116,7 +119,7 @@ TEST(GroomDeformation, TheBindPosePaletteReproducesTheAuthoredCoat)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
     EXPECT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
     EXPECT_EQ(stats.RootsHeldDegenerate, 0u);
@@ -157,7 +160,7 @@ TEST(GroomDeformation, EveryRootStaysOnTheDeformedSurfaceThroughABend)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     ASSERT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
 
     const auto deformed = DeformAllPoints(*bound.Groom, *bound.Binding, transforms);
@@ -214,7 +217,7 @@ TEST(GroomDeformation, ARootAuthoredAboveTheSurfaceKeepsItsOffsetThroughABend)
     inputs.HasHistory = true;
 
     std::vector<GroomRootTransform> transforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     const auto deformed = DeformAllPoints(*bound.Groom, *bound.Binding, transforms);
 
     for (u32 curve = 0; curve < bound.Groom->GetCurveCount(); ++curve)
@@ -250,7 +253,7 @@ TEST(GroomDeformation, EveryStrandKeepsItsLengthThroughABend)
 
         std::vector<GroomRootTransform> transforms;
         const GroomDeformationStats stats =
-            EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+            EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
         ASSERT_EQ(stats.RootsHeldDegenerate, 0u) << "at " << degrees << " degrees";
 
         const auto deformed = DeformAllPoints(*bound.Groom, *bound.Binding, transforms);
@@ -287,12 +290,12 @@ TEST(GroomDeformation, ABentCoatActuallyMoves)
     restInputs.Skinning = grid.Skinning(rest, rest, true);
     restInputs.HasHistory = true;
     std::vector<GroomRootTransform> restTransforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, restInputs, {}, restTransforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, restInputs, std::nullopt, restTransforms);
 
     GroomDeformationInputs bentInputs = restInputs;
     bentInputs.Skinning = grid.Skinning(bent, bent, true);
     std::vector<GroomRootTransform> bentTransforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, bentInputs, {}, bentTransforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, bentInputs, std::nullopt, bentTransforms);
 
     const auto restPoints = DeformAllPoints(*bound.Groom, *bound.Binding, restTransforms);
     const auto bentPoints = DeformAllPoints(*bound.Groom, *bound.Binding, bentTransforms);
@@ -330,7 +333,7 @@ TEST(GroomDeformation, AMorphedSurfaceCarriesTheCoatWithNoSkeletonAtAll)
     neutral.Surface = grid.View();
     neutral.HasHistory = true;
     std::vector<GroomRootTransform> neutralTransforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, neutral, {}, neutralTransforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, neutral, std::nullopt, neutralTransforms);
     const auto neutralPoints = DeformAllPoints(*bound.Groom, *bound.Binding, neutralTransforms);
 
     // "An expression": a smooth bulge in +Y across the middle of the surface,
@@ -348,7 +351,7 @@ TEST(GroomDeformation, AMorphedSurfaceCarriesTheCoatWithNoSkeletonAtAll)
     morphed.HasHistory = true;
     std::vector<GroomRootTransform> morphedTransforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, morphed, {}, morphedTransforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, morphed, std::nullopt, morphedTransforms);
     EXPECT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
 
     const auto morphedPoints = DeformAllPoints(*bound.Groom, *bound.Binding, morphedTransforms);
@@ -388,7 +391,7 @@ TEST(GroomDeformation, PreviousPositionsComeFromThePreviousPose)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     EXPECT_TRUE(stats.HasHistory);
 
     const auto current = DeformAllPoints(*bound.Groom, *bound.Binding, transforms, false);
@@ -412,7 +415,7 @@ TEST(GroomDeformation, PreviousPositionsComeFromThePreviousPose)
     asPrevious.Skinning = grid.Skinning(previousPose, previousPose, true);
     asPrevious.HasHistory = true;
     std::vector<GroomRootTransform> previousTransforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, asPrevious, {}, previousTransforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, asPrevious, std::nullopt, previousTransforms);
     const auto reference = DeformAllPoints(*bound.Groom, *bound.Binding, previousTransforms);
     for (sizet i = 0; i < previous.size(); ++i)
     {
@@ -445,7 +448,7 @@ TEST(GroomDeformation, RejectedHistoryMakesPreviousExactlyEqualToCurrent)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     EXPECT_FALSE(stats.HasHistory);
 
     for (u32 curve = 0; curve < bound.Groom->GetCurveCount(); ++curve)
@@ -488,7 +491,7 @@ TEST(GroomDeformation, ASkeletonWithNoBoneHistoryEmitsZeroMotionEvenWhenTheCalle
     inputs.HasHistory = true;
 
     std::vector<GroomRootTransform> transforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
     for (const auto& transform : transforms)
     {
         ASSERT_TRUE(transform.Valid);
@@ -565,13 +568,13 @@ TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectl
     restInputs.SurfaceToGroom = surfaceToGroom;
     restInputs.HasHistory = true;
     std::vector<GroomRootTransform> restTransforms;
-    (void)EvaluateGroomRootTransforms(*groom, *binding, restInputs, {}, restTransforms);
+    (void)EvaluateGroomRootTransforms(*groom, *binding, restInputs, std::nullopt, restTransforms);
 
     GroomDeformationInputs bentInputs = restInputs;
     bentInputs.Skinning = grid.Skinning(bent, bent, true);
     std::vector<GroomRootTransform> bentTransforms;
     const GroomDeformationStats bentStats =
-        EvaluateGroomRootTransforms(*groom, *binding, bentInputs, {}, bentTransforms);
+        EvaluateGroomRootTransforms(*groom, *binding, bentInputs, std::nullopt, bentTransforms);
     EXPECT_EQ(bentStats.RootsDeformed, groom->GetCurveCount());
 
     const auto restPoints = DeformAllPoints(*groom, *binding, restTransforms);
@@ -619,7 +622,7 @@ TEST(GroomDeformation, ADegenerateTriangleHoldsItsStrandsAtRestAndIsCounted)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
     EXPECT_EQ(stats.RootsDeformed, 0u);
     EXPECT_EQ(stats.RootsHeldDegenerate, bound.Groom->GetCurveCount())
@@ -657,7 +660,7 @@ TEST(GroomDeformation, AnUnweightedVertexIsUsedUnskinnedAndCounted)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, {}, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
 
     EXPECT_GT(stats.VerticesUnweighted, 0u) << "an unweighted vertex must be counted";
     EXPECT_EQ(stats.RootsDeformed, bound.Groom->GetCurveCount());
@@ -699,7 +702,7 @@ TEST(GroomDeformation, EvaluatingOnlyTheSelectedCurvesLeavesTheRestInvalid)
 
     std::vector<GroomRootTransform> transforms;
     const GroomDeformationStats stats =
-        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, selected, transforms);
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(selected), transforms);
 
     EXPECT_EQ(transforms.size(), bound.Groom->GetCurveCount()) << "the array must span the whole groom";
     EXPECT_EQ(stats.RootsDeformed, static_cast<u32>(selected.size()));
@@ -735,7 +738,7 @@ TEST(GroomDeformation, TheRibbonBuildMovesItsVerticesAndItsBounds)
     std::vector<u32> selected;
     SelectGroomStrandCurves(*bound.Groom, build, selected);
     std::vector<GroomRootTransform> transforms;
-    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, selected, transforms);
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(selected), transforms);
 
     GroomStrandDeformation deformation;
     deformation.Binding = bound.Binding.Raw();
@@ -789,4 +792,235 @@ TEST(GroomDeformation, TheRibbonBuildMovesItsVerticesAndItsBounds)
         }
     }
     EXPECT_GT(withMotion, 0u) << "a bent coat emitted no strand motion at all";
+}
+
+// ── Review round 2 (PR #1312): the regressions the review found ─────────────
+//
+// Each of these failed before the fix it is named for. They are grouped rather
+// than scattered because they share one property worth stating once: every one
+// of them is a case where the code was ALREADY checking something adjacent, and
+// the adjacent check is what made the gap survive a first reading.
+
+TEST(GroomDeformation, AnEmptySelectionDeformsNothingWhileNulloptDeformsEverything)
+{
+    // These are different requests and the implementation used to conflate
+    // them. It matters because a selection really does come back empty --
+    // GuidesOnly on a groom with no guides is the reachable case -- and reading
+    // that as "all of them" turns the cheapest possible frame into the most
+    // expensive one: every root of the coat evaluated, at full cost, to build
+    // no geometry at all.
+    GridSurface grid = MakeGrid(4u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid, 16u, 3u);
+    ASSERT_TRUE(bound.Binding);
+
+    const auto palette = RestPalette();
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.HasHistory = true;
+
+    const std::vector<u32> nothing;
+    std::vector<GroomRootTransform> transforms;
+    const GroomDeformationStats none =
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(nothing), transforms);
+    EXPECT_EQ(none.RootsDeformed, 0u);
+    EXPECT_EQ(transforms.size(), bound.Groom->GetCurveCount()) << "still fully addressable";
+    for (const auto& transform : transforms)
+    {
+        EXPECT_FALSE(transform.Valid);
+    }
+
+    const GroomDeformationStats all =
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
+    EXPECT_EQ(all.RootsDeformed, bound.Groom->GetCurveCount());
+}
+
+TEST(GroomDeformation, TheSelectionStopsOnTheSameCurveTheBuildStopsOn)
+{
+    // The selection used to return every stride-selected curve, while the build
+    // stops dead at the segment cap. Each surplus curve was then deformed -- a
+    // root evaluation and a surface frame -- to build geometry that was never
+    // emitted, and the binding preview drew a frame at a strand the viewport
+    // did not contain.
+    //
+    // The case that shows it is a SMALL budget against LONG strands, and the
+    // reason is worth stating because it is not the obvious one: the stride is
+    // widened from the average segments per curve, so for a uniform coat it is
+    // self-correcting and the surplus is at most the truncated last curve. But
+    // SelectCurves only widens the stride while at least one whole curve is
+    // affordable (`affordableCurves >= 1.0`); below that it gives up and leaves
+    // the stride at 1. So a budget under one strand's length selects the ENTIRE
+    // groom and builds exactly one strand of it -- the largest possible gap,
+    // reached by the smallest possible budget.
+    GridSurface grid = MakeGrid(6u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid, 20u, 21u); // 20 curves of 20 segments
+    ASSERT_TRUE(bound.Binding);
+
+    GroomStrandBuildSettings build;
+    build.MaxStrands = 64u;  // not the binding constraint here
+    build.MaxSegments = 10u; // half of ONE strand
+    std::vector<u32> selected;
+    SelectGroomStrandCurves(*bound.Groom, build, selected);
+
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*bound.Groom, build, vertices, indices);
+    ASSERT_TRUE(stats.SegmentBudgetLimited) << "this case is only interesting under a real budget";
+    ASSERT_EQ(stats.Stride, 1u) << "the premise: the stride did not absorb the budget";
+
+    // Four vertices per emitted segment.
+    EXPECT_EQ(static_cast<u32>(vertices.size() / 4u), stats.SegmentCount);
+    EXPECT_EQ(stats.SegmentCount, build.MaxSegments);
+
+    // The property, stated directly: every curve the selection names puts at
+    // least one segment in the mesh, and no curve outside it puts any.
+    // GroomSegmentIdentity is a one-way mix, so the question is asked forwards
+    // -- each candidate identity is looked for -- rather than by decoding what
+    // was built.
+    std::set<u32> built;
+    for (const auto& vertex : vertices)
+    {
+        built.insert(std::bit_cast<u32>(vertex.SegmentId));
+    }
+    const std::set<u32> named(selected.begin(), selected.end());
+    ASSERT_LT(named.size(), bound.Groom->GetCurveCount()) << "the budget must have excluded something";
+
+    for (u32 curve = 0; curve < bound.Groom->GetCurveCount(); ++curve)
+    {
+        const u32 points = bound.Groom->GetCurvePointCount(curve);
+        const u32 segments = points > 1u ? points - 1u : 0u;
+        u32 present = 0;
+        for (u32 segment = 0; segment < segments; ++segment)
+        {
+            present += built.contains(GroomSegmentIdentity(curve, segment)) ? 1u : 0u;
+        }
+        if (named.contains(curve))
+        {
+            EXPECT_GT(present, 0u) << "curve " << curve << " was deformed but never built";
+        }
+        else
+        {
+            EXPECT_EQ(present, 0u) << "curve " << curve << " was built but never deformed";
+        }
+    }
+}
+
+TEST(GroomDeformation, TheEmittedBoundsContainTheRibbonAndNotOnlyItsCentreline)
+{
+    // GroomStrand.glsl expands every segment sideways by Radius, so a
+    // centreline box is smaller than the thing drawn from it. A culler handed
+    // it removes strands that are visibly on screen, and it does so worst at
+    // grazing angles -- where the expansion is largest and a coat losing its
+    // silhouette is most obvious.
+    GridSurface grid = MakeGrid(4u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid, 16u, 4u);
+    ASSERT_TRUE(bound.Binding);
+
+    GroomStrandBuildSettings build;
+    std::vector<GroomStrandVertex> vertices;
+    std::vector<u32> indices;
+    const GroomStrandMeshStats stats = BuildGroomStrandMesh(*bound.Groom, build, vertices, indices);
+    ASSERT_TRUE(stats.BoundsValid);
+    ASSERT_FALSE(vertices.empty());
+
+    f32 maxRadius = 0.0f;
+    for (const auto& vertex : vertices)
+    {
+        maxRadius = std::max(maxRadius, vertex.Radius);
+    }
+    ASSERT_GT(maxRadius, 0.0f) << "a zero-radius groom cannot show this";
+
+    // Every vertex, expanded by its OWN radius in every direction, is inside
+    // the published box. That is the shape the shader can draw, so it is the
+    // shape a culler has to be given.
+    for (const auto& vertex : vertices)
+    {
+        const glm::vec3 expand{ vertex.Radius };
+        const glm::vec3 low = vertex.Position - expand;
+        const glm::vec3 high = vertex.Position + expand;
+        EXPECT_GE(low.x, stats.BoundsMin.x - 1.0e-4f);
+        EXPECT_GE(low.y, stats.BoundsMin.y - 1.0e-4f);
+        EXPECT_GE(low.z, stats.BoundsMin.z - 1.0e-4f);
+        EXPECT_LE(high.x, stats.BoundsMax.x + 1.0e-4f);
+        EXPECT_LE(high.y, stats.BoundsMax.y + 1.0e-4f);
+        EXPECT_LE(high.z, stats.BoundsMax.z + 1.0e-4f);
+    }
+}
+
+TEST(GroomDeformation, ASkinnedSurfaceWithNoPreviousPoseReportsNoHistoryRatherThanClaimingIt)
+{
+    // HasHistory was echoed back from the INPUT, so a caller that offered
+    // history to a skeleton that has none was told it was used. The evaluation
+    // had already written prev == current for every root, so the frame carried
+    // no motion -- and GroomRenderPass counts a groom with HasHistory false as
+    // history-rejected, which is the number someone reads when a coat ghosts.
+    GridSurface grid = MakeGrid(4u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid, 8u, 3u);
+    ASSERT_TRUE(bound.Binding);
+
+    const auto palette = RestPalette();
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, false); // skinned, no previous pose
+    inputs.HasHistory = true;
+
+    std::vector<GroomRootTransform> transforms;
+    const GroomDeformationStats stats =
+        EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
+    EXPECT_FALSE(stats.HasHistory) << "the caller offered history; the skeleton could not supply it";
+    EXPECT_GT(stats.RootsDeformed, 0u) << "and the CURRENT pose still deformed normally";
+}
+
+TEST(GroomDeformation, ThePreviousPoseIsMappedWithThePreviousFrameMatrix)
+{
+    // Both halves of a previous position move: the body's pose and the two
+    // world transforms that put the body and the groom where they were.
+    // Skinning last frame's pose and then mapping it with THIS frame's matrix
+    // mixes the two, and the error is the entity's own motion -- which is a
+    // smeared coat on a walking character and nothing at all on a standing
+    // one, so it survives every static test.
+    GridSurface grid = MakeGrid(4u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid, 8u, 3u);
+    ASSERT_TRUE(bound.Binding);
+
+    const auto palette = RestPalette();
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    // The POSE is identical in both frames, so every difference below is the
+    // matrix and nothing else.
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+    inputs.HasHistory = true;
+    inputs.SurfaceToGroom = glm::mat4(1.0f);
+    inputs.PrevSurfaceToGroom = glm::translate(glm::mat4(1.0f), glm::vec3{ 0.0f, 0.0f, -2.0f });
+
+    std::vector<GroomRootTransform> transforms;
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
+
+    u32 withMotion = 0;
+    for (const auto& transform : transforms)
+    {
+        if (transform.Valid && glm::length(transform.Origin - transform.PrevOrigin) > 1.0e-3f)
+        {
+            ++withMotion;
+        }
+    }
+    EXPECT_GT(withMotion, 0u) << "the body moved 2 units between frames and the coat emitted no motion";
+
+    // And the control: the same matrix on both sides emits exactly zero, which
+    // is what makes the assertion above about the MATRIX rather than about any
+    // difference between the two code paths.
+    inputs.PrevSurfaceToGroom = inputs.SurfaceToGroom;
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::nullopt, transforms);
+    for (const auto& transform : transforms)
+    {
+        if (transform.Valid)
+        {
+            EXPECT_EQ(std::bit_cast<u32>(transform.Origin.z), std::bit_cast<u32>(transform.PrevOrigin.z));
+        }
+    }
 }

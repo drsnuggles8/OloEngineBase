@@ -17,8 +17,13 @@
 #include <glm/gtc/matrix_inverse.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <format>
 #include <fstream>
+#include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace OloEngine::GroomAuthoring
@@ -142,8 +147,62 @@ namespace OloEngine::GroomAuthoring
         {
             relativeDirectory = metadata.FilePath.parent_path();
         }
-        const std::string stem = (groom->GetName().empty() ? std::string("groom") : groom->GetName()) + "-" +
-                                 (targetSourceName.empty() ? std::string("body") : targetSourceName);
+        // The stem carries two free-form names -- an asset name and an entity
+        // name, both typed by a person -- and a path is not a place to put
+        // either one raw. `Coat / v2` makes a directory nobody asked for and an
+        // ImportAsset of a path that is not where the bytes went; on Windows a
+        // `:` makes an NTFS alternate data stream, which writes successfully,
+        // reads back empty, and is invisible in every file listing.
+        //
+        // Sanitised rather than rejected, because the name is an authoring
+        // convenience here and refusing a bind over a slash in a body's name
+        // would be the tail wagging the dog.
+        const auto sanitise = [](std::string_view name, std::string_view fallback)
+        {
+            std::string safe;
+            safe.reserve(name.size());
+            for (const char ch : name)
+            {
+                const bool keep = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') ||
+                                  ch == '-' || ch == '_';
+                safe.push_back(keep ? ch : '-');
+            }
+            // A name that was ALL separators collapses to a row of dashes, which
+            // is a legal but meaningless filename; treat it as absent.
+            if (safe.empty() || safe.find_first_not_of('-') == std::string::npos)
+            {
+                return std::string(fallback);
+            }
+            return safe;
+        };
+
+        // The names are for a human reading the content browser. The IDENTITIES
+        // are what make the filename unique, and they have to be there: two
+        // bodies in one scene may both be called "Body" (duplicating an entity
+        // is one Ctrl-D), and without a discriminator the second bind would
+        // truncate the first binding's file and then ImportAsset would hand back
+        // the FIRST one's handle -- so the second groom would silently wear the
+        // first groom's binding, which is the exact failure this whole feature
+        // is built to make impossible.
+        //
+        // Hashed to 16 hex digits rather than spelled out, because two 20-digit
+        // decimal ids in a filename is not a name anyone can read, and the
+        // discriminator only has to distinguish.
+        u64 identity = 1469598103934665603ull; // FNV-1a offset basis
+        const auto mix = [&identity](u64 value)
+        {
+            for (i32 byte = 0; byte < 8; ++byte)
+            {
+                identity ^= (value >> (byte * 8)) & 0xFFull;
+                identity *= 1099511628211ull;
+            }
+        };
+        mix(static_cast<u64>(groomComponent.m_Groom));
+        mix(static_cast<u64>(targetEntity.GetUUID()));
+
+        const std::string stem =
+            std::format("{}-{}-{:016x}", sanitise(groom->GetName(), "groom"), sanitise(targetSourceName, "body"),
+                        identity);
         outcome.m_RelativePath = relativeDirectory / (stem + ".ologroombinding");
         const std::filesystem::path absolutePath = Project::GetProjectDirectory() / outcome.m_RelativePath;
 
@@ -156,16 +215,48 @@ namespace OloEngine::GroomAuthoring
                     std::format("could not create '{}': {}", absolutePath.parent_path().string(), ec.message());
                 return outcome;
             }
-            std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
-            if (!out.is_open())
+            // Written to a TEMPORARY and renamed over the target, because the
+            // target may be a binding that currently works. Truncating it first
+            // means a disk that fills up, a process killed mid-write or a
+            // network share that drops leaves a half-file where a valid asset
+            // was -- and the groom that was using it is broken by an authoring
+            // action that FAILED. The rename is the only step that touches the
+            // real path, and on both platforms it is atomic within a directory.
+            //
+            // The failure check also had to move: `out.fail()` was read while
+            // the stream was still open, so it saw the buffered write and not
+            // the flush, and a write that failed at close() -- which is where a
+            // full disk reports -- was recorded as a success.
+            const std::filesystem::path temporaryPath = absolutePath.string() + ".tmp";
             {
-                outcome.m_Reason = std::format("could not open '{}' for writing", absolutePath.string());
-                return outcome;
+                std::ofstream out(temporaryPath, std::ios::binary | std::ios::trunc);
+                if (!out.is_open())
+                {
+                    outcome.m_Reason = std::format("could not open '{}' for writing", temporaryPath.string());
+                    return outcome;
+                }
+                out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                out.close();
+                if (out.fail())
+                {
+                    std::filesystem::remove(temporaryPath, ec);
+                    outcome.m_Reason = std::format("failed while writing '{}'", temporaryPath.string());
+                    return outcome;
+                }
             }
-            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (out.fail())
+
+            // rename(), not copy-then-delete: std::filesystem::rename replaces an
+            // existing file on both Windows and POSIX, and the replacement is
+            // what makes a REBIND of the same pair -- the common case, since the
+            // filename is deterministic -- safe to repeat.
+            std::filesystem::rename(temporaryPath, absolutePath, ec);
+            if (ec)
             {
-                outcome.m_Reason = std::format("failed while writing '{}'", absolutePath.string());
+                std::error_code removeError;
+                std::filesystem::remove(temporaryPath, removeError);
+                outcome.m_Reason =
+                    std::format("wrote '{}' but could not move it into place: {}", temporaryPath.string(),
+                                ec.message());
                 return outcome;
             }
         }

@@ -177,6 +177,29 @@ namespace OloEngine
                 outReason = std::format("root {} has barycentric coordinates summing to {}, not 1", i, barySum);
                 return false;
             }
+            // EACH COMPONENT, not only the sum. A triple like (1e6, -1e6, 1)
+            // sums to 1 and passes every other check here, and the deformed root
+            // is `b.x*v0 + b.y*v1 + b.z*v2` — so that record puts the strand a
+            // million surface-extents away from the body. RestOrigin is already
+            // bounded by MaxCoordinate; the weights that multiply the DEFORMED
+            // corners were not, which left the bound on the wrong side of the
+            // multiplication.
+            //
+            // The builder emits components in [0, 1] (ClosestPointOnTriangle
+            // returns a convex combination), so this refuses no binding this
+            // process could have produced. The tolerance is the same f32 round
+            // trip the sum check allows.
+            for (i32 axis = 0; axis < 3; ++axis)
+            {
+                const f32 weight = root.Barycentric[axis];
+                if (weight < -GroomBindingLimits::BarycentricSumTolerance ||
+                    weight > 1.0f + GroomBindingLimits::BarycentricSumTolerance)
+                {
+                    outReason = std::format("root {} has barycentric component {} = {}, outside [0, 1]", i, axis,
+                                            weight);
+                    return false;
+                }
+            }
 
             if (!std::isfinite(root.RestOrigin.x) || !std::isfinite(root.RestOrigin.y) ||
                 !std::isfinite(root.RestOrigin.z))

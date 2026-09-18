@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -173,8 +174,8 @@ namespace OloEngine::Automation
                     // The component is assigned HERE rather than inside the
                     // authoring helper, because the inspector's button routes
                     // the same assignment through the undo stack and this
-                    // command deliberately does not -- see AutomationUndo::None
-                    // above.
+                    // command deliberately does not -- see
+                    // AutomationUndo::Irreversible above.
                     if (!groomEntity.HasComponent<GroomBindingComponent>())
                     {
                         groomEntity.AddComponent<GroomBindingComponent>();

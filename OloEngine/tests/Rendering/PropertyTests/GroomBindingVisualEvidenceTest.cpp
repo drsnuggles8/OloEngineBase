@@ -95,6 +95,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
+
+#include <optional>
 #include <stb_image/stb_image_write.h>
 
 #include <array>
@@ -549,7 +551,7 @@ namespace OloEngine::Tests
             inputs.HasHistory = true;
 
             std::vector<GroomRootTransform> transforms;
-            (void)EvaluateGroomRootTransforms(*m_Groom, *m_Binding, inputs, {}, transforms);
+            (void)EvaluateGroomRootTransforms(*m_Groom, *m_Binding, inputs, std::nullopt, transforms);
 
             const auto& authored = m_Groom->GetPoints();
             f32 worst = 0.0f;
@@ -757,8 +759,14 @@ namespace OloEngine::Tests
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
+        // MorphNeutral, not "Off": the binding is ENABLED for both captures in
+        // this case -- the A/B is neutral-expression against morphed-expression,
+        // not bound against unbound. Every other `...Off...` PNG in this folder
+        // is a genuinely disabled binding, so the prefix is a promise, and a
+        // reader comparing this one against them would conclude the coat is
+        // unaffected by the morph when the picture actually shows the opposite.
         std::vector<u8> neutral;
-        Capture("GroomBindingOff_GL_Forward_Morph", eye, 0.0f, 0.10f, neutral);
+        Capture("GroomBinding_GL_Forward_MorphNeutral", eye, 0.0f, 0.10f, neutral);
         if (::testing::Test::HasFatalFailure())
         {
             return;

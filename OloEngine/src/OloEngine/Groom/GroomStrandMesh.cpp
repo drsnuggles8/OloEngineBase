@@ -118,6 +118,7 @@ namespace OloEngine
         outCurves.reserve(selection.Selected);
 
         u32 taken = 0;
+        u64 segments = 0;
         for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
         {
             if (!CurveIsEligible(groom, curve, settings))
@@ -126,7 +127,26 @@ namespace OloEngine
             }
             if ((taken % selection.Stride) == 0u)
             {
+                // And the SEGMENT BUDGET too, not only the stride. The stride
+                // comes from an average strand length, so the build can run out
+                // of budget before the last stride-aligned curve and emit
+                // nothing for the rest -- while this list still named them. Every
+                // such curve is then deformed (paying for a root evaluation and
+                // a surface frame) for geometry that is never built, and the
+                // binding preview draws a frame at a strand the viewport does
+                // not contain.
+                //
+                // The test is `>=` BEFORE the curve is taken, which is the same
+                // test BuildGroomStrandMesh makes at the top of its own curve
+                // loop -- so the one curve that STRADDLES the cap is on both
+                // lists (it is partly emitted, so it is really deformed) and
+                // every curve after it is on neither.
+                if (segments >= static_cast<u64>(settings.MaxSegments))
+                {
+                    break;
+                }
                 outCurves.push_back(curve);
+                segments += CountCurveSegments(groom, curve);
             }
             ++taken;
         }
@@ -232,6 +252,19 @@ namespace OloEngine
                 continue;
             }
 
+            // The budget is spent: every remaining curve would enter the segment
+            // loop below and leave it on the first iteration having emitted
+            // nothing. Leaving now is not only cheaper -- it stops
+            // StrandsHeldAtRest counting strands that were never going to be
+            // drawn, and it makes this loop stop on exactly the curve
+            // SelectGroomStrandCurves stops on, which is the property the
+            // deformer depends on.
+            if (emittedSegments >= settings.MaxSegments)
+            {
+                stats.SegmentBudgetLimited = true;
+                break;
+            }
+
             const u32 first = groom.GetCurveFirstPoint(curve);
             const u32 count = groom.GetCurvePointCount(curve);
             const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
@@ -290,13 +323,36 @@ namespace OloEngine
                 // See GroomStrandVertex::Other for what goes wrong otherwise.
                 const glm::vec3 delta = p1 - p0;
 
-                boundsMin = glm::min(boundsMin, glm::min(p0, p1));
-                boundsMax = glm::max(boundsMax, glm::max(p0, p1));
-
                 // The cooked widths are DIAMETERS (the Alembic/USD
                 // convention); the halving happens exactly once, here.
                 const f32 r0 = widths[first + i] * 0.5f;
                 const f32 r1 = widths[first + i + 1u] * 0.5f;
+
+                // The box covers the RIBBON, not the centreline it is built
+                // around. GroomStrand.glsl expands each segment sideways by
+                // Radius, so a centreline-only box is smaller than the thing
+                // drawn from it -- and a culler handed it removes strands that
+                // are visibly on screen, at exactly the grazing angles where the
+                // expansion is largest and a coat losing its silhouette is most
+                // obvious.
+                //
+                // The expansion is isotropic because the sideways direction is
+                // chosen per view: it is perpendicular to the segment and to the
+                // eye vector, so no axis-aligned bound can be tighter than the
+                // sphere swept along the centreline without knowing the camera.
+                // A hair radius is a fraction of a millimetre against a body, so
+                // this costs the culler nothing measurable.
+                const f32 radius = std::max(r0, r1);
+                const glm::vec3 expand{ radius };
+                boundsMin = glm::min(boundsMin, glm::min(p0, p1) - expand);
+                boundsMax = glm::max(boundsMax, glm::max(p0, p1) + expand);
+
+                // Previous positions widen the box as well: the motion-vector
+                // pass reads them through the same geometry, so a box that
+                // holds only this frame's ribbon can cull a strand whose
+                // previous position is still on screen.
+                boundsMin = glm::min(boundsMin, glm::min(prev0, prev1) - expand);
+                boundsMax = glm::max(boundsMax, glm::max(prev0, prev1) + expand);
 
                 const f32 u0 = static_cast<f32>(i) * invSpan;
                 const f32 u1 = static_cast<f32>(i + 1u) * invSpan;

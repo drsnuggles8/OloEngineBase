@@ -1406,6 +1406,14 @@ namespace OloEngine
             /// history whether or not the groom entity itself moved.
             glm::vec3 m_TargetWorldPosition{ 0.0f };
 
+            /// The target-to-groom matrix the PREVIOUS frame deformed with, fed
+            /// back as GroomDeformationInputs::PrevSurfaceToGroom so a previous
+            /// position is skinned and mapped in the same frame throughout.
+            /// Only meaningful while m_HasHistory holds; the reset path sets it
+            /// to this frame's matrix, which is what makes the first frame after
+            /// a teleport emit zero motion rather than the teleport itself.
+            glm::mat4 m_PrevSurfaceToGroom{ 1.0f };
+
             // ── The compatibility verdict, cached ───────────────────────
             //
             // Signing a target means an FNV pass over every index AND every

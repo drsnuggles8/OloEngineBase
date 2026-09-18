@@ -55,6 +55,39 @@ hash of the type name, so a save written before the component existed simply doe
 Spending a `kSaveGameFormatVersion` number on one collides with whatever another branch is appending
 to an *existing* component, for no benefit.
 
+**A previous position needs the previous MATRIX as well as the previous pose.** Two things move
+between frames: the body's pose, and the two world transforms that place the body and the groom.
+Skinning last frame's palette and then mapping the result with *this* frame's `SurfaceToGroom` mixes
+them, and the error is exactly the entity's own motion — nothing at all on a standing character, a
+coat-length smear on a walking one. `GroomDeformationInputs::PrevSurfaceToGroom` is fed from the
+previous frame's value, and a frame with no history writes `prev == current` and reads neither.
+
+**The curve selection is the contract between the deformer and the builder, and it is exact at both
+ends.** `SelectGroomStrandCurves` legitimately returns nothing — `GuidesOnly` on a groom with no
+guides, a zero segment budget — so an empty span must mean *none*; the parameter is
+`std::optional<std::span<const u32>>` because a sentinel reading empty as "everything" turns the
+cheapest frame into the most expensive one. At the other end it must stop where the build stops: the
+stride is widened from the *average* segments per curve, and `SelectCurves` gives up widening once
+less than one whole curve is affordable, so a budget under one strand's length names the entire
+groom and builds one strand of it. Both loops test the cap before taking a curve, so the curve that
+straddles it is on both lists and every curve after it is on neither.
+
+**Bound the ribbon, not the centreline.** `GroomStrand.glsl` widens each segment by `Radius`, so a
+box measured from the strand points alone is smaller than the thing drawn from it and a culler
+handed it removes strands that are on screen. Expand by the radius, and include the previous
+positions — the motion-vector pass reads them through the same geometry.
+
+**Cook to a temporary and rename.** The target of an authoring write may be a binding that currently
+works. Truncating it first means a failed write leaves a half-file where a valid asset was, and
+breaks a groom through an action that *failed*. Check the stream after `close()`, not before it: a
+full disk reports at the flush, and a pre-close `fail()` reads as success.
+
+**A filename built from names needs identities in it.** Two bodies in one scene may both be called
+"Body", and a colliding cooked path truncates the first binding and then hands the second groom the
+first one's handle from `ImportAsset`. Free-form names also reach the filesystem: on Windows a `:`
+writes an NTFS alternate data stream that succeeds, reads back empty, and appears in no listing.
+Sanitise the names; append a hash of the groom handle and the target UUID.
+
 ## What is deliberately not here
 
 Simulation. #1249 stops at deformation and interpolation; guide simulation is #1250. Every strand is

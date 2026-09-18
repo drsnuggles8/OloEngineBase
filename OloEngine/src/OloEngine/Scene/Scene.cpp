@@ -8217,8 +8217,24 @@ namespace OloEngine
         // ── Resolve the body ────────────────────────────────────────────────
         // A zero target entity means "this entity's own mesh", which is the
         // common authoring case for a groom parented under its character.
-        Entity targetEntity =
-            binding->m_TargetEntity != 0 ? GetEntityByUUID(binding->m_TargetEntity) : groomEntity;
+        //
+        // TryGetEntityWithUUID, not GetEntityByUUID: the latter asserts on a UUID
+        // the scene does not hold, so the NoTarget branch below could never run
+        // for the case it is named after -- a target entity deleted while the
+        // groom still points at it, which is one Delete in the hierarchy panel
+        // away in any scene that has this component. The refusal is already
+        // written, reported and counted; it only had to be reachable.
+        Entity targetEntity = groomEntity;
+        if (binding->m_TargetEntity != 0)
+        {
+            const auto found = TryGetEntityWithUUID(binding->m_TargetEntity);
+            if (!found)
+            {
+                refuse(GroomBindingRejectReason::NoTarget);
+                return;
+            }
+            targetEntity = *found;
+        }
         if (!targetEntity)
         {
             refuse(GroomBindingRejectReason::NoTarget);
@@ -8261,17 +8277,60 @@ namespace OloEngine
         // are compared BEFORE the signatures are taken, so the expensive path
         // runs on an asset swap, a mesh rebuild or an LOD switch and not
         // otherwise.
-        const bool identityMoved = !state.m_HasCachedVerdict || state.m_Binding != binding->m_Binding ||
-                                   state.m_Groom != request.Handle ||
-                                   state.m_Target != targetEntity.GetUUID() ||
-                                   state.m_TargetGeneration != surface->GetGeneration() ||
-                                   state.m_TargetVertexCount != view.VertexCount ||
-                                   state.m_TargetIndexCount != view.IndexCount;
+        // Attributed BEFORE the keys are overwritten below, because the reason
+        // a groom's history was dropped is the only thing anyone can act on and
+        // the values that carry it are about to be replaced. Costs six compares
+        // on a frame that was already going to re-sign the whole surface.
+        const GroomHistoryResetCause identityCause =
+            (state.m_Binding != binding->m_Binding || state.m_Groom != request.Handle)
+                ? GroomHistoryResetCause::BindingChanged
+            : (state.m_Target != targetEntity.GetUUID() || state.m_TargetGeneration != surface->GetGeneration())
+                ? GroomHistoryResetCause::TargetChanged
+                // An LOD switch that kept the same MeshSource generation but
+                // changed the surface. Different topology is a different
+                // surface, so the previous strand positions describe a coat
+                // that no longer exists.
+                : GroomHistoryResetCause::TargetTopologyChanged;
+
+        const bool identityKeysMoved = state.m_Binding != binding->m_Binding ||
+                                       state.m_Groom != request.Handle ||
+                                       state.m_Target != targetEntity.GetUUID() ||
+                                       state.m_TargetGeneration != surface->GetGeneration() ||
+                                       state.m_TargetVertexCount != view.VertexCount ||
+                                       state.m_TargetIndexCount != view.IndexCount;
+        // Split in two. The first-ever frame has no cached verdict and must
+        // compute one, but nothing has MOVED -- the keys were never set. Folding
+        // that term into the same flag the history ladder reads would attribute
+        // the first frame's (correct, already-attributed) reset to whichever
+        // identity key happened to sort first, which is a diagnostic that lies
+        // on exactly the frame someone is most likely to be reading it.
+        const bool identityMoved = identityKeysMoved || !state.m_HasCachedVerdict;
         if (identityMoved)
         {
             state.m_CachedVerdict = bindingAsset->CheckCompatibility(GroomBindingBuilder::SignGroom(groom),
                                                                      GroomBindingBuilder::SignTarget(view));
             state.m_HasCachedVerdict = true;
+            // Written HERE, next to the verdict they key, and not only on the
+            // success path at the end of this function -- which a refusal never
+            // reaches. The keys stayed stale, identityMoved was therefore true
+            // on every subsequent frame, and the full FNV hash of every vertex
+            // and every index of the body re-ran sixty times a second: exactly
+            // the cost this cache exists to remove, landing on precisely the
+            // scenes that can least afford it, since a refused binding is a
+            // MISCONFIGURED scene somebody is in the middle of fixing.
+            //
+            // The history keys below are deliberately NOT moved up here. They
+            // answer a different question -- "is the previous frame comparable"
+            // -- and a frame that refused drew no coat, so there is no previous
+            // coat for the next frame to compare against. Leaving them where
+            // they are is what makes the frame after a refusal re-enter through
+            // the reset path instead of claiming a continuity it does not have.
+            state.m_Binding = binding->m_Binding;
+            state.m_Groom = request.Handle;
+            state.m_Target = targetEntity.GetUUID();
+            state.m_TargetGeneration = surface->GetGeneration();
+            state.m_TargetVertexCount = view.VertexCount;
+            state.m_TargetIndexCount = view.IndexCount;
         }
         if (const GroomBindingRejectReason reason = state.m_CachedVerdict;
             reason != GroomBindingRejectReason::None)
@@ -8304,20 +8363,16 @@ namespace OloEngine
         {
             cause = state.m_ResetCause; // whatever dropped it, already attributed
         }
-        else if (state.m_Binding != binding->m_Binding || state.m_Groom != request.Handle)
+        else if (identityKeysMoved)
         {
-            cause = GroomHistoryResetCause::BindingChanged;
-        }
-        else if (state.m_Target != targetEntity.GetUUID() || state.m_TargetGeneration != surface->GetGeneration())
-        {
-            cause = GroomHistoryResetCause::TargetChanged;
-        }
-        else if (state.m_TargetVertexCount != view.VertexCount || state.m_TargetIndexCount != view.IndexCount)
-        {
-            // An LOD switch that kept the same MeshSource generation but changed
-            // the surface. Different topology is a different surface, so the
-            // previous strand positions describe a coat that no longer exists.
-            cause = GroomHistoryResetCause::TargetTopologyChanged;
+            // `identityKeysMoved` is read rather than the keys re-compared, because
+            // the block above has already overwritten them -- it must, so that a
+            // refusal does not re-hash the body every frame. It is the same
+            // question either way: the keys it is built from are exactly the
+            // ones this ladder used to test, so anything that moved one of them
+            // still lands here. The one thing lost is WHICH of them moved, and
+            // that is re-derived below from the values the block saved off.
+            cause = identityCause;
         }
         else if (skeleton != nullptr && !skeleton->HasContinuousDeformation())
         {
@@ -8375,10 +8430,16 @@ namespace OloEngine
         // its body keeps following it.
         inputs.SurfaceToGroom =
             MakeGroomSurfaceToGroomMatrix(GetWorldTransform(groomEntity), GetWorldTransform(targetEntity));
+        // Last frame's matrix with last frame's pose. Falling back to this
+        // frame's when there is no history is not a fallback that matters --
+        // HasHistory false makes the evaluation write prev == current and never
+        // read either matrix for a previous position.
+        inputs.PrevSurfaceToGroom = hasHistory ? state.m_PrevSurfaceToGroom : inputs.SurfaceToGroom;
         inputs.HasHistory = hasHistory;
 
-        request.DeformationStats = EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
-                                                               state.m_SelectedCurves, state.m_Transforms);
+        request.DeformationStats =
+            EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
+                                        std::span<const u32>(state.m_SelectedCurves), state.m_Transforms);
         request.Binding = bindingAsset;
         request.BindingReject = GroomBindingRejectReason::None;
 
@@ -8411,13 +8472,10 @@ namespace OloEngine
 
         // Recorded AFTER the evaluation, so the next frame compares against the
         // state this frame actually deformed with rather than against what it
-        // intended to.
-        state.m_Binding = binding->m_Binding;
-        state.m_Groom = request.Handle;
-        state.m_Target = targetEntity.GetUUID();
-        state.m_TargetGeneration = surface->GetGeneration();
-        state.m_TargetVertexCount = view.VertexCount;
-        state.m_TargetIndexCount = view.IndexCount;
+        // intended to. The IDENTITY keys are not here -- they are written beside
+        // the compatibility verdict they key, so that a refusal records them
+        // too; see that block.
+        state.m_PrevSurfaceToGroom = inputs.SurfaceToGroom;
         state.m_DeformationRevision = skeleton != nullptr ? skeleton->m_DeformationRevision : 0u;
         state.m_PrevDeformationRevision = skeleton != nullptr ? skeleton->m_PrevDeformationRevision : 0u;
         state.m_MorphStateHash = morphStateHash;

@@ -57,6 +57,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -192,6 +193,25 @@ namespace OloEngine
         /// space the renderer will apply the groom's world matrix to.
         glm::mat4 SurfaceToGroom{ 1.0f };
 
+        /// The SAME mapping as `SurfaceToGroom`, from the frame the previous
+        /// bone palette belongs to, and used with it.
+        ///
+        /// Both halves of a previous position move: the body's pose (the
+        /// previous palette) and the two world transforms that put the body and
+        /// the groom where they were. Skinning last frame's pose and then
+        /// mapping it with THIS frame's matrix mixes the two, and the error is
+        /// not small in the case that matters -- a coat carried on a body that
+        /// is itself moving through the world, where the whole per-frame
+        /// displacement lives in the matrix and none of it in the palette. The
+        /// motion vectors are then wrong by the entity's own motion, which is a
+        /// smeared coat on a walking character and nothing at all on a standing
+        /// one, so it survives every static test.
+        ///
+        /// A caller with no previous matrix leaves this equal to
+        /// `SurfaceToGroom` and gets the old behaviour; Scene stores last
+        /// frame's and passes it.
+        glm::mat4 PrevSurfaceToGroom{ 1.0f };
+
         /// False when the caller has already decided this frame's previous
         /// positions are not comparable (a teleport, an LOD switch, the first
         /// frame). The evaluation then writes prev == current, so the frame
@@ -305,10 +325,18 @@ namespace OloEngine
      * forgot to select a curve gets a strand at rest rather than a strand
      * indexed out of bounds.
      *
-     * @param selectedCurves the curves to evaluate, or EMPTY for all of them.
-     *        The ribbon build strides over the groom (GroomStrandMesh.h), so
-     *        evaluating only what will be drawn is what keeps a 200k-strand coat
-     *        off the frame budget.
+     * @param selectedCurves the curves to evaluate, or `std::nullopt` for all
+     *        of them. The ribbon build strides over the groom
+     *        (GroomStrandMesh.h), so evaluating only what will be drawn is what
+     *        keeps a 200k-strand coat off the frame budget.
+     *
+     *        `std::nullopt` and not an empty span, because those two are
+     *        genuinely different requests and a selection really can come back
+     *        empty: SelectGroomStrandCurves returns nothing for a groom asked
+     *        for GuidesOnly that has no guides, or one whose segment budget is
+     *        zero. Read as "all", that empties the cheapest case into the most
+     *        expensive one -- every root of a 200k-strand coat evaluated, at
+     *        full cost, to build no geometry whatsoever.
      *
      * Pure apart from the output: the same groom, binding and inputs always
      * produce the same transforms, which is what lets a headless test assert on
@@ -316,6 +344,6 @@ namespace OloEngine
      */
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
-                                                      std::span<const u32> selectedCurves,
+                                                      std::optional<std::span<const u32>> selectedCurves,
                                                       std::vector<GroomRootTransform>& outTransforms);
 } // namespace OloEngine

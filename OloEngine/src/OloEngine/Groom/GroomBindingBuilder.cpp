@@ -34,6 +34,18 @@ namespace OloEngine
                 for (i32 axis = 0; axis < 3; ++axis)
                 {
                     const f32 relative = (position[axis] - Min[axis]) / CellSize[axis];
+                    // NaN FIRST, because std::clamp cannot remove one: every
+                    // comparison against NaN is false, so clamp returns it
+                    // unchanged and `static_cast<i32>(std::floor(NaN))` is
+                    // undefined behaviour rather than a clamped index. Cell 0 is
+                    // an arbitrary but harmless home for a vertex that has no
+                    // position; Build refuses such a target outright, and this is
+                    // the belt to that brace.
+                    if (!std::isfinite(relative))
+                    {
+                        cell[axis] = 0;
+                        continue;
+                    }
                     // The floor is taken in f32 and clamped in i32: a relative
                     // coordinate of 1e38 (a root at a corrupt coordinate that
                     // still passed the finiteness check) would overflow the
@@ -199,19 +211,40 @@ namespace OloEngine
 
                 const glm::ivec3 lo = glm::max(centre - ring, glm::ivec3{ 0 });
                 const glm::ivec3 hi = glm::min(centre + ring, grid.Dimensions - 1);
+                // Only the SHELL, and SKIPPED rather than visited-and-discarded.
+                // Walking the whole box and dropping its interior costs O(ring^3)
+                // cells per ring, so a root that reaches the outer rings pays
+                // O(maxRing^4) visits for a shell that holds O(ring^2) cells.
+                // The x loop below jumps across the interior in one step, which
+                // keeps the z,y,x visit ORDER identical -- and that order is not
+                // load-bearing anyway, because the tie-break is on the triangle
+                // index (see ConsiderTriangle), but changing it silently would
+                // still be the wrong thing to do while claiming a speedup.
                 for (i32 z = lo.z; z <= hi.z; ++z)
                 {
+                    const bool zOnShell = std::abs(z - centre.z) == ring;
                     for (i32 y = lo.y; y <= hi.y; ++y)
                     {
+                        const bool yOnShell = std::abs(y - centre.y) == ring;
+                        const bool faceSlab = zOnShell || yOnShell;
                         for (i32 x = lo.x; x <= hi.x; ++x)
                         {
-                            // Only the SHELL of the box, not its interior: the
-                            // interior was covered by a previous ring.
-                            const bool onShell = std::abs(x - centre.x) == ring || std::abs(y - centre.y) == ring ||
-                                                 std::abs(z - centre.z) == ring;
-                            if (!onShell)
+                            if (!faceSlab)
                             {
-                                continue;
+                                // This (z, y) row only touches the shell at its
+                                // two x extremes; step straight from one to the
+                                // other instead of walking between them.
+                                const i32 lowX = centre.x - ring;
+                                const i32 highX = centre.x + ring;
+                                if (x != lowX && x != highX)
+                                {
+                                    if (x < highX && highX <= hi.x)
+                                    {
+                                        x = highX - 1; // the ++x lands on highX
+                                        continue;
+                                    }
+                                    break;
+                                }
                             }
                             for (const u32 triangle : grid.Cells[static_cast<sizet>(grid.CellIndex({ x, y, z }))])
                             {
@@ -439,6 +472,22 @@ namespace OloEngine
             outReason = std::format("groom has {} curves, above the binding cap {}", curveCount,
                                     GroomBindingLimits::MaxRootCount);
             return false;
+        }
+
+        // A non-finite TARGET vertex is refused for the same reason a non-finite
+        // root is. The grid skips such a vertex when it measures its bounds, but
+        // the insertion pass still asks ClampCell for its cell, and the frame
+        // built from a triangle touching it is NaN — which propagates into every
+        // strand that triangle carries and then into the groom's bounds. Caught
+        // here, by name, rather than survived defensively three files later.
+        for (u32 vertex = 0; vertex < target.VertexCount; ++vertex)
+        {
+            const glm::vec3 position = target.Position(vertex);
+            if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+            {
+                outReason = std::format("target vertex {} is not finite", vertex);
+                return false;
+            }
         }
 
         // A target whose index buffer overruns its vertex array is refused

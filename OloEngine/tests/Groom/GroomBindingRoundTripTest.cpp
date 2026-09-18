@@ -26,6 +26,8 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
+
 #include "GroomBindingFixture.h"
 
 #include "OloEngine/Asset/AssetSerializer.h"
@@ -201,8 +203,8 @@ TEST(GroomBindingRoundTrip, ACookedBindingDeformsIdenticallyToTheOneItWasCookedF
 
     std::vector<GroomRootTransform> fromMemory;
     std::vector<GroomRootTransform> fromDisk;
-    (void)EvaluateGroomRootTransforms(*cooked.Groom, *cooked.Binding, inputs, {}, fromMemory);
-    (void)EvaluateGroomRootTransforms(*cooked.Groom, *decoded, inputs, {}, fromDisk);
+    (void)EvaluateGroomRootTransforms(*cooked.Groom, *cooked.Binding, inputs, std::nullopt, fromMemory);
+    (void)EvaluateGroomRootTransforms(*cooked.Groom, *decoded, inputs, std::nullopt, fromDisk);
 
     ASSERT_EQ(fromMemory.size(), fromDisk.size());
     for (sizet i = 0; i < fromMemory.size(); ++i)
@@ -375,6 +377,41 @@ TEST(GroomBindingRoundTrip, ARecordWithImpossibleBarycentricCoordinatesIsRefused
     EXPECT_FALSE(GroomBindingSerializer::DecodeFromBytes(corrupt.data(), corrupt.size(), decoded, reason));
     EXPECT_FALSE(decoded);
     EXPECT_NE(reason.find("barycentric"), std::string::npos) << reason;
+}
+
+TEST(GroomBindingRoundTrip, ABarycentricTripleThatSumsToOneIsStillRefusedIfAComponentIsNot)
+{
+    // The SUM was bounded and the COMPONENTS were not, so (1e6, -1e6, 1) passed
+    // the check above it and every other check in Validate. That record is not a
+    // rounding error: the deformed root is `b.x*v0 + b.y*v1 + b.z*v2`, so it
+    // puts one strand a million surface extents from the body -- an
+    // infinite-looking spike on screen and a bounding box that swallows the
+    // scene. The bound was on the wrong side of the multiplication.
+    //
+    // Nothing in this process can write such a file, because the builder emits a
+    // convex combination; like every case around it, this is a hostile or
+    // corrupt file, and the reader has to name the invariant rather than fail
+    // three files later inside the deformation.
+    GridSurface grid = MakeGrid(4u);
+    const Cooked cooked = CookACoat(grid, 8u);
+    ASSERT_TRUE(cooked.Binding);
+
+    const auto corrupt = WithRewrittenPayload(cooked.Bytes,
+                                              [](std::vector<u8>& payload)
+                                              {
+                                                  GroomRootBinding record;
+                                                  std::memcpy(&record, payload.data() + kRootsPayloadOffset,
+                                                              sizeof(record));
+                                                  record.Barycentric = { 1.0e6f, -1.0e6f, 1.0f };
+                                                  std::memcpy(payload.data() + kRootsPayloadOffset, &record,
+                                                              sizeof(record));
+                                              });
+
+    Ref<GroomBindingAsset> decoded;
+    std::string reason;
+    EXPECT_FALSE(GroomBindingSerializer::DecodeFromBytes(corrupt.data(), corrupt.size(), decoded, reason));
+    EXPECT_FALSE(decoded);
+    EXPECT_NE(reason.find("barycentric component"), std::string::npos) << reason;
 }
 
 TEST(GroomBindingRoundTrip, ARecordAddressingATriangleTheTargetDoesNotHaveIsRefusedByName)

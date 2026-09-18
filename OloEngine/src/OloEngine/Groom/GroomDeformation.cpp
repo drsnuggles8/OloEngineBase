@@ -108,7 +108,7 @@ namespace OloEngine
 
     GroomDeformationStats EvaluateGroomRootTransforms(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                       const GroomDeformationInputs& inputs,
-                                                      std::span<const u32> selectedCurves,
+                                                      std::optional<std::span<const u32>> selectedCurves,
                                                       std::vector<GroomRootTransform>& outTransforms)
     {
         GroomDeformationStats stats;
@@ -138,7 +138,20 @@ namespace OloEngine
         // uncovered.
         const bool usePrevPose = inputs.HasHistory && skinned && inputs.Skinning.HasPreviousPose &&
                                  !inputs.Skinning.PrevPalette.empty();
-        stats.HasHistory = inputs.HasHistory;
+        const glm::mat4& prevSurfaceToGroom = usePrevPose ? inputs.PrevSurfaceToGroom : surfaceToGroom;
+        // What this evaluation DID, not what it was offered. A skinned surface
+        // whose skeleton has no previous palette writes prev == current for
+        // every root, so the frame carries no history no matter what the caller
+        // asked for -- and the render pass counts a groom with HasHistory false
+        // as history-rejected, which is a true statement there and was a false
+        // one here.
+        //
+        // An UNSKINNED surface (a morph-only body) is the case this cannot
+        // fold into `usePrevPose`: there is no previous palette to want, the
+        // positions are the only input, and prev == current is the correct and
+        // complete answer rather than a fallback. So it reports the caller's
+        // own decision, which is the only thing that can invalidate it there.
+        stats.HasHistory = inputs.HasHistory && (!skinned || usePrevPose);
 
         const auto evaluateOne = [&](u32 curve)
         {
@@ -203,10 +216,12 @@ namespace OloEngine
                     SkinGroomSurfaceVertex(inputs.Skinning, corners.y, rest1, inputs.Skinning.PrevPalette, weighted);
                 const glm::vec3 previous2 =
                     SkinGroomSurfaceVertex(inputs.Skinning, corners.z, rest2, inputs.Skinning.PrevPalette, weighted);
+                // prevSurfaceToGroom, not surfaceToGroom: see
+                // GroomDeformationInputs::PrevSurfaceToGroom.
                 const GroomSurfaceFrame previousFrame =
-                    MakeGroomSurfaceFrame(glm::vec3(surfaceToGroom * glm::vec4(previous0, 1.0f)),
-                                          glm::vec3(surfaceToGroom * glm::vec4(previous1, 1.0f)),
-                                          glm::vec3(surfaceToGroom * glm::vec4(previous2, 1.0f)),
+                    MakeGroomSurfaceFrame(glm::vec3(prevSurfaceToGroom * glm::vec4(previous0, 1.0f)),
+                                          glm::vec3(prevSurfaceToGroom * glm::vec4(previous1, 1.0f)),
+                                          glm::vec3(prevSurfaceToGroom * glm::vec4(previous2, 1.0f)),
                                           record.Barycentric);
                 if (previousFrame.Valid)
                 {
@@ -237,7 +252,7 @@ namespace OloEngine
             ++stats.RootsDeformed;
         };
 
-        if (selectedCurves.empty())
+        if (!selectedCurves.has_value())
         {
             for (u32 curve = 0; curve < curveCount; ++curve)
             {
@@ -246,7 +261,9 @@ namespace OloEngine
         }
         else
         {
-            for (const u32 curve : selectedCurves)
+            // An EMPTY selection evaluates nothing, which is the whole point of
+            // the optional -- see the header.
+            for (const u32 curve : *selectedCurves)
             {
                 if (curve < curveCount)
                 {
