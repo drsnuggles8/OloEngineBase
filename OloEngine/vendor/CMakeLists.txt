@@ -263,12 +263,28 @@ FetchContent_Declare(
 	GIT_TAG			2b24bd3bd513f7a6c9c9c566858a48a6124ad5af  # master @ 2026-06-05
 	GIT_SHALLOW		FALSE
 )
+# PATCHED ON TOP OF THE PIN (issue #1306). Upstream's generator rule is four
+# `COMMAND echo ...` lines, one of them `COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}`.
+# Neither survives being executed without a shell, which is exactly what CMake's
+# Instrumentation API does to every custom command -- so `OLO_BUILD_INSTRUMENTATION=ON`
+# could not build this project on Windows at all, dying at `glad-generate` with
+# "Batch file failed at line 3 with errorcode 1" and no diagnostic. The patch makes the
+# rule shell-free; see cmake/glad-patches/ and docs/agent-rules/build-memory-per-tu.md.
+#
+# The applier restores the tree to the pin before applying, so "tree == pin + patches"
+# holds however the tree got to its current state — read the header of
+# cmake/apply-vendor-patches.cmake before touching this, especially the note on bumping
+# a pin while a patch is carried.
 FetchContent_Declare(
 	glad
 	GIT_REPOSITORY	https://github.com/Dav1dde/glad.git
 	GIT_TAG			73db193f853e2ee079bf3ca8a64aa2eaf6459043  # v2.0.8
 	GIT_SHALLOW		FALSE
 	SOURCE_SUBDIR	cmake
+	PATCH_COMMAND	"${CMAKE_COMMAND}"
+		"-DOLO_PATCH_DIR=${CMAKE_SOURCE_DIR}/cmake/glad-patches"
+		"-DOLO_PATCH_LABEL=glad"
+		-P "${CMAKE_SOURCE_DIR}/cmake/apply-vendor-patches.cmake"
 )
 
 # pl_mpeg: single-file, public-domain MPEG-1 video + MP2 audio decoder.

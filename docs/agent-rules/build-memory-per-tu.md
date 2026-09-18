@@ -6,21 +6,25 @@ published ranking, not from a remembered number.** Configure with clang and
 build, then hand `scripts/analyze_proc_stat.py` the **build tree**:
 
 ```powershell
-# On WINDOWS use OLO_PROC_STAT_REPORT, not the umbrella — see the note below.
+# OLO_PROC_STAT_REPORT is the memory half alone; the umbrella adds timing and tracing.
 cmake --preset dev-cached -DOLO_PROC_STAT_REPORT=ON
 pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command `
   'cmake --build build-cached --target OloEditor --target OloEngine-Tests --config Debug --parallel 6'
 python scripts/analyze_proc_stat.py build-cached --cap-gib 14
 ```
 
-**`OLO_BUILD_INSTRUMENTATION=ON` cannot build this project on Windows — issue #1306, which
-has the reproduction.** `cmake_instrumentation()` wraps every custom command in
-`ctest --instrument -- <argv>`, which *executes* argv instead of handing it to a shell, and
-vendored glad's generator rule needs a shell for both `echo` and `>`. The build dies at
-`glad-generate` with `Batch file failed at line 3 with errorcode 1` and no diagnostic.
-Linux is unaffected because `echo` is a real binary there. `OLO_PROC_STAT_REPORT` is the
-per-TU-memory half alone — a compiler flag, no launcher, no CMake floor, no generator
-restriction — and the umbrella still turns it on.
+`OLO_PROC_STAT_REPORT` is the per-TU-memory half on its own — a compiler flag, no launcher,
+no CMake floor, no generator restriction — and the umbrella turns it on along with the
+Instrumentation API's timing and tracing. Use the narrow switch when memory is the only
+question; it costs nothing per build step, where the API spends a process on every one.
+
+> **Fixed, and worth knowing if you read an older note:** `OLO_BUILD_INSTRUMENTATION=ON`
+> used to be unable to build this project on **Windows** at all. The API runs every custom
+> command through a launcher that *executes* argv rather than handing it to a shell, and
+> vendored glad's generator rule needed a shell for both `echo` and `>`; the build died at
+> `glad-generate` with `Batch file failed at line 3 with errorcode 1` and no diagnostic.
+> `cmake/glad-patches/` makes that rule shell-free on top of the pin (#1306). Both switches
+> work on Windows now.
 
 CI publishes the same report weekly as the `build-memory-*` artifact
 (`.github/workflows/build-memory.yml`), for `Debug` and `Debug + ASan`. That artifact

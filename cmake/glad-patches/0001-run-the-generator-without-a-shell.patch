@@ -1,0 +1,44 @@
+diff --git a/cmake/GladConfig.cmake b/cmake/GladConfig.cmake
+index c16b75c..31ce7df 100644
+--- a/cmake/GladConfig.cmake
++++ b/cmake/GladConfig.cmake
+@@ -238,16 +238,35 @@ function(glad_add_library TARGET)
+     string(REPLACE "${GLAD_DIR}" GLAD_DIRECTORY GLAD_ARGS_UNIVERSAL "${GLAD_ARGS}")
+     set(GLAD_ARGS_PATH "${GLAD_DIR}/args.txt")
+ 
++    # OLO PATCH (issue #1306): every COMMAND below must run WITHOUT a shell.
++    #
++    # CMake's Instrumentation API -- cmake_instrumentation(), which this project turns on
++    # with OLO_BUILD_INSTRUMENTATION -- wraps every custom command in
++    # `ctest --instrument -- <argv>` and EXECUTES argv directly rather than handing it to
++    # a shell. Under cmd.exe `echo` is a shell builtin with no executable on disk, and `>`
++    # is shell redirection, so the original four lines could not run: the build died at
++    # `glad-generate` with "Batch file failed at line 3 with errorcode 1" and no
++    # diagnostic of any kind. POSIX shells hid it because /usr/bin/echo is a real binary.
++    #
++    # `cmake -E echo` is a real process, so it survives the launcher. `cmake -E` has no
++    # redirect, so the args record is written at configure time and copied into place --
++    # it is only ever written, never read back, but it is an OUTPUT of this rule and so
++    # must exist or the rule is considered dirty on every build.
++    string(REPLACE ";" " " GLAD_ARGS_TEXT "${GLAD_ARGS}")
++    set(GLAD_ARGS_RECORD "${CMAKE_CURRENT_BINARY_DIR}/glad-args-${TARGET}.txt")
++    file(WRITE "${GLAD_ARGS_RECORD}" "${GLAD_ARGS_TEXT}
++")
++
+     # add make custom target
+     add_custom_command(
+         OUTPUT ${GLAD_FILES} ${GLAD_ARGS_PATH}
+-        COMMAND echo Cleaning ${GLAD_DIR}
++        COMMAND ${CMAKE_COMMAND} -E echo Cleaning ${GLAD_DIR}
+         COMMAND ${CMAKE_COMMAND} -E remove_directory ${GLAD_DIR}
+         COMMAND ${CMAKE_COMMAND} -E make_directory   ${GLAD_DIR}
+-        COMMAND echo Generating with args ${GLAD_ARGS}
++        COMMAND ${CMAKE_COMMAND} -E echo Generating with args ${GLAD_ARGS}
+         COMMAND ${Python_EXECUTABLE} -m glad ${GLAD_ARGS}
+-        COMMAND echo Writing ${GLAD_ARGS_PATH}
+-        COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}
++        COMMAND ${CMAKE_COMMAND} -E echo Writing ${GLAD_ARGS_PATH}
++        COMMAND ${CMAKE_COMMAND} -E copy ${GLAD_ARGS_RECORD} ${GLAD_ARGS_PATH}
+         WORKING_DIRECTORY $<$<BOOL:${GLAD_SOURCES_DIR}>:${GLAD_SOURCES_DIR}>
+         COMMENT "${TARGET}-generate"
+         USES_TERMINAL

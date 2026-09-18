@@ -52,7 +52,7 @@ include(FetchContent)
 # -----------------------------------------------------------------------------
 # Local patches on top of the pin.
 #
-# The pinned tree is patched in place by cmake/fsr2-apply-patches.cmake, which
+# The pinned tree is patched in place by cmake/apply-vendor-patches.cmake, which
 # restores the tree to the pin before applying so that "tree == pin + patches"
 # holds however the tree got to its current state. Each patch file names the
 # upstream PR it carries and says when to drop it.
@@ -111,8 +111,9 @@ FetchContent_Declare(fsr2gl
 	GIT_SUBMODULES ""
 	SOURCE_SUBDIR olo-does-not-build-upstream-cmake
 	PATCH_COMMAND "${CMAKE_COMMAND}"
-		"-DOLO_FSR2_PATCH_DIR=${OLO_FSR2_PATCH_DIR}"
-		-P "${CMAKE_CURRENT_LIST_DIR}/fsr2-apply-patches.cmake")
+		"-DOLO_PATCH_DIR=${OLO_FSR2_PATCH_DIR}"
+		"-DOLO_PATCH_LABEL=FSR2"
+		-P "${CMAKE_CURRENT_LIST_DIR}/apply-vendor-patches.cmake")
 
 FetchContent_MakeAvailable(fsr2gl)
 

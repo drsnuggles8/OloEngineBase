@@ -81,36 +81,27 @@
 # The analyser therefore reports the MAXIMUM peak RSS seen per output, and CI deletes the
 # file before building so a published ranking covers one build.
 
-# TWO SWITCHES, AND THE SECOND ONE IS NOT OPTIONAL POLISH.
+# TWO SWITCHES, AND THE SECOND ONE IS STILL WORTH HAVING.
 #
-# OLO_BUILD_INSTRUMENTATION stays the umbrella the issue asked this to ride: turning it
-# on turns this on. But it must also be possible to get per-TU memory WITHOUT the CMake
-# Instrumentation API, because on Windows the API cannot build this project at all.
-#
-# cmake_instrumentation() wraps every custom command in `ctest --instrument -- <argv>`,
-# which EXECUTES argv directly instead of handing it to a shell. Vendored glad's own
-# generator rule (OloEngine/vendor/clang/glad-src/cmake/GladConfig.cmake, a FetchContent
-# download that must not be edited) is built from four `COMMAND echo ...` lines, one of
-# which is `COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}`. Under cmd.exe `echo` is a
-# shell BUILTIN with no executable, and `>` is shell redirection — so the wrapped command
-# fails with exit 1 and NO diagnostic, and the build stops at `glad-generate`:
-#
-#     Batch file failed at line 3 with errorcode 1
-#     FAILED: [code=1] .../glad-build/include/glad/gl.h ...
-#
-# Reproduced in isolation (CMake 4.4.2): the same `ctest --instrument ... -- echo x`
-# succeeds under a POSIX shell, where `echo` is a real binary, and fails under cmd.exe.
-# That is a pre-existing incompatibility between #822's wiring and an upstream
-# dependency, not something this file introduced — and fixing it means restructuring a
-# vendored third-party custom command, so it is filed as ISSUE #1306 rather than done here.
-#
-# So: OLO_PROC_STAT_REPORT defaults to the umbrella but can be set on its own, which is
-# the supported way to measure per-TU memory on Windows today:
+# OLO_BUILD_INSTRUMENTATION is the umbrella the issue asked this to ride: turning it on
+# turns this on. OLO_PROC_STAT_REPORT is the per-TU-memory half ON ITS OWN:
 #
 #     cmake --preset dev-cached -DOLO_PROC_STAT_REPORT=ON
 #
-# It needs no launcher, no CMake version floor and no particular generator, so it has
-# none of the API's constraints.
+# It is a compiler flag — no launcher, no CMake version floor, no generator restriction —
+# so it has none of the Instrumentation API's constraints, and it is the cheaper switch
+# when memory is the only question. The API additionally wraps every compile, link and
+# custom command in `ctest --instrument`, which costs a process per build step.
+#
+# HISTORICAL NOTE, because the split was originally forced rather than chosen: the
+# umbrella could not build this project on Windows AT ALL. cmake_instrumentation() runs
+# each custom command through a launcher that EXECUTES argv instead of handing it to a
+# shell, and vendored glad's generator rule was four `COMMAND echo ...` lines, one of them
+# `COMMAND echo ${GLAD_ARGS} > ${GLAD_ARGS_PATH}`. Under cmd.exe `echo` is a shell builtin
+# with no executable and `>` is redirection, so the build died at `glad-generate` with
+# "Batch file failed at line 3 with errorcode 1" and no diagnostic. That is FIXED (#1306):
+# cmake/glad-patches/ makes the rule shell-free on top of the pin. Both switches now work
+# on Windows, and this one remains because it is the narrower tool, not the fallback.
 # NOT option() / set(... CACHE ...): that would make the umbrella's value STICKY. The
 # first configure with OLO_BUILD_INSTRUMENTATION=ON would write OLO_PROC_STAT_REPORT=ON
 # into the cache, and every later configure — including one that turns the umbrella back
