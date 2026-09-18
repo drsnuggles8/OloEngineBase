@@ -6,16 +6,24 @@
 # variable holds the one line so the huge inline source list below needs a single line touched,
 # not restructured into a separate variable (a collision point for parallel branches on its own).
 #
-# MEASURED, not inferred from compile time (issue #822 follow-up). Peak compiler RSS, cold,
-# clang-cl Debug with no sanitizer:
+# MEMBERSHIP RULE (issue #1307): every TU measuring >= 1.5 GiB peak compiler RSS. Re-derive
+# from the weekly `build-memory-debug-asan` artifact via scripts/analyze_proc_stat.py — see
+# docs/agent-rules/build-memory-per-tu.md.
 #
-#     ComponentRoundTripTest.cpp   12,389 MB   <- the heaviest TU in the tree
-#     RenderGraphTest.cpp           8,619 MB
-#     McpToolsRender.cpp            7,838 MB
-#     McpFieldRegistry.cpp          5,065 MB   <- the only one #822 originally caught
+# Measured 2026-09-17, Linux clang 23.1.0, Debug + ASan, 1761 compiles at 99.9% coverage:
 #
-# Compile TIME is a poor proxy for this and is how the first three were missed: they rank
-# 15th, 18th and 13th by duration. The pool is what bounds how many run at once.
+#     McpFieldRegistry.cpp              8.09 GiB   #1 of 1761, and the tree's heaviest TU
+#     AutomationComponentRegistry.cpp   3.85 GiB   #2
+#     ComponentRoundTripTest.cpp        1.63 GiB   #16
+#     McpToolsRender.cpp                1.50 GiB   #17
+#
+# THE FIGURES THIS REPLACES WERE WRONG, not stale: the #822 follow-up's survey ran
+# `cmake --build <dir> --target X -- '<obj>'`, which builds the WHOLE TARGET and then credited
+# the largest of a dozen concurrent unrelated compiles to whichever TU was named. It reported
+# ComponentRoundTripTest.cpp at 12,389 MB and RenderGraphTest.cpp at 8,619 MB; they measure
+# 1.63 GiB and 0.94 GiB. RenderGraphTest.cpp is dropped from the pool accordingly (#1305).
+#
+# Compile TIME remains a poor proxy for memory and is how #822 originally missed these.
 # oloctl's transport-free core (#1125), listed once in OloCtl/CoreSources.cmake and
 # compiled by both the `oloctl` executable and this target. Included here rather
 # than restated, so a new core source cannot reach one of the two and not the other.
@@ -25,13 +33,11 @@ set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRe
 set(_olo_automation_component_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentRegistry.cpp)
 set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
 set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
-set(_olo_render_graph_test_src Rendering/RenderGraphTest.cpp)
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	set(_olo_mcp_field_registry_src "")
 	set(_olo_automation_component_registry_src "")
 	set(_olo_mcp_tools_render_src "")
 	set(_olo_component_round_trip_src "")
-	set(_olo_render_graph_test_src "")
 endif()
 
 add_executable(OloEngine-Tests
@@ -352,7 +358,9 @@ add_executable(OloEngine-Tests
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
-		${_olo_render_graph_test_src}
+		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);
+		# it no longer needs the variable indirection that held it out of this list.
+		Rendering/RenderGraphTest.cpp
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
 		# glXxx() outside Platform/OpenGL/ and fails when it rises above
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
@@ -1520,7 +1528,6 @@ if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	# BASE_DIRS, and these live here rather than under OloEditor/src.
 	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_CURRENT_SOURCE_DIR}"
 		"ComponentRoundTripTest.cpp"
-		"Rendering/RenderGraphTest.cpp"
 	)
 endif()
 
