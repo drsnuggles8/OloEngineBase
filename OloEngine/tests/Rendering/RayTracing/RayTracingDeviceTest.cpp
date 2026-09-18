@@ -204,11 +204,7 @@ namespace OloEngine::Tests
             // Rung 1 — the shared ADR 0010 gate. Cheapest, and the one that
             // survives a loader-without-ICD runner where a full bring-up can
             // SEH-fault before an exception can be reported.
-            const auto gate = ProbeVulkanDeviceTestGate();
-            if (!gate.Available)
-            {
-                GTEST_SKIP() << gate.Reason;
-            }
+            OLO_VULKAN_DEVICE_OR_SKIP();
             if (!ChangeToOloEditorDir())
             {
                 GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";

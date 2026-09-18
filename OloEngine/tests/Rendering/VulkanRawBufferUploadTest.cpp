@@ -68,7 +68,6 @@ namespace OloEngine::Tests
 {
     namespace
     {
-        using OloEngine::Tests::ProbeVulkanDeviceTestGate;
         using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
         constexpr u64 kRingBytes = 64u * 1024u;
@@ -80,9 +79,7 @@ namespace OloEngine::Tests
       protected:
         void SetUp() override
         {
-            const auto gate = ProbeVulkanDeviceTestGate();
-            if (!gate.Available)
-                GTEST_SKIP() << gate.Reason;
+            OLO_VULKAN_DEVICE_OR_SKIP();
 
             m_Device = std::make_unique<VulkanDevice>();
             try

@@ -554,9 +554,7 @@ namespace OloEngine::Tests
       public:
         void SetUp() override
         {
-            const auto gate = ProbeVulkanDeviceTestGate();
-            if (!gate.Available)
-                GTEST_SKIP() << gate.Reason;
+            OLO_VULKAN_DEVICE_OR_SKIP();
             if (!ChangeToOloEditorDir())
                 GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";
 

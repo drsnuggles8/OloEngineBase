@@ -157,9 +157,7 @@ namespace OloEngine::Tests
         void SetUp() override
         {
             m_PreviousDirectory = std::filesystem::current_path();
-            const auto gate = ProbeVulkanDeviceTestGate();
-            if (!gate.Available)
-                GTEST_SKIP() << gate.Reason;
+            OLO_VULKAN_DEVICE_OR_SKIP();
             if (!ChangeToOloEditorDir())
                 GTEST_SKIP() << "Could not locate OloEditor/assets/shaders from the working directory.";
 

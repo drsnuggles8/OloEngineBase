@@ -362,6 +362,14 @@ add_executable(OloEngine-Tests
 		Rendering/RHIResourceRegistryTest.cpp
 		Rendering/RHIDescriptorHeapTest.cpp
 		Rendering/RHIEnumLoweringTest.cpp
+		# #1300: the end-of-run "did this run actually exercise Vulkan?" banner
+		# and --olo-require-vulkan. Every device-gated Vulkan test goes through
+		# OLO_VULKAN_DEVICE_OR_SKIP (VulkanTestSupport.h), which reports here;
+		# the banner prints below gtest's own summary so a skipped backend
+		# cannot read as a tested one. Backend-independent: it compiles and
+		# reports the "not selected" no-op when OLO_WITH_VULKAN=OFF.
+		Rendering/VulkanCoverageReport.cpp
+		Rendering/VulkanCoverageReportTest.cpp
 		# #691 Phase 4: Vulkan device-selection gate (ADR 0010 capability contract).
 		# SKIPs cleanly without a loader/device; compiles to a single SKIP when
 		# OLO_WITH_VULKAN=OFF.

@@ -201,6 +201,10 @@ namespace OloEngine::Tests
             {
                 s_Options.RequireGpu = true;
             }
+            else if (arg == "--olo-require-vulkan")
+            {
+                s_Options.RequireVulkan = true;
+            }
             else if (const auto v = ValueOf(arg, "--olo-video"))
             {
                 s_Options.VideoPath = *v;
@@ -264,6 +268,14 @@ namespace OloEngine::Tests
         if (s_Options.RequireGpu && s_Options.GlBackend == GlBackend::None)
         {
             Fail("--olo-require-gpu contradicts --olo-gl-backend=none", "--olo-require-gpu");
+        }
+
+        // Same contradiction on the other backend: `none` is the "this run
+        // tests no GPU" switch and the Vulkan gate honours it, so requiring
+        // Vulkan under it asks for a device the flag has already refused.
+        if (s_Options.RequireVulkan && s_Options.GlBackend == GlBackend::None)
+        {
+            Fail("--olo-require-vulkan contradicts --olo-gl-backend=none", "--olo-require-vulkan");
         }
 
         for (sizet i = 0; i < kept.size(); ++i)
