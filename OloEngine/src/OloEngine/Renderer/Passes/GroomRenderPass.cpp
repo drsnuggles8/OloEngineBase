@@ -2,8 +2,10 @@
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -394,6 +396,16 @@ namespace OloEngine
 
         m_Shader->Bind();
 
+        // Camera-relative rendering (#429). Every world matrix the GPU sees is
+        // relative to this point, including the one behind u_ViewProjection
+        // (RenderPipeline.cpp's MakeViewProjectionRelative) and the light
+        // positions in the multi-light UBO (Renderer3D::UploadMultiLightUBO).
+        // A groom whose model matrix stayed absolute would be drawn offset from
+        // the body it grows on by the render origin — invisible near the world
+        // origin, which is where every test scene and every committed capture
+        // sits, and wrong everywhere else.
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+
         for (const auto& request : m_Requests)
         {
             if (!request.Groom)
@@ -441,8 +453,13 @@ namespace OloEngine
             const f32 objectScale = (axisX + axisY + axisZ) / 3.0f;
 
             UBOStructures::GroomStrandParamsUBO params;
-            params.Model = request.Transform;
-            params.PrevModel = request.PreviousTransform;
+            params.Model = MakeModelRelative(request.Transform, renderOrigin);
+            // The SAME origin for both, not last frame's: the previous-frame
+            // clip matrix is itself made relative with the current origin
+            // (RenderPipeline.cpp), so a previous model relative to a different
+            // point would emit a velocity equal to the origin's jump on every
+            // cell crossing — a whole-screen smear once per grid cell.
+            params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(spec.Width), static_cast<f32>(spec.Height), 0.0f, 0.0f);
