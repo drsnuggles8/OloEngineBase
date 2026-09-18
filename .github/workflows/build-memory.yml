@@ -250,8 +250,15 @@ jobs:
       # compile records, and losing the ranking to a missing analyser dependency would be
       # a worse outcome than a red job with the artifact attached. The coverage gate below
       # is what actually decides whether the numbers are publishable.
+      # RUNS EVEN IF THE BUILD FAILED, which is the case where the records are most worth
+      # having: a build killed by the OOM killer leaves behind exactly the ranking that
+      # explains why. Gated on the setup step rather than on nothing, so a job that never
+      # got a toolchain does not go looking for records that cannot exist. The coverage
+      # gate below still fails on a partial ranking — correctly, because a partial ranking
+      # IS a lower bound — and `if: always()` on the upload keeps the artifact either way.
       - name: Rank by peak RSS
         id: rank
+        if: ${{ !cancelled() && steps.linux.conclusion == 'success' }}
         run: |
           mkdir -p build-memory-report
           # The BUILD TREE is the argument, not a file: the Makefiles generator writes

@@ -173,7 +173,16 @@ endif()
 # walking the build tree and comparing directory entries, which are basenames — so a
 # value with a directory component writes records the reader can never find, and the
 # only symptom is an empty ranking. Rejected here rather than half-supported.
-if(OLO_PROC_STAT_FILE MATCHES "[/\]")
+# string(FIND) rather than a regex, because the regex form is a trap here and the obvious
+# repair does not work. A CMake string literal consumes one level of backslash escaping and
+# the regex engine consumes another, so "[/\]" has a VALUE of [/] and silently matches only
+# the forward slash — a Windows separator sailed straight through. Measured: both the
+# one-backslash and the two-backslash spellings ALLOW `subss.csv`; it takes FOUR in the
+# source to mean one literal backslash to the matcher. Two plain substring searches say what
+# they mean and cannot be "simplified" into a broken state.
+string(FIND "${OLO_PROC_STAT_FILE}" "/" _olo_psr_fwd)
+string(FIND "${OLO_PROC_STAT_FILE}" "\\" _olo_psr_bwd)
+if(NOT _olo_psr_fwd EQUAL -1 OR NOT _olo_psr_bwd EQUAL -1)
     message(FATAL_ERROR
         "OLO_PROC_STAT_FILE must be a bare FILENAME with no directory component (got "
         "'${OLO_PROC_STAT_FILE}'). The build tool's working directory already differs per "
@@ -182,6 +191,8 @@ if(OLO_PROC_STAT_FILE MATCHES "[/\]")
         "scripts/analyze_proc_stat.py finds them by matching this basename while walking the "
         "build tree. A path with a directory component would be written but never found.")
 endif()
+unset(_olo_psr_fwd)
+unset(_olo_psr_bwd)
 
 # BUILT PER LANGUAGE. The two clang spellings differ — a GNU-frontend clang/clang++ takes
 # the flag directly, while clang-cl parses MSVC-style options and needs it handed to the

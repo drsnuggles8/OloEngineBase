@@ -67,6 +67,7 @@ the right scope: per-machine, not per-workspace.
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -90,15 +91,27 @@ def note(message: str) -> None:
 
 
 def env_number(name: str, default: float) -> float:
-    """A malformed value must not fail the link — it degrades to the default."""
+    """A malformed value must not fail the link — it degrades to the default.
+
+    NaN and infinity are rejected alongside the unparseable ones, and that is not
+    tidiness: `float("nan")` parses happily, and a NaN timeout makes every
+    `time.monotonic() >= deadline` comparison False, so the acquire loop never reaches
+    its deadline and waits forever. `float("inf")` does the same by construction. Either
+    one turns the fail-OPEN guarantee — the whole reason a stuck throttle cannot wedge
+    the machine — into a hang, from nothing worse than a typo in the environment.
+    """
     raw = os.environ.get(name)
     if raw is None or raw.strip() == "":
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         note(f"{name}={raw!r} is not a number — using {default}")
         return default
+    if not math.isfinite(value):
+        note(f"{name}={raw!r} is not finite — using {default}")
+        return default
+    return value
 
 
 class Permit:

@@ -538,9 +538,14 @@ section.** Everything below measures per-command *time* plus a system-wide host-
 sample, and §5c/§5d's "heavy TUs" were identified by compile time, which is a proxy. The
 field this API cannot record — each compile's and each link's own peak RSS — is what
 `-fproc-stat-report` and `scripts/analyze_proc_stat.py` add (#1305).
-`OLO_BUILD_INSTRUMENTATION` turns both on, and the per-TU memory half is **also available
-on its own** as `OLO_PROC_STAT_REPORT` — a plain compiler flag, so it needs no launcher and
-costs nothing per build step. (The umbrella used to be unusable on Windows because its
+`OLO_BUILD_INSTRUMENTATION` turns both on **by default**, and the per-TU memory half is
+**also available on its own** as `OLO_PROC_STAT_REPORT` — a plain compiler flag, so it needs
+no launcher and costs nothing per build step. The precedence is worth knowing: an explicitly
+supplied `OLO_PROC_STAT_REPORT` always wins, so `-DOLO_BUILD_INSTRUMENTATION=ON
+-DOLO_PROC_STAT_REPORT=OFF` gives you the timing and tracing with **no** RSS reporting, and
+`-DOLO_PROC_STAT_REPORT=ON` alone gives RSS with no launcher. Only when it is left unset does
+it follow the umbrella — and it follows it on *every* configure rather than latching, so
+turning the umbrella back off turns this off with it. (The umbrella used to be unusable on Windows because its
 launcher could not run vendored glad's shell-dependent generator rule; fixed in #1306 by
 patching that rule on top of the pin.)
 
