@@ -43,10 +43,34 @@
 # to avoid. If it is ever wanted, price it in the same measurement cell rather than
 # assuming it is free.
 #
-# HOW TO PRICE IT: `.github/workflows/build-memory.yml` carries a
-# `Debug + ASan + split DWARF` cell on its scheduled and on-demand runs. Compare its
-# reported link peak against the plain `debug-asan` cell from the same run; both are
-# published as artifacts with their full build configuration attached.
+# WHAT IT BUYS, measured on olo-ci, both cells from ONE run so they are comparable
+# (1783 compiles each, cache off, PCH and unity off, Debug + ASan):
+#
+#                          baseline    split DWARF     delta
+#     heaviest ld.lld link  11.23 GiB     8.75 GiB    -2.47 GiB  (-22.0%)
+#     heaviest compile       8.18 GiB     8.18 GiB     +0.00 GiB
+#     median / p95 compile   0.32/0.86    0.32/0.86    unchanged
+#     total compile wall     2.06 h       1.99 h       -4.2 min
+#
+# So the saving is real and it lands exactly where the mechanism says it should: 22% off
+# the link, nothing measurable on any compile. Against the runner unit's 14 GiB cap that
+# moves the headroom over one link from 2.77 GiB to 5.25 GiB, and link + heaviest compile
+# from 19.41 GiB to 16.93 GiB — under the 19 GiB slice cap rather than at it.
+#
+# IT STAYS OFF ANYWAY, and the reason is the trade above, not the size of the saving:
+# 2.47 GiB of headroom against inlined frames in every sanitizer stack. Since #1313 the
+# link is bounded by a real semaphore, so it runs alone and 11.23 GiB already fits the cap
+# — the saving is margin, not a fix for a live failure, and margin is worth less than a
+# readable stack. Flip it if the margin is ever what is short.
+#
+# THE VERSION WORTH HAVING costs nothing: make the `.dwo` resolvable and the symbolization
+# loss goes away with it. The cause is `DW_AT_comp_dir=/olo`, so `-fdebug-compilation-dir`
+# pointing somewhere real, or a `.dwp` beside the executable, would plausibly give the 22%
+# AND keep the frames. Neither is verified — the `.dwp` probe in this file's measurement
+# used a `.o`, where the lookup differs.
+#
+# Re-derive any of this from `.github/workflows/build-memory.yml`'s
+# `Debug + ASan + split DWARF` cell, which runs on the schedule and on demand.
 
 option(OLO_SPLIT_DWARF
     "Emit debug info into side-car .dwo files so the linker never loads it (issue #1313). OFF by default: it costs inlined frames in sanitizer stacks while this repo maps DW_AT_comp_dir to /olo — see the measurement in cmake/SplitDwarf.cmake."
