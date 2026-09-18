@@ -42,6 +42,8 @@
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -66,6 +68,27 @@ namespace OloEngine::Tests
         // convention), so a light behind the surface points AWAY from the eye.
         constexpr glm::vec3 kLightBehind{ 0.0f, 0.0f, -1.0f };
         constexpr glm::vec3 kLightInFront{ 0.0f, 0.0f, 1.0f };
+
+        // Per-component, because `==` on a glm type is forbidden here
+        // (cpp-coding-quality.md §2a) and this file had been the one place in
+        // the repo doing it.
+        //
+        // EXACT zero is still the claim: gtest's ULP comparison is strict at
+        // zero, so this does NOT loosen premise 1 — it would still reject the
+        // ~1e-8 lobe that the tangency sweep above is built around.
+        void ExpectVec3IsZero(const glm::vec3& value, std::string_view what)
+        {
+            EXPECT_FLOAT_EQ(value.x, 0.0f) << what << " — red channel";
+            EXPECT_FLOAT_EQ(value.y, 0.0f) << what << " — green channel";
+            EXPECT_FLOAT_EQ(value.z, 0.0f) << what << " — blue channel";
+        }
+
+        void ExpectVec3Near(const glm::vec3& value, const glm::vec3& expected, std::string_view what)
+        {
+            EXPECT_FLOAT_EQ(value.x, expected.x) << what << " — red channel";
+            EXPECT_FLOAT_EQ(value.y, expected.y) << what << " — green channel";
+            EXPECT_FLOAT_EQ(value.z, expected.z) << what << " — blue channel";
+        }
 
         // A parameter sweep wide enough to be a claim about the whole authored
         // range rather than about one profile. Deliberately includes both bounds
@@ -137,7 +160,7 @@ namespace OloEngine::Tests
 
             if (const f32 ndotl = glm::dot(kNormalTowardViewer, lightDir); ndotl >= 0.0f)
             {
-                EXPECT_EQ(lobe, 0.0f)
+                EXPECT_FLOAT_EQ(lobe, 0.0f)
                     << "a light " << degrees
                     << " degrees off the surface normal (dot(N, L) = " << ndotl
                     << ") is on the LIT side, where the reflected diffuse lobe already counts it — transmitting as "
@@ -166,7 +189,7 @@ namespace OloEngine::Tests
         const glm::vec3 frontLit = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightInFront,
                                                             glm::vec3(10.0f), glm::vec3(0.8f), 1.0f, thickness,
                                                             profile);
-        EXPECT_EQ(frontLit, glm::vec3(0.0f)) << "front lighting must transmit nothing";
+        ExpectVec3IsZero(frontLit, "front lighting must transmit nothing");
 
         // And the control: the SAME call with the light moved behind must be
         // non-zero, or the test above would pass on a term that never fires.
@@ -380,15 +403,16 @@ namespace OloEngine::Tests
     {
         const SkinProfileParameters profile = TransmittingProfile();
 
-        EXPECT_EQ(SkinTransmittance(kSkinThicknessMissing, profile), glm::vec3(0.0f))
-            << "a zero thickness must read as 'no volume authored', not as 'infinitely thin'";
-        EXPECT_EQ(SkinTransmittance(0.0f, profile), glm::vec3(0.0f));
+        ExpectVec3IsZero(SkinTransmittance(kSkinThicknessMissing, profile),
+                         "a zero thickness must read as 'no volume authored', not as 'infinitely thin'");
+        ExpectVec3IsZero(SkinTransmittance(0.0f, profile), "a zero thickness must transmit nothing");
 
         const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                         glm::vec3(50.0f), glm::vec3(1.0f), 1.0f,
                                                         kSkinThicknessMissing, profile);
-        EXPECT_EQ(term, glm::vec3(0.0f))
-            << "with no authored thickness the whole term must vanish — a bright backlight must not produce a glow";
+        ExpectVec3IsZero(term,
+                         "with no authored thickness the whole term must vanish — a bright backlight must not "
+                         "produce a glow");
     }
 
     // Occlusion has to reach the term, or the issue's second criterion ("and
@@ -411,7 +435,7 @@ namespace OloEngine::Tests
         const glm::vec3 occluded = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                             glm::vec3(4.0f), glm::vec3(0.8f), 0.0f, thickness,
                                                             profile);
-        EXPECT_EQ(occluded, glm::vec3(0.0f)) << "a fully shadowed thin region must not glow";
+        ExpectVec3IsZero(occluded, "a fully shadowed thin region must not glow");
     }
 
     // -------------------------------------------------------------------------
@@ -433,13 +457,13 @@ namespace OloEngine::Tests
 
             const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                             glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
-            EXPECT_EQ(term, glm::vec3(0.0f))
-                << ToString(model) << " must not transmit — turning transmission on is an authoring act per profile";
+            ExpectVec3IsZero(term, std::string(ToString(model)) +
+                                       " must not transmit — turning transmission on is an authoring act per profile");
 
             // And the energy bound agrees, so the bound cannot pass a profile
             // the evaluator would have transmitted for.
             const glm::vec3 bound = SkinTransmissionEnergyBound(2.0f, glm::vec3(0.5f), profile);
-            EXPECT_EQ(bound, glm::vec3(0.5f)) << ToString(model) << ": the bound must be the diffuse half alone";
+            ExpectVec3Near(bound, glm::vec3(0.5f), "the bound must be the diffuse half alone");
         }
     }
 
@@ -451,7 +475,7 @@ namespace OloEngine::Tests
 
         const glm::vec3 term = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                         glm::vec3(10.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
-        EXPECT_EQ(term, glm::vec3(0.0f));
+        ExpectVec3IsZero(term, "zero strength must disable the term");
     }
 
     // -------------------------------------------------------------------------
@@ -553,24 +577,26 @@ namespace OloEngine::Tests
         const f32 nan = std::numeric_limits<f32>::quiet_NaN();
         const f32 inf = std::numeric_limits<f32>::infinity();
 
-        EXPECT_EQ(SkinThicknessMM(nan, 1.0f, 1000.0f), kSkinThicknessMissing);
-        EXPECT_EQ(SkinThicknessMM(0.002f, nan, 1000.0f), kSkinThicknessMissing);
-        EXPECT_EQ(SkinThicknessMM(0.002f, 1.0f, nan), kSkinThicknessMissing);
-        EXPECT_EQ(SkinThicknessMM(inf, 1.0f, 1000.0f), kSkinThicknessMissing);
+        EXPECT_FLOAT_EQ(SkinThicknessMM(nan, 1.0f, 1000.0f), kSkinThicknessMissing);
+        EXPECT_FLOAT_EQ(SkinThicknessMM(0.002f, nan, 1000.0f), kSkinThicknessMissing);
+        EXPECT_FLOAT_EQ(SkinThicknessMM(0.002f, 1.0f, nan), kSkinThicknessMissing);
+        EXPECT_FLOAT_EQ(SkinThicknessMM(inf, 1.0f, 1000.0f), kSkinThicknessMissing);
 
-        EXPECT_EQ(SkinTransmittance(nan, profile), glm::vec3(0.0f));
-        EXPECT_EQ(SkinTransmittance(-1.0f, profile), glm::vec3(0.0f));
+        ExpectVec3IsZero(SkinTransmittance(nan, profile), "a NaN thickness must not become a NaN pixel");
+        ExpectVec3IsZero(SkinTransmittance(-1.0f, profile), "a negative thickness must transmit nothing");
 
-        EXPECT_EQ(SkinTransmissionLobe(glm::vec3(nan), kViewTowardViewer, kLightBehind, profile.Transmission), 0.0f);
-        EXPECT_EQ(SkinTransmissionLobe(kNormalTowardViewer, glm::vec3(inf), kLightBehind, profile.Transmission), 0.0f);
+        EXPECT_FLOAT_EQ(SkinTransmissionLobe(glm::vec3(nan), kViewTowardViewer, kLightBehind, profile.Transmission),
+                        0.0f);
+        EXPECT_FLOAT_EQ(SkinTransmissionLobe(kNormalTowardViewer, glm::vec3(inf), kLightBehind, profile.Transmission),
+                        0.0f);
 
         const glm::vec3 nanRadiance = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                                glm::vec3(nan), glm::vec3(0.8f), 1.0f, 2.0f, profile);
-        EXPECT_EQ(nanRadiance, glm::vec3(0.0f));
+        ExpectVec3IsZero(nanRadiance, "a NaN radiance must not become a NaN pixel");
 
         const glm::vec3 nanVisibility = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
                                                                  glm::vec3(4.0f), glm::vec3(0.8f), nan, 2.0f, profile);
-        EXPECT_EQ(nanVisibility, glm::vec3(0.0f));
+        ExpectVec3IsZero(nanVisibility, "a NaN visibility must not become a NaN pixel");
     }
 
     // An absurd thickness is CLAMPED rather than allowed to underflow the

@@ -74,9 +74,14 @@ transmission the surface's own absorption says is impossible.
 
 ## The five ways it silently does nothing
 
-Each is **counted** in `SkinProfileTable::GetTransmissionFallbackCount` and logged once, and the
-first four are also called out in the material inspector. Grep `OloEngine.log` for
-`no thin-region transmission`.
+The **first four** are `SkinTransmissionFallbackReason` values: counted in
+`SkinProfileTable::GetTransmissionFallbackCount`, logged once per (reason, profile) pair, and called
+out in the material inspector. They are counted **per submission**, not per pixel — the shader
+cannot log, so every one of them is raised on the CPU by the site that can see the cause. Grep
+`OloEngine.log` for `no thin-region transmission`.
+
+The fifth row is **not** a fallback and is not counted: a profile below version 2 is an author who
+has not opted in, which is the design working rather than a degradation.
 
 | reason | what happened | fix |
 |---|---|---|

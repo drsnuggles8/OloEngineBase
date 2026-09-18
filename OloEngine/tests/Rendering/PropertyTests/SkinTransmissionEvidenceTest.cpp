@@ -781,11 +781,52 @@ namespace OloEngine::Tests
         // And the A/B against the control under the SAME occlusion: with the
         // blocker in, version 2 and version 1 must be close, because the term
         // that distinguished them has been shadowed away.
+        // THE NEGATIVE PATH, AGAINST ITS OWN CONTROL AND A MEASURED FLOOR.
+        //
+        // The first version of this compared two RELATIVE deltas -- "the
+        // occluded A/B is smaller than the unoccluded one" -- which a residual
+        // term that merely SHRINKS under occlusion satisfies. The criterion is
+        // stronger than that: an occluded thin region must transmit NOTHING, so
+        // the version-2 frame must match its version-1 control to within the
+        // renderer's own frame-to-frame variation.
+        SetBlockerEngaged(true);
+        Capture occludedRepeat;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinTransmission_GL_Deferred_OccludedRepeat",
+                                 occludedRepeat));
+        const Difference occludedNoise = Diff(occluded, occludedRepeat);
+
         const Difference occludedDiff = Diff(occludedControl, occluded);
         const Difference unoccludedDiff = Diff(unoccludedControl, unoccluded);
-        EXPECT_LT(occludedDiff.MaxDelta, unoccludedDiff.MaxDelta)
-            << "occluding the light did not bring the two transport versions closer together (" << occludedDiff.MaxDelta
-            << " vs " << unoccludedDiff.MaxDelta << ")";
+
+        // A PROPORTIONAL COLLAPSE, NOT AN EXACT ZERO, AND THE DIFFERENCE IS THE
+        // PENUMBRA.
+        //
+        // The obvious assertion here is "occluded matches the version-1 control
+        // exactly". It is wrong, and measurably so: the directional light casts
+        // a PCF soft shadow, so there is a band across the sphere where the
+        // shared visibility factor is legitimately between 0 and 1 — and a term
+        // gated by that factor is SUPPOSED to be partly alive there. Demanding
+        // an exact match asserts a hard shadow, which this scene does not have.
+        // Measured: 3/255 across 1342 px (~3% of the subject) against an
+        // unoccluded signal of ~112/255.
+        //
+        // So the claim is that occlusion COLLAPSES the term rather than merely
+        // shrinking it — at least a 10x reduction. That is far stronger than the
+        // relative `occluded < unoccluded` this replaced, which a residual that
+        // barely moved would also satisfy, and it does not encode today's
+        // penumbra width as a constant.
+        EXPECT_LE(occludedDiff.MaxDelta * 10u, unoccludedDiff.MaxDelta)
+            << "an OCCLUDED thin region still differs from its version-1 control by " << occludedDiff.MaxDelta
+            << "/255 across " << occludedDiff.ChangedPixels << " px against an unoccluded signal of "
+            << unoccludedDiff.MaxDelta << "/255 (same-configuration repeat: " << occludedNoise.MaxDelta
+            << "/255) -- less than a 10x collapse, so the term is being ATTENUATED by the shared visibility "
+               "factor rather than GATED by it. A fully shadowed ear must not glow.";
+
+        // And the control that keeps the above from being vacuous: unoccluded,
+        // the two versions MUST differ, or the blocker proved nothing.
+        EXPECT_GT(unoccludedDiff.MaxDelta, occludedDiff.MaxDelta + 4u)
+            << "the unoccluded A/B (" << unoccludedDiff.MaxDelta << "/255) is no larger than the occluded one ("
+            << occludedDiff.MaxDelta << "/255), so this test is not measuring occlusion at all";
     }
 
     // ---- The conservative fallback, observed rather than asserted in prose --
@@ -813,8 +854,30 @@ namespace OloEngine::Tests
             << "a version-2 profile on a material with no thickness must be COUNTED — a head that quietly stopped "
                "transmitting looks exactly like a head that never should have";
 
+        // THE FALLBACK IS A FRAME CLAIM, NOT ONLY A COUNTER CLAIM. With no
+        // authored thickness the version-2 frame must equal what version 1
+        // renders — "unfinished, not wrong". Compared against its own control
+        // and a measured floor, because the earlier form of this assertion only
+        // showed that ADDING thickness changed the brightness, which a term
+        // that transmitted a constant at zero thickness would also satisfy.
+        Capture noThicknessControl;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, false, "SkinTransmissionOff_GL_Deferred_NoThickness",
+                                 noThicknessControl));
+        Capture noThicknessRepeat;
+        ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinTransmission_GL_Deferred_NoThicknessRepeat",
+                                 noThicknessRepeat));
+        const Difference noThicknessNoise = Diff(noThickness, noThicknessRepeat);
+        const Difference noThicknessDiff = Diff(noThicknessControl, noThickness);
+
+        EXPECT_LE(noThicknessDiff.MaxDelta, std::max(noThicknessNoise.MaxDelta, 1u))
+            << "with NO authored thickness the version-2 frame differs from its version-1 control by "
+            << noThicknessDiff.MaxDelta << "/255 across " << noThicknessDiff.ChangedPixels
+            << " px, while a same-configuration repeat differs by " << noThicknessNoise.MaxDelta
+            << "/255 — so a zero thickness is transmitting something. That is the 'infinitely thin, therefore "
+               "exp(0) = 1' reading the conservative fallback exists to rule out.";
+
         // Restore, then confirm the same scene DOES transmit with a thickness —
-        // so the zero above is the fallback and not simply a dark frame.
+        // so the match above is the fallback working and not simply a dark frame.
         m_Sphere.GetComponent<MaterialComponent>().m_Material.SetThicknessFactor(kThicknessFactorMetres);
         Capture withThickness;
         ASSERT_TRUE(CaptureFrame(RenderingPath::Deferred, true, "SkinTransmission_GL_Deferred_WithThickness",

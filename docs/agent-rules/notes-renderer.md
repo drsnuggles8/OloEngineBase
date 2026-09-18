@@ -1279,9 +1279,15 @@ keep the irradiance and drop the thickness wherever `coverage > 0.5`.
 Get that priority the wrong way round and you trade a **visible lighting regression** (a lightmapped
 surface loses its indirect light and falls through to sky IBL) for a **subtle gain** (a transmission
 term), which is the wrong trade in every scene. Write the per-pixel scalar only where the channel was
-genuinely unused, and **count the pixels you gave up on** — #1242 raises
+genuinely unused, and **count the draws you gave up on** — #1242 raises
 `SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable`, so "why is this head's ear
 uniformly thick?" has an answer in the log instead of being invisible.
+
+The counter is per SUBMISSION, not per pixel, and that is forced rather than chosen: the shader that
+takes the decision cannot log, so the report has to be raised on the CPU by the site that can see
+both the material and the draw's lightmap region. Raise it from **every** submission path — #1242
+first added it to the serial branch alone, and a batch that merely crossed the parallel threshold
+stopped reporting a conflict that was still happening.
 
 The corollary is that a tenancy's range is per tenant and not per channel: foliage's thickness is
 unitless `[0,1]` and skin's is millimetres up to 2000. Both fit an RGBA16F half, both clamp on read,

@@ -2606,6 +2606,31 @@ namespace OloEngine
                     if (desc.LightmapScaleOffset.x > 0.0f)
                     {
                         packet->GetCommandData<DrawMeshCommand>()->lightmapScaleOffset = desc.LightmapScaleOffset;
+
+                        // AND THE SAME DIAGNOSTIC (issue #1242), for exactly the
+                        // reason the comment above gives. #1242 first added this
+                        // report to the serial branch only, so a batch of
+                        // lightmapped skin materials that merely crossed the
+                        // parallel threshold stopped reporting a conflict that
+                        // was still happening — the split this comment warns
+                        // about, reintroduced by the change that quotes it.
+                        //
+                        // SkinProfileTable::Resolve and ReportTransmissionFallback
+                        // are both documented thread-safe (mesh submission runs
+                        // on more than one thread), which is what makes this
+                        // callable from inside the parallel lambda.
+                        if (const Material& mat = desc.MaterialData;
+                            mat.GetMaterialKind() == MaterialKind::Skin && mat.HasAuthoredThickness())
+                        {
+                            const SkinProfileResolution profile =
+                                Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            {
+                                Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
+                                    SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
+                                    mat.GetSkinProfileHandle());
+                            }
+                        }
                     }
                     Renderer3D::SubmitPacketParallel(stats.Context, packet);
                     ++stats.Submitted;

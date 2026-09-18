@@ -2830,9 +2830,21 @@ namespace OloEngine
                 }
                 else if (!path.empty())
                 {
+                    // THE HANDLE COMES FROM THE YAML, NOT FROM THE MATERIAL.
+                    // SkinProfile is deserialized further down, so at this point
+                    // the material still holds its default 0 — and reporting 0
+                    // would both name the wrong profile in the log and collapse
+                    // every material in the scene onto ONE dedupe key, so only
+                    // the first missing thickness map in a scene would be
+                    // reported at all.
+                    //
+                    // Read from the node rather than moving this block below the
+                    // profile assignment: a deserializer whose blocks depend on
+                    // each other's order is a trap for the next field added.
+                    const auto profileHandle =
+                        materialComponent["SkinProfile"] ? materialComponent["SkinProfile"].as<u64>(0) : 0ULL;
                     Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
-                        SkinTransmissionFallbackReason::ThicknessMapMissing,
-                        matc.m_Material.GetSkinProfileHandle());
+                        SkinTransmissionFallbackReason::ThicknessMapMissing, profileHandle);
                 }
             }
             if (materialComponent["NormalScale"])

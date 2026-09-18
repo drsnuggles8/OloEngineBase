@@ -3758,8 +3758,8 @@ namespace OloEngine
                             if (!component.m_Material.HasAuthoredThickness())
                             {
                                 ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-                                                   "No thickness authored — transmission is OFF. Set Thickness "
-                                                   "Factor below (metres).");
+                                                   "No thickness authored — transmission is OFF. Set the skin "
+                                                   "Thickness Factor (m) above.");
                             }
                             else if (parameters.Transmission.Strength <= 0.0f)
                             {
