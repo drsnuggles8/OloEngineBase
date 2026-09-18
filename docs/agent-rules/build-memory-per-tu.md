@@ -147,13 +147,24 @@ This does not contradict #759, it completes it. #759 found `OLO_LINK_JOBS=2` is 
 **wall-clock** serialisation point — still true, links are off the critical path. For
 **memory** the link is the single largest consumer in both configurations.
 
-**The consequence that matters: nothing bounds it on Linux.** `OLO_LINK_JOBS` and
-`olo_heavy` are Ninja job pools and every Linux CI job gets Unix Makefiles
+**Nothing used to bound it on Linux, and that is now fixed (#1313).** `OLO_LINK_JOBS` and
+`olo_heavy` are Ninja job pools, and every Linux CI job gets Unix Makefiles
 ([§5e](build-trees-and-windows-asan.md#5e-both-memory-pools-are-ninja-only--so-on-linux-ci---parallel-n-is-the-only-cap-issue-796)),
-so `make -j2` is free to run that 11.17 GiB link alongside a compile. Link + the heaviest
-compile is **19.26 GiB**, past the 14 GiB unit cap and at the 19 GiB slice cap. In practice
-the tests link happens at the end when little else is left, which is why this has not been
-failing constantly — but it is unguarded, not safe by construction.
+where neither exists. `cmake/LinkSemaphore.cmake` did not cover it either: it shelled out
+to `pwsh`, which the box does not have, so it warned and linked unthrottled. `make -j2` was
+therefore free to run that 11.17 GiB link beside a compile — **19.26 GiB** with the heaviest
+one, past the 14 GiB unit cap and at the 19 GiB slice cap — and two concurrent links across
+the two runner slots is 22.3 GiB against that same slice. It had not been failing constantly
+only because the tests link lands at the end of the build, which is scheduling luck rather
+than a guarantee.
+
+`scripts/link-semaphore.py` is the POSIX half of that throttle: N permits via `flock`, where
+the kernel releases the lock when the holder dies, so a killed linker cannot leak a permit.
+It **fails open** — no permit mechanism, or every permit busy past the timeout, and the link
+runs anyway, because a throttle that can fail a build is worse than no throttle. The permit
+count now genuinely comes from `OLO_LINK_SEMAPHORE_SLOTS`: it is passed through `cmake -E
+env`, where previously the cache variable only changed a status message and the wrapper's
+built-in default of 2 was the real value on both platforms.
 
 ### What to do with `--parallel`, stated as a recommendation not a change
 
