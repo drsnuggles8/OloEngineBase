@@ -147,7 +147,13 @@ namespace OloEngine
         // profile authored against an older transport must not acquire this term
         // because a renderer setting was switched on. A version this function has
         // no arm for transmits NOTHING rather than guessing.
-        if (parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission)
+        // BOTH TRANSMITTING VERSIONS (issue #1243 appended the second). The
+        // versions are CUMULATIVE — version 3 is "everything version 2 does,
+        // plus the layered specular" — so testing only for version 2 here would
+        // make a head stop transmitting through its ears the moment its author
+        // turned the specular lobes on.
+        if (parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
+            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular)
             return glm::vec3(0.0f);
 
         // The inputs a caller could hand in non-finite. The lanes below are
@@ -227,7 +233,8 @@ namespace OloEngine
         const f32 strength = std::clamp(parameters.Transmission.Strength, kMinSkinTransmissionStrength,
                                         kMaxSkinTransmissionStrength);
         const glm::vec3 transmittedBound =
-            (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+            ((parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission) ||
+             (parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular))
                 ? SkinTransmittance(thicknessMM, parameters) * clampedAlbedo * strength
                 : glm::vec3(0.0f);
 

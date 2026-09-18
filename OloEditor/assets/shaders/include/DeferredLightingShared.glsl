@@ -359,6 +359,10 @@ vec3 ComputeDeferredLitSplit(
     // rather than acquiring someone else's lobe.
     vec4 skinTransmitScatter = vec4(0.0);
     vec4 skinTransmitScaling = vec4(0.0);
+    // The layered specular lane (issue #1243). vec2(0.0, 1.0) — one lobe — until
+    // a slot claims it, so an unclaimed or stale slot loses the effect rather
+    // than acquiring someone else's.
+    vec2 skinLobe = vec2(0.0, 1.0);
     if (skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
     {
         skinSpecularTint = u_SkinProfileParams[skinProfileSlot].rgb;
@@ -373,6 +377,10 @@ vec3 ComputeDeferredLitSplit(
         // paths cannot differ about the order the factors multiply in.
         skinTransmitScatter = u_SkinTransmitScatter[skinProfileSlot];
         skinTransmitScaling = u_SkinTransmitScaling[skinProfileSlot];
+        // Through oloSkinLobeFor and not read raw, so the VERSION TEST is the
+        // same one the forward paths apply — a profile below transport version 3
+        // gets one lobe here exactly as it does there, decided by one function.
+        skinLobe = oloSkinLobeFor(materialKind, skinEvaluationModel, u_SkinSpecularLobe[skinProfileSlot]);
     }
 
     // THE SKIN THICKNESS LANE (issue #1242). The second tenant of RT5's red
@@ -391,7 +399,12 @@ vec3 ComputeDeferredLitSplit(
     // is here. So this is the ONE place on this path that decides whether the
     // profile's author asked for transmission — and a version this shader has
     // no arm for transmits NOTHING rather than guessing.
-    bool isSkinTransmitting = (skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) &&
+    // BOTH TRANSMITTING VERSIONS. The versions are CUMULATIVE — version 3 is
+    // "everything version 2 does, plus the layered specular" — so omitting it
+    // here would silently stop a version-3 head transmitting through its ears
+    // the moment its author turned the lobes on.
+    bool isSkinTransmitting = ((skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
+                               (skinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR)) &&
                               (skinThicknessMM > 0.0);
 
     vec3 V = normalize(u_CameraPosition - worldPos);
@@ -447,7 +460,8 @@ vec3 ComputeDeferredLitSplit(
     {
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
         Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
-                                                                    roughness, fplusViewDepth, pbrModel));
+                                                                    roughness, fplusViewDepth, pbrModel,
+                                                                    skinLobe));
     }
 
     // DIRECTIONAL-ONLY when either ReSTIR DI or Forward+ answered for the rest:
@@ -469,8 +483,13 @@ vec3 ComputeDeferredLitSplit(
     for (int i = 0; i < loopCount; ++i)
     {
         int lightType = int(u_Lights[i].position.w);
-        OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                          roughness, worldPos, pbrModel);
+        // THE LAYERED CLOSURE (issue #1243), the same call the forward paths
+        // make, so a skin pixel shades identically whichever path drew it. For
+        // a lobe mix of 0 — every non-skin pixel and every profile below
+        // transport version 3 — it is the identical single-lobe result and
+        // evaluates the closure once.
+        OloSurfaceLighting lightContrib = oloSkinLightContributionSplit(
+            u_Lights[i], N, V, albedo, metallic, roughness, worldPos, pbrModel, skinLobe);
 
         // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1234).
         //

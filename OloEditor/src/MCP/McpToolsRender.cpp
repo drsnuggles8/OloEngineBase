@@ -1700,8 +1700,17 @@ namespace OloEngine::MCP
                                     // it in fact changes every skin pixel.
                                     const SkinEvaluationModel model =
                                         profiles.GetParametersForSlot(slot).EvaluationModel;
+                                    // EVERY DIFFUSING VERSION, and the list has
+                                    // to grow with SkinEvaluationModel — issue
+                                    // #1243 appended version 3, which diffuses
+                                    // like the two before it. A diagnostic that
+                                    // under-counts tells the caller the toggle
+                                    // changes nothing while it changes every
+                                    // skin pixel, which is the exact lie this
+                                    // count exists to prevent.
                                     if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
-                                        model == SkinEvaluationModel::ThicknessTransmission)
+                                        model == SkinEvaluationModel::ThicknessTransmission ||
+                                        model == SkinEvaluationModel::LayeredSpecular)
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

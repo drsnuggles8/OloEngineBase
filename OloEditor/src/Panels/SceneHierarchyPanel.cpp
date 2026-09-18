@@ -49,6 +49,7 @@
 #include "OloEngine/Scene/SceneLightmapGather.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Renderer/SkinDiffusion.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -3750,8 +3751,16 @@ namespace OloEngine
                         // would tell an author their head had stopped scattering
                         // the moment they enabled transmission, which is exactly
                         // the wrong thing for a diagnostic readout to claim.
+                        // ALL THREE DIFFUSING VERSIONS (issue #1243 appended
+                        // the third). The versions are cumulative, so omitting
+                        // one here would tell an author their head had stopped
+                        // scattering the moment they moved the profile forward —
+                        // exactly the wrong thing for a diagnostic readout to
+                        // claim, and the same trap this list already documented
+                        // one version ago.
                         if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion ||
-                            parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
+                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
                         {
                             ImGui::Text("Diffusion reach (mm, derived): %.2f",
                                         static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
@@ -3774,7 +3783,10 @@ namespace OloEngine
                         // glowing, which is almost never the lobe's shape and
                         // almost always one of three data problems — the
                         // version, the strength, or a missing thickness.
-                        if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                        // BOTH TRANSMITTING VERSIONS, for the reason the
+                        // diffusion list above lists three.
+                        if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
+                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
                         {
                             ImGui::Text("Transmission: strength %.2f, anisotropy %.2f, power %.1f",
                                         static_cast<f64>(parameters.Transmission.Strength),
@@ -3818,6 +3830,63 @@ namespace OloEngine
                         else
                         {
                             ImGui::TextDisabled("No thin-region transmission — authored below transport version 2.");
+                        }
+
+                        // ---- LAYERED SPECULAR (issue #1243) ---------------
+                        //
+                        // Read-only like everything above it. What the
+                        // inspector owes the author here is the ability to see
+                        // why a head is NOT getting the sheen or the pore
+                        // detail they authored, and — as with transmission —
+                        // that is almost never the maths and almost always the
+                        // version or a zeroed field.
+                        if (SkinEvaluatesLayeredSpecular(parameters.EvaluationModel))
+                        {
+                            ImGui::Text("Specular lobes: mix %.2f, broad roughness x%.2f",
+                                        static_cast<f64>(parameters.Specular.LobeMix),
+                                        static_cast<f64>(parameters.Specular.LobeRoughnessScale));
+                            ImGui::Text("Normal variance strength (sigma^2): %.2f",
+                                        static_cast<f64>(parameters.Specular.NormalVarianceStrength));
+                            ImGui::Text("Pore detail: base %.2f, +%.2f at full expression",
+                                        static_cast<f64>(parameters.Specular.DetailStrength),
+                                        static_cast<f64>(parameters.Specular.ExpressionDetailGain));
+
+                            // THE DERIVED DETAIL STRENGTH, at whatever
+                            // expression this entity is wearing RIGHT NOW. The
+                            // two authored numbers above are inputs; this is
+                            // the product the shader scales the pore band by,
+                            // and it is the one that answers "why does the
+                            // detail not change when the face moves?".
+                            ImGui::Text("Detail now (derived): %.2f  (expression %.2f)",
+                                        static_cast<f64>(SkinDetailStrength(
+                                            parameters.Specular,
+                                            component.m_Material.GetSkinExpressionDetail())),
+                                        static_cast<f64>(component.m_Material.GetSkinExpressionDetail()));
+
+                            // THE TWO WAYS IT SILENTLY DOES NOTHING, named. Both
+                            // are legitimate authored states — they are the A/B
+                            // control arms — so they are stated in the neutral
+                            // colour rather than warned about.
+                            if (parameters.Specular.LobeMix <= 0.0f)
+                            {
+                                ImGui::TextDisabled("Lobe mix is 0 — one lobe, identical to transport version 2.");
+                            }
+                            if (parameters.Specular.NormalVarianceStrength <= 0.0f)
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "Variance strength is 0 — pore filtering is OFF and this "
+                                                   "surface will sparkle under camera motion.");
+                            }
+                            if (!component.m_Material.GetNormalMap())
+                            {
+                                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                                   "No normal map — the pore band is taken out of one, so the "
+                                                   "expression detail has nothing to scale.");
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("No layered specular — authored below transport version 3.");
                         }
                     }
                     else

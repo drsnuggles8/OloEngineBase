@@ -653,6 +653,8 @@
 		"OloEngine/Renderer/SkinDiffusion.h"
 		"OloEngine/Renderer/SkinTransmission.cpp"
 		"OloEngine/Renderer/SkinTransmission.h"
+		"OloEngine/Renderer/SkinLayeredSpecular.cpp"
+		"OloEngine/Renderer/SkinLayeredSpecular.h"
 		"OloEngine/Renderer/MaterialAsset.cpp"
 		"OloEngine/Renderer/MaterialAsset.h"
 		"OloEngine/Renderer/MaterialPresets.cpp"

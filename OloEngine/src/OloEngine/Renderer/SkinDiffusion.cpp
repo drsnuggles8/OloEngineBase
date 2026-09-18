@@ -181,8 +181,20 @@ namespace OloEngine
         // Spelled as an explicit list of the versions that diffuse rather than
         // as `>= ScreenSpaceDiffusion`, so a version appended to
         // SkinEvaluationModel that does NOT diffuse cannot inherit it silently.
+        //
+        // THE PRICE OF THAT SAFETY IS AN EDIT PER VERSION, AND #1243 PAID IT
+        // TOO. Version 3 was appended, every GLSL version list was found by
+        // grepping the shaders, and this CPU-side list was missed — reproducing
+        // the #1242 failure above exactly: a version-3 head lost its subsurface
+        // scattering and the difference showed up as 66/255 across 55 000 pixels
+        // in SkinLayeredSpecularEvidenceTest's neutral-identity A/B, which is a
+        // test whose whole job is to notice that moving a profile forward one
+        // version changed a pixel. Twice is a pattern: anyone appending a
+        // version 4 should grep for `ThicknessTransmission` across .cpp AND
+        // .glsl, not just the shaders.
         if (parameters.EvaluationModel != SkinEvaluationModel::ScreenSpaceDiffusion &&
-            parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission)
+            parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
+            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular)
             return SkinDiffusionKernel::Identity();
 
         const f32 supportRadiusMM = SkinDiffusionSupportRadiusMM(parameters);

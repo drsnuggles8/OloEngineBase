@@ -30,6 +30,7 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneLightAdapter.h"
 #include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
 #include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
@@ -7717,6 +7718,44 @@ namespace OloEngine
         return sum;
     }
 
+    // THE EXPRESSION-DRIVEN PORE BAND (issue #1243), stamped onto a per-draw
+    // copy of a skin material.
+    //
+    // WHY A COPY AND WHY ONLY SOMETIMES. The expression is a property of the
+    // ENTITY and the material is shared — two heads wearing one `.olomaterial`
+    // are not making the same face — so the value cannot live on the asset. A
+    // Material holds half a dozen Refs, so copying one per submesh per frame is
+    // not free; returning an engaged optional only when the stamp would change
+    // something confines that cost to skin materials actually wearing an
+    // expression, and leaves every other draw on the shared reference.
+    //
+    // `AppliedWeights` AND NOT `Weights`, which is the whole of issue #1243's
+    // third acceptance criterion. AppliedWeights is what the surface CURRENTLY
+    // ON THE GPU was built from; Weights is what it will be built from next time
+    // the morph pass runs. Reading the latter would make the shading lead the
+    // geometry by a frame, and in that frame the surface would shade differently
+    // with NO deformation-history rejection behind it — the `finish` lambda in
+    // this file rejects history when AppliedWeights moves, not when Weights
+    // does. A temporal upscaler would then reproject a detail change that never
+    // happened, which shows up as smearing on a face and as nothing at all in a
+    // still. Deriving from AppliedWeights makes the correctness INHERITED rather
+    // than re-implemented: the weight is a pure function of them, so it can only
+    // change when they change, and when they change the history is already gone.
+    [[nodiscard]] static std::optional<Material> StampSkinExpression(const Material& material,
+                                                                     const MorphTargetComponent* morph)
+    {
+        if (morph == nullptr || material.GetMaterialKind() != MaterialKind::Skin)
+            return std::nullopt;
+
+        const f32 weight = SkinExpressionDetailWeight(morph->AppliedWeights);
+        if (weight <= 0.0f)
+            return std::nullopt;
+
+        Material stamped = material;
+        stamped.SetSkinExpressionDetail(weight);
+        return stamped;
+    }
+
     [[nodiscard]] static GPUSceneAnimatedSurface MakeGPUSceneAnimatedSurface(const Skeleton* skeleton,
                                                                              const MorphTargetComponent* morph)
     {
@@ -7873,7 +7912,13 @@ namespace OloEngine
                     prevBoneMatrices.size() == boneMatrices.size()
                         ? std::vector<glm::mat4>(prevBoneMatrices.begin(), prevBoneMatrices.end())
                         : bones);
-                auto* skinnedPacket = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, bones,
+                // The expression stamp (issue #1243). Applied to the DRAW's
+                // material only, never to the record staged above: a GPUScene
+                // material key that moved with the expression would re-key every
+                // skin submesh every frame that a face is animating.
+                const auto expressive = StampSkinExpression(material, morph);
+                auto* skinnedPacket = Renderer3D::DrawAnimatedMesh(submesh, worldTransform,
+                                                                   expressive ? *expressive : material, bones,
                                                                    prevBones, false, entityID, skinnedLink);
                 if (skinnedPacket)
                 {
@@ -12953,7 +12998,16 @@ namespace OloEngine
                                 ++animatedCensus.m_SurfacesWithoutHistory;
                         }
 
-                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform, material, boneMatrices, prevBoneMatrices, false, entityID, gpuSceneDrawLink);
+                        // The expression stamp (issue #1243), on the DRAW's
+                        // material only — see StampSkinExpression, and note the
+                        // record staged above deliberately keeps the unstamped
+                        // one so its material key does not move with the face.
+                        const auto expressive =
+                            StampSkinExpression(material, m_Registry.try_get<MorphTargetComponent>(entity));
+                        auto* packet = Renderer3D::DrawAnimatedMesh(submesh, worldTransform,
+                                                                    expressive ? *expressive : material,
+                                                                    boneMatrices, prevBoneMatrices, false, entityID,
+                                                                    gpuSceneDrawLink);
                         if (packet)
                         {
                             Renderer3D::SubmitPacket(packet);

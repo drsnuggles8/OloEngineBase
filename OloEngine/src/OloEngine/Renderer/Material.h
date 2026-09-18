@@ -182,6 +182,42 @@ namespace OloEngine
             return m_SkinProfileHandle;
         }
 
+        // How far from neutral the ENTITY wearing this material is, [0, 1]
+        // (issue #1243). Drives the expression half of the profile's pore-band
+        // detail; see Renderer/SkinLayeredSpecular.h.
+        //
+        // RUNTIME ONLY, AND NOT SERIALIZED ANYWHERE. It is a per-frame property
+        // of an animated entity, not an authored property of a material, and it
+        // is deliberately NOT in the scene serializer, the save-game serializer
+        // or MaterialAsset. Persisting it would restore a head mid-expression on
+        // load and then hold it there until the morph system next ran.
+        //
+        // It lives on Material because that is the channel the renderer already
+        // has: RenderAnimatedMesh COPIES the material per draw (it always did),
+        // so setting it there costs nothing and reaches
+        // CreatePODMaterialDataForMaterial, which has the profile but not the
+        // entity. The alternative was a new argument threaded through nine
+        // submission overloads.
+        //
+        // SET FROM `AppliedWeights`, NEVER FROM `Weights` — the weights the
+        // surface ON THE GPU was built from, not the ones it is about to be.
+        // The difference is a frame, and in that frame the shading would change
+        // with no deformation-history rejection behind it, which is precisely
+        // the invalid history change issue #1243's third criterion forbids.
+        void SetSkinExpressionDetail(f32 weight)
+        {
+            // Clamped and finite-checked at the setter, like every other
+            // untrusted scalar on this class: the value comes from morph weights
+            // that reached the engine from script, Lua, a scene file and an MCP
+            // write, and a NaN here would take the material's whole specular
+            // term with it.
+            m_SkinExpressionDetail = std::isfinite(weight) ? std::clamp(weight, 0.0f, 1.0f) : 0.0f;
+        }
+        f32 GetSkinExpressionDetail() const
+        {
+            return m_SkinExpressionDetail;
+        }
+
         void SetShader(const Ref<Shader>& shader)
         {
             m_Shader = shader;
@@ -781,6 +817,8 @@ namespace OloEngine
         // operator= in Material.cpp — see the warning below.
         MaterialKind m_MaterialKind = MaterialKind::Generic;
         AssetHandle m_SkinProfileHandle = 0; // SkinProfile asset; 0 = none assigned
+        // Runtime only, never serialized — see SetSkinExpressionDetail.
+        f32 m_SkinExpressionDetail = 0.0f;
 
         // Physical transmission / IOR / volume (issue #970). Neutral defaults --
         // see the accessor block above. Any field added here MUST also be added

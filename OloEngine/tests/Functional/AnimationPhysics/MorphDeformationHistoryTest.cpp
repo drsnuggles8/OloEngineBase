@@ -37,6 +37,7 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/SkeletalDeformation.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -243,6 +244,85 @@ TEST_F(MorphDeformationHistoryTest, PausedMorphingEntityKeepsItsHistory)
            "running while paused, so it is not at the frame boundary";
     EXPECT_FALSE(Morph().RejectDeformationHistory)
         << "a paused, unchanging surface is reporting itself as having moved";
+}
+
+// ---------------------------------------------------------------------------
+// Issue #1243: the expression-driven skin detail rides on THIS history.
+// ---------------------------------------------------------------------------
+//
+// #1243's third acceptance criterion asks that expression-driven detail "blends
+// deterministically with existing morph/animation state and emits valid history
+// changes". It does not get a history mechanism of its own — it derives its
+// weight from `AppliedWeights` and therefore INHERITS the one this file already
+// pins. These cases assert that inheritance rather than re-testing the shading:
+// if the detail weight is a pure function of AppliedWeights, then every frame it
+// changes is a frame this file has already proved rejects history.
+//
+// The failure they exist to catch is a one-word substitution — `Weights` for
+// `AppliedWeights` — which is invisible in a still frame, compiles, and is the
+// obvious thing to reach for, because `Weights` is the authored map a script
+// sets and it is one member away.
+
+TEST_F(MorphDeformationHistoryTest, ExpressionDetailFollowsTheSurfaceOnTheGpuNotTheAuthoredWeights)
+{
+    Morph().SetWeight("Smile", 0.0f);
+    RunFrames(4);
+    ASSERT_EQ(SkinExpressionDetailWeight(Morph().AppliedWeights), 0.0f)
+        << "precondition: a neutral face has no expression detail";
+
+    // The authored weight moves. The morph pass has NOT run, so the surface on
+    // the GPU is still the neutral one.
+    Morph().SetWeight("Smile", 1.0f);
+
+    EXPECT_EQ(SkinExpressionDetailWeight(Morph().AppliedWeights), 0.0f)
+        << "THE DETAIL LED THE GEOMETRY BY A FRAME. The weight was read from the authored map "
+           "rather than from the surface currently on the GPU, so this frame would shade with "
+           "deepened pores on a face that has not moved yet — a shading change with no "
+           "deformation-history rejection behind it, which is precisely the invalid history "
+           "change #1243's third criterion forbids. Nothing about it is visible in a still.";
+
+    // Now the pass runs and the surface really does carry the expression.
+    RunFrames(1);
+    EXPECT_GT(SkinExpressionDetailWeight(Morph().AppliedWeights), 0.0f)
+        << "the detail never arrived at all once the surface moved, so the assertion above "
+           "passed by being uniformly zero rather than by being correctly ordered";
+}
+
+TEST_F(MorphDeformationHistoryTest, EveryExpressionDetailChangeCarriesAHistoryRejection)
+{
+    Morph().SetWeight("Smile", 0.0f);
+    RunFrames(6);
+    ASSERT_TRUE(Morph().HasMorphHistory) << "precondition: history established while holding still";
+
+    const f32 before = SkinExpressionDetailWeight(Morph().AppliedWeights);
+
+    Morph().SetWeight("Smile", 1.0f);
+    RunFrames(1);
+
+    const f32 after = SkinExpressionDetailWeight(Morph().AppliedWeights);
+    ASSERT_NE(before, after) << "precondition: the expression detail actually moved this frame";
+
+    EXPECT_TRUE(Morph().RejectDeformationHistory)
+        << "THE SHADING DETAIL MOVED AND THE HISTORY DID NOT. A temporal upscaler will reproject "
+           "this frame's deepened pores through last frame's surface and smear them, and the "
+           "smear reads as a bad upscaler rather than as a bad material. The two must move "
+           "together — which they do for free while the detail weight is a pure function of "
+           "AppliedWeights, and stop doing the moment it is not.";
+}
+
+TEST_F(MorphDeformationHistoryTest, AHeldExpressionKeepsItsDetailAndItsHistory)
+{
+    Morph().SetWeight("Smile", 1.0f);
+    RunFrames(10);
+
+    EXPECT_GT(SkinExpressionDetailWeight(Morph().AppliedWeights), 0.0f)
+        << "a face holding an expression lost its detail weight — the applied weights were "
+           "cleared by something other than the expression itself";
+    EXPECT_FALSE(Morph().RejectDeformationHistory)
+        << "a HELD expression rejected history. The detail is not changing, so nothing about "
+           "it can justify throwing the history away; a rejection that fires while a face "
+           "merely HAS an expression costs every expressing character its temporal history "
+           "for as long as it wears one.";
 }
 
 // ---------------------------------------------------------------------------

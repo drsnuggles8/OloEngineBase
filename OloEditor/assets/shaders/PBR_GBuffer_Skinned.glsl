@@ -194,10 +194,20 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // Renderer/SkinTransmission.h for where the numbers come from.
     vec4 u_SkinTransmitScatter;
     vec4 u_SkinTransmitScaling;
+    // The layered specular lane (issue #1243). MUST mirror
+    // PBRMaterialUBO::SkinSpecularLane, packed by SkinSpecularLane().
+    //   x = LobeMix (w)              y = LobeRoughnessScale (s)
+    //   z = NormalVarianceStrength   w = 0, reserved
+    // All-zero is neutral: no second lobe and no variance filtering.
+    vec4 u_SkinSpecularLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
-    float u_SkinTransmitPad0;         // explicit padding -- takes the prefix to 192 B
+    // The per-draw pore-band gain (issue #1243), from the profile's detail
+    // fields and the entity's APPLIED morph weights. 0 leaves the authored
+    // normal map untouched; -1 removes its pore band entirely. Took over the
+    // slot the explicit pad held, so the prefix still ends 16-byte aligned.
+    float u_SkinDetailStrength;
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -303,8 +313,32 @@ void main()
     vec3 N = sanitizeSurfaceNormal(v_Normal, dFdx(v_WorldPos), dFdy(v_WorldPos));
     if (u_UseNormalMap == 1)
     {
-        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        // THE EXPRESSION-DRIVEN PORE BAND (issue #1243), identical to the
+        // forward path's so the two write the same normal for the same pixel.
+        // Branched on the strength because the skin spelling costs a second
+        // tap of the normal map.
+        if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinDetailStrength != 0.0)
+            N = OLO_SKIN_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale,
+                                    u_SkinDetailStrength);
+        else
+            N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
+
+    // THE VARIANCE FILTER (issue #1243), applied HERE so the ROUGHNESS WRITTEN
+    // INTO THE G-BUFFER is already filtered and the deferred lighting pass
+    // inherits it with no knowledge that anything happened.
+    //
+    // That is not a convenience, it is the only place it can go. The filter
+    // needs dFdx of the shading normal, and the deferred lighting pass is a
+    // FULLSCREEN draw whose neighbouring pixels can be different objects
+    // entirely — a derivative there measures a silhouette, not sub-pixel
+    // variance, and would draw a rough halo around everything in the scene.
+    //
+    // It also means MSAA does the right thing for free: this runs per SAMPLE,
+    // so each sample's roughness reflects its own footprint before the resolve
+    // averages them.
+    if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
+        roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
 
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);

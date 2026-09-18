@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -545,7 +546,40 @@ namespace OloEngine
                 // than only in the shader so a version-1 profile does not even
                 // upload a lobe. A version this code has no arm for leaves the
                 // lanes zero, which shades as no transmission.
-                if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                // THE LAYERED SURFACE RESPONSE (issue #1243). Packed here for
+                // the reason the transmission lanes are: the deferred path's
+                // per-frame table packs the SAME lane with the SAME function,
+                // so the two cannot disagree about the order of its four
+                // numbers.
+                //
+                // ONLY AT TRANSPORT VERSION 3, and the branch is here rather
+                // than only in the shader so a version-2 profile does not even
+                // upload a lobe. A version this code has no arm for leaves the
+                // lane zero, which shades as one lobe and no filtering.
+                if (SkinEvaluatesLayeredSpecular(profile.Parameters.EvaluationModel))
+                {
+                    data.skinSpecularLane = SkinSpecularLane(profile.Parameters);
+                    // The expression half. `GetSkinExpressionDetail()` was set
+                    // by the animated-mesh submission from the entity's APPLIED
+                    // morph weights and is 0 for every static mesh and every
+                    // head at a neutral expression, so this reduces to the
+                    // profile's base gain wherever no face is emoting.
+                    data.skinDetailStrength =
+                        SkinDetailStrength(profile.Parameters.Specular, material.GetSkinExpressionDetail());
+                }
+
+                // TRANSMISSION IS TESTED WITH `>=`-IN-SPIRIT AND SPELLED OUT,
+                // because the versions are CUMULATIVE: version 3 is "everything
+                // version 2 does, plus the layered specular", so a version-3
+                // profile must still transmit. Testing only for version 2 here
+                // would have made moving a profile to version 3 silently turn
+                // transmission OFF while turning the lobes on — a head that
+                // gains a sheen and loses its backlit ears in one authoring
+                // click, which reads as "the new feature broke transmission".
+                // The same trap #1242 documented one version earlier, in
+                // oloSkinDiffusionOutput.
+                if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
                 {
                     data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
                     data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
@@ -1970,6 +2004,7 @@ namespace OloEngine
             material = entity.GetComponent<MaterialComponent>().m_Material;
         }
 
+
         // Find and render all child entities with SubmeshComponent.
         bool renderedAnySubmesh = false;
 
@@ -2547,7 +2582,15 @@ namespace OloEngine
                         {
                             const SkinProfileResolution profile =
                                 Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
+                            // the second). The versions are cumulative, so a
+                            // version-3 profile transmits too — reporting only
+                            // version 2 here would make the lightmap conflict
+                            // stop being counted the moment an author moved a
+                            // head forward, and this diagnostic exists precisely
+                            // because the failure is otherwise invisible.
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
@@ -2624,7 +2667,15 @@ namespace OloEngine
                         {
                             const SkinProfileResolution profile =
                                 Renderer3D::GetSkinProfileTable().Resolve(mat.GetSkinProfileHandle());
-                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission)
+                            // BOTH TRANSMITTING VERSIONS (issue #1243 appended
+                            // the second). The versions are cumulative, so a
+                            // version-3 profile transmits too — reporting only
+                            // version 2 here would make the lightmap conflict
+                            // stop being counted the moment an author moved a
+                            // head forward, and this diagnostic exists precisely
+                            // because the failure is otherwise invisible.
+                            if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,

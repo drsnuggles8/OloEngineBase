@@ -143,9 +143,20 @@ uvec2 fplusGetTileData(float viewDepth)
 // specular halves separately, so the forward+ path can hand a skin material the
 // same two outputs the forward and deferred paths do. The vec3 spelling below
 // sums it, and is what every existing caller uses.
+// `skinLobe` is the layered-specular lane's xy (issue #1243): x = LobeMix,
+// y = LobeRoughnessScale. vec2(0.0, 1.0) means "not skin, or one lobe", and the
+// zero in x is what makes oloSkinLayeredClosureSplit skip its second evaluation
+// entirely — so every non-skin clustered pixel costs exactly what it did before.
+//
+// PLUMBED THROUGH RATHER THAN LEFT AT ONE LOBE, even though the clustered path
+// is the fiddliest of the three, because a scene must not shade skin differently
+// depending on whether its lights happened to land in a Forward+ cluster. An
+// inconsistency between two paths in ONE frame is worse than a limitation in
+// both, and this is the same argument the file's own falloff comment makes about
+// keeping Forward / Forward+ / Deferred photometrically identical.
 OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
                                                 vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, int pbrModel)
+                                                float viewDepth, int pbrModel, vec2 skinLobe)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
     uint offset = tileData.x;
@@ -210,7 +221,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
 #endif
 
             Lo = oloSurfaceLightingAdd(
-                Lo, oloSurfaceLightingScale(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness),
+                Lo, oloSurfaceLightingScale(oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe),
                                             radiance));
         }
         else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
@@ -295,7 +306,7 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
 #endif
 
             Lo = oloSurfaceLightingAdd(
-                Lo, oloSurfaceLightingScale(evaluatePBRClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness),
+                Lo, oloSurfaceLightingScale(oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe),
                                             radiance));
         }
     }
@@ -311,12 +322,26 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
 // The combined spelling with an explicit closure model — what the forward and
 // deferred paths called before #1231 split the body, and what every caller that
 // does not need the two halves still calls.
+// The pre-#1243 signature, for every caller that is not shading skin. An
+// overload rather than a default argument because GLSL has no default
+// arguments, and a wrapper rather than making every call site type
+// `vec2(0.0, 1.0)` because a parameter whose only legal value at most call sites
+// is a magic constant is a parameter that will eventually be passed wrong.
+OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
+                                                vec3 albedo, float metallic, float roughness,
+                                                float viewDepth, int pbrModel)
+{
+    return fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic, roughness,
+                                        viewDepth, pbrModel, vec2(0.0, 1.0));
+}
+
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
                              vec3 albedo, float metallic, float roughness,
                              float viewDepth, int pbrModel)
 {
     return oloSurfaceLightingSum(fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
-                                                              roughness, viewDepth, pbrModel));
+                                                              roughness, viewDepth, pbrModel,
+                                                              vec2(0.0, 1.0)));
 }
 
 // And the Legacy-model convenience overload itself.

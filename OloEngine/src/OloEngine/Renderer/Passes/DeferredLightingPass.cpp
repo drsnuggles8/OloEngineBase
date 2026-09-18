@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
@@ -100,6 +101,27 @@ namespace OloEngine
             // than acquiring someone else's.
             std::array<glm::vec4, kMaxSkinProfileSlots> SkinTransmitScatter{};
             std::array<glm::vec4, kMaxSkinProfileSlots> SkinTransmitScaling{};
+
+            // THE LAYERED SPECULAR TABLE (issue #1243), a third tenant of the
+            // same three-bit slot, packed by SkinSpecularLane — the SAME
+            // function the forward path's submission packs the material UBO's
+            // lane with, so the two paths are handed identical bytes.
+            //
+            //   x = LobeMix (w)              y = LobeRoughnessScale (s)
+            //   z = NormalVarianceStrength   w = 0, reserved
+            //
+            // ONLY x AND y ARE READ ON THIS PATH, and z is carried anyway rather
+            // than dropped. The variance filter runs where the NORMAL is built —
+            // in the G-Buffer writer — so by the time this pass reads the table
+            // z has already been spent and the filtered roughness is sitting in
+            // the G-Buffer. Shipping the same four numbers to both places keeps
+            // ONE packing function, and a lane that meant different things in
+            // the two tables is exactly the trap this arrangement avoids.
+            //
+            // An unclaimed slot stays all-zero, which is one lobe and no
+            // filtering — so a stale slot loses the effect rather than
+            // acquiring someone else's.
+            std::array<glm::vec4, kMaxSkinProfileSlots> SkinSpecularLobe{};
         };
         static_assert(kMaxFoliageLeafSlots == kMaxSkinProfileSlots,
                       "The leaf profile table and the skin profile table are two tenants of ONE three-bit "
@@ -108,7 +130,8 @@ namespace OloEngine
                       "DeferredControlsData must be 16-byte aligned for std140");
         static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16 +
                                                           kMaxFoliageLeafSlots * 32 +
-                                                          kMaxSkinProfileSlots * 32,
+                                                          kMaxSkinProfileSlots * 32 +
+                                                          kMaxSkinProfileSlots * 16,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
     } // namespace
@@ -428,6 +451,12 @@ namespace OloEngine
                 // the same decision in two places and let them disagree.
                 controls.SkinTransmitScatter[slot] = SkinTransmissionScatterLane(parameters);
                 controls.SkinTransmitScaling[slot] = SkinTransmissionScalingLane(parameters);
+                // The layered specular lane (issue #1243), packed for EVERY slot
+                // regardless of transport version for the reason the two above
+                // are: the version test on this path lives in the SHADER, which
+                // reads the version out of SkinProfileParams[slot].w, and zeroing
+                // the lane here as well would put one decision in two places.
+                controls.SkinSpecularLobe[slot] = SkinSpecularLane(parameters);
             }
         }
 

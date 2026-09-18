@@ -45,6 +45,7 @@
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MaterialKind.h"
 #include "OloEngine/Renderer/PBRModel.h"
+#include "OloEngine/Renderer/SkinLayeredSpecular.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
 
@@ -82,6 +83,13 @@ namespace
         p.Transmission.Strength = 0.625f;
         p.Transmission.Anisotropy = 0.375f;
         p.Transmission.Power = 12.0f;
+        // The layered surface response (issue #1243), every field off its
+        // default for the reason stated above.
+        p.Specular.LobeMix = 0.4375f;
+        p.Specular.LobeRoughnessScale = 2.75f;
+        p.Specular.NormalVarianceStrength = 0.875f;
+        p.Specular.DetailStrength = 0.625f;
+        p.Specular.ExpressionDetailGain = 1.375f;
         return p;
     }
 } // namespace
@@ -274,6 +282,74 @@ namespace OloEngine::Tests
                 << "the serializer did not emit Transmission." << key << ":\n"
                 << yaml;
         }
+
+        // The layered-specular block (issue #1243), pinned by NAME as well as
+        // by value, for the reason the transmission block above is.
+        EXPECT_NE(yaml.find("Specular:"), std::string::npos)
+            << "the serializer did not emit the Specular block:\n"
+            << yaml;
+        for (const char* key : { "LobeMix", "LobeRoughnessScale", "NormalVarianceStrength",
+                                 "DetailStrength", "ExpressionDetailGain" })
+        {
+            EXPECT_NE(yaml.find(key), std::string::npos)
+                << "the serializer did not emit Specular." << key << ":\n"
+                << yaml;
+        }
+    }
+
+    // THE PRIOR-ON-DISK-VERSION CELL (issue #1243). A `.oloskin` authored before
+    // this change has no `Specular` node at all, and must still load — and, more
+    // than that, must still SHADE THE SAME. The second half is the one that can
+    // go wrong silently: the reader could load such a file "successfully" while
+    // quietly giving it a lobe mixture, and every head authored against an
+    // earlier transport would change appearance because this build shipped.
+    //
+    // The argument has two legs and both are asserted:
+    //   1. the absent fields take their defaults, and
+    //   2. the file is at a transport version BELOW 3, where those fields are
+    //      not evaluated at all.
+    // Leg 2 is why NormalVarianceStrength defaulting to 0.5 rather than to 0 is
+    // not a behaviour change for an old file.
+    TEST(SkinProfileSerializerTest, AProfileWrittenBeforeLayeredSpecularStillLoadsUnchanged)
+    {
+        // Exactly what #1242's serializer emitted: no Specular node.
+        const std::string yaml = R"(SkinProfile:
+  Name: Legacy Head
+  EvaluationModel: 2
+  ScatterColor: [0.71, 0.43, 0.29]
+  ScatterRadiusMM: [2.25, 1.125, 0.375]
+  ThicknessScale: 850
+  SpecularTint: [0.95, 0.87, 0.81]
+  Transmission:
+    Strength: 0.625
+    Anisotropy: 0.375
+    Power: 12
+)";
+
+        const SkinProfileSerializer serializer;
+        auto read = Ref<SkinProfile>::Create();
+        ASSERT_TRUE(serializer.DeserializeFromYAML(yaml, read))
+            << "a .oloskin written before #1243 no longer loads at all";
+
+        const SkinProfileParameters& p = read->GetParameters();
+        const SkinSpecularParameters defaults{};
+
+        // Leg 1: the absent block took its defaults, field for field.
+        EXPECT_TRUE(p.Specular == defaults)
+            << "an absent Specular block did not fall back to the defaults — an old .oloskin has acquired "
+               "authored values nobody wrote";
+
+        // Leg 2: and the file is below the version that reads them, so those
+        // defaults cannot change a pixel.
+        EXPECT_EQ(p.EvaluationModel, SkinEvaluationModel::ThicknessTransmission);
+        EXPECT_FALSE(SkinEvaluatesLayeredSpecular(p.EvaluationModel))
+            << "a profile written before #1243 is being evaluated at transport version 3";
+
+        // The rest of the file still arrived, so the two assertions above are
+        // not passing because the whole parse quietly produced a default profile.
+        EXPECT_EQ(read->GetName(), "Legacy Head");
+        EXPECT_NEAR(p.ThicknessScale, 850.0f, 1.0e-4f);
+        EXPECT_NEAR(p.Transmission.Power, 12.0f, 1.0e-4f);
     }
 
     // The serializer is the second half of the validation gate: a hand-edited
