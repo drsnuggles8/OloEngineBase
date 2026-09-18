@@ -192,8 +192,96 @@ endif()
 
 # Heavy-TU compile pool (issue #822): see the matching block in OloEngine/src/CMakeLists.txt for
 # why the removal must stay conditional on the pool actually being available.
+# --------------------------------------------------------------------------
+# OloEditorCore — the editor's headless automation/MCP core (issue #1314).
+#
+# WHY THIS LIBRARY EXISTS: OloEngine-Tests does not link OloEditor (an executable
+# cannot be linked), so it used to RECOMPILE these sources as its own. Measured on a
+# build of both targets, that cost 47 duplicated translation units and 231 s — 3.8% of
+# the build's entire compile time — and it duplicated the worst TU in the tree:
+# McpFieldRegistry.cpp is #1 by peak compiler RSS (8.09 GiB under ASan) and was paid for
+# twice. Extracting the shared set to a static library both consumers link removes the
+# duplication outright.
+#
+# THE SEAM IS THE ONE THE TESTS ALREADY DREW, not a new one: every file here was already
+# being compiled into the test binary, so the set is known to be self-contained against
+# OloEngine. What stays in the executable is the ImGui editor — 34 Panels/*, EditorLayer,
+# OloEditorApp, McpServerPanel and the thumbnail cache — none of which any test compiles.
+#
+# SAFE AS A STATIC LIBRARY because nothing here self-registers. Automation commands are
+# published through explicit `Register*Commands(AutomationRegistry&)` entry points that a
+# caller invokes, so no object depends on being pulled in for a static initializer's side
+# effect — the failure mode that makes naive static-library extraction drop behaviour
+# silently. Checked before the move; if a self-registering TU is ever added here it needs
+# WHOLE_ARCHIVE or an explicit reference, not a quiet regression.
+set(OLO_EDITOR_CORE_SOURCES
+		"Automation/AutomationAssetCommands.cpp"
+		"Automation/AutomationAssetIndex.cpp"
+		"Automation/AutomationBuildCommands.cpp"
+		"Automation/AutomationCatalogue.cpp"
+		"Automation/AutomationComponentCommands.cpp"
+		"Automation/AutomationComponentRegistry.cpp"
+		"Automation/AutomationEditorCommands.cpp"
+		"Automation/AutomationEntityCommands.cpp"
+		"Automation/AutomationEvents.cpp"
+		"Automation/AutomationFileWrite.cpp"
+		"Automation/AutomationPrefabCommands.cpp"
+		"Automation/AutomationRegistry.cpp"
+		"Automation/AutomationResult.cpp"
+		"Automation/AutomationSceneCommands.cpp"
+		"Automation/AutomationSceneDocument.cpp"
+		"Automation/AutomationSchemaValidation.cpp"
+		"Automation/AutomationTransaction.cpp"
+		"Automation/AutomationTransactionCommands.cpp"
+		"MCP/McpClient.cpp"
+		"MCP/McpFieldRegistry.cpp"
+		"MCP/McpScriptApi.cpp"
+		"MCP/McpScriptTools.cpp"
+		"MCP/McpServer.cpp"
+		"MCP/McpTools.cpp"
+		"MCP/McpToolsAssets.cpp"
+		"MCP/McpToolsBenchmark.cpp"
+		"MCP/McpToolsCamera.cpp"
+		"MCP/McpToolsDiagnostics.cpp"
+		"MCP/McpToolsEditor.cpp"
+		"MCP/McpToolsGateway.cpp"
+		"MCP/McpToolsInput.cpp"
+		"MCP/McpToolsPerf.cpp"
+		"MCP/McpToolsPhysics.cpp"
+		"MCP/McpToolsRender.cpp"
+		"MCP/McpToolsScene.cpp"
+		"MCP/McpToolsScripting.cpp"
+		"MCP/McpToolsShader.cpp"
+		"MCP/McpToolsTesting.cpp"
+		"MCP/McpToolsValidation.cpp"
+		"Panels/ContentBrowser/ContentBrowserItem.cpp"
+		"Panels/ContentBrowser/DirectoryTree.cpp"
+)
+list(REMOVE_ITEM EDITOR_SOURCES ${OLO_EDITOR_CORE_SOURCES})
+
+# Same conditional-removal rule as the engine's pool block: pull the heavy TUs out of the
+# plain source list ONLY when the pool exists to re-add them via a FILE_SET, or they are
+# dropped from the build entirely.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	list(REMOVE_ITEM EDITOR_SOURCES "MCP/McpFieldRegistry.cpp" "MCP/McpToolsRender.cpp" "Automation/AutomationComponentRegistry.cpp")
+	list(REMOVE_ITEM OLO_EDITOR_CORE_SOURCES "MCP/McpFieldRegistry.cpp" "MCP/McpToolsRender.cpp" "Automation/AutomationComponentRegistry.cpp")
+endif()
+
+add_library(OloEditorCore STATIC ${OLO_EDITOR_CORE_SOURCES})
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
+			FILES ${OLO_EDITOR_CORE_SOURCES}
+)
+
+if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
+	olo_bind_heavy_compile_pool(OloEditorCore "${CMAKE_CURRENT_SOURCE_DIR}"
+		# Ranks #1 and #2 of 1761 TUs by peak compiler RSS (8.09 and 3.85 GiB, Linux
+		# Debug + ASan, 2026-09-17). Both instantiate typed snapshots over the complete
+		# generated component set.
+		"MCP/McpFieldRegistry.cpp"
+		"Automation/AutomationComponentRegistry.cpp"
+		# 1.50 GiB, #17 — at the >= 1.5 GiB membership threshold (#1307).
+		"MCP/McpToolsRender.cpp"
+	)
 endif()
 
 add_executable(OloEditor
@@ -205,17 +293,6 @@ add_executable(OloEditor
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}
 			FILES ${EDITOR_SOURCES}
 )
-
-if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	olo_bind_heavy_compile_pool(OloEditor "${CMAKE_CURRENT_SOURCE_DIR}"
-		# Instantiates typed snapshots for the complete generated component set.
-		"Automation/AutomationComponentRegistry.cpp"
-		"MCP/McpFieldRegistry.cpp"
-		# 7,838 MB peak compiler RSS measured cold (issue #822 follow-up), and like
-		# McpFieldRegistry it is compiled into OloEngine-Tests as well, so the cost is paid twice.
-		"MCP/McpToolsRender.cpp"
-	)
-endif()
 
 # Deploy the FFmpeg runtime libs next to the exe (no-op when OLO_VIDEO_FFMPEG=OFF).
 # Must live in the same directory scope as add_executable — see the note on
