@@ -207,10 +207,22 @@ namespace OloEngine
         /// smeared coat on a walking character and nothing at all on a standing
         /// one, so it survives every static test.
         ///
-        /// A caller with no previous matrix leaves this equal to
-        /// `SurfaceToGroom` and gets the old behaviour; Scene stores last
-        /// frame's and passes it.
-        glm::mat4 PrevSurfaceToGroom{ 1.0f };
+        /// `std::nullopt` -- the default -- means "the same as
+        /// `SurfaceToGroom`", so a caller that does not track a previous matrix
+        /// gets prev and current mapped identically and emits motion from the
+        /// pose alone. Scene stores last frame's value and passes it.
+        ///
+        /// An optional rather than a plain matrix whose default is the
+        /// identity, because those two are not the same thing and the
+        /// difference is silent. A caller that sets a non-identity
+        /// `SurfaceToGroom` -- which every caller with a body scaled or offset
+        /// relative to its groom does -- and leaves a plain field at its
+        /// identity default would have last frame's pose mapped by the identity
+        /// while this frame's is mapped correctly. That is not a subtle error;
+        /// it is the whole object-space conversion missing from one of the two
+        /// frames. It would also be invisible in every test that checks
+        /// positions and not velocities, which is most of them.
+        std::optional<glm::mat4> PrevSurfaceToGroom{};
 
         /// False when the caller has already decided this frame's previous
         /// positions are not comparable (a teleport, an LOD switch, the first

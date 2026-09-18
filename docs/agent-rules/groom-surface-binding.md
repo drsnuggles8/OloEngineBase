@@ -60,7 +60,10 @@ between frames: the body's pose, and the two world transforms that place the bod
 Skinning last frame's palette and then mapping the result with *this* frame's `SurfaceToGroom` mixes
 them, and the error is exactly the entity's own motion — nothing at all on a standing character, a
 coat-length smear on a walking one. `GroomDeformationInputs::PrevSurfaceToGroom` is fed from the
-previous frame's value, and a frame with no history writes `prev == current` and reads neither.
+previous frame's value, and is an `optional` whose unset state means *the same matrix* -- not the
+identity. A plain field defaulting to the identity would give a caller with any non-identity
+`SurfaceToGroom` the whole object-space conversion missing from one of its two frames, silently, and
+invisibly to every test that checks positions rather than velocities.
 
 **The curve selection is the contract between the deformer and the builder, and it is exact at both
 ends.** `SelectGroomStrandCurves` legitimately returns nothing — `GuidesOnly` on a groom with no

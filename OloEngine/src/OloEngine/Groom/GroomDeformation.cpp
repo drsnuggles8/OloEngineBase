@@ -138,7 +138,8 @@ namespace OloEngine
         // uncovered.
         const bool usePrevPose = inputs.HasHistory && skinned && inputs.Skinning.HasPreviousPose &&
                                  !inputs.Skinning.PrevPalette.empty();
-        const glm::mat4& prevSurfaceToGroom = usePrevPose ? inputs.PrevSurfaceToGroom : surfaceToGroom;
+        const glm::mat4& prevSurfaceToGroom =
+            (usePrevPose && inputs.PrevSurfaceToGroom.has_value()) ? *inputs.PrevSurfaceToGroom : surfaceToGroom;
         // What this evaluation DID, not what it was offered. A skinned surface
         // whose skeleton has no previous palette writes prev == current for
         // every root, so the frame carries no history no matter what the caller

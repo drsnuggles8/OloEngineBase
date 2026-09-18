@@ -570,6 +570,38 @@ TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectl
     std::vector<GroomRootTransform> restTransforms;
     (void)EvaluateGroomRootTransforms(*groom, *binding, restInputs, std::nullopt, restTransforms);
 
+    // The PREVIOUS pose gets the same space conversion, and this is asserted
+    // rather than assumed: the first version of this test set SurfaceToGroom,
+    // offered history, and left PrevSurfaceToGroom unset -- so last frame's
+    // pose was mapped by the identity while this frame's was mapped correctly,
+    // and nothing here noticed, because every other assertion in this test is
+    // about positions and this defect is only in velocities. The field is an
+    // optional now so that omitting it means "the same matrix" instead of
+    // "the identity", and the arm below is what says so.
+    GroomDeformationInputs previousFrame = restInputs;
+    previousFrame.PrevSurfaceToGroom = surfaceToGroom;
+    std::vector<GroomRootTransform> previousFrameTransforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, previousFrame, std::nullopt, previousFrameTransforms);
+    ASSERT_EQ(previousFrameTransforms.size(), restTransforms.size());
+    for (sizet i = 0; i < restTransforms.size(); ++i)
+    {
+        if (!restTransforms[i].Valid)
+        {
+            continue;
+        }
+        // Unset and set-to-the-same-matrix must be bit-identical, and both must
+        // put the previous origin exactly where the current one is, since the
+        // pose is the rest pose on both sides here.
+        EXPECT_EQ(std::bit_cast<u32>(restTransforms[i].PrevOrigin.x),
+                  std::bit_cast<u32>(previousFrameTransforms[i].PrevOrigin.x));
+        EXPECT_EQ(std::bit_cast<u32>(restTransforms[i].PrevOrigin.x),
+                  std::bit_cast<u32>(restTransforms[i].Origin.x));
+        EXPECT_EQ(std::bit_cast<u32>(restTransforms[i].PrevOrigin.y),
+                  std::bit_cast<u32>(restTransforms[i].Origin.y));
+        EXPECT_EQ(std::bit_cast<u32>(restTransforms[i].PrevOrigin.z),
+                  std::bit_cast<u32>(restTransforms[i].Origin.z));
+    }
+
     GroomDeformationInputs bentInputs = restInputs;
     bentInputs.Skinning = grid.Skinning(bent, bent, true);
     std::vector<GroomRootTransform> bentTransforms;
