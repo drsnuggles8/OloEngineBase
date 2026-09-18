@@ -116,6 +116,14 @@ jobs:
       # so the workflow silently stops guarding anything. Building the matrix with
       # fromJSON is the supported way, because `strategy` can read the github context.
       #
+      # The third cell PRICES A LEVER rather than tracking drift: `-gsplit-dwarf` keeps
+      # debug info out of the objects so the linker never loads it, which is the most
+      # direct attack on the 11.17 GiB link #1313 is about. It is OFF in every real build
+      # (it costs inlined frames in sanitizer stacks while -ffile-prefix-map is in effect —
+      # cmake/SplitDwarf.cmake has the measurement), so this cell exists purely to answer
+      # "what would it buy?" with a number. Compare its link peak against `debug-asan` from
+      # the same run; both publish their full build configuration alongside the ranking.
+      #
       # The cells: `debug-asan` is the configuration the sanitizer `--parallel 2` pins and
       # the 14 GiB unit cap were derived from — Debug, ASan, full -g, no split DWARF — and
       # is the stricter of the two, so a PR proves the instrumentation end to end with it
@@ -127,7 +135,7 @@ jobs:
       matrix:
         include: ${{ github.event_name == 'pull_request'
           && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"}]')
-          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""}]') }}
+          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

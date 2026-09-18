@@ -612,6 +612,12 @@ endif()
 # which are read when a target is created.
 include(cmake/ProcStatReport.cmake)
 
+# Split debug info out of the objects so the linker never loads it (issue #1313). OFF by
+# default and measured rather than assumed — cmake/SplitDwarf.cmake has the symbolization
+# trade-off in full. MUST stay above the add_subdirectory() calls for the same reason as
+# the include above: it works through add_compile_options().
+include(cmake/SplitDwarf.cmake)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
