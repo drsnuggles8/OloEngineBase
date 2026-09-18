@@ -56,6 +56,7 @@ using AllComponents = ComponentGroup<
     GoapAgentComponent,
     GroomBindingComponent,
     GroomComponent,
+    GroomFibreComponent,
     IKTargetComponent,
     InstancePortalComponent,
     InstancedMeshComponent,

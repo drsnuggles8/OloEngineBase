@@ -543,6 +543,44 @@ case 2551117928u: // GroomComponent
     }
     break;
 }
+case 2500729774u: // GroomFibreComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomFibreComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_BaseColor)) return false;
+    comp.m_BaseColor = glm::clamp(comp.m_BaseColor, glm::vec3(0.0f), glm::vec3(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Absorption)) return false;
+    comp.m_Absorption = glm::clamp(comp.m_Absorption, glm::vec3(0.0f), glm::vec3(32.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Eumelanin)) return false;
+    comp.m_Eumelanin = std::clamp(comp.m_Eumelanin, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Pheomelanin)) return false;
+    comp.m_Pheomelanin = std::clamp(comp.m_Pheomelanin, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LongitudinalRoughness)) return false;
+    comp.m_LongitudinalRoughness = std::clamp(comp.m_LongitudinalRoughness, static_cast<f32>(0.01f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_AzimuthalRoughness)) return false;
+    comp.m_AzimuthalRoughness = std::clamp(comp.m_AzimuthalRoughness, static_cast<f32>(0.01f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_TiltDegrees)) return false;
+    comp.m_TiltDegrees = std::clamp(comp.m_TiltDegrees, static_cast<f32>(0.0f), static_cast<f32>(15.0f));
+    if (!SceneBinIO::Read(reader, comp.m_IndexOfRefraction)) return false;
+    comp.m_IndexOfRefraction = std::clamp(comp.m_IndexOfRefraction, static_cast<f32>(1.01f), static_cast<f32>(3.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Intensity)) return false;
+    comp.m_Intensity = std::clamp(comp.m_Intensity, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HSamples)) return false;
+    comp.m_HSamples = std::clamp(comp.m_HSamples, static_cast<u32>(1), static_cast<u32>(32));
+    {
+        decltype(comp.m_PigmentMode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
+            comp.m_PigmentMode = v;
+    }
+    {
+        decltype(comp.m_DebugMode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(5))
+            comp.m_DebugMode = v;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

@@ -19,12 +19,20 @@
 // technique-selection-seams.md §"Hash the new gate into the graph fingerprint"
 // describes. A frame with no grooms costs one culled node.
 //
-// WHAT IT DOES NOT DO. It does not shade hair: the coat is neutral-lit on
-// purpose (#1247 owns fibre scattering), and it does not participate in the
-// G-Buffer, so a strand receives no deferred lighting and casts no shadow yet.
-// Those are named in the docs rather than approximated here, because a
-// half-lit coat is the kind of thing that gets mistaken for a finished tier —
-// which criterion 4 explicitly forbids.
+// IT SHADES HAIR SINCE #1247, BUT ONLY WHERE A MATERIAL WAS AUTHORED. A
+// request carrying a GroomFibreComponent is lit by the scene's lights and its
+// environment through the fibre BCSDF (Groom/GroomFibreScattering.h); a request
+// without one renders #1246's neutral root-to-tip ramp, unchanged. The lighting
+// happens in THIS forward-style pass on all three rendering paths, which is
+// what makes the material identical across them rather than three shaders that
+// agree by inspection.
+//
+// WHAT IT STILL DOES NOT DO. It does not participate in the G-Buffer, so a
+// strand casts no shadow and receives none — including from itself. Inter-fibre
+// occlusion and density transport are #1248's, and they are named in the docs
+// rather than approximated here, because a half-shadowed coat is the kind of
+// thing that gets mistaken for a finished tier — which criterion 4 explicitly
+// forbids.
 //
 // IT DOES NOT REPLACE GroomPreview. The debug preview draws the same asset as
 // debug lines and stays, because it answers a different question (did this
@@ -105,6 +113,18 @@ namespace OloEngine
         /// frame emitted zero motion for them rather than a velocity across a
         /// discontinuity.
         u32 GroomsHistoryRejected = 0;
+
+        // ── Fibre scattering (#1247) ─────────────────────────────────
+
+        /// Grooms drawn with a fibre material this frame. The rest render
+        /// #1246's neutral ramp, which is a legitimate state and not a
+        /// failure — so this counter exists to tell the two apart from the
+        /// panel rather than by looking at the picture.
+        u32 GroomsLit = 0;
+        /// The largest h-quadrature order any lit groom asked for. The pass's
+        /// per-fragment cost is linear in it, so it is the one number that
+        /// explains a strand pass that suddenly got expensive.
+        u32 FibreSamplesPerFragment = 0;
 
         GroomCompositionStats Composition;
 

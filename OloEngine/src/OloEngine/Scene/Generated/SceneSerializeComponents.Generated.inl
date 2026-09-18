@@ -483,6 +483,27 @@ if (entity.HasComponent<GroomComponent>())
     out << YAML::EndMap; // GroomComponent
 }
 
+if (entity.HasComponent<GroomFibreComponent>())
+{
+    out << YAML::Key << "GroomFibreComponent";
+    out << YAML::BeginMap; // GroomFibreComponent
+    auto const& comp = entity.GetComponent<GroomFibreComponent>();
+    out << YAML::Key << "BaseColor" << YAML::Value << comp.m_BaseColor;
+    out << YAML::Key << "Absorption" << YAML::Value << comp.m_Absorption;
+    out << YAML::Key << "Eumelanin" << YAML::Value << comp.m_Eumelanin;
+    out << YAML::Key << "Pheomelanin" << YAML::Value << comp.m_Pheomelanin;
+    out << YAML::Key << "LongitudinalRoughness" << YAML::Value << comp.m_LongitudinalRoughness;
+    out << YAML::Key << "AzimuthalRoughness" << YAML::Value << comp.m_AzimuthalRoughness;
+    out << YAML::Key << "TiltDegrees" << YAML::Value << comp.m_TiltDegrees;
+    out << YAML::Key << "IndexOfRefraction" << YAML::Value << comp.m_IndexOfRefraction;
+    out << YAML::Key << "Intensity" << YAML::Value << comp.m_Intensity;
+    out << YAML::Key << "HSamples" << YAML::Value << comp.m_HSamples;
+    out << YAML::Key << "PigmentMode" << YAML::Value << static_cast<u32>(comp.m_PigmentMode);
+    out << YAML::Key << "DebugMode" << YAML::Value << static_cast<u32>(comp.m_DebugMode);
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // GroomFibreComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";

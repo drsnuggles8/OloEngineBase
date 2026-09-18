@@ -423,6 +423,21 @@ registry.push_back(OLO_GFW_FIELD(GroomComponent, "GuidesOnly", m_GuidesOnly));
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "RenderStrands", m_RenderStrands));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "CompositionMode", m_CompositionMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
 
+// GroomFibreComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "BaseColor", m_BaseColor, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "Absorption", m_Absorption, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(32.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "Eumelanin", m_Eumelanin, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(8.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "Pheomelanin", m_Pheomelanin, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(8.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "LongitudinalRoughness", m_LongitudinalRoughness, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "AzimuthalRoughness", m_AzimuthalRoughness, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "TiltDegrees", m_TiltDegrees, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(15.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "IndexOfRefraction", m_IndexOfRefraction, OLO_GFW_BOUND(1.01f), OLO_GFW_BOUND(3.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "Intensity", m_Intensity, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(64.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "HSamples", m_HSamples, OLO_GFW_BOUND(1), OLO_GFW_BOUND(32)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "PigmentMode", m_PigmentMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(2)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomFibreComponent, "DebugMode", m_DebugMode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(5)));
+registry.push_back(OLO_GFW_FIELD(GroomFibreComponent, "Enabled", m_Enabled));
+
 // IKTargetComponent
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimTarget", AimTarget));
@@ -450,15 +465,15 @@ registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimIKEnabled", AimIKEnabled
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbIKEnabled", LimbIKEnabled));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainIKEnabled", ChainIKEnabled));
 
+}
+
+static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
+{
 // InstancePortalComponent
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", TargetZoneID));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "InstanceType", InstanceType));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers));
 
-}
-
-static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
-{
 // InstancedMeshComponent
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "Primitive", Primitive));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic));

@@ -8190,6 +8190,19 @@ namespace OloEngine
             request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
             request.Build.GuidesOnly = groomComponent.m_GuidesOnly;
 
+            // The fibre material, if this groom has one (#1247). Its ABSENCE is
+            // the #1246 behaviour — a neutral root-to-tip ramp — so a scene
+            // authored before the material existed renders exactly as it did.
+            if (const auto* fibre = m_Registry.try_get<GroomFibreComponent>(entity);
+                fibre != nullptr && fibre->m_Enabled)
+            {
+                request.Lit = true;
+                request.Fibre = MakeGroomFibreParams(MakeGroomFibreAuthoring(*fibre));
+                request.FibreDebug = IsValidGroomFibreDebugMode(static_cast<i32>(fibre->m_DebugMode))
+                                         ? static_cast<GroomFibreDebugMode>(fibre->m_DebugMode)
+                                         : GroomFibreDebugMode::Full;
+            }
+
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
             groomRequests.push_back(std::move(request));

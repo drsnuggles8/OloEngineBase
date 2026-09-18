@@ -1416,6 +1416,28 @@ namespace OloEngine
             glm::vec4 RampWidth{ 0.0f };   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
             glm::ivec4 ModeFrame{ 0 };     // x = GroomCompositionMode, y = frame index, z = stochastic seed
 
+            // ── Fibre scattering (#1247) ─────────────────────────────
+            //
+            // The DERIVED GroomFibreParams, not the authored fields. Deriving
+            // them in the shader instead would put a pow, a sin and a
+            // logarithm per fragment between the two sides of a twin whose
+            // whole contract is that they agree on VALUES — and would pay for
+            // it once per fragment rather than once per groom.
+            //
+            // Appended here rather than given a UBO of their own because the
+            // engine has one buffer binding left below UBO_BINDING_LIMIT and
+            // this is not what it should be spent on: the strand pass already
+            // owns UBO_USER_0 and refills it per draw.
+            glm::vec4 FibreSigmaEta{ 0.0f, 0.0f, 0.0f, 1.55f }; // rgb = sigma_a, w = eta
+            glm::vec4 FibreLobe{ 0.0f };                        // x = V[0], y = azimuthal scale, z = intensity, w unused
+            glm::vec4 FibreSinAlpha{ 0.0f };                    // xyz = sin(2^k alpha), w unused
+            glm::vec4 FibreCosAlpha{ 1.0f, 1.0f, 1.0f, 0.0f };  // xyz = cos(2^k alpha), w unused
+            // x = lit at all (0 renders #1246's neutral ramp), y = h-quadrature
+            // order, z = GroomFibreDebugMode, w unused. Int lanes because all
+            // three are compared against integer constants; a float lane would
+            // make an exact comparison a rounding question.
+            glm::ivec4 FibreModes{ 0, 4, 0, 0 };
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1424,8 +1446,13 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        static_assert(sizeof(GroomStrandParamsUBO) == 208,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (208 B)");
+        // 288 B: 208 through #1246's lanes, plus the five vec4/ivec4 lanes
+        // #1247's fibre material added. Every lane is vec4-sized, so the
+        // std140 layout is the C++ layout and the number is a plain sum —
+        // which is what makes this assertion able to catch a lane added to one
+        // side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 288,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (288 B)");
 
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the

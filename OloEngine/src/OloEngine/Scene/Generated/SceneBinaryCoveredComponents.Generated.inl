@@ -31,6 +31,7 @@ ids.insert(entt::type_hash<FoliageInteractionComponent>::value());
 ids.insert(entt::type_hash<FootIKComponent>::value());
 ids.insert(entt::type_hash<GroomBindingComponent>::value());
 ids.insert(entt::type_hash<GroomComponent>::value());
+ids.insert(entt::type_hash<GroomFibreComponent>::value());
 ids.insert(entt::type_hash<InstancePortalComponent>::value());
 ids.insert(entt::type_hash<LocalizedTextComponent>::value());
 ids.insert(entt::type_hash<LocomotionComponent>::value());

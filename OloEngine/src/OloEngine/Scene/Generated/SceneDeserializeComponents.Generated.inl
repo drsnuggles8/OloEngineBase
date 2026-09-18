@@ -554,6 +554,35 @@ if (auto node = entity["GroomComponent"]; node)
         comp.m_CompositionMode = v;
 }
 
+if (auto node = entity["GroomFibreComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomFibreComponent>();
+    comp.m_BaseColor = node["BaseColor"].as<glm::vec3>(comp.m_BaseColor);
+    comp.m_BaseColor = glm::clamp(comp.m_BaseColor, glm::vec3(0.0f), glm::vec3(1.0f));
+    comp.m_Absorption = node["Absorption"].as<glm::vec3>(comp.m_Absorption);
+    comp.m_Absorption = glm::clamp(comp.m_Absorption, glm::vec3(0.0f), glm::vec3(32.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Eumelanin"], v))
+        comp.m_Eumelanin = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Pheomelanin"], v))
+        comp.m_Pheomelanin = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LongitudinalRoughness"], v))
+        comp.m_LongitudinalRoughness = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["AzimuthalRoughness"], v))
+        comp.m_AzimuthalRoughness = std::clamp(v, static_cast<f32>(0.01f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TiltDegrees"], v))
+        comp.m_TiltDegrees = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(15.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["IndexOfRefraction"], v))
+        comp.m_IndexOfRefraction = std::clamp(v, static_cast<f32>(1.01f), static_cast<f32>(3.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Intensity"], v))
+        comp.m_Intensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(64.0f));
+    comp.m_HSamples = std::clamp(node["HSamples"].as<u32>(comp.m_HSamples), static_cast<u32>(1), static_cast<u32>(32));
+    if (const decltype(comp.m_PigmentMode) v = node["PigmentMode"].as<decltype(comp.m_PigmentMode)>(comp.m_PigmentMode); v >= static_cast<decltype(comp.m_PigmentMode)>(0) && v <= static_cast<decltype(comp.m_PigmentMode)>(2))
+        comp.m_PigmentMode = v;
+    if (const decltype(comp.m_DebugMode) v = node["DebugMode"].as<decltype(comp.m_DebugMode)>(comp.m_DebugMode); v >= static_cast<decltype(comp.m_DebugMode)>(0) && v <= static_cast<decltype(comp.m_DebugMode)>(5))
+        comp.m_DebugMode = v;
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

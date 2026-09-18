@@ -412,6 +412,25 @@ if (entity.HasComponent<GroomComponent>())
     SceneBinIO::Write(out, comp.m_CompositionMode);
 }
 
+if (entity.HasComponent<GroomFibreComponent>())
+{
+    SceneBinIO::WriteU32(out, 2500729774u); // GroomFibreComponent
+    auto const& comp = entity.GetComponent<GroomFibreComponent>();
+    SceneBinIO::Write(out, comp.m_BaseColor);
+    SceneBinIO::Write(out, comp.m_Absorption);
+    SceneBinIO::Write(out, comp.m_Eumelanin);
+    SceneBinIO::Write(out, comp.m_Pheomelanin);
+    SceneBinIO::Write(out, comp.m_LongitudinalRoughness);
+    SceneBinIO::Write(out, comp.m_AzimuthalRoughness);
+    SceneBinIO::Write(out, comp.m_TiltDegrees);
+    SceneBinIO::Write(out, comp.m_IndexOfRefraction);
+    SceneBinIO::Write(out, comp.m_Intensity);
+    SceneBinIO::Write(out, comp.m_HSamples);
+    SceneBinIO::Write(out, comp.m_PigmentMode);
+    SceneBinIO::Write(out, comp.m_DebugMode);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent
