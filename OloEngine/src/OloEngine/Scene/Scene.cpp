@@ -8017,32 +8017,12 @@ namespace OloEngine
         }
 
         // Identity of the skeleton behind a surface, for
-        // GroomBindingTargetSignature::SkeletonNameHash.
-        //
-        // The BONE NAMES rather than the pointer, because the check has to
-        // survive a reload: the same rig loaded twice is two Skeleton objects
-        // and one rig, and keying on the address would refuse every binding
-        // after the first asset reload. Names in order, so a re-rig that merely
-        // reorders bones is still a change — which it is, because the palette
-        // the runtime indexes is ordered.
+        // GroomBindingTargetSignature::SkeletonNameHash. Forwards to the one
+        // implementation (GroomSurfaceFrame.h) so the runtime and the editor
+        // cannot drift by a byte.
         [[nodiscard]] u64 HashSkeletonIdentity(const Skeleton* skeleton)
         {
-            if (skeleton == nullptr)
-            {
-                return 0;
-            }
-            u64 hash = 1469598103934665603ull;
-            for (const auto& name : skeleton->m_BoneNames)
-            {
-                for (const char c : name)
-                {
-                    hash ^= static_cast<u64>(static_cast<unsigned char>(c));
-                    hash *= 1099511628211ull;
-                }
-                hash ^= 0xFFull; // a separator, so {"ab","c"} and {"a","bc"} differ
-                hash *= 1099511628211ull;
-            }
-            return hash;
+            return skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
         }
 
         // The surface as the binder and the deformation both see it.
@@ -8388,6 +8368,13 @@ namespace OloEngine
         GroomDeformationInputs inputs;
         inputs.Surface = view;
         inputs.Skinning = MakeGroomSkinningView(*surface, skeleton);
+        // The body and the coat are two entities with two transforms, and the
+        // binding is expressed in the GROOM's object space — see
+        // GroomBindingBuildSettings::SurfaceToGroom. Re-evaluated every frame
+        // rather than stored, so a groom re-parented or re-scaled relative to
+        // its body keeps following it.
+        inputs.SurfaceToGroom =
+            MakeGroomSurfaceToGroomMatrix(GetWorldTransform(groomEntity), GetWorldTransform(targetEntity));
         inputs.HasHistory = hasHistory;
 
         request.DeformationStats = EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,

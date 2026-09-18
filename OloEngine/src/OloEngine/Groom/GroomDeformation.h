@@ -181,6 +181,17 @@ namespace OloEngine
         GroomSurfaceView Surface{};
         GroomSkinningView Skinning{};
 
+        /// Maps the TARGET's object space into the GROOM's — the same matrix
+        /// GroomBindingBuildSettings::SurfaceToGroom carried at bind time, and
+        /// re-evaluated every frame rather than stored, so a groom re-parented
+        /// or re-scaled relative to its body keeps following it.
+        ///
+        /// The skinning happens in the BODY's space, because that is the space
+        /// its bone palette is in; the frame is then expressed in the groom's,
+        /// because that is the space the strand's own points are in and the
+        /// space the renderer will apply the groom's world matrix to.
+        glm::mat4 SurfaceToGroom{ 1.0f };
+
         /// False when the caller has already decided this frame's previous
         /// positions are not comparable (a teleport, an LOD switch, the first
         /// frame). The evaluation then writes prev == current, so the frame

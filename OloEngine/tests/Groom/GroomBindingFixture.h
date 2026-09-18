@@ -177,8 +177,12 @@ namespace OloEngine::GroomBindingTest
     /// A groom of `count` straight strands, each `pointsPerCurve` points tall,
     /// rooted ON the grid at evenly spaced positions along its diagonal and
     /// rising along +Y.
+    /// `footprint` scales where the roots sit in X/Z without touching the strand
+    /// height, so a coat can be authored over a body that is SCALED relative to
+    /// it — the case GroomStrandCoat.olo has and the binder has to handle (see
+    /// GroomBindingBuildSettings::SurfaceToGroom).
     [[nodiscard]] inline Ref<GroomAsset> MakeCoat(u32 count, u32 pointsPerCurve = 4u, f32 height = 0.1f,
-                                                  f32 rootOffsetY = 0.0f)
+                                                  f32 rootOffsetY = 0.0f, f32 footprint = 1.0f)
     {
         GroomBuilder builder;
         std::string reason;
@@ -194,7 +198,8 @@ namespace OloEngine::GroomBindingTest
             // exactly on the grid's outer edge — an edge root is a legitimate
             // case but it is the CLAMPED one, and the baseline fixture should
             // produce Exact roots so a test that cares can say so.
-            const f32 t = count > 1u ? (0.1f + 0.8f * static_cast<f32>(c) / static_cast<f32>(count - 1u)) : 0.5f;
+            const f32 spread = count > 1u ? (0.1f + 0.8f * static_cast<f32>(c) / static_cast<f32>(count - 1u)) : 0.5f;
+            const f32 t = spread * footprint;
             for (u32 p = 0; p < pointsPerCurve; ++p)
             {
                 const f32 up = height * static_cast<f32>(p) / static_cast<f32>(pointsPerCurve - 1u);
@@ -203,7 +208,7 @@ namespace OloEngine::GroomBindingTest
             GroomCurveInput input;
             input.Points = points;
             input.Widths = widths;
-            input.RootUV = { t, t };
+            input.RootUV = { spread, spread };
             input.GroupId = group;
             input.IsGuide = (c % 4u) == 0u;
             EXPECT_TRUE(builder.AddCurve(input, reason)) << reason;

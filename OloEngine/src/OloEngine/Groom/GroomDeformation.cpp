@@ -128,6 +128,9 @@ namespace OloEngine
         }
 
         const bool skinned = inputs.Skinning.IsSkinned();
+        // Hoisted: one matrix for every root, and the identity case still pays
+        // three multiplies rather than a branch per corner.
+        const glm::mat4& surfaceToGroom = inputs.SurfaceToGroom;
         // Previous positions come from the previous POSE, and they are only
         // meaningful if there is one. Both gates matter: the caller's own
         // decision (a teleport it detected) and the skeleton's
@@ -165,8 +168,13 @@ namespace OloEngine
                 stats.VerticesUnweighted += weighted ? 0u : 1u;
             }
 
+            // Into the groom's object space before the frame is built, so
+            // the frame composes directly with the strand's own points.
             const GroomSurfaceFrame frame =
-                MakeGroomSurfaceFrame(current0, current1, current2, record.Barycentric);
+                MakeGroomSurfaceFrame(glm::vec3(surfaceToGroom * glm::vec4(current0, 1.0f)),
+                                      glm::vec3(surfaceToGroom * glm::vec4(current1, 1.0f)),
+                                      glm::vec3(surfaceToGroom * glm::vec4(current2, 1.0f)),
+                                      record.Barycentric);
             if (!frame.Valid)
             {
                 // Held at rest, and counted. See GroomRootTransform on why the
@@ -196,7 +204,10 @@ namespace OloEngine
                 const glm::vec3 previous2 =
                     SkinGroomSurfaceVertex(inputs.Skinning, corners.z, rest2, inputs.Skinning.PrevPalette, weighted);
                 const GroomSurfaceFrame previousFrame =
-                    MakeGroomSurfaceFrame(previous0, previous1, previous2, record.Barycentric);
+                    MakeGroomSurfaceFrame(glm::vec3(surfaceToGroom * glm::vec4(previous0, 1.0f)),
+                                          glm::vec3(surfaceToGroom * glm::vec4(previous1, 1.0f)),
+                                          glm::vec3(surfaceToGroom * glm::vec4(previous2, 1.0f)),
+                                          record.Barycentric);
                 if (previousFrame.Valid)
                 {
                     transform.PrevOrigin = previousFrame.Origin;

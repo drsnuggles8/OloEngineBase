@@ -36,6 +36,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <span>
+#include <string>
 
 namespace OloEngine
 {
@@ -111,6 +113,66 @@ namespace OloEngine
             return corners.x < VertexCount && corners.y < VertexCount && corners.z < VertexCount;
         }
     };
+
+    /**
+     * @brief The identity of the rig behind a surface, from its bone names.
+     *
+     * The NAMES rather than the Skeleton's address, because the check has to
+     * survive a reload: the same rig loaded twice is two Skeleton objects and
+     * one rig, and keying on the pointer would refuse every binding after the
+     * first asset reload. In order, with a separator, so a re-rig that merely
+     * reorders bones is still a change — which it is, because the palette the
+     * runtime indexes is ordered.
+     *
+     * Takes the NAMES and not a Skeleton so this header stays free of the
+     * Animation subsystem; it lives here because the binder, the runtime and
+     * the editor must all produce the same number, and three copies of an FNV
+     * loop is three chances for one of them to drift by a separator byte — at
+     * which point the editor says a binding attaches and the renderer refuses
+     * it, with no other symptom.
+     */
+    [[nodiscard]] inline u64 HashGroomSkeletonNames(std::span<const std::string> boneNames) noexcept
+    {
+        u64 hash = 1469598103934665603ull;
+        for (const auto& name : boneNames)
+        {
+            for (const char c : name)
+            {
+                hash ^= static_cast<u64>(static_cast<unsigned char>(c));
+                hash *= 1099511628211ull;
+            }
+            hash ^= 0xFFull; // a separator, so {"ab","c"} and {"a","bc"} differ
+            hash *= 1099511628211ull;
+        }
+        return hash;
+    }
+
+    /**
+     * @brief The matrix that takes a body's object space into its groom's.
+     *
+     * A groom and the body it grows on are two entities with two transforms,
+     * and assuming they share one is wrong in the very first scene that has
+     * both: Scenes/GroomStrandCoat.olo authors its body sphere at scale 0.088
+     * and its coat at scale 1, because the groom asset is already at world
+     * size. Bound in the body's object space, every root of that coat would sit
+     * at a tenth of the sphere's radius.
+     *
+     * A degenerate groom transform — a zero scale on some axis — has no
+     * inverse, and glm::inverse of a singular matrix returns infinities rather
+     * than failing. Identity is the honest fallback: the coat then binds as
+     * though the two shared a space, which is wrong in a way somebody can see,
+     * rather than NaN in a way that poisons the groom's bounds.
+     */
+    [[nodiscard]] inline glm::mat4 MakeGroomSurfaceToGroomMatrix(const glm::mat4& groomWorld,
+                                                                 const glm::mat4& targetWorld) noexcept
+    {
+        const f32 determinant = glm::determinant(groomWorld);
+        if (!std::isfinite(determinant) || std::fabs(determinant) < 1.0e-12f)
+        {
+            return glm::mat4(1.0f);
+        }
+        return glm::inverse(groomWorld) * targetWorld;
+    }
 
     /**
      * @brief A triangle's orthonormal frame at a point on it.

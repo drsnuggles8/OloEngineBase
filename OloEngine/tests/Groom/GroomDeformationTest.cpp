@@ -496,6 +496,105 @@ TEST(GroomDeformation, ASkeletonWithNoBoneHistoryEmitsZeroMotionEvenWhenTheCalle
     }
 }
 
+// ── The groom and the body are two entities with two transforms ────────
+
+TEST(GroomDeformation, ABodyScaledRelativeToItsGroomStillBindsAndDeformsCorrectly)
+{
+    // The case the FIRST version of this feature got wrong, and it is not
+    // exotic: Scenes/GroomStrandCoat.olo authors its body sphere at scale 0.088
+    // and its coat at scale 1, because the groom asset is already at world size.
+    // Bound in the body's object space, every root of that coat sat at a tenth
+    // of the sphere's radius and bound Distant to whatever triangle faced the
+    // origin -- a coat visibly detached from the body it grows on.
+    //
+    // Here the body is a grid HALF the size the coat is authored against, so an
+    // implementation that ignores the relative transform cannot pass: the roots
+    // would miss the surface by half the grid.
+    // The transform has a TRANSLATION as well as a scale, and the translation is
+    // what makes this test discriminate. A scale alone moves a plane through the
+    // origin nowhere, so a binder that ignored the transform entirely would
+    // still find the roots sitting on it and this test would pass while the bug
+    // was present -- which is what its first version did. Verified the other way
+    // too, by forcing SurfaceToGroom to identity: max rest distance becomes 0.35
+    // (exactly the lift), every root is Distant, and the coat stops moving.
+    constexpr f32 kBodyScale = 0.5f;
+    constexpr f32 kBodyLift = 0.35f;
+    GridSurface grid = MakeGrid(8u);
+    WeightAsHinge(grid, 0.5f);
+
+    // The body's own object space is the unit grid at y = 0. Its world transform
+    // lifts it to y = kBodyLift and halves it, so in the GROOM's space it spans
+    // [0, 0.5] x [0, 0.5] at y = 0.35 -- and the coat is authored there, which
+    // is what an artist fitting a groom to a placed character produces.
+    Ref<GroomAsset> groom = MakeCoat(24u, 4u, 0.05f, kBodyLift, kBodyScale);
+    ASSERT_TRUE(groom);
+
+    // groomWorld = identity, targetWorld = translate(kBodyLift) * scale(kBodyScale).
+    const glm::mat4 targetWorld = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, kBodyLift, 0.0f)),
+                                             glm::vec3(kBodyScale));
+    const glm::mat4 surfaceToGroom = MakeGroomSurfaceToGroomMatrix(glm::mat4(1.0f), targetWorld);
+
+    // The bug this pins, stated as a number: ignoring the transform puts the
+    // body at y = 0 while the roots are at y = 0.35, which is past the default
+    // search radius, so every root would be Distant.
+    ASSERT_GT(kBodyLift, GroomBindingBuildSettings{}.SearchRadius);
+
+    GroomBindingBuildSettings settings;
+    settings.SurfaceToGroom = surfaceToGroom;
+
+    Ref<GroomBindingAsset> binding;
+    GroomBindingBuildStats stats;
+    std::string reason;
+    ASSERT_TRUE(GroomBindingBuilder::Build(*groom, grid.View(2u), "ScaledBody", settings, binding, stats, reason))
+        << reason;
+
+    // THE ASSERTION THAT WOULD HAVE CAUGHT THE BUG: with the transform honoured
+    // the roots sit ON the surface; without it they would be half a grid away
+    // and every one of them Distant.
+    EXPECT_EQ(stats.RootsDistant, 0u) << "the roots missed the scaled body entirely";
+    EXPECT_LT(stats.MaxRestDistance, 1.0e-3f)
+        << "the roots are " << stats.MaxRestDistance << " from a surface they are authored to sit on";
+
+    // ...and it deforms: bending the scaled body carries the coat.
+    const auto rest = RestPalette();
+    const auto bent = BentPalette(50.0f);
+
+    GroomDeformationInputs restInputs;
+    restInputs.Surface = grid.View(2u);
+    restInputs.Skinning = grid.Skinning(rest, rest, true);
+    restInputs.SurfaceToGroom = surfaceToGroom;
+    restInputs.HasHistory = true;
+    std::vector<GroomRootTransform> restTransforms;
+    (void)EvaluateGroomRootTransforms(*groom, *binding, restInputs, {}, restTransforms);
+
+    GroomDeformationInputs bentInputs = restInputs;
+    bentInputs.Skinning = grid.Skinning(bent, bent, true);
+    std::vector<GroomRootTransform> bentTransforms;
+    const GroomDeformationStats bentStats =
+        EvaluateGroomRootTransforms(*groom, *binding, bentInputs, {}, bentTransforms);
+    EXPECT_EQ(bentStats.RootsDeformed, groom->GetCurveCount());
+
+    const auto restPoints = DeformAllPoints(*groom, *binding, restTransforms);
+    const auto bentPoints = DeformAllPoints(*groom, *binding, bentTransforms);
+
+    f32 maxMove = 0.0f;
+    for (sizet i = 0; i < restPoints.size(); ++i)
+    {
+        maxMove = std::max(maxMove, glm::length(bentPoints[i] - restPoints[i]));
+    }
+    EXPECT_GT(maxMove, 0.01f) << "the coat did not follow the scaled body";
+
+    // ...without collapsing. The scale is in the SPACE conversion, not in the
+    // strand: a rigid transfer preserves the authored length whatever the body
+    // is scaled by, and a conversion applied twice would shrink every strand.
+    const auto& authored = groom->GetPoints();
+    for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+    {
+        EXPECT_NEAR(CurveLength(*groom, curve, bentPoints) / CurveLength(*groom, curve, authored), 1.0f, 1.0e-3f)
+            << "curve " << curve;
+    }
+}
+
 // ── Refusals, counted rather than silent ────────────────────────────────────
 
 TEST(GroomDeformation, ADegenerateTriangleHoldsItsStrandsAtRestAndIsCounted)

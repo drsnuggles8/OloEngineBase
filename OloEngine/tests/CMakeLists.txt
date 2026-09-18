@@ -954,6 +954,11 @@ add_executable(OloEngine-Tests
 		# with a real Project + EditorAssetManager is what proves one Ctrl-Z takes
 		# the prefab, the file and every re-synced instance back together.
 		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationPrefabCommands.cpp
+		# Groom binding authoring (#1249): olo_groom_bind and the shared bind
+		# implementation the inspector's Build Binding button also uses. Listed
+		# here because the test target links McpTools.cpp, which registers it.
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationGroomCommands.cpp
+		${CMAKE_SOURCE_DIR}/OloEditor/src/Groom/GroomBindingAuthoring.cpp
 		# Structured build invocation (issue #1163). RegisterBuiltinCommands
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.

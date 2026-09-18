@@ -25,6 +25,7 @@
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "Groom/GroomBindingAuthoring.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
@@ -487,188 +488,36 @@ namespace OloEngine
 
     // ── Groom surface binding helpers (issue #1249) ─────────────────
     //
-    // The body a groom binding targets, resolved EXACTLY as Scene resolves it:
-    // the animated surface the deformation pass writes (not MeshComponent's raw
-    // source, which is a different mesh on an LOD-grouped body) and the skeleton
-    // from the SkeletonComponent before the MeshSource's.
-    //
-    // Getting this wrong is the worst combination this feature can produce, and
-    // it is what the first version of this panel did: it validated and cooked
-    // against MeshComponent::m_MeshSource while the runtime validated against
-    // the LOD surface, so an LOD-grouped character showed a green "Attaches"
-    // next to a coat the renderer was refusing. One resolver, asked by both.
-    struct EditorGroomTarget
-    {
-        Ref<MeshSource> m_Surface;
-        const Skeleton* m_Skeleton = nullptr;
-    };
-
-    [[nodiscard]] static EditorGroomTarget ResolveEditorGroomTarget(Entity targetEntity)
-    {
-        EditorGroomTarget target;
-        if (!targetEntity || !targetEntity.HasComponent<MeshComponent>())
-        {
-            return target;
-        }
-        const auto* lodGroup = targetEntity.HasComponent<LODGroupComponent>()
-                                   ? &targetEntity.GetComponent<LODGroupComponent>()
-                                   : nullptr;
-        target.m_Surface = Scene::ResolveAnimatedSurface(lodGroup, targetEntity.GetComponent<MeshComponent>());
-        target.m_Skeleton = Scene::ResolveSurfaceSkeleton(targetEntity.HasComponent<SkeletonComponent>()
-                                                              ? &targetEntity.GetComponent<SkeletonComponent>()
-                                                              : nullptr,
-                                                          target.m_Surface);
-        return target;
-    }
-
-    [[nodiscard]] static GroomSurfaceView MakeEditorGroomSurfaceView(const MeshSource& surface,
-                                                                     const Skeleton* skeleton)
-    {
-        GroomSurfaceView view;
-        const auto& vertices = surface.GetVertices();
-        const auto& indices = surface.GetIndices();
-        if (vertices.IsEmpty() || indices.IsEmpty())
-        {
-            return view;
-        }
-
-        view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-        view.PositionStride = static_cast<u32>(sizeof(Vertex));
-        view.VertexCount = static_cast<u32>(vertices.Num());
-        view.Indices = indices.GetData();
-        view.IndexCount = static_cast<u32>(indices.Num());
-        view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-        view.SkeletonNameHash = 0;
-        if (skeleton != nullptr)
-        {
-            u64 hash = 1469598103934665603ull;
-            for (const auto& name : skeleton->m_BoneNames)
-            {
-                for (const char c : name)
-                {
-                    hash ^= static_cast<u64>(static_cast<unsigned char>(c));
-                    hash *= 1099511628211ull;
-                }
-                hash ^= 0xFFull;
-                hash *= 1099511628211ull;
-            }
-            view.SkeletonNameHash = hash;
-        }
-        return view;
-    }
-
     void SceneHierarchyPanel::BuildGroomBinding(Entity entity, GroomBindingComponent& component)
     {
-        if (!m_Context || !entity.HasComponent<GroomComponent>())
+        if (!m_Context)
         {
             return;
         }
-
-        const auto& groomComponent = entity.GetComponent<GroomComponent>();
-        Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom);
-        if (!groom)
-        {
-            OLO_ERROR("Build binding: this entity's Groom component has no loaded groom asset.");
-            return;
-        }
-
         Entity targetEntity =
             component.m_TargetEntity != 0 ? m_Context->GetEntityByUUID(component.m_TargetEntity) : entity;
-        const EditorGroomTarget target = ResolveEditorGroomTarget(targetEntity);
-        if (!target.m_Surface)
+
+        // One implementation, shared with olo_groom_bind. A second bind path
+        // that differed by the search radius, the output directory or which
+        // space the roots were projected in would be the same class of bug this
+        // feature exists to prevent, wearing different clothes.
+        const auto outcome =
+            GroomAuthoring::BuildAndImportBinding(*m_Context, entity, targetEntity, m_GroomBindSearchRadius);
+        if (!outcome.m_Ok)
         {
-            OLO_ERROR("Build binding: the target entity has no mesh to bind to, or its source is not loaded.");
+            OLO_ERROR("Build binding failed: {}", outcome.m_Reason);
             return;
         }
-
-        const GroomSurfaceView view = MakeEditorGroomSurfaceView(*target.m_Surface, target.m_Skeleton);
-        if (!view.IsUsable())
-        {
-            OLO_ERROR("Build binding: the target mesh has {} vertices and {} indices, which is not a surface.",
-                      view.VertexCount, view.IndexCount);
-            return;
-        }
-
-        GroomBindingBuildSettings settings;
-        settings.SearchRadius = m_GroomBindSearchRadius;
-
-        // The target's own name is what the file records as its source. Not a
-        // path: a MeshSource reached through a MeshComponent may have been
-        // built at runtime and have no file at all, and recording an absolute
-        // one would make two machines cook different bytes.
-        const std::string targetSourceName = targetEntity.GetName();
-
-        std::vector<u8> bytes;
-        Ref<GroomBindingAsset> binding;
-        GroomBindingBuildStats stats;
-        std::string reason;
-        if (!GroomBindingCooker::CookPair(*groom, view, targetSourceName, settings, bytes, binding, stats, reason))
-        {
-            OLO_ERROR("Build binding failed: {}", reason);
-            return;
-        }
-
-        // Written NEXT TO THE GROOM rather than into a bindings folder, so the
-        // pair travels together in the content browser and a binding orphaned
-        // by a deleted groom is visible rather than filed away.
-        auto assetManager = Project::GetAssetManager().As<EditorAssetManager>();
-        if (!assetManager)
-        {
-            OLO_ERROR("Build binding: no editor asset manager, so the cooked binding has nowhere to go.");
-            return;
-        }
-
-        std::filesystem::path relativeDirectory = "Grooms";
-        if (const auto& metadata = assetManager->GetMetadata(groomComponent.m_Groom);
-            metadata.Handle != 0 && metadata.FilePath.has_parent_path())
-        {
-            relativeDirectory = metadata.FilePath.parent_path();
-        }
-        const std::string stem =
-            (groom->GetName().empty() ? std::string("groom") : groom->GetName()) + "-" +
-            (targetSourceName.empty() ? std::string("body") : targetSourceName);
-        const std::filesystem::path relativePath = relativeDirectory / (stem + ".ologroombinding");
-        const std::filesystem::path absolutePath = Project::GetProjectDirectory() / relativePath;
-
-        {
-            std::error_code ec;
-            std::filesystem::create_directories(absolutePath.parent_path(), ec);
-            if (ec)
-            {
-                OLO_ERROR("Build binding: could not create '{}': {}", absolutePath.parent_path().string(),
-                          ec.message());
-                return;
-            }
-            std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
-            if (!out.is_open())
-            {
-                OLO_ERROR("Build binding: could not open '{}' for writing", absolutePath.string());
-                return;
-            }
-            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (out.fail())
-            {
-                OLO_ERROR("Build binding: failed while writing '{}'", absolutePath.string());
-                return;
-            }
-        }
-
-        const AssetHandle handle = assetManager->ImportAsset(relativePath);
-        if (handle == 0)
-        {
-            OLO_ERROR("Build binding: wrote '{}' but the asset manager refused to import it",
-                      relativePath.string());
-            return;
-        }
-        component.m_Binding = handle;
+        component.m_Binding = outcome.m_Binding;
 
         // Reported at INFO with the numbers, not silently: "it bound" is not a
         // result, and the Distant count is the one that says the groom went on
         // the wrong body.
         OLO_INFO("Built groom binding '{}': {} roots ({} exact / {} clamped / {} distant), max rest distance {:.4f}, "
                  "mean {:.4f}, {} on degenerate triangles",
-                 relativePath.string(), stats.RootsBound, stats.RootsExact, stats.RootsClamped, stats.RootsDistant,
-                 stats.MaxRestDistance, stats.MeanRestDistance, stats.RootsOnDegenerateTriangles);
+                 outcome.m_RelativePath.generic_string(), outcome.m_Stats.RootsBound, outcome.m_Stats.RootsExact,
+                 outcome.m_Stats.RootsClamped, outcome.m_Stats.RootsDistant, outcome.m_Stats.MaxRestDistance,
+                 outcome.m_Stats.MeanRestDistance, outcome.m_Stats.RootsOnDegenerateTriangles);
     }
 
     bool SceneHierarchyPanel::IsEntitySelected(Entity entity) const
@@ -8665,11 +8514,10 @@ namespace OloEngine
                     if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom))
                     {
                         GroomBindingRejectReason reason = GroomBindingRejectReason::NoTarget;
-                        if (const EditorGroomTarget target = ResolveEditorGroomTarget(targetEntity);
-                            target.m_Surface)
+                        if (const auto target = GroomAuthoring::ResolveTarget(targetEntity); target)
                         {
                             const GroomSurfaceView view =
-                                MakeEditorGroomSurfaceView(*target.m_Surface, target.m_Skeleton);
+                                GroomAuthoring::MakeSurfaceView(*target.m_Surface, target.m_Skeleton);
                             reason = view.IsUsable()
                                          ? binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*groom),
                                                                        GroomBindingBuilder::SignTarget(view))

@@ -459,13 +459,37 @@ namespace OloEngine
             return false;
         }
 
-        const TriangleGrid grid = BuildTriangleGrid(target, settings.GridResolution);
+        // The surface, brought into the GROOM's object space once, into a
+        // scratch array — rather than transforming three corners inside the
+        // search's hot loop, which would pay for it per candidate triangle
+        // rather than per vertex.
+        //
+        // Identity is the common case and costs a copy of the positions; that
+        // is a build-time cost measured in milliseconds, and branching around it
+        // would mean two code paths through the binder for one of which no test
+        // would ever fail.
+        std::vector<glm::vec3> groomSpacePositions;
+        groomSpacePositions.reserve(target.VertexCount);
+        for (u32 vertex = 0; vertex < target.VertexCount; ++vertex)
+        {
+            groomSpacePositions.push_back(
+                glm::vec3(settings.SurfaceToGroom * glm::vec4(target.Position(vertex), 1.0f)));
+        }
+
+        GroomSurfaceView bindView = target;
+        bindView.PositionData = reinterpret_cast<const std::byte*>(groomSpacePositions.data());
+        bindView.PositionStride = static_cast<u32>(sizeof(glm::vec3));
+
+        const TriangleGrid grid = BuildTriangleGrid(bindView, settings.GridResolution);
         const f32 searchRadiusSquared = settings.SearchRadius * settings.SearchRadius;
 
         auto binding = Ref<GroomBindingAsset>::Create();
         binding->m_Roots.resize(curveCount);
         binding->m_BinderVersion = kGroomBinderVersion;
         binding->m_Source = SignGroom(groom);
+        // Signed from the ORIGINAL view, never the transformed one: a signature
+        // is the identity of the MESH, and folding the placement into it would
+        // refuse a perfectly good binding the moment someone nudged the body.
         binding->m_Target = SignTarget(target);
 
         const auto& points = groom.GetPoints();
@@ -502,7 +526,7 @@ namespace OloEngine
                 return false;
             }
 
-            const ClosestTriangle closest = FindClosestTriangle(target, grid, root);
+            const ClosestTriangle closest = FindClosestTriangle(bindView, grid, root);
             if (!closest.Found)
             {
                 outReason = std::format("curve {} found no triangle on a target with {} of them", curve,
@@ -510,9 +534,9 @@ namespace OloEngine
                 return false;
             }
 
-            const glm::uvec3 corners = target.TriangleIndices(closest.Triangle);
+            const glm::uvec3 corners = bindView.TriangleIndices(closest.Triangle);
             const GroomSurfaceFrame frame = MakeGroomSurfaceFrame(
-                target.Position(corners.x), target.Position(corners.y), target.Position(corners.z),
+                bindView.Position(corners.x), bindView.Position(corners.y), bindView.Position(corners.z),
                 closest.Barycentric);
 
             const f32 distance = std::sqrt(std::max(closest.DistanceSquared, 0.0f));

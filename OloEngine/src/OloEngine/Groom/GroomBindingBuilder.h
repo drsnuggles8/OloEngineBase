@@ -65,6 +65,28 @@ namespace OloEngine
         /// triangle index rather than on visit order.
         u32 GridResolution = 32;
 
+        /// Maps the TARGET's object space into the GROOM's.
+        ///
+        /// A groom and the body it grows on are two entities with two
+        /// transforms, and assuming they share one is wrong in the very first
+        /// scene that has both: Scenes/GroomStrandCoat.olo authors its body
+        /// sphere at scale 0.088 and its coat at scale 1, because the groom
+        /// asset is already at world size. Bound in the body's object space,
+        /// every root of that coat would sit at a tenth of the sphere's radius
+        /// and bind Distant to whatever triangle faced the origin.
+        ///
+        /// The GROOM's space is the common one, not the body's, for one
+        /// concrete reason: a strand's own points live there, so the local
+        /// offset `conjugate(RestRotation) * (P - RestOrigin)` needs no
+        /// conversion at all — and doing it in the body's space instead would
+        /// mean storing the bind-time relative transform in the file and
+        /// applying it to every point, every frame, forever.
+        ///
+        /// `inverse(groomWorld) * targetWorld`. Identity when the two entities
+        /// share a transform, which is the common authoring case and the reason
+        /// this was not noticed sooner.
+        glm::mat4 SurfaceToGroom{ 1.0f };
+
         [[nodiscard]] bool operator==(const GroomBindingBuildSettings&) const = default;
     };
 
