@@ -29,7 +29,7 @@
 #
 # CMake's own link rule only drives it that way for a GNU-frontend clang, though; under
 # clang-cl it runs lld-link directly and the flag must NOT be added to the link line at
-# all. See the `_olo_proc_stat_links` branch below — that difference is measured, and it
+# all. See the per-language loop below — that difference is measured, and it
 # is why the Linux builds (the ones whose caps are in question) get the link half and the
 # local Windows trees do not.
 #
@@ -139,10 +139,19 @@ endif()
 # needs it handed to the clang driver through the `/clang:` pass-through. Getting that
 # wrong is not a build failure — clang-cl would treat a bare `-fproc-stat-report=` as an
 # input filename and the records file would simply never appear.
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
+# CHECKED PER LANGUAGE, because the flag is applied per language below. This project
+# compiles C as well as C++ (vendored glad, lua, bc7enc, ...), and CMAKE_C_COMPILER and
+# CMAKE_CXX_COMPILER are separate cache entries that a toolchain file or a `-D` can point
+# at different compilers. Validating only the C++ id and then adding the flag to C
+# compilations too would hand an unsupported option to a non-clang C compiler and fail the
+# build — so each language is gated on its own id, and a mixed toolchain simply gets the
+# flag on whichever half is clang.
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$"
+   AND NOT CMAKE_C_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
     message(WARNING
-        "Per-invocation peak-RSS reporting was requested but it needs clang: "
-        "'${CMAKE_CXX_COMPILER_ID}' has no equivalent of -fproc-stat-report (issue #1305). "
+        "Per-invocation peak-RSS reporting was requested but it needs clang: neither the C "
+        "compiler ('${CMAKE_C_COMPILER_ID}') nor the C++ compiler "
+        "('${CMAKE_CXX_COMPILER_ID}') has an equivalent of -fproc-stat-report (issue #1305). "
         "Timing and host-memory instrumentation (if the generator supports it) is unaffected; "
         "only the per-TU memory ranking is unavailable. Configure a clang preset — dev-cached, "
         "clangcl, or a Linux preset — to get it.")
@@ -168,54 +177,102 @@ if(IS_ABSOLUTE "${OLO_PROC_STAT_FILE}")
         "against the build tool's working directory (CMAKE_BINARY_DIR) either way, so a relative "
         "path already gives this tree its own file.")
 endif()
-
-if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    set(_olo_proc_stat_flag "/clang:-fproc-stat-report=${OLO_PROC_STAT_FILE}")
-    # LINKS ARE NOT MEASURABLE UNDER clang-cl, and this is a property of CMake's link
-    # rule rather than of the flag. With a GNU-frontend clang, CMAKE_CXX_LINK_EXECUTABLE
-    # runs the COMPILER as the link driver, which spawns ld.lld as a subprocess — so the
-    # flag on the link line reports the linker's own peak RSS, which is exactly what
-    # issue #1305's step 2 wanted. Under clang-cl, CMake invokes `lld-link` DIRECTLY;
-    # there is no clang driver in the link step, so there is nothing to pass the option
-    # to and no subprocess to report on. `/clang:` is a clang-cl COMPILER option, so
-    # lld-link takes it as an input filename and the link fails outright:
-    #
-    #     lld-link: error: could not open '/clang:-fproc-stat-report=olo-proc-stat.csv'
-    #
-    # Said out loud rather than silently skipped, because "no link records on Windows"
-    # otherwise looks like a measurement that found links to be free.
-    set(_olo_proc_stat_links FALSE)
-else()
-    set(_olo_proc_stat_flag "-fproc-stat-report=${OLO_PROC_STAT_FILE}")
-    set(_olo_proc_stat_links TRUE)
+# A BASENAME, not just any relative path. clang would happily honour
+# `reports/rss.csv` (if the directory exists), but the analyser discovers records by
+# walking the build tree and comparing directory entries, which are basenames — so a
+# value with a directory component writes records the reader can never find, and the
+# only symptom is an empty ranking. Rejected here rather than half-supported.
+if(OLO_PROC_STAT_FILE MATCHES "[/\]")
+    message(FATAL_ERROR
+        "OLO_PROC_STAT_FILE must be a bare FILENAME with no directory component (got "
+        "'${OLO_PROC_STAT_FILE}'). The build tool's working directory already differs per "
+        "generator — Ninja runs from the top build dir, Unix Makefiles from each target's "
+        "subdirectory — so the records land in several places by design, and "
+        "scripts/analyze_proc_stat.py finds them by matching this basename while walking the "
+        "build tree. A path with a directory component would be written but never found.")
 endif()
 
-# Directory-scoped rather than per-target so it reaches every TU this project compiles,
-# including the in-tree vendor subdirectories — a heavy vendor TU is as much a candidate
-# for the peak as an engine one, and excluding it by construction would pre-judge the
-# ranking this exists to produce. FetchContent/vcpkg ports build outside these calls and
-# are out of reach regardless, the same blind spot #759's trace had.
-add_compile_options("${_olo_proc_stat_flag}")
+# BUILT PER LANGUAGE. The two clang spellings differ — a GNU-frontend clang/clang++ takes
+# the flag directly, while clang-cl parses MSVC-style options and needs it handed to the
+# clang driver through the `/clang:` pass-through — and C and C++ can be different
+# compilers with different frontends. Getting the spelling wrong is not a build failure:
+# clang-cl would treat a bare `-fproc-stat-report=` as an input filename and the records
+# file would simply never appear.
+#
+# LINKS ARE NOT MEASURABLE UNDER clang-cl, and that is a property of CMake's link rule
+# rather than of the flag. With a GNU-frontend clang, CMAKE_<LANG>_LINK_EXECUTABLE runs the
+# COMPILER as the link driver, which spawns ld.lld as a subprocess — so the flag on the link
+# line reports the linker's own peak RSS, which is exactly what issue #1305's step 2 wanted.
+# Under clang-cl, CMake invokes `lld-link` DIRECTLY; there is no clang driver in the link
+# step to take the option and no subprocess to report on, and `/clang:` is a COMPILER
+# option, so lld-link reads it as an input filename and the link fails outright:
+#
+#     lld-link: error: could not open '/clang:-fproc-stat-report=olo-proc-stat.csv'
+#
+# Said out loud rather than silently skipped, because "no link records on Windows"
+# otherwise looks like a measurement that found links to be free.
+set(_olo_proc_stat_compile_langs "")
+set(_olo_proc_stat_link_langs "")
+foreach(_olo_psr_lang C CXX)
+    if(NOT CMAKE_${_olo_psr_lang}_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
+        continue()
+    endif()
+    if(CMAKE_${_olo_psr_lang}_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(_olo_psr_flag "/clang:-fproc-stat-report=${OLO_PROC_STAT_FILE}")
+        set(_olo_psr_links FALSE)
+    else()
+        set(_olo_psr_flag "-fproc-stat-report=${OLO_PROC_STAT_FILE}")
+        set(_olo_psr_links TRUE)
+    endif()
 
-# Links go through the same flag wherever the compiler drives them, which is the whole of
-# the issue's step 2: ld.lld at 8.7 GB is the other half of the ceiling and OLO_LINK_JOBS=2
-# rests on it. Static ARCHIVING is not covered either way — it goes through
-# CMAKE_<LANG>_ARCHIVE_* rules, which take neither a launcher nor the compiler's own flags.
-# Acceptable, and the same scope note LinkSemaphore.cmake makes: the measured spike is the
-# linker, not the archiver.
-if(_olo_proc_stat_links)
-    add_link_options("${_olo_proc_stat_flag}")
-    set(_olo_proc_stat_link_note "compiles and links")
-else()
-    set(_olo_proc_stat_link_note
-        "compiles ONLY - links are not measurable under clang-cl, where CMake invokes lld-link directly instead of through the clang driver (see cmake/ProcStatReport.cmake). Use a Linux clang build for link peak RSS")
+    # Scoped with COMPILE_LANGUAGE so a non-clang sibling language never sees the option.
+    add_compile_options("$<$<COMPILE_LANGUAGE:${_olo_psr_lang}>:${_olo_psr_flag}>")
+    list(APPEND _olo_proc_stat_compile_langs ${_olo_psr_lang})
+
+    if(_olo_psr_links)
+        # LINK_LANGUAGE, not COMPILE_LANGUAGE: a target links with one language's driver,
+        # and that is the process whose subprocess (ld.lld) we want reported. Static
+        # ARCHIVING is not covered either way — it goes through CMAKE_<LANG>_ARCHIVE_*
+        # rules, which take neither a launcher nor the compiler's own flags. Acceptable,
+        # and the same scope note LinkSemaphore.cmake makes: the measured spike is the
+        # linker, not the archiver.
+        add_link_options("$<$<LINK_LANGUAGE:${_olo_psr_lang}>:${_olo_psr_flag}>")
+        list(APPEND _olo_proc_stat_link_langs ${_olo_psr_lang})
+    endif()
+endforeach()
+unset(_olo_psr_lang)
+unset(_olo_psr_flag)
+unset(_olo_psr_links)
+
+# Reported so a build log states which languages are instrumented and whether links are
+# covered, rather than leaving "no link records" to be misread as "links are free".
+if(NOT _olo_proc_stat_compile_langs)
+    message(WARNING
+        "Per-invocation peak-RSS reporting is ON but no language was instrumented — no clang "
+        "compiler was found for C or C++ after the guard above. This is a bug in "
+        "cmake/ProcStatReport.cmake, not a configuration you can fix.")
+    return()
 endif()
 
+list(JOIN _olo_proc_stat_compile_langs "/" _olo_psr_compile_note)
+if(_olo_proc_stat_link_langs)
+    list(JOIN _olo_proc_stat_link_langs "/" _olo_psr_link_note)
+    set(_olo_psr_note "${_olo_psr_compile_note} compiles and ${_olo_psr_link_note} links")
+else()
+    set(_olo_psr_note
+        "${_olo_psr_compile_note} compiles ONLY - links are not measurable under clang-cl, where CMake invokes lld-link directly instead of through the clang driver (see cmake/ProcStatReport.cmake). Use a Linux clang build for link peak RSS")
+endif()
+
+# --name is part of the command because OLO_PROC_STAT_FILE is configurable: without it a
+# custom basename would be written by clang and then not found by the analyser, whose
+# default is the stock name.
 message(STATUS
-    "Per-invocation peak RSS: ON for ${_olo_proc_stat_link_note}. Appending to "
+    "Per-invocation peak RSS: ON for ${_olo_psr_note}. Appending to "
     "'${OLO_PROC_STAT_FILE}' in each build directory the build tool runs from. Rank with: "
-    "python scripts/analyze_proc_stat.py ${CMAKE_BINARY_DIR}")
+    "python scripts/analyze_proc_stat.py ${CMAKE_BINARY_DIR} --name ${OLO_PROC_STAT_FILE}")
 
-unset(_olo_proc_stat_flag)
-unset(_olo_proc_stat_links)
-unset(_olo_proc_stat_link_note)
+unset(_olo_psr_compile_note)
+unset(_olo_psr_link_note)
+unset(_olo_psr_note)
+unset(_olo_proc_stat_compile_langs)
+unset(_olo_proc_stat_link_langs)

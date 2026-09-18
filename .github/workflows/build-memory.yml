@@ -35,10 +35,14 @@ name: Build memory (per-TU peak RSS)
 
 # Weekly and on demand, because what it defends against is a number DRIFTING over
 # months, not a specific PR breaking something. The pull_request paths are deliberately
-# narrow — the three files that make up the measurement itself — rather than `cmake/**`:
-# this is a full cold Debug build of the engine plus the test suite, twice, and the box
-# sits at rho 1.69 (#1219, #1284). Anything wider would spend that on every PR that
-# touches CMake for unrelated reasons.
+# narrow — the files the measurement itself is made of — rather than `cmake/**`: this is a
+# full cold Debug build of the engine plus the test suite, and the box sits at rho 1.69
+# (#1219, #1284). Anything wider would spend that on every PR that touches CMake for
+# unrelated reasons, and a pull request runs ONE cell rather than both (see the job's `if`).
+#
+# NOTE, because it is not obvious and it cost this PR three redundant runs: GitHub matches
+# a pull_request `paths` filter against the WHOLE PR DIFF, not against the latest push. So
+# once a PR touches any file above, EVERY subsequent push to it re-runs this workflow.
 on:
   schedule:
     - cron: '0 7 * * 4' # weekly, Thursday 07:00 UTC — off video-ffmpeg's Monday and steam-stub's Wednesday slots
@@ -48,6 +52,13 @@ on:
       - '.github/workflows/build-memory.yml'
       - 'cmake/ProcStatReport.cmake'
       - 'scripts/analyze_proc_stat.py'
+      # The root CMakeLists declares OLO_BUILD_INSTRUMENTATION and include()s the module,
+      # so a wiring regression lives here just as much as in cmake/ProcStatReport.cmake —
+      # and it would make this workflow vacuous rather than red. It is a frequently-touched
+      # file, which is exactly why the `if:` on the job below drops the non-sanitizer cell
+      # on pull requests: widening the trigger without halving the cost would put two cold
+      # builds on the box for every unrelated CMake change.
+      - 'CMakeLists.txt'
 
 # Reads the checkout, builds, and uploads an artifact. Nothing comments, labels or
 # publishes to the repo. Declared explicitly rather than inherited so a future step
@@ -86,6 +97,12 @@ jobs:
     # is the ceiling: a runaway must not hold one of the box's two slots for six hours
     # while the queue behind it grows (#1219, #1284).
     timeout-minutes: 180
+    # ONE CELL ON A PULL REQUEST, both on the schedule and on demand. A matrix `if` is
+    # evaluated per combination, so this skips the `debug` job rather than the whole matrix.
+    # A PR only has to prove the instrumentation still works end to end, and `debug-asan` is
+    # both the stricter cell and the configuration the caps come from; the second cell is
+    # for tracking drift over time, which is the weekly run's job.
+    if: ${{ github.event_name != 'pull_request' || matrix.slug == 'debug-asan' }}
     strategy:
       # ONE AT A TIME. Both cells are full cold builds, and the box has exactly two
       # olo-ci slots — running them together would hold the whole box and starve every

@@ -54,7 +54,16 @@ EXCLUDED_OBJECT_DIRS = frozenset({"vcpkg_installed", "CMakeScratch", "Testing"})
 # flag, so a single cache MISS appends TWO records. Counted and reported separately —
 # folding them into the compile ranking would understate nothing but would inflate the
 # record count, and dropping them silently would hide that ccache changed modes.
-INTERMEDIATE_SUFFIXES = (".ii", ".i", ".s", ".bc", ".tmp", ".d")
+# `.pch`/`.gch`/`.pcm` are here for a specific reason, not for completeness: a precompiled
+# header or a module is produced by a COMPILER invocation whose output has no object
+# suffix, so without them it falls through to the `link` fallback below. That would report
+# a PCH as a link — and worse, would let `--require-link-records` pass on a build where no
+# linker ever ran. OLO_ENABLE_PCH defaults ON whenever the compiler cache is off, so this
+# is the default local configuration, not an exotic one.
+INTERMEDIATE_SUFFIXES = (
+    ".ii", ".i", ".s", ".bc", ".tmp", ".d",
+    ".pch", ".gch", ".pcm",
+)
 # CMake's object path for target T and source S is CMakeFiles/T.dir/<S>.<o|obj>
 # (multi-config generators insert the config: CMakeFiles/T.dir/<Config>/<S>.<o|obj>).
 OBJECT_PATH_RE = re.compile(
@@ -311,11 +320,14 @@ def derive_parallel(compiles: list[Record], cap_gib: float, max_lanes: int) -> l
     is that it usually will not. So this is the pessimistic ceiling a cgroup cap has
     to survive, which is the number a cap should be set from.
     """
+    # Capped at the number of compiles actually measured. Past that point there is no Nth
+    # heaviest TU to add, so every further row would repeat the previous total and
+    # `largest_fitting_lanes` would claim a width the data cannot support — 16 "safe" lanes
+    # from three measured compiles. A row we cannot substantiate is not printed.
     rows = []
     running = 0
-    for lanes in range(1, max_lanes + 1):
-        if lanes <= len(compiles):
-            running += compiles[lanes - 1].peak_kib
+    for lanes in range(1, min(max_lanes, len(compiles)) + 1):
+        running += compiles[lanes - 1].peak_kib
         worst_gib = running / KIB_PER_GIB
         rows.append(
             {

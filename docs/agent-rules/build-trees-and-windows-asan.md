@@ -537,8 +537,10 @@ per this section's rule in one pass regardless, because the flag masks and the r
 section.** Everything below measures per-command *time* plus a system-wide host-memory
 sample, and §5c/§5d's "heavy TUs" were identified by compile time, which is a proxy. The
 field this API cannot record — each compile's and each link's own peak RSS — is what
-`-fproc-stat-report` and `scripts/analyze_proc_stat.py` add (#1305), on the same
-`OLO_BUILD_INSTRUMENTATION` switch.
+`-fproc-stat-report` and `scripts/analyze_proc_stat.py` add (#1305).
+`OLO_BUILD_INSTRUMENTATION` turns both on, but the per-TU memory half is **also available
+on its own** as `OLO_PROC_STAT_REPORT` — and on Windows that is the only way to get it,
+because the umbrella's `ctest --instrument` launcher cannot build vendored glad (#1306).
 
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
 

@@ -88,8 +88,10 @@ check does not catch this.
 
 ## Trap 3 — a warm compiler cache makes a partial ranking look like a cheap build
 
-On a cache **hit** ccache does not run the compiler, so it appends no record — correct (a
-hit costs no memory), but it means a warm build ranks only whatever missed. So: CI uses
+On a cache **hit** ccache does not run the compiler, so it appends no record. That is
+correct — the record measures compiler RSS and no compiler ran — but it is **not** the same
+as "a hit is free": ccache still does the lookup and decompresses the result, and that costs
+memory this instrument cannot see. Either way a warm build ranks only whatever missed. So: CI uses
 `CCACHE_DISABLE=1`; locally prefer **`CCACHE_RECACHE=1`**, which also forces every TU
 through the compiler but *populates* the shared cache instead of discarding the work. The
 analyser always prints coverage (records vs. objects in the tree — not
@@ -102,7 +104,9 @@ dropped silently.
 
 **Measuring the hit RATE needs `CCACHE_STATSLOG`, never before/after `ccache -s`:** every
 worktree here shares one `CCACHE_DIR`, so the global counters move with the siblings' builds
-(a 28-step build of mine showed a 2378-call delta). The statslog is per-invocation.
+(a 28-step build of mine showed a 2378-call delta). The statslog writes one line per
+invocation but is **build-scoped, not self-resetting**: it appends, so create or truncate a
+unique file per build or you will read the previous build's results back.
 
 ## Trap 4 — compare only against a build with the same PCH and unity settings
 
@@ -216,8 +220,10 @@ ninja and so builds the **whole target**, then credited the largest of a dozen c
 unrelated compiles to whichever TU was named. An isolated re-measurement on 2026-09-08
 (per-PID `PeakWorkingSet64`, one `clang-cl` asserted) corrected it; this census is a third,
 independent method and agrees with that correction within **1.11-1.23x** on all five
-spot-checked TUs (`Scene.cpp` 2,499 → 2,785 MB; `ComponentRoundTripTest.cpp` 12,389 →
-1,415 → 1,599 MB; `Prefab.cpp` 6,400 → 1,282 → 1,488 MB).
+spot-checked TUs. Three of them, as committed → isolated → census: `Scene.cpp`
+2,498 → 2,499 → 2,785 MB; `ComponentRoundTripTest.cpp` 12,389 → 1,415 → 1,599 MB;
+`Prefab.cpp` 6,400 → 1,282 → 1,488 MB. The other two were `McpToolsRender.cpp`
+(7,838 → 1,369 → 1,680 MB) and `RenderGraphTest.cpp` (8,619 → 949 → 1,053 MB).
 
 `Scene.cpp` is the control — the one row that reproduced exactly under the buggy recipe —
 and it lands at the same 1.11x, so the residual is the parallel-build environment rather
