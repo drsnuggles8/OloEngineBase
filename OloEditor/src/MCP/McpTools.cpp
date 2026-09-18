@@ -6,6 +6,7 @@
 #include "Automation/AutomationAssetCommands.h"
 #include "Automation/AutomationBuildCommands.h"
 #include "Automation/AutomationEditorCommands.h"
+#include "Automation/AutomationGroomCommands.h"
 #include "Automation/AutomationSceneAuthoring.h"
 #include "Automation/AutomationTransactionCommands.h"
 
@@ -211,6 +212,11 @@ namespace OloEngine::MCP
         // operation is an entity-subtree operation, and tools/list reads
         // bottom-up from the primitives to the thing composed of them.
         Automation::RegisterPrefabCommands(registry);
+        // Groom binding (issue #1249). After the entity/component/prefab
+        // families: a bind is an operation ON an entity pair, and tools/list
+        // reads bottom-up from the primitives to the thing composed of them.
+        Automation::RegisterGroomCommands(registry);
+
         RegisterPerfTools(registry);
         RegisterRenderTools(registry);
         RegisterShaderTools(registry);

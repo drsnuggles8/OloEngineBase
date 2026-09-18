@@ -26,22 +26,36 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
 #include <glm/glm.hpp>
 
+#include <span>
 #include <vector>
 
 namespace OloEngine
 {
     class GroomAsset;
 
-    // One ribbon-corner vertex. 48 bytes, twelve floats — the layout
+    // One ribbon-corner vertex. 64 bytes, sixteen floats — the layout
     // GroomStrand.glsl declares as attributes on OpenGL and PULLS by index on
     // Vulkan (ADR 0011 §5 leaves the Vulkan backend with no vertex input
     // state). The float count is therefore load-bearing on the Vulkan arm: a
-    // thirteenth float here reads every strand's data at the wrong offset, and
+    // seventeenth float here reads every strand's data at the wrong offset, and
     // GroomStrandMeshTest pins the size for that reason.
+    //
+    // IT WAS TWELVE FLOATS UNTIL #1249, and the four that were added are
+    // PrevPosition plus its padding. Why the previous position has to be a
+    // per-vertex attribute rather than derived: before the binding existed, a
+    // groom moved only as a rigid object, so the previous position WAS the
+    // current one under the previous model matrix and the shader could derive
+    // it. A groom bound to a body deforms per strand, so last frame's position
+    // of THIS point is not recoverable from any matrix — the body's pose moved,
+    // not the groom's transform. An unbound groom writes PrevPosition ==
+    // Position and gets exactly its old velocity back, which is what makes this
+    // a widening rather than a behaviour change.
     struct GroomStrandVertex
     {
         /// This corner's centreline point, object space.
@@ -74,11 +88,27 @@ namespace OloEngine
         f32 SegmentId = 0.0f;
 
         f32 Pad0 = 0.0f;
+
+        /// This corner's centreline point AS IT WAS LAST FRAME, object space.
+        ///
+        /// Equal to Position for an unbound groom, and for a bound one on the
+        /// frame its history was rejected — so the velocity the shader derives
+        /// is then exactly zero rather than approximately zero, because both
+        /// ends go through identical arithmetic.
+        ///
+        /// The WIDENING offset is deliberately not in here and never will be: a
+        /// strand's motion is its centreline's motion, and carrying a
+        /// width-dependent offset into the velocity would make a resolution
+        /// change read as movement. GroomStrand.glsl says the same thing at the
+        /// point it uses this.
+        glm::vec3 PrevPosition{ 0.0f };
+
+        f32 Pad1 = 0.0f;
     };
 
-    static_assert(sizeof(GroomStrandVertex) == 48,
-                  "GroomStrandVertex must be exactly twelve floats: GroomStrand.glsl's Vulkan vertex pull "
-                  "indexes it as a flat float array with a stride of 12");
+    static_assert(sizeof(GroomStrandVertex) == 64,
+                  "GroomStrandVertex must be exactly sixteen floats: GroomStrand.glsl's Vulkan vertex pull "
+                  "indexes it as a flat float array with a stride of 16");
 
     struct GroomStrandBuildSettings
     {
@@ -124,7 +154,49 @@ namespace OloEngine
         /// not come through GroomBuilder.
         u32 CurvesSkippedTooShort = 0;
 
+        // ── Deformed bounds (#1249) ───────────────────────────────────
+        //
+        // The object-space box the EMITTED centrelines actually occupy. For an
+        // undeformed groom this is the asset's own bounds narrowed to the
+        // selected strands; for a bound one it is the box the coat occupies in
+        // THIS pose, which is the only box a culler or a bounds readout may use
+        // — the asset's bind-pose bounds do not contain a raised arm's fur.
+        //
+        // `BoundsValid` is false when nothing was emitted, which is what keeps
+        // an empty build from publishing the sentinel box as if it were a
+        // measurement.
+        glm::vec3 BoundsMin{ 0.0f };
+        glm::vec3 BoundsMax{ 0.0f };
+        bool BoundsValid = false;
+
+        /// Strands that were drawn at REST because their root had no valid
+        /// deformed frame. Zero on an unbound groom, by construction.
+        u32 StrandsHeldAtRest = 0;
+
         [[nodiscard]] bool operator==(const GroomStrandMeshStats&) const = default;
+    };
+
+    /**
+     * @brief The per-frame deformation a bound groom is built with (#1249).
+     *
+     * Passed by pointer and null for an unbound groom, so the unbound path is
+     * byte-for-byte the one that existed before this issue rather than a special
+     * case of a new one.
+     *
+     * `RootTransforms` is indexed by CURVE and must span the whole groom — see
+     * EvaluateGroomRootTransforms, which fills it that way precisely so an index
+     * into it is always safe.
+     */
+    struct GroomStrandDeformation
+    {
+        const GroomBindingAsset* Binding = nullptr;
+        std::span<const GroomRootTransform> RootTransforms{};
+
+        [[nodiscard]] bool IsUsable(u32 curveCount) const noexcept
+        {
+            return Binding != nullptr && Binding->GetRootCount() == curveCount &&
+                   RootTransforms.size() == curveCount;
+        }
     };
 
     // Expands `groom` into ribbon geometry. `outVertices` and `outIndices` are
@@ -136,7 +208,17 @@ namespace OloEngine
     // produce indices a u32 cannot address.
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
-                                              std::vector<u32>& outIndices);
+                                              std::vector<u32>& outIndices,
+                                              const GroomStrandDeformation* deformation = nullptr);
+
+    // The curve indices this build will walk, in the order it walks them.
+    //
+    // Exposed because the binding deformation (#1249) is per-curve work that has
+    // to happen BEFORE the build, and doing it for every curve of a 200k-strand
+    // groom when the budget will draw 20k of them is the difference between a
+    // frame cost and a frame. `outCurves` is cleared first.
+    void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                 std::vector<u32>& outCurves);
 
     // The stats a build WOULD produce, without building anything. Pure and
     // cheap, so the editor's inspector can show the budget's effect on every

@@ -21,7 +21,12 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/VolumeAsset.h"
+#include <fstream>
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "Groom/GroomBindingAuthoring.h"
+#include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -480,6 +485,40 @@ namespace OloEngine
         {
             // No additional handling required.
         }
+    }
+
+    // ── Groom surface binding helpers (issue #1249) ─────────────────
+    //
+    void SceneHierarchyPanel::BuildGroomBinding(Entity entity, GroomBindingComponent& component)
+    {
+        if (!m_Context)
+        {
+            return;
+        }
+        Entity targetEntity =
+            component.m_TargetEntity != 0 ? m_Context->GetEntityByUUID(component.m_TargetEntity) : entity;
+
+        // One implementation, shared with olo_groom_bind. A second bind path
+        // that differed by the search radius, the output directory or which
+        // space the roots were projected in would be the same class of bug this
+        // feature exists to prevent, wearing different clothes.
+        const auto outcome =
+            GroomAuthoring::BuildAndImportBinding(*m_Context, entity, targetEntity, m_GroomBindSearchRadius);
+        if (!outcome.m_Ok)
+        {
+            OLO_ERROR("Build binding failed: {}", outcome.m_Reason);
+            return;
+        }
+        component.m_Binding = outcome.m_Binding;
+
+        // Reported at INFO with the numbers, not silently: "it bound" is not a
+        // result, and the Distant count is the one that says the groom went on
+        // the wrong body.
+        OLO_INFO("Built groom binding '{}': {} roots ({} exact / {} clamped / {} distant), max rest distance {:.4f}, "
+                 "mean {:.4f}, {} on degenerate triangles",
+                 outcome.m_RelativePath.generic_string(), outcome.m_Stats.RootsBound, outcome.m_Stats.RootsExact,
+                 outcome.m_Stats.RootsClamped, outcome.m_Stats.RootsDistant, outcome.m_Stats.MaxRestDistance,
+                 outcome.m_Stats.MeanRestDistance, outcome.m_Stats.RootsOnDegenerateTriangles);
     }
 
     bool SceneHierarchyPanel::IsEntitySelected(Entity entity) const
@@ -2197,6 +2236,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FoliageInteractionComponent>("Foliage Interaction");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
+            DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -8485,6 +8525,210 @@ namespace OloEngine
                     }
                 }
             } });
+
+        // ── Groom surface binding (issue #1249) ────────────────────
+        //
+        // The panel's job here is to make a WRONG binding visible before it is
+        // animated. A coat bound to the wrong body, or to a mesh whose topology
+        // has moved since, looks perfectly fine in the bind pose and only comes
+        // apart in motion — so every number this section shows is one that
+        // separates those two cases while the character is standing still.
+        DrawComponent<GroomBindingComponent>("Groom Binding", entity, [this, entity](auto& component)
+                                             {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is nothing to bind. Add a Groom "
+                                   "first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+
+            const std::string bindingLabel =
+                component.m_Binding != 0
+                    ? "Binding: " + std::to_string(static_cast<u64>(component.m_Binding))
+                    : "Binding: <none - build one below, or drag a .ologroombinding here>";
+            ImGui::Button(bindingLabel.c_str(), ImVec2(-1.0f, 0.0f));
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                {
+                    std::filesystem::path assetPath = PathFromUtf8Payload(*payload);
+                    if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                    {
+                        AssetHandle handle = assetManager->ImportAsset(assetPath);
+                        if (handle != 0 && AssetManager::GetAssetType(handle) == AssetType::GroomBinding)
+                        {
+                            component.m_Binding = handle;
+                        }
+                        else if (handle != 0)
+                        {
+                            OLO_WARN("Drag-dropped asset is not a GroomBinding (type: {0})",
+                                     AssetUtils::AssetTypeToString(AssetManager::GetAssetType(handle)));
+                        }
+                        else
+                        {
+                            // No additional handling required.
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::Checkbox("Enabled##GroomBinding", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off leaves the coat at its BIND POSE while the body animates. That is the A/B "
+                                  "control every capture of this feature is measured against, not a performance "
+                                  "switch.");
+            }
+            ImGui::Checkbox("Show Binding Preview", &component.m_ShowBindingPreview);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Marks every bound root on the DEFORMED surface with its frame. The only view in "
+                                  "which a root attached to the wrong triangle is visible before it moves.");
+            }
+            ImGui::DragFloat("Teleport Distance", &component.m_TeleportDistance, 0.1f, 0.01f, 10000.0f, "%.2f m");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How far the BODY may jump in one frame before the previous-frame strand "
+                                  "positions are thrown away. Too low costs a frame of motion blur during fast "
+                                  "motion; too high smears the whole coat across the screen on a cut.");
+            }
+
+            // ── The target body ────────────────────────────────
+            ImGui::SeparatorText("Target body");
+            Entity targetEntity = component.m_TargetEntity != 0 && m_Context
+                                      ? m_Context->GetEntityByUUID(component.m_TargetEntity)
+                                      : entity;
+            {
+                const std::string targetLabel =
+                    component.m_TargetEntity == 0
+                        ? std::string("Target: <this entity's own mesh>")
+                        : (targetEntity ? "Target: " + targetEntity.GetName()
+                                        : "Target: <missing entity " +
+                                              std::to_string(static_cast<u64>(component.m_TargetEntity)) + ">");
+                ImGui::Button(targetLabel.c_str(), ImVec2(-1.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    // The hierarchy's own drag payload, so a body is chosen by
+                    // dragging it out of the tree rather than by typing a UUID.
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ENTITY_REPARENT"))
+                    {
+                        if (payload->DataSize == static_cast<int>(sizeof(UUID)))
+                        {
+                            component.m_TargetEntity = *static_cast<const UUID*>(payload->Data);
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("The entity carrying the body this coat grows on. Drag one from the scene "
+                                      "hierarchy. Empty means this entity's own mesh, which is the usual case for "
+                                      "a groom parented under its character.");
+                }
+                if (component.m_TargetEntity != 0 && ImGui::Button("Clear Target"))
+                {
+                    component.m_TargetEntity = 0;
+                }
+            }
+
+            // ── What the binding holds, and whether it still fits ────────
+            if (component.m_Binding != 0)
+            {
+                if (Ref<GroomBindingAsset> const binding =
+                        AssetManager::GetAsset<GroomBindingAsset>(component.m_Binding))
+                {
+                    ImGui::SeparatorText("Contents");
+                    ImGui::Text("Roots: %u   Binder v%u", binding->GetRootCount(), binding->GetBinderVersion());
+                    ImGui::Text("Exact: %u   Clamped: %u   Distant: %u",
+                                binding->GetQualityCount(GroomRootBindQuality::Exact),
+                                binding->GetQualityCount(GroomRootBindQuality::Clamped),
+                                binding->GetQualityCount(GroomRootBindQuality::Distant));
+                    ImGui::Text("Max rest distance: %.4f", binding->GetMaxRestDistance());
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("How far the furthest root sits from the surface it is bound to, in "
+                                          "object-space units. A coat bound to the WRONG body misses by metres; "
+                                          "a coat authored with a shell offset misses by millimetres.");
+                    }
+                    ImGui::TextWrapped("Groom source: %s", binding->GetGroomSourcePath().empty()
+                                                               ? "<unrecorded>"
+                                                               : binding->GetGroomSourcePath().c_str());
+                    ImGui::TextWrapped("Target source: %s", binding->GetTargetSourcePath().empty()
+                                                                ? "<unrecorded>"
+                                                                : binding->GetTargetSourcePath().c_str());
+
+                    // THE CHECK, run live against what is actually in the scene.
+                    // This is the whole point of the panel: a binding that will
+                    // be refused at render time says so here, by name, while the
+                    // character is standing still.
+                    const auto& groomComponent = entity.GetComponent<GroomComponent>();
+                    if (Ref<GroomAsset> const groom = AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom))
+                    {
+                        GroomBindingRejectReason reason = GroomBindingRejectReason::NoTarget;
+                        if (const auto target = GroomAuthoring::ResolveTarget(targetEntity); target)
+                        {
+                            const GroomSurfaceView view =
+                                GroomAuthoring::MakeSurfaceView(*target.m_Surface, target.m_Skeleton);
+                            reason = view.IsUsable()
+                                         ? binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*groom),
+                                                                       GroomBindingBuilder::SignTarget(view))
+                                         : GroomBindingRejectReason::TargetNotReady;
+                        }
+
+                        ImGui::SeparatorText("Compatibility");
+                        if (reason == GroomBindingRejectReason::None)
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.9f, 0.4f, 1.0f));
+                            ImGui::TextWrapped("Attaches: this binding matches the groom and the body in front of "
+                                               "it.");
+                            ImGui::PopStyleColor();
+                        }
+                        else
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                            ImGui::TextWrapped("Refused (%s): %s", std::string(ToString(reason)).c_str(),
+                                               std::string(DescribeGroomBindingReject(reason)).c_str());
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                }
+                else
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("The referenced binding asset did not load - see OloEngine.log for the "
+                                       "reason the .ologroombinding was rejected.");
+                    ImGui::PopStyleColor();
+                }
+            }
+
+            // ── Building one ──────────────────────────────────
+            ImGui::SeparatorText("Build");
+            ImGui::DragFloat("Search Radius", &m_GroomBindSearchRadius, 0.01f, 0.001f, 1000.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Roots further than this from the surface are still bound - dropping them would "
+                                  "leave a bald patch - but are counted as Distant so a groom on the wrong body is "
+                                  "a number rather than a look.");
+            }
+
+            const bool canBuild = m_Context != nullptr && !m_Context->IsRunning();
+            if (!canBuild)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("Stop Play mode to build a binding. A binding records the body's BIND POSE, and "
+                                   "building it from an animated pose produces one that is correct for that frame "
+                                   "and wrong for every other - which nothing downstream can detect.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::BeginDisabled(!canBuild);
+            if (ImGui::Button("Build Binding", ImVec2(-1.0f, 0.0f)))
+            {
+                BuildGroomBinding(entity, component);
+            }
+            ImGui::EndDisabled(); });
 
         DrawComponent<FluidComponent>("Fluid", entity, [](auto& component)
                                       {

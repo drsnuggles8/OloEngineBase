@@ -381,6 +381,17 @@ if (entity.HasComponent<FootIKComponent>())
     SceneBinIO::Write(out, comp.RightHandEnabled);
 }
 
+if (entity.HasComponent<GroomBindingComponent>())
+{
+    SceneBinIO::WriteU32(out, 799220825u); // GroomBindingComponent
+    auto const& comp = entity.GetComponent<GroomBindingComponent>();
+    SceneBinIO::Write(out, comp.m_Binding);
+    SceneBinIO::Write(out, comp.m_TargetEntity);
+    SceneBinIO::Write(out, comp.m_TeleportDistance);
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_ShowBindingPreview);
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     SceneBinIO::WriteU32(out, 2551117928u); // GroomComponent

@@ -25,7 +25,9 @@
 // ADR 0011 §5: the Vulkan backend declares no vertex input state at all, so
 // every attribute is pulled from the engine-wide vertex SSBO by index. The
 // float stride below must match GroomStrandVertex in
-// OloEngine/Groom/GroomStrandBuffers.h — 12 floats, 48 bytes.
+// OloEngine/Groom/GroomStrandMesh.h — 16 floats, 64 bytes. It was 12 until
+// #1249 added the previous-frame centreline; GroomStrandMeshTest pins the C++
+// size and this stride is the other half of that contract.
 layout(std430, binding = 57) readonly buffer OloVertexPull
 {
 	float v[];
@@ -37,8 +39,10 @@ layout(location = 1) in vec3 a_Other;      // this point plus the segment delta 
 layout(location = 2) in float a_Side;      // -1 or +1: which edge of the ribbon
 layout(location = 3) in float a_Radius;    // object-space RADIUS here (the cooked width is a diameter)
 layout(location = 4) in vec2 a_Coords;     // x = root-to-tip parameter, y = across-ribbon in [-1, 1]
-layout(location = 5) in float a_SegmentId; // uintBitsToFloat of the stochastic-hash segment identity
+layout(location = 5) in float a_SegmentId;   // uintBitsToFloat of the stochastic-hash segment identity
 layout(location = 6) in float a_Pad0;
+layout(location = 7) in vec3 a_PrevPosition; // this centreline point as it was LAST frame, object space
+layout(location = 8) in float a_Pad1;
 #endif
 
 layout(std140, binding = 0) uniform CameraMatrices {
@@ -88,13 +92,14 @@ layout(location = 5) out vec3 v_ViewNormal;
 void main()
 {
 #ifdef OLO_PULLED_VERTEX
-	int base = gl_VertexIndex * 12;
+	int base = gl_VertexIndex * 16;
 	vec3 a_Position = vec3(b_Vertices.v[base + 0], b_Vertices.v[base + 1], b_Vertices.v[base + 2]);
 	vec3 a_Other = vec3(b_Vertices.v[base + 3], b_Vertices.v[base + 4], b_Vertices.v[base + 5]);
 	float a_Side = b_Vertices.v[base + 6];
 	float a_Radius = b_Vertices.v[base + 7];
 	vec2 a_Coords = vec2(b_Vertices.v[base + 8], b_Vertices.v[base + 9]);
 	float a_SegmentId = b_Vertices.v[base + 10];
+	vec3 a_PrevPosition = vec3(b_Vertices.v[base + 12], b_Vertices.v[base + 13], b_Vertices.v[base + 14]);
 #endif
 
 	vec4 worldCurr = u_GroomModel * vec4(a_Position, 1.0);
@@ -151,8 +156,15 @@ void main()
 	// applied to these: a strand's motion is its centreline's motion, and
 	// carrying a width-dependent offset into the velocity would make a
 	// resolution change read as movement.
+	//
+	// a_PrevPosition, NOT a_Position (issue #1249). A groom bound to a body
+	// deforms PER STRAND, so last frame's position of this point is not
+	// recoverable from u_GroomPrevModel however the matrix is composed — the
+	// body's pose moved, the groom's transform did not. An unbound groom writes
+	// a_PrevPosition == a_Position, so this line reduces exactly to what it was
+	// before the binding existed.
 	v_ClipCurr = clipCurr;
-	v_ClipPrev = u_PrevViewProjection * (u_GroomPrevModel * vec4(a_Position, 1.0));
+	v_ClipPrev = u_PrevViewProjection * (u_GroomPrevModel * vec4(a_PrevPosition, 1.0));
 
 	// A curve has no surface normal. The ribbon's is the best available
 	// answer for an SSAO consumer: perpendicular to the strand and facing the

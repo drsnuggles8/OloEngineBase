@@ -71,13 +71,20 @@ namespace OloEngine
         // type by AlembicGroomImporter, because polygon Alembic import is not
         // curve support.
         Groom = 44,
+        // Cooked groom-to-body binding (issue #1249) — the .ologroombinding
+        // that says which triangle of an animated surface each curve of a groom
+        // grows out of, and what frame that triangle had at bind time. See
+        // OloEngine/src/OloEngine/Groom/GroomBinding.h. A relationship between
+        // two assets, so it is its own asset rather than a section of either —
+        // one groom can be bound to several bodies and vice versa.
+        GroomBinding = 45,
     };
 
-    // If AssetType grows past Groom, bump kMaxKnownValue in
+    // If AssetType grows past GroomBinding, bump kMaxKnownValue in
     // OloEngine/tests/AssetExtensionsCoverageTest.cpp or that test will
     // silently skip the new entries.
-    static_assert(std::to_underlying(AssetType::Groom) == 44,
-                  "AssetType::Groom moved; update kMaxKnownValue in "
+    static_assert(std::to_underlying(AssetType::GroomBinding) == 45,
+                  "AssetType::GroomBinding moved; update kMaxKnownValue in "
                   "AssetExtensionsCoverageTest.cpp to match the new max value.");
 
     enum class AssetFlag : u16
@@ -233,6 +240,8 @@ namespace OloEngine
                     return "SkinProfile";
                 case AssetType::Groom:
                     return "Groom";
+                case AssetType::GroomBinding:
+                    return "GroomBinding";
             }
             OLO_CORE_ASSERT(false, "Unknown Asset Type");
             return "None";
@@ -338,6 +347,8 @@ namespace OloEngine
                 return AssetType::SkinProfile;
             if (assetType == "Groom")
                 return AssetType::Groom;
+            if (assetType == "GroomBinding")
+                return AssetType::GroomBinding;
 
             return AssetType::None;
         }

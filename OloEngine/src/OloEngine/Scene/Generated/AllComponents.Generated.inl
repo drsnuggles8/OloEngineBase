@@ -54,6 +54,7 @@ using AllComponents = ComponentGroup<
     FoliageInteractionComponent,
     FootIKComponent,
     GoapAgentComponent,
+    GroomBindingComponent,
     GroomComponent,
     IKTargetComponent,
     InstancePortalComponent,

@@ -92,6 +92,7 @@ namespace OloEngine
     struct SnowDeformerComponent;
     struct VirtualMeshComponent;
     struct GroomComponent;
+    struct GroomBindingComponent;
     struct FluidComponent;
     struct FluidEmitterComponent;
     struct FluidKillVolumeComponent;
@@ -234,6 +235,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, SnowDeformerComponent& c);
         static void Serialize(FArchive& ar, VirtualMeshComponent& c);
         static void Serialize(FArchive& ar, GroomComponent& c);
+        static void Serialize(FArchive& ar, GroomBindingComponent& c);
         static void Serialize(FArchive& ar, FluidComponent& c);
         static void Serialize(FArchive& ar, FluidEmitterComponent& c);
         static void Serialize(FArchive& ar, FluidKillVolumeComponent& c);

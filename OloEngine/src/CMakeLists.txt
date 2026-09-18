@@ -227,6 +227,21 @@
 		"OloEngine/Groom/GroomStrandRequest.h"
 		"OloEngine/Asset/Serializers/GroomSerializer.cpp"
 		"OloEngine/Serialization/GroomBinaryFormat.h"
+		# Groom surface binding (#1249). The binder, the runtime deformation and the
+		# cooked .ologroombinding container. All pure CPU and free of renderer
+		# headers, which is what lets the binding contract and the deformed root
+		# positions be asserted on a machine with no GPU.
+		"OloEngine/Groom/GroomBinding.h"
+		"OloEngine/Groom/GroomBinding.cpp"
+		"OloEngine/Groom/GroomSurfaceFrame.h"
+		"OloEngine/Groom/GroomBindingBuilder.h"
+		"OloEngine/Groom/GroomBindingBuilder.cpp"
+		"OloEngine/Groom/GroomBindingCooker.h"
+		"OloEngine/Groom/GroomBindingCooker.cpp"
+		"OloEngine/Groom/GroomDeformation.h"
+		"OloEngine/Groom/GroomDeformation.cpp"
+		"OloEngine/Asset/Serializers/GroomBindingSerializer.cpp"
+		"OloEngine/Serialization/GroomBindingBinaryFormat.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

@@ -29,6 +29,7 @@ ids.insert(entt::type_hash<FluidKillVolumeComponent>::value());
 ids.insert(entt::type_hash<FogVolumeComponent>::value());
 ids.insert(entt::type_hash<FoliageInteractionComponent>::value());
 ids.insert(entt::type_hash<FootIKComponent>::value());
+ids.insert(entt::type_hash<GroomBindingComponent>::value());
 ids.insert(entt::type_hash<GroomComponent>::value());
 ids.insert(entt::type_hash<InstancePortalComponent>::value());
 ids.insert(entt::type_hash<LocalizedTextComponent>::value());

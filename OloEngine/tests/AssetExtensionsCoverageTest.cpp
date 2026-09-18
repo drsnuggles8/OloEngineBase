@@ -57,7 +57,7 @@ namespace OloEngine::Tests
         // Walk every declared enum value via static_cast loop. The
         // current top is `Groom = 44`; if more get added,
         // bumping this is the only maintenance.
-        constexpr u16 kMaxKnownValue = 44;
+        constexpr u16 kMaxKnownValue = 45;
 
         std::vector<AssetType> uncovered;
         for (u16 raw = 1; raw <= kMaxKnownValue; ++raw)

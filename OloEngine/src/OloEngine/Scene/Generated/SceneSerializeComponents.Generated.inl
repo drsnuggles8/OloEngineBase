@@ -448,6 +448,19 @@ if (entity.HasComponent<FootIKComponent>())
     out << YAML::EndMap; // FootIKComponent
 }
 
+if (entity.HasComponent<GroomBindingComponent>())
+{
+    out << YAML::Key << "GroomBindingComponent";
+    out << YAML::BeginMap; // GroomBindingComponent
+    auto const& comp = entity.GetComponent<GroomBindingComponent>();
+    out << YAML::Key << "Binding" << YAML::Value << static_cast<u64>(comp.m_Binding);
+    out << YAML::Key << "TargetEntity" << YAML::Value << static_cast<u64>(comp.m_TargetEntity);
+    out << YAML::Key << "TeleportDistance" << YAML::Value << comp.m_TeleportDistance;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "ShowBindingPreview" << YAML::Value << comp.m_ShowBindingPreview;
+    out << YAML::EndMap; // GroomBindingComponent
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     out << YAML::Key << "GroomComponent";

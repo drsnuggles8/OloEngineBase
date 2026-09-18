@@ -114,5 +114,21 @@ namespace OloEngine
         // Keyed on the skeleton pointer; refreshed when it changes.
         const void* m_CachedRoleSkeleton = nullptr;
         Animation::HumanoidBoneMap m_CachedRoleMap;
+
+        // ── Groom surface binding (issue #1249) ──────────────────
+        //
+        // The bind radius is PANEL state, not component state, on purpose: it
+        // is a parameter of the build action and has no meaning afterwards. A
+        // binding records where its roots landed (GroomRootBindQuality), which
+        // is the fact worth persisting; the radius that decided the labels is
+        // not, and storing it on the component would invite someone to change
+        // it and expect the coat to move.
+        f32 m_GroomBindSearchRadius = 0.25f;
+
+        /// Build a binding for `entity`'s groom against its target body and
+        /// point `component` at it. Cooks the bytes, writes them next to the
+        /// groom and imports the result, so the binding is an asset on disk
+        /// like every other cooked artifact rather than scene-embedded state.
+        void BuildGroomBinding(Entity entity, GroomBindingComponent& component);
     };
 } // namespace OloEngine
