@@ -47,10 +47,10 @@ above.
 ## Trap 1 — the records path must stay RELATIVE, or every other job loses its cache
 
 The flag's value is part of the command line, so the compiler cache hashes it. ccache's
-`base_dir` does **not** rewrite it: base_dir relativises arguments ccache recognises as
-paths to existing files, and this one names a file that does not exist yet at hash time.
-So an absolute path makes the hash tree-specific and silently ends cross-tree sharing —
-including between the two `olo-ci` runner slots, which share one `CCACHE_DIR` and have
+`base_dir` does **not** rewrite it — base_dir relativises arguments ccache recognises as
+paths to *existing* files, and this one names a file that does not exist yet at hash time.
+An absolute path therefore makes the hash tree-specific and silently ends cross-tree
+sharing, including between the two `olo-ci` slots, which share one `CCACHE_DIR` under
 different `GITHUB_WORKSPACE` paths.
 
 Measured, ccache 4.13.6 / clang-cl 23.1.0, two source-identical trees under one `base_dir`,
@@ -88,23 +88,21 @@ check does not catch this.
 
 ## Trap 3 — a warm compiler cache makes a partial ranking look like a cheap build
 
-On a cache **hit** ccache does not run the compiler, so it appends no record. That is
-correct — a hit costs no memory — but it means a ranking taken from a warm build covers
-only whatever missed. Two consequences:
+On a cache **hit** ccache does not run the compiler, so it appends no record — correct (a
+hit costs no memory), but it means a warm build ranks only whatever missed. So: CI uses
+`CCACHE_DISABLE=1`; locally prefer **`CCACHE_RECACHE=1`**, which also forces every TU
+through the compiler but *populates* the shared cache instead of discarding the work. The
+analyser always prints coverage (records vs. objects in the tree — not
+`compile_commands.json`, which counts the whole project while CI builds one target) and
+`--fail-under-coverage` fails rather than publishing a lower bound as a census.
 
-- A measurement run wants the cache out of the way. `build-memory.yml` uses
-  `CCACHE_DISABLE=1`. Locally, prefer **`CCACHE_RECACHE=1`**: it also forces every TU
-  through the compiler, but it *populates* the shared cache with the work instead of
-  throwing it away.
-- The analyser always prints coverage (records vs. object files actually in the tree, not
-  vs. `compile_commands.json` — that counts the whole project while CI builds one target)
-  and `--fail-under-coverage` fails the job rather than publishing a lower bound as a
-  census.
+Under ccache's preprocessor mode a **miss** emits a second record for the `-E` pass (~30 MiB,
+in ccache's tmp dir). Those are classified `intermediate` and counted separately, not
+dropped silently.
 
-Under ccache's preprocessor mode a **miss** also emits a second record for the `-E` pass,
-written into ccache's own tmp dir at ~30 MiB. The analyser classifies those as
-`intermediate` and counts them separately, rather than dropping them silently or letting
-them pad the record count.
+**Measuring the hit RATE needs `CCACHE_STATSLOG`, never before/after `ccache -s`:** every
+worktree here shares one `CCACHE_DIR`, so the global counters move with the siblings' builds
+(a 28-step build of mine showed a 2378-call delta). The statslog is per-invocation.
 
 ## Trap 4 — compare only against a build with the same PCH and unity settings
 
@@ -116,68 +114,67 @@ destroy the per-TU ranking outright. Pass `-DOLO_ENABLE_PCH=OFF
 -DOLO_ENABLE_UNITY_BUILD=OFF` explicitly on any cache-off measurement run, as
 `build-memory.yml` does, or the numbers are not comparable to CI's.
 
-## What the first full measurement found (2026-09-17, Windows)
+## The measurement (2026-09-17): the LINK is the ceiling, not any compile
 
-clang-cl 23.1.0, Debug, PCH and unity off, `OloEditor` + `OloEngine-Tests`, 1833 compiles
-at 99.0% coverage. **Not** the sanitizer configuration the caps were derived from — Linux
-`Debug` and `Debug + ASan` come from the weekly artifact, and links are unmeasurable here.
+Linux, `/opt/llvm-23.1.0/bin/clang++`, `olo-ci-1`, cache off, PCH and unity off, target
+`OloEngine-Tests`, **1761 compiles at 99.9% coverage** in each cell. This is the
+configuration the caps were derived from, so these are the numbers to use.
 
-Distribution: **median 0.38 GiB, p95 1.08 GiB, max 5.38 GiB.** 17 TUs over 2 GiB, 5 over
-3 GiB, 2 over 5 GiB. So the shape #759 guessed at is right — a handful of TUs set the peak
-— but the handful is a different handful than either of the earlier surveys named.
+| | plain `Debug` | `Debug + ASan` |
+|---|---:|---:|
+| median compile | 0.31 GiB | 0.32 GiB |
+| p95 compile | 0.84 GiB | 0.85 GiB |
+| compiles over 2 GiB | 10 | 12 |
+| **heaviest compile** | 4.65 GiB | **8.09 GiB** |
+| **heaviest link (`ld.lld`)** | **10.03 GiB** | **11.17 GiB** |
+| link ÷ heaviest compile | **2.16x** | **1.38x** |
 
-**The `olo_heavy` pool is populated wrong in both directions** — not badly, but it tracks
-an older ranking. It holds four TUs ranked #180, #278, #25 and #24 while eight ranked
-#5–#20 sit outside it, led by `SceneHierarchyPanel.cpp` (#5, 3.08 GiB) and `Scene.cpp`
-(#6, 2.72 GiB). Two entries are worth naming, because each is a rule rather than a datum:
+**One `ld.lld` link of `OloEngine-Tests` uses 11.17 GiB — 80% of the runner unit's 14 GiB
+`memory.max`, and more than any translation unit in the build.** The belief it replaces was
+8.7 GB; it is 38% higher than that, and it is 10.03 GiB even with no sanitizer. The heaviest
+compile, meanwhile, is 8.09 GiB — the folklore "~9.0 GB for one `clang++` TU" was close, and
+the "one TU hit 13.9 GB" claim does **not** reproduce.
 
-- `LuaScriptGlue.cpp` was deliberately excluded when the glue was split, on the grounds
-  that "the dispatcher left behind is an ordinary small TU"
-  (`OloEngine/src/CMakeLists.txt`). It is **13th of 1833**.
-- `Prefab.cpp` carries a committed `6,400 MB peak compiler RSS in 22 s` and measures
-  **1,488 MB in 7.4 s**. That is not drift — see the cross-check below.
+This does not contradict #759, it completes it. #759 found `OLO_LINK_JOBS=2` is not the
+**wall-clock** serialisation point — still true, links are off the critical path. For
+**memory** the link is the single largest consumer in both configurations.
 
-What the pool gets right: `McpFieldRegistry.cpp` is #1 and #2 (5.38 / 5.37 GiB, compiled
-independently into `OloEditor` and `OloEngine-Tests`), and eight of the nine
-`LuaScriptGlue_*` parts land in the top 18. #822's split worked.
+**The consequence that matters: nothing bounds it on Linux.** `OLO_LINK_JOBS` and
+`olo_heavy` are Ninja job pools and every Linux CI job gets Unix Makefiles
+([§5e](build-trees-and-windows-asan.md#5e-both-memory-pools-are-ninja-only--so-on-linux-ci---parallel-n-is-the-only-cap-issue-796)),
+so `make -j2` is free to run that 11.17 GiB link alongside a compile. Link + the heaviest
+compile is **19.26 GiB**, past the 14 GiB unit cap and at the 19 GiB slice cap. In practice
+the tests link happens at the end when little else is left, which is why this has not been
+failing constantly — but it is unguarded, not safe by construction.
 
-Re-populating the set is **issue #1307**, deliberately not done in #1305 — and it must take
-its membership from the Linux `Debug + ASan` artifact, not from the Windows ranking above.
-A Linux cgroup cap set from a Windows non-sanitizer build would be the same class of
-mistake this whole exercise is correcting.
+### What to do with `--parallel`, stated as a recommendation not a change
 
-### The committed per-TU figures were wrong when written, and two methods now agree
+- **Sanitizer jobs: keep `--parallel 2`.** Three lanes is a 15.24 GiB worst case, past the
+  cap. The pin is correct and now has evidence.
+- **Non-sanitizer Linux Debug: 4 lanes fits on compile grounds** (the derivation's largest
+  fitting N), but the gain is bounded by the same link, so raise it only if the queue
+  actually needs it.
+- **The lever worth having is a link bound that works under Makefiles.** A 14 GiB unit cap
+  leaves 2.8 GiB of headroom over a single link; that, not `--parallel`, is what is tight.
 
-`OloEngine/src/CMakeLists.txt`, `OloEditor/src/CMakeLists.txt`,
-`OloEngine/tests/CMakeLists.txt` and issue #1113 carry per-TU peak-RSS numbers that are up
-to **8.7x too high**. The cause is known and is a recipe bug, not decay: the survey behind
-them ran `cmake --build <dir> --target X -- '<obj>'`, which passes *both* the target and the
-object to ninja and therefore builds the **whole target**, then credited the largest of a
-dozen concurrent unrelated compiles to whichever TU was asked for. An isolated re-measurement
-on 2026-09-08 (per-PID `PeakWorkingSet64`, one `clang-cl` asserted) corrected them.
+None of these were applied here — changing a live runner's configuration is out of #1305's
+scope and is the maintainer's call.
 
-This whole-tree census is an independent third method — clang's own `-fproc-stat-report`,
-taken during a 6-wide parallel build — and it agrees with those isolated numbers closely:
+### The `olo_heavy` pool is mispopulated in both directions
 
-| TU | committed | isolated (2026-09-08) | this census | vs isolated |
-|---|---:|---:|---:|---:|
-| `Scene.cpp` | 2,498 MB | 2,499 MB | 2,785 MB | 1.11x |
-| `ComponentRoundTripTest.cpp` | 12,389 MB | 1,415 MB | 1,599 MB | 1.13x |
-| `McpToolsRender.cpp` | 7,838 MB | 1,369 MB | 1,680 MB | 1.23x |
-| `Prefab.cpp` | 6,400 MB | 1,282 MB | 1,488 MB | 1.16x |
-| `RenderGraphTest.cpp` | 8,619 MB | 949 MB | 1,053 MB | 1.11x |
+Confirmed independently on Linux+ASan and on a Windows clang-cl census — same names, same
+direction, so it is not an artefact of either host. On the Linux+ASan ranking it holds
+`AbilityComponentRoundTripTest.cpp` (#281), `RenderGraphTest.cpp` (#34),
+`LuaScriptGlue_EngineApi.cpp` (#21), `Prefab.cpp` (#18) and `McpToolsRender.cpp` (#17),
+while `Scene.cpp` (**#3**), `ComponentFieldRegistry.cpp` (**#5**), `SceneSerializer.cpp`
+(#7), `LuaScriptGlue.cpp` (#9) and `SaveGameSerializer.cpp` (#11) sit outside it.
 
-`Scene.cpp` is the control: it is the row that reproduced exactly under the buggy recipe
-(2,498 vs 2,499 MB), and it lands at the same 1.11x here. So the residual 11-23% is the
-parallel-build environment, not a systematic error in either method — **a TU measured while
-five others are running peaks a little higher than the same TU measured alone.** Prefer this
-census for ranking and the isolated recipe for a single TU's absolute figure; treat every
-number in those CMakeLists comments as void until re-measured.
-
-**Do not read the `--parallel` table as an argument for a lower `-j`.** It sums the N
-heaviest TUs, which assumes the scheduler starts them together — on a Ninja tree the
-`olo_heavy` pool prevents that, and this is not the sanitizer configuration. Take the
-number from the Linux `Debug + ASan` artifact.
+`LuaScriptGlue.cpp` was deliberately excluded when the glue was split, on the recorded
+grounds that "the dispatcher left behind is an ordinary small TU"
+(`OloEngine/src/CMakeLists.txt`). It ranks **9th**. What the pool gets right:
+`McpFieldRegistry.cpp` is #1 in every cell and the `LuaScriptGlue_*` parts cluster in the
+top 15 — #822's split worked. Re-populating it is **issue #1307**; the pool is Ninja-only,
+so this costs nothing on Linux CI and everything locally.
 
 ## Scope: what this cannot see
 
@@ -209,6 +206,23 @@ The three levers #1305 listed, checked rather than assumed:
 | ThinLTO instead of full LTO | **Cannot help the sanitizer jobs.** `cmake/CommonProperties.cmake` sets `INTERPROCEDURAL_OPTIMIZATION_RELEASE`/`_DIST` only, and every sanitizer job is `CMAKE_BUILD_TYPE=Debug`. No LTO is enabled there to convert. |
 | `-gsplit-dwarf` + `--gdb-index` | **ccache handles it**, which #1305 asked to verify rather than assume. Measured on ccache 4.13.6: a cold compile produced `.o` + `.dwo`; with both deleted, a cache **hit** restored both at identical sizes. The `.o` names its companion as a bare `t.dwo` and takes the directory from `DW_AT_comp_dir`, which this repo already rewrites to `/olo`, so objects stay path-independent and cross-slot sharing is unaffected. **Unverified risk:** that same `/olo` mapping is what ASan's symbolizer must resolve the `.dwo` through. Confirm a sanitizer stack still symbolises before adopting. |
 | `-g1` on sanitizer CI only | Keeps line tables and function names — what ASan needs to symbolise — and drops variable/type DWARF. Price it on the TUs the ranking names, not on the tree average: the peak is set by a handful. |
+
+### Appendix: the committed per-TU figures were wrong when written, and three methods now agree
+
+`OloEngine/src/CMakeLists.txt`, `OloEditor/src/CMakeLists.txt` and issue #1113 carry per-TU
+figures up to **8.7x too high** — a recipe bug, not decay. That survey ran
+`cmake --build <dir> --target X -- '<obj>'`, which passes *both* the target and the object to
+ninja and so builds the **whole target**, then credited the largest of a dozen concurrent
+unrelated compiles to whichever TU was named. An isolated re-measurement on 2026-09-08
+(per-PID `PeakWorkingSet64`, one `clang-cl` asserted) corrected it; this census is a third,
+independent method and agrees with that correction within **1.11-1.23x** on all five
+spot-checked TUs (`Scene.cpp` 2,499 → 2,785 MB; `ComponentRoundTripTest.cpp` 12,389 →
+1,415 → 1,599 MB; `Prefab.cpp` 6,400 → 1,282 → 1,488 MB).
+
+`Scene.cpp` is the control — the one row that reproduced exactly under the buggy recipe —
+and it lands at the same 1.11x, so the residual is the parallel-build environment rather
+than a systematic error in either method. **Census for ranking, the isolated recipe for one
+TU's absolute figure.** Treat every number in those comments as void until re-measured.
 
 ## History
 
