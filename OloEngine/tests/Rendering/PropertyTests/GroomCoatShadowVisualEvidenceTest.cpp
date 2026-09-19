@@ -495,7 +495,8 @@ namespace OloEngine::Tests
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
-        const auto measure = [&](u32 strands, const char* tag) -> f64 {
+        const auto measure = [&](u32 strands, const char* tag) -> f64
+        {
             Groom().m_MaxRenderStrands = strands;
 
             Coat().m_Enabled = false;
@@ -806,4 +807,4 @@ namespace OloEngine::Tests
         EXPECT_EQ(scaledResolution, nativeResolution)
             << "the coat volume's resolution changed with the render target size";
     }
-}
+} // namespace OloEngine::Tests

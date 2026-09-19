@@ -190,4 +190,4 @@ namespace OloEngine::Tests
         // restores what was authored rather than a default.
         EXPECT_EQ(loaded.m_Mode, seed.m_Mode);
     }
-}
+} // namespace OloEngine::Tests

@@ -8881,8 +8881,7 @@ namespace OloEngine
             else
             {
                 ImGui::TextDisabled("The groom pass has not run yet.");
-            }
-        });
+            } });
 
         DrawComponent<GroomBindingComponent>("Groom Binding", entity, [this, entity](auto& component)
                                              {

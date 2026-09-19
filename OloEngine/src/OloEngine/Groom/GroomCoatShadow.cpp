@@ -466,7 +466,8 @@ namespace OloEngine::GroomCoatShadow
         // over-reports candidates and never misses one. An exact voxelisation
         // would be smaller and would have to be right; this one only has to be
         // a superset, which is what makes the grid provably answer-preserving.
-        const auto cellRange = [&](const CoatSegment& segment, glm::ivec3& outLo, glm::ivec3& outHi) {
+        const auto cellRange = [&](const CoatSegment& segment, glm::ivec3& outLo, glm::ivec3& outHi)
+        {
             const f32 r = std::max(segment.RadiusA, segment.RadiusB);
             const glm::vec3 bLo = glm::min(segment.A, segment.B) - glm::vec3(r);
             const glm::vec3 bHi = glm::max(segment.A, segment.B) + glm::vec3(r);
