@@ -209,6 +209,13 @@ add_executable(OloEngine-Tests
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
+		# #1255: independent references for the three specialised material
+		# models, which the Cook-Torrance reference tracer above cannot
+		# represent. Two files, split on the local / nonlocal line the issue's
+		# second acceptance criterion draws.
+		Rendering/PathTracing/FibreScatteringReferenceTest.cpp
+		Rendering/PathTracing/LeafTransmissionReferenceTest.cpp
+		Rendering/PathTracing/NonlocalTransportReferenceTest.cpp
 		Rendering/PathTracing/ClosureV2Test.cpp
 		Rendering/PathTracing/ClosureV2ConsistencyTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
@@ -541,6 +548,10 @@ add_executable(OloEngine-Tests
 		# description of a pattern that is not on screen.
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
+		# #1255: the shipped shaders' linear AOVs against the independent
+		# material references, and the keeper for the leaf lobe's C++
+		# transcription.
+		Rendering/PropertyTests/MaterialReferenceAovParityTest.cpp
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp
