@@ -411,12 +411,17 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // mirroring PBRMaterialProperties depends on both.
     //
     // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile
-    // group, and 192 -> 240 with issue #1242's thin-region transmission group.
-    // BOTH were INSERTED after the physical scalars and before the heap offsets
-    // — so every offset asserted below is unchanged and only the trailing lanes
-    // moved. That is the property this test is really guarding, and it is why
-    // the growth is safe: a shader declaring only a PREFIX of this block (every
-    // non-bindless one does) still reads the same bytes for the same fields.
+    // group, 192 -> 240 with issue #1242's thin-region transmission group, and
+    // 240 -> 256 with issue #1243's layered-specular lane. ALL THREE were
+    // INSERTED after the physical scalars and before the heap offsets — so every
+    // offset asserted below is unchanged and only the trailing lanes moved. That
+    // is the property this test is really guarding, and it is why the growth is
+    // safe: a shader declaring only a PREFIX of this block (every non-bindless
+    // one does) still reads the same bytes for the same fields.
+    //
+    // #1243 also took over #1242's explicit trailing pad for its per-draw detail
+    // strength rather than growing the block a second time, which is why one new
+    // vec4 costs exactly 16 bytes and not 32.
     //
     // Appending after HeapOffsets instead would have been the silent break:
     // include/BindlessHeap.glsl and WriteMaterialHeapOffsets both index them as
@@ -424,7 +429,7 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // texture's descriptor offset while compiling, linking and drawing normally.
     using UBO = ShaderBindingLayout::PBRMaterialUBO;
 
-    EXPECT_EQ(sizeof(UBO), 240u);
+    EXPECT_EQ(sizeof(UBO), 256u);
     EXPECT_EQ(offsetof(UBO, TransmissionFactor), 96u);
     EXPECT_EQ(offsetof(UBO, IOR), 100u);
     EXPECT_EQ(offsetof(UBO, ThicknessFactor), 104u);
@@ -438,7 +443,11 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     EXPECT_EQ(offsetof(UBO, SkinTransmitScatter), 144u)
         << "the #1242 transmission lanes must start on a 16-byte boundary, or std140 pads in front of them";
     EXPECT_EQ(offsetof(UBO, SkinTransmitScaling), 160u);
-    EXPECT_EQ(offsetof(UBO, HeapOffsets), 192u) << "the heap-offset lanes must stay LAST (issue #691)";
+    // The #1243 layered-specular lane, on the next 16-byte boundary after them
+    // and for the same reason.
+    EXPECT_EQ(offsetof(UBO, SkinSpecularLane), 176u)
+        << "the #1243 layered-specular lane must start on a 16-byte boundary, or std140 pads in front of it";
+    EXPECT_EQ(offsetof(UBO, HeapOffsets), 208u) << "the heap-offset lanes must stay LAST (issue #691)";
 
     // A default-constructed UBO is neutral, which is what a draw that never
     // touched a physical material uploads.

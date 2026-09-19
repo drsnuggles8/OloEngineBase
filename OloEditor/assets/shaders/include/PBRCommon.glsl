@@ -87,6 +87,12 @@
 // include/SkinTransmission.glsl, which this file includes below.
 #define OLO_SKIN_MODEL_THICKNESS_TRANSMISSION 2
 
+// Version 3 (issue #1243): everything version 2 does, plus the layered surface
+// response — a convex two-lobe specular mixture, a roughness filtered by the
+// screen-space variance of the shading normal, and an expression-driven pore
+// band. See include/SkinLayeredSpecular.glsl and Renderer/SkinLayeredSpecular.h.
+#define OLO_SKIN_MODEL_LAYERED_SPECULAR 3
+
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
 #define OLO_SKIN_PROFILE_SLOT_NONE 7
@@ -2365,7 +2371,8 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
     // applies NOTHING rather than guessing.
     if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT &&
         evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
-        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION)
+        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
+        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
@@ -2402,6 +2409,13 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
 // include/DeferredLightingShared.glsl, which includes this one.
 #include "SkinTransmission.glsl"
 
+// The layered surface response (issue #1243) — the two-lobe mixture, the
+// screen-space variance filter and the expression-driven detail band. Included
+// here, after evaluatePBRClosureSplit and calculateLightContributionSplit, for
+// the same reason SkinTransmission.glsl is: every shader that can shade skin
+// gets ONE copy of the arithmetic.
+#include "SkinLayeredSpecular.glsl"
+
 // The aux value for a pixel that HAS been shaded.
 //
 // `scatteringMask` is oloSkinScatteringMask's [0,1]: the fraction of this
@@ -2421,8 +2435,16 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
     // version 2 SILENTLY TURN THE DIFFUSION OFF while turning transmission on --
     // a head that gains backlit ears and loses its soft terminator in one
     // authoring click, which reads as "the new feature broke scattering".
+    // ALL THREE DIFFUSING VERSIONS, and the list is load-bearing for the reason
+    // the two-entry version of it was: the versions are CUMULATIVE, so a
+    // version-3 profile must still hand its diffuse half to the diffusion pass.
+    // Omitting version 3 here would have made moving a profile to it SILENTLY
+    // TURN THE DIFFUSION OFF while turning the lobes on — a head that gains a
+    // sheen and loses its soft terminator in one authoring click, which reads as
+    // "the new feature broke scattering".
     if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
-        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION)
+        evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
+        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR)
         return vec4(0.0);
     if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
         return vec4(0.0);
@@ -2593,6 +2615,27 @@ vec3 sampleEmissive(sampler2D emissiveMap, vec2 texCoord, vec3 emissiveFactor, b
 #define OLO_MAT_AO(map, uv, strength, use) sampleAO(map, uv, strength, use)
 #define OLO_MAT_EMISSIVE(map, uv, factor, use) sampleEmissive(map, uv, factor, use)
 #define OLO_MAT_NORMAL(map, uv, worldPos, normal, scale) getNormalFromMap(map, uv, worldPos, normal, scale)
+#endif
+
+// The SKIN normal (issue #1243): the same normal, with the pore band of the map
+// scaled by `detail`. A macro pair beside OLO_MAT_NORMAL and not one function,
+// for the reason that one is a macro pair — the Vulkan heap reader cannot pass a
+// sampler as a function argument, so the body has to be inlined at the point of
+// use on that path.
+//
+// Costs a SECOND sample of the normal map, so every call site branches on
+// `detail != 0` and takes OLO_MAT_NORMAL when the author has not asked for any.
+// A skin material at the neutral default therefore pays exactly what it paid
+// before this feature existed.
+//
+// The coarse tap is taken at the LOD the hardware would have chosen, plus a
+// fixed offset — see OLO_SKIN_DETAIL_LOD_OFFSET in include/SkinLayeredSpecular.glsl
+// for why two mips and not one. textureQueryLod rather than a hand-computed
+// gradient so the two taps cannot disagree about which mip chain they are on.
+#ifdef OLO_MATERIAL_VULKAN_HEAP_READER
+#define OLO_SKIN_MAT_NORMAL(map, uv, worldPos, normal, scale, detail)                              applyNormalMapTBN(                                                                                  oloSkinDetailTangentNormal(                                                                         decodeTangentNormal(texture(map, uv).xy, scale),                                                decodeTangentNormal(                                                                                textureLod(map, uv, textureQueryLod(map, uv).y + OLO_SKIN_DETAIL_LOD_OFFSET).xy,                 scale),                                                                                     detail),                                                                                    dFdx(worldPos), dFdy(worldPos), dFdx(uv), dFdy(uv), normal)
+#else
+#define OLO_SKIN_MAT_NORMAL(map, uv, worldPos, normal, scale, detail)     oloSkinNormalFromMap(map, uv, worldPos, normal, scale, detail)
 #endif
 
 // =============================================================================

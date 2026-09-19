@@ -231,10 +231,20 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // Renderer/SkinTransmission.h for where the numbers come from.
     vec4 u_SkinTransmitScatter;
     vec4 u_SkinTransmitScaling;
+    // The layered specular lane (issue #1243). MUST mirror
+    // PBRMaterialUBO::SkinSpecularLane, packed by SkinSpecularLane().
+    //   x = LobeMix (w)              y = LobeRoughnessScale (s)
+    //   z = NormalVarianceStrength   w = 0, reserved
+    // All-zero is neutral: no second lobe and no variance filtering.
+    vec4 u_SkinSpecularLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
-    float u_SkinTransmitPad0;         // explicit padding -- takes the prefix to 192 B
+    // The per-draw pore-band gain (issue #1243), from the profile's detail
+    // fields and the entity's APPLIED morph weights. 0 leaves the authored
+    // normal map untouched; -1 removes its pore band entirely. Took over the
+    // slot the explicit pad held, so the prefix still ends 16-byte aligned.
+    float u_SkinDetailStrength;
     // Per-material heap offsets (issue #691). MUST mirror
     // PBRMaterialUBO::HeapOffsets — std140 shifts every later field if the two
     // layouts disagree, and this block is the LAST member so a missing
@@ -455,7 +465,20 @@ void main()
     vec3 N = normalize(v_Normal);
     if (u_UseNormalMap == 1)
     {
-        N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
+        // THE EXPRESSION-DRIVEN PORE BAND (issue #1243). The skin spelling
+        // takes a second, coarser tap of the SAME normal map and scales the
+        // difference — see oloSkinDetailTangentNormal in
+        // include/SkinLayeredSpecular.glsl for why the band comes out of the
+        // map that is already there rather than out of a second one.
+        //
+        // Branched on the strength, not merely on the kind: the second tap is a
+        // real texture fetch, and a skin material whose author left the detail
+        // fields at their neutral default must cost what it cost before.
+        if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN && u_SkinDetailStrength != 0.0)
+            N = OLO_SKIN_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale,
+                                    u_SkinDetailStrength);
+        else
+            N = OLO_MAT_NORMAL(u_NormalMap, v_TexCoord, v_WorldPos, v_Normal, u_NormalScale);
     }
     vec3 V = normalize(u_CameraPosition - v_WorldPos);
 
@@ -463,6 +486,19 @@ void main()
     // PBR_MultiLight.glsl: wetness before any lighting reads
     // albedo/roughness; cloud shadow applied per directional light below.
     atmosphereApplyWetness(albedo, roughness, N);
+
+    // THE VARIANCE FILTER (issue #1243). HERE, and the position is load-bearing
+    // in both directions: AFTER the normal map and the detail band, because the
+    // variance this measures is theirs and taking dFdx of the vertex normal
+    // would see only the mesh's curvature; and AFTER the wetness response,
+    // because that rewrites `roughness` and filtering the value it is about to
+    // replace would be filtering a number nothing shades with.
+    //
+    // A zero strength — which is what every non-skin material and every profile
+    // below transport version 3 uploads — returns `roughness` unchanged and
+    // costs one compare. See oloSkinFilteredRoughness.
+    if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
+        roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
     float cloudShadow = atmosphereCloudShadow(v_WorldPos);
 
     // ---- THIN-REGION TRANSMISSION SETUP (issue #1242) -------------------
@@ -485,8 +521,13 @@ void main()
     // map's red channel. With no map the modulation is 1, so the material's
     // scalar thickness applies uniformly -- which is what makes a head that
     // loses its map fall back to a uniform thickness rather than to none.
+    // BOTH TRANSMITTING VERSIONS. The versions are CUMULATIVE — version 3 is
+    // "everything version 2 does, plus the layered specular" — so omitting it
+    // here would silently stop a version-3 head transmitting through its ears
+    // the moment its author turned the lobes on.
     bool isSkinTransmitting = (u_MaterialKind == OLO_MATERIAL_KIND_SKIN) &&
-                              (u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION);
+                              ((u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR));
     float skinThicknessMM = 0.0;
     if (isSkinTransmitting)
     {
@@ -523,7 +564,9 @@ void main()
     {
         float fplusViewDepth = -(u_View * vec4(v_WorldPos, 1.0)).z;
         Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic,
-                                                                    roughness, fplusViewDepth, u_PBRModel));
+                                                                    roughness, fplusViewDepth, u_PBRModel,
+                                                                    oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel,
+                                                                                   u_SkinSpecularLane)));
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -534,8 +577,13 @@ void main()
     {
         int lightType = int(u_Lights[i].position.w);
 
-        OloSurfaceLighting lightContrib = calculateLightContributionSplit(u_Lights[i], N, V, albedo, metallic,
-                                                                          roughness, v_WorldPos, u_PBRModel);
+        // THE LAYERED CLOSURE (issue #1243). The skin twin of
+        // calculateLightContributionSplit, which for a lobe mix of 0 — every
+        // non-skin pixel, and every skin pixel below transport version 3 —
+        // returns the identical result without evaluating anything twice.
+        OloSurfaceLighting lightContrib = oloSkinLightContributionSplit(
+            u_Lights[i], N, V, albedo, metallic, roughness, v_WorldPos, u_PBRModel,
+            oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel, u_SkinSpecularLane));
 
         // THE VISIBILITY FACTOR, ACCUMULATED RATHER THAN APPLIED (issue #1242).
         //

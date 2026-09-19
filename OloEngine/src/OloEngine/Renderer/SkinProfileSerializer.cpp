@@ -80,6 +80,17 @@ namespace OloEngine
         out << YAML::Key << "Anisotropy" << YAML::Value << p.Transmission.Anisotropy;
         out << YAML::Key << "Power" << YAML::Value << p.Transmission.Power;
         out << YAML::EndMap;
+        // The layered surface response (issue #1243), nested for the reason
+        // Transmission is: these five belong to the transport only version 3
+        // evaluates, and a reader should be able to see that without consulting
+        // a header.
+        out << YAML::Key << "Specular" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "LobeMix" << YAML::Value << p.Specular.LobeMix;
+        out << YAML::Key << "LobeRoughnessScale" << YAML::Value << p.Specular.LobeRoughnessScale;
+        out << YAML::Key << "NormalVarianceStrength" << YAML::Value << p.Specular.NormalVarianceStrength;
+        out << YAML::Key << "DetailStrength" << YAML::Value << p.Specular.DetailStrength;
+        out << YAML::Key << "ExpressionDetailGain" << YAML::Value << p.Specular.ExpressionDetailGain;
+        out << YAML::EndMap;
         out << YAML::EndMap;
         out << YAML::EndMap;
         return std::string(out.c_str());
@@ -140,6 +151,37 @@ namespace OloEngine
                     ReadFinite(transmission["Anisotropy"], defaults.Transmission.Anisotropy, "Transmission.Anisotropy");
                 parameters.Transmission.Power =
                     ReadFinite(transmission["Power"], defaults.Transmission.Power, "Transmission.Power");
+            }
+
+            // The layered surface response (issue #1243). Same shape and same
+            // argument as the block above: a file written before #1243 has no
+            // Specular node, every field keeps its default, and such a file is
+            // at transport version 0, 1 or 2 — where the lobe mixture and the
+            // detail normal are not evaluated at all. So a .oloskin authored
+            // against any earlier version round-trips to the SAME PIXELS, which
+            // is the prior-on-disk-version cell the verification grid asks for
+            // and SkinProfileSerializerTest asserts directly.
+            //
+            // NOTE that NormalVarianceStrength's default is 0.5 and not 0, so an
+            // old file loaded here does acquire a non-zero value in that field.
+            // That is not a behaviour change for it: the field is only read at
+            // version 3, and an old file is not at version 3. It matters only if
+            // someone ALSO moves the version, which is an authoring act and the
+            // point at which the new transport is supposed to start applying.
+            if (auto specular = section["Specular"]; specular)
+            {
+                parameters.Specular.LobeMix =
+                    ReadFinite(specular["LobeMix"], defaults.Specular.LobeMix, "Specular.LobeMix");
+                parameters.Specular.LobeRoughnessScale = ReadFinite(
+                    specular["LobeRoughnessScale"], defaults.Specular.LobeRoughnessScale, "Specular.LobeRoughnessScale");
+                parameters.Specular.NormalVarianceStrength =
+                    ReadFinite(specular["NormalVarianceStrength"], defaults.Specular.NormalVarianceStrength,
+                               "Specular.NormalVarianceStrength");
+                parameters.Specular.DetailStrength = ReadFinite(
+                    specular["DetailStrength"], defaults.Specular.DetailStrength, "Specular.DetailStrength");
+                parameters.Specular.ExpressionDetailGain =
+                    ReadFinite(specular["ExpressionDetailGain"], defaults.Specular.ExpressionDetailGain,
+                               "Specular.ExpressionDetailGain");
             }
 
             if (!profile->SetParameters(parameters))

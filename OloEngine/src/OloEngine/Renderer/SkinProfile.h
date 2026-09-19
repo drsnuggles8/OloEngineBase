@@ -75,6 +75,30 @@ namespace OloEngine
         // the renderer setting only decides whether the term is EVALUATED.
         ThicknessTransmission = 2,
 
+        // What #1243 ships: everything version 2 does, plus a LAYERED SURFACE
+        // RESPONSE — a convex mixture of two GGX lobes in place of the single
+        // one, a roughness filtered by the measured screen-space variance of the
+        // shading normal, and a detail normal whose strength is driven by the
+        // entity's expression. See Renderer/SkinLayeredSpecular.h for the maths
+        // and the energy argument, docs/guides/skin-layered-specular.md for the
+        // measured comparison the model was chosen on.
+        //
+        // IT TOUCHES THE SPECULAR HALF AND NOTHING ELSE, which is the whole
+        // reason it can be added at all: #1231 split the two, so a second lobe
+        // and a filtered roughness reach the specular without the diffusion
+        // underneath (version 1) or the transmission beside it (version 2) being
+        // able to see them. The issue's first acceptance criterion — "do not
+        // erase the underlying diffusion" — is therefore a property of where the
+        // code is, not of a value anyone tuned.
+        //
+        // A VERSION, NOT A FLAG, for the third time and the same reason: a
+        // profile stays where its author left it. Its defaults are also NEUTRAL
+        // (LobeMix 0, DetailStrength 0, ExpressionDetailGain 0), so moving a
+        // profile to version 3 changes exactly one thing — the roughness becomes
+        // variance-filtered — and the author opts into the rest one field at a
+        // time.
+        LayeredSpecular = 3,
+
         Count
     };
 
@@ -90,6 +114,8 @@ namespace OloEngine
                 return "ScreenSpaceDiffusion";
             case SkinEvaluationModel::ThicknessTransmission:
                 return "ThicknessTransmission";
+            case SkinEvaluationModel::LayeredSpecular:
+                return "LayeredSpecular";
             case SkinEvaluationModel::Count:
                 break;
         }
@@ -155,6 +181,122 @@ namespace OloEngine
     // more usefully, it bounds what a corrupt thickness map can ask for. A head
     // is not two metres thick.
     inline constexpr f32 kMaxSkinThicknessMM = 2.0e3f;
+
+    // -------------------------------------------------------------------------
+    // Layered specular bounds (issue #1243)
+    // -------------------------------------------------------------------------
+
+    // `w` — the fraction of the specular carried by the BROAD lobe. The ceiling
+    // is 1 and is not a taste bound: the mixture is convex, and a weight outside
+    // [0, 1] is what makes a convex combination stop being one. Past 1 the
+    // narrow lobe's coefficient goes negative and the surface can return
+    // negative radiance, which is the energy failure the whole arrangement
+    // exists to make impossible. Pinned by SkinLayeredSpecularTest.
+    inline constexpr f32 kMinSkinLobeMix = 0.0f;
+    inline constexpr f32 kMaxSkinLobeMix = 1.0f;
+
+    // `s` — how much rougher the broad lobe is than the narrow one, as a
+    // multiplier on PERCEPTUAL ROUGHNESS and not on alpha. The two differ by a
+    // square and the distinction is not pedantry: the reference experiment
+    // fitted ALPHA ratios of 1.3 to 4.0, which are roughness ratios of 1.14 to
+    // 2.0, and an author who reads the experiment and types its number into this
+    // field gets a lobe four times wider than the one that was measured.
+    //
+    // Below 1 the "broad" lobe is the narrower of the two and the two names are
+    // lies, which matters because every comment downstream reasons about which
+    // is which. The ceiling is where the product has saturated at roughness 1
+    // for any skin an author would type, so a larger number is the same lobe
+    // with a more alarming label.
+    inline constexpr f32 kMinSkinLobeRoughnessScale = 1.0f;
+    inline constexpr f32 kMaxSkinLobeRoughnessScale = 4.0f;
+
+    // `sigma^2` — the screen-space variance strength. 0 disables the filter
+    // entirely, which is NOT a taste setting: it is the A/B control arm the
+    // issue's acceptance criteria are demonstrated against, and it is what makes
+    // "filtering off" an exact comparison rather than an approximate one.
+    //
+    // The ceiling is where the kernel clamp (kSkinVarianceKernelClamp) binds for
+    // essentially every pixel, so a larger value is a constant maximum widening
+    // wearing a variable's clothes. The measured useful range is 0.05 to 1.5
+    // depending on how magnified the surface is — see
+    // Renderer/SkinLayeredSpecular.h, which is also where the reason this is
+    // authored rather than fixed is argued.
+    inline constexpr f32 kMinSkinNormalVarianceStrength = 0.0f;
+    inline constexpr f32 kMaxSkinNormalVarianceStrength = 4.0f;
+
+    // The EXTRA gain on the normal map's high-frequency band — its pores and
+    // fine furrows — over and above what the map already carries. Unitless.
+    //
+    // THE SIGNED RANGE IS THE POINT. 0 is neutral and returns the authored
+    // normal untouched; positive deepens the pores; and -1 subtracts the band
+    // entirely, returning the coarse normal. That -1 is not a curiosity, it is
+    // the EXACT "detail off" arm the issue's fourth acceptance criterion is
+    // demonstrated against — a control that removes precisely the signal the
+    // feature adds, rather than a second authored value that looks similar.
+    //
+    // The ceiling is where the reconstructed detail has swung the normal into
+    // the tangent plane for all but the flattest texels and the surface stops
+    // having an orientation. Both ends are rejection bounds.
+    inline constexpr f32 kMinSkinDetailStrength = -1.0f;
+    inline constexpr f32 kMaxSkinDetailStrength = 4.0f;
+
+    // @brief The layered-specular half of a skin profile's authored parameters
+    //        (issue #1243).
+    //
+    // A nested aggregate for the reason SkinTransmissionParameters is one: every
+    // function in Renderer/SkinLayeredSpecular.h that needs only the lobe shape
+    // can take THIS, and the convexity argument reads as a property of two
+    // numbers instead of of thirteen. Serialized as part of the profile and
+    // sanitized by the profile's own Sanitize() — SkinProfile.h promises ONE
+    // validation gate and this struct does not open a second.
+    struct SkinSpecularParameters
+    {
+        // `w`. Meaningful only at transport version 3
+        // (SkinEvaluationModel::LayeredSpecular); the version branch, not this
+        // field, is what stops an older profile acquiring a second lobe.
+        //
+        // DEFAULT 0 — the single-lobe answer. NOT, on its own, the version-2
+        // frame: it removes the broad lobe and nothing else, and the narrow lobe
+        // still shades at the FILTERED roughness. Reproducing version 2 needs
+        // all four of this, NormalVarianceStrength, DetailStrength and
+        // ExpressionDetailGain at zero — which is the arm
+        // SkinLayeredSpecularEvidenceTest's neutral-identity A/B authors.
+        //
+        // The measured fit wants ~0.05 at close range and ~0.6 once a pixel
+        // straddles regions of different roughness, so there is no one right
+        // number and the neutral one is the honest default.
+        f32 LobeMix = 0.0f;
+
+        // `s`. 3.0 is the middle of the measured fit's range and is only
+        // consulted when LobeMix is non-zero, so it is a starting point for
+        // authoring rather than a value that does anything on its own.
+        f32 LobeRoughnessScale = 3.0f;
+
+        // `sigma^2`. Defaults to the published 0.5 rather than to 0: unlike the
+        // two above, this one is not an effect an author opts into but a
+        // CORRECTION, and a version-3 profile that filtered nothing would ship
+        // the sparkle the version exists to remove. Turning it off is the
+        // deliberate act, which is the opposite polarity to LobeMix and is why
+        // the two defaults differ.
+        f32 NormalVarianceStrength = 0.5f;
+
+        // Extra pore-band gain at a NEUTRAL expression. 0 leaves the authored
+        // normal map exactly as it is.
+        f32 DetailStrength = 0.0f;
+
+        // Extra pore-band gain added at a FULLY EXPRESSED face, scaled by
+        // SkinExpressionDetailWeight's [0, 1] and summed with DetailStrength.
+        // The sum is clamped into the bound by SkinDetailStrength, so the two
+        // fields cannot combine into a value neither of them could hold.
+        f32 ExpressionDetailGain = 0.0f;
+
+        // Clamp every field into its bound and replace every non-finite value
+        // with the default. Returns true when nothing had to be corrected.
+        // Called by SkinProfileParameters::Sanitize, never on its own.
+        bool Sanitize();
+
+        [[nodiscard]] bool operator==(const SkinSpecularParameters& other) const noexcept;
+    };
 
     // @brief The transmission half of a skin profile's authored parameters
     //        (issue #1242).
@@ -231,6 +373,11 @@ namespace OloEngine
         // transport version 2; see SkinTransmissionParameters above and
         // Renderer/SkinTransmission.h.
         SkinTransmissionParameters Transmission{};
+
+        // The layered surface response (issue #1243). Read only at transport
+        // version 3; see SkinSpecularParameters above and
+        // Renderer/SkinLayeredSpecular.h.
+        SkinSpecularParameters Specular{};
 
         // Clamp every field into its bound and replace every non-finite value
         // with the default. Returns true when nothing had to be corrected, so

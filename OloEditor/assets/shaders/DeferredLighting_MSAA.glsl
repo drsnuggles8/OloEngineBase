@@ -145,6 +145,21 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     //   Scaling: xyz = Burley scaling d (MILLIMETRES), w = Power
     vec4 u_SkinTransmitScatter[7];
     vec4 u_SkinTransmitScaling[7];
+    // The layered specular table (issue #1243), indexed by the same three-bit
+    // slot as u_SkinProfileParams and read under the same MaterialKind::Skin
+    // test. Mirrors DeferredControlsData::SkinSpecularLobe.
+    //
+    //   x = LobeMix (w)              y = LobeRoughnessScale (s)
+    //   z = NormalVarianceStrength   w = 0, reserved
+    //
+    // z is CARRIED BUT NOT READ HERE. The variance filter runs where the normal
+    // is built — the G-Buffer writer — so this pass inherits an already filtered
+    // roughness out of the G-Buffer and only the lobe pair is left to apply.
+    // The lane is packed by the same function the forward path uses, which is
+    // why it carries a field this path has no use for.
+    //
+    // A slot nobody claimed stays all-zero: one lobe, no filtering.
+    vec4 u_SkinSpecularLobe[7];
 };
 
 layout(binding = 10) uniform samplerCube u_IrradianceMap;

@@ -74,6 +74,38 @@ namespace OloEngine
                Math::BitwiseEqual(Power, other.Power);
     }
 
+    bool SkinSpecularParameters::Sanitize()
+    {
+        const SkinSpecularParameters defaults{};
+        bool ok = true;
+
+        ok = SanitizeRange(LobeMix, kMinSkinLobeMix, kMaxSkinLobeMix, defaults.LobeMix) && ok;
+        ok = SanitizeRange(LobeRoughnessScale, kMinSkinLobeRoughnessScale, kMaxSkinLobeRoughnessScale,
+                           defaults.LobeRoughnessScale) &&
+             ok;
+        ok = SanitizeRange(NormalVarianceStrength, kMinSkinNormalVarianceStrength,
+                           kMaxSkinNormalVarianceStrength, defaults.NormalVarianceStrength) &&
+             ok;
+        ok = SanitizeRange(DetailStrength, kMinSkinDetailStrength, kMaxSkinDetailStrength,
+                           defaults.DetailStrength) &&
+             ok;
+        ok = SanitizeRange(ExpressionDetailGain, kMinSkinDetailStrength, kMaxSkinDetailStrength,
+                           defaults.ExpressionDetailGain) &&
+             ok;
+
+        return ok;
+    }
+
+    bool SkinSpecularParameters::operator==(const SkinSpecularParameters& other) const noexcept
+    {
+        // Bit-exact, for the reason SkinProfileParameters::operator== states.
+        return Math::BitwiseEqual(LobeMix, other.LobeMix) &&
+               Math::BitwiseEqual(LobeRoughnessScale, other.LobeRoughnessScale) &&
+               Math::BitwiseEqual(NormalVarianceStrength, other.NormalVarianceStrength) &&
+               Math::BitwiseEqual(DetailStrength, other.DetailStrength) &&
+               Math::BitwiseEqual(ExpressionDetailGain, other.ExpressionDetailGain);
+    }
+
     bool SkinProfileParameters::Sanitize()
     {
         const SkinProfileParameters defaults{};
@@ -103,6 +135,10 @@ namespace OloEngine
         // reach the transmission fields through here and nowhere else.
         ok = Transmission.Sanitize() && ok;
 
+        // The layered surface response (issue #1243), through the same one gate
+        // and for the same reason.
+        ok = Specular.Sanitize() && ok;
+
         return ok;
     }
 
@@ -116,7 +152,8 @@ namespace OloEngine
                Math::BitwiseEqual(ScatterColor, other.ScatterColor) &&
                Math::BitwiseEqual(ScatterRadiusMM, other.ScatterRadiusMM) &&
                Math::BitwiseEqual(SpecularTint, other.SpecularTint) &&
-               Math::BitwiseEqual(ThicknessScale, other.ThicknessScale) && Transmission == other.Transmission;
+               Math::BitwiseEqual(ThicknessScale, other.ThicknessScale) &&
+               Transmission == other.Transmission && Specular == other.Specular;
     }
 
     bool SkinProfile::SetParameters(const SkinProfileParameters& parameters)
