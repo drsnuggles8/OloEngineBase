@@ -106,6 +106,34 @@ namespace OloEngine
                Math::BitwiseEqual(ExpressionDetailGain, other.ExpressionDetailGain);
     }
 
+    bool SkinOralParameters::Sanitize()
+    {
+        const SkinOralParameters defaults{};
+        bool ok = true;
+
+        ok = SanitizeRange(CoatStrength, kMinSkinOralCoatStrength, kMaxSkinOralCoatStrength,
+                           defaults.CoatStrength) &&
+             ok;
+        ok = SanitizeRange(CoatRoughness, kMinSkinOralCoatRoughness, kMaxSkinOralCoatRoughness,
+                           defaults.CoatRoughness) &&
+             ok;
+        ok = SanitizeRange(CoatIor, kMinSkinOralCoatIor, kMaxSkinOralCoatIor, defaults.CoatIor) && ok;
+        ok = SanitizeRange(CavityOcclusion, kMinSkinOralCavityOcclusion, kMaxSkinOralCavityOcclusion,
+                           defaults.CavityOcclusion) &&
+             ok;
+
+        return ok;
+    }
+
+    bool SkinOralParameters::operator==(const SkinOralParameters& other) const noexcept
+    {
+        // Bit-exact, for the reason SkinProfileParameters::operator== states.
+        return Math::BitwiseEqual(CoatStrength, other.CoatStrength) &&
+               Math::BitwiseEqual(CoatRoughness, other.CoatRoughness) &&
+               Math::BitwiseEqual(CoatIor, other.CoatIor) &&
+               Math::BitwiseEqual(CavityOcclusion, other.CavityOcclusion);
+    }
+
     bool SkinProfileParameters::Sanitize()
     {
         const SkinProfileParameters defaults{};
@@ -139,6 +167,10 @@ namespace OloEngine
         // and for the same reason.
         ok = Specular.Sanitize() && ok;
 
+        // The wet coat and the cavity weight (issue #1245), through the same one
+        // gate and for the same reason.
+        ok = Oral.Sanitize() && ok;
+
         return ok;
     }
 
@@ -153,7 +185,8 @@ namespace OloEngine
                Math::BitwiseEqual(ScatterRadiusMM, other.ScatterRadiusMM) &&
                Math::BitwiseEqual(SpecularTint, other.SpecularTint) &&
                Math::BitwiseEqual(ThicknessScale, other.ThicknessScale) &&
-               Transmission == other.Transmission && Specular == other.Specular;
+               Transmission == other.Transmission && Specular == other.Specular &&
+               Oral == other.Oral;
     }
 
     bool SkinProfile::SetParameters(const SkinProfileParameters& parameters)

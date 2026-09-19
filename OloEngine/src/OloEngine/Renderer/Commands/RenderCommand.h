@@ -269,6 +269,19 @@ namespace OloEngine
         // version 3: no second lobe, no variance filtering.
         glm::vec4 skinSpecularLane = glm::vec4(0.0f);
 
+        // THE ORAL SURFACE LANE (issue #1245), packed at submission by
+        // SkinOralLane for the reason every lane above it is packed there: the
+        // deferred path's per-frame table packs the SAME four numbers with the
+        // SAME function.
+        //
+        //   x = CoatStrength   y = CoatRoughness
+        //   z = CoatF0 (derived from the authored CoatIor)   w = CavityOcclusion
+        //
+        // All-zero on a non-skin material and on a profile below transport
+        // version 4: no coat, and the transmitted term left exactly as #1242
+        // shipped it.
+        glm::vec4 skinOralLane = glm::vec4(0.0f);
+
         // The per-draw pore-band gain (issue #1243), resolved at submission by
         // SkinDetailStrength from the profile and the entity's APPLIED morph
         // weights. PER DRAW rather than per profile because an expression is a
@@ -293,7 +306,7 @@ namespace OloEngine
         // Field-wise equality (safe against struct padding, unlike memcmp)
         bool operator==(const PODMaterialData& o) const
         {
-            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && thicknessMapID == o.thicknessMapID && skinTransmitScatter == o.skinTransmitScatter && skinTransmitScaling == o.skinTransmitScaling && skinThicknessBaseMM == o.skinThicknessBaseMM && skinSpecularLane == o.skinSpecularLane && skinDetailStrength == o.skinDetailStrength && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
+            return shaderRendererID == o.shaderRendererID && ambient == o.ambient && diffuse == o.diffuse && specular == o.specular && shininess == o.shininess && useTextureMaps == o.useTextureMaps && diffuseMapID == o.diffuseMapID && specularMapID == o.specularMapID && enablePBR == o.enablePBR && baseColorFactor == o.baseColorFactor && emissiveFactor == o.emissiveFactor && metallicFactor == o.metallicFactor && roughnessFactor == o.roughnessFactor && normalScale == o.normalScale && occlusionStrength == o.occlusionStrength && enableIBL == o.enableIBL && iblIntensity == o.iblIntensity && alphaMode == o.alphaMode && alphaCutoff == o.alphaCutoff && pbrModel == o.pbrModel && materialKind == o.materialKind && skinProfileSlot == o.skinProfileSlot && skinSpecularTint == o.skinSpecularTint && skinEvaluationModel == o.skinEvaluationModel && transmissionFactor == o.transmissionFactor && ior == o.ior && thicknessFactor == o.thicknessFactor && attenuationSigma == o.attenuationSigma && albedoMapID == o.albedoMapID && metallicRoughnessMapID == o.metallicRoughnessMapID && normalMapID == o.normalMapID && aoMapID == o.aoMapID && emissiveMapID == o.emissiveMapID && thicknessMapID == o.thicknessMapID && skinTransmitScatter == o.skinTransmitScatter && skinTransmitScaling == o.skinTransmitScaling && skinThicknessBaseMM == o.skinThicknessBaseMM && skinSpecularLane == o.skinSpecularLane && skinOralLane == o.skinOralLane && skinDetailStrength == o.skinDetailStrength && environmentMapID == o.environmentMapID && irradianceMapID == o.irradianceMapID && prefilterMapID == o.prefilterMapID && brdfLutMapID == o.brdfLutMapID;
         }
     };
 

@@ -93,6 +93,14 @@
 // band. See include/SkinLayeredSpecular.glsl and Renderer/SkinLayeredSpecular.h.
 #define OLO_SKIN_MODEL_LAYERED_SPECULAR 3
 
+// Version 4 (issue #1245): everything version 3 does, plus the two terms an
+// ORAL SURFACE needs — a WET COAT (a thin dielectric film in front of the
+// tissue, which TAKES energy from the response underneath rather than adding to
+// it) and a CAVITY WEIGHT (which gates the version-2 transmitted lobe by the
+// material's own occlusion, so the inside of a closed mouth stops glowing).
+// See include/SkinOralSurface.glsl and Renderer/SkinOralSurface.h.
+#define OLO_SKIN_MODEL_ORAL_SURFACE 4
+
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
 #define OLO_SKIN_PROFILE_SLOT_NONE 7
@@ -2372,7 +2380,8 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
     if (evaluationModel != OLO_SKIN_MODEL_DIFFUSE_SPECULAR_SPLIT &&
         evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
-        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR)
+        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
@@ -2416,6 +2425,13 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
 // gets ONE copy of the arithmetic.
 #include "SkinLayeredSpecular.glsl"
 
+// The wet coat and the cavity weight (issue #1245) — the oral surface terms.
+// Included here, after SkinLayeredSpecular.glsl, for the reason that file is
+// included after evaluatePBRClosureSplit: every shader that can shade skin gets
+// ONE copy of the arithmetic, and this one needs distributionGGX and
+// visibilitySmithGGXCorrelated above it.
+#include "SkinOralSurface.glsl"
+
 // The aux value for a pixel that HAS been shaded.
 //
 // `scatteringMask` is oloSkinScatteringMask's [0,1]: the fraction of this
@@ -2442,9 +2458,14 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
     // TURN THE DIFFUSION OFF while turning the lobes on — a head that gains a
     // sheen and loses its soft terminator in one authoring click, which reads as
     // "the new feature broke scattering".
+    // ALL FOUR DIFFUSING VERSIONS. Version 4 is "everything version 3 does,
+    // plus the oral terms", so omitting it here would have made moving a
+    // profile to it SILENTLY TURN THE DIFFUSION OFF while turning the coat on —
+    // the same trap this comment block has now recorded three times.
     if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
-        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR)
+        evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
         return vec4(0.0);
     if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
         return vec4(0.0);

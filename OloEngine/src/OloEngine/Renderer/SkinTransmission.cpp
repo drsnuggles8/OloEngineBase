@@ -153,7 +153,8 @@ namespace OloEngine
         // make a head stop transmitting through its ears the moment its author
         // turned the specular lobes on.
         if (parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
-            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular)
+            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
+            parameters.EvaluationModel != SkinEvaluationModel::OralSurface)
             return glm::vec3(0.0f);
 
         // The inputs a caller could hand in non-finite. The lanes below are
@@ -234,7 +235,8 @@ namespace OloEngine
                                         kMaxSkinTransmissionStrength);
         const glm::vec3 transmittedBound =
             ((parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission) ||
-             (parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular))
+             (parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular) ||
+             (parameters.EvaluationModel == SkinEvaluationModel::OralSurface))
                 ? SkinTransmittance(thicknessMM, parameters) * clampedAlbedo * strength
                 : glm::vec3(0.0f);
 

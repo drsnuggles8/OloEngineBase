@@ -1,0 +1,9 @@
+# SkinOralSurfaceEvidenceTest timing, issue #1245
+# Offscreen 384x384, wall clock over 24 settled frames, dry (transport
+# version 3) against wet (version 4, coat 0.8, cavity 1).
+# NOT A BENCHMARK: this box hosts CI runners for another repo, so the absolute figures move.
+# What the pair is good for is the RELATIVE cost, measured back to back.
+# cell, dry_ms_per_frame, wet_ms_per_frame, delta_ms, delta_pct
+Forward_Key_Front_Open, 3.57757, 3.73031, 0.152733, 4.26919
+ForwardPlus_Key_Front_Open, 3.73058, 3.20155, -0.529025, -14.1808
+Deferred_Key_Front_Open, 4.28529, 4.111, -0.174283, -4.06702

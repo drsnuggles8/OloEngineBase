@@ -91,6 +91,16 @@ namespace OloEngine
         out << YAML::Key << "DetailStrength" << YAML::Value << p.Specular.DetailStrength;
         out << YAML::Key << "ExpressionDetailGain" << YAML::Value << p.Specular.ExpressionDetailGain;
         out << YAML::EndMap;
+        // The oral surface (issue #1245), nested for the reason the two blocks
+        // above are: these four belong to the transport only version 4
+        // evaluates, and grouping them is what lets an author read a .oloskin
+        // and see which of its numbers a version-3 head would ignore.
+        out << YAML::Key << "Oral" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "CoatStrength" << YAML::Value << p.Oral.CoatStrength;
+        out << YAML::Key << "CoatRoughness" << YAML::Value << p.Oral.CoatRoughness;
+        out << YAML::Key << "CoatIor" << YAML::Value << p.Oral.CoatIor;
+        out << YAML::Key << "CavityOcclusion" << YAML::Value << p.Oral.CavityOcclusion;
+        out << YAML::EndMap;
         out << YAML::EndMap;
         out << YAML::EndMap;
         return std::string(out.c_str());
@@ -182,6 +192,30 @@ namespace OloEngine
                 parameters.Specular.ExpressionDetailGain =
                     ReadFinite(specular["ExpressionDetailGain"], defaults.Specular.ExpressionDetailGain,
                                "Specular.ExpressionDetailGain");
+            }
+
+            // The oral surface (issue #1245). Same shape and same argument as
+            // the two blocks above: a file written before #1245 has no Oral
+            // node, every field keeps its default, and such a file is at
+            // transport version 0..3 where the coat and the cavity weight are
+            // not evaluated at all. So a .oloskin authored against any earlier
+            // version round-trips to the SAME PIXELS.
+            //
+            // CoatRoughness and CoatIor default to NON-ZERO values (0.1 and
+            // saliva's 1.33), so an old file loaded here does acquire them. That
+            // is not a behaviour change for it, for the reason the note above
+            // gives about NormalVarianceStrength: the fields are read only at
+            // version 4, and CoatStrength — the field that decides whether they
+            // are read at all — still defaults to 0.
+            if (auto oral = section["Oral"]; oral)
+            {
+                parameters.Oral.CoatStrength =
+                    ReadFinite(oral["CoatStrength"], defaults.Oral.CoatStrength, "Oral.CoatStrength");
+                parameters.Oral.CoatRoughness =
+                    ReadFinite(oral["CoatRoughness"], defaults.Oral.CoatRoughness, "Oral.CoatRoughness");
+                parameters.Oral.CoatIor = ReadFinite(oral["CoatIor"], defaults.Oral.CoatIor, "Oral.CoatIor");
+                parameters.Oral.CavityOcclusion =
+                    ReadFinite(oral["CavityOcclusion"], defaults.Oral.CavityOcclusion, "Oral.CavityOcclusion");
             }
 
             if (!profile->SetParameters(parameters))

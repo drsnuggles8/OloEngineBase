@@ -176,6 +176,16 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     //   z = NormalVarianceStrength   w = 0, reserved
     // All-zero is neutral: no second lobe and no variance filtering.
     vec4 u_SkinSpecularLane;
+    // The oral surface lane (issue #1245). MUST mirror
+    // PBRMaterialUBO::SkinOralLane, packed by SkinOralLane().
+    //   x = CoatStrength   y = CoatRoughness
+    //   z = CoatF0 (derived on the CPU from the authored CoatIor)
+    //   w = CavityOcclusion
+    // All-zero is neutral: dry, with the transmitted term left as #1242 shipped
+    // it. Declared UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets like every
+    // lane above it -- omitting it would relayout the heap offsets by 16 B and
+    // every texture would sample the wrong descriptor.
+    vec4 u_SkinOralLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES

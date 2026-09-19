@@ -363,6 +363,10 @@ vec3 ComputeDeferredLitSplit(
     // a slot claims it, so an unclaimed or stale slot loses the effect rather
     // than acquiring someone else's.
     vec2 skinLobe = vec2(0.0, 1.0);
+    // The oral surface lane (issue #1245). All-zero until a slot claims it,
+    // which is dry with the transmitted term untouched — so an unclaimed or
+    // stale slot loses the effect rather than acquiring someone else's wetness.
+    vec4 skinOralLane = vec4(0.0);
     if (skinProfileSlot < OLO_SKIN_PROFILE_SLOT_NONE)
     {
         skinSpecularTint = u_SkinProfileParams[skinProfileSlot].rgb;
@@ -381,6 +385,12 @@ vec3 ComputeDeferredLitSplit(
         // same one the forward paths apply — a profile below transport version 3
         // gets one lobe here exactly as it does there, decided by one function.
         skinLobe = oloSkinLobeFor(materialKind, skinEvaluationModel, u_SkinSpecularLobe[skinProfileSlot]);
+        // Through oloSkinEvaluatesOralSurface and not read raw, for the reason the lobe
+        // above goes through oloSkinLobeFor: the VERSION TEST is then the same
+        // one function the forward and clustered paths apply, so a profile below
+        // transport version 4 is dry here exactly as it is there.
+        skinOralLane = oloSkinEvaluatesOralSurface(materialKind, skinEvaluationModel)
+                           ? u_SkinOralLane[skinProfileSlot] : vec4(0.0);
     }
 
     // THE SKIN THICKNESS LANE (issue #1242). The second tenant of RT5's red
@@ -404,7 +414,8 @@ vec3 ComputeDeferredLitSplit(
     // here would silently stop a version-3 head transmitting through its ears
     // the moment its author turned the lobes on.
     bool isSkinTransmitting = ((skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
-                               (skinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR)) &&
+                               (skinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
+                               (skinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE)) &&
                               (skinThicknessMM > 0.0);
 
     vec3 V = normalize(u_CameraPosition - worldPos);
@@ -461,7 +472,7 @@ vec3 ComputeDeferredLitSplit(
         float fplusViewDepth = -(u_View * vec4(worldPos, 1.0)).z;
         Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
                                                                     roughness, fplusViewDepth, pbrModel,
-                                                                    skinLobe));
+                                                                    skinLobe, skinOralLane));
     }
 
     // DIRECTIONAL-ONLY when either ReSTIR DI or Forward+ answered for the rest:
@@ -642,6 +653,18 @@ vec3 ComputeDeferredLitSplit(
             }
         }
 
+        // THE WET COAT (issue #1245) — same placement and same argument as the
+        // forward path: AFTER the surface closure, because the coat attenuates
+        // what that produced; BEFORE the visibility, so the film's own highlight
+        // is gated by the same shadow factor the surface and transmitted lobes
+        // are. The cosine is applied to the radiance here because oloLightSample
+        // returns it without one while the closure folds it in.
+        if (skinOralLane.x > 0.0 && lightHasDirection)
+        {
+            vec3 coatRadiance = lightRadiance * max(dot(N, lightL), 0.0);
+            lightContrib = oloSkinOralApplyCoat(lightContrib, N, V, lightL, coatRadiance, skinOralLane);
+        }
+
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // The TRANSMITTED lobe, gated by the SAME visibility the reflected lobe
@@ -670,9 +693,15 @@ vec3 ComputeDeferredLitSplit(
         // isSkinTransmitting are mutually exclusive by construction.
         if (lightHasDirection && isSkinTransmitting)
         {
+            // THE CAVITY WEIGHT (issue #1245) multiplies HERE and nowhere else,
+            // for the reason the forward path states: the transmitted lobe is
+            // the only term not already occluded, and applying an occlusion
+            // twice is as wrong as applying it never. A zero CavityOcclusion
+            // returns exactly 1.
             transmitted += oloSkinTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
                                                      albedo, skinThicknessMM,
-                                                     skinTransmitScatter, skinTransmitScaling);
+                                                     skinTransmitScatter, skinTransmitScaling)
+                           * oloSkinOralCavityWeight(ao, skinOralLane.w);
         }
     }
 

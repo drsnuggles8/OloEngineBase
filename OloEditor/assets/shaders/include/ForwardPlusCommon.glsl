@@ -154,9 +154,20 @@ uvec2 fplusGetTileData(float viewDepth)
 // inconsistency between two paths in ONE frame is worse than a limitation in
 // both, and this is the same argument the file's own falloff comment makes about
 // keeping Forward / Forward+ / Deferred photometrically identical.
+// `skinOral` is the oral-surface lane (issue #1245): x = CoatStrength,
+// y = CoatRoughness, z = CoatF0, w = CavityOcclusion (not read here — the
+// transmitted lobe this path does not evaluate is what w gates). vec4(0.0) means
+// "not skin, or dry", and the zero in x is what makes oloSkinOralApplyCoat
+// return its input untouched — so every non-oral clustered pixel costs exactly
+// what it did before.
+//
+// PLUMBED THROUGH for the reason `skinLobe` above it is: a scene must not shade
+// a wet lip differently depending on whether its lights happened to land in a
+// Forward+ cluster.
 OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
                                                 vec3 albedo, float metallic, float roughness,
-                                                float viewDepth, int pbrModel, vec2 skinLobe)
+                                                float viewDepth, int pbrModel, vec2 skinLobe,
+                                                vec4 skinOral)
 {
     uvec2 tileData = fplusGetTileData(viewDepth);
     uint offset = tileData.x;
@@ -220,9 +231,15 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo = oloSurfaceLightingAdd(
-                Lo, oloSurfaceLightingScale(oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe),
-                                            radiance));
+            // `radiance` here ALREADY carries NdotL and the shadow factor (see
+            // the branch above), so scaling the closure by it and then handing
+            // the SAME vector to the coat lights the film and the surface under
+            // it by one number — which is what makes the coat's partition hold
+            // per light on this path too.
+            OloSurfaceLighting contribution = oloSurfaceLightingScale(
+                oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+            contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
+            Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
         else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
         {
@@ -305,9 +322,15 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
             }
 #endif
 
-            Lo = oloSurfaceLightingAdd(
-                Lo, oloSurfaceLightingScale(oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe),
-                                            radiance));
+            // `radiance` here ALREADY carries NdotL and the shadow factor (see
+            // the branch above), so scaling the closure by it and then handing
+            // the SAME vector to the coat lights the film and the surface under
+            // it by one number — which is what makes the coat's partition hold
+            // per light on this path too.
+            OloSurfaceLighting contribution = oloSurfaceLightingScale(
+                oloSkinLayeredClosureSplit(pbrModel, N, V, L, albedo, metallic, roughness, skinLobe), radiance);
+            contribution = oloSkinOralApplyCoat(contribution, N, V, L, radiance, skinOral);
+            Lo = oloSurfaceLightingAdd(Lo, contribution);
         }
     }
 
@@ -327,12 +350,22 @@ OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
 // arguments, and a wrapper rather than making every call site type
 // `vec2(0.0, 1.0)` because a parameter whose only legal value at most call sites
 // is a magic constant is a parameter that will eventually be passed wrong.
+// The pre-#1245 signature, for a caller that shades skin but not an oral
+// surface. An overload rather than a default argument because GLSL has none.
+OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
+                                                vec3 albedo, float metallic, float roughness,
+                                                float viewDepth, int pbrModel, vec2 skinLobe)
+{
+    return fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic, roughness,
+                                        viewDepth, pbrModel, skinLobe, vec4(0.0));
+}
+
 OloSurfaceLighting fplusEvaluateTileLightsSplit(vec3 N, vec3 V, vec3 worldPos,
                                                 vec3 albedo, float metallic, float roughness,
                                                 float viewDepth, int pbrModel)
 {
     return fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic, roughness,
-                                        viewDepth, pbrModel, vec2(0.0, 1.0));
+                                        viewDepth, pbrModel, vec2(0.0, 1.0), vec4(0.0));
 }
 
 vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
@@ -341,7 +374,7 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
 {
     return oloSurfaceLightingSum(fplusEvaluateTileLightsSplit(N, V, worldPos, albedo, metallic,
                                                               roughness, viewDepth, pbrModel,
-                                                              vec2(0.0, 1.0)));
+                                                              vec2(0.0, 1.0), vec4(0.0)));
 }
 
 // And the Legacy-model convenience overload itself.

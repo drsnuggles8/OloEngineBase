@@ -168,6 +168,20 @@ layout(std140, binding = 30) uniform DeferredLightingControls {
     //
     // A slot nobody claimed stays all-zero: one lobe, no filtering.
     vec4 u_SkinSpecularLobe[7];
+
+    // The oral surface table (issue #1245), indexed by the same three-bit slot
+    // as the three tables above. Mirrors DeferredControlsData::SkinOralLane.
+    //
+    //   x = CoatStrength   y = CoatRoughness
+    //   z = CoatF0 (derived on the CPU from the authored CoatIor)
+    //   w = CavityOcclusion
+    //
+    // ALL FOUR ARE READ HERE, unlike the lane above: the coat is a lighting-time
+    // BRDF and the cavity weight gates the transmitted lobe, which this pass
+    // also evaluates. So this table is the deferred path's only route to either.
+    //
+    // A slot nobody claimed stays all-zero: dry, transmission untouched.
+    vec4 u_SkinOralLane[7];
 };
 
 // Texture inputs. Under heap-bindless (issue #691) every one of these

@@ -92,6 +92,7 @@ add_executable(OloEngine-Tests
 		SkinProfileTest.cpp
 		SkinTransmissionTest.cpp
 		SkinLayeredSpecularTest.cpp
+		SkinOralSurfaceTest.cpp
 		# Groom curve assets (#1232). The round-trip and determinism cases are the
 		# issue's acceptance criteria; the Alembic-dependent halves self-guard on
 		# OLO_WITH_ALEMBIC so the files compile with the option off.
@@ -569,6 +570,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinLayeredSpecularEvidenceTest.cpp
 		Rendering/PropertyTests/SkinTransmissionParityTest.cpp
 		Rendering/PropertyTests/SkinLayeredSpecularParityTest.cpp
+		Rendering/PropertyTests/SkinOralSurfaceParityTest.cpp
+		Rendering/PropertyTests/SkinOralSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
 		Rendering/PropertyTests/StarNestSkyBakeTest.cpp

@@ -3761,7 +3761,8 @@ namespace OloEngine
                         // one version ago.
                         if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion ||
                             parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
+                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
+                            parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
                         {
                             ImGui::Text("Diffusion reach (mm, derived): %.2f",
                                         static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
@@ -3787,7 +3788,8 @@ namespace OloEngine
                         // BOTH TRANSMITTING VERSIONS, for the reason the
                         // diffusion list above lists three.
                         if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
+                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
+                            parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
                         {
                             ImGui::Text("Transmission: strength %.2f, anisotropy %.2f, power %.1f",
                                         static_cast<f64>(parameters.Transmission.Strength),

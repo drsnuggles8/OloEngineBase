@@ -1152,6 +1152,7 @@ namespace OloEngine
                 // submission by SkinSpecularLane / SkinDetailStrength, so —
                 // like every block above — dispatch copies and does not decide.
                 pbrMaterialData.SkinSpecularLane = mat.skinSpecularLane;
+                pbrMaterialData.SkinOralLane = mat.skinOralLane;
                 pbrMaterialData.SkinDetailStrength = mat.skinDetailStrength;
                 // Issue #632: this was a hard-coded 0, which made the forward
                 // path's probe-ambient shader code dead. Wire it to the same

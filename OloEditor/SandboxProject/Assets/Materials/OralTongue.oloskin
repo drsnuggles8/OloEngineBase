@@ -1,0 +1,61 @@
+SkinProfile:
+  Name: Oral Tongue
+  # TRANSPORT VERSION 4 (issue #1245) — everything version 3 does, plus the two
+  # terms an oral surface needs and facial skin does not: a WET COAT (a thin
+  # dielectric film in FRONT of the tissue, which takes energy from the response
+  # underneath rather than adding to it) and a CAVITY WEIGHT (which gates the
+  # version-2 transmitted lobe by the material's own occlusion, so the inside of
+  # a closed mouth stops glowing).
+  #
+  # The version is an AUTHORING act, not a renderer switch: moving a profile to
+  # 4 with the Oral block left at its defaults changes nothing at all. See
+  # docs/adr/0024-material-kind-is-not-the-closure-version.md and
+  # docs/guides/skin-oral-surfaces.md.
+  EvaluationModel: 4
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # A tongue is thicker than a lip and less back-lit; the radii are pulled in so
+  # it reads as solid rather than as a slice of translucent meat.
+  ScatterColor: [0.82, 0.42, 0.38]
+  ScatterRadiusMM: [1.8, 0.85, 0.6]
+  # Metres -> millimetres. 1000 is the identity, and every profile in this
+  # project uses it: the exaggeration knobs are the radii, not the scale.
+  ThicknessScale: 1000
+  SpecularTint: [1.0, 0.97, 0.95]
+  # The transmission lobe (issue #1242). Full strength with a forward-biased
+  # exit: light that crosses a lip comes out mostly the way it was going.
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  # The layered surface response (issue #1243). A small broad lobe over the
+  # narrow one; the variance filter stays at 0 here because these surfaces carry
+  # no pore normal map to filter.
+  Specular:
+    LobeMix: 0.4
+    LobeRoughnessScale: 2.2
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  # ---------------------------------------------------------------------------
+  # The oral surface (issue #1245). Read ONLY at transport version 4.
+  # ---------------------------------------------------------------------------
+  Oral:
+    # How much wet film is present. 0 is dry and skips the coat entirely.
+    # THE WETTEST SURFACE IN A MOUTH. This is where the coat earns the feature:
+    # a tongue with no film reads as clay under any light.
+    CoatStrength: 0.65
+    # The film's own perceptual roughness. A saliva film is smooth; the
+    # highlight it makes is meant to be small and bright, which is the whole
+    # difference between "wet" and "shiny".
+    CoatRoughness: 0.07
+    # The film's index of refraction, seen from air. Saliva, 1.33, pooled rather than a film.
+    # The CPU converts this to a Fresnel F0 once (SkinOralCoatF0) and the lane
+    # carries the result, so no shader has a second opinion about it.
+    CoatIor: 1.33
+    # How much of the material's own AO is spent on the THIN-REGION TRANSMISSION
+    # term of issue #1242 — the one term in the skin transport that has no
+    # visibility of its own. 0 leaves it exactly as #1242 shipped it.
+    # FULLY SPENT. A tongue lives inside the cavity: every transmitted photon it
+    # would emit under a backlight is one the closed mouth around it absorbed,
+    # and this is exactly the "glowing interior" the issue forbids.
+    CavityOcclusion: 1.0

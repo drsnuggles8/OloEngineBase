@@ -290,17 +290,32 @@ vec3 oloSkinNormalFromMap(sampler2D normalMap, vec2 texCoords, vec3 worldPos, ve
 // paths, the clustered path and the deferred pass cannot disagree about which
 // pixels are layered.
 //
-// An `==` and not a `>=`, matching oloApplySkinProfile's version branch and for
-// its reason: a version this shader has no arm for applies NOTHING rather than
-// guessing that a later transport meant the same thing by these fields.
+// AN EXPLICIT LIST OF THE VERSIONS THAT LAYER, not an `==` and not a `>=`,
+// matching every version branch in this engine and for their reason: a version
+// this shader has no arm for applies NOTHING rather than guessing that a later
+// transport meant the same thing by these fields.
+//
+// BOTH LAYERING VERSIONS. The versions are CUMULATIVE — version 4 is
+// "everything version 3 does, plus the oral terms" — so a version-4 profile
+// must still get its lobe pair. This function was the ONE list #1245 missed
+// when it appended version 4, and the symptom was exact: a neutral version-4
+// profile rendered 11 levels away from the version-3 frame across 38 221
+// pixels, identically on all three raster paths, because the CPU packed the
+// lane (SkinEvaluatesLayeredSpecular had been updated) and the shader then
+// threw it away. Caught by SkinOralSurfaceEvidenceTest's neutral-identity A/B,
+// which is the third time that shape of assertion has paid for itself — see
+// the comment in Renderer/SkinDiffusion.cpp for the first two.
 //
 // BELT AND BRACES over the CPU, which already zeroes the lane for every
-// non-version-3 profile — but the DEFERRED table is indexed by a slot that can
+// non-layering profile — but the DEFERRED table is indexed by a slot that can
 // be stale by a frame after a scene change, and a stale slot must lose the
 // effect rather than acquire someone else's lobe.
 vec2 oloSkinLobeFor(int materialKind, int evaluationModel, vec4 skinSpecularLane)
 {
-    if (materialKind != OLO_MATERIAL_KIND_SKIN || evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR)
+    if (materialKind != OLO_MATERIAL_KIND_SKIN)
+        return vec2(0.0, 1.0);
+    if (evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
         return vec2(0.0, 1.0);
     return skinSpecularLane.xy;
 }

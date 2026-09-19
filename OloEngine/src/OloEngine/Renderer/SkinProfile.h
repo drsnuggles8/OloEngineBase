@@ -99,6 +99,33 @@ namespace OloEngine
         // time.
         LayeredSpecular = 3,
 
+        // What #1245 ships: everything version 3 does, plus the two terms an
+        // ORAL SURFACE needs and skin does not — a WET COAT (a thin dielectric
+        // film in front of the tissue, which takes energy from the response
+        // underneath rather than adding to it) and a CAVITY WEIGHT (which gates
+        // the thin-region transmission of version 2 by the material's own
+        // occlusion, so the inside of a closed mouth stops glowing). See
+        // Renderer/SkinOralSurface.h for both and for the energy argument, and
+        // docs/guides/skin-oral-surfaces.md for the authoring path.
+        //
+        // NOT A SEPARATE MATERIAL KIND, and the distinction is the one
+        // docs/adr/0024 draws. Lips, gums and a tongue ARE skin: they scatter
+        // with the same Burley kernel, transmit through the same thickness and
+        // shade with the same layered specular. What version 4 adds is a
+        // FILM IN FRONT of all of that. Teeth are the interesting case and they
+        // are handled by AUTHORING, not by a branch: an enamel profile is a
+        // version-4 profile with a short achromatic scattering radius, a higher
+        // coat IOR (1.63 against saliva's 1.33) and its own slot — a genuinely
+        // different response, reached without a second code path that would
+        // then have to be kept in step with this one.
+        //
+        // A VERSION, NOT A FLAG, for the fourth time and the same reason: a
+        // profile stays where its author left it. Its defaults are NEUTRAL
+        // (CoatStrength 0, CavityOcclusion 0), so moving a profile to version 4
+        // changes NOTHING until a field is authored — the neutral-identity arm
+        // SkinOralSurfaceEvidenceTest captures.
+        OralSurface = 4,
+
         Count
     };
 
@@ -116,6 +143,8 @@ namespace OloEngine
                 return "ThicknessTransmission";
             case SkinEvaluationModel::LayeredSpecular:
                 return "LayeredSpecular";
+            case SkinEvaluationModel::OralSurface:
+                return "OralSurface";
             case SkinEvaluationModel::Count:
                 break;
         }
@@ -239,6 +268,109 @@ namespace OloEngine
     // having an orientation. Both ends are rejection bounds.
     inline constexpr f32 kMinSkinDetailStrength = -1.0f;
     inline constexpr f32 kMaxSkinDetailStrength = 4.0f;
+
+    // -------------------------------------------------------------------------
+    // Oral surface bounds (issue #1245)
+    // -------------------------------------------------------------------------
+
+    // How much of the wet film is present. 0 is a dry surface and disables the
+    // coat entirely — the neutral default, and the A/B control arm the "wet
+    // specular stays distinct from diffusion" criterion is demonstrated against.
+    //
+    // The ceiling is 1 and is NOT a taste bound: the coat's Fresnel and the
+    // attenuation it leaves behind are a PARTITION of the incident energy
+    // (Renderer/SkinOralSurface.h), and a strength above 1 makes the attenuation
+    // negative — a surface that returns negative radiance under its own
+    // highlight. Pinned by SkinOralSurfaceTest.
+    inline constexpr f32 kMinSkinOralCoatStrength = 0.0f;
+    inline constexpr f32 kMaxSkinOralCoatStrength = 1.0f;
+
+    // The film's own perceptual roughness. A saliva film is smooth — the
+    // measured useful range is 0.05 to 0.2 — but the floor here is a DOMAIN
+    // bound rather than that taste: below it the GGX lobe is narrower than a
+    // pixel at any sane magnification and the highlight becomes a sparkling
+    // aliased dot that no amount of variance filtering recovers, because the
+    // filter runs on the SURFACE normal and the coat is evaluated after it.
+    //
+    // The ceiling is 1 because above it alpha = roughness^2 leaves the NDF's
+    // normalizable domain, which is the same ceiling every roughness in this
+    // engine carries.
+    inline constexpr f32 kMinSkinOralCoatRoughness = 0.01f;
+    inline constexpr f32 kMaxSkinOralCoatRoughness = 1.0f;
+
+    // The film's index of refraction, seen from air. Saliva is 1.33 (it is
+    // essentially water); enamel is 1.63. The floor is 1 — the index of air
+    // itself, which gives F0 = 0 and a coat that reflects nothing — and is
+    // therefore a second, redundant way to say "dry"; below it the Fresnel
+    // formula's ratio changes sign and squares back to a plausible-looking
+    // number for a physically impossible medium.
+    //
+    // The ceiling is above diamond (2.42) and far above anything in a mouth, so
+    // it bounds authoring corruption rather than expressing taste.
+    inline constexpr f32 kMinSkinOralCoatIor = 1.0f;
+    inline constexpr f32 kMaxSkinOralCoatIor = 2.5f;
+
+    // How much of the material's own occlusion is spent on the thin-region
+    // transmission term. 0 leaves that term exactly as issue #1242 shipped it —
+    // the neutral default, and the arm the "no glowing interiors" A/B is
+    // measured against; 1 hands it the AO in full.
+    //
+    // Both ends are the ends of a mix weight, so neither is a taste bound.
+    inline constexpr f32 kMinSkinOralCavityOcclusion = 0.0f;
+    inline constexpr f32 kMaxSkinOralCavityOcclusion = 1.0f;
+
+    // @brief The oral-surface half of a skin profile's authored parameters
+    //        (issue #1245).
+    //
+    // A nested aggregate for the reason SkinTransmissionParameters and
+    // SkinSpecularParameters are ones: every function in
+    // Renderer/SkinOralSurface.h that needs only the coat can take THIS, and the
+    // energy partition reads as a property of two numbers instead of of
+    // seventeen. Serialized as part of the profile and sanitized by the
+    // profile's own Sanitize() — SkinProfile.h promises ONE validation gate and
+    // this struct does not open a third.
+    struct SkinOralParameters
+    {
+        // How much wet film is present. Meaningful only at transport version 4
+        // (SkinEvaluationModel::OralSurface); the version branch, not this
+        // field, is what stops an older profile acquiring a coat.
+        //
+        // DEFAULT 0 — dry, and bit-identical to the version-3 frame. The
+        // measured fit wants ~0.35 for lips and a parted mouth's inner
+        // surfaces, ~0.6 for a tongue and ~0.25 for enamel, so there is no one
+        // right number and the neutral one is the honest default.
+        f32 CoatStrength = 0.0f;
+
+        // The film's perceptual roughness. 0.1 is a wet-but-not-mirror film and
+        // is only consulted when CoatStrength is non-zero, so it is a starting
+        // point for authoring rather than a value that does anything on its own.
+        f32 CoatRoughness = 0.1f;
+
+        // The film's index of refraction. Defaults to SALIVA rather than to the
+        // neutral 1.0, because unlike CoatStrength this is not an effect an
+        // author opts into but a MATERIAL CONSTANT: a profile that had a coat
+        // and no index would have to invent one. Authoring an enamel profile
+        // means moving this to 1.63, which is the single field that makes teeth
+        // shade differently from the mucosa beside them.
+        f32 CoatIor = 1.33f;
+
+        // How much of the material's occlusion gates the transmitted term.
+        //
+        // DEFAULT 0, the opposite polarity to NormalVarianceStrength one struct
+        // up, and the difference is deliberate: the variance filter is a
+        // CORRECTION every version-3 profile wants, while this one changes what
+        // a head that already looked right does with its ears. A head moved from
+        // version 3 to version 4 must not start occluding its own backlit rim
+        // because the author wanted a wet lip.
+        f32 CavityOcclusion = 0.0f;
+
+        // Clamp every field into its bound and replace every non-finite value
+        // with the default. Returns true when nothing had to be corrected.
+        // Called by SkinProfileParameters::Sanitize, never on its own.
+        bool Sanitize();
+
+        [[nodiscard]] bool operator==(const SkinOralParameters& other) const noexcept;
+    };
 
     // @brief The layered-specular half of a skin profile's authored parameters
     //        (issue #1243).
@@ -378,6 +510,11 @@ namespace OloEngine
         // version 3; see SkinSpecularParameters above and
         // Renderer/SkinLayeredSpecular.h.
         SkinSpecularParameters Specular{};
+
+        // The wet coat and the cavity weight (issue #1245). Read only at
+        // transport version 4; see SkinOralParameters above and
+        // Renderer/SkinOralSurface.h.
+        SkinOralParameters Oral{};
 
         // Clamp every field into its bound and replace every non-finite value
         // with the default. Returns true when nothing had to be corrected, so
