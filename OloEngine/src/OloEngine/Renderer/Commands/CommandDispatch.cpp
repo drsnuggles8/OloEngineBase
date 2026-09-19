@@ -3350,6 +3350,13 @@ namespace OloEngine
             foliageData.MeshParams = glm::vec4(cmd->isAuthoredMesh, cmd->meshHandoverStart, cmd->meshHandoverEnd, 0.0f);
             foliageData.MeshViewPos =
                 glm::vec4(MakePositionRelative(Data().ViewPos, Data().RenderOrigin), 0.0f);
+            // LOD transition + coverage-preserving density (issue #1237).
+            // Carried on the command rather than read here, unlike the wind and
+            // interaction snapshots above: these are per-LAYER authored numbers,
+            // not a global per-frame set, so the layer the command names is the
+            // only thing that can supply them.
+            foliageData.LodTransition0 = cmd->lodTransition0;
+            foliageData.LodTransition1 = cmd->lodTransition1;
 
             // The interaction field (issue #1238), read HERE rather than
             // carried on the command, exactly as the wind snapshot above is.

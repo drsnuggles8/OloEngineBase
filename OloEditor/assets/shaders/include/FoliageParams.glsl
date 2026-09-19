@@ -1,6 +1,6 @@
 #ifndef OLO_FOLIAGE_PARAMS_GLSL
 #define OLO_FOLIAGE_PARAMS_GLSL
-// ShaderBindingLayout::FoliageUBO, 1312 bytes. One declaration for every stage,
+// ShaderBindingLayout::FoliageUBO, 1344 bytes. One declaration for every stage,
 // including depth and impostors, prevents cross-stage block-link mismatches.
 layout(std140, binding = 12) uniform FoliageParams
 {
@@ -28,6 +28,12 @@ layout(std140, binding = 12) uniform FoliageParams
     vec4 u_WindFlags; // absolute render origin, field enabled
     vec4 u_WindClock;
     vec4 u_PrevMeshViewPos;
+    // LOD transition + coverage-preserving density (issue #1237).
+    //   0 = (densityEnabled, start, end, minFraction)
+    //   1 = (fadeFraction, maxScale, transitionSpread, hysteresis)
+    // Decoded by include/FoliageLodTransition.glsl — never read lane by lane.
+    vec4 u_LodTransition0;
+    vec4 u_LodTransition1;
     // Local interaction bending (issue #1238).
     //   x = active influence count, y = this layer's response scale (0 = the
     //   layer does not react at all), z = the summed-push ceiling in world

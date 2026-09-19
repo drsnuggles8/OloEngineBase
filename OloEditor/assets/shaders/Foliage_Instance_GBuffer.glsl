@@ -34,6 +34,7 @@ layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Fade;
 layout(location = 6) in vec3 v_PrevWorldPos;
 layout(location = 7) in float v_MeshCoverage;
+layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1237)
 
 layout(std140, binding = 0) uniform CameraMatrices
 {
@@ -107,7 +108,8 @@ void main()
     // Mesh-to-card hand-over (issue #1233). STOCHASTIC on purpose: the G-Buffer
     // has no alpha to blend, so the two draws partition the pixels between them
     // instead of each fading — see FoliageInstanceGeometry.glsl.
-    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy))
+    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy, v_InstanceSeed,
+                        foliageStochasticCoverage(u_LodTransition0)))
         discard;
 
     vec4 texColor = texture(u_DiffuseTexture, v_TexCoord);
@@ -121,11 +123,35 @@ void main()
     if (fadeFactor <= 0.001)
         discard;
 
-    // G-Buffer has no alpha blending — collapse fade into a hard discard
-    // threshold instead of modulating alpha.
+    // G-Buffer has no alpha blending, so a partial fade has to become a
+    // keep-or-discard. The hard 0.3 threshold below is what this pass always
+    // did, and it is exactly the "hard cutoff band" the issue names: every
+    // plant in a layer crosses it at the same distance, so the far field ends
+    // on a line that sweeps as the camera moves.
+    //
+    // With stochastic coverage authored on (issue #1237) the same fade is
+    // resolved by DITHER instead: a plant at fade 0.4 keeps four tenths of its
+    // pixels and dissolves. The dither is decorrelated per plant, so
+    // neighbours do not dissolve in lockstep. Off, this is the 0.3 cut-off
+    // unchanged — including for every scene authored before #1237, which is
+    // why the switch exists rather than the new path simply replacing it.
     float alpha = texColor.a * fadeFactor * v_Fade;
-    if (alpha < 0.3)
+    if (foliageStochasticCoverage(u_LodTransition0))
+    {
+        // THE FADE, not the alpha product. `texColor.a` is the leaf cutout and
+        // it was already tested against v_AlphaCutoff above; feeding the
+        // product here would dither the blade's own semi-transparent EDGE
+        // pixels at every distance, turning a clean cutout into permanent
+        // stipple on near-field foliage that is not fading at all. The fade is
+        // the only part that needs resolving, because it is the only part the
+        // G-Buffer cannot express.
+        if (!foliageDensityKeep(fadeFactor * v_Fade, gl_FragCoord.xy, v_InstanceSeed))
+            discard;
+    }
+    else if (alpha < 0.3)
+    {
         discard;
+    }
 
     // THE SURFACE, from the shared evaluation (issue #1234). Roughness used to
     // be a hard-coded 0.9 here and the normal the raw interpolated one — the

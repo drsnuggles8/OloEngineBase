@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
+#include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
@@ -121,6 +122,15 @@ namespace OloEngine
         f32 ImpostorStartDistance = 40.0f;
         f32 ImpostorTransitionBand = 15.0f;
         f32 ImpostorRadius = 1.0f;
+
+        // LOD transitions + coverage-preserving density (issue #1237), already
+        // packed into the two lanes FoliageUBO::LodTransition0/1 carries and
+        // IDENTICAL on every draw a layer emits — the same reason the leaf
+        // material above is. A plant that thinned on the card rung and not on
+        // the mesh rung would change size as it crossed the hand-over, which is
+        // exactly the pop the feature removes.
+        glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+        glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
     };
 
     // Manages foliage instance generation, culling, and instanced rendering.
@@ -427,6 +437,14 @@ namespace OloEngine
             u32 ImpostorBakedFrames = 0;
             u32 ImpostorBakedResolution = 0;
             bool ImpostorBakedHemi = true;
+
+            // LOD transitions + coverage-preserving density (issue #1237).
+            // SANITISED at build time (FoliageLod::Sanitise), so every consumer
+            // — the three UBO-fill sites, the cull state header and the RT
+            // vegetation cache — reads numbers a smoothstep can be handed. The
+            // identity default is what a layer that did not author the feature
+            // keeps.
+            FoliageLod::Params Lod{};
         };
 
         // ONE draw this layer contributes: an index range of one of its vertex
@@ -454,6 +472,12 @@ namespace OloEngine
             // The layer's own distance fade-out, unchanged by #1233.
             f32 FadeStart = 80.0f;
             f32 ViewDistance = 100.0f;
+            // The layer's #1237 parameters, already packed into the two lanes
+            // FoliageUBO::LodTransition0/1 carries. Packed ONCE, on the draw,
+            // so the beauty path, the shadow path and Render() cannot pack the
+            // flag bitfield three ways.
+            glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+            glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
         };
         void EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const;
 

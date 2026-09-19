@@ -96,6 +96,13 @@ layout(std430, binding = 19) buffer FoliageCullState
     uint s_StatsPad0;
     uint s_StatsPad1;
     uint s_StatsPad2;
+    // Coverage-preserving density LOD (issue #1237). Same two lanes, same
+    // packing, as FoliageParams' u_LodTransition0/1 — the cull and the vertex
+    // stages evaluate the SAME function over the SAME numbers, which is what
+    // makes "the cull only drops what the draw would have drawn transparent" a
+    // property rather than a hope.
+    vec4 s_LodTransition0;
+    vec4 s_LodTransition1;
     // Tail: group visibility (one uint per group, 1 = visible) followed by the
     // compacted slot -> SOURCE ROW map (one uint per output capacity). The
     // second is what makes "compaction preserved identity" a checkable claim

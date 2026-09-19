@@ -1162,6 +1162,15 @@ namespace OloEngine
         f32 impostorRadius = 1.0f;
         f32 impostorParallaxScale = 0.5f;
 
+        // ── LOD transitions + coverage-preserving density (issue #1237) ──
+        // Exactly the two lanes FoliageUBO::LodTransition0/1 carry, packed once
+        // at submission by FoliageLod::PackFlags so the three UBO-fill sites
+        // cannot pack the flag bitfield three ways. Both default to the
+        // identity, so a command recorded for a layer that did not author the
+        // feature uploads the pre-#1237 ladder.
+        glm::vec4 lodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+        glm::vec4 lodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+
         // ── Leaf material (issue #1234) ──────────────────────────────────
         // The per-layer half of the vegetation surface. Flattened into scalars
         // here rather than embedding Renderer3D::FoliageLeafMaterial, because

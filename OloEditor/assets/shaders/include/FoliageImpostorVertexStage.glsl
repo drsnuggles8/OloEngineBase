@@ -90,6 +90,13 @@ layout(location = 7) out float v_Radius;    // WORLD-space card radius (object r
 // This plant's authored-mesh share (issue #1233). The impostor is the FAR side
 // of the hand-over, so it keeps the pixels the near mesh does not.
 layout(location = 2) out float v_MeshCoverage;
+// (this plant's own draw, its density fade) — issue #1237. One varying rather
+// than two because location 3 is the only free slot in this stage's set, and
+// the two are always read together: the seed decorrelates the hand-over and
+// thinning dither, the fade is the per-instance thinning alpha the card must
+// dissolve by. The flat-card path carries the fade on the instance lane
+// instead; the impostor stage never read that lane, so it is carried here.
+layout(location = 3) out vec2 v_LodSeedFade;
 
 void main()
 {
@@ -126,6 +133,33 @@ void main()
     // any azimuth at range", issue #433). Scaling uniformly puts the drawn tree
     // at exactly `height * scale` tall, so nothing pops vertically across the
     // transition, and leaves it its own proportions.
+    // ── LOD transition + density (issue #1237) ──────────────────────────────
+    //
+    // Evaluated here, BEFORE the card is sized, and folded into `scale` rather
+    // than into `radius`: `radius` and the card's vertical anchor below are
+    // both built from `height * scale`, so compensating only the radius would
+    // grow the card while leaving its centre where a smaller plant's was — the
+    // tree sinking into the ground as the layer thins. One multiply on the lane
+    // they share is what keeps a grown plant standing on its own base.
+    //
+    // `instWorld` is the pivot and is computed below from u_Model alone, so it
+    // is hoisted here; nothing above this point depends on it.
+    vec3 instWorldPivot = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 instWorldPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    float lodDist = distance(instWorldPivot, u_MeshViewPos.xyz);
+    float lodPrevDist = distance(instWorldPrev, u_PrevMeshViewPos.xyz);
+    float instanceSeed = foliageLodInstanceHash(a_PositionScale.xyz);
+    float densityAlpha = foliageDensityAlphaAt(u_LodTransition0, u_LodTransition1, instanceSeed, lodDist);
+    float lodScale = foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodDist);
+    // The previous frame's compensation, so the growth reaches this card's
+    // motion vector too — see the twin note in FoliageInstanceVertexStage.glsl.
+    float lodScalePrev = foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodPrevDist);
+    scale *= lodScale;
+    // The impostor stage never read the instance fade lane, so the thinning
+    // alpha is carried explicitly alongside the seed the dither needs. The
+    // layer's own fade rides with it so the card honours both.
+    v_LodSeedFade = vec2(instanceSeed, densityAlpha * a_RotationHeight.z);
+
     float radius = u_ImpostorParams1.y * height * scale;
 
     // Instance pivot. Foliage's per-instance positions are TERRAIN-LOCAL (x/z in
@@ -144,14 +178,20 @@ void main()
     // pins the read to instances[0] rather than indexing by gl_InstanceIndex,
     // which is the out-of-bounds hazard the old comment was really about (issue
     // #433). The two got conflated, and the transform was dropped with them.
-    vec3 instWorld = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 instWorld = instWorldPivot;
 
     // Authored-mesh hand-over (issue #1233), decided per INSTANCE from the
     // render-relative pivot exactly as the flat card and the shadow pass decide
     // it. Without this a layer that has BOTH an authored mesh and an impostor
     // draws the pine and a card of that pine on top of each other up close.
-    v_MeshCoverage = foliageMeshCoverage(distance(instWorld, u_MeshViewPos.xyz),
-                                         u_MeshParams.y, u_MeshParams.z);
+    //
+    // Decorrelated per plant and hysteretic since #1237, from the same hash and
+    // the same parameters those stages use — the impostor is one rung of the
+    // same ladder, and a stage that sized its own band would leave a stretch
+    // where both rungs are opaque.
+    v_MeshCoverage = foliageMeshCoverageLod(lodDist, lodPrevDist, u_MeshParams.y, u_MeshParams.z,
+                                            instanceSeed, foliageLodSpread(u_LodTransition1),
+                                            foliageLodHysteresis(u_LodTransition1));
     // Anchor the card on the MESH CENTRE, because that is what the bake framed:
     // ImpostorBaker centres each tile on the source mesh's bounding-box centre
     // and spans +-u_ImpostorParams1.y around it, so the card's centre has to
@@ -175,7 +215,9 @@ void main()
     FoliageDeformation sway = foliageDeform(vec3(0.0), vec3(0.0, influence, 0.0), a_PositionScale.xyz, a_RotationHeight.w);
     vec3 cardCenterCur = cardCenter + mat3(u_Model) * sway.Current;
     vec3 prevInstWorld = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
-    vec3 cardCenterPrev = prevInstWorld + vec3(0.0, 0.5 * height * scale, 0.0) + mat3(u_PrevModel) * sway.Previous;
+    vec3 cardCenterPrev = prevInstWorld +
+                          vec3(0.0, 0.5 * height * scale * (lodScale > 0.0 ? lodScalePrev / lodScale : 1.0), 0.0) +
+                          mat3(u_PrevModel) * sway.Previous;
 
     // Camera-facing basis. u_CameraPosition is treated in the same space as the
     // render-relative pivot (renderOrigin ~ 0 for authored scenes) — matches the
@@ -189,7 +231,11 @@ void main()
     vec3 cardWorld = foliageImpostorPoint(cardCenterCur, cardCenterCur + toCam, offset);
     // Carry the previous main eye explicitly. VP alone cannot recover an
     // orthographic eye; a current-eye fallback loses camera-facing history.
-    vec3 cardWorldPrev = foliageImpostorPoint(cardCenterPrev, u_PrevMeshViewPos.xyz, offset);
+    // At the PREVIOUS frame's size: both the card's half-extent and the pivot
+    // offset that rides on it scale with the compensation, so a card that is
+    // growing reports the motion it actually has.
+    float scaleRatioPrev = lodScale > 0.0 ? (lodScalePrev / lodScale) : 1.0;
+    vec3 cardWorldPrev = foliageImpostorPoint(cardCenterPrev, u_PrevMeshViewPos.xyz, offset * scaleRatioPrev);
 
     v_CardWorld = cardWorld;
     #ifndef OLO_FOLIAGE_SHADOW
@@ -202,4 +248,14 @@ void main()
     v_Radius = radius; // world-space half-size, needed by the fragment's virtual-plane UV
 
     gl_Position = u_ViewProjection * vec4(cardWorld, 1.0);
+
+    // A plant the density LOD has thinned all the way out costs nothing past
+    // here (issue #1237) — the same collapse idiom the flat-card and mesh
+    // stage uses, and for the same reason: on the UNCOMPACTED path there is no
+    // cull to have dropped the row, and a fully transparent card still pays
+    // the atlas fetches and the parallax march.
+    if (densityAlpha <= 0.0)
+    {
+        gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+    }
 }

@@ -8,6 +8,7 @@
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
+#include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 
 #include <random>
 #include <glm/gtc/matrix_transform.hpp>
@@ -7173,6 +7174,117 @@ namespace OloEngine
 
                         ImGui::DragFloat("View Distance", &layer.ViewDistance, 1.0f, 10.0f, 1000.0f);
                         ImGui::DragFloat("Fade Start", &layer.FadeStartDistance, 1.0f, 5.0f, 1000.0f);
+
+                        // LOD transitions + coverage-preserving density (issue #1237).
+                        //
+                        // Every edit dirties the layer, as the leaf-material sliders
+                        // below do: FoliageRenderer copies a layer's render properties
+                        // into its LayerRenderData inside GenerateInstances, which Scene
+                        // runs only on m_NeedsRebuild -- so a slider that does not set it
+                        // moves a number nothing reads until something else happens to
+                        // dirty the component. None of these fields feeds the placement
+                        // signature, so the rebuild rescatters the layer to exactly the
+                        // same positions and no instance id retires.
+                        ImGui::Separator();
+                        ImGui::Text("LOD Transitions");
+
+                        if (ImGui::DragFloat("Transition Spread", &layer.LodTransitionSpread, 0.25f, 0.0f,
+                                             500.0f, "%.1f m"))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "World units the per-plant hand-over distances spread over. Centred on each "
+                            "authored threshold, so the layer still hands over where you said ON AVERAGE "
+                            "-- it just stops happening to every plant in the same frame, which is the "
+                            "ring that sweeps across a meadow as you walk into it. 0 = the old single "
+                            "distance, and is the default.");
+
+                        if (ImGui::DragFloat("Hysteresis", &layer.LodHysteresis, 0.005f, 0.0f, 0.5f, "%.3f"))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Fraction of a threshold the band moves to hold the representation a plant "
+                            "already has: outward while you walk away, inward while you approach.");
+
+                        if (ImGui::Checkbox("Stochastic Coverage", &layer.LodStochasticCoverage))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Dissolve a partial fade by dither in the passes that cannot blend (the "
+                            "deferred G-Buffer and the shadow depth pass) instead of the hard alpha "
+                            "cut-off that ends the far field on a line.");
+
+                        if (ImGui::Checkbox("Density LOD", &layer.UseDensityLod))
+                            component.m_NeedsRebuild = true;
+                        ImGui::SetItemTooltip(
+                            "Thin the layer with distance and grow the survivors by exactly the factor "
+                            "that keeps its apparent coverage constant.");
+
+                        if (layer.UseDensityLod)
+                        {
+                            if (ImGui::DragFloat("Density Start", &layer.DensityLodStartDistance, 0.5f, 0.0f,
+                                                 1000.0f, "%.1f m"))
+                            {
+                                component.m_NeedsRebuild = true;
+                                // Pushed up by its own slider only. An
+                                // unconditional clamp here ran every frame,
+                                // outside any change guard, so it mutated
+                                // serialized state without dirtying anything —
+                                // an authored End quietly moved on merely
+                                // opening the inspector. The End slider's own
+                                // minimum keeps the pair ordered from the other
+                                // side.
+                                layer.DensityLodEndDistance =
+                                    std::max(layer.DensityLodEndDistance, layer.DensityLodStartDistance);
+                            }
+                            if (ImGui::DragFloat("Density End", &layer.DensityLodEndDistance, 0.5f,
+                                                 layer.DensityLodStartDistance, 2000.0f, "%.1f m"))
+                                component.m_NeedsRebuild = true;
+                            if (ImGui::DragFloat("Density Floor", &layer.DensityLodMinFraction, 0.005f,
+                                                 OloEngine::FoliageLod::kMinKeepFraction, 1.0f, "%.3f"))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Never thins past this fraction: the far field is what "
+                                                  "gives a hill its treeline.");
+                            if (ImGui::DragFloat("Thin-out Fade", &layer.DensityLodFadeFraction, 0.005f, 0.0f,
+                                                 1.0f, "%.3f"))
+                                component.m_NeedsRebuild = true;
+                            ImGui::SetItemTooltip("Width, on the per-plant hash axis, of the ramp a plant "
+                                                  "dims out over. 0 makes thinning a hard per-plant "
+                                                  "switch, which pops.");
+                            if (ImGui::DragFloat("Max Grow", &layer.DensityLodMaxScale, 0.01f, 1.0f, 8.0f,
+                                                 "%.2fx"))
+                                component.m_NeedsRebuild = true;
+
+                            // What the cap actually costs, shown rather than left to be
+                            // discovered in a capture. At the floor the compensation needed
+                            // is 1/sqrt(effective keep); clamped below that the layer
+                            // genuinely thins, and the author should know by how much.
+                            OloEngine::FoliageLod::Params authored;
+                            authored.Enabled = layer.UseDensityLod;
+                            authored.StochasticCoverage = layer.LodStochasticCoverage;
+                            authored.Start = layer.DensityLodStartDistance;
+                            authored.End = layer.DensityLodEndDistance;
+                            authored.MinFraction = layer.DensityLodMinFraction;
+                            authored.FadeFraction = layer.DensityLodFadeFraction;
+                            authored.MaxScale = layer.DensityLodMaxScale;
+                            authored.TransitionSpread = layer.LodTransitionSpread;
+                            authored.Hysteresis = layer.LodHysteresis;
+                            const auto sane = OloEngine::FoliageLod::Sanitise(authored);
+                            const f32 effective = OloEngine::FoliageLod::EffectiveKeepFraction(
+                                sane.MinFraction, sane.FadeFraction);
+                            const f32 needed = 1.0f / std::sqrt(effective);
+                            const f32 achieved = OloEngine::FoliageLod::CoverageCompensation(
+                                sane.MinFraction, sane.FadeFraction, sane.MaxScale);
+                            if (achieved + 1e-4f < needed)
+                            {
+                                ImGui::TextColored(
+                                    ImVec4(1.0f, 0.75f, 0.2f, 1.0f),
+                                    "Coverage falls to %.0f%% at the floor (needs %.2fx, capped at %.2fx)",
+                                    100.0f * effective * achieved * achieved, needed, achieved);
+                            }
+                            else
+                            {
+                                ImGui::TextDisabled("Coverage preserved to the floor (%.2fx at %.0f m)",
+                                                    achieved, sane.End);
+                            }
+                        }
 
                         ImGui::Separator();
                         ImGui::Text("Wind");

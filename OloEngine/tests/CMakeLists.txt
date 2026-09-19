@@ -257,6 +257,7 @@ add_executable(OloEngine-Tests
 		Asset/LightmapAssetSerializationTest.cpp
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
+		Rendering/FoliageLodTransitionContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
         Rendering/FoliageWindContractTest.cpp
 		Rendering/FoliageInteractionContractTest.cpp
@@ -670,6 +671,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainGPUBrushVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainVirtualTextureVisualEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageAuthoredMeshEvidenceTest.cpp
+		Rendering/PropertyTests/FoliageLodCoverageEvidenceTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
@@ -850,6 +852,7 @@ add_executable(OloEngine-Tests
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
 		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
+		SaveGame/FoliageLodTransitionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp
 		# Navigation Tests

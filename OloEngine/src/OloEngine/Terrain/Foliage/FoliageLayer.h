@@ -263,6 +263,62 @@ namespace OloEngine
         u32 ImpostorAtlasResolution = 1024; // Total atlas texture resolution per axis (tile res = this / N)
         bool ImpostorHemiOctahedral = true; // Hemi-octahedron (upper hemisphere) vs full sphere layout
 
+        // ── LOD transitions and coverage-preserving density (issue #1237) ───
+        //
+        // The ladder above (mesh -> card -> impostor -> culled) already had
+        // controllable thresholds. What it did not have is any reason for two
+        // plants in a layer to cross a threshold at DIFFERENT distances, so
+        // every one of them changed shape in the same frame — a ring sweeping
+        // across a meadow as you walk into it — and past the last band a hard
+        // alpha cut-off ended the far field on a line.
+        //
+        // EVERY FIELD HERE DEFAULTS TO THE IDENTITY, and a layer authored
+        // before #1237 deserializes to exactly these values, so its ladder is
+        // bit-identical to what it was. Same pattern, same reason, as
+        // TransmissionStrength and ClumpStrength above.
+        //
+        // The math is FoliageLodTransition.h (and its GLSL twin); these are
+        // only the authored numbers it reads.
+
+        // World units the per-instance transition offsets spread over. The
+        // spread is CENTRED on each authored threshold, so the layer still
+        // hands over at the authored distance ON AVERAGE — raising this does
+        // not move the ladder, it only stops it happening all at once. 0 keeps
+        // every plant on the authored number.
+        f32 LodTransitionSpread = 0.0f;
+
+        // Fraction of a threshold the band moves to hold the representation a
+        // plant already has: outward while the viewer retreats, inward while
+        // it approaches. 0 is off. See FoliageLodTransition.h for what this
+        // does and does not guarantee — it is one frame of memory, not a
+        // latch, and the decorrelation above is what bounds the damage.
+        f32 LodHysteresis = 0.0f;
+
+        // Resolve a partial fade by DITHER in the passes that have no alpha to
+        // blend — the deferred G-Buffer and the shadow depth pass. Off, those
+        // take the hard `alpha < 0.3` cut-off they always did. This is a
+        // separate switch from the density reduction below because a layer
+        // with no thinning still benefits from its far fade dissolving.
+        bool LodStochasticCoverage = false;
+
+        // Coverage-preserving density reduction. As the layer thins with
+        // distance the survivors are grown by exactly the factor that keeps
+        // its apparent coverage constant, so a distant meadow reads as the
+        // same meadow rather than as a balding one.
+        bool UseDensityLod = false;
+        f32 DensityLodStartDistance = 30.0f; // full density up to here
+        f32 DensityLodEndDistance = 80.0f;   // the floor is reached here
+        f32 DensityLodMinFraction = 0.25f;   // the floor: never thins past this
+        // Width, on the per-instance hash axis, of the ramp a plant fades out
+        // over as the thinning threshold crosses it. 0 makes thinning a hard
+        // per-plant switch, which pops.
+        f32 DensityLodFadeFraction = 0.15f;
+        // Cap on the compensating growth. At the density floor the uncapped
+        // factor is 1/sqrt(MinFraction) — 2x at a quarter — and a plant drawn
+        // far larger than authored stops reading as the same plant. Beyond the
+        // cap the layer genuinely thins, which is the honest trade.
+        f32 DensityLodMaxScale = 2.0f;
+
         // Runtime (not serialized)
         Ref<Texture2D> AlbedoTexture;
         // Leaf maps (issue #1234), loaded by FoliageRenderer from the paths
@@ -281,7 +337,7 @@ namespace OloEngine
         // the texture authoritatively for equality purposes.
         auto operator==(const FoliageLayer& other) const -> bool
         {
-            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(SlopeFeather, other.SlopeFeather) && UseAltitudeBand == other.UseAltitudeBand && Math::BitwiseEqual(MinAltitude, other.MinAltitude) && Math::BitwiseEqual(MaxAltitude, other.MaxAltitude) && Math::BitwiseEqual(AltitudeFeather, other.AltitudeFeather) && UseMoisture == other.UseMoisture && Math::BitwiseEqual(MinMoisture, other.MinMoisture) && Math::BitwiseEqual(MaxMoisture, other.MaxMoisture) && Math::BitwiseEqual(MoistureFeather, other.MoistureFeather) && ExclusionSplatmapChannel == other.ExclusionSplatmapChannel && Math::BitwiseEqual(ExclusionThreshold, other.ExclusionThreshold) && Math::BitwiseEqual(ClumpStrength, other.ClumpStrength) && Math::BitwiseEqual(ClumpScale, other.ClumpScale) && Math::BitwiseEqual(ClumpFalloff, other.ClumpFalloff) && Math::BitwiseEqual(ClumpScaleInfluence, other.ClumpScaleInfluence) && ClumpGroup == other.ClumpGroup && Math::BitwiseEqual(GroundOffset, other.GroundOffset) && Math::BitwiseEqual(SlopeSinkFactor, other.SlopeSinkFactor) && DecorrelatedVariation == other.DecorrelatedVariation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(WindStiffness, other.WindStiffness) && Math::BitwiseEqual(WindBranchWeight, other.WindBranchWeight) && Math::BitwiseEqual(WindLeafWeight, other.WindLeafWeight) && WindDebugDisplacement == other.WindDebugDisplacement && Math::BitwiseEqual(InteractionResponse, other.InteractionResponse) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Enabled == other.Enabled;
+            return Name == other.Name && MeshPath == other.MeshPath && AlbedoPath == other.AlbedoPath && Math::BitwiseEqual(Density, other.Density) && SplatmapChannel == other.SplatmapChannel && Math::BitwiseEqual(MinSlopeAngle, other.MinSlopeAngle) && Math::BitwiseEqual(MaxSlopeAngle, other.MaxSlopeAngle) && Math::BitwiseEqual(MinScale, other.MinScale) && Math::BitwiseEqual(MaxScale, other.MaxScale) && Math::BitwiseEqual(MinHeight, other.MinHeight) && Math::BitwiseEqual(MaxHeight, other.MaxHeight) && RandomRotation == other.RandomRotation && Math::BitwiseEqual(SlopeFeather, other.SlopeFeather) && UseAltitudeBand == other.UseAltitudeBand && Math::BitwiseEqual(MinAltitude, other.MinAltitude) && Math::BitwiseEqual(MaxAltitude, other.MaxAltitude) && Math::BitwiseEqual(AltitudeFeather, other.AltitudeFeather) && UseMoisture == other.UseMoisture && Math::BitwiseEqual(MinMoisture, other.MinMoisture) && Math::BitwiseEqual(MaxMoisture, other.MaxMoisture) && Math::BitwiseEqual(MoistureFeather, other.MoistureFeather) && ExclusionSplatmapChannel == other.ExclusionSplatmapChannel && Math::BitwiseEqual(ExclusionThreshold, other.ExclusionThreshold) && Math::BitwiseEqual(ClumpStrength, other.ClumpStrength) && Math::BitwiseEqual(ClumpScale, other.ClumpScale) && Math::BitwiseEqual(ClumpFalloff, other.ClumpFalloff) && Math::BitwiseEqual(ClumpScaleInfluence, other.ClumpScaleInfluence) && ClumpGroup == other.ClumpGroup && Math::BitwiseEqual(GroundOffset, other.GroundOffset) && Math::BitwiseEqual(SlopeSinkFactor, other.SlopeSinkFactor) && DecorrelatedVariation == other.DecorrelatedVariation && Math::BitwiseEqual(ViewDistance, other.ViewDistance) && Math::BitwiseEqual(FadeStartDistance, other.FadeStartDistance) && UseAuthoredMesh == other.UseAuthoredMesh && Math::BitwiseEqual(MeshViewDistance, other.MeshViewDistance) && Math::BitwiseEqual(MeshFadeStartDistance, other.MeshFadeStartDistance) && Math::BitwiseEqual(WindStrength, other.WindStrength) && Math::BitwiseEqual(WindSpeed, other.WindSpeed) && Math::BitwiseEqual(WindStiffness, other.WindStiffness) && Math::BitwiseEqual(WindBranchWeight, other.WindBranchWeight) && Math::BitwiseEqual(WindLeafWeight, other.WindLeafWeight) && WindDebugDisplacement == other.WindDebugDisplacement && Math::BitwiseEqual(InteractionResponse, other.InteractionResponse) && Math::BitwiseEqual(BaseColor, other.BaseColor) && Math::BitwiseEqual(Roughness, other.Roughness) && Math::BitwiseEqual(AlphaCutoff, other.AlphaCutoff) && NormalMapPath == other.NormalMapPath && RoughnessMapPath == other.RoughnessMapPath && ThicknessMapPath == other.ThicknessMapPath && Math::BitwiseEqual(NormalStrength, other.NormalStrength) && Math::BitwiseEqual(TransmissionStrength, other.TransmissionStrength) && Math::BitwiseEqual(TransmissionColor, other.TransmissionColor) && Math::BitwiseEqual(Thickness, other.Thickness) && Math::BitwiseEqual(TransmissionDistortion, other.TransmissionDistortion) && Math::BitwiseEqual(TransmissionPower, other.TransmissionPower) && Math::BitwiseEqual(TransmissionWrap, other.TransmissionWrap) && Math::BitwiseEqual(TransmissionAmbient, other.TransmissionAmbient) && UseImpostor == other.UseImpostor && Math::BitwiseEqual(ImpostorStartDistance, other.ImpostorStartDistance) && Math::BitwiseEqual(ImpostorTransitionBand, other.ImpostorTransitionBand) && ImpostorFramesPerAxis == other.ImpostorFramesPerAxis && ImpostorAtlasResolution == other.ImpostorAtlasResolution && ImpostorHemiOctahedral == other.ImpostorHemiOctahedral && Math::BitwiseEqual(LodTransitionSpread, other.LodTransitionSpread) && Math::BitwiseEqual(LodHysteresis, other.LodHysteresis) && LodStochasticCoverage == other.LodStochasticCoverage && UseDensityLod == other.UseDensityLod && Math::BitwiseEqual(DensityLodStartDistance, other.DensityLodStartDistance) && Math::BitwiseEqual(DensityLodEndDistance, other.DensityLodEndDistance) && Math::BitwiseEqual(DensityLodMinFraction, other.DensityLodMinFraction) && Math::BitwiseEqual(DensityLodFadeFraction, other.DensityLodFadeFraction) && Math::BitwiseEqual(DensityLodMaxScale, other.DensityLodMaxScale) && Enabled == other.Enabled;
         }
     };
 

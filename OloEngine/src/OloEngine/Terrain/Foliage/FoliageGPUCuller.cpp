@@ -270,7 +270,8 @@ namespace OloEngine
     }
 
     bool FoliageGPUCuller::Cull(const LayerResources& layer, ViewResources& view, RHI::ResourceHandle sourceInstances,
-                                std::span<const Part> parts, const ViewInputs& inputs, bool emitStats)
+                                std::span<const Part> parts, const ViewInputs& inputs, bool emitStats,
+                                const LodInputs& lod)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -342,6 +343,11 @@ namespace OloEngine
         state.Planes[4] = PlaneToVec4(inputs.ViewFrustum.GetPlane(Frustum::Planes::Near));
         state.Planes[5] = PlaneToVec4(inputs.ViewFrustum.GetPlane(Frustum::Planes::Far));
         state.DistanceOrigin = glm::vec4(inputs.DistanceOrigin, inputs.MaxDistance);
+        // The instance kernel's density drop reads these (issue #1237), and it
+        // drops a row exactly where the vertex stages would have drawn it at
+        // alpha zero — the same shared include evaluates both sides.
+        state.LodTransition0 = lod.Transition0;
+        state.LodTransition1 = lod.Transition1;
         state.InstanceCount = layer.InstanceCount;
         state.GroupCount = layer.GroupCount;
         state.OutputCapacity = capacity;

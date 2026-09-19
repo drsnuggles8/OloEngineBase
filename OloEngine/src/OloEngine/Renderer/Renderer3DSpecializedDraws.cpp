@@ -209,7 +209,9 @@ namespace OloEngine
         const glm::vec4& windWeights,
         f32 interactionResponse,
         RHI::ResourceHandle indirectBufferID,
-        u32 indirectOffsetBytes)
+        u32 indirectOffsetBytes,
+        const glm::vec4& lodTransition0,
+        const glm::vec4& lodTransition1)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -358,6 +360,12 @@ namespace OloEngine
             cmd->impostorRadius = impostor.Radius;
             cmd->impostorParallaxScale = impostor.ParallaxScale;
         }
+
+        // LOD transitions + coverage-preserving density (issue #1237). Carried
+        // through untouched: FoliageRenderer sanitised and packed them once, so
+        // there is one definition of what these lanes mean.
+        cmd->lodTransition0 = lodTransition0;
+        cmd->lodTransition1 = lodTransition1;
 
         // Foliage render state: opaque alpha-tested, depth test + write, no blend.
         {

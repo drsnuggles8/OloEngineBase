@@ -108,6 +108,13 @@ layout(location = 6) out vec3 v_PrevWorldPos;
 // This plant's authored-mesh share, decided per INSTANCE in this stage so the
 // fragment cannot re-derive it and disagree (issue #1233).
 layout(location = 7) out float v_MeshCoverage;
+// This plant's own draw in [0, 1) — foliageLodInstanceHash of its
+// terrain-local pivot (issue #1237). Carried rather than re-hashed in the
+// fragment stage for the same reason v_MeshCoverage is: it decorrelates the
+// hand-over dither PER PLANT, and a fragment that hashed its own interpolated
+// position would get a different number for every pixel, which is a
+// per-fragment coin flip rather than a partition.
+layout(location = 8) out float v_InstanceSeed;
 
 void main()
 {
@@ -131,6 +138,42 @@ void main()
     float fade = a_RotationHeight.z;
     bool isAuthoredMesh = u_MeshParams.x > 0.5;
 
+    // ── LOD transition + density (issue #1237) ──────────────────────────────
+    //
+    // Everything here is decided from the plant's PIVOT, before the geometry
+    // is placed, because the density compensation multiplies `scale` — and a
+    // per-vertex distance would grow one end of a pine more than the other.
+    // The pivot is also what the mesh/card hand-over has always used, for the
+    // reason spelled out below it.
+    vec3 lodInstancePos = a_PositionScale.xyz;
+    vec3 lodPivot = (u_Model * vec4(lodInstancePos, 1.0)).xyz;
+    vec3 lodPivotPrev = (u_PrevModel * vec4(lodInstancePos, 1.0)).xyz;
+    float lodDist = distance(lodPivot, u_MeshViewPos.xyz);
+    float lodPrevDist = distance(lodPivotPrev, u_PrevMeshViewPos.xyz);
+    float instanceSeed = foliageLodInstanceHash(lodInstancePos);
+
+    // The thinning fade rides the EXISTING per-instance fade lane, so every
+    // consumer downstream (v_Fade in both fragment programs, the alpha the
+    // G-Buffer resolves) picks it up with no new plumbing — and a layer with
+    // the feature off multiplies by exactly 1.
+    float densityAlpha = foliageDensityAlphaAt(u_LodTransition0, u_LodTransition1, instanceSeed, lodDist);
+    fade *= densityAlpha;
+    // Coverage preservation: the survivors grow by the factor that keeps the
+    // layer covering what it covered unthinned. UNIFORM in `scale`, which is
+    // the same lane the card's anisotropy and the mesh's uniform scaling both
+    // read, so a grown plant is the same plant — never a stretched one.
+    float lodScale = foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodDist);
+    // The PREVIOUS frame's compensation, from the previous eye. Carried so the
+    // growth reaches the motion vector: a plant that is being grown is moving,
+    // and a velocity computed at this frame's size for both endpoints reports
+    // zero for that component, which is a history TAA would reproject wrongly.
+    // The per-frame delta is small — the compensation ramps over the whole
+    // density band — so this is a correctness fix rather than a visible one,
+    // and it is cheaper than the alternative of zeroing the velocity, which
+    // throws away the camera and wind motion that ARE valid.
+    float lodScalePrev = foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodPrevDist);
+    scale *= lodScale;
+
     mat3 rotY = foliageInstanceRotation(rotation);
     vec3 rotatedPos = rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
 
@@ -143,6 +186,18 @@ void main()
     FoliageDeformation deformation = foliageDeform(rotatedPos, a_Position, a_PositionScale.xyz, a_RotationHeight.w);
     vec3 rotatedPosPrev = deformation.Previous;
     rotatedPos = deformation.Current;
+    // Re-place the PREVIOUS frame's vertex at the previous frame's size. The
+    // deformation is evaluated once, at the current size, because it is a
+    // function of the plant's pivot rather than of its vertices; the size
+    // difference is added afterwards as the offset it is. A no-op whenever the
+    // density LOD is off, where both compensations are exactly 1.
+    if (lodScalePrev != lodScale)
+    {
+        float baseScale = a_PositionScale.w;
+        rotatedPosPrev += rotY * (foliageInstanceLocalPos(a_Position, baseScale * lodScalePrev, height,
+                                                          isAuthoredMesh) -
+                                  foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh));
+    }
     vec3 displacement = deformation.Current - rotY * foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
     // Transport the normal whenever the plant is actually deformed. Interaction
     // bending (issue #1238) reaches layers that never opted into hierarchical
@@ -159,16 +214,17 @@ void main()
 
     // World position
     vec3 instancePos = a_PositionScale.xyz;
-    vec3 worldPos     = (u_Model     * vec4(instancePos + rotatedPos,     1.0)).xyz;
+    vec3 worldPos     = (u_Model * vec4(instancePos + rotatedPos,     1.0)).xyz;
     vec3 worldPosPrev = (u_PrevModel * vec4(instancePos + rotatedPosPrev, 1.0)).xyz;
 
     // The mesh/card hand-over is decided PER INSTANCE, from the plant's pivot,
     // not per fragment from its surface: a per-fragment distance puts the trunk
     // of one pine on the mesh side and its canopy on the card side, and the
     // plant tears in half across the band.
-    vec3 pivotRenderRel = (u_Model * vec4(instancePos, 1.0)).xyz;
-    v_MeshCoverage = foliageMeshCoverage(distance(pivotRenderRel, u_MeshViewPos.xyz),
-                                         u_MeshParams.y, u_MeshParams.z);
+    v_MeshCoverage = foliageMeshCoverageLod(lodDist, lodPrevDist, u_MeshParams.y, u_MeshParams.z,
+                                            instanceSeed, foliageLodSpread(u_LodTransition1),
+                                            foliageLodHysteresis(u_LodTransition1));
+    v_InstanceSeed = instanceSeed;
 
     v_WorldPos = worldPos;
     v_PrevWorldPos = worldPosPrev;
@@ -185,7 +241,14 @@ void main()
     // behind the near plane rather than letting the fragment stage discard it
     // is the difference between the mesh path costing at its hand-over distance
     // and costing at the layer's full view distance.
-    if (isAuthoredMesh ? (v_MeshCoverage <= 0.0) : (v_MeshCoverage >= 1.0))
+    //
+    // A plant the density LOD has thinned all the way out is collapsed by the
+    // same idiom (issue #1237). The GPU cull refuses to append such a row at
+    // all, so on the indirect path this branch is unreachable; it is what
+    // makes the UNCOMPACTED path — a layer the cull could not run for, which
+    // FoliageRenderer reports rather than hides — cost the same as the culled
+    // one instead of shading thousands of fully transparent plants.
+    if ((isAuthoredMesh ? (v_MeshCoverage <= 0.0) : (v_MeshCoverage >= 1.0)) || densityAlpha <= 0.0)
     {
         gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
     }

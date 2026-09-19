@@ -1757,7 +1757,18 @@ namespace OloEngine
             // count, which only the GPU knows. Null keeps the instanced draw of
             // `instanceCount`, which is what an unculled or fallback frame is.
             RHI::ResourceHandle indirectBufferID = {},
-            u32 indirectOffsetBytes = 0);
+            u32 indirectOffsetBytes = 0,
+            // LOD transitions + coverage-preserving density (issue #1237),
+            // already packed into the two lanes FoliageUBO::LodTransition0/1
+            // carries. Packed by the CALLER (FoliageRenderer, through
+            // FoliageLod::PackFlags) rather than taken apart here, because
+            // Renderer3D must not depend on Terrain/Foliage — the same reason
+            // FoliageLeafMaterial above restates the leaf fields as scalars.
+            //
+            // The defaults are the identity, so every existing caller and test
+            // keeps the pre-#1237 ladder.
+            const glm::vec4& lodTransition0 = glm::vec4(0.0f, 30.0f, 80.0f, 0.25f),
+            const glm::vec4& lodTransition1 = glm::vec4(0.15f, 2.0f, 0.0f, 0.0f));
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams

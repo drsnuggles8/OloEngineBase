@@ -63,7 +63,13 @@ namespace OloEngine::Tests
             return {};
         }
 
-        // The C++ mirror of foliageLodKeep() in FoliageInstanceGeometry.glsl.
+        // The C++ mirror of foliageLodKeep() in FoliageInstanceGeometry.glsl,
+        // over the `dither` value rather than the dither FUNCTION — issue
+        // #1237 gave that two implementations (the legacy sine hash and the
+        // decorrelated interleaved-gradient one) behind an authored switch,
+        // and which one produces the number is not what this pins. What it
+        // pins is that whatever number comes out, the two draws PARTITION on
+        // it, which is a property of the comparison and holds for both.
         // Mirrored rather than shared because the GLSL runs on the GPU: what
         // this pins is that the RULE partitions, which is a property of the
         // rule and not of the language it is written in. The structural
@@ -296,7 +302,7 @@ namespace OloEngine::Tests
         // draw the pine and a card of that pine on top of each other up close.
         for (const auto* src : { &m_SharedStage, &m_Depth, &m_Impostor })
         {
-            EXPECT_TRUE(MentionsOutsideComments(*src, "foliageMeshCoverage") ||
+            EXPECT_TRUE(MentionsOutsideComments(*src, "foliageMeshCoverageLod") ||
                         MentionsOutsideComments(*src, "FoliageImpostorVertexStage.glsl"))
                 << "a stage does not compute the hand-over share, and cannot agree with the others";
         }
@@ -310,13 +316,29 @@ namespace OloEngine::Tests
         // legitimately DECLARES u_CameraPosition as part of the CameraMatrices
         // block, and the forward fragment needs it for the layer's own distance
         // fade. What must not happen is it reaching this particular argument.
+        //
+        // Since #1237 the call takes a pre-computed `lodDist` rather than the
+        // distance expression inline, so what is checked is the LINE THAT
+        // DEFINES IT: it must measure from u_MeshViewPos and must not mention
+        // u_CameraPosition. Pinning the whole call text instead would break on
+        // any reformatting of a three-argument call, which is not the property
+        // worth guarding.
         for (const auto* vs : { &m_SharedStage, &m_Depth })
         {
-            EXPECT_NE(vs->find("foliageMeshCoverage(distance(pivotRenderRel, u_MeshViewPos.xyz)"), std::string::npos)
+            const sizet def = vs->find("float lodDist");
+            ASSERT_NE(def, std::string::npos)
+                << "no stage-local hand-over distance — the call's first argument is now unpinnable";
+            const sizet eol = std::min(vs->find('\n', def), vs->size());
+            const std::string line = vs->substr(def, eol - def);
+            EXPECT_NE(line.find("u_MeshViewPos"), std::string::npos)
                 << "the hand-over distance is not measured from u_MeshViewPos — if it is measured from "
                    "u_CameraPosition, the shadow pass (whose camera is the light) picks a different shape than "
                    "the lit frame; if from the render origin, it becomes a ring around the world origin whenever "
-                   "camera-relative rendering is off";
+                   "camera-relative rendering is off. Got: "
+                << line;
+            EXPECT_EQ(line.find("u_CameraPosition"), std::string::npos) << line;
+            EXPECT_NE(vs->find("foliageMeshCoverageLod(lodDist"), std::string::npos)
+                << "the hand-over is not fed that distance";
         }
     }
 
@@ -332,7 +354,7 @@ namespace OloEngine::Tests
 
         const std::string impostorStage = ReadShader("include/FoliageImpostorVertexStage.glsl");
         ASSERT_FALSE(impostorStage.empty());
-        EXPECT_TRUE(MentionsOutsideComments(impostorStage, "foliageMeshCoverage"))
+        EXPECT_TRUE(MentionsOutsideComments(impostorStage, "foliageMeshCoverageLod"))
             << "the impostor card does not take part in the hand-over and will overlap the near mesh";
     }
 } // namespace OloEngine::Tests
