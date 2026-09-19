@@ -98,6 +98,67 @@ namespace OloEngine::Tests
     } // namespace
 
     // =========================================================================
+    // 0. The generator every reference in this directory is seeded from.
+    // =========================================================================
+    //
+    // WHY THIS LIVES HERE. MaterialReference::Pcg32 is shared by all four
+    // references, and every tolerance any of them states is only meaningful
+    // because the estimator's numbers do not move between runs or between
+    // machines. Nothing else in the suite pins it — ReferenceBRDFTest checks
+    // the unrelated PathSampler — so a change to the multiplier, the increment
+    // or the output permutation would silently re-roll every reference number
+    // in this directory and be visible only as a tolerance that started
+    // failing somewhere else. It sits in this file because this is the
+    // lowest-level of the four; it is about the header, not about fibres.
+
+    TEST(MaterialReferenceRng, TheSeededSequenceIsPinnedAndReproducible)
+    {
+        // Same seed, same bytes. The property the determinism claim rests on.
+        Ref::Pcg32 a(7u);
+        Ref::Pcg32 b(7u);
+        for (u32 i = 0; i < 1000u; ++i)
+            ASSERT_EQ(a.NextU32(), b.NextU32()) << "draw " << i;
+
+        // Different seeds diverge, so the test above cannot pass on a constant.
+        EXPECT_NE(Ref::Pcg32(1u).NextU32(), Ref::Pcg32(2u).NextU32());
+
+        // THE PINNED SEQUENCE. Generated from this implementation and checked
+        // against an independent reimplementation of PCG32's state transition
+        // and output permutation. It is what catches a changed multiplier,
+        // increment or rotation — each of which leaves a generator that still
+        // looks random and still agrees with itself, so nothing above would
+        // notice.
+        constexpr std::array<u32, 8> kExpected{ 3026813963u, 2945997021u, 3676703653u, 4014656713u,
+                                                1454119243u, 4124725499u, 1338505325u, 4263745283u };
+        Ref::Pcg32 pinned(0x1255u);
+        for (sizet i = 0; i < kExpected.size(); ++i)
+            EXPECT_EQ(pinned.NextU32(), kExpected[i]) << "draw " << i << " of the pinned 0x1255 sequence";
+    }
+
+    TEST(MaterialReferenceRng, TheUnitFloatConversionStaysInsideItsHalfOpenRange)
+    {
+        // Every walk takes -log(1 - u) somewhere, so a u that could reach 1
+        // would take a logarithm of zero and the estimator would return an
+        // infinity rather than a number. The conversion uses 24 mantissa bits
+        // precisely so that cannot happen; this is that guarantee, measured.
+        Ref::Pcg32 rng(99u);
+        f64 lowest = 2.0;
+        f64 highest = -1.0;
+        for (u32 i = 0; i < 200000u; ++i)
+        {
+            const f64 u = rng.NextDouble();
+            ASSERT_GE(u, 0.0) << "draw " << i;
+            ASSERT_LT(u, 1.0) << "draw " << i;
+            lowest = std::min(lowest, u);
+            highest = std::max(highest, u);
+        }
+        // And it does cover the range, so the bound above is not passing on a
+        // generator stuck near a constant.
+        EXPECT_LT(lowest, 0.001) << "lowest draw " << lowest;
+        EXPECT_GT(highest, 0.999) << "highest draw " << highest;
+    }
+
+    // =========================================================================
     // A. The geometry production takes as given, derived independently.
     // =========================================================================
     //

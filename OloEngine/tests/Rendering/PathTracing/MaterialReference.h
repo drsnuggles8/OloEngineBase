@@ -461,8 +461,19 @@ namespace OloEngine::Tests::MaterialReference
         f64 Reflectance = 0.0;
         /// Fraction leaving the SHADED face (z > tau).
         f64 Transmittance = 0.0;
-        /// Fraction absorbed. The three sum to 1 by construction, which is the
-        /// reference's own energy check.
+        /// Fraction absorbed, ACCUMULATED from the weight each scattering event
+        /// removes — deliberately not derived as `1 - R - T`.
+        ///
+        /// The derived form was the first version and it made the closure
+        /// assertion a TAUTOLOGY: `R + T + A == 1` held to 1e-12 whatever the
+        /// walk did, because `A` was defined to make it hold. Accumulating the
+        /// absorbed weight instead makes the three an independent measurement,
+        /// so the sum is 1 only in EXPECTATION and only if nothing leaks.
+        ///
+        /// Survival roulette contributes nothing to this: a path killed there is
+        /// sampling termination, not absorption, and its remaining weight is
+        /// already accounted for by the survivors being raised to the floor.
+        /// Adding it would double-count.
         f64 Absorbed = 0.0;
 
         /// Energy leaving each face binned by |mu| in kBins equal-cosine bins,
@@ -561,6 +572,8 @@ namespace OloEngine::Tests::MaterialReference
         SlabResponse response;
         Pcg32 rng(seed);
 
+        f64 absorbed = 0.0;
+
         const f64 sinIncident = SafeSqrt(1.0 - (muIncident * muIncident));
         const glm::dvec3 entry(sinIncident, 0.0, muIncident);
 
@@ -600,9 +613,16 @@ namespace OloEngine::Tests::MaterialReference
                 // weight stops being worth tracking. Killing the photon outright
                 // at (1 - albedo) would be correct too, and noisier at the low
                 // albedos a dark leaf uses.
+                const f64 beforeAbsorption = weight;
                 weight *= albedo;
+                absorbed += beforeAbsorption - weight;
+
                 if (weight < kRouletteFloor)
                 {
+                    // A killed path's remaining weight is NOT absorption. The
+                    // roulette is unbiased — survivors come back at the floor
+                    // with probability weight/floor — so the expected energy is
+                    // already conserved without booking anything here.
                     if (rng.NextDouble() > (weight / kRouletteFloor))
                         break;
                     weight = kRouletteFloor;
@@ -615,7 +635,7 @@ namespace OloEngine::Tests::MaterialReference
         const f64 inv = 1.0 / static_cast<f64>(std::max(1u, samples));
         response.Reflectance *= inv;
         response.Transmittance *= inv;
-        response.Absorbed = std::max(0.0, 1.0 - response.Reflectance - response.Transmittance);
+        response.Absorbed = absorbed * inv;
 
         for (sizet i = 0; i < SlabResponse::kBins; ++i)
         {

@@ -146,19 +146,32 @@ namespace OloEngine::Tests
 
     TEST(LeafTransmissionReference, TheSlabWalkConservesEnergy)
     {
-        // Reflected + transmitted + absorbed == 1 is the random walk's own
-        // closure, and a reference that failed it would be silently
-        // manufacturing or losing light before it judged anything. Exact rather
-        // than statistical: absorption is tracked as a weight, so the three
-        // shares are three parts of one unit and the identity is arithmetic.
+        // Reflected + transmitted + absorbed == 1, and a reference that failed
+        // it would be silently manufacturing or losing light before it judged
+        // anything.
+        //
+        // THIS USED TO BE A TAUTOLOGY AND IS WORTH RECORDING. `Absorbed` was
+        // derived as `1 - R - T`, so the sum held to 1e-12 whatever the walk
+        // did — the assertion could not fail. It now measures three independent
+        // quantities: the absorbed share is accumulated from the weight each
+        // scattering event removes, so the closure is a real statement about
+        // the estimator and the roulette.
+        //
+        // STATISTICAL, because survival roulette conserves energy only in
+        // expectation. 1e-3 absolute: the measured worst deviation across this
+        // grid is 9.4e-5, so this is an order of magnitude of headroom for a
+        // different libm, and two orders below the percent-scale leak it exists
+        // to catch.
         for (const f64 tau : { 0.5, 2.0, 8.0 })
         {
             for (const f64 albedo : { 0.5, 0.8, 0.95 })
             {
                 const Ref::SlabResponse slab = Ref::SlabRandomWalk(tau, albedo, 0.7, 1.0, kSlabSamples, 0x1255u);
-                EXPECT_NEAR(slab.Reflectance + slab.Transmittance + slab.Absorbed, 1.0, 1.0e-12)
-                    << "tau = " << tau << ", albedo = " << albedo;
+                EXPECT_NEAR(slab.Reflectance + slab.Transmittance + slab.Absorbed, 1.0, 1.0e-3)
+                    << "tau = " << tau << ", albedo = " << albedo << ": R = " << slab.Reflectance
+                    << ", T = " << slab.Transmittance << ", A = " << slab.Absorbed;
                 EXPECT_GT(slab.Transmittance, 0.0) << "tau = " << tau << ", albedo = " << albedo;
+                EXPECT_GT(slab.Absorbed, 0.0) << "tau = " << tau << ", albedo = " << albedo;
                 EXPECT_LE(slab.Reflectance + slab.Transmittance, 1.0);
             }
         }

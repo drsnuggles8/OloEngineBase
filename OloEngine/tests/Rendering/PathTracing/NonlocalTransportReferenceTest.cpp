@@ -66,6 +66,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -109,14 +110,42 @@ namespace OloEngine::Tests
         constexpr f64 kMaxRadius = 32.0;
         constexpr sizet kBins = 800;
 
+        constexpr u64 kWalkSeed = 0x1255u;
+
         /// The walk for an authored ScatterColor. `albedo` is the DIFFUSE
         /// SURFACE albedo the profile authors; the walk needs the medium's
         /// single-scattering albedo, and the two differ by a lot. See
         /// MaterialReference::SingleScatteringAlbedoForDiffuseAlbedo.
-        [[nodiscard]] Ref::SearchlightProfile WalkForAuthoredAlbedo(f32 albedo, u64 seed = 0x1255u)
+        ///
+        /// MEMOISED, because the six albedos in this file are reached 24 times
+        /// between them and the walk is the Debug runtime's bottleneck. The
+        /// cache is safe rather than merely convenient:
+        ///
+        ///   * the walk is a pure function of (albedo, seed) and the seed is
+        ///     fixed here, so a hit and a miss return the same bytes;
+        ///   * ctest runs concurrent suites in separate processes and GoogleTest
+        ///     runs the cases inside one process sequentially, so there is no
+        ///     concurrent mutation;
+        ///   * nothing outside this file can observe it, and a shuffled or
+        ///     filtered run only changes which call pays for the walk.
+        ///
+        /// The key is a bare f32 and that is deliberate: this is an IDENTITY
+        /// lookup ("is this the same authored value?"), which is the one case
+        /// cpp-coding-quality.md §2a says exact float comparison is right for.
+        [[nodiscard]] const Ref::SearchlightProfile& WalkForAuthoredAlbedo(f32 albedo)
         {
-            return Ref::SearchlightRandomWalk(Ref::SingleScatteringAlbedoForDiffuseAlbedo(static_cast<f64>(albedo)),
-                                              kMaxRadius, kBins, kWalkSamples, seed);
+            static std::map<f32, Ref::SearchlightProfile> cache;
+
+            const auto found = cache.find(albedo);
+            if (found != cache.end())
+                return found->second;
+
+            return cache
+                .emplace(albedo,
+                         Ref::SearchlightRandomWalk(
+                             Ref::SingleScatteringAlbedoForDiffuseAlbedo(static_cast<f64>(albedo)), kMaxRadius,
+                             kBins, kWalkSamples, kWalkSeed))
+                .first->second;
         }
     } // namespace
 
@@ -145,7 +174,7 @@ namespace OloEngine::Tests
         // the reflectance the profile authored.
         for (const f32 authored : { 0.35f, 0.45f, 0.55f, 0.70f, 0.85f, 0.95f })
         {
-            const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(authored);
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
             // 0.02 absolute. The inversion is a rational approximation to
             // Chandrasekhar's H-function, and this is its measured accuracy
             // across the band; a wrong inversion is a factor, not two points.
@@ -179,7 +208,7 @@ namespace OloEngine::Tests
         // loosened tolerance in this one.
         for (const f32 authored : { 0.35f, 0.45f, 0.55f, 0.70f })
         {
-            const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(authored);
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
             ASSERT_LT(walk.Overflow, 0.01) << authored << ": " << (100.0 * walk.Overflow)
                                            << "% of the exiting energy fell outside " << kMaxRadius
                                            << " mean free paths";
@@ -218,7 +247,7 @@ namespace OloEngine::Tests
         // at every quantile.
         for (const f32 authored : { 0.85f, 0.95f })
         {
-            const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(authored);
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
             // Looser than the moderate band: at a single-scattering albedo of
             // 0.997 the tail is genuinely long, and this is the reference
             // reporting its own resolution rather than hiding it.
@@ -262,7 +291,7 @@ namespace OloEngine::Tests
         f64 previous = 0.0;
         for (const f32 authored : { 0.35f, 0.45f, 0.55f, 0.70f, 0.85f })
         {
-            const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(authored);
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
             EXPECT_GT(walk.DiffuseReflectance, previous) << "authored = " << authored;
             EXPECT_LT(walk.DiffuseReflectance, 1.0) << "authored = " << authored;
             previous = walk.DiffuseReflectance;
@@ -508,7 +537,7 @@ namespace OloEngine::Tests
         const auto worstEdgeError = [&](f32 authored)
         {
             const SkinDiffusionKernel k = BuildSkinDiffusionKernel(MakeProfile(authored), SkinDiffusionQuality::High);
-            const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(authored);
+            const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(authored);
             const f64 s = static_cast<f64>(k.SupportRadiusMM);
             f64 worst = 0.0;
             for (i32 i = -40; i <= 40; ++i)
@@ -553,7 +582,7 @@ namespace OloEngine::Tests
 
         // Monotone and reaching their endpoints, which rules out the failure
         // where two wrong curves happen to cross near the middle.
-        const Ref::SearchlightProfile walk = WalkForAuthoredAlbedo(kAlbedo);
+        const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(kAlbedo);
         EXPECT_LT(productionEdge(kernel, support, -support * 1.5), 0.02);
         EXPECT_GT(productionEdge(kernel, support, support * 1.5), 0.98);
         EXPECT_LT(referenceEdge(walk, -support * 1.5), 0.06);
