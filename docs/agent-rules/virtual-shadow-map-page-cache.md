@@ -188,7 +188,11 @@ anyone thinks to control. Two tests exercising the identical code path disagreed
 for four rounds of debugging.
 
 **The rule:** declare resources in `Setup()` unconditionally, and gate the *work*
-in `Execute()`, which does run every frame. A read the pass may not use costs one
+in `Execute()`, which does run every frame. For the passes that already branch —
+five of them do, on whether they have anything to draw — see
+[render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md):
+their gate has to be a fingerprint input, and issue #1315 is what it costs when
+one is missing. A read the pass may not use costs one
 graph edge. The same reasoning already applies to `IsEnabled()` — it is consulted
 at topology-build time, so it must answer "could this pass ever run" (here:
 `m_ShadowMap != nullptr`), never "is the feature on right now".

@@ -3264,6 +3264,40 @@ namespace OloEngine
         // Water needs a refraction texture only when it has draws this frame.
         HashBool(h, RenderStreamPasses.Water &&
                         RenderStreamPasses.Water->GetCommandBucket().GetCommandCount() > 0u);
+        // Foliage, decals and the deferred forward-overlay stream have the same
+        // shape as water and must be hashed for the same reason (issue #1315,
+        // the #530 class). They are the three that were left: water was hashed
+        // above, groom was hashed by #1246, and each of those fixes saw only
+        // its own pass. Each of these passes returns from `Setup()` WITHOUT
+        // declaring a single graph access when its command bucket is empty, so
+        // a graph compiled during a frame that had none caches a node with no
+        // reads and no writes — which the reachability pass then culls. Nothing
+        // about a scene gaining its first plant, decal or overlay draw moves any
+        // other fingerprint input, so `BuildFrameGraph` keeps returning that
+        // cached build, `Setup()` never runs again, and the pass stays culled
+        // while its bucket fills every frame.
+        //
+        // That is not hypothetical: it is what #1315 was. A tessellated-terrain
+        // evidence test left the graph cached with an empty foliage bucket, and
+        // the next test in the process generated 1310 plant instances, culled
+        // them, submitted two draws per frame — and rendered none of them, for
+        // as long as it took some unrelated input (a rendering-path switch) to
+        // move the fingerprint. The subject was simply absent from the frame,
+        // which only failed a test at all because of #931's content-mask floor.
+        //
+        // A boolean, not the count: what the declaration branches on is
+        // emptiness, and hashing the count would rebuild the whole frame graph
+        // every time a plant came into view.
+        HashBool(h, RenderStreamPasses.Foliage &&
+                        RenderStreamPasses.Foliage->GetCommandBucket().GetCommandCount() > 0u);
+        HashBool(h, RenderStreamPasses.Decal &&
+                        RenderStreamPasses.Decal->GetCommandBucket().GetCommandCount() > 0u);
+        HashBool(h, RenderStreamPasses.ForwardOverlay &&
+                        RenderStreamPasses.ForwardOverlay->GetCommandBucket().GetCommandCount() > 0u);
+        // GroomRenderPass has the same shape — its `Setup()` gates on an empty
+        // REQUEST list rather than an empty bucket — and #1246 already hashed
+        // it beside its HashPassState above. Left there rather than moved here:
+        // one entry, next to the comment that explains it.
         // Fluid draws gate both the composite's Setup declarations and the
         // FluidRefraction scratch declaration below — hash it (#530 class).
         HashBool(h, RenderStreamPasses.FluidIntermediates &&
