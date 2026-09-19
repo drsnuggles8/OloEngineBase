@@ -102,10 +102,23 @@ jobs:
         # Option set copied from cross-vendor.yml for the same reason: this job
         # tests GPU-backend conformance, not video decode or DCC interchange, so
         # it skips the ~15 min FFmpeg-from-source build and the USD/Alembic/
-        # MaterialX ports. No sccache, for the reason cross-vendor.yml documents
-        # at length (issue #304): the default Visual Studio generator ignores
-        # CMAKE_<LANG>_COMPILER_LAUNCHER, and this job's wall clock is dominated
-        # by the software-rasterised TEST run, not the build.
+        # MaterialX ports.
+        #
+        # NO SCCACHE, and the honest reason is NOT the one cross-vendor.yml
+        # gives. That file says its ~25 min wall clock "is dominated by the
+        # llvmpipe TEST run, not the build", so caching the build is not worth
+        # it. Measured on its 2026-09-19 nightly (run 35419666930), that job is
+        # 2 h 45 m: build 2 h 37 m, test run 2 m 24 s. The claim is inverted and
+        # the figure is off by more than 6x -- filed as a follow-up rather than
+        # fixed here, since it is another job's design.
+        #
+        # The real reason is mechanical and unchanged: the default Visual Studio
+        # (MSBuild) generator IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER, so sccache
+        # cannot engage without switching to Ninja (+ ilammy/msvc-dev-cmd,
+        # forcing cl.exe, LTO OFF, and Windows.yml's C#-project trade-off). That
+        # switch is worth a real look for BOTH software jobs, because the build
+        # is in fact the entire cost -- but it is a separate change, not a rider
+        # on standing this job up.
         run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF ${{ steps.vcpkg.outputs.toolchain-args }}
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
@@ -139,6 +152,24 @@ jobs:
           $icd = (Resolve-Path 'mesa3d\x64\lvp_icd.x86_64.json').Path
           if (-not (Test-Path $icd)) { throw "lavapipe ICD manifest missing from the Mesa archive" }
           "OLO_LAVAPIPE_ICD=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # REGISTER THE ICD IN THE REGISTRY, because the env vars are not
+          # enough HERE. The Vulkan loader reads VK_DRIVER_FILES /
+          # VK_ICD_FILENAMES through its secure-getenv path, which returns
+          # nothing for a process running with elevated privileges -- and
+          # GitHub's Windows runners run steps as an administrator. The loader
+          # then falls back to registry enumeration, finds no driver on a
+          # GPU-less runner, and vkCreateInstance returns
+          # ERROR_INCOMPATIBLE_DRIVER with "windows_read_data_files_in_registry:
+          # Registry lookup failed to get ICD manifest files".
+          #
+          # This does not reproduce on a developer box, where the shell is not
+          # elevated and the env vars work exactly as documented. Registering
+          # the manifest is the loader's own discovery mechanism on Windows and
+          # works either way, so it is the belt; the env vars below stay as the
+          # braces, and they are what keeps a developer's local repro honest.
+          New-Item -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Name $icd -PropertyType DWord -Value 0 -Force | Out-Null
 
           # The OpenGL half, from the same archive. The Vulkan suites run inside
           # the shared test process, which brings up a GL context for the

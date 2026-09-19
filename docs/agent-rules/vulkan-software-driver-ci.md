@@ -116,6 +116,28 @@ believing it is an engine regression.
   the SDK installed. Naming one ICD explicitly also makes the run deterministic on a box that has
   a hardware ICD registered — without it, lavapipe is one candidate among several and the local
   probe silently measures the GPU instead.
+- **…and do not rely on them in CI: register the ICD in the registry too.** The loader reads both
+  variables through its *secure-getenv* path, which returns nothing for a process running with
+  elevated privileges — and GitHub's Windows runners run steps as an administrator. The loader then
+  falls back to registry enumeration, finds no driver on a GPU-less runner, and `vkCreateInstance`
+  returns `ERROR_INCOMPATIBLE_DRIVER`:
+
+  ```text
+  ERROR: [Loader Message] windows_read_data_files_in_registry: Registry lookup failed to get
+         ICD manifest files.  Possibly missing Vulkan driver?
+  ERROR: vkCreateInstance failed with ERROR_INCOMPATIBLE_DRIVER
+  ```
+
+  **This cannot be reproduced on a developer box**, where the shell is not elevated and the
+  variables work exactly as documented — which is what makes it worth writing down rather than
+  rediscovering. The fix is the loader's own Windows discovery mechanism:
+
+  ```powershell
+  New-Item -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Force | Out-Null
+  New-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Name $icd -PropertyType DWord -Value 0 -Force
+  ```
+
+  Keep the env vars as well: they cost nothing and they are what makes a local repro behave.
 - **A software Vulkan run still needs software OpenGL.** The Vulkan suites live in the shared test
   process, which brings up a GL context for the rest of the binary and restores it around every
   `ScopedVulkanRenderCommandSelection`. The same Mesa archive ships both, so this costs one extra
