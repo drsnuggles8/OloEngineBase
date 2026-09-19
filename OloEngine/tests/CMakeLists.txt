@@ -462,6 +462,7 @@ add_executable(OloEngine-Tests
 		# structures and traces real rays; same SKIP ladder + zero-validation
 		# bar as every other Vulkan tenant.
 		Rendering/RayTracing/DeformedSurfaceCacheTest.cpp
+		Rendering/RayTracing/RayHitNormalTransformTest.cpp
 		Rendering/RayTracing/RayTracingSceneTest.cpp
 		Rendering/RayTracing/VegetationPolicyTest.cpp
 		Rendering/RayTracing/RayTracingDeviceTest.cpp

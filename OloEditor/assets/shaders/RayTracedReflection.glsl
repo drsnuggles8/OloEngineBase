@@ -163,6 +163,7 @@ layout(std140, binding = 65) uniform RayTracingReflectionParams
 #define OLO_HYBRID_RT_HEAP_ADDRESS_AND_COUNT u_MaterialHeapAddressAndSampler.xyz
 #define OLO_HYBRID_RT_SAMPLER u_MaterialHeapAddressAndSampler.w
 #include "include/HybridRayTracingAlpha.glsl"
+#include "include/RayHitNormalTransform.glsl"
 
 // Every ray starts this far along its own direction, on top of the normal
 // offset. The normal offset alone cannot fix a ray leaving a surface at a
@@ -190,16 +191,17 @@ vec3 ViewPosFromDepth(vec2 uv, float depth)
 //
 // The vertex stream is the same 32-byte OloEngine::Vertex the #978 helper
 // fetches UVs from; the normal sits at byte offset 12. Object -> world uses the
-// ray query's OWN object-to-world matrix rather than the GPU Scene instance
+// ray query's OWN world-to-object matrix rather than the GPU Scene instance
 // transform: the ray is already in whatever space the TLAS was built in, and
 // deriving the basis from a second source is how a transpose bug gets in.
 //
-// The 3x3 is applied directly rather than as an inverse transpose. That is
-// exact for rigid and uniformly-scaled instances and skews the normal under
-// NON-UNIFORM scale; the error shows up as a slightly mis-shaded reflected
-// surface, never as a wrong silhouette, and correcting it needs an inverse the
-// ray query does not hand back.
-vec3 HitWorldNormal(GPUSceneGeometry geometry, uint primitiveIndex, vec2 barycentrics, mat4x3 objectToWorld)
+// The INVERSE TRANSPOSE, via include/RayHitNormalTransform.glsl, which owns the
+// algebra and the conventions (#1326). It used to be the object-to-world 3x3
+// applied directly, with a comment claiming the correction "needs an inverse
+// the ray query does not hand back" — rayQueryGetIntersectionWorldToObjectEXT
+// hands exactly that back, and multiplying on the right supplies the transpose,
+// so no per-hit inverse is computed.
+vec3 HitWorldNormal(GPUSceneGeometry geometry, uint primitiveIndex, vec2 barycentrics, mat4x3 worldToObject)
 {
     OloRtIndexStream indices = OloRtIndexStream(geometry.IndexAddress);
     OloRtVertexUVStream vertices = OloRtVertexUVStream(geometry.VertexAddress);
@@ -225,15 +227,19 @@ vec3 HitWorldNormal(GPUSceneGeometry geometry, uint primitiveIndex, vec2 barycen
     const float b0 = 1.0 - barycentrics.x - barycentrics.y;
     const vec3 objectNormal = n0 * b0 + n1 * barycentrics.x + n2 * barycentrics.y;
 
-    const mat3 basis = mat3(objectToWorld[0], objectToWorld[1], objectToWorld[2]);
-    const vec3 worldNormal = basis * objectNormal;
+    const vec3 worldNormal = oloRtObjectNormalToWorld(objectNormal, worldToObject);
 
     // A degenerate interpolated normal (a mesh with unnormalised or zero
-    // normals) would come back as a NaN from normalize() and poison the whole
-    // composite through bloom. Fall back to the ray direction's opposite, which
-    // is always a usable hemisphere.
-    const float len = length(worldNormal);
-    return (len > 1e-6) ? (worldNormal / len) : vec3(0.0, 1.0, 0.0);
+    // normals), or a SINGULAR instance transform, would come back as a NaN from
+    // normalize() and poison the whole composite through bloom. This tier has no
+    // geometric normal to fall back on — it never fetches the hit triangle's
+    // positions — so world up is the documented finite substitute, and the
+    // caller's face-the-normal-back-along-the-ray step below makes it usable
+    // rather than merely defined. The reflection is then wrong on that hit, and
+    // visibly so: a flat horizontal shading normal on a surface that is not
+    // horizontal reads as a hard patch, not as a plausible image.
+    vec3 result;
+    return oloRtNormalizeHitNormal(worldNormal, result) ? result : vec3(0.0, 1.0, 0.0);
 }
 
 // True when nothing blocks the sun at this world position. A second, cheap
@@ -345,13 +351,20 @@ void main()
     const float hitT = rayQueryGetIntersectionTEXT(rayQuery, true);
     const vec2 barycentrics = rayQueryGetIntersectionBarycentricsEXT(rayQuery, true);
     const uint primitiveIndex = uint(rayQueryGetIntersectionPrimitiveIndexEXT(rayQuery, true));
-    const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+    const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true);
 
     const vec3 hitPos = worldPos + N * u_RayParams.y + R * hitT;
-    vec3 hitNormal = HitWorldNormal(geometry, primitiveIndex, barycentrics, objectToWorld);
+    vec3 hitNormal = HitWorldNormal(geometry, primitiveIndex, barycentrics, worldToObject);
     // Face the normal back along the incoming ray. A ray that hits the inside
     // of a closed mesh (or a single-sided wall from behind) would otherwise be
     // shaded by a normal pointing away from it and come back black.
+    //
+    // This is also this tier's MIRRORED-INSTANCE and two-sided answer, and it
+    // needs no winding sign (#1326): every hit here is shaded two-sided by
+    // construction, so the only thing the instance's handedness could change is
+    // which of the two antipodes is picked — and the ray, not the winding,
+    // picks that. A tier that snapped to a winding-derived geometric normal
+    // instead would need oloRtInstanceWindingSign(); see RayTracedSurfaceHit.
     if (dot(hitNormal, R) > 0.0)
         hitNormal = -hitNormal;
 

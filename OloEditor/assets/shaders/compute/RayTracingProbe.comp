@@ -33,6 +33,7 @@
 
 #include "../include/GPUScene.glsl"
 #include "../include/RayTracingAlphaTest.glsl"
+#include "../include/RayHitNormalTransform.glsl"
 
 layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
@@ -64,6 +65,19 @@ struct OloRtProbeHit
     // outside: a caller can check the UV the confirmation would have sampled.
     // zw = 0, reserved.
     vec4 UVAndPad;
+    // xyz = the hit's WORLD-space shading normal through the shared
+    //       inverse-transpose (include/RayHitNormalTransform.glsl), zero on a
+    //       miss or on a degenerate/singular input.
+    // w   = the instance's winding sign: +1 normally, -1 for a MIRRORED basis.
+    vec4 WorldNormalAndWindingSign;
+    // xyz = the SUPERSEDED direct-basis expression, mat3(objectToWorld) * n,
+    //       normalised. It is computed here for one reason only: so the device
+    //       test can show it disagreeing with the corrected normal under a
+    //       non-uniform instance transform, on real hardware, rather than
+    //       asserting a difference that only a CPU model claims. Nothing in
+    //       the renderer reads it. w = 0.
+    // See #1326.
+    vec4 LegacyDirectBasisNormal;
 };
 
 layout(buffer_reference, std430, buffer_reference_align = 16) writeonly buffer OloRtHitBuffer
@@ -141,6 +155,8 @@ void main()
     result.DistanceAndBarycentrics = vec4(-1.0, 0.0, 0.0, 0.0);
     result.Ids = uvec4(0u);
     result.UVAndPad = vec4(0.0);
+    result.WorldNormalAndWindingSign = vec4(0.0);
+    result.LegacyDirectBasisNormal = vec4(0.0);
 
     // A malformed ray is UNDEFINED BEHAVIOUR at rayQueryInitializeEXT, not a
     // miss: the spec requires finite origin/direction/bounds, tMin >= 0 and
@@ -224,6 +240,28 @@ void main()
                 const GPUSceneGeometry geometry = geometries.Geometries[instance.GeometryIndex];
                 result.UVAndPad =
                     vec4(oloRayTracingHitUV(geometry, result.Ids.y, barycentrics), 0.0, 0.0);
+
+                // The hit normal, through the ray query's OWN matrices — the
+                // same pair RayTracedSurfaceHit.glsl and RayTracedReflection
+                // use, and the same shared algebra (#1326). This is what makes
+                // the correction observable on a device instead of only in a
+                // CPU model of it.
+                const mat4x3 objectToWorld = rayQueryGetIntersectionObjectToWorldEXT(rayQuery, true);
+                const mat4x3 worldToObject = rayQueryGetIntersectionWorldToObjectEXT(rayQuery, true);
+                const vec3 objectNormal =
+                    oloRayTracingHitObjectNormal(geometry, result.Ids.y, barycentrics);
+
+                vec3 worldNormal;
+                const bool normalUsable = oloRtNormalizeHitNormal(
+                    oloRtObjectNormalToWorld(objectNormal, worldToObject), worldNormal);
+                result.WorldNormalAndWindingSign =
+                    vec4(normalUsable ? worldNormal : vec3(0.0),
+                         oloRtInstanceWindingSign(objectToWorld));
+
+                const vec3 legacy = mat3(objectToWorld) * objectNormal;
+                const float legacyLen = length(legacy);
+                result.LegacyDirectBasisNormal =
+                    vec4((legacyLen > 1e-12 && !isinf(legacyLen)) ? (legacy / legacyLen) : vec3(0.0), 0.0);
             }
         }
     }

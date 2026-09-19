@@ -103,8 +103,16 @@ namespace OloEngine::Tests
             glm::vec4 DistanceAndBarycentrics{ -1.0f, 0.0f, 0.0f, 0.0f };
             glm::uvec4 Ids{ 0u };
             glm::vec4 UVAndPad{ 0.0f };
+            // #1326: xyz = the world shading normal through the shared
+            // inverse-transpose, w = the instance's winding sign (-1 when the
+            // basis mirrors).
+            glm::vec4 WorldNormalAndWindingSign{ 0.0f };
+            // #1326: the SUPERSEDED direct-basis expression, carried so the
+            // device itself can show it disagreeing rather than a CPU model
+            // claiming it does.
+            glm::vec4 LegacyDirectBasisNormal{ 0.0f };
         };
-        static_assert(sizeof(ProbeHit) == 48, "ProbeHit must match OloRtProbeHit's std430 layout (3 x 16 bytes)");
+        static_assert(sizeof(ProbeHit) == 80, "ProbeHit must match OloRtProbeHit's std430 layout (5 x 16 bytes)");
 
         // The probe shader's UBO. Mirrors RayTracingProbeParams, std140.
         // uvec2 device addresses, for the same reason the GLSL uses them: the
@@ -807,6 +815,246 @@ namespace OloEngine::Tests
             << "the OPAQUE instance is unaffected by an alpha cutoff";
         EXPECT_NEAR(rejected[2].DistanceAndBarycentrics.w, 0.0f, kTol)
             << "the masked candidate must be REJECTED once its cutoff exceeds the sample";
+    }
+
+    // Issue #1326 — the device half. The CPU half
+    // (RayHitNormalTransformTest.cpp) pins the algebra on every runner; this
+    // pins that the algebra is what a REAL ray query produces, from the real
+    // rayQueryGetIntersectionWorldToObjectEXT, on real instance transforms the
+    // CPU reference path tracer refuses to accept at all.
+    //
+    // THE ORACLE IS ARITHMETIC. Each expected normal below is written out by
+    // hand from the issue's own worked example, not produced by a second
+    // implementation of the transform.
+    TEST_F(RayTracingDevice, HitNormalsSurviveNonUniformAndMirroredInstanceTransforms)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        m_Backend = RT::CreateVulkanRayTracingBackend();
+        ASSERT_NE(m_Backend, nullptr);
+        ASSERT_TRUE(m_Backend->GetCapabilities().Supported);
+
+        auto probe = ComputeShader::Create("assets/shaders/compute/RayTracingProbe.comp");
+        if (!probe || !probe->IsValid())
+        {
+            GTEST_SKIP() << "RayTracingProbe.comp failed to compile on this device — check the ray-query "
+                            "extension set and the compute include path.";
+        }
+
+        // --- geometry ------------------------------------------------------
+        //
+        // The suite's triangle, but with the ISSUE'S normal on every vertex:
+        // n = (1, 1, 0)/sqrt(2). Identical at all three so the interpolated
+        // object normal is exactly n wherever the ray lands, and the assertion
+        // is about the transform rather than about the interpolation.
+        const glm::vec3 kObjectNormal = glm::normalize(glm::vec3(1.0f, 1.0f, 0.0f));
+        std::array<Vertex, 3> vertices{};
+        for (sizet i = 0; i < 3; ++i)
+        {
+            vertices[i].Position = kTrianglePositions[i];
+            vertices[i].Normal = kObjectNormal;
+            vertices[i].TexCoord = kTriangleUVs[i];
+        }
+        const std::array<u32, 3> indices{ 0u, 1u, 2u };
+        auto vertexBuffer = VertexBuffer::Create(vertices.data(), static_cast<u32>(sizeof(vertices)));
+        auto indexBuffer = IndexBuffer::Create(const_cast<u32*>(indices.data()), 3u);
+        ASSERT_TRUE(vertexBuffer && indexBuffer);
+        ASSERT_NE(vertexBuffer->GetDeviceAddress(), 0u);
+        ASSERT_NE(indexBuffer->GetDeviceAddress(), 0u);
+
+        const RT::GeometryKey key{ 0u, 1u };
+        RT::BlasBuildRequest build{};
+        build.Key = key;
+        build.Class = RT::GeometryClass::Static;
+        build.VertexAddress = vertexBuffer->GetDeviceAddress();
+        build.IndexAddress = indexBuffer->GetDeviceAddress();
+        build.VertexStride = static_cast<u32>(sizeof(Vertex));
+        build.VertexCount = 3;
+        build.IndexCount = 3;
+
+        // --- three instances of that one BLAS ------------------------------
+        //
+        // Row-major 3x4 with the translation in the fourth column, written by
+        // hand for the same reason the sibling test writes its translation by
+        // hand: a transpose in the backend must not be able to hide behind the
+        // backend's own packer.
+        //
+        //   0 — diag(2, 1, 1): the issue's NON-UNIFORM case.
+        //   1 — diag(-1, 1, 1) then +10 x: MIRRORED, negative determinant.
+        //   2 — identity then +20 x: the control, where the old and new
+        //       expressions must still agree.
+        RT::InstanceRecord nonUniform{};
+        nonUniform.Geometry = key;
+        nonUniform.CustomIndex = 0;
+        nonUniform.Mask = 0xFFu;
+        nonUniform.ForceOpaque = true;
+        nonUniform.Transform[0] = glm::vec4(2.0f, 0.0f, 0.0f, 0.0f);
+        nonUniform.Transform[1] = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+        nonUniform.Transform[2] = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+
+        RT::InstanceRecord mirrored{};
+        mirrored.Geometry = key;
+        mirrored.CustomIndex = 1;
+        mirrored.Mask = 0xFFu;
+        mirrored.ForceOpaque = true;
+        mirrored.Transform[0] = glm::vec4(-1.0f, 0.0f, 0.0f, 10.0f);
+        mirrored.Transform[1] = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+        mirrored.Transform[2] = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+
+        RT::InstanceRecord control{};
+        control.Geometry = key;
+        control.CustomIndex = 2;
+        control.Mask = 0xFFu;
+        control.ForceOpaque = true;
+        control.Transform[0] = glm::vec4(1.0f, 0.0f, 0.0f, 20.0f);
+        control.Transform[1] = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+        control.Transform[2] = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+
+        const std::array<RT::BlasBuildRequest, 1> builds{ build };
+        const std::array<RT::InstanceRecord, 3> instances{ nonUniform, mirrored, control };
+
+        // --- GPU Scene tables ----------------------------------------------
+        std::array<GPUSceneGeometry, 1> geometryTable{};
+        geometryTable[0].VertexAddress = vertexBuffer->GetDeviceAddress();
+        geometryTable[0].IndexAddress = indexBuffer->GetDeviceAddress();
+        geometryTable[0].VertexFormat = static_cast<u32>(GPUSceneVertexFormat::OloVertex);
+        geometryTable[0].IndexFormat = static_cast<u32>(GPUSceneIndexFormat::UInt32);
+        geometryTable[0].IndexCount = 3;
+        geometryTable[0].VertexCount = 3;
+        geometryTable[0].Flags = GPUSceneGeometryFlagActive;
+
+        std::array<GPUSceneMaterial, 1> materialTable{};
+        materialTable[0].AlphaMode = static_cast<u32>(AlphaMode::Opaque);
+        materialTable[0].AlphaCutoff = 0.5f;
+        materialTable[0].Flags = GPUSceneMaterialFlagActive;
+
+        std::array<GPUSceneInstance, 3> instanceTable{};
+        for (sizet i = 0; i < instanceTable.size(); ++i)
+        {
+            instanceTable[i].GeometryIndex = 0;
+            instanceTable[i].GeometryGeneration = 1;
+            instanceTable[i].MaterialIndex = 0;
+            instanceTable[i].MaterialGeneration = 1;
+            instanceTable[i].StableIndex = static_cast<u32>(i);
+            instanceTable[i].Flags = GPUSceneInstanceFlagActive;
+        }
+
+        auto instanceSsbo = StorageBuffer::Create(static_cast<u32>(sizeof(instanceTable)), 42);
+        auto geometrySsbo = StorageBuffer::Create(static_cast<u32>(sizeof(geometryTable)), 43);
+        auto materialSsbo = StorageBuffer::Create(static_cast<u32>(sizeof(materialTable)), 44);
+        ASSERT_TRUE(instanceSsbo && geometrySsbo && materialSsbo);
+        instanceSsbo->SetData(instanceTable.data(), static_cast<u32>(sizeof(instanceTable)));
+        geometrySsbo->SetData(geometryTable.data(), static_cast<u32>(sizeof(geometryTable)));
+        materialSsbo->SetData(materialTable.data(), static_cast<u32>(sizeof(materialTable)));
+
+        // --- the rays ------------------------------------------------------
+        //
+        // One straight-down ray per instance, aimed so all three land at the
+        // same barycentrics (b1 = b2 = 0.25) — the interpolated object normal
+        // is therefore the same vector at all three hits, and any difference in
+        // the answer is the instance transform and nothing else.
+        //
+        //   instance 0 covers (0,0)-(2,0)-(0,1): (0.50, 0.25) is inside.
+        //   instance 1 covers (10,0)-(9,0)-(10,1): (9.75, 0.25) is inside.
+        //   instance 2 covers (20,0)-(21,0)-(20,1): (20.25, 0.25) is inside.
+        const std::array<ProbeRay, 3> rays{
+            ProbeRay{ glm::vec4(0.50f, 0.25f, 1.0f, 0.001f), glm::vec4(0.0f, 0.0f, -1.0f, 10.0f) },
+            ProbeRay{ glm::vec4(9.75f, 0.25f, 1.0f, 0.001f), glm::vec4(0.0f, 0.0f, -1.0f, 10.0f) },
+            ProbeRay{ glm::vec4(20.25f, 0.25f, 1.0f, 0.001f), glm::vec4(0.0f, 0.0f, -1.0f, 10.0f) },
+        };
+        const u32 rayCount = static_cast<u32>(rays.size());
+        auto raySsbo = StorageBuffer::Create(static_cast<u32>(sizeof(rays)), 45);
+        auto hitSsbo = StorageBuffer::Create(static_cast<u32>(sizeof(ProbeHit) * rays.size()), 46);
+        ASSERT_TRUE(raySsbo && hitSsbo);
+        raySsbo->SetData(rays.data(), static_cast<u32>(sizeof(rays)));
+        ASSERT_NE(StorageDeviceAddress(raySsbo), 0u);
+        ASSERT_NE(StorageDeviceAddress(hitSsbo), 0u);
+
+        auto params = UniformBuffer::Create(static_cast<u32>(sizeof(ProbeParams)), ShaderBindingLayout::UBO_RAY_TRACING);
+        ASSERT_TRUE(params);
+
+        std::vector<ProbeHit> hits;
+        RecordAndSubmit(
+            [&]
+            {
+                EXPECT_EQ(m_Backend->RecordBlasBuilds(builds), 1u);
+                static_cast<void>(m_Backend->RecordTlasBuild(instances, RT::TlasBuildReason::FirstBuild));
+                m_Backend->RecordBuildToReadBarrier();
+
+                ProbeParams p{};
+                p.TlasAddress = SplitAddress(m_Backend->GetTlasDeviceAddress());
+                p.RayAddress = SplitAddress(StorageDeviceAddress(raySsbo));
+                p.HitAddress = SplitAddress(StorageDeviceAddress(hitSsbo));
+                p.InstanceTableAddress = SplitAddress(StorageDeviceAddress(instanceSsbo));
+                p.GeometryTableAddress = SplitAddress(StorageDeviceAddress(geometrySsbo));
+                p.MaterialTableAddress = SplitAddress(StorageDeviceAddress(materialSsbo));
+                p.RayCount = rayCount;
+                p.InstanceSlotCount = static_cast<u32>(instanceTable.size());
+                p.GeometrySlotCount = static_cast<u32>(geometryTable.size());
+                p.MaterialSlotCount = static_cast<u32>(materialTable.size());
+                p.InstanceMask = 0xFFu;
+                params->SetData(&p, static_cast<u32>(sizeof(p)));
+
+                probe->Bind();
+                RenderCommand::DispatchCompute((rayCount + 63u) / 64u, 1u, 1u);
+            });
+
+        hits.assign(rays.size(), ProbeHit{});
+        hitSsbo->GetData(hits.data(), static_cast<u32>(sizeof(ProbeHit) * hits.size()));
+        ASSERT_EQ(hits.size(), 3u);
+
+        constexpr f32 kTol = 1e-3f;
+        const auto normalOf = [](const ProbeHit& hit)
+        { return glm::vec3(hit.WorldNormalAndWindingSign); };
+        const auto legacyOf = [](const ProbeHit& hit)
+        { return glm::vec3(hit.LegacyDirectBasisNormal); };
+        const auto expectSameDirection = [&](const glm::vec3& actual, const glm::vec3& expected, const char* what)
+        {
+            EXPECT_NEAR(actual.x, expected.x, kTol) << what;
+            EXPECT_NEAR(actual.y, expected.y, kTol) << what;
+            EXPECT_NEAR(actual.z, expected.z, kTol) << what;
+        };
+
+        // Every ray must have hit the instance it was aimed at, or the normals
+        // below would be comparing zeroes to zeroes.
+        for (sizet i = 0; i < hits.size(); ++i)
+        {
+            EXPECT_NEAR(hits[i].DistanceAndBarycentrics.w, 1.0f, kTol) << "ray " << i << " should have hit";
+            EXPECT_NEAR(hits[i].DistanceAndBarycentrics.y, 0.25f, kTol) << "ray " << i << " barycentric b1";
+            EXPECT_NEAR(hits[i].DistanceAndBarycentrics.z, 0.25f, kTol) << "ray " << i << " barycentric b2";
+            EXPECT_EQ(hits[i].Ids.x, static_cast<u32>(i)) << "ray " << i << " hit the wrong instance";
+        }
+
+        // --- instance 0: the issue's case, on the device -------------------
+        //
+        // M = diag(2, 1, 1), n = (1, 1, 0)/sqrt(2). The inverse transpose gives
+        // (1, 2, 0)/sqrt(5); the direct basis gives (2, 1, 0)/sqrt(5).
+        expectSameDirection(normalOf(hits[0]), glm::normalize(glm::vec3(1.0f, 2.0f, 0.0f)),
+                            "non-uniform instance: the inverse-transpose world normal");
+        expectSameDirection(legacyOf(hits[0]), glm::normalize(glm::vec3(2.0f, 1.0f, 0.0f)),
+                            "non-uniform instance: the superseded direct-basis normal, for contrast");
+        // THE DISCRIMINATING ASSERTION. If these two agreed, this whole test
+        // would pass equally before and after the fix and prove nothing.
+        EXPECT_LT(glm::dot(normalOf(hits[0]), legacyOf(hits[0])), 0.85f)
+            << "the superseded direct-basis expression must FAIL the non-uniform case on real hardware";
+        EXPECT_NEAR(hits[0].WorldNormalAndWindingSign.w, 1.0f, kTol) << "diag(2,1,1) preserves handedness";
+
+        // --- instance 1: mirrored ------------------------------------------
+        //
+        // diag(-1, 1, 1) is its own inverse transpose, so BOTH expressions give
+        // (-1, 1, 0)/sqrt(2) here — mirroring alone does not break the shading
+        // normal. What it breaks is the winding, and the winding sign is what
+        // the shaders apply to the geometric normal derived from it.
+        expectSameDirection(normalOf(hits[1]), glm::normalize(glm::vec3(-1.0f, 1.0f, 0.0f)),
+                            "mirrored instance: the world shading normal");
+        EXPECT_NEAR(hits[1].WorldNormalAndWindingSign.w, -1.0f, kTol)
+            << "a negative-determinant instance basis must report a winding sign of -1 on the device; "
+               "RayTracedSurfaceHit multiplies its winding-derived geometric normal by exactly this";
+
+        // --- instance 2: the control ---------------------------------------
+        expectSameDirection(normalOf(hits[2]), kObjectNormal, "identity instance: the normal passes through");
+        expectSameDirection(legacyOf(hits[2]), kObjectNormal,
+                            "identity instance: both expressions agree, which is why the fix is invisible here");
+        EXPECT_NEAR(hits[2].WorldNormalAndWindingSign.w, 1.0f, kTol);
     }
 
 #include "VegetationExperiment.inl"
