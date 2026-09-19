@@ -60,6 +60,41 @@ namespace OloEngine
     // exist and asking for one gives a kernel that spends most of its taps on
     // nothing. 99.5% is where the remaining tail is below the quantisation of an
     // RGBA16F target for any plausible radiance.
+    //
+    // IT IS 99.5% OF THE FIT, NOT OF THE TRANSPORT, AND THAT GAP WAS MEASURED
+    // AND DELIBERATELY LEFT (#1361). Above a diffuse albedo of about 0.7 the
+    // Burley fit runs narrow, so the radius it calls 99.5% holds less of the
+    // real transport: about 97% at an authored 0.85 — the default ScatterColor's
+    // red channel — and 93% at 0.95.
+    //
+    // RAISING IT WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Covering 99.5% of
+    // the TRANSPORT at 0.85 needs 27.6 mm of support where the fit asks for
+    // 15.0 mm: a 1.84x widening. The tap count does not widen with it, so every
+    // tap offset scales by 1.84 and the kernel simply gets coarser. The centre
+    // tap — the part of the profile the pass does not resolve at all — goes from
+    // standing for 0.23 mm of the surface to 0.43 mm, and its share of the
+    // profile rises from 0.143 to 0.220: a sixth of the blur becomes no blur.
+    //
+    // WHAT IT BUYS IS NOTHING YOU CAN SEE, and that is the part worth writing
+    // down. Judged on the image the tail actually shows up in — a bright small
+    // feature against dark skin, not a terminator — the widened support moves
+    // the halo by less than 0.003 of a unit step at 0.85. The support radius is
+    // not where the missing energy is: the outer taps draw their weight from the
+    // same narrow fit, so moving them out moves a near-zero weight out with them.
+    // Only a wider PROFILE would put energy there, and the fit is the profile.
+    //
+    // AND THE FIT IS NOT THE LIMITING ERROR EITHER. The pass is SEPARABLE, and
+    // at a bright small feature that is the dominant approximation by some way:
+    // a separable pass carrying the EXACT transport profile with UNLIMITED taps
+    // sits 0.078 from transport at 0.85, where this kernel — narrow fit,
+    // truncated support, 17 taps and all — sits 0.056. Making the profile more
+    // accurate moves the image AWAY from transport at the one albedo that
+    // ships. That is a coincidence of two errors with opposite signs rather
+    // than a design, so it is not something to preserve; it is the reason
+    // neither lever is worth pulling.
+    //
+    // SkinDiffusionReference in NonlocalTransportReferenceTest.cpp holds all
+    // three measurements, against a Monte Carlo searchlight walk.
     inline constexpr f32 kSkinDiffusionSupportFraction = 0.995f;
 
     // -------------------------------------------------------------------------

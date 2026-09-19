@@ -1377,6 +1377,48 @@ the filter has to follow the TYPE, not the feature.
 
 Found on #1246 (groom strand visibility), which added the `Groom` category.
 
+## Measure which error term dominates before repairing either of the others
+
+**Build the control that removes the error, and check the image improves, before tuning the
+constant that causes it.** `SkinDiffusion`'s screen-space blur approximates subsurface transport
+three times over, and the terms are not the sizes their descriptions suggest:
+
+1. the **Burley fit**, which runs narrow above a diffuse albedo of ~0.7 — 35% at the q90 radius at
+   the default `ScatterColor`'s red channel;
+2. the **support radius**, sized to 99.5% of the *fit*, which therefore holds only 97% of the real
+   transport at that same albedo;
+3. the **separable projection** — two 1D passes rather than a 2D gather — which has no albedo
+   dependence and is never quoted as a number anywhere.
+
+#1361 was filed on (1) and (2), with a documented prior that widening the support was "probably the
+whole fix". Both are real and both were measured against a Monte Carlo searchlight walk. Neither is
+the dominant term. Judged on a bright small feature against dark skin — the image a *tail* error
+shows up in, as opposed to a terminator, which is dominated by tap discretisation — a separable pass
+carrying the **exact transport profile with unlimited taps**, i.e. (1) and (2) repaired perfectly
+and for free, sits **further** from transport (0.078 of the feature's energy) than the shipped
+kernel does (0.056). (3) over-spreads the core along the axes; (1) and (2) pull energy back in.
+
+So the fix that looked cheap turned out to be a cost with no benefit, and the fix that looked
+expensive would have made the image worse — and neither could be known without the control. The
+general form: **if the image does not improve when the error is entirely gone, tuning that error
+buys nothing.**
+
+Two corollaries that generalise past skin:
+
+- **A support radius carries no energy — the tap WEIGHTS do.** Moving the outer taps further out
+  moves a near-zero weight further out and coarsens everything inside them. Widening this kernel's
+  support to cover the transport needs 1.8x the radius at a fixed 17 taps, takes the centre tap's
+  share of the profile from 0.143 to 0.220 (a sixth of the blur becomes no blur), and moves the
+  halo by under 0.003 of the feature's energy.
+- **Pick the image from the error's shape, not from the feature's name.** A cumulative response (an
+  edge, a terminator) is dominated by where the bulk of the energy sits, so a *tail* error barely
+  reaches it; #1255 measured exactly that and it is why the issue named a small bright feature
+  instead.
+
+Measurements: `SkinDiffusionReference` in
+[NonlocalTransportReferenceTest.cpp](../../OloEngine/tests/Rendering/PathTracing/NonlocalTransportReferenceTest.cpp);
+the decision is recorded on `kSkinDiffusionSupportFraction` in `SkinDiffusion.h`.
+
 ## A full local `ctest` sweep is ~1841 tests and rewrites ~180 tracked evidence PNGs
 
 Worth knowing before you reach for one as a pre-push check: it runs for hours, and the

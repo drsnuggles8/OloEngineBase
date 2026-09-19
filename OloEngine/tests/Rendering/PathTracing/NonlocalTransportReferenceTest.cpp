@@ -273,6 +273,18 @@ namespace OloEngine::Tests
             // known accuracy limit, not an open licence.
             EXPECT_LT(tail, 2.0) << "authored " << authored << ": tail ratio " << tail;
         }
+
+        // AND IT IS A LIMIT THAT IS NOT WORTH REPAIRING, which #1361 settled and
+        // which is the claim this test now carries. The narrowness above is real
+        // and this is still where it is measured — but the pass is separable,
+        // and at the image a tail error shows up in (a bright small feature, not
+        // a terminator) the separable projection costs MORE than the fit's
+        // narrowness does. Repairing the fit moves the image away from transport
+        // at the default's red channel rather than towards it.
+        //
+        // See TheSeparableProjectionOutweighsBothErrorsAtASmallBrightFeature,
+        // which is the control that measured it, and the comment on
+        // kSkinDiffusionSupportFraction, which records the decision.
     }
 
     TEST(SkinDiffusionReference, TheProfileCarriesShapeAndTheAlbedoCarriesEnergy)
@@ -316,6 +328,16 @@ namespace OloEngine::Tests
         // that reads subtly crisper at the terminator than transport says —
         // a bounded, deliberate artefact rather than a defect, and this is its
         // size.
+        //
+        // #1361 DECIDED WHAT TO DO ABOUT IT: NOTHING, and this test now says so
+        // rather than leaving the number hanging as an implied defect. The three
+        // percent cannot be recovered by widening the support, because a support
+        // radius carries no energy — the tap WEIGHTS do, and they come from the
+        // same narrow fit. Widening it to cover the transport needs 1.8x the
+        // radius at the same 17 taps, which coarsens the kernel everywhere and
+        // moves the image by less than a fiftieth of the error it was meant to
+        // fix. WideningTheSupportSpendsTapBudgetAndDoesNotMoveTheImage is that
+        // measurement.
         const auto coverage = [](f32 authored)
         {
             const SkinProfileParameters parameters = MakeProfile(authored);
@@ -587,6 +609,453 @@ namespace OloEngine::Tests
         EXPECT_GT(productionEdge(kernel, support, support * 1.5), 0.98);
         EXPECT_LT(referenceEdge(walk, -support * 1.5), 0.06);
         EXPECT_GT(referenceEdge(walk, support * 1.5), 0.94);
+    }
+
+    // -------------------------------------------------------------------------
+    // THE SMALL-BRIGHT-FEATURE APPARATUS (#1361).
+    //
+    // #1255 measured two errors in the pass — the fit running narrow above a
+    // diffuse albedo of 0.7, and the support radius truncating real transport at
+    // the same albedos — and bounded them AWAY from the terminator, which is
+    // dominated by tap discretisation. That leaves the image where a tail error
+    // does show: a BRIGHT SMALL FEATURE against dark skin, where the question is
+    // how much of the feature's energy ends up how far out, i.e. the halo.
+    //
+    // THE METRIC IS THE BLURRED FEATURE'S RADIAL ENERGY, and it is computed in
+    // CLOSED FORM on both sides rather than by convolving images. A disc of
+    // radius `rho` convolved with a set of weighted point responses, asked for
+    // its energy inside radius `r`, is a sum of CIRCLE-CIRCLE OVERLAPS — and the
+    // separable kernel IS a set of weighted points (the outer product of the tap
+    // table), while the walk's radial histogram is a set of weighted annuli that
+    // take the same formula. So the two sides differ only in where their weights
+    // come from, there is no grid, no FFT and no resolution to tune, and a Debug
+    // run costs milliseconds.
+    // -------------------------------------------------------------------------
+    namespace
+    {
+        /// The fraction of a disc of radius `rho`, whose centre lies `dist` from
+        /// the origin, that falls inside radius `r` of the origin.
+        [[nodiscard]] f64 DiscOverlapFraction(f64 dist, f64 rho, f64 r)
+        {
+            if (!(rho > 0.0) || !(r > 0.0))
+                return 0.0;
+            if (dist >= (rho + r))
+                return 0.0;
+
+            const f64 discArea = Ref::kPi * rho * rho;
+            if (dist <= std::abs(rho - r))
+            {
+                const f64 smaller = std::min(rho, r);
+                return (Ref::kPi * smaller * smaller) / discArea;
+            }
+
+            const f64 a1 =
+                rho * rho *
+                std::acos(std::clamp(((dist * dist) + (rho * rho) - (r * r)) / (2.0 * dist * rho), -1.0, 1.0));
+            const f64 a2 =
+                r * r * std::acos(std::clamp(((dist * dist) + (r * r) - (rho * rho)) / (2.0 * dist * r), -1.0, 1.0));
+            const f64 a3 =
+                0.5 * std::sqrt(std::max((-dist + rho + r) * (dist + rho - r) * (dist - rho + r) * (dist + rho + r),
+                                         0.0));
+            return std::clamp((a1 + a2 - a3) / discArea, 0.0, 1.0);
+        }
+
+        /// A 1D separable kernel: positions in millimetres and weights summing
+        /// to 1. Both the 17-tap production table and the "unlimited taps"
+        /// control below are handed over in this shape, so the comparison sees
+        /// one code path and differs only in the numbers.
+        struct SeparableKernel1D
+        {
+            std::vector<f64> PositionsMM;
+            std::vector<f64> Weights;
+        };
+
+        /// Energy of a bright disc of radius `rho`, blurred by the separable
+        /// kernel, lying inside radius `r`. The 2D response is the outer product
+        /// of the 1D weights, so this is a double sum over tap PAIRS.
+        [[nodiscard]] f64 SeparableFeatureEnergy(const SeparableKernel1D& kernel, f64 rho, f64 r)
+        {
+            f64 total = 0.0;
+            for (sizet i = 0; i < kernel.PositionsMM.size(); ++i)
+            {
+                f64 inner = 0.0;
+                for (sizet j = 0; j < kernel.PositionsMM.size(); ++j)
+                {
+                    const f64 dist = std::hypot(kernel.PositionsMM[i], kernel.PositionsMM[j]);
+                    inner += kernel.Weights[j] * DiscOverlapFraction(dist, rho, r);
+                }
+                total += kernel.Weights[i] * inner;
+            }
+            return total;
+        }
+
+        /// The same quantity for the walk. Its histogram is already a radial
+        /// energy distribution, so each annulus contributes its energy times the
+        /// same overlap fraction at the annulus' representative radius.
+        ///
+        /// The overflow is NOT folded in and NOT renormalised away: it sits
+        /// beyond every radius asked for below, so leaving it out is the
+        /// conservative reading — it can only make the reference look tighter
+        /// than it is, which works against the claims made here rather than for
+        /// them.
+        [[nodiscard]] f64 TransportFeatureEnergy(const Ref::SearchlightProfile& walk, f64 rho, f64 r)
+        {
+            f64 total = 0.0;
+            for (sizet i = 0; i < walk.Energy.size(); ++i)
+            {
+                const f64 mid = 0.5 * (walk.Edges[i] + walk.Edges[i + 1]);
+                total += walk.Energy[i] * DiscOverlapFraction(mid, rho, r);
+            }
+            return total;
+        }
+
+        /// The production tap table as a SeparableKernel1D, red's lane.
+        [[nodiscard]] SeparableKernel1D ProductionKernel(const SkinDiffusionKernel& kernel)
+        {
+            SeparableKernel1D out;
+            for (u32 i = 0; i < kernel.TapCount; ++i)
+            {
+                out.PositionsMM.push_back(static_cast<f64>(kernel.Taps[i].x) *
+                                          static_cast<f64>(kernel.SupportRadiusMM));
+                out.Weights.push_back(static_cast<f64>(kernel.Taps[i].y));
+            }
+            return out;
+        }
+
+        /// The walk's own line-spread function: the same polar rearrangement
+        /// SkinBurleyStripFraction performs on the FIT, done here on the walk.
+        [[nodiscard]] f64 WalkStripFraction(const Ref::SearchlightProfile& walk, f64 a)
+        {
+            f64 total = 0.0;
+            for (sizet i = 0; i < walk.Energy.size(); ++i)
+            {
+                const f64 mid = 0.5 * (walk.Edges[i] + walk.Edges[i + 1]);
+                total += walk.Energy[i] * ((2.0 / Ref::kPi) * std::asin(std::clamp(a / mid, 0.0, 1.0)));
+            }
+            return total;
+        }
+
+        /// THE CONTROL: a separable kernel carrying the WALK's profile on a fine
+        /// uniform grid — no fit error and no tap budget. What the pass would do
+        /// if both errors #1255 measured were repaired perfectly and the taps
+        /// were free. `bins` per side; 60 is converged against 300, which the
+        /// test checks rather than assumes.
+        [[nodiscard]] SeparableKernel1D ExactTransportKernel(const Ref::SearchlightProfile& walk, f64 supportMM,
+                                                             i32 bins)
+        {
+            std::vector<f64> mid;
+            std::vector<f64> weight;
+            const f64 step = supportMM / static_cast<f64>(bins);
+            f64 sum = 0.0;
+            for (i32 i = 0; i < bins; ++i)
+            {
+                const f64 lo = step * static_cast<f64>(i);
+                const f64 hi = lo + step;
+                // Half of the strip's energy, because S() covers both sides.
+                const f64 w = 0.5 * std::max(WalkStripFraction(walk, hi) - WalkStripFraction(walk, lo), 0.0);
+                mid.push_back(0.5 * (lo + hi));
+                weight.push_back(w);
+                sum += w;
+            }
+
+            SeparableKernel1D out;
+            for (i32 i = bins - 1; i >= 0; --i)
+            {
+                out.PositionsMM.push_back(-mid[static_cast<sizet>(i)]);
+                out.Weights.push_back(weight[static_cast<sizet>(i)]);
+            }
+            for (i32 i = 0; i < bins; ++i)
+            {
+                out.PositionsMM.push_back(mid[static_cast<sizet>(i)]);
+                out.Weights.push_back(weight[static_cast<sizet>(i)]);
+            }
+
+            const f64 total = 2.0 * sum;
+            for (f64& w : out.Weights)
+                w = (total > 0.0) ? (w / total) : 0.0;
+            return out;
+        }
+
+        /// A MIRROR of BuildSkinDiffusionKernel's tap binning with the support
+        /// radius as a FREE PARAMETER — the one thing the production function
+        /// cannot be asked for, because kSkinDiffusionSupportFraction is a
+        /// compile-time constant and the support it yields is therefore always
+        /// the profile's own.
+        ///
+        /// ONLY THE BINNING IS MIRRORED. The profile still comes from
+        /// production's SkinBurleyStripFraction, so the physics is not
+        /// transcribed; what is repeated here is the quadratic tap layout and
+        /// the midpoint edges, twenty lines of arithmetic whose only purpose is
+        /// to answer "what if the constant were larger".
+        ///
+        /// AND THE MIRROR IS CHECKED, NOT TRUSTED: at the natural support it
+        /// must reproduce the real tap table, which the test asserts before it
+        /// uses the widened one. A mirror nobody checks is how a test ends up
+        /// measuring its own transcription.
+        [[nodiscard]] SeparableKernel1D MirroredKernel(f64 dChannelMM, f64 supportMM, i32 tapCount)
+        {
+            const i32 half = tapCount / 2;
+            const auto offsetAt = [half](i32 i) -> f64
+            {
+                const f64 t = static_cast<f64>(i) / static_cast<f64>(half);
+                return (t < 0.0 ? -1.0 : 1.0) * t * t;
+            };
+            const auto stripEnergy = [&](f64 loNorm, f64 hiNorm) -> f64
+            {
+                const f64 lo = loNorm * supportMM;
+                const f64 hi = hiNorm * supportMM;
+                if (!(hi > lo))
+                    return 0.0;
+                if (lo <= 0.0)
+                    return static_cast<f64>(SkinBurleyStripFraction(static_cast<f32>(hi),
+                                                                    static_cast<f32>(dChannelMM)));
+                return 0.5 * std::max(static_cast<f64>(SkinBurleyStripFraction(static_cast<f32>(hi),
+                                                                               static_cast<f32>(dChannelMM))) -
+                                          static_cast<f64>(SkinBurleyStripFraction(static_cast<f32>(lo),
+                                                                                   static_cast<f32>(dChannelMM))),
+                                      0.0);
+            };
+
+            SeparableKernel1D out;
+            f64 total = 0.0;
+            for (i32 i = -half; i <= half; ++i)
+            {
+                const f64 offset = offsetAt(i);
+                const f64 prev = (i > -half) ? offsetAt(i - 1) : offset;
+                const f64 next = (i < half) ? offsetAt(i + 1) : offset;
+                const f64 innerEdge = std::abs(0.5 * (offset + prev));
+                const f64 outerEdge = std::abs(0.5 * (offset + next));
+                const f64 lo = (i == 0) ? 0.0 : std::min(innerEdge, outerEdge);
+                const f64 hi = (i == 0) ? std::max(innerEdge, outerEdge)
+                                        : ((i == -half || i == half) ? 1.0 : std::max(innerEdge, outerEdge));
+
+                const f64 weight = stripEnergy(lo, hi);
+                out.PositionsMM.push_back(offset * supportMM);
+                out.Weights.push_back(weight);
+                total += weight;
+            }
+            for (f64& weight : out.Weights)
+                weight = (total > 0.0) ? (weight / total) : 0.0;
+            return out;
+        }
+
+        /// A bright feature 1.5 mm across — a specular-adjacent highlight on a
+        /// human-scale face, and comfortably smaller than red's support so the
+        /// halo measured is the kernel's and not the feature's.
+        constexpr f64 kFeatureRadiusMM = 1.5;
+
+        /// The radii the halo is read at, millimetres. They span the near field
+        /// the feature occupies out to past red's support, so a kernel that is
+        /// right in one region and wrong in another cannot average out.
+        constexpr std::array<f64, 7> kHaloRadiiMM = { 2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 25.0 };
+
+        /// The largest disagreement between a separable kernel's halo and the
+        /// walk's, over kHaloRadiiMM. A fraction of the feature's own energy, so
+        /// 0.05 means "5% of the highlight's light is in the wrong place".
+        [[nodiscard]] f64 WorstHaloError(const SeparableKernel1D& kernel, const Ref::SearchlightProfile& walk)
+        {
+            f64 worst = 0.0;
+            for (const f64 r : kHaloRadiiMM)
+            {
+                const f64 production = SeparableFeatureEnergy(kernel, kFeatureRadiusMM, r);
+                const f64 reference = TransportFeatureEnergy(walk, kFeatureRadiusMM, r);
+                worst = std::max(worst, std::abs(production - reference));
+            }
+            return worst;
+        }
+    } // namespace
+
+    TEST(SkinDiffusionReference, WideningTheSupportSpendsTapBudgetAndDoesNotMoveTheImage)
+    {
+        // ACCEPTANCE CRITERION 1 OF #1361, DECIDED: kSkinDiffusionSupportFraction
+        // STAYS AT 0.995. This is the measurement that decided it.
+        //
+        // The obvious reading of "the support holds only 97% of the transport at
+        // 0.85" is that the support is too small. It is not, and the reason is
+        // that A SUPPORT RADIUS CARRIES NO ENERGY — the WEIGHTS do, and the
+        // weights come from the fit. Move the outer taps further out and they
+        // take the fit's near-zero outer weight with them; what changes is not
+        // the halo but the SPACING, because the tap count does not grow and
+        // every offset scales together.
+        //
+        // So the cost is paid in the near field and the benefit never arrives.
+        // Both halves are asserted here.
+        constexpr f32 kAuthored = 0.85f; // the default ScatterColor's red channel
+        const SkinProfileParameters parameters = MakeProfile(kAuthored);
+        const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(kAuthored);
+
+        const f64 fitSupport = static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters));
+        ASSERT_GT(fitSupport, 0.0);
+
+        // WHAT COVERING THE TRANSPORT WOULD ACTUALLY COST, stated as the number
+        // the decision turns on: the radius holding 99.5% of the WALK against
+        // the radius holding 99.5% of the FIT.
+        const f64 transportSupport = walk.RadiusForFraction(0.995);
+        ASSERT_LT(transportSupport, kMaxRadius)
+            << "the histogram cannot answer for a transport support of " << transportSupport;
+        const f64 widening = transportSupport / fitSupport;
+        EXPECT_GT(widening, 1.5) << "fit support " << fitSupport << " mm, transport support " << transportSupport
+                                 << " mm, widening " << widening;
+        EXPECT_LT(widening, 2.5) << "widening " << widening;
+
+        // THE COST, IN THE ONLY CURRENCY THE KERNEL HAS. The taps are shared
+        // across channels and sized to the widest, so a 1.8x support at a fixed
+        // 17 taps is a 1.8x coarser kernel everywhere. The centre tap is the
+        // cleanest single reading of that: its WEIGHT does not change when every
+        // offset scales together, but the millimetres it stands for — the part
+        // of the profile the pass does not resolve at all — scale with it.
+        const SkinDiffusionKernel shipped = BuildSkinDiffusionKernel(parameters, SkinDiffusionQuality::Medium);
+        ASSERT_FALSE(shipped.IsIdentity());
+        ASSERT_GT(shipped.TapCount, 2u);
+        const u32 centre = shipped.TapCount / 2u;
+
+        const f64 shippedCentreSpan =
+            static_cast<f64>(std::abs(shipped.Taps[centre + 1u].x - shipped.Taps[centre].x)) * fitSupport;
+        const f64 widenedCentreSpan = shippedCentreSpan * widening;
+        EXPECT_GT(shippedCentreSpan, 0.0);
+        EXPECT_GT(widenedCentreSpan, shippedCentreSpan * 1.5)
+            << "the centre tap spans " << shippedCentreSpan << " mm shipped and " << widenedCentreSpan
+            << " mm widened";
+
+        // THE MIRROR, CHECKED AGAINST THE REAL TABLE FIRST. Raising the support
+        // fraction does NOT simply move the taps outwards — each tap then stands
+        // for a WIDER strip of the same profile, so the weights change too, and
+        // a test that only rescaled the offsets would be answering an easier
+        // question than the one asked.
+        const f64 dRedMM = static_cast<f64>(SkinBurleyScalingMM(parameters).x);
+        const SeparableKernel1D mirroredAtNaturalSupport =
+            MirroredKernel(dRedMM, fitSupport, static_cast<i32>(shipped.TapCount));
+        ASSERT_EQ(mirroredAtNaturalSupport.Weights.size(), static_cast<sizet>(shipped.TapCount));
+        for (u32 i = 0; i < shipped.TapCount; ++i)
+        {
+            EXPECT_NEAR(mirroredAtNaturalSupport.Weights[i], static_cast<f64>(shipped.Taps[i].y), 1.0e-4)
+                << "the mirror disagrees with the production tap table at tap " << i
+                << " — every number below it is meaningless until it does not";
+            EXPECT_NEAR(mirroredAtNaturalSupport.PositionsMM[i],
+                        static_cast<f64>(shipped.Taps[i].x) * fitSupport, 1.0e-4)
+                << "tap " << i;
+        }
+
+        // And now the same construction at the support the transport actually
+        // needs: same profile, same tap count, wider support, weights REBUILT.
+        const SeparableKernel1D widened =
+            MirroredKernel(dRedMM, transportSupport, static_cast<i32>(shipped.TapCount));
+
+        // THE COST, READ OFF THE WEIGHTS. The centre tap is the energy the pass
+        // does NOT move — it is the pixel's own radiance, kept. Widening the
+        // support hands it a wider strip of the same profile, so a larger share
+        // of the blur turns into no blur at all.
+        const f64 shippedCentreWeight = static_cast<f64>(shipped.Taps[centre].y);
+        const f64 widenedCentreWeight = widened.Weights[centre];
+        EXPECT_GT(widenedCentreWeight, shippedCentreWeight * 1.3)
+            << "the centre tap holds " << shippedCentreWeight << " of the profile shipped and "
+            << widenedCentreWeight << " widened";
+
+        // THE BENEFIT, AND IT IS NOT THERE. The halo of a bright small feature —
+        // the image #1255's terminator measurement bounded the tail error ONTO —
+        // barely moves. 0.02 of the feature's energy is a generous ceiling on
+        // "barely" when the errors themselves are around 0.056.
+        const f64 shippedHalo = WorstHaloError(ProductionKernel(shipped), walk);
+        const f64 widenedHalo = WorstHaloError(widened, walk);
+        EXPECT_LT(std::abs(widenedHalo - shippedHalo), 0.02)
+            << "shipped halo error " << shippedHalo << ", widened " << widenedHalo
+            << " — widening the support was supposed to be the cheap fix and it moves nothing";
+
+        // REPORTED, NOT ONLY ASSERTED. This suite's job is to measure, and a
+        // decision to change nothing is the one outcome that leaves no trace in
+        // the diff — so the numbers it rests on are printed rather than left to
+        // be re-derived by whoever doubts it next.
+        GTEST_LOG_(INFO) << "#1361 support decision @ authored 0.85: fit support " << fitSupport
+                         << " mm holds " << (100.0 * walk.CdfAt(fitSupport)) << "% of transport; covering 99.5% "
+                         << "needs " << transportSupport << " mm (x" << widening << "); centre tap "
+                         << shippedCentreWeight << " -> " << widenedCentreWeight << " of the profile; halo error "
+                         << shippedHalo << " -> " << widenedHalo;
+
+        // And it is not an IMPROVEMENT either, which is the statement that
+        // closes the criterion. Asserted with a small slack rather than as a
+        // strict inequality: the claim is "no better", not "worse by a specific
+        // amount", and a walk reseeded on another machine should not fail it.
+        EXPECT_GT(widenedHalo, shippedHalo - 0.005) << "shipped " << shippedHalo << ", widened " << widenedHalo;
+    }
+
+    TEST(SkinDiffusionReference, TheSeparableProjectionOutweighsBothErrorsAtASmallBrightFeature)
+    {
+        // ACCEPTANCE CRITERION 2 OF #1361, DECIDED: THE FIT IS NOT REVISITED,
+        // and this is why. It is the one measurement in this file that compares
+        // the pass against a version of ITSELF with every error #1255 found
+        // removed, and the result is the opposite of the expected one.
+        //
+        // The control is a separable kernel carrying the WALK's own profile with
+        // UNLIMITED taps: no Burley fit, no 0.995 truncation, no 17-tap
+        // discretisation. Everything the issue proposed repairing, repaired
+        // perfectly and for free. At the default ScatterColor's red channel it is
+        // FURTHER from transport at a bright small feature than the shipped
+        // kernel is.
+        //
+        // The reason is the third approximation, the one neither lever touches:
+        // the pass is SEPARABLE. TheSeparableKernelIsNotTheTwoDimensionalProfile
+        // above says the outer product of two line-spread functions is not the
+        // radial profile; this says what that costs in the image, and it costs
+        // more than the other two together. A separable kernel over-spreads the
+        // core of a point response along the axes; the narrow fit and the
+        // truncated support pull energy back in; at 0.85 the pair lands closer
+        // to transport than the repaired profile does alone.
+        //
+        // THAT CANCELLATION IS A COINCIDENCE AND IS NOT ASSERTED AS A VIRTUE.
+        // What is asserted is the ordering that makes both levers pointless:
+        // repairing the profile does not improve this image, so there is nothing
+        // to buy by repairing it.
+        constexpr f32 kAuthored = 0.85f;
+        const SkinProfileParameters parameters = MakeProfile(kAuthored);
+        const Ref::SearchlightProfile& walk = WalkForAuthoredAlbedo(kAuthored);
+        ASSERT_LT(walk.Overflow, 0.05) << "overflow " << walk.Overflow;
+
+        const SkinDiffusionKernel shipped = BuildSkinDiffusionKernel(parameters, SkinDiffusionQuality::Medium);
+        ASSERT_FALSE(shipped.IsIdentity());
+
+        const f64 transportSupport = walk.RadiusForFraction(0.995);
+        ASSERT_LT(transportSupport, kMaxRadius);
+
+        const f64 shippedError = WorstHaloError(ProductionKernel(shipped), walk);
+        const f64 exactError = WorstHaloError(ExactTransportKernel(walk, transportSupport, 60), walk);
+
+        // THE CONTROL IS CONVERGED, checked rather than taken on trust: a 60-bin
+        // kernel must agree with a 300-bin one, or the comparison below would be
+        // measuring the control's own quadrature instead of the projection.
+        const f64 fineError = WorstHaloError(ExactTransportKernel(walk, transportSupport, 300), walk);
+        EXPECT_LT(std::abs(exactError - fineError), 0.01)
+            << "60 bins -> " << exactError << ", 300 bins -> " << fineError;
+
+        // Both are real errors — neither side is exact, and a test that implied
+        // the shipped kernel is RIGHT would overclaim badly.
+        EXPECT_GT(shippedError, 0.02) << "shipped halo error " << shippedError;
+        EXPECT_GT(exactError, 0.02) << "exact-transport halo error " << exactError;
+
+        // THE ORDERING, which is the finding. A margin is required so a reseeded
+        // walk cannot flip it by noise.
+        EXPECT_GT(exactError, shippedError + 0.01)
+            << "shipped kernel " << shippedError << " from transport, a separable pass carrying the EXACT "
+            << "transport profile with unlimited taps " << exactError
+            << " — if the exact one is now the closer of the two, the separable projection is no longer the "
+            << "dominant error and #1361's decision to leave the fit alone should be revisited";
+
+        GTEST_LOG_(INFO) << "#1361 fit decision @ authored 0.85: halo error, shipped kernel " << shippedError
+                         << " vs a separable pass carrying the exact transport profile with unlimited taps "
+                         << exactError << " (converged control: " << fineError << ")";
+
+        // AND IT IS A LARGE ERROR IN ABSOLUTE TERMS, not merely the larger of two
+        // small ones: nearly a twelfth of the feature's light lands at the wrong
+        // radius even with a perfect profile and unlimited taps. Pinned as a
+        // floor so that a future change which genuinely fixes the projection —
+        // a 2D gather, or a second separable pass on the diagonal — fails this
+        // test and gets to delete it.
+        //
+        // (It is NOT compared against the 0.052 that SkinDiffusion.cpp records
+        // for tap discretisation. That number is an edge response, a fraction of
+        // a unit STEP; this is a fraction of a FEATURE's energy. Same spirit,
+        // different quantity, and putting them in one inequality would be a
+        // units error dressed up as a finding.)
+        EXPECT_GT(exactError, 0.05) << "exact-transport halo error " << exactError;
     }
 
     // =========================================================================
