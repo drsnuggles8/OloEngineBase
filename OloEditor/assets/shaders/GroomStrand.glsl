@@ -390,8 +390,25 @@ vec3 oloGroomShadeFibre()
 			// every other lit shader in the engine takes.
 			L = normalize(-light.direction.xyz);
 		}
-		else
+		else if (lightType == POINT_LIGHT || lightType == SPOT_LIGHT || lightType == SPHERE_AREA_LIGHT)
 		{
+			// SPHERE_AREA_LIGHT IS TREATED AS PUNCTUAL AT ITS CENTRE, and that
+			// is a stated approximation rather than an oversight. Scene.cpp does
+			// pack area lights into this buffer with the type tag 3 and their
+			// radius in SpotParams.z, and PBRCommon's oloLightSample REFUSES
+			// that type outright — it has no single L, because the surface
+			// evaluator picks a representative point on the sphere that depends
+			// on the shading normal. A fibre has no shading normal to pick one
+			// with, so there is no representative point to compute: the honest
+			// options are the centre or nothing.
+			//
+			// The centre is the radius -> 0 limit, so the coat stays lit and its
+			// highlight is narrower than the body's beside it, by roughly the
+			// angle the emitter subtends. Skipping instead would leave the coat
+			// black under a light the body clearly responds to, which is the
+			// worse of the two wrong answers. A real area-light fibre lobe is a
+			// cone-times-sphere integral and belongs with #1248's transport
+			// work, not here.
 			vec3 toLight = light.position.xyz - v_WorldPos;
 			float distance = length(toLight);
 			if (distance < 1e-6)
@@ -404,6 +421,13 @@ vec3 oloGroomShadeFibre()
 			{
 				attenuation *= calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
 			}
+		}
+		else
+		{
+			// An unknown type tag. Skipping is the loud answer: shading it as
+			// something it is not would be a coat lit by a light nobody can
+			// find in the scene.
+			continue;
 		}
 
 		if (attenuation <= 0.0)

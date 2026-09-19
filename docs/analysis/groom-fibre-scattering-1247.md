@@ -175,12 +175,26 @@ such rather than dressed up.
 
 | β_M | N = 1 | N = 4 | N = 8 |
 |---|---|---|---|
-| 0.1 | 0.9996 | 0.9996 | 0.9996 |
-| 0.3 | 0.9978 | 0.9978 | 0.9977 |
+| 0.1 | 0.9999 | 0.9999 | 0.9999 |
+| 0.3 | 0.9997 | 0.9997 | 0.9997 |
 | 0.6 | 0.9999 | 0.9999 | 0.9999 |
 | 0.9 | 1.0000 | 1.0000 | 1.0000 |
 
-Within 0.25 %, and the residual is the 512×512 angular quadrature's own error, not the model's.
+Within 0.03 %, and the residual is the 512×512 angular quadrature's own error, not the model's.
+
+### The Bessel branch that was costing 0.2 % of it
+
+`log I0(x)` is evaluated as a series below x = 12 and an asymptotic expansion above. Transcribed
+from pbrt-v3, the two branches are **1.50 % apart at the crossover** — the series 2.04 % low and the
+asymptote 0.57 % low against a long-double reference — because pbrt writes the correction as
+`0.5 * (… + 1/(8x))`, which halves a term that belongs outside that factor, and stops the series at
+ten terms. The seam sits at `cos θ_i cos θ_o / v = 12`, which at the default roughness is inside the
+angles a coat is actually shaded at.
+
+Un-halving the term, adding the next one (`9/(128x²)`) and extending the series to fourteen terms
+puts both branches within **0.005 %** of the reference and the jump at **0.0002 %**. The crossover
+stays at 12 because that is where the two error curves cross. Table 4's β_M = 0.3 row moved from
+0.9978 to 0.9997 as a result — the discontinuity was showing up as lost energy.
 
 **Energy conservation does not depend on N**, and that is structural rather than lucky: the four
 attenuations sum to one at every `h`, and the quadrature is a convex combination of values that each

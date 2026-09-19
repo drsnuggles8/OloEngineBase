@@ -113,15 +113,16 @@ float oloGroomFibreSafeASin(float x)
 // function of the first kind, order zero. Written out because GLSL has neither
 // a factorial nor a 64-bit integer to build them with, and accumulated in this
 // order because the C++ twin accumulates in this order.
-const float kOloGroomI0[10] = float[10](1.0, 2.5e-1, 1.5625e-2, 4.34027778e-4, 6.78168403e-6, 6.78168403e-8,
-                                        4.70950280e-10, 2.40280755e-12, 9.38596699e-15, 2.89690339e-17);
+const float kOloGroomI0[14] = float[14](1.0, 2.5e-1, 1.5625e-2, 4.34027778e-4, 6.78168403e-6, 6.78168403e-8,
+                                        4.70950280e-10, 2.40280755e-12, 9.38596699e-15, 2.89690339e-17,
+                                        7.24225848e-20, 1.49633440e-22, 2.59780277e-25, 3.84290351e-28);
 
 float oloGroomBesselI0(float x)
 {
 	float x2 = x * x;
 	float x2i = 1.0;
 	float value = 0.0;
-	for (int i = 0; i < 10; ++i)
+	for (int i = 0; i < 14; ++i)
 	{
 		value += x2i * kOloGroomI0[i];
 		x2i *= x2;
@@ -129,14 +130,17 @@ float oloGroomBesselI0(float x)
 	return value;
 }
 
-// The series overflows well before the argument does, so past 12 the
-// asymptotic expansion takes over. The two agree to better than a part in 10^6
-// at the crossover.
+// Past the crossover the series stops converging usefully, so the asymptotic
+// expansion takes over. Both halves differ from pbrt-v3's — the 1/(8x) term is
+// NOT inside the 0.5 factor, and the series runs to fourteen terms — which
+// takes the discontinuity at x = 12 from 1.50 % to 0.0002 %. The measurement
+// and the reason it matters are in GroomFibreScattering.cpp's twin.
 float oloGroomLogBesselI0(float x)
 {
 	if (x > 12.0)
 	{
-		return x + (0.5 * (-log(OLO_GROOM_FIBRE_TWO_PI) + log(1.0 / x) + (0.125 / x)));
+		return x - (0.5 * log(OLO_GROOM_FIBRE_TWO_PI)) - (0.5 * log(x)) +
+		       log(1.0 + (0.125 / x) + (9.0 / (128.0 * x * x)));
 	}
 	return log(oloGroomBesselI0(x));
 }

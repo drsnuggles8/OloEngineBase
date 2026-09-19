@@ -538,6 +538,14 @@ namespace OloEngine
         // that looks like the later one's bug.
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         CommandDispatch::InvalidateRenderStateCache();
+        // This pass bound TEX_USER_0 through the RGCommandContext seam, which
+        // does not go through the dispatcher's redundant-bind cache — so that
+        // cache still believes whatever the last command-queue draw left there.
+        // A later pass binding its own texture to the same slot would find a
+        // matching entry and skip the bind, and would then sample this pass's
+        // irradiance cube. Telling the cache the slot was clobbered is the
+        // documented way out (CommandDispatch::InvalidateTextureSlot).
+        CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_USER_0);
         m_SceneFramebuffer->Unbind();
 
         // A change of dominant reason, not a per-frame line: the same warning

@@ -38,9 +38,10 @@ namespace OloEngine
         // constants and BOTH sides accumulate them in this order — the twin
         // contract is about values, and a Horner rearrangement would change
         // the rounding for no gain.
-        constexpr std::array<f32, 10> kI0Coefficients{
+        constexpr std::array<f32, 14> kI0Coefficients{
             1.0f, 2.5e-1f, 1.5625e-2f, 4.34027778e-4f, 6.78168403e-6f,
-            6.78168403e-8f, 4.70950280e-10f, 2.40280755e-12f, 9.38596699e-15f, 2.89690339e-17f
+            6.78168403e-8f, 4.70950280e-10f, 2.40280755e-12f, 9.38596699e-15f, 2.89690339e-17f,
+            7.24225848e-20f, 1.49633440e-22f, 2.59780277e-25f, 3.84290351e-28f
         };
 
         [[nodiscard]] f32 BesselI0(f32 x) noexcept
@@ -56,14 +57,32 @@ namespace OloEngine
             return value;
         }
 
-        // The series above overflows f32 well before the argument does, so the
-        // large-x branch uses the asymptotic expansion instead. 12 is where the
-        // two agree to better than a part in 10^6.
+        // Past the crossover the series stops converging usefully in f32, so the
+        // asymptotic expansion takes over:
+        //
+        //   log I0(x) = x - log(2 pi x)/2 + log(1 + 1/(8x) + 9/(128 x^2) + ...)
+        //
+        // BOTH HALVES DIFFER FROM pbrt-v3's, and the difference is measured.
+        // pbrt writes the correction as `0.5 * (... + 1/(8x))`, which halves the
+        // 1/(8x) term — it belongs outside that factor — and it stops the series
+        // at ten terms. Together those leave the two branches 1.50 % APART at
+        // x = 12, with the series 2.04 % low and the asymptote 0.57 % low
+        // against a long-double reference. That discontinuity sits at
+        // cos(thetaI) cos(thetaO) / v = 12, which at the default roughness is
+        // inside the angles a coat is actually shaded at, so it is a visible
+        // seam rather than a tail-end curiosity.
+        //
+        // Un-halving the term, adding the 9/(128 x^2) one and extending the
+        // series to fourteen terms puts both branches within 0.005 % of the
+        // reference and the jump at x = 12 at 0.0002 %. The crossover stays at
+        // 12 because that is where the two error curves cross: below it the
+        // series is better, above it the asymptote is.
         [[nodiscard]] f32 LogBesselI0(f32 x) noexcept
         {
             if (x > 12.0f)
             {
-                return x + (0.5f * (-std::log(kTwoPi) + std::log(1.0f / x) + (0.125f / x)));
+                return x - (0.5f * std::log(kTwoPi)) - (0.5f * std::log(x)) +
+                       std::log(1.0f + (0.125f / x) + (9.0f / (128.0f * x * x)));
             }
             return std::log(BesselI0(x));
         }
@@ -430,25 +449,47 @@ namespace OloEngine
         const f32 safeEta = std::clamp(std::isfinite(eta) ? eta : kGroomFibreDefaultIOR, GroomFibreLimits::MinIOR,
                                        GroomFibreLimits::MaxIOR);
 
-        // The head-on albedo for a scalar absorption: the mean over the
-        // fibre's width of the four attenuations. cos(theta_o) is 1 head on, so
-        // this is GroomFibreAmbientResponse's arithmetic with the angle fixed —
-        // written once here rather than called through, because the caller
-        // needs it per CHANNEL and the lobe set is per colour.
+        // THE PER-NODE GEOMETRY IS HOISTED OUT OF THE BISECTION. cosGammaT and
+        // the Fresnel term depend on the quadrature node and the index of
+        // refraction, and on NOTHING the solver varies — so computing them
+        // inside the iteration would pay for n square roots and n Fresnel
+        // evaluations on every one of the sixteen steps, three times over for
+        // the three channels. Hoisted, the loop below is n exponentials per
+        // step and the whole inversion costs about a tenth of what it did.
+        //
+        // This runs once per groom per frame (Scene::PublishGroomStrandRequests
+        // derives the parameters fresh), so "once per groom" is a real budget
+        // rather than a setup cost.
+        struct Node
+        {
+            f32 ChordLength = 0.0f; // 2 cos(gammaT): the path length through the fibre
+            f32 Fresnel = 0.0f;
+        };
+        std::array<Node, GroomFibreLimits::MaxHSamples> nodes{};
+        for (u32 k = 0; k < n; ++k)
+        {
+            const f32 h = QuadratureNode(k, n);
+            const f32 sinGammaT = std::clamp(h / safeEta, -1.0f, 1.0f);
+            nodes[k].ChordLength = 2.0f * SafeSqrt(1.0f - Sqr(sinGammaT));
+            // cos(theta_o) is 1 head on, so the incidence cosine is cos(gammaO).
+            nodes[k].Fresnel = FresnelDielectric(SafeSqrt(1.0f - Sqr(h)), safeEta);
+        }
+
+        // The head-on albedo for a scalar absorption: the mean over the fibre's
+        // width of the four attenuations. Written out rather than routed through
+        // Attenuations() because the caller needs it per CHANNEL and that
+        // returns a colour.
         const auto albedo = [&](f32 sigma) noexcept
         {
             f32 total = 0.0f;
             for (u32 k = 0; k < n; ++k)
             {
-                const f32 h = QuadratureNode(k, n);
-                const f32 sinGammaT = std::clamp(h / safeEta, -1.0f, 1.0f);
-                const f32 cosGammaT = SafeSqrt(1.0f - Sqr(sinGammaT));
-                const glm::vec3 transmittance = glm::vec3(std::exp(-sigma * 2.0f * cosGammaT));
-                const std::array<glm::vec3, kGroomFibreLobeCount> ap = Attenuations(1.0f, safeEta, h, transmittance);
-                for (u32 p = 0; p < kGroomFibreLobeCount; ++p)
-                {
-                    total += ap[p].r;
-                }
+                const f32 f = nodes[k].Fresnel;
+                const f32 t = std::exp(-sigma * nodes[k].ChordLength);
+                const f32 apTT = Sqr(1.0f - f) * t;
+                const f32 apTRT = apTT * t * f;
+                const f32 apResidual = (apTRT * t * f) / std::max(1.0f - (t * f), 1.0e-5f);
+                total += f + apTT + apTRT + apResidual;
             }
             return total / static_cast<f32>(n);
         };
@@ -472,12 +513,12 @@ namespace OloEngine
                 continue;
             }
 
-            // Monotone decreasing in sigma, so plain bisection. 20 iterations
-            // over [0, 32] resolves sigma to 3e-5, far finer than the 8-bit
-            // colour that asked for it.
+            // Monotone decreasing in sigma, so plain bisection. Sixteen steps
+            // over [0, 32] resolve sigma to 5e-4, which moves the albedo by far
+            // less than the 8-bit colour that asked for it.
             f32 lo = 0.0f;
             f32 hi = GroomFibreLimits::MaxAbsorption;
-            for (int iteration = 0; iteration < 20; ++iteration)
+            for (int iteration = 0; iteration < 16; ++iteration)
             {
                 const f32 mid = 0.5f * (lo + hi);
                 if (albedo(mid) > target)

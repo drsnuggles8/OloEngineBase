@@ -608,13 +608,43 @@ namespace OloEngine::Tests
                "backlight, so the pigment is not absorbing the transmitted path — which is the whole difference "
                "between pale and dark hair";
 
-        // And the coloured fibre is actually coloured rather than a grey at a
-        // different level: it must be distinguishable from both others.
-        for (sizet l = 0; l < lightings.size(); ++l)
+        // The coloured fibre sits BETWEEN the other two, by a margin no
+        // dithering could produce — under FRONTAL and BACKLIT light.
+        //
+        // A margin, not an inequality: EXPECT_NE on two f64 luminances can only
+        // fail on exact bit equality, so it would have passed on a red coat
+        // that rendered one part in 10^15 away from the dark one — which is to
+        // say it would have asserted nothing. cpp-coding-quality.md §2a bans
+        // the form for exactly this reason.
+        constexpr f64 kSeparation = 0.01;
+        for (const sizet l : { sizet{ 0 }, sizet{ 2 } })
         {
-            EXPECT_NE(luminance[l][2], luminance[l][0]) << lightings[l].Name;
-            EXPECT_NE(luminance[l][2], luminance[l][1]) << lightings[l].Name;
+            EXPECT_GT(luminance[l][2], luminance[l][0] + kSeparation)
+                << lightings[l].Name << ": the red coat is not distinguishable from the dark one";
+            EXPECT_LT(luminance[l][2], luminance[l][1] - kSeparation)
+                << lightings[l].Name << ": the red coat is not distinguishable from the pale one";
         }
+
+        // GRAZING IS DELIBERATELY EXCLUDED FROM THAT, AND ITS OWN CLAIM IS THE
+        // OPPOSITE ONE. At grazing incidence the response is carried by R —
+        // which never enters the fibre and so cannot pick up the pigment — and
+        // the three coats converge: measured, the dark and red coats land
+        // within 1e-4 of each other there, close enough that which is brighter
+        // flips with a change in the last bits of the Bessel series.
+        //
+        // That is a prediction, so it is asserted as one: the spread across the
+        // three pigments must be far smaller grazing than backlit. Asserting
+        // separation there instead would be asserting a coincidence, which is
+        // how the first version of this failed.
+        const auto spread = [&](sizet l)
+        {
+            return *std::max_element(luminance[l].begin(), luminance[l].end()) -
+                   *std::min_element(luminance[l].begin(), luminance[l].end());
+        };
+        std::printf("[groom-fibre] pigment spread: grazing %.4f, backlit %.4f\n", spread(1), spread(2));
+        EXPECT_LT(spread(1), spread(2) / 3.0)
+            << "the pigments are as far apart at grazing incidence as under backlight, so the uncoloured "
+               "surface lobe is not dominating where it should";
     }
 
     // ── 4. The separated diagnostic contributions ───────────────────────────
