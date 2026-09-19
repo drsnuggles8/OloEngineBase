@@ -271,9 +271,11 @@ namespace OloEngine
             // comments warn about — and the static_assert below is what stops
             // that happening by accident.
             //
-            // NEUTRAL AT ALL-ZERO: a zero LobeMix is the single-lobe answer and
-            // a zero variance strength disables the filter, so a material that
-            // never touches the new setters shades exactly as it did.
+            // NEUTRAL AT ALL-ZERO, and it takes ALL of the lane being zero: a
+            // zero LobeMix alone is the single-lobe answer but still shades at
+            // whatever roughness the filter produced, so it is the zero in .z
+            // that makes a material which never touches the new setters shade
+            // exactly as it did.
             glm::vec4 SkinSpecularLane{ 0.0f, 0.0f, 0.0f, 0.0f };
 
             // The thickness map (issue #1242). The flag gates the sample; the

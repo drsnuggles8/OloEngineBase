@@ -397,10 +397,23 @@ def aggregate_and_models(normals: np.ndarray, k: int, alpha_map: np.ndarray,
 
     # The footprint's own mean roughness -- what a mip-filtered roughness map
     # hands a shader, and therefore the alpha every single-lobe model below gets.
-    # The MEAN, not the geometric mean: a roughness map is averaged linearly by
-    # the hardware, and modelling it any other way would be measuring a filter
-    # the engine does not have.
-    mean_alpha = a_texels.mean(axis=1)
+    #
+    # AVERAGED IN ROUGHNESS AND THEN SQUARED, NOT AVERAGED IN ALPHA, and the
+    # first version of this script got that backwards. The texture stores
+    # PERCEPTUAL ROUGHNESS -- OLO_MAT_METALLIC_ROUGHNESS samples it straight out
+    # of the map's green channel and every closure squares it later -- so what
+    # the hardware's mip chain averages linearly is the roughness. Averaging
+    # `a_texels` (which are alphas) computes mean(r^2); the hardware computes
+    # mean(r)^2. By Jensen those differ in a KNOWN direction, mean(r^2) >=
+    # mean(r)^2, so the old code modelled a mip chain that was systematically
+    # ROUGHER than the real one -- i.e. it flattered the `mip` row of the table,
+    # which is the row this experiment uses to argue that a mip is not a filter.
+    #
+    # Reported by CodeRabbit on PR #1316. The comment above it already said "a
+    # roughness map is averaged linearly by the hardware", which is exactly the
+    # thing the line below was not doing.
+    mean_roughness = np.sqrt(a_texels).mean(axis=1)
+    mean_alpha = mean_roughness * mean_roughness
 
     truth = np.empty((m * m, len(views), len(lights)))
     for vi, v in enumerate(views):
@@ -589,7 +602,10 @@ def sparkle_sweep(normals, alpha_map, quick):
         mean_vec = win.mean(axis=0)
         mean_len = float(np.linalg.norm(mean_vec))
         mean_unit = (mean_vec / max(mean_len, 1e-12))[None, :]
-        mean_alpha = float(awin.mean())
+        # Roughness averaged, then squared -- the same correction as in
+        # aggregate_and_models, and for the same reason: the map stores
+        # perceptual roughness and the hardware mips THAT.
+        mean_alpha = float(np.sqrt(awin).mean()) ** 2
 
         series["mip"].append(float(specular_brdf(mean_unit, v, l, mean_alpha)[0]))
 
@@ -662,7 +678,7 @@ def main() -> None:
     print("QUESTION 2 -- how many lobes, per footprint size")
     print(f"  single-lobe alpha authored at the {sizes[0]}x{sizes[0]} footprint: {single_a:.4f}"
           f"  (base {alpha_base:.4f})")
-    print(f"{'footprint':>12} {'mm':>7} {'spread':>7} | {'fixed':>7} {'mip':>7} "
+    print(f"{'footprint':>12} {'um':>7} {'spread':>7} | {'fixed':>7} {'mip':>7} "
           f"{'toksvig':>7} {'kaplan':>7} {'kap*':>7} {'sig2*':>6} {'2 lobe':>7} | {'w':>5} {'narrow':>6} {'broad':>6} "
           f"{'E kap':>6} {'E 2lb':>6}")
 

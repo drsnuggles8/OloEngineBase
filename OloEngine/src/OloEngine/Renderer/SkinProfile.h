@@ -255,10 +255,16 @@ namespace OloEngine
         // (SkinEvaluationModel::LayeredSpecular); the version branch, not this
         // field, is what stops an older profile acquiring a second lobe.
         //
-        // DEFAULT 0 — the single-lobe answer, bit-identical to version 2. The
-        // measured fit wants 0 at close range and 0.5 once a pixel straddles
-        // regions of different roughness, so there is no one right number and
-        // the neutral one is the honest default.
+        // DEFAULT 0 — the single-lobe answer. NOT, on its own, the version-2
+        // frame: it removes the broad lobe and nothing else, and the narrow lobe
+        // still shades at the FILTERED roughness. Reproducing version 2 needs
+        // all four of this, NormalVarianceStrength, DetailStrength and
+        // ExpressionDetailGain at zero — which is the arm
+        // SkinLayeredSpecularEvidenceTest's neutral-identity A/B authors.
+        //
+        // The measured fit wants ~0.05 at close range and ~0.6 once a pixel
+        // straddles regions of different roughness, so there is no one right
+        // number and the neutral one is the honest default.
         f32 LobeMix = 0.0f;
 
         // `s`. 3.0 is the middle of the measured fit's range and is only

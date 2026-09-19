@@ -110,14 +110,28 @@ namespace OloEngine::Tests
         // that clamps them would turn a real failure into a silent pass. Half is
         // the cheapest format that does not.
         //
-        // Scaled by the magnitude, because half's spacing is relative: the
+        // SCALED BY THE MAGNITUDE, because half's spacing is RELATIVE: the
         // mixture cases below compare values near 8, where the quantum is eight
-        // times the one near 1.
+        // times the one near 1 — and the specular cases compare values near
+        // 0.01, where it is a hundred times SMALLER.
+        //
+        // THE FLOOR IS 1e-5 AND NOT 1e-3, which is the whole point. The first
+        // version of this helper floored at 1e-3 absolute, which is fine for a
+        // value near 1 and absurd for one near 0.01 — there it is ten percent of
+        // the quantity being compared. That made the layered-vs-unlayered
+        // specular case (whose values ARE near 0.01) unable to assert anything:
+        // a real 3% difference sat an order of magnitude below the "tolerance".
+        // Surfaced by CodeRabbit on PR #1316, which pointed out that the same
+        // case's EXPECT_NE would pass on a one-ULP step; tightening the
+        // comparison as suggested is what exposed the floor underneath it.
+        //
+        // 1e-5 is still comfortably above the half spacing for every value these
+        // cases produce, and far below any difference that means something.
         [[nodiscard]] f32 HalfTolerance(f32 magnitude)
         {
             constexpr f32 kHalfRelative = 1.0e-3f; // ~2x the 2^-11 spacing, for the
                                                    // two roundings a compare involves
-            return std::max(1.0e-3f, std::abs(magnitude) * kHalfRelative);
+            return std::max(1.0e-5f, std::abs(magnitude) * kHalfRelative);
         }
 
         struct ProbeHarness
@@ -315,7 +329,13 @@ namespace OloEngine::Tests
                "amount of energy that never went through the surface.";
 
         const glm::vec4 specular = texel(CaseLayeredSpecularMoves);
-        EXPECT_NE(specular.r, specular.g)
+        // A MAGNITUDE THRESHOLD AND NOT EXPECT_NE. Both values ride in one
+        // RGBA16F texel, so each is quantised to a half before it is read back;
+        // EXPECT_NE would be satisfied by a one-ULP step that means nothing, and
+        // this case exists precisely to rule out "the mixture is inert". The
+        // threshold is the same format-derived one every other comparison here
+        // uses. (CodeRabbit, PR #1316.)
+        EXPECT_GT(std::abs(specular.r - specular.g), HalfTolerance(specular.g))
             << "the layered specular is IDENTICAL to the unlayered one, so the diffuse assertion above passed "
                "because the whole mixture is inert rather than because it is correctly confined.";
         // And it lies between the two lobes it mixes, measured on the GPU's own

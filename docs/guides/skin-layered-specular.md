@@ -18,7 +18,7 @@ version 3; a profile stays where its author left it.
 
 | field | default | what it does |
 |---|---|---|
-| `LobeMix` | `0.0` | `w` — fraction of the specular carried by the broad lobe. 0 is the single-lobe answer, bit-identical to version 2. |
+| `LobeMix` | `0.0` | `w` — fraction of the specular carried by the broad lobe. 0 removes the broad lobe, leaving the narrow one **at the filtered roughness** — see the note below. |
 | `LobeRoughnessScale` | `3.0` | `s` — broad-lobe **roughness** = narrow × s. Only consulted when `LobeMix > 0`. |
 | `NormalVarianceStrength` | `0.5` | `sigma^2` — how much measured normal variance reaches the roughness. **0 turns the pore filter off.** |
 | `DetailStrength` | `0.0` | extra pore-band gain at a neutral expression. 0 leaves the normal map untouched; **-1 removes the pore band entirely.** |
@@ -29,10 +29,17 @@ an author opts into, so they default to neutral. `NormalVarianceStrength` is a *
 version-3 profile that filtered nothing would ship the sparkle the version exists to remove, so
 turning it **off** is the deliberate act.
 
+> **`LobeMix = 0` alone is not the version-2 frame.** It removes the second lobe and nothing else —
+> the narrow lobe still shades at the *filtered* roughness, and `NormalVarianceStrength` is 0.5 by
+> default, so the frame differs. The version-2 response needs **all four** of `LobeMix`,
+> `NormalVarianceStrength`, `DetailStrength` and `ExpressionDetailGain` at zero. That is the arm
+> `SkinLayeredSpecularEvidenceTest` uses for its neutral-identity A/B, and it is the one to author
+> for a control.
+
 `LobeRoughnessScale` scales **perceptual roughness, not alpha.** They differ by a square, and the
 experiment's `broad` column reports an **alpha** ratio — take its square root before typing it into
-this field. A fitted alpha ratio of 1.3 is a roughness scale of 1.14, not 1.3, and typing 1.3 gives
-a lobe two thirds wider than the one that was measured.
+this field. A fitted alpha ratio of 1.3 is a roughness scale of **1.14**; typing `1.3` here instead
+yields an alpha ratio of **1.69**, i.e. a lobe whose alpha is 30% wider than the one measured.
 
 ## The measured comparison
 
@@ -47,11 +54,11 @@ Relative RMS of each model's ensemble response against the integrated truth:
 | footprint | fixed | mip | toksvig | kaplanyan | kaplanyan, σ² refit | fitted σ² | 2-lobe fit |
 |---|---|---|---|---|---|---|---|
 | 16 µm  | 10.2%  | 0.2%   | 2.7%  | 13.4% | 3.6%  | 0.05 | 0.4% |
-| 31 µm  | 10.4%  | 0.9%   | 8.4%  | 27.5% | 9.7%  | 0.05 | 1.4% |
-| 62 µm  | 11.3%  | 4.1%   | 21.1% | 51.8% | 22.8% | 0.05 | 2.4% |
-| 125 µm | 11.0%  | 8.9%   | 50.1% | 71.7% | 31.6% | 0.05 | 6.2% |
-| 250 µm | 54.8%  | 56.5%  | 73.3% | 46.6% | 10.1% | 0.15 | 5.4% |
-| 500 µm | 138.0% | 138.9% | 82.6% | 23.2% | 11.3% | 0.70 | 7.7% |
+| 31 µm  | 10.4%  | 0.8%   | 8.4%  | 27.5% | 9.7%  | 0.05 | 1.4% |
+| 62 µm  | 11.3%  | 4.1%   | 21.0% | 51.8% | 22.8% | 0.05 | 2.4% |
+| 125 µm | 11.0%  | 8.7%   | 50.0% | 71.6% | 31.5% | 0.05 | 6.3% |
+| 250 µm | 54.8%  | 57.8%  | 73.3% | 46.3% | 9.8%  | 0.15 | 5.4% |
+| 500 µm | 138.0% | 149.2% | 82.4% | 26.5% | 11.0% | 0.75 | 7.7% |
 
 *fixed* = one authored roughness for every distance, tuned at the finest footprint — what the engine
 shaded before. *mip* = the footprint's own averaged roughness. *toksvig* = the ideal variance
@@ -60,12 +67,13 @@ the design:
 
 1. **A fixed authored roughness fails at distance, and filtering is what fixes it.** It holds around
    10–11% out to a 125 µm footprint and then collapses: 55% at 250 µm, 138% at 500 µm. The shipping
-   filter takes that 500 µm figure to 23%. This is the structural win and it needs no fitting.
+   filter takes that 500 µm figure to 27%. This is the structural win and it needs no fitting.
 
-2. **A roughness mip is not a filter.** Averaging the roughness map and stopping there tracks the
-   fixed value almost exactly at the coarse end (139% vs 138%): it pulls roughness toward the smooth
-   regions while the normal variance that should have raised it is discarded. Half of this filter is
-   not optional.
+2. **A roughness mip is not a filter — it is worse than not filtering.** Averaging the roughness map
+   and stopping there measures *above* the fixed value at the coarse end (149% vs 138%): it pulls
+   roughness toward the smooth regions while the normal variance that should have raised it is
+   discarded, so it moves the answer in the wrong direction twice over. Half of this filter is not
+   optional.
 
 3. **The second lobe is a real improvement, and the comparison is not free.** The fitted mixture
    scores 0.4–7.7% across the whole range against the estimator's 13–72%. But the mixture is a
@@ -77,7 +85,7 @@ the design:
    `LobeMix` defaults to 0.
 
 4. **One variance strength cannot serve every distance.** The fitted `sigma^2` runs 0.05 at every
-   fine footprint and then 0.15 and 0.70 — a factor of fourteen — and refitting it moves the
+   fine footprint and then 0.15 and 0.75 — a factor of fifteen — and refitting it moves the
    estimator from 13–72% to 4–32%, most of the gap to the ideal. Hence an authored field, not a
    `#define`.
 
@@ -90,7 +98,7 @@ it is the floor — no model should be asked to beat it.
 | model | change | vs floor |
 |---|---|---|
 | point sample | 62.6% | 2.3× |
-| mip only | 34.3% | 1.3× |
+| mip only | 34.4% | 1.3× |
 | toksvig | 30.5% | 1.1× |
 | **kaplanyan (ships)** | **26.2%** | **1.0×** |
 | truth | 26.9% | — |
@@ -120,8 +128,8 @@ screen-space derivatives. Its weakness is measured, not hidden — a screen-spac
 variation *between* pixels, and the quantity that belongs in the roughness is the variation *within*
 one. Those coincide only near one texel per pixel; magnified past that (a close-up head, this
 feature's whole subject) it over-widens, and shrunk past it, it under-corrects. At the published
-default strength it misses the true hemispherical energy by up to 18% in **both** directions across
-the range (0.82× at 125 µm, 1.17× at 500 µm). That is what `NormalVarianceStrength` is for.
+default strength it misses the true hemispherical energy by up to 19% in **both** directions across
+the range (0.82× at 125 µm, 1.19× at 500 µm). That is what `NormalVarianceStrength` is for.
 
 ## Energy
 
@@ -136,8 +144,10 @@ the larger of them for every `w` in [0, 1]. It cannot exceed what *one* lobe of 
 have returned, whatever the author sets — a property of the expression, not of a parameter range.
 `SkinSpecularMix` is the only place that expression is written, on either side.
 
-At `w = 0` it returns the narrow lobe **exactly**, so "layering off" is the pre-#1243 frame bit for
-bit and a golden image can assert against it.
+At `w = 0` it returns the narrow lobe **exactly** — not approximately — so the *lobe* half of the
+A/B is a true identity and a golden image can assert against it. That is a statement about the
+mixture alone: the narrow lobe still shades at the filtered roughness, so reaching the pre-#1243
+frame needs the variance strength and both detail fields at zero as well.
 
 ## The expression detail, and its history
 

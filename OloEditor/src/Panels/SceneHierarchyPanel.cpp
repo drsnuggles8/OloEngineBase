@@ -3869,7 +3869,10 @@ namespace OloEngine
                             // colour rather than warned about.
                             if (parameters.Specular.LobeMix <= 0.0f)
                             {
-                                ImGui::TextDisabled("Lobe mix is 0 — one lobe, identical to transport version 2.");
+                                ImGui::TextDisabled(
+                                    "Lobe mix is 0 — one lobe. NOT the transport version 2 frame unless "
+                                    "variance strength and both detail fields are 0 too: the filter still "
+                                    "widens the roughness on its own.");
                             }
                             if (parameters.Specular.NormalVarianceStrength <= 0.0f)
                             {

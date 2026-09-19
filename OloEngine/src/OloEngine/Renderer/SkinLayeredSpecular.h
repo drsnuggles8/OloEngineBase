@@ -23,15 +23,15 @@
 //      FIXES IT. Relative RMS against the integrated truth, for one authored
 //      roughness tuned at the finest footprint: 10% at a 16 um footprint, still
 //      11% at 125 um, then 55% at 250 um and 138% at 500 um. The variance
-//      filter takes that 500 um figure to 23%. This is the structural win, it
+//      filter takes that 500 um figure to 27%. This is the structural win, it
 //      needs no fitting, and it is the reason the filter is not optional.
 //
-//   2. A ROUGHNESS MIP IS NOT A FILTER. Averaging the roughness map over the
-//      footprint and stopping there measured 139% at 500 um — no better than
-//      the fixed value, and worse at every coarse footprint. It lowers the
+//   2. A ROUGHNESS MIP IS NOT A FILTER — IT IS WORSE THAN NOT FILTERING.
+//      Averaging the roughness map over the footprint and stopping there
+//      measured 149% at 500 um, ABOVE the fixed value's 138%. It lowers the
 //      roughness toward the smooth regions' value while the normal variance
-//      that should have raised it is discarded. Half of this filter is not
-//      optional.
+//      that should have raised it is discarded, so it moves the answer the
+//      wrong way twice over. Half of this filter is not optional.
 //
 //   3. THE SECOND LOBE IS A REAL IMPROVEMENT, AND THE COMPARISON IS NOT FREE.
 //      The fitted convex mixture scores 0.4% to 8% across the whole footprint
@@ -60,7 +60,7 @@
 // lost. It is the better estimator over most of the measured range — 8% against
 // 28% at a 31 um footprint, and 21% against 52% at 62 um — and this engine
 // cannot use it. (At the COARSEST footprints the screen-space estimator wins
-// instead, 23% against 83%, because it also sees the geometric curvature that
+// instead, 27% against 82%, because it also sees the geometric curvature that
 // dominates there and Toksvig sees only the map.)
 //
 // include/PBRCommon.glsl's `decodeTangentNormal` reconstructs
@@ -89,11 +89,11 @@
 // feature's whole subject — and between-pixel variation is detail the filter
 // should have kept; shrink past it and one pixel hides variance no neighbour
 // difference can see. Measured, the estimator at the paper's default strength
-// misses the true hemispherical energy by up to 18% in BOTH directions across
-// the range (0.82x at a 125 um footprint, 1.17x at 500 um).
+// misses the true hemispherical energy by up to 19% in BOTH directions across
+// the range (0.82x at a 125 um footprint, 1.19x at 500 um).
 //
 // The fitted strength across the measured range runs 0.05 at every fine
-// footprint, then 0.15 and 0.70 at the two coarsest — a factor of fourteen. One
+// footprint, then 0.15 and 0.75 at the two coarsest — a factor of fifteen. One
 // constant cannot serve that, which is why `NormalVarianceStrength` is an
 // AUTHORED FIELD and not a #define, and why its documentation says what it is
 // trading rather than offering a good default and hoping. Refitting it moves
@@ -120,8 +120,14 @@
 // SkinSpecularMix below is the only place the expression is written.
 //
 // At w = 0 the result is bit-identical to a single lobe at the narrow width, so
-// the A/B control the fourth acceptance criterion asks for is exact rather than
-// approximate.
+// the LOBE half of the A/B control is exact rather than approximate.
+//
+// That is a claim about the mixture and nothing else. The narrow lobe still
+// shades at the FILTERED roughness, so w = 0 alone does not reproduce the
+// transport-version-2 frame — that needs NormalVarianceStrength and both detail
+// fields at zero as well, which is what the neutral-identity arm of
+// SkinLayeredSpecularEvidenceTest authors. Worth spelling out because "lobe mix
+// zero means the old frame" is the intuitive reading and it is wrong.
 //
 // WHAT THE MEASUREMENT SAYS ABOUT w. The fitted mixture weight runs 0.05-0.10
 // at the finest footprints and 0.55-0.60 at the coarsest — that is, the second
