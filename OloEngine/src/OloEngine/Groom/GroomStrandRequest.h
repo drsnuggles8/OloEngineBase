@@ -29,6 +29,7 @@
 // here fails in every translation unit that merely HOLDS one of these — which
 // after Renderer3D.h includes it is most of the renderer.
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -134,5 +135,38 @@ namespace OloEngine
         /// by `Binding` being null, which is what keeps a scene full of unbound
         /// grooms from reading as a scene full of refusals.
         GroomBindingRejectReason BindingReject = GroomBindingRejectReason::None;
+
+        // ── Coat self-shadowing (#1248) ──────────────────────────────
+        //
+        // What the coat ASKED for. What it gets is SelectGroomCoatShadow's
+        // answer, which depends on what the frame resolved and is recorded in
+        // GroomCoatShadowStats — the same producer/transport/consumer split the
+        // composition mode above already uses.
+        //
+        // The representation itself is NOT carried here. It is a GPU resource
+        // with a lifetime longer than a frame, so it lives in the pass's cache
+        // beside the strand geometry and is keyed the same way; a request
+        // carrying one would either copy a volume per frame or hand the render
+        // thread an owning reference to something the scene could free.
+
+        /// The requested GroomCoatShadow::CoatShadowMode.
+        GroomCoatShadow::CoatShadowMode CoatShadow = GroomCoatShadow::CoatShadowMode::None;
+
+        /// Per-crossing extinction: how opaque one fibre is to direct light.
+        /// DIMENSIONLESS and deliberately not the pigment — the pigment already
+        /// attenuates inside each fibre in #1247's model, and applying it twice
+        /// is the double-count the issue's scope note forbids.
+        f32 CoatKappa = 1.0f;
+
+        /// The coat volume's resolution policy. The resolution actually used is
+        /// this policy's answer at the coat's apparent size, after hysteresis —
+        /// see GroomCoatShadow::SelectCoatLodStep.
+        GroomCoatShadow::CoatLodPolicy CoatLod{};
+
+        /// March step in VOXELS. 3 is the measured selection: it is at or within
+        /// noise of the error minimum on both reference coats and costs a third
+        /// of the taps of a one-voxel march. See finding 2 in
+        /// docs/analysis/groom-coat-self-shadowing-1248.md.
+        f32 CoatStepVoxels = 3.0f;
     };
 } // namespace OloEngine

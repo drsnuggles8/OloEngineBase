@@ -53,6 +53,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<FootIKStateComponent, false>("FootIKStateComponent");
     visitor.template operator()<GoapAgentComponent, true>("GoapAgentComponent");
     visitor.template operator()<GroomBindingComponent, true>("GroomBindingComponent");
+    visitor.template operator()<GroomCoatShadowComponent, true>("GroomCoatShadowComponent");
     visitor.template operator()<GroomComponent, true>("GroomComponent");
     visitor.template operator()<GroomFibreComponent, true>("GroomFibreComponent");
     visitor.template operator()<IDComponent, false>("IDComponent");

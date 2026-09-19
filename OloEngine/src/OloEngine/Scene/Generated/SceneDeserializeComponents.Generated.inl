@@ -532,6 +532,23 @@ if (auto node = entity["GroomBindingComponent"]; node)
     comp.m_ShowBindingPreview = node["ShowBindingPreview"].as<bool>(comp.m_ShowBindingPreview);
 }
 
+if (auto node = entity["GroomCoatShadowComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomCoatShadowComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Kappa"], v))
+        comp.m_Kappa = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
+    comp.m_Resolution = std::clamp(node["Resolution"].as<u32>(comp.m_Resolution), static_cast<u32>(8), static_cast<u32>(256));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["StepVoxels"], v))
+        comp.m_StepVoxels = std::clamp(v, static_cast<f32>(0.25f), static_cast<f32>(8.0f));
+    comp.m_MaxLodSteps = std::clamp(node["MaxLodSteps"].as<u32>(comp.m_MaxLodSteps), static_cast<u32>(0), static_cast<u32>(6));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PixelSizeForLod0"], v))
+        comp.m_PixelSizeForLod0 = std::clamp(v, static_cast<f32>(16.0f), static_cast<f32>(4096.0f));
+    comp.m_MinResolution = std::clamp(node["MinResolution"].as<u32>(comp.m_MinResolution), static_cast<u32>(4), static_cast<u32>(64));
+    if (const decltype(comp.m_Mode) v = node["Mode"].as<decltype(comp.m_Mode)>(comp.m_Mode); v >= static_cast<decltype(comp.m_Mode)>(0) && v <= static_cast<decltype(comp.m_Mode)>(3))
+        comp.m_Mode = v;
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["GroomComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();

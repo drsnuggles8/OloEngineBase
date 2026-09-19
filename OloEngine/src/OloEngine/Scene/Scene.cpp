@@ -8248,6 +8248,28 @@ namespace OloEngine
                                          : GroomFibreDebugMode::Full;
             }
 
+            // Coat self-shadowing, if this groom asks for it (#1248). Its
+            // ABSENCE is the #1247 behaviour — every strand lit as if it were
+            // alone — so a scene authored before this existed renders exactly
+            // as it did, and every capture those issues committed still means
+            // what it meant.
+            //
+            // The component is read here and nowhere else: MakeGroomCoatShadowMode
+            // and MakeGroomCoatLodPolicy are the one place its fields become
+            // renderer input, so scene YAML, a save game and the MCP write path
+            // cannot each interpret them slightly differently.
+            if (const auto* coat = m_Registry.try_get<GroomCoatShadowComponent>(entity); coat != nullptr)
+            {
+                request.CoatShadow = MakeGroomCoatShadowMode(*coat);
+                // Through the sanitisers, never the raw fields: OLO_SERIALIZE
+                // guards scene YAML and the deserialisers, but a direct MCP or
+                // native write reaches neither, and this is the one boundary
+                // those values cross on the way to the shader.
+                request.CoatKappa = MakeGroomCoatKappa(*coat);
+                request.CoatLod = MakeGroomCoatLodPolicy(*coat);
+                request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
+            }
+
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
             groomRequests.push_back(std::move(request));

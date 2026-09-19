@@ -105,6 +105,9 @@ add_executable(OloEngine-Tests
 		# machine that takes every capability fallback is also the machine that
 		# tests it.
 		Groom/GroomCompositionSelectionTest.cpp
+		# Dense-coat self-shadowing (#1248). The pure selection seam: which
+		# representation a coat gets and why it is not what was asked for.
+		Groom/GroomCoatShadowSelectionTest.cpp
 		Groom/GroomStrandMeshTest.cpp
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
@@ -612,6 +615,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
+		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,
+		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
+		# rebuild counters that answer criterion 4 as a number rather than a look.
+		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
@@ -694,6 +701,11 @@ add_executable(OloEngine-Tests
 		# from a PR body.
 		Rendering/PropertyTests/GroomCoveragePropertyTests.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
+		# The #1248 bake-off itself. Every number in
+		# docs/analysis/groom-coat-self-shadowing-1248.md is an assertion here,
+		# so the argument behind the selected representation fails loudly rather
+		# than ageing quietly. CPU-only and deterministic: it runs in CI.
+		Rendering/PropertyTests/GroomCoatShadowPropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);
@@ -836,6 +848,7 @@ add_executable(OloEngine-Tests
         SaveGame/FoliageWindSaveLoadTest.cpp
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
+		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp

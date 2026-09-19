@@ -392,6 +392,20 @@ if (entity.HasComponent<GroomBindingComponent>())
     SceneBinIO::Write(out, comp.m_ShowBindingPreview);
 }
 
+if (entity.HasComponent<GroomCoatShadowComponent>())
+{
+    SceneBinIO::WriteU32(out, 2438904161u); // GroomCoatShadowComponent
+    auto const& comp = entity.GetComponent<GroomCoatShadowComponent>();
+    SceneBinIO::Write(out, comp.m_Kappa);
+    SceneBinIO::Write(out, comp.m_Resolution);
+    SceneBinIO::Write(out, comp.m_StepVoxels);
+    SceneBinIO::Write(out, comp.m_MaxLodSteps);
+    SceneBinIO::Write(out, comp.m_PixelSizeForLod0);
+    SceneBinIO::Write(out, comp.m_MinResolution);
+    SceneBinIO::Write(out, comp.m_Mode);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     SceneBinIO::WriteU32(out, 2551117928u); // GroomComponent

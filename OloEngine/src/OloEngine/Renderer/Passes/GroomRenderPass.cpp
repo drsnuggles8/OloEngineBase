@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -28,6 +29,30 @@ namespace OloEngine
         // same frame must produce the same picture, or every pixel A/B in the
         // verification matrix becomes a comparison of two noise fields.
         constexpr u32 kStochasticSeed = 1246;
+
+        // How many coat volumes may be resident at once. A budget rather than
+        // "as many as ask", because the representation is a 3D texture whose size
+        // grows with the CUBE of its resolution, so a scene full of coats could
+        // otherwise spend a gigabyte with nothing saying so. A coat that does not
+        // get a slot falls back unshadowed with a counted reason
+        // (BudgetExhausted), which is the loud answer.
+        constexpr u32 kMaxResidentCoatVolumes = 8;
+
+        // Releasing a coat volume is THREE steps that must never be separated:
+        // give the bytes back to the cache total, drop the texture, and clear
+        // the resolution that says a bake is resident. Done by hand at each of
+        // the four sites that release one, the accounting drifted — EvictToBudget
+        // subtracted only the geometry's bytes, so every evicted coat left
+        // m_CacheBytes permanently inflated and the pass could evict healthy
+        // entries forever while reporting itself over budget.
+        template<typename EntryT>
+        void ReleaseCoatVolume(EntryT& entry, u64& cacheBytes) noexcept
+        {
+            cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
+            entry.CoatVolume = nullptr;
+            entry.CoatResolution = 0;
+            entry.CoatBytes = 0;
+        }
 
         // Frames an unused cache entry survives before eviction is allowed to
         // consider it. One second at 60 fps — long enough that toggling a
@@ -77,6 +102,29 @@ namespace OloEngine
         // binding point at construction.
         m_ParamsUBO =
             UniformBuffer::Create(UBOStructures::GroomStrandParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+
+        // A 1x1x1 ZERO volume, bound whenever a draw has no coat volume of its
+        // own. The shader declares the sampler unconditionally, and a dangling
+        // sampler is undefined behaviour rather than a zero read -- so
+        // something valid is bound ALWAYS and the routing lane, never the
+        // binding, decides whether it is sampled. Same discipline, and the same
+        // reason, as VolumetricFogPass's density-volume placeholder.
+        //
+        // Zero density also means a coat that somehow DID sample it would read
+        // "no hair here" -- fully lit, the loud failure -- rather than a black
+        // coat, which is indistinguishable from a correct silhouette.
+        Texture3DSpecification placeholder;
+        placeholder.Width = 1;
+        placeholder.Height = 1;
+        placeholder.Depth = 1;
+        placeholder.Format = Texture3DFormat::RGBA32F;
+        placeholder.Repeat = false;
+        m_CoatPlaceholder = Texture3D::Create(placeholder);
+        if (m_CoatPlaceholder)
+        {
+            const std::array<f32, 4> zero{ 0.0f, 0.0f, 0.0f, 0.0f };
+            m_CoatPlaceholder->SetData(zero.data(), static_cast<u32>(zero.size() * sizeof(f32)));
+        }
     }
 
     GroomCompositionDecision GroomRenderPass::DecideComposition(GroomCompositionMode requested) const noexcept
@@ -295,6 +343,314 @@ namespace OloEngine
         return inserted ? &it->second : nullptr;
     }
 
+    // Rebuilds this coat's density volume when the resident bake is not the one
+    // the frame wants, and reports what the coat actually gets.
+    //
+    // THE BAKE IS IN GROOM OBJECT SPACE. A coat that merely MOVES therefore
+    // reuses it — which is most of the update policy, and is why an animated
+    // light or a walking character costs zero rebuilds. What does invalidate it
+    // is a change of RESOLUTION (the shadow LOD) or of the geometry itself.
+    u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
+    {
+        u32 resident = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
+            if (entry.CoatVolume)
+            {
+                ++resident;
+            }
+        }
+        return resident;
+    }
+
+    bool GroomRenderPass::ReclaimLeastRecentlyUsedCoatVolume()
+    {
+        CacheEntry* oldest = nullptr;
+        for (auto& [key, entry] : m_Cache)
+        {
+            if (!entry.CoatVolume)
+            {
+                continue;
+            }
+            // NEVER an entry used this frame: its draw has already been
+            // recorded against the texture this would free, and the bind is
+            // per-draw rather than deferred.
+            if (entry.LastUsedFrame == m_CacheTick)
+            {
+                continue;
+            }
+            if (oldest == nullptr || entry.LastUsedFrame < oldest->LastUsedFrame)
+            {
+                oldest = &entry;
+            }
+        }
+        if (oldest == nullptr)
+        {
+            return false;
+        }
+        ReleaseCoatVolume(*oldest, m_CacheBytes);
+        return true;
+    }
+
+    GroomCoatShadowDecision GroomRenderPass::AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
+                                                               u32& residentVolumes)
+    {
+        GroomCoatShadowInputs inputs;
+        inputs.Requested = request.CoatShadow;
+        inputs.SegmentCount = entry.Stats.SegmentCount;
+        // Both volume modes need a 3D texture; the RHI exposes no capability
+        // query for one, and every backend the engine ships can create one, so
+        // this is true rather than assumed-true. If a backend ever cannot, this
+        // is the single place that has to learn about it, and the reason it
+        // would report is already written.
+        inputs.VolumeTexturesSupported = true;
+        // A density volume is light-independent, so it needs no directional
+        // light. Only a deep opacity map would, and that mode is measured
+        // rather than shipped.
+        inputs.HasDirectionalLight = true;
+        inputs.MinResolution = request.CoatLod.MinResolution;
+
+        // A BOUND, DEFORMING GROOM IS REFUSED, and that is the honest answer
+        // rather than a limitation left to be discovered. The bake reads the
+        // GroomAsset's REST-POSE curves, so on a character whose body animates
+        // the drawn strands move and the volume does not: the coat would carry
+        // its bind-pose shadow around, which looks like a shading bug rather
+        // than like the missing feature it is. Following a deformation means
+        // baking from the deformed strand positions the pass builds, which is
+        // a larger change than this slice — so it is counted and named here
+        // instead of approximated.
+        // Refused before the bake, not after: the bake does not branch on the
+        // mode, so building here and refusing later would spend a volume's
+        // memory and build time on a draw that will render unshadowed.
+        if (!GroomCoatShadowModeIsImplemented(request.CoatShadow))
+        {
+            ReleaseCoatVolume(entry, m_CacheBytes);
+            inputs.ResolvedResolution = request.CoatLod.BaseResolution;
+            inputs.RepresentationReady = false;
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+            return SelectGroomCoatShadow(inputs);
+        }
+
+        inputs.GroomIsDeformed = IsDeformed(request);
+        if (inputs.GroomIsDeformed && request.CoatShadow != GroomCoatShadowTechnique::None)
+        {
+            ReleaseCoatVolume(entry, m_CacheBytes);
+            inputs.ResolvedResolution = request.CoatLod.BaseResolution;
+            inputs.RepresentationReady = false;
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+            return SelectGroomCoatShadow(inputs);
+        }
+
+        if (request.CoatShadow == GroomCoatShadowTechnique::None)
+        {
+            // Nothing to do, and NOT a fallback: a coat that never asked must
+            // not be counted as a failure, or the counter that explains a
+            // missing shadow is saturated by coats working exactly as authored.
+            entry.CoatRequestedLodStep = 0;
+            entry.CoatLodStableFrames = 0;
+            inputs.ResolvedResolution = request.CoatLod.BaseResolution;
+            inputs.RepresentationReady = false;
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+            return SelectGroomCoatShadow(inputs);
+        }
+
+        // ── The shadow LOD, with hysteresis ─────────────────────────────
+        //
+        // The apparent size comes from the CULL view rather than the render
+        // view, which is what every other LOD in this engine uses (issue #726)
+        // so that a frozen cut keeps its LODs.
+        f32 pixelSize = request.CoatLod.PixelSizeForLod0;
+        if (entry.CoatBoundsMax.x > entry.CoatBoundsMin.x)
+        {
+            const glm::vec3 objectCentre = (entry.CoatBoundsMin + entry.CoatBoundsMax) * 0.5f;
+            const glm::vec3 worldCentre = glm::vec3(request.Transform * glm::vec4(objectCentre, 1.0f));
+            // The radius has to be in WORLD units, because the distance below
+            // is. The bounds are OBJECT space, so the transform's scale has to
+            // come with them: without it a groom authored at scale 10 reads as
+            // a tenth of its apparent size and drops to the coarsest LOD — or
+            // straight through the floor into a counted fallback — while
+            // filling the screen.
+            const f32 transformScale = (glm::length(glm::vec3(request.Transform[0])) +
+                                        glm::length(glm::vec3(request.Transform[1])) +
+                                        glm::length(glm::vec3(request.Transform[2]))) /
+                                       3.0f;
+            const f32 radius = glm::length(entry.CoatBoundsMax - entry.CoatBoundsMin) * 0.5f * transformScale;
+            const f32 distance = glm::length(worldCentre - Renderer3D::GetCullViewPosition());
+            const glm::mat4& projection = Renderer3D::GetCullProjectionMatrix();
+            // abs(): Vulkan's clip space has +Y down, so the engine uploads a
+            // projection whose [1][1] is negative there. The sign is a clip
+            // convention and the MAGNITUDE is what a scale is asking for — the
+            // same trap, invisible on OpenGL and silent on Vulkan, that
+            // groom-strand-visibility.md gives its own heading to.
+            const f32 cotHalfFov = std::abs(projection[1][1]);
+            const f32 viewportHeight =
+                static_cast<f32>(m_SceneFramebuffer ? m_SceneFramebuffer->GetSpecification().Height : 1080u);
+            if (distance > 1.0e-4f && std::isfinite(radius) && std::isfinite(cotHalfFov))
+            {
+                pixelSize = (2.0f * radius) * cotHalfFov * viewportHeight * 0.5f / distance;
+            }
+        }
+
+        const u32 requested = GroomCoatShadow::SelectCoatLodStep(request.CoatLod, pixelSize);
+        entry.CoatLodStableFrames = requested == entry.CoatRequestedLodStep ? entry.CoatLodStableFrames + 1u : 0u;
+        entry.CoatRequestedLodStep = requested;
+        // Three frames, so a coat sitting exactly on a LOD boundary cannot
+        // rebuild its representation every frame. Refining is immediate; only
+        // coarsening waits. GroomCoatShadowLod.AnOscillatingRequestCannotRebuildEveryFrame
+        // is the case that pins the behaviour.
+        const u32 lodStep =
+            GroomCoatShadow::ApplyCoatLodHysteresis(entry.CoatLodStep, requested, entry.CoatLodStableFrames, 3u);
+        const u32 resolution = GroomCoatShadow::CoatLodResolution(request.CoatLod, lodStep);
+        inputs.ResolvedResolution = resolution;
+
+        // The slot goes to a coat that already holds one before any newcomer,
+        // so a coat that is already resident is never displaced by one that
+        // merely arrived later in the same frame — which would make which coats
+        // are shadowed depend on entity iteration order.
+        // THE BUDGET BOUNDS THE RESIDENT SET — the whole cache's worth, not
+        // this frame's draws. `residentVolumes` is seeded from
+        // CountResidentCoatVolumes(), so a coat that stopped being visible
+        // still occupies its slot until something reclaims it; counting live
+        // draws instead let alternating groups of eight coats hold far more
+        // than the cap indefinitely, with BudgetExhausted never reported.
+        //
+        // An ALREADY-RESIDENT coat keeps its slot without competing for one,
+        // so which coats are shadowed does not depend on entity iteration
+        // order. A newcomer takes a free slot, or reclaims the
+        // least-recently-used volume belonging to a groom NOT drawn this frame.
+        // Only when every resident volume is in use this frame is the budget
+        // genuinely exhausted — and that is what gets reported.
+        const bool alreadyResident = entry.CoatVolume != nullptr;
+        if (alreadyResident)
+        {
+            inputs.GrantedSlot = 0u;
+        }
+        else if (residentVolumes < kMaxResidentCoatVolumes)
+        {
+            inputs.GrantedSlot = residentVolumes;
+        }
+        else if (ReclaimLeastRecentlyUsedCoatVolume())
+        {
+            --residentVolumes;
+            inputs.GrantedSlot = residentVolumes;
+        }
+        else
+        {
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+        }
+
+        // WIDTH SCALE IS PART OF THE BAKE, so it has to be part of what
+        // invalidates it: it multiplies the cooked diameters and therefore the
+        // areal density the volume stores. Without it, dragging Width Scale in
+        // the inspector changes every ribbon on screen and leaves the shadow
+        // describing the coat's previous thickness.
+        const bool needsRebuild = !entry.CoatVolume || entry.CoatResolution != resolution ||
+                                  entry.CoatLodStep != lodStep ||
+                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale);
+
+        if (needsRebuild && inputs.GrantedSlot != kNoGroomCoatShadowSlot &&
+            resolution >= request.CoatLod.MinResolution)
+        {
+            GroomCoatShadow::CoatSampleSettings sampleSettings;
+            sampleSettings.MaxStrands = request.Build.MaxStrands;
+            sampleSettings.MaxSegments = request.Build.MaxSegments;
+            sampleSettings.WidthScale = request.WidthScale;
+            sampleSettings.GuidesOnly = request.Build.GuidesOnly;
+
+            // IDENTITY, not the model matrix: the bake is in OBJECT space so a
+            // coat that moves reuses it. GroomStrand.glsl transforms the shading
+            // point back through u_GroomCoatWorldToObject.
+            std::vector<GroomCoatShadow::CoatSegment> segments;
+            const u32 emitted =
+                GroomCoatShadow::BuildCoatSegments(*request.Groom, glm::mat4(1.0f), sampleSettings, segments);
+
+            GroomCoatShadow::DensityVolumeSettings volumeSettings;
+            volumeSettings.Resolution = resolution;
+            GroomCoatShadow::DensityVolume volume;
+
+            if (emitted > 0 && GroomCoatShadow::BuildDensityVolume(segments, volumeSettings, volume, nullptr))
+            {
+                // ONE RGBA texture: xyz = mean fibre direction * coherence,
+                // w = areal density. Packed rather than two textures because the
+                // march is a per-fragment hot loop and two fetches per step
+                // would double its bandwidth — and because the sampler
+                // namespace had exactly one index left.
+                const sizet voxels = static_cast<sizet>(volume.Dimensions.x) *
+                                     static_cast<sizet>(volume.Dimensions.y) *
+                                     static_cast<sizet>(volume.Dimensions.z);
+                std::vector<f32> packed(voxels * 4u, 0.0f);
+                for (sizet i = 0; i < voxels; ++i)
+                {
+                    packed[i * 4u + 0u] = volume.Direction[i].x;
+                    packed[i * 4u + 1u] = volume.Direction[i].y;
+                    packed[i * 4u + 2u] = volume.Direction[i].z;
+                    packed[i * 4u + 3u] = volume.Density[i];
+                }
+
+                Texture3DSpecification spec;
+                spec.Width = static_cast<u32>(volume.Dimensions.x);
+                spec.Height = static_cast<u32>(volume.Dimensions.y);
+                spec.Depth = static_cast<u32>(volume.Dimensions.z);
+                // RGBA32F, 16 bytes a voxel, and NOT the RGBA16F the packing
+                // would prefer: Texture3D's RGBA16F declares 8 bytes a texel
+                // but uploads its client data as GL_FLOAT, so SetData's own
+                // size check rejects the only buffer it could be handed. The
+                // engine's one other RGBA16F volume is written by a compute
+                // image store and never goes through SetData, which is why the
+                // mismatch has not been hit before. Half the memory is
+                // available here the moment that path is fixed.
+                spec.Format = Texture3DFormat::RGBA32F;
+                // CLAMP, never repeat. A march that leaves the box must read the
+                // empty boundary voxel, not wrap round to the other side of the
+                // animal — and the bake pads its bounds precisely so those
+                // boundary voxels are empty.
+                spec.Repeat = false;
+
+                if (Ref<Texture3D> texture = Texture3D::Create(spec))
+                {
+                    texture->SetData(packed.data(), static_cast<u32>(packed.size() * sizeof(f32)));
+                    entry.CoatVolume = texture;
+                    entry.CoatBoundsMin = volume.BoundsMin;
+                    entry.CoatBoundsMax = volume.BoundsMax;
+                    entry.CoatResolution = resolution;
+                    entry.CoatLodStep = lodStep;
+                    entry.CoatWidthScale = request.WidthScale;
+                    // The REAL voxel size, carried rather than re-derived. The
+                    // grid's dimensions differ per axis (only the longest gets
+                    // `resolution`), so extent/resolution is the voxel size on
+                    // that axis alone -- on a flat coat it comes out several
+                    // times too fine, the march hits its step cap, and what
+                    // ships is a one-voxel march rather than the measured
+                    // three-voxel one.
+                    const glm::vec3 voxelSize = volume.VoxelSize();
+                    entry.CoatVoxelSize = std::min({ voxelSize.x, voxelSize.y, voxelSize.z });
+                    // Replacing a bake: the old bytes come off before the new
+                    // ones go on, or a resolution change leaks the difference.
+                    m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
+                    entry.CoatBytes = static_cast<u64>(packed.size() * sizeof(f32));
+                    m_CacheBytes += entry.CoatBytes;
+                    entry.CoatBuiltTick = m_CacheTick;
+                    entry.CoatMode = request.CoatShadow;
+                    ++m_Stats.CoatShadow.Rebuilds;
+                    if (!alreadyResident)
+                    {
+                        // A slot has just been taken. Counted HERE, where the
+                        // texture actually came into existence, rather than by
+                        // the caller after the fact — a build that failed must
+                        // not consume one.
+                        ++residentVolumes;
+                    }
+                }
+            }
+        }
+
+        // The frame's OWN answer, never the request's expectation: a volume that
+        // failed to build leaves this false and the coat falls back with a
+        // counted reason rather than sampling a texture that is not there.
+        inputs.RepresentationReady = entry.CoatVolume != nullptr && entry.CoatResolution == resolution;
+        return SelectGroomCoatShadow(inputs);
+    }
+
     void GroomRenderPass::EvictToBudget()
     {
         if (m_CacheBytes <= m_CacheBudgetBytes)
@@ -327,7 +683,14 @@ namespace OloEngine
             {
                 continue;
             }
-            m_CacheBytes -= it->second.Bytes;
+            // BOTH halves of the entry's footprint. The geometry's bytes and
+            // the coat volume's are added to m_CacheBytes separately, so
+            // subtracting only the geometry left the total permanently
+            // inflated by every evicted coat — after which the pass evicts
+            // healthy entries forever and reports itself over budget with
+            // nothing left to free.
+            ReleaseCoatVolume(it->second, m_CacheBytes);
+            m_CacheBytes -= std::min(m_CacheBytes, it->second.Bytes);
             m_Cache.erase(it);
             ++m_Stats.CacheEvictions;
         }
@@ -364,6 +727,27 @@ namespace OloEngine
 
         if (m_Requests.empty() || !m_SceneFramebuffer || !m_Shader || !m_ParamsUBO)
         {
+            m_Requests.clear();
+            m_Stats.CachedBytes = m_CacheBytes;
+            m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
+            return;
+        }
+
+        // The coat-volume placeholder is a PRECONDITION, not a nicety -- see the
+        // bind in the draw loop. A device that could not create a 1x1x1 RGBA
+        // volume cannot serve this pass safely, so say so and draw nothing
+        // rather than binding a descriptor of the wrong shape to a sampler3D.
+        //
+        // CHECKED HERE, before anything is bound, and taking the same exit the
+        // empty-request case takes. An early return further down would leave
+        // the framebuffer bound, the depth state changed and the request list
+        // un-cleared -- a pass that fails safe must not leave the next one to
+        // discover it.
+        if (!m_CoatPlaceholder)
+        {
+            OLO_CORE_ERROR_TAG("Groom",
+                               "GroomRenderPass has no coat-shadow placeholder volume; skipping the strand draws "
+                               "rather than binding a null 3D sampler.");
             m_Requests.clear();
             m_Stats.CachedBytes = m_CacheBytes;
             m_Stats.CachedGrooms = static_cast<u32>(m_Cache.size());
@@ -422,6 +806,16 @@ namespace OloEngine
         // scene sits, and wrong everywhere else.
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
 
+        // Coat volumes resident across the WHOLE cache, against
+        // kMaxResidentCoatVolumes. Seeded from the cache rather than from zero:
+        // a groom that stopped being visible still holds its volume, and
+        // counting only this frame's draws let the resident set grow past the
+        // cap indefinitely while BudgetExhausted stayed at zero.
+        //
+        // AcquireCoatVolume maintains it from here — it is the only place that
+        // creates or reclaims one.
+        u32 residentCoatVolumes = CountResidentCoatVolumes();
+
         for (const auto& request : m_Requests)
         {
             if (!request.Groom)
@@ -457,6 +851,39 @@ namespace OloEngine
             {
                 continue;
             }
+
+            // Coat self-shadowing (#1248). The bake, the shadow LOD and the
+            // decision all happen here because this is the only place that
+            // knows what the frame actually resolved -- the same
+            // producer/transport/consumer split the composition mode uses.
+            const GroomCoatShadowDecision coatDecision =
+                AcquireCoatVolume(request, *entry, residentCoatVolumes);
+            m_Stats.CoatShadow.Record(coatDecision);
+            const bool coatActive =
+                coatDecision.Effective != GroomCoatShadowTechnique::None && entry->CoatVolume != nullptr;
+            if (coatActive)
+            {
+                m_Stats.CoatShadow.ResidentBytes += entry->CoatBytes;
+                m_Stats.CoatShadow.ResolutionInForce = std::max(m_Stats.CoatShadow.ResolutionInForce,
+                                                                entry->CoatResolution);
+                m_Stats.CoatShadow.LodStepInForce = std::max(m_Stats.CoatShadow.LodStepInForce, entry->CoatLodStep);
+                m_Stats.CoatShadow.MaxAgeFrames = std::max(
+                    m_Stats.CoatShadow.MaxAgeFrames, static_cast<u32>(m_CacheTick - entry->CoatBuiltTick));
+            }
+
+            // ALWAYS A REAL 3D TEXTURE, never a null handle. The shader
+            // declares the sampler unconditionally, and NullSamplerKind has no
+            // Texture3D arm -- so a null here would hand a 2D null descriptor
+            // to a sampler3D declaration, which is undefined behaviour rather
+            // than a black read (the same trap the irradiance cube's explicit
+            // Cube kind exists to avoid). The placeholder is therefore a
+            // PRECONDITION of drawing at all: Execute refuses to run without
+            // one rather than binding something of the wrong shape.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME,
+                                            coatActive ? entry->CoatVolume->GetRHIHandle()
+                                                       : m_CoatPlaceholder->GetRHIHandle(),
+                                            RHI::HeapSlotLifetime::Persistent);
+            context.FlushHeapOffsets();
 
             const f32 axisX = glm::length(glm::vec3(request.Transform[0]));
             const f32 axisY = glm::length(glm::vec3(request.Transform[1]));
@@ -497,6 +924,62 @@ namespace OloEngine
                                              request.Fibre.Cos2kAlpha[2], 0.0f);
             params.FibreModes = glm::ivec4(request.Lit ? 1 : 0, static_cast<i32>(request.Fibre.HSamples),
                                            static_cast<i32>(request.FibreDebug), 0);
+
+            // The coat lanes. They stay at their INACTIVE defaults unless this
+            // draw actually has a built, bound volume -- the structural
+            // fallback technique-selection-seams.md asks for, rather than a
+            // flag someone has to remember to reset on each early return.
+            if (coatActive)
+            {
+                // RIGID world -> object. Built from the RENDER-RELATIVE model
+                // matrix, because v_WorldPos in the shader is render-relative
+                // too (issue #429); inverting the absolute transform instead
+                // would march from a point offset by the render origin, which
+                // is invisible near the world origin -- where every test scene
+                // sits -- and wrong everywhere else.
+                //
+                // The scale is divided out rather than inverted with it: the
+                // march compares ANGLES in this space against each voxel's mean
+                // fibre direction, and a scale in the rotation would tilt every
+                // fibre by an amount that depends on which way the ray points.
+                glm::mat4 modelRelative = params.Model;
+                glm::vec3 axisLengths{ glm::length(glm::vec3(modelRelative[0])),
+                                       glm::length(glm::vec3(modelRelative[1])),
+                                       glm::length(glm::vec3(modelRelative[2])) };
+                const bool degenerate = axisLengths.x <= 1.0e-8f || axisLengths.y <= 1.0e-8f ||
+                                        axisLengths.z <= 1.0e-8f;
+                if (!degenerate)
+                {
+                    glm::mat3 rotation(glm::vec3(modelRelative[0]) / axisLengths.x,
+                                       glm::vec3(modelRelative[1]) / axisLengths.y,
+                                       glm::vec3(modelRelative[2]) / axisLengths.z);
+                    const glm::vec3 translation = glm::vec3(modelRelative[3]);
+                    const glm::mat3 inverseRotation = glm::transpose(rotation);
+                    // The object-space point is recovered at the OBJECT scale
+                    // the bake used, so the mean axis length divides here and
+                    // the bounds below stay in the units BuildCoatSegments
+                    // emitted.
+                    const f32 meanScale = (axisLengths.x + axisLengths.y + axisLengths.z) / 3.0f;
+                    glm::mat4 worldToObject(1.0f);
+                    const glm::mat3 scaled = inverseRotation / meanScale;
+                    worldToObject[0] = glm::vec4(scaled[0], 0.0f);
+                    worldToObject[1] = glm::vec4(scaled[1], 0.0f);
+                    worldToObject[2] = glm::vec4(scaled[2], 0.0f);
+                    worldToObject[3] = glm::vec4(-(scaled * translation), 1.0f);
+
+                    const glm::vec3 extent = entry->CoatBoundsMax - entry->CoatBoundsMin;
+                    if (extent.x > 0.0f && extent.y > 0.0f && extent.z > 0.0f)
+                    {
+                        const f32 voxelLength = entry->CoatVoxelSize;
+
+                        params.CoatWorldToObject = worldToObject;
+                        params.CoatBoundsMin = glm::vec4(entry->CoatBoundsMin, request.CoatKappa);
+                        params.CoatInvExtent =
+                            glm::vec4(1.0f / extent, voxelLength * request.CoatStepVoxels);
+                        params.CoatModes = glm::ivec4(static_cast<i32>(coatDecision.Effective), 0, 0, 0);
+                    }
+                }
+            }
             if (request.Lit)
             {
                 ++m_Stats.GroomsLit;

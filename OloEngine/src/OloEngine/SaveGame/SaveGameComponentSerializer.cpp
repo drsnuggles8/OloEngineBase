@@ -3346,6 +3346,67 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomCoatShadowComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1248
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the
+        // load never reaches this function. That is also why this band did NOT
+        // take a kSaveGameFormatVersion number -- spending one would have
+        // collided with whatever another branch is appending to an EXISTING
+        // component, for no benefit here. Same reasoning as
+        // GroomFibreComponent above.
+        ar << c.m_Kappa << c.m_Resolution << c.m_StepVoxels;
+        ar << c.m_MaxLodSteps << c.m_PixelSizeForLod0 << c.m_MinResolution;
+        ar << c.m_Mode << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other, and these values
+            // reach an exp() and a divide in the shader's march -- where a NaN
+            // is not a wrong shadow but a NaN written into scene colour and
+            // then blurred across the frame by the post chain.
+            //
+            // The OLO_SERIALIZE annotations on the fields reach scene YAML and
+            // the live-write registries, NOT this archive, so the bounds have
+            // to be restated here or a corrupt save is the one route that
+            // bypasses every one of them.
+            if (!std::isfinite(c.m_Kappa) || c.m_Kappa < 0.0f)
+            {
+                c.m_Kappa = 1.0f;
+            }
+            c.m_Kappa = std::min(c.m_Kappa, 16.0f);
+
+            if (!std::isfinite(c.m_StepVoxels) || c.m_StepVoxels <= 0.0f)
+            {
+                c.m_StepVoxels = 3.0f;
+            }
+            c.m_StepVoxels = std::clamp(c.m_StepVoxels, 0.25f, 8.0f);
+
+            if (!std::isfinite(c.m_PixelSizeForLod0) || c.m_PixelSizeForLod0 <= 0.0f)
+            {
+                c.m_PixelSizeForLod0 = 512.0f;
+            }
+            c.m_PixelSizeForLod0 = std::clamp(c.m_PixelSizeForLod0, 16.0f, 4096.0f);
+
+            // A resolution of zero would divide by zero deriving the voxel size,
+            // and one past the cap would size a gigabyte allocation from a
+            // corrupt byte -- the reason GroomLimits exist at all.
+            c.m_Resolution = std::clamp(c.m_Resolution, 8u, 256u);
+            c.m_MaxLodSteps = std::min(c.m_MaxLodSteps, 6u);
+            c.m_MinResolution = std::clamp(c.m_MinResolution, 4u, 64u);
+
+            // REJECT, not clamp, for the mode -- the same reason the annotation
+            // on the field says Reject. Saturating a corrupt index onto a valid
+            // neighbour would shadow the coat with a representation nobody
+            // authored, and it would look plausible.
+            if (!GroomCoatShadow::IsValidCoatShadowMode(static_cast<i32>(c.m_Mode)))
+            {
+                c.m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::AnisotropicDensityVolume);
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
     {
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
@@ -5449,6 +5510,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomComponent);
         REGISTER_SAVE_COMPONENT(GroomBindingComponent);
         REGISTER_SAVE_COMPONENT(GroomFibreComponent);
+        REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

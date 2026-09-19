@@ -248,6 +248,15 @@
 		# lobe comparison and the energy check run in CI on a machine with no GPU.
 		"OloEngine/Groom/GroomFibreScattering.h"
 		"OloEngine/Groom/GroomFibreScattering.cpp"
+		# Dense-coat self-shadowing (#1248). The density/deep-shadow candidates,
+		# the exact ray-cylinder ground truth they are measured against, and the
+		# pure technique-selection seam. All CPU and free of renderer headers,
+		# which is what lets the bake-off re-run in CI on a machine with no GPU —
+		# and the fallback arm is the one CI covers best, which is the arm that
+		# most needs covering.
+		"OloEngine/Groom/GroomCoatShadow.h"
+		"OloEngine/Groom/GroomCoatShadow.cpp"
+		"OloEngine/Groom/GroomCoatShadowTechnique.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"
