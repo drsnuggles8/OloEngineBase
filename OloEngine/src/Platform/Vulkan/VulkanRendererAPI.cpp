@@ -449,23 +449,19 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         ctx.RecordedViewport = { x, y, width, height };
-        if (ctx.Cmd == VK_NULL_HANDLE)
-            return;
 
-        // Negative-height flip is a pipeline/pass concern; this layer
-        // records the plain rect so state packets replay without error.
-        // Deliberately does NOT touch the scissor: glViewport never did, and
-        // deriving one here would clobber an explicit SetScissorBox. A draw
-        // with dynamic scissor state and no scissor set is the pipeline
-        // setup to default.
-        VkViewport vp{};
-        vp.x = static_cast<f32>(x);
-        vp.y = static_cast<f32>(y);
-        vp.width = static_cast<f32>(width);
-        vp.height = static_cast<f32>(height);
-        vp.minDepth = 0.0f;
-        vp.maxDepth = 1.0f;
-        vkCmdSetViewport(ctx.Cmd, 0, 1, &vp);
+        // RECORDING ONLY — no vkCmdSet* here, so there is nothing to guard on
+        // a null command buffer. Every pipeline this backend
+        // builds declares VIEWPORT_WITH_COUNT / SCISSOR_WITH_COUNT (see
+        // VulkanPipelineBuilder's dynamic-state list), so the draw front-end
+        // satisfies both with the WITH_COUNT setters in FlushDynamicState,
+        // from RecordedViewport above. A plain `vkCmdSetViewport` here sets a
+        // state that is STATIC in every one of those pipelines — inert on a
+        // driver whose conformance version is 1.3.8.0 or newer, and a
+        // validation ERROR on one below it, which is how lavapipe found this
+        // (#1301). Deliberately does NOT touch the scissor either: glViewport
+        // never did, and deriving one here would clobber an explicit
+        // SetScissorBox.
     }
 
     Viewport VulkanRendererAPI::GetViewport() const
