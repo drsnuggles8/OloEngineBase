@@ -1,0 +1,272 @@
+name: Vulkan Software Conformance
+
+# Runs the device-backed Vulkan test suites against Mesa's software Vulkan ICD
+# (lavapipe) on a GitHub-hosted Windows runner — the Vulkan twin of
+# cross-vendor.yml, which does the same for OpenGL with llvmpipe (issue #1301).
+#
+# WHY IT EXISTS
+# -------------
+# `VulkanPassSuite` alone is 58 tests that run the render graph on a real Vulkan
+# device and assert on read-back pixels, and before this job they executed in NO
+# automated job. Hardware Vulkan is unavailable everywhere this repo's CI runs:
+# hosted runners have no GPU, and the self-hosted AMD box cannot host the suite
+# because RADV does not implement VK_EXT_descriptor_heap, which ADR 0010's
+# capability contract requires. So the tests ran only when a developer on a
+# Vulkan-capable box chose to run them, and
+# `VulkanPassSuite.FoliageInstancePullDrawsThreeTintedCards` carried a stale
+# brightness assertion from #1234 for months because of it.
+#
+# WHAT MAKES IT POSSIBLE, AND WHAT PINS THE MESA VERSION
+# ------------------------------------------------------
+# lavapipe has to satisfy the same ADR 0010 contract as any other device:
+# Vulkan 1.4, VK_KHR_swapchain, VK_EXT_descriptor_heap,
+# VK_KHR_shader_untyped_pointers and VK_KHR_device_address_commands, each with
+# its feature bit. Mesa 26.1.8's lavapipe is Vulkan 1.4 but exposes NONE of the
+# last three; Mesa 26.2.0's exposes all three with every feature bit true. So
+# the pin below is a hard floor, not a preference — dropping to any earlier
+# release makes the gate refuse and the job fail (by design, see
+# `--olo-require-vulkan` below). Measurements and the full extension table:
+# docs/agent-rules/vulkan-software-driver-ci.md.
+#
+# WHAT IT DOES NOT PROVE
+# ----------------------
+# Nothing about any hardware driver. lavapipe is a software implementation, not
+# a fourth vendor: it catches spec-compliance drift and stale assertions, not
+# driver divergence. Hardware-Vulkan coverage remains a developer-box
+# capability.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 04:23 UTC — after cross-vendor.yml's 03:47 so the two software
+    # jobs do not contend for hosted concurrency, and on an odd minute to avoid
+    # the on-the-hour surge.
+    - cron: '23 4 * * *'
+  pull_request:
+    # ANTI-ROT ONLY, not per-PR gating. #1301's scope boundary is explicit that
+    # the Vulkan suite must not sit on the PR critical path, and this filter
+    # keeps it off: an ordinary renderer PR pays nothing. A PR that edits this
+    # file, or the capability contract that decides whether lavapipe still
+    # qualifies, gets the job — because those are the two changes that can
+    # silently turn a green nightly into a job that verifies nothing. Same trade
+    # vulkan-off.yml and steam-stub.yml make for their filters.
+    paths:
+      - '.github/workflows/vulkan-software.yml'
+      - 'OloEngine/src/Platform/Vulkan/VulkanCapabilities.*'
+
+# Read-only: this job builds and runs tests, it never comments, labels or
+# publishes. Declared explicitly so a future step cannot quietly acquire write
+# scopes.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  # See the header: 26.2.0 is the FIRST Mesa release whose lavapipe satisfies
+  # ADR 0010. Bump forward freely; never back.
+  MESA_VERSION: '26.2.0'
+
+jobs:
+  lavapipe:
+    name: Windows / Mesa lavapipe (software Vulkan)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Python 3.10
+        id: py
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.10'
+
+      - name: Install python dependencies
+        run: |
+          # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
+          python -m pip install jinja2==3.1.6
+
+      - name: Setup Vulkan SDK
+        uses: ./.github/actions/setup-vulkan
+
+      # Third-party deps come from the vcpkg manifest (issue #773).
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-windows-static-md
+
+      - name: Configure CMake
+        # Option set copied from cross-vendor.yml for the same reason: this job
+        # tests GPU-backend conformance, not video decode or DCC interchange, so
+        # it skips the ~15 min FFmpeg-from-source build and the USD/Alembic/
+        # MaterialX ports.
+        #
+        # NO SCCACHE, and the honest reason is NOT the one cross-vendor.yml
+        # gives. That file says its ~25 min wall clock "is dominated by the
+        # llvmpipe TEST run, not the build", so caching the build is not worth
+        # it. Measured on its 2026-09-19 nightly (run 35419666930), that job is
+        # 2 h 45 m: build 2 h 37 m, test run 2 m 24 s. The claim is inverted and
+        # the figure is off by more than 6x -- filed as a follow-up rather than
+        # fixed here, since it is another job's design.
+        #
+        # The real reason is mechanical and unchanged: the default Visual Studio
+        # (MSBuild) generator IGNORES CMAKE_<LANG>_COMPILER_LAUNCHER, so sccache
+        # cannot engage without switching to Ninja (+ ilammy/msvc-dev-cmd,
+        # forcing cl.exe, LTO OFF, and Windows.yml's C#-project trade-off). That
+        # switch is worth a real look for BOTH software jobs, because the build
+        # is in fact the entire cost -- but it is a separate change, not a rider
+        # on standing this job up.
+        run: cmake -S . -B build -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}" -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF ${{ steps.vcpkg.outputs.toolchain-args }}
+
+      # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
+      # is the whole point: the combined actions/cache action saves in a POST-JOB
+      # step, which a CANCELLED job skips. Placed before the build so a
+      # cancellation during the long build/test tail still banks the ports.
+      - name: Save vcpkg binary cache
+        if: always()
+        # A cache save must never fail the job it is attached to.
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
+      - name: Build tests
+        run: cmake --build build --target OloEngine-Tests --config ${{env.BUILD_TYPE}} --parallel
+
+      - name: Download Mesa3D (lavapipe Vulkan ICD + llvmpipe OpenGL)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${{env.MESA_VERSION}}/mesa3d-${{env.MESA_VERSION}}-release-msvc.7z"
+          Invoke-WebRequest -Uri $url -OutFile mesa3d.7z
+          7z x mesa3d.7z -omesa3d -y | Out-Null
+
+          # The Vulkan half: the loader is pointed at the ICD manifest in place
+          # (see VK_DRIVER_FILES below) rather than the DLL being copied next to
+          # the binary, because vulkan_lvp.dll is loaded BY the manifest's
+          # relative library_path, not by the app's DLL search order. Copying it
+          # to the test directory without the manifest would do nothing at all.
+          $icd = (Resolve-Path 'mesa3d\x64\lvp_icd.x86_64.json').Path
+          if (-not (Test-Path $icd)) { throw "lavapipe ICD manifest missing from the Mesa archive" }
+          "OLO_LAVAPIPE_ICD=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          # REGISTER THE ICD IN THE REGISTRY, because the env vars are not
+          # enough HERE. The Vulkan loader reads VK_DRIVER_FILES /
+          # VK_ICD_FILENAMES through its secure-getenv path, which returns
+          # nothing for a process running with elevated privileges -- and
+          # GitHub's Windows runners run steps as an administrator. The loader
+          # then falls back to registry enumeration, finds no driver on a
+          # GPU-less runner, and vkCreateInstance returns
+          # ERROR_INCOMPATIBLE_DRIVER with "windows_read_data_files_in_registry:
+          # Registry lookup failed to get ICD manifest files".
+          #
+          # This does not reproduce on a developer box, where the shell is not
+          # elevated and the env vars work exactly as documented. Registering
+          # the manifest is the loader's own discovery mechanism on Windows and
+          # works either way, so it is the belt; the env vars below stay as the
+          # braces, and they are what keeps a developer's local repro honest.
+          New-Item -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Name $icd -PropertyType DWord -Value 0 -Force | Out-Null
+
+          # The OpenGL half, from the same archive. The Vulkan suites run inside
+          # the shared test process, which brings up a GL context for the
+          # non-Vulkan fixtures and restores it around every
+          # ScopedVulkanRenderCommandSelection. A hosted runner has no GL driver
+          # at all, so without llvmpipe here the process would be fighting a
+          # missing context while trying to prove something about Vulkan.
+          $testDir = 'build\OloEngine\tests\${{env.BUILD_TYPE}}'
+          Copy-Item -Force mesa3d\x64\opengl32.dll $testDir\
+          Copy-Item -Force mesa3d\x64\libgallium_wgl.dll $testDir\ -ErrorAction SilentlyContinue
+
+      - name: Report the lavapipe device the loader will pick
+        shell: pwsh
+        # Cheap, and it is the first thing anyone reads when this job goes red:
+        # it prints the ICD's advertised API version before a single test runs,
+        # so "Mesa moved under us" is one line rather than an archaeology
+        # session through 58 identical skip messages.
+        env:
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+        run: |
+          Get-Content $env:VK_DRIVER_FILES
+          & "$env:VULKAN_SDK\Bin\vulkaninfoSDK.exe" --summary
+
+      - name: Run the Vulkan suites under lavapipe
+        working-directory: OloEditor
+        # See docs/agent-rules/vulkan-software-driver-ci.md for the measured
+        # figure this cap is set against; the llvmpipe GL job is ~25 min for
+        # comparison. Capped well under the default 6-hour job timeout so a hung
+        # OloEngine-Tests.exe is killed rather than burning runner minutes.
+        timeout-minutes: 90
+        env:
+          # BOTH spellings on purpose: VK_DRIVER_FILES is the current loader
+          # variable, VK_ICD_FILENAMES its deprecated predecessor, and which one
+          # a given vulkan-1.dll honours depends on the loader the SDK installed.
+          # Naming one ICD also makes the run deterministic rather than
+          # "whatever the runner image happens to register".
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+          # llvmpipe selectors for the GL context the shared test process brings up.
+          GALLIUM_DRIVER: llvmpipe
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          MESA_GL_VERSION_OVERRIDE: '4.6'
+          MESA_GLSL_VERSION_OVERRIDE: '460'
+        # THE FLAG THAT MAKES THIS JOB WORTH HAVING IS `--olo-require-vulkan`
+        # (issue #1300). Every device-gated Vulkan test skips cleanly when no
+        # usable device is present, so without it this job would report GREEN on
+        # zero coverage the first time a Mesa bump, a contract change or a
+        # missing ICD made the gate refuse — which #1301 names as worse than
+        # having no job at all. With it the gate FAILs the first refused test,
+        # and `main` additionally returns 3 when no device-gated test executed
+        # at all (the case a `--gtest_filter` typo would otherwise hide).
+        #
+        # --olo-golden-vendor scopes goldens to
+        # OloEditor/assets/tests/golden/lavapipe/, since the committed set is
+        # baselined on NVIDIA hardware and a software rasteriser will not match
+        # it; maintainers promote a lavapipe set by committing PNGs there.
+        # --olo-perf-machine tags perf-history rows so they never clobber a
+        # hardware baseline.
+        #
+        # The filter is the Vulkan-named suites. It deliberately does NOT cover
+        # the L7 ray-query suites — that gap is issue #1294, a separately scored
+        # piece of work, and widening this filter is the one-line change it
+        # needs once someone confirms lavapipe can serve ray queries.
+        #
+        # ONE TEST IS EXCLUDED, AND IT IS A DRIVER DEFECT, NOT AN ENGINE ONE.
+        # FramebufferBlitPreservesUnrequestedDepthStencilAspects asserts that a
+        # single-aspect copy/resolve onto a combined depth/stencil image leaves
+        # the OTHER aspect alone. lavapipe 26.2.0 overwrites it — all 8
+        # depth-only permutations lose the destination's stencil, and the
+        # stencil-only ones symmetrically lose its depth, with the validation
+        # layers reporting nothing, so this is legal usage returning the wrong
+        # result. The same binary passes all 24 permutations on NVIDIA. The
+        # test keeps running on developer hardware, which is where it has
+        # always run; excluding it here costs no coverage that existed before
+        # this job. Re-test it on the next Mesa bump and delete this exclusion
+        # when it passes — docs/agent-rules/vulkan-software-driver-ci.md has
+        # the measurement.
+        run: |
+          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
+
+      - name: Upload Vulkan software test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vulkan_software_results
+          path: test_results/vulkan_software.xml
+          if-no-files-found: warn
+
+      - name: Upload golden-image diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vulkan_software_golden_diffs
+          path: |
+            OloEditor/assets/tests/golden/*.actual.png
+            OloEditor/assets/tests/golden/*.diff.png
+            OloEditor/assets/tests/golden/lavapipe/*.actual.png
+            OloEditor/assets/tests/golden/lavapipe/*.diff.png
+          if-no-files-found: ignore
