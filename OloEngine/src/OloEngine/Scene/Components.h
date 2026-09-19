@@ -6214,11 +6214,16 @@ namespace OloEngine
     }
 
     /// The authored per-crossing extinction, sanitised at the same boundary.
+    ///
+    /// The fallback is taken from a DEFAULT-CONSTRUCTED component rather than
+    /// written out, because #1360 moved that default 1.0 -> 4.0 and this was one
+    /// of two places still restating the old number — a restated default is a
+    /// second place to forget.
     [[nodiscard]] inline f32 MakeGroomCoatKappa(const GroomCoatShadowComponent& component) noexcept
     {
         if (!std::isfinite(component.m_Kappa) || component.m_Kappa < 0.0f)
         {
-            return 1.0f;
+            return GroomCoatShadowComponent{}.m_Kappa;
         }
         return std::min(component.m_Kappa, 16.0f);
     }

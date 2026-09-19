@@ -51,6 +51,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -169,9 +170,15 @@ namespace OloEngine::Tests
                 // correct silhouette. The C++ arm has always rejected an
                 // infinity; the shader passed it straight into exp() and
                 // returned black until #1360.
-                EXPECT_FLOAT_EQ(pixels[i + 3], 1.0f)
+                // Compared against the C++ twin, NOT against a literal 1.0f.
+                // The point of this file is that the two agree; hard-coding the
+                // expected answer would leave the one input it calls most
+                // important as the one input the twins are not compared on.
+                EXPECT_FLOAT_EQ(pixels[i + 3],
+                                GroomCoatShadow::CoatTransmittance(std::numeric_limits<f64>::infinity(),
+                                                                   args.Kappa))
                     << "an infinite optical depth read " << pixels[i + 3] << " on the GPU at kappa " << args.Kappa
-                    << ", not fully lit";
+                    << ", where the C++ twin reads fully lit";
 
                 const f32 expected = GroomCoatShadow::CoatTransmittance(args.Tau, args.Kappa);
                 if (WithinTolerance(pixels[i], expected))

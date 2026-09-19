@@ -12,7 +12,10 @@
 //     tau(x, L) = the EXPECTED NUMBER OF FIBRE CROSSINGS along the ray from x
 //                 towards the light,
 //
-// from which the coat transmittance is exp(-kappa * tau). Everything in this
+// from which the coat transmittance is exp(-tau * (1 - exp(-kappa))) — the
+// MEAN of the per-ray transmittances over the footprint rather than the
+// transmittance of the mean crossing count, see CoatTransmittance and issue
+// #1360. Everything in this
 // header exists to compute that number, to approximate it cheaply enough for a
 // fragment shader, and to MEASURE how far each approximation is from the truth.
 //
