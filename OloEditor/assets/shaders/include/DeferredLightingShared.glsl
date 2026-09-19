@@ -415,7 +415,8 @@ vec3 ComputeDeferredLitSplit(
     // the moment its author turned the lobes on.
     bool isSkinTransmitting = ((skinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
                                (skinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
-                               (skinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE)) &&
+                               (skinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE) ||
+                               (skinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE)) &&
                               (skinThicknessMM > 0.0);
 
     vec3 V = normalize(u_CameraPosition - worldPos);

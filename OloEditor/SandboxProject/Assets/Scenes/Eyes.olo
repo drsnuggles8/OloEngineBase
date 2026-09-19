@@ -1,0 +1,265 @@
+Scene: Eyes.olo
+# -----------------------------------------------------------------------------
+# EYES fixture (issue #1244).
+#
+# A pair of eyes with corneal refraction, an iris depth response and a tear
+# line, at skin transport version 5 - the version that adds the cornea. Two
+# .oloskin profiles for three surfaces:
+#
+#   Assets/Materials/EyeIris.oloskin      the globes. Version 5 with the eye ON:
+#                                         a cornea, a refracted iris, a limbal
+#                                         ring, a pupil and a dish tilt.
+#   Assets/Materials/EyeTearLine.oloskin  the lid-margin menisci. Version 5 with
+#                                         the eye OFF - all it needs is #1245's
+#                                         wet coat, at the index of tears.
+#
+# THE LEFT/RIGHT CONVENTION, which is this issue's first acceptance criterion,
+# is visible here rather than merely documented: BOTH GLOBES NAME THE SAME
+# PROFILE HANDLE (1244000000000000001) and differ ONLY in their TransformComponent.
+# There is no left asset and no right asset, no mirrored copy and no IsLeftEye
+# flag, because the only per-eye quantity the shader needs - the optical axis -
+# is the entity transform's +Z, read out of the model matrix.
+#
+# SO A GAZE CHANGE IS A TRANSFORM CHANGE. Rotate either globe's Y in the editor
+# and its iris moves under its own cornea; nothing else in the scene, and no
+# material, has to be touched. That is the thing to do first when opening this
+# scene, and it is the one thing a static screenshot cannot show - at a head-on
+# view the refracted and painted iris points COINCIDE BY SYMMETRY.
+#
+# THE GLOBES ARE UNIFORMLY SCALED, and that is a requirement rather than a
+# style: the shader reads the globe's radial direction out of the interpolated
+# normal, so a non-uniform scale makes the normal stop being radial and the iris
+# shears. Every Scale below on a globe is three equal numbers. See
+# docs/guides/eye-cornea-iris.md.
+#
+# WHY A SEPARATE SCENE AND NOT THE REFERENCE HEAD. Assets/Scenes/Benchmark/
+# ReferenceHead.olo is a PINNED BENCHMARK fixture: its captures are golden and
+# its manifest is asserted (ReferenceFixtureManifestTest). Adding geometry to it
+# would invalidate every number measured against it, for a feature that has
+# nothing to do with what it measures. This scene is additive instead - the same
+# decision #1245's OralSurfaces.olo made, for the same reason.
+#
+# WHY PRIMITIVES. The engine's supplied head is Suzanne, which has eyeball
+# geometry but no separate iris, no cornea and no UV chart for one; and
+# ReferenceHead.olo's own header records "there is no eye shader" as the gap
+# this feature fills. What version 5 needs from geometry is a UNIFORMLY SCALED
+# SPHERE and an optical axis, which a sphere primitive with a transform gives
+# exactly and without a licensed asset. Dropping a scanned head in here changes
+# the subject and nothing else, because every claim this fixture supports is a
+# claim about the MATERIAL - which does not know what mesh it is on.
+#
+# THE EYES ARE AUTHORED LOOKING SLIGHTLY OFF-AXIS, deliberately. A scene whose
+# default pose is dead ahead is a scene whose default screenshot is the one
+# capture that cannot tell a refracting eye from a painted one.
+# -----------------------------------------------------------------------------
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: true
+  # A LOW THRESHOLD and a modest intensity. The corneal catchlight is the
+  # brightest thing in this scene by a wide margin and a small amount of bloom
+  # is what makes it read as wet rather than as a white dot; too much and it
+  # swallows the limbal ring beside it.
+  BloomThreshold: 1.1
+  BloomIntensity: 0.18
+  BloomIterations: 5
+  VignetteEnabled: false
+  FXAAEnabled: false
+  SSAOEnabled: true
+  SSAORadius: 0.2
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSREnabled: false
+  SSGIEnabled: false
+  AutoExposureEnabled: false
+FogSettings:
+  Enabled: false
+WindSettings:
+  Enabled: false
+Entities:
+  # -- Camera: a CLOSE-UP, which is what this feature is judged at --
+  - Entity: 1244000002000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 0, 0.58]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7854
+        PerspectiveNear: 0.01
+        PerspectiveFar: 100
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # -- Key: front-right-above, OFF the optical axis on purpose. A key light
+  #    along the axis puts the corneal catchlight exactly on the pupil, where it
+  #    sits on top of the darkest part of the iris and hides both. Every real
+  #    eye reference is lit from three-quarters for the same reason. --
+  - Entity: 1244000002000002
+    TagComponent:
+      Tag: Key Light
+    TransformComponent:
+      Translation: [0.42, 0.34, 0.52]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.97, 0.93]
+      Intensity: 7
+      Range: 3
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  # -- Fill: low and to the left, weak. It exists so the shadowed side of each
+  #    globe is not black - the LIMBAL RING has to be visible against something,
+  #    and a ring that only shows on the lit side reads as a highlight. --
+  - Entity: 1244000002000003
+    TagComponent:
+      Tag: Fill Light
+    TransformComponent:
+      Translation: [-0.48, -0.18, 0.4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.88, 0.9, 0.96]
+      Intensity: 2.2
+      Range: 3
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  # -- Rim: behind and above, grazing. This is the light the TEAR LINE exists
+  #    for: a coat's Fresnel is largest at grazing, so a meniscus catches a rim
+  #    light long before the tissue under it does. --
+  - Entity: 1244000002000004
+    TagComponent:
+      Tag: Rim Light
+    TransformComponent:
+      Translation: [0.1, 0.36, -0.55]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [0.92, 0.94, 1]
+      Intensity: 5
+      Range: 3
+      Attenuation: 1
+      CastShadows: false
+      ShadowBias: 0.005
+      ShadowNormalBias: 0.01
+  # -- The face. A slab behind the globes so the eyes are seen AGAINST SKIN
+  #    rather than against the clear colour: without it the limbus would be a
+  #    silhouette edge against background, and "the sclera is still a skin term"
+  #    would be a claim about nothing. Version 4, unchanged by this feature. --
+  - Entity: 1244000002000010
+    TagComponent:
+      Tag: Face
+    TransformComponent:
+      Translation: [0, 0, -0.07]
+      Rotation: [0, 0, 0]
+      Scale: [0.62, 0.34, 0.08]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.72, 0.54, 0.47]
+      Metallic: 0
+      Roughness: 0.44
+      MaterialKind: 2
+      SkinProfile: 15952688685437936278
+      ThicknessFactor: 0.006
+  # ---------------------------------------------------------------------------
+  # THE TWO GLOBES. Same mesh, same material values, SAME PROFILE HANDLE.
+  # They differ in exactly two numbers: Translation.x and Rotation.y.
+  #
+  # The Rotation.y values are DELIBERATELY UNEQUAL AND NON-ZERO. Equal values
+  # would be a pair of eyes staring straight through the camera, which is the
+  # one pose where this feature is invisible; slightly converged ones are what
+  # a pair of eyes fixating a point just in front of the lens actually do, and
+  # they put each globe at a different angle so a single screenshot shows the
+  # refraction at two strengths at once.
+  # ---------------------------------------------------------------------------
+  - Entity: 1244000002000011
+    TagComponent:
+      Tag: LeftEye
+    TransformComponent:
+      Translation: [-0.115, 0.02, 0.028]
+      Rotation: [0, 0.12, 0]
+      Scale: [0.088, 0.088, 0.088]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      # The SCLERA's albedo. Not white: an eye white is warm scattering
+      # collagen, and painting it 1.0 would clip every claim about the limbus.
+      AlbedoColor: [0.78, 0.74, 0.71]
+      Metallic: 0
+      # SMOOTH. The cornea is the smoothest surface on a face, and this is the
+      # roughness the catchlight is shaped by.
+      Roughness: 0.09
+      MaterialKind: 2
+      SkinProfile: 1244000000000000001
+      ThicknessFactor: 0.004
+  - Entity: 1244000002000012
+    TagComponent:
+      Tag: RightEye
+    TransformComponent:
+      Translation: [0.115, 0.02, 0.028]
+      Rotation: [0, -0.18, 0]
+      Scale: [0.088, 0.088, 0.088]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.78, 0.74, 0.71]
+      Metallic: 0
+      Roughness: 0.09
+      MaterialKind: 2
+      SkinProfile: 1244000000000000001
+      ThicknessFactor: 0.004
+  # ---------------------------------------------------------------------------
+  # THE TEAR LINES. Thin slabs along each lower lid margin, carrying
+  # EyeTearLine.oloskin - which is version 5 with the eye switched OFF, because
+  # a meniscus has no cornea and no iris behind it. Everything that makes them
+  # visible is #1245's wet coat at the index of tears.
+  #
+  # FLATTENED IN Y and stretched in X, which is what a meniscus is: a fillet of
+  # liquid a few tenths of a millimetre tall running the width of the lid. The
+  # aspect ratio is the reason the highlight comes out as a LINE rather than as
+  # a second catchlight.
+  # ---------------------------------------------------------------------------
+  - Entity: 1244000002000013
+    TagComponent:
+      Tag: LeftTearLine
+    TransformComponent:
+      Translation: [-0.115, -0.052, 0.072]
+      Rotation: [0.22, 0, 0]
+      Scale: [0.082, 0.007, 0.018]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.37]
+      Metallic: 0
+      Roughness: 0.3
+      MaterialKind: 2
+      SkinProfile: 1244000000000000002
+      ThicknessFactor: 0.002
+  - Entity: 1244000002000014
+    TagComponent:
+      Tag: RightTearLine
+    TransformComponent:
+      Translation: [0.115, -0.052, 0.072]
+      Rotation: [0.22, 0, 0]
+      Scale: [0.082, 0.007, 0.018]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.7, 0.4, 0.37]
+      Metallic: 0
+      Roughness: 0.3
+      MaterialKind: 2
+      SkinProfile: 1244000000000000002
+      ThicknessFactor: 0.002

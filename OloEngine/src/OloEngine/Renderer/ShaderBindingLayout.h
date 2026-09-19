@@ -300,6 +300,58 @@ namespace OloEngine
             // touches the new setters shades exactly as it did.
             glm::vec4 SkinOralLane{ 0.0f, 0.0f, 0.0f, 0.0f };
 
+            // THE THREE OCULAR LANES (issue #1244), packed by
+            // SkinOcularCorneaLane / SkinOcularIrisLane / SkinOcularResponseLane
+            // so that every path is handed the same twelve numbers in the same
+            // order.
+            //
+            //   Cornea:   x = eta (DERIVED from CorneaIor)
+            //             y = curvature ratio (DERIVED: EyeRadius / CorneaRadius)
+            //             z = iris plane depth, eye radii (DERIVED)
+            //             w = limbus cosine (DERIVED from IrisRadius / EyeRadius)
+            //   Iris:     x = iris radius, eye radii   y = pupil radius, disc units
+            //             z = limbal ring width, disc units
+            //             w = OcularStrength -- THE MASTER SWITCH
+            //   Response: x = LimbalRingStrength   y = PupilDarkening
+            //             z = IrisConcavity        w = RefractionStrength
+            //
+            // READ IN THE MATERIAL STAGE ON EVERY PATH, which is the structural
+            // difference from the oral lane above it and the reason there is no
+            // fourth deferred profile table: a refraction changes WHICH surface
+            // point you are looking at, so it resolves in PBR_GBuffer*.glsl and
+            // PBR_MultiLight*.glsl and the deferred lighting pass never sees it.
+            //
+            // INSERTED HERE, at 208/224/240, each on a 16-byte boundary, for the
+            // reason the four lanes above are where they are: std140 then
+            // inserts NOTHING, while putting them after the trailing scalars
+            // would have padded the block invisibly. The static_asserts below
+            // are what stop that happening by accident.
+            //
+            // NEUTRAL WHEN THE MASTER IS ZERO, which an all-zero lane triple
+            // satisfies: ApplySkinOcularSurface returns its inputs untouched, so
+            // a material that never touches the new setters shades exactly as it
+            // did. Note that all-zero is INERT rather than meaningful for the
+            // other eleven components -- an eta of 0 refracts to nothing -- and
+            // that is safe only because the master gates them all.
+            glm::vec4 SkinOcularCorneaLane{ 0.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkinOcularIrisLane{ 0.0f, 0.0f, 0.0f, 0.0f };
+            glm::vec4 SkinOcularResponseLane{ 0.0f, 0.0f, 0.0f, 0.0f };
+
+            // The FOURTH ocular lane (issue #1244): the iris tint.
+            //
+            //   xyz = IrisColor (LINEAR Rec.709)   w = iris edge band (derived)
+            //
+            // A fourth lane for three numbers, because all twelve components
+            // above carry a value and std140 will not pack a vec3 into another
+            // vec4's tail. See SkinOcularTintLane.
+            //
+            // NOTE THAT ALL-ZERO IS *BLACK*, NOT NEUTRAL, for this one: the
+            // colour is multiplied in, so the neutral value is WHITE. That is
+            // safe only because SkinOcularIrisLane.w gates the whole block, and
+            // it is the one place in this UBO where a zeroed lane is not the
+            // no-op — which is why it is said here rather than assumed.
+            glm::vec4 SkinOcularTintLane{ 0.0f, 0.0f, 0.0f, 0.0f };
+
             // The thickness map (issue #1242). The flag gates the sample; the
             // offset is how the BINDLESS path reaches the texture.
             //
@@ -2756,7 +2808,8 @@ namespace OloEngine
     // assert is what stops the C++ and GLSL layouts drifting, which std140
     // would otherwise punish by silently shifting every field after the
     // divergence.
-    // 272 since issue #1245 inserted the oral-surface lane (256 since #1243's
+    // 336 since issue #1244 inserted its FOUR ocular lanes (272 since #1245's
+    // oral-surface lane; 256 since #1243's
     // layered-specular lane; 240 since #1242's two thin-region transmission
     // lanes plus the thickness-map flag, heap offset and padding; 192 since
     // #1231; 160 before it). #1243's per-draw detail strength took over #1242's
@@ -2764,7 +2817,7 @@ namespace OloEngine
     // exactly one vec4 and #1245 costs exactly one more.
     // INSERTED in front of the heap offsets, never appended after them, for the
     // reason the HeapOffsets assert below states.
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 272, "PBRMaterialUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 336, "PBRMaterialUBO unexpected size — update GLSL layout");
     // The physical block sits exactly where the shaders expect it: right after
     // the PBRModel selector at 92 and immediately before the heap offsets.
     // offsetof rather than a comment, so a reordering fails the build instead
@@ -2802,8 +2855,22 @@ namespace OloEngine
     // and asserted for their reason: the alignment IS the argument.
     static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOralLane) == 192,
                   "PBRMaterialUBO oral-surface lane must start at 192 B, on a 16-byte boundary — GLSL mirrors assume it");
-    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 224,
-                  "PBRMaterialUBO heap offsets must stay trailing at 224 B (issue #691 lane layout, +16 B from #1243, +16 B from #1245)");
+    // The #1244 ocular lanes, inserted between the #1245 lane and the four
+    // trailing scalars. Three consecutive 16-byte-aligned vec4s, asserted
+    // individually rather than as a size: an assert on the block size alone
+    // passes when two lanes are swapped, and a swapped cornea/iris pair is
+    // exactly the failure #1288 is the receipt for — silent, one path, and it
+    // reads as "slightly off" rather than as broken.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOcularCorneaLane) == 208,
+                  "PBRMaterialUBO ocular cornea lane must start at 208 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOcularIrisLane) == 224,
+                  "PBRMaterialUBO ocular iris lane must start at 224 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOcularResponseLane) == 240,
+                  "PBRMaterialUBO ocular response lane must start at 240 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOcularTintLane) == 256,
+                  "PBRMaterialUBO ocular tint lane must start at 256 B — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 288,
+                  "PBRMaterialUBO heap offsets must stay trailing at 288 B (issue #691 lane layout, +16 B from #1243, +16 B from #1245, +64 B from #1244)");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");

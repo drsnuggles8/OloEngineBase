@@ -672,6 +672,8 @@
 		"OloEngine/Renderer/SkinLayeredSpecular.h"
 		"OloEngine/Renderer/SkinOralSurface.cpp"
 		"OloEngine/Renderer/SkinOralSurface.h"
+		"OloEngine/Renderer/SkinOcularSurface.cpp"
+		"OloEngine/Renderer/SkinOcularSurface.h"
 		"OloEngine/Renderer/MaterialAsset.cpp"
 		"OloEngine/Renderer/MaterialAsset.h"
 		"OloEngine/Renderer/MaterialPresets.cpp"

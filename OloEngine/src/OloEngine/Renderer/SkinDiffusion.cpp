@@ -195,7 +195,8 @@ namespace OloEngine
         if (parameters.EvaluationModel != SkinEvaluationModel::ScreenSpaceDiffusion &&
             parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
             parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
-            parameters.EvaluationModel != SkinEvaluationModel::OralSurface)
+            parameters.EvaluationModel != SkinEvaluationModel::OralSurface &&
+            parameters.EvaluationModel != SkinEvaluationModel::OcularSurface)
             return SkinDiffusionKernel::Identity();
 
         const f32 supportRadiusMM = SkinDiffusionSupportRadiusMM(parameters);

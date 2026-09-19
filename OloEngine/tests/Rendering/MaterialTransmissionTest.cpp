@@ -413,7 +413,8 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile
     // group, 192 -> 240 with issue #1242's thin-region transmission group, and
     // 240 -> 256 with issue #1243's layered-specular lane, 256 -> 272 with
-    // #1245's oral-surface lane. ALL FOUR were
+    // #1245's oral-surface lane, and 272 -> 336 with #1244's FOUR ocular lanes.
+    // ALL FIVE were
     // INSERTED after the physical scalars and before the heap offsets — so every
     // offset asserted below is unchanged and only the trailing lanes moved. That
     // is the property this test is really guarding, and it is why the growth is
@@ -430,7 +431,7 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // texture's descriptor offset while compiling, linking and drawing normally.
     using UBO = ShaderBindingLayout::PBRMaterialUBO;
 
-    EXPECT_EQ(sizeof(UBO), 272u);
+    EXPECT_EQ(sizeof(UBO), 336u);
     EXPECT_EQ(offsetof(UBO, TransmissionFactor), 96u);
     EXPECT_EQ(offsetof(UBO, IOR), 100u);
     EXPECT_EQ(offsetof(UBO, ThicknessFactor), 104u);
@@ -453,7 +454,17 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // which is the property this whole test exists to guard.
     EXPECT_EQ(offsetof(UBO, SkinOralLane), 192u)
         << "the #1245 oral-surface lane must start on a 16-byte boundary, or std140 pads in front of it";
-    EXPECT_EQ(offsetof(UBO, HeapOffsets), 224u) << "the heap-offset lanes must stay LAST (issue #691)";
+    // The #1244 ocular lanes, four consecutive 16-byte boundaries after it.
+    // Asserted INDIVIDUALLY rather than by the block size alone, because a size
+    // check passes when two lanes are swapped — and a swapped cornea/iris pair
+    // is exactly the silent, one-path, "reads a bit off" failure #1288 is the
+    // receipt for.
+    EXPECT_EQ(offsetof(UBO, SkinOcularCorneaLane), 208u)
+        << "the #1244 ocular lanes must start on a 16-byte boundary, or std140 pads in front of them";
+    EXPECT_EQ(offsetof(UBO, SkinOcularIrisLane), 224u);
+    EXPECT_EQ(offsetof(UBO, SkinOcularResponseLane), 240u);
+    EXPECT_EQ(offsetof(UBO, SkinOcularTintLane), 256u);
+    EXPECT_EQ(offsetof(UBO, HeapOffsets), 288u) << "the heap-offset lanes must stay LAST (issue #691)";
 
     // A default-constructed UBO is neutral, which is what a draw that never
     // touched a physical material uploads.

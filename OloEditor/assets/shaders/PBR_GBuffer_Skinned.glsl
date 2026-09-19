@@ -210,6 +210,29 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // lane above it -- omitting it would relayout the heap offsets by 16 B and
     // every texture would sample the wrong descriptor.
     vec4 u_SkinOralLane;
+    // The three ocular lanes (issue #1244). MUST mirror
+    // PBRMaterialUBO::SkinOcular{Cornea,Iris,Response}Lane, packed by the three
+    // matching CPU functions.
+    //   Cornea:   x = eta (derived from CorneaIor)  y = curvature ratio
+    //             z = iris plane depth, eye radii   w = limbus cosine
+    //   Iris:     x = iris radius, eye radii        y = pupil radius, disc units
+    //             z = limbal ring width, disc units w = OcularStrength (MASTER)
+    //   Response: x = LimbalRingStrength            y = PupilDarkening
+    //             z = IrisConcavity                 w = RefractionStrength
+    // All-zero is neutral BECAUSE THE MASTER IS ZERO -- the other eleven
+    // components are inert rather than meaningful at zero, and that is safe
+    // only because irisLane.w gates every one of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets like every lane above
+    // them -- omitting them would relayout the heap offsets by 48 B and every
+    // texture would sample the wrong descriptor.
+    vec4 u_SkinOcularCorneaLane;
+    vec4 u_SkinOcularIrisLane;
+    vec4 u_SkinOcularResponseLane;
+    // The fourth ocular lane: xyz = IrisColor (linear Rec.709),
+    // w = the iris edge band. ALL-ZERO IS BLACK HERE, NOT NEUTRAL -- the
+    // colour is multiplied in, so neutral is WHITE. Safe only because
+    // u_SkinOcularIrisLane.w gates the whole block.
+    vec4 u_SkinOcularTintLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
@@ -229,6 +252,28 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
 };
 
 #include "include/InstanceBlock.glsl"
+
+// Camera UBO (binding 0), FRAGMENT SIDE (issue #1244).
+//
+// Declared here because the corneal refraction needs a VIEW DIRECTION, and this
+// stage had no camera at all: the G-Buffer pass reads the camera in its vertex
+// stage only. `u_CameraPosition - v_WorldPos` is INVARIANT under camera-relative
+// rendering (issue #429) — both terms shift by the same render origin — so this
+// needs no add-back, unlike a shader sampling an absolute-world pattern.
+//
+// THE MEMBER LIST MUST MATCH THE VERTEX STAGE'S EXACTLY, member for member,
+// including the trailing padding. glLinkProgram() rejects a per-program UBO
+// block whose members disagree between stages, and the failure is a link error
+// with no line number. PBR_MultiLight.glsl carries the same note for the same
+// reason; this block is a copy of the vertex declaration above and must stay one.
+layout(std140, binding = 0) uniform CameraMatrices {
+    mat4 u_ViewProjection;
+    mat4 u_View;
+    mat4 u_Projection;
+    vec3 u_CameraPosition;
+    float _padding0;
+};
+
 
 // Converted whole (§5c) — the material five are every sampler this shader has,
 // on either bindless arm.
@@ -350,6 +395,46 @@ void main()
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
 
+    // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
+    //
+    // HERE, and the position is load-bearing in both directions.
+    //
+    // AFTER the variance filter above, because that filter measures the
+    // SCREEN-SPACE VARIANCE OF THE SURFACE NORMAL and the iris dish tilt is not
+    // surface micro-detail. Filtering a smooth authored gradient would widen
+    // the corneal highlight for a reason that has nothing to do with roughness
+    // -- an eye that goes matte the moment its iris gains depth.
+    //
+    // BEFORE any light is looked at, because a refraction is NOT a BRDF: it
+    // decides WHICH iris point this pixel is, and everything after shades that
+    // point. That is the same reason this block appears in the G-Buffer
+    // shaders as well as the forward ones and NOT in the deferred lighting
+    // pass -- see include/SkinOcularSurface.glsl.
+    //
+    // THE OPTICAL AXIS IS THE ENTITY TRANSFORM'S +Z, read straight out of the
+    // model matrix that include/InstanceBlock.glsl already puts in this stage.
+    // Nothing is plumbed and no lane carries it, and that IS the left/right eye
+    // convention: both eyes name the SAME .oloskin and differ only by their
+    // transforms. Passed UNNORMALIZED -- oloSkinOcularApply tests its squared
+    // length before normalizing, so a degenerate transform loses the eye
+    // instead of producing a NaN albedo.
+    //
+    // Gated through oloSkinEvaluatesOcularSurface with the three lanes selected
+    // by a ternary AT THIS CALL SITE, never by a helper that returns them. See
+    // that function's comment for the miscompile the other shape caused in
+    // #1245 -- with three lanes to select, the temptation was larger and so is
+    // the blast radius.
+    if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel))
+    {
+        OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
+                                                     normalize(u_CameraPosition - v_WorldPos),
+                                                     u_Model[2].xyz,
+                                                     u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
+                                                     u_SkinOcularResponseLane, u_SkinOcularTintLane);
+        albedo = oloOcular.Albedo;
+        N = oloOcular.Normal;
+    }
+
     vec2 ndcCurr = v_ClipPosCurr.xy / max(v_ClipPosCurr.w, 1e-6);
     vec2 ndcPrev = v_ClipPosPrev.xy / max(v_ClipPosPrev.w, 1e-6);
     vec2 velocity = (ndcCurr - ndcPrev) * 0.5;
@@ -367,10 +452,17 @@ void main()
     // include/SkinTransmission.glsl for why that channel is free and what the
     // tenancy rules are.
     //
-    // NO TRANSPORT-VERSION TEST HERE, deliberately. This shader has no
-    // SkinEvaluationModel to test -- the deferred lighting pass reads the
-    // version out of u_SkinProfileParams[slot].w, which is the ONE place it
-    // lives on that path. So the writer publishes the thickness for every skin
+    // NO TRANSPORT-VERSION TEST ON THE THICKNESS, deliberately -- and note
+    // that this is a statement about the THICKNESS and not about the shader.
+    // Since issue #1244 this stage does read u_SkinEvaluationModel (the ocular
+    // block above), so the old wording here -- "this shader has no
+    // SkinEvaluationModel to test" -- is no longer true and has been corrected
+    // rather than left to mislead the next reader.
+    //
+    // What is still true is that the THICKNESS's version test belongs to its
+    // READER: the deferred lighting pass gets the version out of
+    // u_SkinProfileParams[slot].w, which is the ONE place it lives on that
+    // path. So the writer publishes the thickness for every skin
     // pixel that names a profile and the READER decides whether the profile's
     // version wants it. Duplicating the version test here would mean carrying
     // the model through the G-Buffer as well, for no gain: an unused thickness

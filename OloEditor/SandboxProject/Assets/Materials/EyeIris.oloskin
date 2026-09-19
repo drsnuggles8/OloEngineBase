@@ -1,0 +1,160 @@
+SkinProfile:
+  Name: Eye Iris
+  # TRANSPORT VERSION 5 (issue #1244) — everything version 4 does, plus the one
+  # term an EYE needs and no other surface on a head does: a CORNEAL REFRACTION.
+  # The iris sits ~2.5 mm behind a transparent dome of index 1.336, so a viewer
+  # never sees it where it is. Version 5 refracts the view ray at that dome,
+  # finds the iris point behind it, and applies the iris's own depth response —
+  # a limbal ring, a pupil and a dish tilt — at THAT point.
+  #
+  # THE SAME FILE SERVES BOTH EYES. There is no left profile and no right
+  # profile: the only per-eye quantity is the optical axis, and that is read
+  # from the ENTITY TRANSFORM's +Z in the shader. Two eyes in one head name this
+  # asset and differ by their rotation, so a gaze change is a transform change
+  # and an iris colour change is a one-file edit. See
+  # docs/guides/eye-cornea-iris.md and Renderer/SkinOcularSurface.h.
+  #
+  # THE MESH MUST BE A UNIFORMLY SCALED SPHERE. The shader reads the globe's
+  # radial direction out of the interpolated normal; a non-uniform scale makes
+  # the normal stop being radial and the iris shears.
+  #
+  # The version is an AUTHORING act, not a renderer switch: moving a profile to
+  # 5 with the Ocular block left at its defaults changes nothing at all. See
+  # docs/adr/0024-material-kind-is-not-the-closure-version.md.
+  EvaluationModel: 5
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # THE SCLERA's transport, because that is what most of this material's area
+  # is. An eye white is scattering collagen — it is white the way a fingernail
+  # is white, not the way chalk is — so it is near-achromatic with a short mean
+  # free path, and warm rather than neutral because the vasculature under it is.
+  ScatterColor: [0.88, 0.8, 0.76]
+  ScatterRadiusMM: [0.9, 0.62, 0.5]
+  # Metres -> millimetres. 1000 is the identity, and every profile in this
+  # project uses it: the exaggeration knobs are the radii, not the scale.
+  ThicknessScale: 1000
+  SpecularTint: [1, 1, 1]
+  # The transmission lobe (issue #1242). WEAK, deliberately: a sclera is 0.5 mm
+  # of dense collagen over an opaque interior, so almost nothing crosses it. An
+  # eye that transmitted like a lip would glow from inside the skull.
+  Transmission:
+    Strength: 0.25
+    Anisotropy: 0.7
+    Power: 4
+  # The layered surface response (issue #1243). A small broad lobe over the
+  # narrow one; the variance filter stays at 0 because this surface carries no
+  # pore normal map to filter.
+  Specular:
+    LobeMix: 0.2
+    LobeRoughnessScale: 2
+    NormalVarianceStrength: 0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  # ---------------------------------------------------------------------------
+  # THE TEAR FILM (issue #1245's Oral block, read at version 4 AND 5).
+  #
+  # There is no separate tear-line code path and there is not going to be one. A
+  # tear film and a saliva film are the SAME INTERFACE — a thin water layer over
+  # wet tissue — and their indices differ by 0.007: an F0 of 0.0208 against
+  # 0.0201, a 3% difference, measured in question 7 of
+  # experiments/eye-cornea-reference/compare_refraction.py. A second
+  # implementation would be a second opinion about one number.
+  #
+  # So the eye's wetness is authored here, with the index of TEARS rather than
+  # saliva, and the tear LINE at the lid margin is a separate entity carrying
+  # EyeTearLine.oloskin with the same coat at a higher strength.
+  # ---------------------------------------------------------------------------
+  Oral:
+    # A cornea is the wettest surface on a face and the smoothest.
+    CoatStrength: 0.5
+    # The film's own perceptual roughness. Very smooth — the highlight it makes
+    # is the small, hard catchlight that reads as "eye" more than anything else
+    # in this file.
+    CoatRoughness: 0.04
+    # Tears. Essentially water, 1.337. The CPU converts this to a Fresnel F0
+    # once (SkinOralCoatF0) and the lane carries the result.
+    CoatIor: 1.337
+    # The cavity weight gates the thin-region transmission. 0 here: a sclera's
+    # transmission is already weak and there is no enclosed cavity in front of
+    # it to occlude.
+    CavityOcclusion: 0
+  # ---------------------------------------------------------------------------
+  # THE EYE (issue #1244). Read ONLY at transport version 5.
+  #
+  # FIVE CLINICAL LENGTHS AND ONE INDEX. Every ratio the shader wants — the
+  # refraction eta, the corneal curvature ratio, the iris-plane depth in eye
+  # radii, the limbus cosine, the pupil and ring radii in disc coordinates — is
+  # DERIVED from these on the CPU. That direction is deliberate: 12.0, 7.8 and
+  # 5.85 are numbers an author can find in Bennett & Rabbetts and check against
+  # a real eye; 0.7485, 1.5385 and 0.8724 are numbers nobody can check.
+  # ---------------------------------------------------------------------------
+  Ocular:
+    # THE MASTER SWITCH. 0 is no eye at all and is bit-identical to the
+    # version-4 frame; this file is an eye, so it is 1.
+    OcularStrength: 1
+    # How much of the corneal refraction applies. THE QUALITY LADDER: 1 is the
+    # full model, 0 is a painted iris that still has a pupil, a limbal ring and
+    # a dish tilt. Continuous in between, so crossing it does not pop.
+    RefractionStrength: 1
+    # The eyeball's radius. The reference length every other length below is
+    # divided by — so the ratios that reach the GPU do not care what unit the
+    # SCENE is authored in.
+    EyeRadiusMM: 12
+    # The anterior cornea's radius of curvature, 7.8 mm clinical. Its only job
+    # is the curvature ratio EyeRadiusMM / CorneaRadiusMM — how much steeper the
+    # corneal dome is than the sphere the mesh supplies.
+    #
+    # SET THIS EQUAL TO EyeRadiusMM if your eye mesh already HAS corneal
+    # geometry: the ratio becomes exactly 1 and the interpolated normal is used
+    # untouched. This project's eyes are sphere primitives, so it is 7.8.
+    CorneaRadiusMM: 7.8
+    # The visible iris's radius — half the 11.7 mm clinical diameter. ALSO SETS
+    # THE LIMBUS: the cornea/sclera boundary is where the iris ends, so one
+    # authored length decides both. Two fields could have disagreed; one cannot.
+    IrisRadiusMM: 5.85
+    # A mesopic pupil.
+    PupilRadiusMM: 2
+    # The axial distance from the eye's APEX to the iris plane.
+    #
+    # 2.48 AND NOT THE CLINICAL 3.6, and the difference is arithmetic rather
+    # than taste: the clinical anterior chamber depth is measured from the
+    # CORNEAL apex, and a sphere primitive has no corneal bulge — its apex sits
+    # 1.12 mm further back. An eye mesh with real corneal geometry authors 3.6
+    # here, together with CorneaRadiusMM == EyeRadiusMM above.
+    IrisPlaneDepthMM: 2.48
+    # The cornea's index of refraction, seen from air.
+    #
+    # 1.336 — THE AQUEOUS HUMOUR — AND NOT 1.376, THE CORNEAL STROMA. This is
+    # the trap in the whole feature: 1.376 is the number an author looks up for
+    # "cornea", and the ray spends 0.55 mm in the stroma and 3 mm in the aqueous
+    # behind it, so the index that decides where it lands is the one it ENDS in.
+    # Measured on corneal geometry: 0.10% of the iris radius against 1.04%.
+    CorneaIor: 1.336
+    # The limbal ring: the iris root passes under the corneal limbus, where the
+    # chamber is shallowest and the sclera overhangs it, so the outermost iris
+    # is genuinely in shadow. Its width in the FRAME changes with view angle,
+    # because it is seen through the same refraction the rest of the iris is —
+    # one of the two cues that separate a refracting eye from a painted one.
+    LimbalRingWidthMM: 0.7
+    LimbalRingStrength: 0.75
+    # The pupil is an APERTURE, not a pigment: it is dark because it is a hole
+    # into an absorbing chamber. 1 is fully black.
+    PupilDarkening: 1
+    # The iris dish. A real iris slopes back toward the pupil margin, and that
+    # tilt is what makes it catch a key light across one side and go dark across
+    # the other — the depth response, and the part of "not a flat painted eye"
+    # that the parallax alone does not supply.
+    IrisConcavity: 0.25
+    # The iris's own colour, LINEAR Rec.709. MULTIPLIED into the material's
+    # albedo inside the iris disc and faded out at the limbus, so the SCLERA
+    # keeps the AlbedoColor the scene authored.
+    #
+    # WHITE IS NEUTRAL — multiplying by 1 changes nothing — so a profile that
+    # has not authored an iris colour shades exactly as it did. A multiply is
+    # also the physically sensible direction: an iris is PIGMENTED TISSUE seen
+    # through the same chamber the sclera is, so it is darker and more saturated
+    # than the surface around it, never brighter. The number to write here is
+    # the TRANSMITTANCE of that pigment, which is what you would measure.
+    #
+    # Without it the iris is exactly the colour of the sclera and the eye reads
+    # as a sphere with a dot.
+    IrisColor: [0.3, 0.44, 0.52]

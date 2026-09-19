@@ -314,8 +314,15 @@ vec2 oloSkinLobeFor(int materialKind, int evaluationModel, vec4 skinSpecularLane
 {
     if (materialKind != OLO_MATERIAL_KIND_SKIN)
         return vec2(0.0, 1.0);
+    // ALL THREE LAYERING VERSIONS. Version 5 (issue #1244) is "everything
+    // version 4 does, plus the cornea", so omitting it here silently returned a
+    // version-5 eye to ONE lobe — the fourth time this shape of omission has
+    // been caught, and the first time it was caught by a neutral-identity A/B
+    // rather than by somebody looking at a frame. It was worth 5 levels out of
+    // 255 on a sclera: far too little to notice, far too much to be nothing.
     if (evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
-        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
         return vec2(0.0, 1.0);
     return skinSpecularLane.xy;
 }

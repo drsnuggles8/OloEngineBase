@@ -101,6 +101,19 @@
 // See include/SkinOralSurface.glsl and Renderer/SkinOralSurface.h.
 #define OLO_SKIN_MODEL_ORAL_SURFACE 4
 
+// Version 5 (issue #1244): everything version 4 does, plus a CORNEAL
+// REFRACTION. The iris sits ~2.5 mm behind a transparent dome of index 1.336,
+// so a viewer never sees it where it is; version 5 refracts the view ray at
+// that dome, finds the iris point behind it, and applies the iris's own depth
+// response (a limbal ring, a pupil and a dish tilt) at THAT point.
+//
+// UNLIKE EVERY VERSION BEFORE IT, THIS ONE RUNS IN THE MATERIAL STAGE: a
+// refraction changes which point you are looking at, not how it reflects, so it
+// resolves in PBR_GBuffer*.glsl and PBR_MultiLight*.glsl and the deferred
+// lighting pass never sees it. See include/SkinOcularSurface.glsl and
+// Renderer/SkinOcularSurface.h.
+#define OLO_SKIN_MODEL_OCULAR_SURFACE 5
+
 // "This pixel names no skin profile." The all-ones pattern of the lane's
 // three-bit slot field, matching kSkinProfileSlotNone in Renderer/SkinProfile.h.
 #define OLO_SKIN_PROFILE_SLOT_NONE 7
@@ -2381,7 +2394,8 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
         evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
         evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
-        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
         return lighting;
     return OloSurfaceLighting(lighting.Diffuse, lighting.Specular * specularTint);
 }
@@ -2432,6 +2446,12 @@ OloSurfaceLighting oloApplySkinProfile(OloSurfaceLighting lighting, int material
 // visibilitySmithGGXCorrelated above it.
 #include "SkinOralSurface.glsl"
 
+// The corneal refraction and the iris response (issue #1244) — the ocular
+// terms. Included LAST of the four skin includes because it is the only one
+// called from the material stage rather than the lighting stage, and because
+// its doc comment refers to the coat above it: the tear line IS that coat.
+#include "SkinOcularSurface.glsl"
+
 // The aux value for a pixel that HAS been shaded.
 //
 // `scatteringMask` is oloSkinScatteringMask's [0,1]: the fraction of this
@@ -2462,10 +2482,17 @@ vec4 oloSkinDiffusionOutput(OloSurfaceLighting lighting, int materialKind, int e
     // plus the oral terms", so omitting it here would have made moving a
     // profile to it SILENTLY TURN THE DIFFUSION OFF while turning the coat on —
     // the same trap this comment block has now recorded three times.
+    // ALL FIVE DIFFUSING VERSIONS. Version 5 is "everything version 4 does,
+    // plus the cornea", so omitting it here would have made moving a profile to
+    // it SILENTLY TURN THE DIFFUSION OFF while turning the eye on — the same
+    // trap this comment block has now recorded four times. It matters more here
+    // than anywhere: an eye's SCLERA is the surface that needs the diffusion,
+    // and a sclera that stopped scattering reads as a chalk-white ball.
     if (evaluationModel != OLO_SKIN_MODEL_SCREEN_SPACE_DIFFUSION &&
         evaluationModel != OLO_SKIN_MODEL_THICKNESS_TRANSMISSION &&
         evaluationModel != OLO_SKIN_MODEL_LAYERED_SPECULAR &&
-        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE)
+        evaluationModel != OLO_SKIN_MODEL_ORAL_SURFACE &&
+        evaluationModel != OLO_SKIN_MODEL_OCULAR_SURFACE)
         return vec4(0.0);
     if (skinProfileSlot < 0 || skinProfileSlot >= OLO_SKIN_PROFILE_SLOT_NONE)
         return vec4(0.0);
