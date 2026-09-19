@@ -23,9 +23,11 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
 3. **Turning coat shadowing on can make a SPARSE coat brighter, and that is correct.** It does two
    things at once: it adds the measured occlusion *and* it bypasses the ramp (rule 2). On a coat too
    sparse to actually self-shadow, the fake darkening it replaced is the stronger of the two, so the
-   net result is brighter. Measured on the evidence coat: **+338 020** summed luma at 1500 strands
-   against **−510 380** at 6000. Do not "fix" this by restoring the ramp — that is the double count.
-   Both ends are pinned by `ADenserCoatIsDarkenedMoreThanASparseOne`.
+   net result is brighter. Measured on the evidence coat at the default `kappa`: **+380 857** summed
+   luma at 1500 strands against **−487 404** at 6000. Do not "fix" this by restoring the ramp — that
+   is the double count. Both ends are pinned by `ADenserCoatIsDarkenedMoreThanASparseOne`.
+   (Before #1360 the same pair read **+338 020** and **−510 380**; the Jensen correction brightens
+   both ends, and the default `kappa` moved 1.0 → 4.0 with it. See rule 12.)
 
 4. **FINER IS WORSE, for every representation here.** Both the density volume and the deep opacity
    map optimise at roughly **two strand spacings** and alias below it: a cell holding one strand or
@@ -75,6 +77,24 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
     authored — which looks entirely plausible. Same reasoning as
     `GroomComponent::m_CompositionMode`.
 
+12. **The transmittance is the MEAN OF THE TRANSMITTANCES, not the transmittance of the mean.**
+    `tau` is `E[N]`, an expectation over the fragment's footprint, so `exp(-kappa * tau)` is a
+    Jensen LOWER bound on what the footprint receives and over-darkens a disordered coat by an
+    amount set by the coat's disorder, not by anything authored. What ships is the Poisson
+    generating form `exp(-tau * (1 - exp(-kappa)))` (#1360). Two consequences that catch people:
+    `kappa` now describes ONE FIBRE (1.0 means a single crossing passes 1/e), not the aggregate;
+    and transmittance FLOORS at `exp(-tau)` as `kappa` grows, because a coat of opaque fibres still
+    passes light wherever the footprint crossed nothing, which for a Poisson `N` is exactly
+    `P(N = 0)`. An assertion that the coat reaches black at a large `kappa` is asserting the old
+    model.
+
+    **The authored default moved 1.0 → 4.0 with it**, because the same number now attenuates less
+    and a dense coat at 1.0 stopped reading as shadowed at all (+22 955 summed luma where it had
+    been −510 380). 4.0 is the knee of a measured sweep: it buys 94.9% of all the darkening there
+    is, 6.0 buys 99.3%, and 16.0 adds 0.7% more. **A scene authored before #1360 keeps its own
+    value and renders brighter** — that is the correction landing, not a regression, but re-judge a
+    dense coat authored at 1.0.
+
 ## The reference's own trap: the footprint
 
 A single ray's crossing count is an integer, so the ground truth is an expectation over a bundle.
@@ -117,6 +137,12 @@ than a tolerance.
   it, it did **not** move the offset table's size — so the array size, the more obvious mirror,
   still matched while the base did not. `TEX_GROOM_COAT_VOLUME = 75` was the last unclaimed sampler
   index; exactly one remains below the GL 4.6 minimum of 80.
+- **The march has no GPU parity test; the transmittance now does.**
+  `GroomCoatTransmittanceParityTest` (#1360) compiles `GroomCoatShadowCommon.glsl` and compares
+  `oloGroomCoatTransmittance` against the C++ twin over the whole authored `kappa` range, plus the
+  non-finite case. `oloGroomCoatOpticalDepth` against `SampleDensityVolume` is still guarded only by
+  the CPU comparison and the visual-evidence A/B, neither of which can see the two sides drifting in
+  the SAME direction. Change the march on one side only and nothing in the suite will say so.
 - **The bindless arm cannot be validated with raw `glslc`.** It fails on the pre-existing
   `samplerCube` too, because the engine supplies the `GL_ARB_bindless_texture` prologue that raw
   `glslc` does not. A/B against `git show HEAD:<shader>` before concluding a bindless error is

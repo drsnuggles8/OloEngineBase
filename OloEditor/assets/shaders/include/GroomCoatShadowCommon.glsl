@@ -7,15 +7,22 @@
 // and the order of operations is mirrored deliberately rather than just the
 // formula: a mathematically equal rearrangement moves the last bits.
 //
-// THERE IS NO GPU PARITY TEST FOR THIS PAIR YET, and that is stated rather than
-// implied. #1246 and #1247 each ship one (GroomStrandGpuParityTest,
-// GroomFibreGpuParityTest) and this twin deserves the same; what guards it
-// today is the CPU comparison plus the visual-evidence A/B, neither of which
-// can see the two sides drifting in the same direction. Do not read the
-// mirroring above as something a test is currently checking.
+// HALF OF THIS PAIR NOW HAS A GPU PARITY TEST, and which half is stated rather
+// than implied. #1360 added GroomCoatTransmittanceParityTest, which compiles
+// this file and compares oloGroomCoatTransmittance against
+// GroomCoatShadow::CoatTransmittance over the whole authored kappa range.
+//
+// THE MARCH IS STILL UNGUARDED. oloGroomCoatOpticalDepth against
+// SampleDensityVolume needs a 3D volume uploaded and read back identically on
+// both sides, which no probe does yet; what guards it today is the CPU
+// comparison plus the visual-evidence A/B, neither of which can see the two
+// sides drifting in the same direction. Do not read the mirroring of the march
+// as something a test is currently checking.
 //
 // WHAT IT COMPUTES. tau = the expected number of fibre crossings between a
-// point and the light, from which transmittance is exp(-kappa * tau). Purely
+// point and the light, from which transmittance is exp(-tau * (1 - exp(-kappa)))
+// — the MEAN of the per-ray transmittances rather than the transmittance of the
+// mean crossing count, which is the Jensen correction #1360 made. Purely
 // geometric — fibre areal density times the sine of the angle between the ray
 // and the local fibre direction, integrated along the ray. It sees NO colour:
 // the pigment already attenuates inside each fibre in GroomFibreCommon.glsl,
@@ -243,10 +250,21 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 	return tau;
 }
 
-// exp(-kappa * tau), clamped. kappa is the per-crossing extinction and is
-// DIMENSIONLESS: 1.0 means one expected crossing attenuates to 1/e. It is an
-// authored coat property, deliberately separate from the pigment, which already
-// attenuates INSIDE the fibre in GroomFibreCommon.glsl.
+// exp(-tau * (1 - exp(-kappa))), clamped. THE TWIN OF
+// GroomCoatShadow::CoatTransmittance — the two must stay the same expression.
+//
+// THE MEAN OF THE TRANSMITTANCES, NOT THE TRANSMITTANCE OF THE MEAN (#1360).
+// `opticalDepth` is E[N], the expected fibre crossings over the footprint, and
+// what the footprint receives is E[exp(-kappa N)]. Jensen puts the naive
+// exp(-kappa * tau) strictly below that, so it over-darkens a disordered coat.
+// For a Poisson N the exact mean is that distribution's probability generating
+// function at exp(-kappa), which is the expression above — one extra exp on a
+// value already being exponentiated.
+//
+// kappa is the per-crossing extinction and is DIMENSIONLESS: it describes ONE
+// FIBRE, so 1.0 means a single crossing passes 1/e of the light through it. It
+// is an authored coat property, deliberately separate from the pigment, which
+// already attenuates INSIDE the fibre in GroomFibreCommon.glsl.
 float oloGroomCoatTransmittance(float opticalDepth, float kappa)
 {
 	if (!(opticalDepth > 0.0) || !(kappa > 0.0) || isinf(opticalDepth) || isinf(kappa))
@@ -264,7 +282,11 @@ float oloGroomCoatTransmittance(float opticalDepth, float kappa)
 		// matters most.
 		return 1.0;
 	}
-	return clamp(exp(-kappa * opticalDepth), 0.0, 1.0);
+	// The CPU twin uses expm1 here, which keeps a small kappa's significant
+	// digits; GLSL has no expm1 and the difference is below the f32 epsilon of
+	// the exp() it feeds.
+	float perCrossing = 1.0 - exp(-kappa);
+	return clamp(exp(-perCrossing * opticalDepth), 0.0, 1.0);
 }
 
 #endif // OLO_GROOM_COAT_SHADOW_COMMON_GLSL

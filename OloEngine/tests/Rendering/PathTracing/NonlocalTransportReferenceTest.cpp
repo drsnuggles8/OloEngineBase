@@ -65,6 +65,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <map>
 #include <vector>
@@ -636,48 +637,71 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST(CoatTransportReference, TheProductionFormIsALowerBoundAndTheGapIsMeasured)
+    TEST(CoatTransportReference, TheProductionFormTracksTheWalkAndTheNaiveOneIsALowerBound)
     {
-        // THE FINDING. GroomCoatShadow::CoatTransmittance returns
-        // exp(-kappa * tau) with tau = E[crossings]. The transmittance a
-        // fragment footprint actually receives is E[exp(-kappa * N)]. Jensen's
-        // inequality puts the second at or above the first, with equality only
-        // when N has no variance — so the shipped form OVER-DARKENS a
-        // disordered coat, and the amount is a property of the coat's disorder
-        // rather than of any parameter.
+        // THE FINDING, AND THE FIX IT PRODUCED (#1255 measured it, #1360 acted
+        // on it). `opticalDepth` is E[N], the expected crossing count over a
+        // fragment's footprint, and what the footprint receives is
+        // E[exp(-kappa N)]. Jensen's inequality puts the NAIVE exp(-kappa E[N])
+        // at or below that, with equality only when N has no variance — so the
+        // form GroomCoatShadow::CoatTransmittance used to return OVER-DARKENED a
+        // disordered coat, by an amount set by the coat's disorder rather than
+        // by anything anybody authored.
         //
-        // This is a statement about a model, not a bug in an implementation, and
-        // #1255 does not ask for it to be fixed. It asks for it to be measured,
-        // so that the next person changing coat shadowing knows which direction
-        // the error points and roughly how big it is.
+        // Both halves are asserted here, and the order matters: the naive form
+        // is STILL a lower bound (that is the mathematics, and it does not stop
+        // being true once it stops shipping), and the form that now ships tracks
+        // the walk instead of bounding it.
         const std::vector<Ref::ReferenceFibre> medium = Ref::MakePoissonFibreSlab(1.0, 0.012, 1.0, 900, 0x1248u);
         constexpr f64 kFootprint = 0.8;
         constexpr u32 kRays = 4096;
 
-        f64 largestGap = 0.0;
+        f64 largestNaiveGap = 0.0;
+        f64 largestShippedError = 0.0;
         for (const f64 kappa : { 0.25, 0.5, 1.0, 2.0 })
         {
             const Ref::CoatTransmittanceEstimate estimate = Ref::CoatBundleTransmittance(
                 medium, glm::dvec3(0.0, 0.0, -3.0), glm::dvec3(0.0, 0.0, 1.0), kappa, kFootprint, 6.0, kRays, 0x1255u);
 
-            // The inequality itself, which is the direction claim.
+            // The inequality itself, which is the direction claim and the whole
+            // reason the shipped form changed.
             EXPECT_GE(estimate.MeanTransmittance, estimate.ExponentialOfMean - 1.0e-9)
                 << "kappa = " << kappa << ": Jensen was violated, which means one of the two estimators is wrong";
 
-            largestGap = std::max(largestGap, estimate.MeanTransmittance - estimate.ExponentialOfMean);
+            largestNaiveGap = std::max(largestNaiveGap, estimate.MeanTransmittance - estimate.ExponentialOfMean);
+
+            // AND WHAT SHIPS TRACKS THE WALK. Called through the production
+            // helper, not through a local restatement of it, so this is a claim
+            // about the engine rather than about a description of the engine.
+            const f64 shipped = static_cast<f64>(
+                GroomCoatShadow::CoatTransmittance(estimate.MeanCrossings, static_cast<f32>(kappa)));
+            const f64 shippedError = std::abs(shipped - estimate.MeanTransmittance);
+            largestShippedError = std::max(largestShippedError, shippedError);
+
+            std::printf("[coat-1360] kappa %.2f  mu %.3f  walk %.4f  shipped %.4f (err %.4f)  naive %.4f (err %.4f)\n",
+                        kappa,
+                        estimate.MeanCrossings, estimate.MeanTransmittance, shipped, shippedError,
+                        estimate.ExponentialOfMean,
+                        std::abs(estimate.ExponentialOfMean - estimate.MeanTransmittance));
         }
 
-        // And it is not a rounding difference. A floor, not a tolerance: the
-        // claim is that the gap is real and worth knowing about.
-        EXPECT_GT(largestGap, 0.02) << "largest transmittance gap over the kappa sweep = " << largestGap;
+        // The naive form's error is real and worth knowing about. A FLOOR, not a
+        // tolerance: it says the thing that was fixed was worth fixing.
+        EXPECT_GT(largestNaiveGap, 0.02) << "largest naive transmittance gap over the kappa sweep = "
+                                         << largestNaiveGap;
 
-        // The production helper is exactly the arm this is compared against, so
-        // the comparison is against what ships rather than against a
-        // description of it.
-        const Ref::CoatTransmittanceEstimate estimate = Ref::CoatBundleTransmittance(
-            medium, glm::dvec3(0.0, 0.0, -3.0), glm::dvec3(0.0, 0.0, 1.0), 1.0, kFootprint, 6.0, kRays, 0x1255u);
-        EXPECT_NEAR(static_cast<f64>(GroomCoatShadow::CoatTransmittance(estimate.MeanCrossings, 1.0f)),
-                    estimate.ExponentialOfMean, 1.0e-5);
+        // The shipped form's error is a CEILING, and it is the prediction rather
+        // than the coincidence: the Poisson generating function is what this
+        // medium's transmittance actually is, so agreement is expected and only
+        // the bundle's own sampling error stands between them. 4096 rays of a
+        // mean of values in [0, 1] is at most 0.008 of one standard error, and
+        // the footprint is finite, so 0.02 is a few of those and still an order
+        // of magnitude under the gap it replaced.
+        EXPECT_LT(largestShippedError, 0.02) << "largest shipped-form error over the kappa sweep = "
+                                             << largestShippedError;
+        EXPECT_LT(largestShippedError, 0.5 * largestNaiveGap)
+            << "shipped error " << largestShippedError << " vs naive gap " << largestNaiveGap
+            << ": the new form is not measurably better than the one it replaced";
     }
 
     TEST(CoatTransportReference, TheGapClosesOnAnOrderedCoat)
@@ -761,6 +785,54 @@ namespace OloEngine::Tests
         EXPECT_LT(orderedGap, 0.005) << "ordered relative gap = " << orderedGap;
         EXPECT_GT(disorderedGap, 4.0 * std::max(orderedGap, 1.0e-6))
             << "ordered " << orderedGap << " vs disordered " << disorderedGap;
+
+        // -- what the shipped form costs on the arm it is wrong about --------
+        // THIS IS THE (a)-VERSUS-(b) DECISION, AS A NUMBER. #1360 offered two
+        // fixes: (a) the Poisson closed form, which is exact on a disordered
+        // coat and slightly over-BRIGHT on an ordered one, and (b) carrying the
+        // measured crossing variance so the correction adapts — which needs a
+        // second channel in the density volume AND in the deep opacity map.
+        //
+        // (b)'s estimator is the second cumulant, exp(-kappa mu + kappa^2 Var/2).
+        // On a Poisson medium Var == mu and it is the two-term expansion of (a);
+        // on the lattice Var collapses and it returns the naive form, which is
+        // the right answer there. So (b) can only help on the ORDERED arm, and
+        // this measures by how much.
+        const auto shipped = [](const Ref::CoatTransmittanceEstimate& e, f64 kappa)
+        { return static_cast<f64>(GroomCoatShadow::CoatTransmittance(e.MeanCrossings, static_cast<f32>(kappa))); };
+        const auto secondCumulant = [](const Ref::CoatTransmittanceEstimate& e, f64 kappa)
+        { return std::exp((-kappa * e.MeanCrossings) + (0.5 * kappa * kappa * e.CrossingVariance)); };
+
+        const f64 orderedKappa = kTargetOpticalDepth / orderedMean;
+        const f64 disorderedKappa = kTargetOpticalDepth / disorderedMean;
+
+        const f64 orderedShippedError = std::abs(shipped(ordered, orderedKappa) - ordered.MeanTransmittance);
+        const f64 orderedVarianceError = std::abs(secondCumulant(ordered, orderedKappa) - ordered.MeanTransmittance);
+        const f64 disorderedShippedError = std::abs(shipped(disordered, disorderedKappa) - disordered.MeanTransmittance);
+        const f64 disorderedNaiveError = std::abs(disordered.ExponentialOfMean - disordered.MeanTransmittance);
+
+        std::printf("[coat-1360] ordered  kappa %.4f  walk %.4f  shipped err %.4f  variance-corrected err %.4f\n",
+                    orderedKappa,
+                    ordered.MeanTransmittance, orderedShippedError, orderedVarianceError);
+        std::printf("[coat-1360] disorder kappa %.4f  walk %.4f  shipped err %.4f  naive err %.4f\n",
+                    disorderedKappa,
+                    disordered.MeanTransmittance, disorderedShippedError, disorderedNaiveError);
+
+        // (a) IS ENOUGH, and this is the assertion that says so: its residual on
+        // the arm it is WORST on — the ordered coat, where it has nothing to
+        // correct and corrects anyway — is smaller than the error it removes
+        // from the disordered arm. The trade is strictly favourable, so the
+        // second channel (b) would need is not bought here. If a future coat
+        // representation makes that false, this is the case that will say so.
+        EXPECT_LT(orderedShippedError, disorderedNaiveError)
+            << "ordered residual " << orderedShippedError << " vs the disordered error removed "
+            << disorderedNaiveError << ": the Poisson form now costs more than it buys, so #1360's option (b) "
+                                       "(carry Var[N] alongside E[N]) is worth paying for after all";
+
+        // And it is small in absolute terms as well as relative ones: an ordered
+        // coat at a renderable optical depth stays within a few percent of its
+        // walk. The exact number is printed above and quoted in the PR.
+        EXPECT_LT(orderedShippedError, 0.05) << "ordered residual = " << orderedShippedError;
     }
 
     TEST(CoatTransportReference, AFootprintNarrowerThanTheSpacingReportsAConfidentWrongAnswer)

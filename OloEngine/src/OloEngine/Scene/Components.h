@@ -6065,16 +6065,37 @@ namespace OloEngine
         // holes (issue #1019): operator== below is a whole-object memcmp.
 
         /// Per-crossing extinction — how opaque one fibre is to direct light.
-        /// DIMENSIONLESS: 1.0 means one expected fibre crossing attenuates to
-        /// 1/e.
+        /// DIMENSIONLESS: it describes ONE FIBRE, so 1.0 means a single crossing
+        /// passes 1/e of the light through it.
         ///
         /// NOT THE PIGMENT, and that separation is the issue's scope note
         /// rather than a style choice. #1247's model already absorbs light
         /// INSIDE each fibre through sigma_a; this is the purely geometric
         /// occlusion BETWEEN fibres. Deriving one from the other would apply
         /// the pigment twice and darken every coloured coat.
+        ///
+        /// THE DEFAULT MOVED 1.0 -> 4.0 IN #1360, and it is a re-authoring
+        /// rather than a taste change. Until then the transmittance was
+        /// exp(-kappa * tau), which treats the crossing count as deterministic;
+        /// it is now exp(-tau * (1 - exp(-kappa))), the mean over the footprint,
+        /// so the same authored number attenuates LESS — at kappa = 1 a crossing
+        /// costs 1 - 1/e = 0.63 of an e-fold rather than a whole one. Measured
+        /// on the evidence coat, the 6000-strand arm went from -510 380 summed
+        /// luma to +22 955, i.e. it stopped reading as shadowed at all.
+        ///
+        /// 4.0 IS THE KNEE OF A MEASURED SWEEP, not a round number. The dense
+        /// arm reaches -487 404 at 4.0 against an asymptote of -513 403, so 4.0
+        /// buys 94.9% of all the darkening there is; 6.0 buys 99.3% and 16.0
+        /// adds 0.7% more, which is a slider with nothing left in it. The
+        /// saturation is the model's, not the renderer's: transmittance floors
+        /// at exp(-tau) because a coat of opaque fibres still passes light
+        /// wherever the footprint crossed nothing.
+        ///
+        /// A SCENE AUTHORED BEFORE #1360 KEEPS ITS OWN VALUE and will render
+        /// brighter. That is the correction landing, not a regression — but a
+        /// dense coat authored at 1.0 wants re-judging against 4.0.
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
-        f32 m_Kappa = 1.0f;
+        f32 m_Kappa = 4.0f;
 
         /// Voxels along the volume's longest axis, at LOD 0.
         ///

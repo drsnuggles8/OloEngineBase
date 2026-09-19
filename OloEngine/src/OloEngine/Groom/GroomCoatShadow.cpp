@@ -686,7 +686,27 @@ namespace OloEngine::GroomCoatShadow
         {
             return 1.0f;
         }
-        const f64 t = std::exp(-static_cast<f64>(kappa) * opticalDepth);
+        // THE MEAN OF THE TRANSMITTANCES, not the transmittance of the mean
+        // (issue #1360). `opticalDepth` is E[N], the EXPECTED crossing count
+        // over the fragment's footprint, and what the footprint receives is
+        // E[exp(-kappa N)]. Jensen's inequality separates the two, so
+        // exp(-kappa E[N]) is a strict LOWER bound and over-darkens by an
+        // amount that grows with the coat's disorder rather than with anything
+        // anybody authored.
+        //
+        // Treating N as Poisson — which a disordered coat's crossing count is,
+        // measured in CoatTransportReference.ThePoissonMediumWalkMatchesItsClosedForm —
+        // makes the mean that distribution's probability generating function
+        // evaluated at exp(-kappa), and that is closed form:
+        //
+        //     E[exp(-kappa N)] = exp(-E[N] * (1 - exp(-kappa)))
+        //
+        // one extra exp on a value already being exponentiated. `expm1` rather
+        // than `1 - exp(-kappa)` so a small kappa keeps its significant digits;
+        // GLSL has no expm1 and spells it the long way, which differs below the
+        // f32 epsilon of the result.
+        const f64 perCrossing = -std::expm1(-static_cast<f64>(kappa));
+        const f64 t = std::exp(-opticalDepth * perCrossing);
         if (!std::isfinite(t))
         {
             return 0.0f;

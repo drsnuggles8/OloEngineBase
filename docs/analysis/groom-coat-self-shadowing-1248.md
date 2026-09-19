@@ -15,9 +15,19 @@ The quantity is a single scalar per (point, light direction):
 
 > **tau(x, L) = the expected number of fibre crossings** along the ray from `x` towards the light,
 
-from which the coat transmittance is `exp(-kappa * tau)`. It is a purely geometric quantity — fibre
-length density times diameter times the sine of the angle between ray and fibre — and it is
-deliberately **independent of the pigment**, which #1247 already attenuates inside each fibre.
+from which the coat transmittance is `exp(-tau * (1 - exp(-kappa)))`. It is a purely geometric
+quantity — fibre length density times diameter times the sine of the angle between ray and fibre —
+and it is deliberately **independent of the pigment**, which #1247 already attenuates inside each
+fibre.
+
+> **That transmittance was `exp(-kappa * tau)` when this document was written, and #1360 changed
+> it.** `tau` is an *expectation* over the fragment's footprint, so `exp(-kappa * tau)` is the
+> transmittance of the mean crossing count where what the footprint receives is the mean of the
+> transmittances; Jensen's inequality separates the two and the old form over-darkened a disordered
+> coat. Every number below was measured with the old form and is left as measured — the comparison
+> it supports is between *representations of tau*, and all of them are evaluated through the same
+> transmittance, so the selection is unaffected. See
+> [groom-coat-self-shadowing.md](../agent-rules/groom-coat-self-shadowing.md) rule 12.
 
 ### The three attenuations, and why they cannot double-count
 

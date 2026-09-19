@@ -543,7 +543,18 @@ namespace OloEngine::Tests
         // two, so the net result is a brighter coat. That is the correct
         // physical answer: a sparse coat should NOT have dark roots.
         //
-        // Measured at 1500 strands: +338 020, against −510 380 at 6000.
+        // Measured at 1500 strands: +380 857, against −487 404 at 6000.
+        //
+        // BOTH ENDS MOVED UP IN #1360 and the default kappa moved 1.0 -> 4.0
+        // with them. The transmittance is now the MEAN of the per-ray
+        // transmittances rather than the transmittance of the mean crossing
+        // count, which attenuates less for the same authored kappa — at the old
+        // default this very coat came out at +22 955, i.e. it stopped reading as
+        // shadowed at all. The sparse end is brighter than it was (+338 020) and
+        // cannot be brought back down: it floors at +375 053 as kappa grows,
+        // because a sparse coat is the most disordered relative to its own mean
+        // and therefore gains the most transmittance from the correction. That
+        // is the fix working, not a tuning failure.
         EXPECT_GT(sparse, 0.0)
             << "sparse " << sparse
             << ": a coat too sparse to self-shadow should come out BRIGHTER once the geometric ramp is bypassed. "

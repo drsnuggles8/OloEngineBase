@@ -445,7 +445,19 @@ TEST(GroomCoatShadowVolume, ANonFiniteCurveIsDroppedRatherThanPoisoningTheDensit
 
     // A merely LARGE depth is a real measurement and does reach zero, so the
     // rule above costs nothing where it matters.
-    EXPECT_LT(CoatTransmittance(90.0, 1.0f), 1.0e-30f);
+    //
+    // HOW FAST it reaches zero changed with #1360 and the new number is the
+    // point, not an adjusted tolerance. The shipped form is
+    // exp(-tau * (1 - exp(-kappa))), so at kappa = 1 each expected crossing
+    // costs 1 - 1/e = 0.632 of an e-fold rather than a whole one, and the floor
+    // as kappa grows is exp(-tau): a coat of perfectly opaque fibres still
+    // passes light wherever the footprint crossed nothing, which for a Poisson
+    // crossing count is exactly P(N = 0). Both are asserted, because the floor
+    // is the half that would silently stop being true if the generating
+    // function were replaced by something that merely looks like it.
+    EXPECT_LT(CoatTransmittance(90.0, 1.0f), 1.0e-24f);
+    EXPECT_GT(CoatTransmittance(90.0, 1.0f), 0.0f);
+    EXPECT_NEAR(CoatTransmittance(8.0, 16.0f), std::exp(-8.0f), 1.0e-6f);
 }
 
 // ── The comparison the decision rests on ─────────────────────────────────────

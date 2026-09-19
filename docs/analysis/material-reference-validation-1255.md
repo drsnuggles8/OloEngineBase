@@ -294,6 +294,13 @@ This is a statement about a model, not a bug in an implementation, and #1255 doe
 be fixed. It asks for it to be measured, so the next person changing coat shadowing knows which
 direction the error points and roughly how big it is.
 
+> **Acted on by #1360**, which shipped the Poisson closed form below in
+> `GroomCoatShadow::CoatTransmittance` and its GLSL twin. The reference above stays; the claim it
+> makes changed, and the test is now
+> `CoatTransportReference.TheProductionFormTracksTheWalkAndTheNaiveOneIsALowerBound` — it still
+> asserts that the retired form is a lower bound, because that is the mathematics, and additionally
+> that what ships tracks the walk.
+
 **The reference.** Two things, checking different halves:
 
 - `CoatBundleTransmittance` traces a jittered bundle through a medium this file *generates*, with an
