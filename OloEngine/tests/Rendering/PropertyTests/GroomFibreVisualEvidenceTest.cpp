@@ -363,6 +363,109 @@ namespace OloEngine::Tests
             }
         }
 
+        // The same capture, at an arbitrary render-target size. Separate from
+        // Capture() rather than folded into it because every other cell wants
+        // the native size and a defaulted-parameter version would make the one
+        // test that varies resolution look like the ones that do not.
+        void CaptureAtResolution(const std::string& saveAs, u32 width, u32 height, const glm::vec3& position,
+                                 f32 yaw, f32 pitch, std::vector<u8>& outPixels)
+        {
+            ResizeRenderTarget(width, height);
+
+            EditorCamera camera(60.0f, static_cast<f32>(width) / static_cast<f32>(height), 0.05f, 1000.0f);
+            camera.SetViewportSize(static_cast<f32>(width), static_cast<f32>(height));
+            camera.SetPose(position, yaw, pitch);
+
+            RunEditorFrames(camera, 2);
+
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            }
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
+            }
+            ASSERT_TRUE(fb) << "No composited framebuffer for '" << saveAs << "'";
+
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), width, height, outPixels);
+            ASSERT_EQ(outPixels.size(), static_cast<sizet>(width) * height * 4u);
+
+            {
+                const sizet rowBytes = static_cast<sizet>(width) * 4u;
+                std::vector<u8> tmp(rowBytes);
+                for (u32 y = 0; y < height / 2u; ++y)
+                {
+                    u8* top = outPixels.data() + (static_cast<sizet>(y) * rowBytes);
+                    u8* bot = outPixels.data() + (static_cast<sizet>(height - 1u - y) * rowBytes);
+                    std::memcpy(tmp.data(), top, rowBytes);
+                    std::memcpy(top, bot, rowBytes);
+                    std::memcpy(bot, tmp.data(), rowBytes);
+                }
+            }
+
+            if (!saveAs.empty())
+            {
+                WriteEvidenceAt(saveAs, width, height, outPixels);
+            }
+        }
+
+        static void WriteEvidenceAt(const std::string& name, u32 width, u32 height, const std::vector<u8>& pixels)
+        {
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            ASSERT_FALSE(ec) << "Failed to create evidence dir '" << dir.string() << "': " << ec.message();
+            const std::string path = (dir / (name + ".png")).string();
+            const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(width), static_cast<int>(height), 4,
+                                               pixels.data(), static_cast<int>(width) * 4);
+            ASSERT_NE(wrote, 0) << "stbi_write_png failed to write '" << path << "'";
+        }
+
+        // The coat's red/blue ratio, as the ratio of the TOTAL RED TO TOTAL BLUE
+        // the coat ADDS to the frame.
+        //
+        // Summing the per-channel difference against a strandless frame, over
+        // every pixel and with no threshold, is what makes this comparable
+        // across resolutions. A thresholded mask is not: which pixels clear a
+        // fixed absolute threshold depends on how many strands land in a pixel,
+        // so at a smaller size the faint edge pixels drop out of the mask and
+        // the surviving set is biased towards the densest, most saturated part
+        // of the coat. Measured, that selection effect alone moved the ratio
+        // from 2.00 to 3.02 between 1280x720 and 960x540 — a 51 % "hue shift"
+        // that was entirely an artefact of the metric.
+        //
+        // `outCoatPixels` keeps the thresholded count, because "is the coat
+        // still there at all" is a different question and an order-of-magnitude
+        // one, where the threshold is fine.
+        [[nodiscard]] static f64 CoatHue(const std::vector<u8>& frame, const std::vector<u8>& strandless,
+                                         u32& outCoatPixels)
+        {
+            f64 red = 0.0;
+            f64 blue = 0.0;
+            outCoatPixels = 0;
+            if (frame.size() != strandless.size())
+            {
+                return 0.0;
+            }
+            for (sizet i = 0; i + 3 < frame.size(); i += 4)
+            {
+                red += std::max(0, static_cast<int>(frame[i]) - static_cast<int>(strandless[i]));
+                blue += std::max(0, static_cast<int>(frame[i + 2]) - static_cast<int>(strandless[i + 2]));
+                for (int c = 0; c < 3; ++c)
+                {
+                    if (std::abs(static_cast<int>(frame[i + c]) - static_cast<int>(strandless[i + c])) >
+                        kChangedPixelThreshold)
+                    {
+                        ++outCoatPixels;
+                        break;
+                    }
+                }
+            }
+            return red / std::max(blue, 1.0);
+        }
+
         static void WriteEvidence(const std::string& name, const std::vector<u8>& pixels)
         {
             const fs::path dir = fs::path("assets") / "tests" / "visual";
@@ -834,77 +937,125 @@ namespace OloEngine::Tests
     TEST_F(GroomFibreVisualEvidenceTest, TheMaterialSurvivesANonNativeResolution)
     {
         // A NON-NATIVE RESOLUTION CHANGES THE PIXEL FOOTPRINT OF EVERY FIBRE,
-        // and #1246's one-pixel width floor means a strand's alpha is a
-        // function of that footprint. So a shading model whose output depended
-        // on coverage — for instance one that folded a brightness compensation
-        // into the material — would shift hue with resolution while looking
+        // and #1246's one-pixel width floor means a strand's alpha is a function
+        // of that footprint. So a shading model whose output depended on
+        // coverage — one that folded a brightness compensation into the
+        // material, say — would shift hue with resolution while looking
         // perfectly fine at any single one.
         //
-        // The coat's colour is the invariant, not its pixel count: at half the
-        // height there are genuinely fewer coat pixels and each one is dimmer.
+        // THIS TEST RENDERS AT TWO SIZES, which is the whole point and was the
+        // thing an earlier version got wrong: it captured only at the native
+        // size and asserted that the hue ratio was above one, which a
+        // coverage-dependent error would have passed. A cell named for an axis
+        // it never varies is worse than no cell.
+        //
+        // The coat's COLOUR is the invariant, not its pixel count: at 0.75x
+        // there are genuinely fewer coat pixels and each is dimmer, so hue is
+        // the only thing that can be held fixed across the two.
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = 1u;
         Renderer3D::ApplyRendererSettings();
         SetLightDirection(glm::vec3(-0.15f, -0.25f, -1.0f));
-        SetPigment(0.35f, 1.4f);
+        SetPigment(0.35f, 1.4f); // the coloured fibre, so a hue shift is visible
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
-        std::vector<u8> native;
-        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = false;
-        std::vector<u8> strandless;
-        Capture("", eye, 0.0f, 0.10f, strandless);
-        if (::testing::Test::HasFatalFailure())
+        struct Resolution
         {
-            return;
-        }
-        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
-        Capture("GroomFibre_GL_Forward_Native", eye, 0.0f, 0.10f, native);
-        if (::testing::Test::HasFatalFailure())
+            const char* Name;
+            u32 Width;
+            u32 Height;
+        };
+        // 0.75x on both axes: the same aspect (so the framing is identical and
+        // only the sampling changes), and not an integer divisor, so no strand
+        // lands on a tidy multiple of its native footprint.
+        const std::array<Resolution, 2> resolutions = { { { "Native", kWidth, kHeight }, { "Scaled", 960u, 540u } } };
+
+        std::array<f64, 2> hue{};
+        std::array<u32, 2> coatPixels{};
+        for (sizet r = 0; r < resolutions.size(); ++r)
         {
-            return;
+            // The composited frames, for the evidence PNGs and the "is the coat
+            // still there" count.
+            m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = false;
+            std::vector<u8> strandless;
+            CaptureAtResolution("", resolutions[r].Width, resolutions[r].Height, eye, 0.0f, 0.10f, strandless);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
+
+            std::vector<u8> frame;
+            CaptureAtResolution(std::string("GroomFibre_GL_Forward_") + resolutions[r].Name, resolutions[r].Width,
+                                resolutions[r].Height, eye, 0.0f, 0.10f, frame);
+            if (::testing::Test::HasFatalFailure())
+            {
+                return;
+            }
+            hue[r] = CoatHue(frame, strandless, coatPixels[r]);
+            ASSERT_GT(coatPixels[r], 0u) << resolutions[r].Name << ": no coat pixels";
+
+            std::printf("[groom-fibre] %-6s %ux%u: %u coat px, red/blue %.3f\n", resolutions[r].Name,
+                        resolutions[r].Width, resolutions[r].Height, coatPixels[r], hue[r]);
         }
 
-        f64 nativeRed = 0.0;
-        f64 nativeBlue = 0.0;
-        for (sizet i = 0; i + 3 < native.size(); i += 4)
-        {
-            bool coat = false;
-            for (int c = 0; c < 3; ++c)
-            {
-                if (std::abs(static_cast<int>(native[i + c]) - static_cast<int>(strandless[i + c])) >
-                    kChangedPixelThreshold)
-                {
-                    coat = true;
-                    break;
-                }
-            }
-            if (coat)
-            {
-                nativeRed += native[i];
-                nativeBlue += native[i + 2];
-            }
-        }
-        ASSERT_GT(nativeRed, 0.0);
-        const f64 nativeHue = nativeRed / std::max(nativeBlue, 1.0);
+        // Back to native so a later test in this fixture is not silently
+        // running at 960x540.
+        ResizeRenderTarget(kWidth, kHeight);
 
-        // The hue the CPU model predicts for this material, independent of any
-        // resolution at all. Comparing the frame against the MODEL rather than
-        // against a second frame is what makes this a resolution-invariance
-        // statement instead of a comparison of two equally wrong pictures.
+        // WHAT THIS CELL CAN AND CANNOT ASSERT, stated plainly because two
+        // earlier versions of it asserted something it cannot.
+        //
+        // It CANNOT assert that the coat's measured hue ratio is invariant.
+        // Lowering the resolution shrinks every strand's projected half width,
+        // #1246's one-pixel floor scales its alpha down to match, and the alpha
+        // cutoff then discards proportionally more fragments — keeping the
+        // thick dark roots and dropping the thin tips (81 825 -> 32 102 coat
+        // pixels, where pure area scaling predicts ~46 000). That moves the
+        // brightness DISTRIBUTION, and a non-linear tone curve turns a moved
+        // distribution into a moved channel ratio: measured 2.61 -> 4.09. None
+        // of that is the material; it is the visibility slice's coverage path
+        // seen through the tone map, and no tolerance would make an invariance
+        // claim on the composited frame honest.
+        //
+        // MEASURING IN LINEAR PRE-TONE-MAP SceneColor WOULD REMOVE THE CURVE,
+        // and that is the right way to turn this into an invariance claim:
+        // coverage is achromatic, so it cancels out of a ratio of linear
+        // radiances and what is left is the material's own spectral response.
+        // It was tried and is NOT here, for a stated reason rather than an
+        // unstated one: ResolveFrameGraphFramebuffer(SceneColor) hands back a
+        // framebuffer whose attachment 0 reads as all zeros through
+        // ReadbackRgbaFloat at this point in the frame. Whether that is the
+        // wrong render-graph version, the wrong attachment or the wrong format
+        // was not diagnosed — it is a render-graph question, not a fibre one.
+        // Whoever needs the stronger claim should start there.
+        //
+        // What it CAN assert, and does: the coat is still there at the reduced
+        // size, and it is still RED at both — a sign claim, which the tone
+        // curve preserves because the curve is monotone per channel. A material
+        // that scaled with pixel footprint would fail the first; one whose
+        // spectral response depended on coverage would fail the second.
+        EXPECT_GT(hue[0], 1.0) << "the red fibre does not read red at the native resolution";
+        EXPECT_GT(hue[1], 1.0) << "the red fibre does not read red at the reduced resolution";
+
+        // And the coat must still be THERE at the smaller size — a hue that
+        // matches across two frames is worth nothing if the second has almost
+        // no coat in it. Scaling both axes by 0.75 gives 0.5625x the area, so
+        // anything above a third of the native count is comfortably alive.
+        EXPECT_GT(coatPixels[1], coatPixels[0] / 3u)
+            << "the coat nearly vanished at the reduced resolution";
+
+        // The hue the CPU model predicts, independent of any resolution at all.
+        // Tone mapping sits between the two, so this is an ORDERING claim: a red
+        // fibre must read red both in the model and on screen.
         GroomFibreAuthoring authored;
         authored.PigmentMode = GroomFibrePigmentMode::Melanin;
         authored.Eumelanin = 0.35f;
         authored.Pheomelanin = 1.4f;
         const glm::vec3 albedo = GroomFibreAmbientResponse(MakeGroomFibreParams(authored), 0.0f).Sum();
         const f64 modelHue = static_cast<f64>(albedo.r) / std::max(static_cast<f64>(albedo.b), 1.0e-6);
-        std::printf("[groom-fibre] coat red/blue %.3f at %ux%u; model albedo ratio %.3f\n", nativeHue, kWidth,
-                    kHeight, modelHue);
-
-        // Tone mapping is between the two, so this is an ORDERING claim rather
-        // than an equality: a red fibre must read red on screen, and the
-        // measured ratio must sit on the same side of one as the model's.
-        EXPECT_GT(nativeHue, 1.0) << "the red fibre does not read red on screen";
+        std::printf("[groom-fibre] model albedo ratio %.3f\n", modelHue);
         EXPECT_GT(modelHue, 1.0);
     }
 } // namespace OloEngine::Tests

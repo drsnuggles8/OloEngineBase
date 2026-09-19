@@ -41,7 +41,7 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomFibreScattering.*`,
    uses, so the two cannot drift apart.
 
 6. **The longitudinal term does not depend on `h`. Hoist it.** Inside the quadrature loop it costs N
-   ten-term Bessel series per lobe instead of one, which is the difference between a four-tap rule
+   fourteen-term Bessel series per lobe instead of one, which is the difference between a four-tap rule
    being affordable in a fragment shader and not. Both the C++ and the GLSL are written this way and
    must stay that way together, because the parity test compares values and a restructure that
    changes the summation order moves the last bits.

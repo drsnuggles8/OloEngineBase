@@ -135,8 +135,8 @@ cheapest useful order and the smoothest. The order stays authorable (1–32) bec
 close-up may want more.
 
 Cost is linear in N: 4 Fresnel evaluations, 4 transmittance exponentials and 12 logistics per
-fragment per light. The longitudinal term — the expensive part, a ten-term Bessel series — does
-**not** depend on `h` and is hoisted out of the loop entirely, evaluated once per lobe.
+fragment per light. The longitudinal term — the expensive part, a fourteen-term Bessel series (§5)
+— does **not** depend on `h` and is hoisted out of the loop entirely, evaluated once per lobe.
 
 ---
 
@@ -271,8 +271,8 @@ production path tracer. Nothing in this slice transports light between fibres (#
 the absorption it asks for is far too low: it expects the neighbours to do the darkening and there
 are no neighbours. A coat authored at 0.1 renders at 0.76.
 
-**What ships** is a bisection against the model's own head-on albedo — twenty iterations over a
-monotone function, once per groom, not per fragment. Authored colour is rendered colour to within
+**What ships** is a bisection against the model's own head-on albedo — sixteen iterations over a
+monotone function, resolving σ_a to 5×10⁻⁴, once per groom and not per fragment. Authored colour is rendered colour to within
 0.01.
 
 The published fit stays callable (`GroomFibreSigmaAFromColor`), because it becomes the correct

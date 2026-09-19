@@ -365,8 +365,8 @@ namespace OloEngine
     /// Solved by bisection against the model's own albedo rather than by a
     /// fit, because the albedo is exactly what GroomFibreAmbientResponse
     /// computes and a closed form would be a second, drifting description of
-    /// it. Twenty iterations over a monotone function; it runs once per groom,
-    /// not per fragment.
+    /// it. Sixteen iterations over a monotone function, which resolve sigma to
+    /// 5e-4; it runs once per groom, not per fragment.
     ///
     /// A FIBRE CANNOT BE DARKER THAN ITS OWN SURFACE REFLECTION. R never
     /// enters the fibre, so no absorption removes it, and a target below that

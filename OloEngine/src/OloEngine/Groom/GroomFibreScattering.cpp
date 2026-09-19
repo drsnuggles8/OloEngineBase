@@ -33,7 +33,8 @@ namespace OloEngine
         }
 
         // The modified Bessel function of the first kind, order zero, as the
-        // first ten terms of its series. GLSL has no factorial and no 64-bit
+        // first fourteen terms of its series — see LogBesselI0 for why fourteen
+        // and not pbrt-v3's ten. GLSL has no factorial and no 64-bit
         // integer, so the coefficients 1 / (4^i (i!)^2) are written out as
         // constants and BOTH sides accumulate them in this order — the twin
         // contract is about values, and a Horner rearrangement would change
