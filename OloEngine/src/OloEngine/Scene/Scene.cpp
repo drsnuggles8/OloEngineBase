@@ -8198,6 +8198,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::vector<GroomStrandRequest> groomRequests;
+        // Every root-UV map handle a groom asked for this frame; the tail of this
+        // function evicts the cached pixels of every map that is not in it.
+        std::unordered_set<AssetHandle> liveRegionMaps;
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -8290,6 +8293,18 @@ namespace OloEngine
                 // is identical on every frame.
                 request.Coat.RegionMap = ResolveGroomRegionMap(coat->m_RegionMap);
                 request.Coat.ColorMap = ResolveGroomRegionMap(coat->m_ColorMap);
+                // Recorded even when the resolve FAILED: the entry that holds
+                // the failure latch is what stops a map with no graphics device
+                // behind it warning once per frame, so evicting it would undo
+                // exactly the thing it is for.
+                if (coat->m_RegionMap != 0)
+                {
+                    liveRegionMaps.insert(coat->m_RegionMap);
+                }
+                if (coat->m_ColorMap != 0)
+                {
+                    liveRegionMaps.insert(coat->m_ColorMap);
+                }
             }
             // The digest goes into the BUILD SETTINGS, which is what the strand
             // cache is keyed on and compared against — so a slider moved in the
@@ -8301,6 +8316,26 @@ namespace OloEngine
 
             groomRequests.push_back(std::move(request));
         }
+
+        // Drop the CPU copy of any root-UV map no groom asked for this frame.
+        //
+        // The cache is keyed by ASSET HANDLE, so entity destruction is not the
+        // eviction point the binding runtime's is — a map outlives every entity
+        // that used it. Without this, repointing a coat's region map during an
+        // editing session leaves the previous map's pixels resident for the
+        // Scene's lifetime, and a 2048-square map is 16 MB of them.
+        //
+        // Rebuilt from the live set rather than reference-counted: the live set
+        // is at most a handful of handles and is already in hand here, whereas a
+        // refcount would have to be maintained at every path that clears a
+        // handle, including the ones that do it by loading a scene over the top.
+        if (!m_GroomRegionMaps.empty())
+        {
+            std::erase_if(m_GroomRegionMaps,
+                          [&liveRegionMaps](const auto& entry)
+                          { return !liveRegionMaps.contains(entry.first); });
+        }
+
         Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
     }
 

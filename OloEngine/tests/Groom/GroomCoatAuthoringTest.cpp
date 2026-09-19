@@ -440,10 +440,15 @@ TEST(GroomCoatAuthoring, TheBudgetSpendsItselfOnTheSilhouetteLast)
     EXPECT_FLOAT_EQ(whiskerKept, 1.0f) << "every whisker must survive any budget";
     EXPECT_LT(undercoatKept, 1.0f) << "the budget must actually have bitten, or this test asserts nothing";
 
-    // And the budget was really respected, within the rounding the strides
-    // introduce. A test that only checked the ordering would pass on a
-    // selection that kept everything.
-    EXPECT_LE(tight.StrandsSelected, 260u) << "selected " << tight.StrandsSelected << " against a budget of 200";
+    // And the budget was really respected. The bound is exact rather than
+    // generous: each role's stride rounds its retained fraction DOWN, so a role
+    // keeps at most its share plus the one strand the ceil in
+    // ceil(available/stride) can add — at most one per role over the whole
+    // budget. A looser bound here would have accepted the rounding bug this
+    // number was written to catch (a stride that rounded to NEAREST overshot by
+    // about a third).
+    EXPECT_LE(tight.StrandsSelected, 200u + GroomCoatRoleCount)
+        << "selected " << tight.StrandsSelected << " against a budget of 200";
 
     // A GENEROUS budget keeps everything, so the per-role machinery is inert
     // when it should be.

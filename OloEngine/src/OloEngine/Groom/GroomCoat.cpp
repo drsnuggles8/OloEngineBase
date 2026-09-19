@@ -93,6 +93,10 @@ namespace OloEngine
 
     bool SanitizeGroomCoatGroupDesc(GroomCoatGroupDesc& desc, u32 groupIndex, std::vector<std::string>& outReasons)
     {
+        // `&=`, NOT `&&=`: every field must be repaired, so the calls must all
+        // run. Short-circuiting on the first bad value would leave the rest of
+        // the description unrepaired and unreported, which is the shape of a
+        // silent fallback.
         bool clean = true;
         clean &= Repair(desc.Density, GroomCoatLimits::MinDensity, GroomCoatLimits::MaxDensity, 1.0f, "density",
                         groupIndex, outReasons);

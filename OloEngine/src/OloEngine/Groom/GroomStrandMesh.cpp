@@ -155,7 +155,7 @@ namespace OloEngine
             // forty halvings of [0, 1] in f64 reach the exact answer to far
             // beyond the precision a u32 stride can express. It is forty
             // iterations of a five-element loop, once per build.
-            const auto retainedFor = [&selection](f64 k, sizet role)
+            const auto retainedFor = [](f64 k, sizet role)
             {
                 const f64 weight = static_cast<f64>(GroomCoatBudgetWeight(static_cast<GroomCoatRole>(role)));
                 return std::min(1.0, k * weight);
@@ -212,13 +212,38 @@ namespace OloEngine
             for (sizet role = 0; role < GroomCoatRoleCount; ++role)
             {
                 const f64 fraction = retainedFor(k, role);
-                // std::lround, not a truncating cast: 1/0.6 is 1.67, and
-                // truncating it to a stride of 1 would keep every strand of a
-                // role the solver decided to thin, blowing the budget it was
-                // solved against. Rounding keeps the MEAN density right and lets
-                // the build's hard cap catch the overshoot.
+                // std::ceil, and the direction is load-bearing.
+                //
+                // The budget is an UPPER BOUND, so the stride must round the
+                // retained fraction DOWN — which means rounding 1/fraction up.
+                // Rounding to nearest looks more accurate and is not: 1/0.4 is
+                // 2.5, which rounds to a stride of 2 and keeps half the role
+                // where the solver had decided on four tenths. Across five roles
+                // that overshot MaxStrands by about a third, and MaxStrands has
+                // no hard cap downstream the way MaxSegments does — the build
+                // enforces the segment budget exactly and simply believes the
+                // strand one.
+                //
+                // Ceil also reproduces the pre-#1251 arithmetic EXACTLY on a
+                // groom with no roles, where every weight is equal: the solver's
+                // k is then budget/available, and ceil(1/k) is ceil(available/
+                // budget), which is the stride the old code computed directly.
+                // AGroomWithNoRolesBehavesExactlyAsItDidBefore asserts on that
+                // number.
+                //
+                // THE TOLERANCE IS NOT COSMETIC. The bisection converges on `lo`,
+                // the largest k it proved affordable, so it approaches the true
+                // root FROM BELOW and never reaches it: for 500 strands into a
+                // budget of 100 it returns 0.2 minus about 1e-12, whose inverse
+                // is 5.000000000023, and a bare ceil makes that a stride of SIX.
+                // Every budget would then thin by one more than it was asked to,
+                // and the pre-#1251 parity test above would be off by one with no
+                // visible symptom. A relative nudge of 1e-6 is orders of
+                // magnitude above the bisection's error and orders of magnitude
+                // below a stride step.
+                const f64 inverse = 1.0 / std::max(fraction, 1e-9);
                 const u32 stride =
-                    fraction >= 1.0 ? 1u : std::max(1u, static_cast<u32>(std::lround(1.0 / std::max(fraction, 1e-9))));
+                    fraction >= 1.0 ? 1u : std::max(1u, static_cast<u32>(std::ceil(inverse * (1.0 - 1e-6))));
                 selection.Stride[role] = stride;
                 selection.Selected += (selection.Available[role] + stride - 1u) / stride;
             }

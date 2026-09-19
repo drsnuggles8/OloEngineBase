@@ -925,47 +925,77 @@ namespace OloEngine::Tests
 
     TEST_F(FurCoatAuthoringVisualEvidenceTest, TheWhiskersSurviveABudgetThatGutsTheUndercoat)
     {
+        // Twenty-four whiskers against a groom of nearly ten thousand strands,
+        // at a budget of 400. They must all still be drawn, because three
+        // missing whiskers read as damage rather than as distance — which is the
+        // whole reason the Whisker role is exempt from the density draw and
+        // carries the largest budget weight.
+        //
+        // MEASURED AGAINST AN EMPTY COAT, NOT AGAINST "EVERYTHING ELSE".
+        // Comparing the full coat to the coat with whiskers hidden looks like
+        // the obvious A/B and is confounded: hiding a role frees its share of
+        // the budget, so the OTHER roles come back denser and the difference
+        // mixes "the whiskers are here" with "everything else moved". The
+        // confound is not hypothetical — it shifted this number by 9x when the
+        // stride arithmetic changed. Against an all-hidden frame the difference
+        // is the whiskers and nothing else.
         const glm::vec3 eye{ 0.0f, 0.6f, 5.2f };
         UseAnimal(/*longCoat*/ false);
         SetLightDirection(glm::vec3(-1.0f, -0.20f, 0.0f));
 
         constexpr u32 kAll = (1u << GroomCoatRoleCount) - 1u;
         constexpr u32 kWhiskersOnly = 1u << static_cast<u32>(GroomCoatRole::Whisker);
+        constexpr u32 kNothing = 0u;
+        constexpr u32 kTightBudget = 400u;
+        constexpr u32 kGenerousBudget = 12000u;
 
-        // A brutal budget: 400 strands against a groom of nearly ten thousand.
-        Groom().m_MaxRenderStrands = 400;
+        Groom().m_MaxRenderStrands = kTightBudget;
+
+        Coat().m_RoleVisibilityMask = kNothing;
+        std::vector<u8> bald;
+        Capture("FurCoatWhiskersNone_GL_Forward", eye, 0.0f, 0.05f, bald);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
 
         Coat().m_RoleVisibilityMask = kWhiskersOnly;
-        std::vector<u8> whiskersOnly;
-        Capture("FurCoatWhiskers_GL_Forward", eye, 0.0f, 0.05f, whiskersOnly);
+        std::vector<u8> whiskersTight;
+        Capture("FurCoatWhiskers_GL_Forward", eye, 0.0f, 0.05f, whiskersTight);
         if (::testing::Test::HasFatalFailure())
         {
             return;
         }
 
-        Coat().m_RoleVisibilityMask = kAll & ~kWhiskersOnly;
-        std::vector<u8> withoutWhiskers;
-        Capture("FurCoatWhiskersHidden_GL_Forward", eye, 0.0f, 0.05f, withoutWhiskers);
+        // The same whiskers with the budget wide open. At a generous budget
+        // nothing is thinned at all, so this is the whiskers' full footprint and
+        // the tight one must match it.
+        Groom().m_MaxRenderStrands = kGenerousBudget;
+        std::vector<u8> whiskersGenerous;
+        Capture("FurCoatWhiskersPresent_GL_Forward", eye, 0.0f, 0.05f, whiskersGenerous);
 
         Coat().m_RoleVisibilityMask = kAll;
-        std::vector<u8> everything;
-        Capture("FurCoatWhiskersPresent_GL_Forward", eye, 0.0f, 0.05f, everything);
-
-        Groom().m_MaxRenderStrands = 12000;
         if (::testing::Test::HasFatalFailure())
         {
             return;
         }
 
-        // The whiskers are DRAWN at this budget: hiding them changes the frame.
-        // Twenty-four very thick strands against a coat of thousands is a small
-        // number of pixels, so the threshold is small — but it is not zero, and
-        // zero is exactly what a budget that decimated them would give.
-        const u32 whiskerDelta = CountDifferingPixels(everything, withoutWhiskers);
-        std::printf("[fur-coat] whiskers contribute %u px at a budget of 400 strands\n", whiskerDelta);
-        EXPECT_GT(whiskerDelta, 200u)
-            << "the whiskers vanished under a tight budget: three missing whiskers read as damage, which is why "
-               "the Whisker role is exempt from the density draw";
+        const u32 tightFootprint = CountDifferingPixels(whiskersTight, bald);
+        const u32 generousFootprint = CountDifferingPixels(whiskersGenerous, bald);
+        std::printf("[fur-coat] whisker footprint: %u px at a budget of %u, %u px at %u\n", tightFootprint,
+                    kTightBudget, generousFootprint, kGenerousBudget);
+
+        EXPECT_GT(generousFootprint, 200u)
+            << "the whiskers are not visible even at a generous budget, so this test measures nothing";
+        // THE EQUALITY IS THE CLAIM. A budget thirty times too small must not
+        // remove a single whisker, so the two footprints must agree to within
+        // the handful of edge pixels a sub-pixel strand moves between frames.
+        // A budget that decimated them would show as a fraction, not a wobble.
+        ASSERT_GT(generousFootprint, 0u);
+        const f64 retained = static_cast<f64>(tightFootprint) / static_cast<f64>(generousFootprint);
+        EXPECT_GT(retained, 0.98) << "the whiskers were thinned by the budget: " << tightFootprint << " of "
+                                  << generousFootprint << " pixels survived";
+        EXPECT_LT(retained, 1.02) << "the tight budget somehow drew MORE whisker than the generous one";
     }
 
     // ── 6. Sub-pixel: MSAA, upscaling and a non-native resolution ──────────
