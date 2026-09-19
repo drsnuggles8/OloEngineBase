@@ -533,6 +533,22 @@ per this section's rule in one pass regardless, because the flag masks and the r
 
 ## 5. Instrumenting a build, and a per-file-set compile job pool (issues #759, #822)
 
+**For per-TU MEMORY, read [build-memory-per-tu.md](build-memory-per-tu.md) instead of this
+section.** Everything below measures per-command *time* plus a system-wide host-memory
+sample, and §5c/§5d's "heavy TUs" were identified by compile time, which is a proxy. The
+field this API cannot record — each compile's and each link's own peak RSS — is what
+`-fproc-stat-report` and `scripts/analyze_proc_stat.py` add (#1305).
+`OLO_BUILD_INSTRUMENTATION` turns both on **by default**, and the per-TU memory half is
+**also available on its own** as `OLO_PROC_STAT_REPORT` — a plain compiler flag, so it needs
+no launcher and costs nothing per build step. The precedence is worth knowing: an explicitly
+supplied `OLO_PROC_STAT_REPORT` always wins, so `-DOLO_BUILD_INSTRUMENTATION=ON
+-DOLO_PROC_STAT_REPORT=OFF` gives you the timing and tracing with **no** RSS reporting, and
+`-DOLO_PROC_STAT_REPORT=ON` alone gives RSS with no launcher. Only when it is left unset does
+it follow the umbrella — and it follows it on *every* configure rather than latching, so
+turning the umbrella back off turns this off with it. (The umbrella used to be unusable on Windows because its
+launcher could not run vendored glad's shell-dependent generator rule; fixed in #1306 by
+patching that rule on top of the pin.)
+
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
 
 As of #822 this machine is on CMake 4.4.2. The repo's own `cmake_minimum_required` floor

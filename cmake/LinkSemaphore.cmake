@@ -14,10 +14,28 @@
 # compiler count was only two. N concurrent trees get up to N x OLO_LINK_JOBS
 # linkers, and no per-tree pool can see the others.
 #
-# This wires every link step through .claude/skills/run-oloengine/link-semaphore.ps1,
-# which takes a permit from an OS-named semaphore shared by every tree on the machine.
-# The wrapper FAILS OPEN by design (see its header): if the semaphore is unavailable
-# the link runs unthrottled rather than failing.
+# This wires every link step through a wrapper that takes one of N permits shared by
+# every tree on the machine. There are two, picked by platform, because the ownership
+# property that makes a permit reclaimable when its holder is killed has to be obtained
+# differently on each:
+#
+#   Windows   .claude/skills/run-oloengine/link-semaphore.ps1 — N named MUTEXES, because
+#             a Windows semaphore's count is owned by nobody and a killed holder leaks
+#             its permit forever (that script's header has the measurement).
+#   POSIX     scripts/link-semaphore.py — flock(), where the kernel gives ownership for
+#             free: the lock belongs to the open file description and is released when
+#             the process dies, however it dies.
+#
+# THE POSIX HALF IS NEW (issue #1313) AND IT CLOSED A REAL HOLE. Before it, a non-Windows
+# host found no pwsh, warned, and linked unthrottled — so on the olo-ci box NOTHING
+# bounded a measured 11.17 GiB link (Debug+ASan; 10.03 GiB with no sanitizer) against a
+# 14 GiB unit cap and a 19 GiB slice shared by both runner slots. The Ninja pools do not
+# cover it there: every Linux job configures with no -G and gets Unix Makefiles, where
+# `olo_link` and `olo_heavy` silently do not exist.
+#
+# Both wrappers FAIL OPEN by design: if the permit mechanism is unavailable, or every
+# permit is busy past the timeout, the link runs unthrottled rather than failing. A
+# throttle that can fail a build is worse than no throttle.
 #
 # GENERATOR SUPPORT, and why it shapes the whole policy: CMAKE_<LANG>_LINKER_LAUNCHER
 # is honoured ONLY by the Ninja and Makefile generators — the same restriction as
@@ -56,27 +74,64 @@ if(OLO_ENABLE_LINK_SEMAPHORE)
             "the throttle off deliberately, rather than passing a value that disables it "
             "by accident.")
     else()
-        find_program(OLO_PWSH NAMES pwsh powershell)
-        set(_olo_link_wrapper "${CMAKE_SOURCE_DIR}/.claude/skills/run-oloengine/link-semaphore.ps1")
+        # PICK THE WRAPPER BY PLATFORM. Both implement the same contract — take one of
+        # OLO_LINK_SEMAPHORE_SLOTS permits, run the link, fail OPEN on any problem — but
+        # they cannot share an implementation: the Windows one needs N named mutexes to
+        # get ownership semantics a Windows semaphore does not have, while POSIX gets
+        # ownership from the kernel for free because an flock belongs to the open file
+        # description and dies with the process holding it.
+        #
+        # THE POSIX HALF IS WHY THIS BLOCK EXISTS AT ALL (issue #1313). Until it landed,
+        # a non-Windows host found no pwsh, warned, and linked unthrottled — which on the
+        # olo-ci box meant NOTHING bounded a measured 11.17 GiB link against a 14 GiB unit
+        # cap, because OLO_LINK_JOBS and olo_heavy are Ninja pools and every Linux job
+        # gets Unix Makefiles.
+        if(WIN32)
+            find_program(OLO_LINK_SEMAPHORE_RUNNER NAMES pwsh powershell)
+            set(_olo_link_wrapper "${CMAKE_SOURCE_DIR}/.claude/skills/run-oloengine/link-semaphore.ps1")
+            set(_olo_link_runner_args "-NoProfile;-File")
+            set(_olo_link_runner_kind "pwsh")
+        else()
+            find_program(OLO_LINK_SEMAPHORE_RUNNER NAMES python3 python)
+            set(_olo_link_wrapper "${CMAKE_SOURCE_DIR}/scripts/link-semaphore.py")
+            set(_olo_link_runner_args "")
+            set(_olo_link_runner_kind "python3")
+        endif()
 
-        if(NOT OLO_PWSH)
+        if(NOT OLO_LINK_SEMAPHORE_RUNNER)
             message(WARNING
-                "Link semaphore: neither 'pwsh' nor 'powershell' found on PATH — linking "
-                "WITHOUT cross-tree throttling. Concurrent builds in other worktrees could "
-                "then overlap their link steps.")
+                "Link semaphore: no '${_olo_link_runner_kind}' on PATH — linking WITHOUT "
+                "cross-tree throttling. Concurrent builds, or concurrent links inside one "
+                "Makefiles build, could then overlap. See issue #1313 for what that costs.")
         elseif(NOT EXISTS "${_olo_link_wrapper}")
             message(WARNING
                 "Link semaphore: wrapper not found at '${_olo_link_wrapper}' — linking "
                 "WITHOUT cross-tree throttling.")
         else()
-            # A launcher is a semicolon-separated LIST: each element becomes one argv
-            # entry, so the wrapper path is never re-parsed as a string and a path with
-            # spaces cannot split. The real linker and its arguments are appended by
-            # CMake after these.
-            set(CMAKE_C_LINKER_LAUNCHER   "${OLO_PWSH};-NoProfile;-File;${_olo_link_wrapper}")
-            set(CMAKE_CXX_LINKER_LAUNCHER "${OLO_PWSH};-NoProfile;-File;${_olo_link_wrapper}")
+            # THE PERMIT COUNT TRAVELS IN THE ENVIRONMENT, and `cmake -E env` is what puts
+            # it there. Both wrappers read OLO_LINK_SEMAPHORE_SLOTS from the environment
+            # rather than argv, because a linker command line is full of tokens an argument
+            # parser would try to interpret (`-o`, `--start-group`, a bare `--`) — so every
+            # token after the wrapper path has to be forwarded verbatim as the command.
+            #
+            # Without this the cache variable was decorative: it changed the STATUS message
+            # below and nothing else, so `-DOLO_LINK_SEMAPHORE_SLOTS=4` silently kept
+            # throttling at the wrapper's built-in default of 2. Setting it here makes the
+            # documented knob the authority.
+            #
+            # A launcher is a semicolon-separated LIST: each element becomes one argv entry,
+            # so a path with spaces cannot split. The real linker and its arguments are
+            # appended by CMake after these.
+            set(_olo_link_launcher
+                "${CMAKE_COMMAND};-E;env;OLO_LINK_SEMAPHORE_SLOTS=${OLO_LINK_SEMAPHORE_SLOTS};${OLO_LINK_SEMAPHORE_RUNNER}")
+            if(_olo_link_runner_args)
+                set(_olo_link_launcher "${CMAKE_COMMAND};-E;env;OLO_LINK_SEMAPHORE_SLOTS=${OLO_LINK_SEMAPHORE_SLOTS};${OLO_LINK_SEMAPHORE_RUNNER};${_olo_link_runner_args}")
+            endif()
+            set(CMAKE_C_LINKER_LAUNCHER   "${_olo_link_launcher};${_olo_link_wrapper}")
+            set(CMAKE_CXX_LINKER_LAUNCHER "${_olo_link_launcher};${_olo_link_wrapper}")
             message(STATUS
-                "Link semaphore: ON, ${OLO_LINK_SEMAPHORE_SLOTS} permit(s) shared across every build tree")
+                "Link semaphore: ON, ${OLO_LINK_SEMAPHORE_SLOTS} permit(s) shared across every build tree "
+                "(${_olo_link_runner_kind})")
         endif()
     endif()
 endif()

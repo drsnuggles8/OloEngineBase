@@ -6,32 +6,32 @@
 # variable holds the one line so the huge inline source list below needs a single line touched,
 # not restructured into a separate variable (a collision point for parallel branches on its own).
 #
-# MEASURED, not inferred from compile time (issue #822 follow-up). Peak compiler RSS, cold,
-# clang-cl Debug with no sanitizer:
+# MEMBERSHIP RULE (issue #1307): every TU measuring >= 1.5 GiB peak compiler RSS. Re-derive
+# from the weekly `build-memory-debug-asan` artifact via scripts/analyze_proc_stat.py — see
+# docs/agent-rules/build-memory-per-tu.md.
 #
-#     ComponentRoundTripTest.cpp   12,389 MB   <- the heaviest TU in the tree
-#     RenderGraphTest.cpp           8,619 MB
-#     McpToolsRender.cpp            7,838 MB
-#     McpFieldRegistry.cpp          5,065 MB   <- the only one #822 originally caught
+# Measured 2026-09-17, Linux clang 23.1.0, Debug + ASan, 1761 compiles at 99.9% coverage:
 #
-# Compile TIME is a poor proxy for this and is how the first three were missed: they rank
-# 15th, 18th and 13th by duration. The pool is what bounds how many run at once.
+#     McpFieldRegistry.cpp              8.09 GiB   #1 of 1761, and the tree's heaviest TU
+#     AutomationComponentRegistry.cpp   3.85 GiB   #2
+#     ComponentRoundTripTest.cpp        1.63 GiB   #16
+#     McpToolsRender.cpp                1.50 GiB   #17
+#
+# THE FIGURES THIS REPLACES WERE WRONG, not stale: the #822 follow-up's survey ran
+# `cmake --build <dir> --target X -- '<obj>'`, which builds the WHOLE TARGET and then credited
+# the largest of a dozen concurrent unrelated compiles to whichever TU was named. It reported
+# ComponentRoundTripTest.cpp at 12,389 MB and RenderGraphTest.cpp at 8,619 MB; they measure
+# 1.63 GiB and 0.94 GiB. RenderGraphTest.cpp is dropped from the pool accordingly (#1305).
+#
+# Compile TIME remains a poor proxy for memory and is how #822 originally missed these.
 # oloctl's transport-free core (#1125), listed once in OloCtl/CoreSources.cmake and
 # compiled by both the `oloctl` executable and this target. Included here rather
 # than restated, so a new core source cannot reach one of the two and not the other.
 include(${CMAKE_SOURCE_DIR}/OloCtl/CoreSources.cmake)
 
-set(_olo_mcp_field_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpFieldRegistry.cpp)
-set(_olo_automation_component_registry_src ${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentRegistry.cpp)
-set(_olo_mcp_tools_render_src ${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsRender.cpp)
 set(_olo_component_round_trip_src ComponentRoundTripTest.cpp)
-set(_olo_render_graph_test_src Rendering/RenderGraphTest.cpp)
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	set(_olo_mcp_field_registry_src "")
-	set(_olo_automation_component_registry_src "")
-	set(_olo_mcp_tools_render_src "")
 	set(_olo_component_round_trip_src "")
-	set(_olo_render_graph_test_src "")
 endif()
 
 add_executable(OloEngine-Tests
@@ -357,7 +357,9 @@ add_executable(OloEngine-Tests
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/PODRenderStateChannelMaskTest.cpp
 		#Rendering/CommandDispatchTest.cpp  # Requires full engine (calls CommandDispatch::Initialize which pulls in OpenGL statics)
-		${_olo_render_graph_test_src}
+		# Listed directly since #1305 dropped it from the heavy-compile pool (0.94 GiB, #34);
+		# it no longer needs the variable indirection that held it out of this list.
+		Rendering/RenderGraphTest.cpp
 		# Phase 2 ratchet for the Vulkan-RHI epic (#691, ADR 0011): counts raw
 		# glXxx() outside Platform/OpenGL/ and fails when it rises above
 		# Rendering/rhi_boundary_baseline.json. Also the only TU that compiles the
@@ -934,8 +936,6 @@ add_executable(OloEngine-Tests
 		# Content Browser Tests
 		ContentBrowser/DirectoryTreeTest.cpp
 		ContentBrowser/ContentBrowserItemTest.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/DirectoryTree.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Panels/ContentBrowser/ContentBrowserItem.cpp
 		# oloctl, the generated CLI frontend over the automation registry (#1125).
 		# Its transport-free core is pulled in by path, the same way the editor MCP
 		# dispatch core above is: the tests then drive the REAL RunCli against a bare
@@ -953,58 +953,41 @@ add_executable(OloEngine-Tests
 		# the-seam translation unit into the test binary (cpp_httplib is linked
 		# below). McpServerPanel.* (ImGui) is NOT needed.
 		MCP/McpDispatchTest.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpServer.cpp
 		# The registry McpServer adapts (issue #1123). Three TUs, all
 		# transport-free: the command registry, the result type, and the
 		# input-schema validator that used to sit inside McpServer.cpp.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationRegistry.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationResult.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSchemaValidation.cpp
 		# The one command/result serializer every frontend goes through (#1125):
 		# tools/list, tools/search, the gateway and oloctl all call it, so none of
 		# them can drift on what a command looks like or what a result looks like.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationCatalogue.cpp
-		${_olo_automation_component_registry_src}
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationComponentCommands.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEntityCommands.cpp
 		# Prefab instantiate / unpack / override query / apply / revert / create
 		# (issue #1129). The cross-scene undo entry is the reason this has its own
 		# test: an apply writes into the prefab asset's own Scene, so a fixture
 		# with a real Project + EditorAssetManager is what proves one Ctrl-Z takes
 		# the prefab, the file and every re-synced instance back together.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationPrefabCommands.cpp
-		# Groom binding authoring (#1249): olo_groom_bind and the shared bind
-		# implementation the inspector's Build Binding button also uses. Listed
-		# here because the test target links McpTools.cpp, which registers it.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationGroomCommands.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Groom/GroomBindingAuthoring.cpp
+		# AutomationPrefabCommands.cpp, AutomationGroomCommands.cpp and
+		# Groom/GroomBindingAuthoring.cpp used to be listed here as OloEditor sources this
+		# target recompiled. They come from OloEditorCore now (#1314) — see the
+		# target_link_libraries below. The groom pair arrived on master while that
+		# refactor was in flight, so they were moved into OLO_EDITOR_CORE_SOURCES rather
+		# than re-added here; the reason they are needed is unchanged (this target links
+		# McpTools.cpp, which registers olo_groom_bind).
 		# Structured build invocation (issue #1163). RegisterBuiltinCommands
 		# composes it, so the test binary needs the TU to link at all; its pure
 		# core is covered by McpAutomationBuildTest below.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationBuildCommands.cpp
 		# The editor command registry (issue #1131): the declared action table
 		# joined with the live registry, plus pause/step/gizmo/shader-pack. The
 		# actions reach the editor only through EditorMcpContext hooks, so the
 		# test drives fakes and never opens a window.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEditorCommands.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneCommands.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationSceneDocument.cpp
 		# Asset query / safe CRUD / import (issue #1128). The index is editor-free
 		# and AssetManager-free by construction, which is what lets the tests drive
 		# it against a temp directory with no project and no registry.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetIndex.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationAssetCommands.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationFileWrite.cpp
 		# Atomic multi-command transactions (issue #1127). The layer is
 		# transport-free and editor-free at the seam -- it reaches the editor only
 		# through IAutomationHost and CommandHistory -- so the tests drive real
 		# batches against a scene with no server and no GL context.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransaction.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationTransactionCommands.cpp
 		# The publish side of the automation event bus (issue #1131):
 		# AutomationRegistry::RunHandler publishes command completions through
 		# it, so every target that links the registry needs it.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/Automation/AutomationEvents.cpp
 		MCP/McpAutomationTransactionTest.cpp
 		MCP/McpAutomationAssetIndexTest.cpp
 		MCP/McpAutomationAssetCommandsTest.cpp
@@ -1022,7 +1005,6 @@ add_executable(OloEngine-Tests
 		# ownership members + the McpClientConnection protocol layer live here.
 		# The Win32 pipe transport is compiled but never spawned by unit tests —
 		# they inject in-memory fake transports (McpClientStdioTest.cpp).
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpClient.cpp
 		# Headless-attach stretch (issue #316): McpHeadlessAttachTest hosts the
 		# REAL tool surface (RegisterBuiltinTools) against the offscreen FB, so it
 		# needs the actual tool TUs too. These are editor-decoupled — they include
@@ -1031,39 +1013,21 @@ add_executable(OloEngine-Tests
 		# supplies BuildScriptApiDigest, referenced by McpToolsScripting.cpp.
 		# McpTools.cpp is the composition point; the per-domain TUs carry the
 		# actual handlers + registrations (issue #357 split of the monolith).
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpTools.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsAssets.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsBenchmark.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsCamera.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsDiagnostics.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsEditor.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsInput.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPerf.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsPhysics.cpp
-		${_olo_mcp_tools_render_src}
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScene.cpp
 		# The generated writable-field registry TU (McpGenericFieldWrite.h's
 		# Registry() definition). Compiled once here instead of inline in every
 		# includer — the inline form OOM'd clang-cl Release+ASan on this very
 		# target's McpToolsScene.cpp.obj once the registry crossed ~100 components.
 		# Conditionally blanked above (issue #822) so it can join the heavy-compile
 		# file set instead when the pool is available.
-		${_olo_mcp_field_registry_src}
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsScripting.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsShader.cpp
 		# Structured test execution and whole-project validation (issue #1130).
 		# RegisterBuiltinCommands composes both, so the test binary needs the TUs
 		# to link at all; their pure cores are covered by McpTestExecutionTest /
 		# McpProjectValidationTest below.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsTesting.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsValidation.cpp
 		# The capability-discovery gateway (#1124): olo_capability / olo_tool_search /
 		# olo_tool_describe / olo_tool_execute. Registration-only from the tests'
 		# point of view, like the rest of this list — but its handlers are pure
 		# registry reads with no MarshalRead, so McpExposureProfileTest drives them
 		# for real over the dispatch seam.
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpToolsGateway.cpp
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptApi.cpp
 		# Consented MCP synthetic-input WRITE tool: olo_input_inject (#607) — click /
 		# drag / key / text into the running editor so an agent can verify an
 		# interactive handler actually FIRES. Same dispatch seam (session write gate +
@@ -1255,7 +1219,6 @@ add_executable(OloEngine-Tests
 		# from a temp directory of .lua files, schema-enforced dispatch, sandbox
 		# escape containment, the watchdog, and the read-only olo.call_tool bridge.
 		# Pulls the editor-decoupled McpScriptTools.cpp TU (sol2 + engine only).
-		${CMAKE_SOURCE_DIR}/OloEditor/src/MCP/McpScriptTools.cpp
 		MCP/McpScriptToolsTest.cpp
 		# The registry-merge trust seam for tools bridged from an OUTBOUND MCP
 		# client connection (#673 Tier 1): ReplaceClientTools validate-and-reject,
@@ -1539,21 +1502,18 @@ add_executable(OloEngine-Tests
 )
 
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
-	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_SOURCE_DIR}/OloEditor/src"
-		"Automation/AutomationComponentRegistry.cpp"
-		"MCP/McpFieldRegistry.cpp"
-		"MCP/McpToolsRender.cpp"
-	)
-	# A second call for this target's OWN sources: a file set's FILES must sit under its
-	# BASE_DIRS, and these live here rather than under OloEditor/src.
+	# The editor's heavy TUs are bound on OloEditorCore now (#1314) — this target links
+	# that library instead of recompiling its sources, so there is nothing here to pool.
 	olo_bind_heavy_compile_pool(OloEngine-Tests "${CMAKE_CURRENT_SOURCE_DIR}"
 		"ComponentRoundTripTest.cpp"
-		"Rendering/RenderGraphTest.cpp"
 	)
 endif()
 
 target_link_libraries(OloEngine-Tests
 	OloEngine
+	# The editor's headless automation/MCP core, linked rather than recompiled (#1314).
+	# It carries its own include directories and httplib, so neither is restated here.
+	OloEditorCore
 	GTest::gtest
 	httplib::httplib)
 

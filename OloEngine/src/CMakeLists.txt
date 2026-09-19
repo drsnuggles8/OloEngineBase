@@ -2007,16 +2007,19 @@ endif()
 # drop the file from SOURCES with nothing re-adding it, silently removing it from the build.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	list(REMOVE_ITEM SOURCES
-		"OloEngine/Scene/Prefab.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scene/Scene.cpp"
+		"OloEngine/Scene/SceneSerializer.cpp"
+		"OloEngine/SaveGame/SaveGameSerializer.cpp"
+		"OloEngine/Scripting/VisualScript/ComponentFieldRegistry.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 	)
 endif()
 
@@ -2109,26 +2112,45 @@ set(OLO_ENGINE_LIBRARY_PARTS OloEngine OloEngineRenderer OloEngineContent PARENT
 # OloEngineContent. Binding it to OloEngine instead would add the files to a target that no longer
 # compiles them — a second build edge for an output the other target already owns.
 #
-# THE PARTS, not LuaScriptGlue.cpp: the registrations moved out of it when the glue was split
-# (issue #822), and the dispatcher left behind is an ordinary small TU. Measured cold, clang-cl
-# Debug, peak compiler RSS: the old single file 12,439 MB; the heaviest part now 5,043 MB
-# (_World), the lightest 1,308 MB. Two concurrent from this pool is therefore ~10 GB rather than
-# ~25 GB, which is what the 31 GiB CI box could not survive.
+# MEMBERSHIP RULE, so this list can be re-derived instead of accumulating (issue #1307):
+# every TU whose measured peak compiler RSS is >= 1.5 GiB. Re-derive it by running the weekly
+# `build-memory-debug-asan` artifact's ranking (.github/workflows/build-memory.yml) through
+# scripts/analyze_proc_stat.py; docs/agent-rules/build-memory-per-tu.md has the recipe.
+#
+# Measured 2026-09-17 on olo-ci-1, Linux clang 23.1.0, Debug + ASan, 1761 compiles at 99.9%
+# coverage. 1.5 GiB is where the tail ends rather than an arbitrary round number: the 17th TU
+# is 1.50 GiB and the 18th is 1.37, and p95 across the whole tree is 0.85 GiB.
+#
+# THE DISPATCHER IS IN THE POOL NOW, and the note it replaces was wrong. When the glue was
+# split (#822) LuaScriptGlue.cpp was left out as "an ordinary small TU" — it measures
+# 2.40 GiB, 9th of 1761. The per-TU figures that judgement rested on came from a survey whose
+# recipe built a whole target while claiming to build one object, so they overstated by up to
+# 8.7x; every number in that family is void until re-measured (#1305).
+#
+# Two concurrent from this pool is 8.09 + 3.85 = 11.94 GiB worst case. The pool's whole job is
+# bounding that, and the depth stays 2.
+#
+# DROPPED from the pool by the same rule: Prefab.cpp (1.37 GiB, #18 — its committed
+# "6,400 MB in 22 s" was from the broken recipe and does not reproduce) and
+# LuaScriptGlue_EngineApi.cpp (1.18 GiB, #21). Both remain excluded from whole-program
+# optimization below; that is a separate concern from compile scheduling.
 if(OLO_HEAVY_COMPILE_POOL_AVAILABLE)
 	olo_bind_heavy_compile_pool(OloEngineContent "${CMAKE_CURRENT_SOURCE_DIR}"
-		# 6,400 MB peak compiler RSS in 22 s — 573 lines, so the cost is header and template
-		# instantiation, not file size. It ranks 17th by compile time and 4th by memory, which
-		# is exactly why a duration-ranked survey missed it (issue #822 follow-up).
-		"OloEngine/Scene/Prefab.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		# Every TU in this target measuring >= 1.5 GiB peak compiler RSS, ranked #3-#15
+		# tree-wide. See the block comment above for the threshold and how to re-derive it.
+		"OloEngine/Scene/Scene.cpp"
+		"OloEngine/Scene/SceneSerializer.cpp"
+		"OloEngine/SaveGame/SaveGameSerializer.cpp"
+		"OloEngine/Scripting/VisualScript/ComponentFieldRegistry.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Characters.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_SceneGraph.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Effects.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Environment.cpp"
+		"OloEngine/Scripting/Lua/LuaScriptGlue_Core.cpp"
 		"OloEngine/Scripting/Lua/LuaScriptGlue_Platform.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_World.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_Gameplay.cpp"
-		"OloEngine/Scripting/Lua/LuaScriptGlue_EngineApi.cpp"
 	)
 endif()
 

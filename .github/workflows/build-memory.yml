@@ -1,0 +1,305 @@
+# Per-TU peak RSS, published as an artifact — issue #1305.
+#
+# WHY THIS WORKFLOW EXISTS
+# ------------------------
+# Every self-hosted Linux build in this repo runs at `--parallel 2` on a 16-thread host,
+# each runner unit carries a 14 GiB `memory.max` and the account slice carries 19 GiB.
+# All of those came from a belief that one `clang++` TU needs ~9 GB. Five sources
+# disagreed about that number by 3x (asan.yml's comments said ~3 GB; a hand measurement
+# on the box said 9.0 GB with one TU at 13.9 GB; the slice drop-in justified itself as
+# "~2 x 9 = 18 G"), and nothing measured it on a schedule.
+#
+# #759 and #822 wired the CMake Instrumentation API, which records per-command TIME and a
+# SYSTEM-WIDE host-memory sample — it cannot attribute memory to a TU at all. So the
+# "handful of heavy TUs" everything rests on was identified by compile time, a proxy.
+# cmake/ProcStatReport.cmake closes that with clang's `-fproc-stat-report`, and this
+# workflow is the half that stops the number decaying again: #759's one-off measurement
+# rotted exactly the way an uncommitted number does, and a committed recipe is not a
+# substitute for a published artifact somebody can diff against last month's.
+#
+# WHAT IT DOES NOT PROVE
+# ----------------------
+# Nothing about Windows or MSVC. `-fproc-stat-report` is clang-only, and the `msvc`
+# preset is not the host whose caps are in question — deliberately out of scope rather
+# than unmentioned. Nothing about vcpkg ports or FetchContent dependencies either: they
+# build outside this project's add_compile_options() reach, the same blind spot #759 had.
+#
+# THE COMPILER CACHE IS OFF HERE, AND THAT IS THE POINT
+# -----------------------------------------------------
+# A cache HIT runs no compiler, so it appends no record. A measurement run on a warm
+# cache therefore produces a ranking of whatever happened to miss — which looks exactly
+# like a cheap build. `CCACHE_DISABLE=1` buys a complete census, and the analyser's
+# `--fail-under-coverage` gate fails the job rather than publishing a partial one.
+# This is a MEASUREMENT job, not a build gate; the ordinary jobs keep their cache.
+name: Build memory (per-TU peak RSS)
+
+# Weekly and on demand, because what it defends against is a number DRIFTING over
+# months, not a specific PR breaking something. The pull_request paths are deliberately
+# narrow — the files the measurement itself is made of — rather than `cmake/**`: this is a
+# full cold Debug build of the engine plus the test suite, and the box sits at rho 1.69
+# (#1219, #1284). Anything wider would spend that on every PR that touches CMake for
+# unrelated reasons, and a pull request runs ONE cell rather than both (see the job's `if`).
+#
+# NOTE, because it is not obvious and it cost this PR three redundant runs: GitHub matches
+# a pull_request `paths` filter against the WHOLE PR DIFF, not against the latest push. So
+# once a PR touches any file above, EVERY subsequent push to it re-runs this workflow.
+on:
+  schedule:
+    - cron: '0 7 * * 4' # weekly, Thursday 07:00 UTC — off video-ffmpeg's Monday and steam-stub's Wednesday slots
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/build-memory.yml'
+      - 'cmake/ProcStatReport.cmake'
+      - 'scripts/analyze_proc_stat.py'
+      # The root CMakeLists declares OLO_BUILD_INSTRUMENTATION and include()s the module,
+      # so a wiring regression lives here just as much as in cmake/ProcStatReport.cmake —
+      # and it would make this workflow vacuous rather than red. It is a frequently-touched
+      # file, which is exactly why the `if:` on the job below drops the non-sanitizer cell
+      # on pull requests: widening the trigger without halving the cost would put two cold
+      # builds on the box for every unrelated CMake change.
+      - 'CMakeLists.txt'
+
+# Reads the checkout, builds, and uploads an artifact. Nothing comments, labels or
+# publishes to the repo. Declared explicitly rather than inherited so a future step
+# cannot quietly acquire write scopes — same as asan.yml and steam-stub.yml.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a non-PR run: the weekly measurement is the artifact history this whole
+  # workflow exists to build, and a cancelled run leaves a gap in it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rank:
+    name: Rank ${{ matrix.label }}
+    # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not. The condition IS
+    # the security boundary — see vulkan-off.yml for the full reasoning. NOT ON THE BOX
+    # FOR A `push` (#1084); this workflow has no push trigger, but the disjunct is kept
+    # so the expression stays copy-comparable with its four siblings.
+    #
+    # The box is the RIGHT host for this, not merely an available one: the caps being
+    # justified are its own, and its toolchain is the pinned LLVM 23.1.0 tarball rather
+    # than apt clang-23. A hosted fallback still answers the ranking question — per-process
+    # peak RSS is a property of the toolchain and the TU, not of the host — but the
+    # absolute numbers a cap should be set from should come from the box.
+    runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && github.event_name != 'push'
+                 && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+                 && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
+    # BOUNDED, because this job is cold BY DESIGN. Disabling the compiler cache means
+    # every run is a full from-scratch build, so it never gets the warm path that lets
+    # the sanitizer jobs sit under the 360-minute default. asan.yml's TSan note measures
+    # a cold instrumented Linux build at ~57 min of build time (~75 min for the arm);
+    # this job compiles the same tree and runs no tests, so 180 is generous. The point
+    # is the ceiling: a runaway must not hold one of the box's two slots for six hours
+    # while the queue behind it grows (#1219, #1284).
+    timeout-minutes: 180
+    strategy:
+      # ONE AT A TIME. Both cells are full cold builds, and the box has exactly two
+      # olo-ci slots — running them together would hold the whole box and starve every
+      # other workflow behind it. Serial costs wall-clock this job does not have to
+      # optimise for: nothing waits on a weekly measurement.
+      max-parallel: 1
+      # A failing cell must not hide the other's numbers: a plain-Debug ranking is
+      # useful on its own even if the sanitizer cell OOMs, and vice versa.
+      fail-fast: false
+      # ONE CELL ON A PULL REQUEST, both on the schedule and on demand, and the selection
+      # MUST happen here rather than in a job-level `if:`.
+      #
+      # A job-level `if` cannot see the `matrix` context — only github, needs, vars and
+      # inputs are available there. Writing `if: matrix.slug == ...` does not merely
+      # evaluate false, it makes the whole workflow FILE invalid: GitHub rejects the run
+      # with "This run likely failed because of a workflow file issue" and no job starts,
+      # so the workflow silently stops guarding anything. Building the matrix with
+      # fromJSON is the supported way, because `strategy` can read the github context.
+      #
+      # The third cell PRICES A LEVER rather than tracking drift: `-gsplit-dwarf` keeps
+      # debug info out of the objects so the linker never loads it, which is the most
+      # direct attack on the 11.17 GiB link #1313 is about. It is OFF in every real build
+      # (it costs inlined frames in sanitizer stacks while -ffile-prefix-map is in effect —
+      # cmake/SplitDwarf.cmake has the measurement), so this cell exists purely to answer
+      # "what would it buy?" with a number. Compare its link peak against `debug-asan` from
+      # the same run; both publish their full build configuration alongside the ranking.
+      #
+      # The cells: `debug-asan` is the configuration the sanitizer `--parallel 2` pins and
+      # the 14 GiB unit cap were derived from — Debug, ASan, full -g, no split DWARF — and
+      # is the stricter of the two, so a PR proves the instrumentation end to end with it
+      # alone. Plain `Debug` is NOT redundant on the schedule: steam-stub.yml's
+      # non-sanitizer build is pinned to `--parallel 2` too, and its own comment says the
+      # reason is the NEIGHBOUR ("the cap is on the account, not on the job"), so what a
+      # plain Debug TU costs is a question in its own right. Tracking that over time is
+      # the weekly run's job, not a PR's.
+      matrix:
+        include: ${{ github.event_name == 'pull_request'
+          && fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"}]')
+          || fromJSON('[{"label":"Debug + ASan","slug":"debug-asan","cmake-args":"-DOLO_ENABLE_ASAN=ON"},{"label":"Debug","slug":"debug","cmake-args":""},{"label":"Debug + ASan + split DWARF","slug":"debug-asan-split-dwarf","cmake-args":"-DOLO_ENABLE_ASAN=ON -DOLO_SPLIT_DWARF=ON"}]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Python, the shader toolchain and clang, resolved for whichever runner kind this
+      # landed on. `cache-name` still names a ccache directory; the build below disables
+      # ccache per-invocation rather than by unsetting it, so the action stays unmodified
+      # and the same directory keeps serving every other workflow.
+      - name: Setup Linux build environment
+        id: linux
+        uses: ./.github/actions/setup-linux-build
+        with:
+          cache-name: build-memory
+
+      - name: Setup vcpkg
+        id: vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-linux
+
+      # The heavy optional subsystems are off for the same reason steam-stub.yml turns
+      # them off: the question is what the ENGINE's own TUs cost. USD and Alembic are
+      # vcpkg ports whose own compiles this instrumentation cannot see anyway.
+      #
+      # -DOLO_ENABLE_COMPILER_CACHE=OFF comes AFTER extra-cmake-args, which sets it ON —
+      # CMake takes the last -D for a given variable, so the order is load-bearing. The
+      # cache is disabled at BOTH levels: here, so no launcher is wired and PCH/unity
+      # keep the same forced-off settings the cached CI jobs build with, and via
+      # CCACHE_DISABLE at build time as a belt-and-braces guard.
+      - name: Configure (instrumented)
+        run: |
+          cmake -S . -B build \
+            -DOLO_BUILD_INSTRUMENTATION=ON \
+            -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
+            -DOLO_VIDEO_FFMPEG=OFF \
+            -DCMAKE_CXX_COMPILER=${{ steps.linux.outputs.cxx }} \
+            -DCMAKE_C_COMPILER=${{ steps.linux.outputs.cc }} \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            -DBUILD_TESTS=ON \
+            ${{ steps.vcpkg.outputs.toolchain-args }} \
+            ${{ steps.linux.outputs.extra-cmake-args }} \
+            ${{ matrix.cmake-args }} \
+            -DOLO_ENABLE_COMPILER_CACHE=OFF \
+            -DOLO_ENABLE_PCH=OFF \
+            -DOLO_ENABLE_UNITY_BUILD=OFF \
+            -DPython_EXECUTABLE="${{ steps.linux.outputs.python-exe }}"
+
+      # Fail loudly if the instrumentation did not actually take. Without this the job
+      # publishes an empty ranking and reads as "nothing used much memory" — the precise
+      # shape of the silent decay this workflow exists to prevent. Checked on the
+      # GENERATED build system, not on the CMake cache: the cache says what was asked
+      # for, the makefiles say what will run.
+      - name: Verify the flag reached the compile and link lines
+        run: |
+          if ! grep -q '^OLO_BUILD_INSTRUMENTATION:BOOL=ON' build/CMakeCache.txt; then
+            echo "::error::OLO_BUILD_INSTRUMENTATION did not resolve to ON."
+            exit 1
+          fi
+          # Unix Makefiles keeps a target's compile flags in its own flags.make.
+          COMPILES=$(grep -rl 'fproc-stat-report' build --include=flags.make | wc -l)
+          echo "flags.make files carrying the flag: $COMPILES"
+          if [ "$COMPILES" -eq 0 ]; then
+            echo "::error::No compile line carries -fproc-stat-report — cmake/ProcStatReport.cmake did not wire up."
+            exit 1
+          fi
+          # NO textual assertion on the LINK line here, deliberately. Where the Makefiles
+          # generator puts an executable's link command is platform-dependent: it writes a
+          # separate link.txt in some configurations and inlines the command into build.make
+          # in others (observed inlined when generating a Unix Makefiles tree with clang++).
+          # A grep for one spelling would fail this job for a correct build. The link half is
+          # asserted on the OUTCOME instead — `--require-link-records` in the Rank step below
+          # fails unless a real ld.lld record came out, which is generator-independent and a
+          # stronger claim than any amount of matching on generated text.
+          # The relative path is what keeps the compiler cache shareable across runner
+          # slots (measured: an absolute path takes cross-tree hits to 0%). Assert it
+          # here so a well-meaning "make this an absolute path" edit fails in CI rather
+          # than quietly costing every other job its cache.
+          if grep -rh -o 'fproc-stat-report=[^ ]*' build --include=flags.make | grep -qE '=(/|[A-Za-z]:)'; then
+            echo "::error::-fproc-stat-report was given an ABSOLUTE path. That is hashed by ccache and"
+            echo "cannot be relativised by base_dir, which drops cross-slot cache sharing to zero."
+            exit 1
+          fi
+          echo "OK: compiles and links are instrumented, with a relative records path."
+
+      - name: Save vcpkg binary cache
+        if: always()
+        continue-on-error: true
+        uses: ./.github/actions/save-vcpkg-cache
+        with:
+          key: ${{ steps.vcpkg.outputs.cache-key }}
+          path: ${{ steps.vcpkg.outputs.cache-path }}
+
+      # --parallel 2 matches the pins this measurement is meant to inform, so the run
+      # stays inside the caps that exist today. It does NOT affect the numbers: peak RSS
+      # is per-process, and the derivation table sums the N heaviest TUs rather than
+      # observing them concurrently. A wider -j would only risk the OOM this is measuring.
+      #
+      # The records files are removed first because clang APPENDS and the self-hosted
+      # workspace persists between runs — a stale file would silently mix two builds
+      # into one published ranking. There is one PER SUBDIRECTORY under the Makefiles
+      # generator this job gets (the compile rule `cd`s into each), hence the find.
+      - name: Build (instrumented)
+        env:
+          CCACHE_DISABLE: '1'
+        run: |
+          find build -name olo-proc-stat.csv -delete
+          cmake --build build --target OloEngine-Tests --parallel 2
+
+      # Non-fatal on its own: a build that reached the link step has already produced the
+      # compile records, and losing the ranking to a missing analyser dependency would be
+      # a worse outcome than a red job with the artifact attached. The coverage gate below
+      # is what actually decides whether the numbers are publishable.
+      # RUNS EVEN IF THE BUILD FAILED, which is the case where the records are most worth
+      # having: a build killed by the OOM killer leaves behind exactly the ranking that
+      # explains why. Gated on the setup step rather than on nothing, so a job that never
+      # got a toolchain does not go looking for records that cannot exist. The coverage
+      # gate below still fails on a partial ranking — correctly, because a partial ranking
+      # IS a lower bound — and `if: always()` on the upload keeps the artifact either way.
+      - name: Rank by peak RSS
+        id: rank
+        if: ${{ !cancelled() && steps.linux.conclusion == 'success' }}
+        run: |
+          mkdir -p build-memory-report
+          # The BUILD TREE is the argument, not a file: the Makefiles generator writes
+          # one records file per subdirectory and the analyser gathers them all. The raw
+          # records ride along in the artifact, concatenated with their source paths so a
+          # future reader can re-derive the ranking without trusting this script.
+          find build -name olo-proc-stat.csv -print -exec cat {} \; \
+            > build-memory-report/olo-proc-stat.raw.txt
+          "${{ steps.linux.outputs.python-exe }}" scripts/analyze_proc_stat.py \
+            build \
+            --build-dir build \
+            --top 20 \
+            --cap-gib 14 \
+            --max-lanes 16 \
+            --markdown build-memory-report/report.md \
+            --json build-memory-report/report.json \
+            --require-link-records \
+            --fail-under-coverage 95
+
+      # The artifact IS the deliverable — and so is the job summary, because an artifact
+      # nobody downloads decays the same way an uncommitted number does.
+      - name: Publish the ranking to the job summary
+        if: always()
+        run: |
+          if [ -f build-memory-report/report.md ]; then
+            {
+              echo "# ${{ matrix.label }} — ${{ runner.name }}"
+              echo
+              cat build-memory-report/report.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No report was produced — see the Rank step." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the ranking
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-memory-${{ matrix.slug }}
+          path: build-memory-report/
+          if-no-files-found: error
+          # Long enough to diff against next month's run, which is the whole anti-drift
+          # mechanism, without holding a year of CSVs.
+          retention-days: 90

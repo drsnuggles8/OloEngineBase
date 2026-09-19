@@ -5,6 +5,32 @@
 # Main targets built by this project
 add_subdirectory(src)
 
+# OloEditorCore (issue #1314) carries the editor's headless automation/MCP core, shared
+# with OloEngine-Tests. Its usage requirements are PUBLIC on purpose: the tests link this
+# library instead of recompiling its sources, so whatever the sources need to compile and
+# link must travel with it rather than being restated in the test CMakeLists — restating
+# is how the two drifted into compiling the same files with different settings.
+olo_set_compiler_options(OloEditorCore)
+olo_set_common_definitions(OloEditorCore)
+olo_enable_lto(OloEditorCore)
+olo_set_common_include_directories(OloEditorCore)
+target_include_directories(OloEditorCore PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    # The ContentBrowser helpers are included as bare "DirectoryTree.h" by their siblings.
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Panels/ContentBrowser
+)
+# PUBLIC: OloEngine is part of this library's interface, and httplib appears in the MCP
+# server headers a consumer includes.
+target_link_libraries(OloEditorCore PUBLIC OloEngine httplib::httplib)
+# PRIVATE, both of them, and GLFW_INCLUDE_NONE deliberately so. It is what keeps a TU that
+# pulls GLFW before glad compiling, and these sources had it in the editor build — but
+# OloEngine-Tests compiled this same set for years WITHOUT it, so it is demonstrably not
+# part of the interface. PUBLIC would put it on all ~900 test TUs and rebuild them for no
+# reason. If a consumer ever does need it, that is a header leaking GLFW and worth fixing
+# at the header instead.
+target_compile_definitions(OloEditorCore PRIVATE GLFW_INCLUDE_NONE _CRT_SECURE_NO_WARNINGS)
+set_target_properties(OloEditorCore PROPERTIES FOLDER "Applications")
+
 # Configure the OloEditor target using our common properties
 olo_configure_app(OloEditor)
 
@@ -25,6 +51,7 @@ target_include_directories(OloEditor PRIVATE
 # it here rather than on OloEngine to avoid putting <winsock2.h> on the whole engine's
 # include path.
 target_link_libraries(OloEditor
+                    OloEditorCore
                     OloEngine
                     httplib::httplib
 )
