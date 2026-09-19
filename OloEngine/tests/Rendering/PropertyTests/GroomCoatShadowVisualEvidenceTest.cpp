@@ -707,51 +707,79 @@ namespace OloEngine::Tests
         // MSAA is a G-Buffer setting on the deferred path only, and the strand
         // pass runs after the resolve. That is verified here rather than
         // assumed.
+        //
+        // EACH SAMPLE COUNT IS ITS OWN A/B. An earlier version compared the two
+        // MSAA frames to each other and asserted the capture was not black,
+        // which would have passed with the coat term never sampled at all —
+        // exactly the "an assertion that passes on a frame with nothing in it"
+        // failure the task loop warns about. What has to survive MSAA is the
+        // EFFECT, so the effect is what is measured at each sample count.
         Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
         auto& deferred = Renderer3D::GetRendererSettings().Deferred;
         const u32 restoreSamples = deferred.MSAASampleCount;
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
-        Coat().m_Enabled = true;
 
-        deferred.MSAASampleCount = 1;
-        Renderer3D::ApplyRendererSettings();
-        std::vector<u8> noMsaa;
-        Capture("GroomCoatShadow_GL_Deferred_NoMsaa", eye, 0.0f, 0.10f, noMsaa);
-        if (::testing::Test::HasFatalFailure())
+        struct Variant
         {
-            deferred.MSAASampleCount = restoreSamples;
-            Renderer3D::ApplyRendererSettings();
-            return;
-        }
+            const char* Name;
+            u32 Samples;
+        };
+        const std::array<Variant, 2> variants = { { { "NoMsaa", 1u }, { "Msaa4", 4u } } };
 
-        deferred.MSAASampleCount = 4;
-        Renderer3D::ApplyRendererSettings();
-        std::vector<u8> msaa;
-        Capture("GroomCoatShadow_GL_Deferred_Msaa4", eye, 0.0f, 0.10f, msaa);
+        f64 effect[2] = { 0.0, 0.0 };
+        u32 differing[2] = { 0u, 0u };
+
+        for (sizet v = 0; v < variants.size(); ++v)
+        {
+            deferred.MSAASampleCount = variants[v].Samples;
+            Renderer3D::ApplyRendererSettings();
+
+            Coat().m_Enabled = false;
+            std::vector<u8> unshadowed;
+            Capture(std::string("GroomCoatShadowOff_GL_Deferred_") + variants[v].Name, eye, 0.0f, 0.10f,
+                    unshadowed);
+            if (::testing::Test::HasFatalFailure())
+            {
+                deferred.MSAASampleCount = restoreSamples;
+                Renderer3D::ApplyRendererSettings();
+                return;
+            }
+
+            Coat().m_Enabled = true;
+            std::vector<u8> shadowed;
+            Capture(std::string("GroomCoatShadow_GL_Deferred_") + variants[v].Name, eye, 0.0f, 0.10f, shadowed);
+            if (::testing::Test::HasFatalFailure())
+            {
+                deferred.MSAASampleCount = restoreSamples;
+                Renderer3D::ApplyRendererSettings();
+                return;
+            }
+
+            effect[v] = CoatLuminance(shadowed, unshadowed);
+            differing[v] = CountDifferingPixels(shadowed, unshadowed);
+            std::printf("[groom-coat] MSAA %u: %u px differ, luma delta %.0f, shadowed=%u fallback=%u\n",
+                        variants[v].Samples, differing[v], effect[v], CoatStats().ShadowedGrooms,
+                        CoatStats().FallbackGrooms);
+
+            EXPECT_EQ(CoatStats().ShadowedGrooms, 1u) << variants[v].Name << ": the coat lost its shadow";
+            EXPECT_EQ(CoatStats().FallbackGrooms, 0u) << variants[v].Name;
+            EXPECT_GT(differing[v], 2000u)
+                << variants[v].Name << ": the coat-shadow term changed almost nothing at this sample count";
+            EXPECT_LT(effect[v], 0.0) << variants[v].Name << ": the term did not darken at this sample count";
+        }
 
         deferred.MSAASampleCount = restoreSamples;
         Renderer3D::ApplyRendererSettings();
-        if (::testing::Test::HasFatalFailure())
-        {
-            return;
-        }
 
-        // The coat must still BE there. Not "identical" — MSAA legitimately
-        // changes edge pixels — but the shadow must not vanish, and it must not
-        // invert.
-        const GroomCoatShadowStats& stats = CoatStats();
-        EXPECT_EQ(stats.ShadowedGrooms, 1u) << "the coat lost its shadow under MSAA";
-        EXPECT_EQ(stats.FallbackGrooms, 0u);
-
-        const u32 differing = CountDifferingPixels(msaa, noMsaa);
-        std::printf("[groom-coat] MSAA 1 vs 4: %u px differ\n", differing);
-        // A hard equality would be wrong (MSAA changes edges) and a hard
-        // inequality would be wrong too (it may legitimately change very
-        // little), so what is asserted is that the frame is still a coat: the
-        // pass reports one, and the picture is committed for a reviewer.
-        EXPECT_GT(MaxChannelDelta(msaa, std::vector<u8>(msaa.size(), 0u)), 20u)
-            << "the MSAA capture is black, so nothing was drawn at all";
+        // And the effect must be of the SAME ORDER at both counts. MSAA
+        // legitimately moves edge pixels; it must not halve or double what the
+        // coat shadow does, which is what a term evaluated per sample instead
+        // of per fragment would look like.
+        const f64 ratio = effect[1] / effect[0];
+        std::printf("[groom-coat] MSAA effect ratio 4x/1x: %.3f\n", ratio);
+        EXPECT_GT(ratio, 0.6) << "the coat shadow's magnitude moved with the sample count";
+        EXPECT_LT(ratio, 1.6) << "the coat shadow's magnitude moved with the sample count";
     }
 
     TEST_F(GroomCoatShadowVisualEvidenceTest, TheCoatShadowSurvivesANonNativeResolution)
@@ -767,6 +795,15 @@ namespace OloEngine::Tests
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
 
+        Coat().m_Enabled = false;
+        std::vector<u8> nativeOff;
+        Capture("GroomCoatShadowOff_GL_Deferred_Native", eye, 0.0f, 0.10f, nativeOff);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+
+        Coat().m_Enabled = true;
         std::vector<u8> native;
         Capture("GroomCoatShadow_GL_Deferred_Native", eye, 0.0f, 0.10f, native);
         if (::testing::Test::HasFatalFailure())
@@ -774,7 +811,9 @@ namespace OloEngine::Tests
             return;
         }
         const u32 nativeResolution = CoatStats().ResolutionInForce;
+        const f64 nativeEffect = CoatLuminance(native, nativeOff);
         ASSERT_EQ(CoatStats().ShadowedGrooms, 1u);
+        ASSERT_LT(nativeEffect, 0.0) << "no coat-shadow effect at native resolution to compare against";
 
         constexpr u32 kSmallWidth = 960;
         constexpr u32 kSmallHeight = 540;
@@ -783,11 +822,23 @@ namespace OloEngine::Tests
         // underneath the frame graph mid-test.
         ResizeRenderTarget(kSmallWidth, kSmallHeight);
 
+        // THE SCALED CELL IS AN A/B TOO. Without its own control it passed
+        // whenever the coat merely rendered, which is true even if the shader
+        // never samples the coat-shadow term — the cell would have been
+        // verifying that a coat exists at 960x540, not that it is shadowed
+        // there.
+        Coat().m_Enabled = false;
+        std::vector<u8> scaledOff;
+        Capture("GroomCoatShadowOff_GL_Deferred_Scaled", eye, 0.0f, 0.10f, scaledOff, kSmallWidth, kSmallHeight);
+
+        Coat().m_Enabled = true;
         std::vector<u8> scaled;
         Capture("GroomCoatShadow_GL_Deferred_Scaled", eye, 0.0f, 0.10f, scaled, kSmallWidth, kSmallHeight);
         const u32 scaledResolution = CoatStats().ResolutionInForce;
         const u32 scaledShadowed = CoatStats().ShadowedGrooms;
         const u32 scaledFallback = CoatStats().FallbackGrooms;
+        const f64 scaledEffect = CoatLuminance(scaled, scaledOff);
+        const u32 scaledDiffering = CountDifferingPixels(scaled, scaledOff);
 
         // Restored BEFORE any assertion can return early, so a failure here
         // cannot leave the fixture at the small size for whatever runs next.
@@ -806,5 +857,13 @@ namespace OloEngine::Tests
         // target would make an upscaled frame a different coat.
         EXPECT_EQ(scaledResolution, nativeResolution)
             << "the coat volume's resolution changed with the render target size";
+
+        // And the effect is still THERE at the smaller size. The pixel counts
+        // are not comparable across resolutions (fewer pixels, so fewer differ),
+        // so what is asserted is presence and direction, not magnitude.
+        std::printf("[groom-coat] scaled effect: %u px differ, luma delta %.0f (native %.0f)\n", scaledDiffering,
+                    scaledEffect, nativeEffect);
+        EXPECT_GT(scaledDiffering, 1000u) << "the coat-shadow term stopped reaching the coat at a smaller target";
+        EXPECT_LT(scaledEffect, 0.0) << "the coat-shadow term stopped darkening at a smaller target";
     }
 } // namespace OloEngine::Tests

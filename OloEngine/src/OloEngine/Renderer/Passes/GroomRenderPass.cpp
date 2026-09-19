@@ -38,6 +38,22 @@ namespace OloEngine
         // (BudgetExhausted), which is the loud answer.
         constexpr u32 kMaxResidentCoatVolumes = 8;
 
+        // Releasing a coat volume is THREE steps that must never be separated:
+        // give the bytes back to the cache total, drop the texture, and clear
+        // the resolution that says a bake is resident. Done by hand at each of
+        // the four sites that release one, the accounting drifted — EvictToBudget
+        // subtracted only the geometry's bytes, so every evicted coat left
+        // m_CacheBytes permanently inflated and the pass could evict healthy
+        // entries forever while reporting itself over budget.
+        template<typename EntryT>
+        void ReleaseCoatVolume(EntryT& entry, u64& cacheBytes) noexcept
+        {
+            cacheBytes -= std::min(cacheBytes, entry.CoatBytes);
+            entry.CoatVolume = nullptr;
+            entry.CoatResolution = 0;
+            entry.CoatBytes = 0;
+        }
+
         // Frames an unused cache entry survives before eviction is allowed to
         // consider it. One second at 60 fps — long enough that toggling a
         // groom's visibility does not rebuild its buffers, short enough that a
@@ -334,8 +350,50 @@ namespace OloEngine
     // reuses it — which is most of the update policy, and is why an animated
     // light or a walking character costs zero rebuilds. What does invalidate it
     // is a change of RESOLUTION (the shadow LOD) or of the geometry itself.
+    u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
+    {
+        u32 resident = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
+            if (entry.CoatVolume)
+            {
+                ++resident;
+            }
+        }
+        return resident;
+    }
+
+    bool GroomRenderPass::ReclaimLeastRecentlyUsedCoatVolume()
+    {
+        CacheEntry* oldest = nullptr;
+        for (auto& [key, entry] : m_Cache)
+        {
+            if (!entry.CoatVolume)
+            {
+                continue;
+            }
+            // NEVER an entry used this frame: its draw has already been
+            // recorded against the texture this would free, and the bind is
+            // per-draw rather than deferred.
+            if (entry.LastUsedFrame == m_CacheTick)
+            {
+                continue;
+            }
+            if (oldest == nullptr || entry.LastUsedFrame < oldest->LastUsedFrame)
+            {
+                oldest = &entry;
+            }
+        }
+        if (oldest == nullptr)
+        {
+            return false;
+        }
+        ReleaseCoatVolume(*oldest, m_CacheBytes);
+        return true;
+    }
+
     GroomCoatShadowDecision GroomRenderPass::AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
-                                                               u32 residentVolumes)
+                                                               u32& residentVolumes)
     {
         GroomCoatShadowInputs inputs;
         inputs.Requested = request.CoatShadow;
@@ -366,10 +424,7 @@ namespace OloEngine
         // memory and build time on a draw that will render unshadowed.
         if (!GroomCoatShadowModeIsImplemented(request.CoatShadow))
         {
-            m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
-            entry.CoatVolume = nullptr;
-            entry.CoatResolution = 0;
-            entry.CoatBytes = 0;
+            ReleaseCoatVolume(entry, m_CacheBytes);
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
             inputs.RepresentationReady = false;
             inputs.GrantedSlot = kNoGroomCoatShadowSlot;
@@ -379,10 +434,7 @@ namespace OloEngine
         inputs.GroomIsDeformed = IsDeformed(request);
         if (inputs.GroomIsDeformed && request.CoatShadow != GroomCoatShadowTechnique::None)
         {
-            m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
-            entry.CoatVolume = nullptr;
-            entry.CoatResolution = 0;
-            entry.CoatBytes = 0;
+            ReleaseCoatVolume(entry, m_CacheBytes);
             inputs.ResolvedResolution = request.CoatLod.BaseResolution;
             inputs.RepresentationReady = false;
             inputs.GrantedSlot = kNoGroomCoatShadowSlot;
@@ -455,26 +507,36 @@ namespace OloEngine
         // so a coat that is already resident is never displaced by one that
         // merely arrived later in the same frame — which would make which coats
         // are shadowed depend on entity iteration order.
-        // THE BUDGET BOUNDS THE RESIDENT SET, including coats that are already
-        // resident. Exempting them, as an earlier version did, made the cap
-        // unenforceable the moment every coat had been seen once — the set
-        // could grow without limit and BudgetExhausted would never be reported,
-        // so the counter that exists to explain a missing shadow would have
-        // stayed at zero while the budget was being ignored.
+        // THE BUDGET BOUNDS THE RESIDENT SET — the whole cache's worth, not
+        // this frame's draws. `residentVolumes` is seeded from
+        // CountResidentCoatVolumes(), so a coat that stopped being visible
+        // still occupies its slot until something reclaims it; counting live
+        // draws instead let alternating groups of eight coats hold far more
+        // than the cap indefinitely, with BudgetExhausted never reported.
         //
-        // Within the cap, an already-resident coat is still preferred: it is
-        // considered before any newcomer, so which coats are shadowed does not
-        // depend on entity iteration order.
-        inputs.GrantedSlot =
-            residentVolumes < kMaxResidentCoatVolumes ? residentVolumes : kNoGroomCoatShadowSlot;
-        if (inputs.GrantedSlot == kNoGroomCoatShadowSlot && entry.CoatVolume)
+        // An ALREADY-RESIDENT coat keeps its slot without competing for one,
+        // so which coats are shadowed does not depend on entity iteration
+        // order. A newcomer takes a free slot, or reclaims the
+        // least-recently-used volume belonging to a groom NOT drawn this frame.
+        // Only when every resident volume is in use this frame is the budget
+        // genuinely exhausted — and that is what gets reported.
+        const bool alreadyResident = entry.CoatVolume != nullptr;
+        if (alreadyResident)
         {
-            // Refused a slot this frame: drop the bake rather than hold GPU
-            // memory the budget has already decided it cannot afford.
-            m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
-            entry.CoatVolume = nullptr;
-            entry.CoatResolution = 0;
-            entry.CoatBytes = 0;
+            inputs.GrantedSlot = 0u;
+        }
+        else if (residentVolumes < kMaxResidentCoatVolumes)
+        {
+            inputs.GrantedSlot = residentVolumes;
+        }
+        else if (ReclaimLeastRecentlyUsedCoatVolume())
+        {
+            --residentVolumes;
+            inputs.GrantedSlot = residentVolumes;
+        }
+        else
+        {
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
         }
 
         // WIDTH SCALE IS PART OF THE BAKE, so it has to be part of what
@@ -484,7 +546,7 @@ namespace OloEngine
         // describing the coat's previous thickness.
         const bool needsRebuild = !entry.CoatVolume || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
-                                  entry.CoatWidthScale != request.WidthScale;
+                                  !Math::BitwiseEqual(entry.CoatWidthScale, request.WidthScale);
 
         if (needsRebuild && inputs.GrantedSlot != kNoGroomCoatShadowSlot &&
             resolution >= request.CoatLod.MinResolution)
@@ -562,12 +624,22 @@ namespace OloEngine
                     // three-voxel one.
                     const glm::vec3 voxelSize = volume.VoxelSize();
                     entry.CoatVoxelSize = std::min({ voxelSize.x, voxelSize.y, voxelSize.z });
+                    // Replacing a bake: the old bytes come off before the new
+                    // ones go on, or a resolution change leaks the difference.
                     m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
                     entry.CoatBytes = static_cast<u64>(packed.size() * sizeof(f32));
                     m_CacheBytes += entry.CoatBytes;
                     entry.CoatBuiltTick = m_CacheTick;
                     entry.CoatMode = request.CoatShadow;
                     ++m_Stats.CoatShadow.Rebuilds;
+                    if (!alreadyResident)
+                    {
+                        // A slot has just been taken. Counted HERE, where the
+                        // texture actually came into existence, rather than by
+                        // the caller after the fact — a build that failed must
+                        // not consume one.
+                        ++residentVolumes;
+                    }
                 }
             }
         }
@@ -611,7 +683,14 @@ namespace OloEngine
             {
                 continue;
             }
-            m_CacheBytes -= it->second.Bytes;
+            // BOTH halves of the entry's footprint. The geometry's bytes and
+            // the coat volume's are added to m_CacheBytes separately, so
+            // subtracting only the geometry left the total permanently
+            // inflated by every evicted coat — after which the pass evicts
+            // healthy entries forever and reports itself over budget with
+            // nothing left to free.
+            ReleaseCoatVolume(it->second, m_CacheBytes);
+            m_CacheBytes -= std::min(m_CacheBytes, it->second.Bytes);
             m_Cache.erase(it);
             ++m_Stats.CacheEvictions;
         }
@@ -727,11 +806,15 @@ namespace OloEngine
         // scene sits, and wrong everywhere else.
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
 
-        // Coat volumes granted so far this frame, against
-        // kMaxResidentCoatVolumes. Counted here rather than held across
-        // frames so a coat that stopped being drawn releases its slot on the
-        // next frame instead of holding it until eviction.
-        u32 residentCoatVolumes = 0;
+        // Coat volumes resident across the WHOLE cache, against
+        // kMaxResidentCoatVolumes. Seeded from the cache rather than from zero:
+        // a groom that stopped being visible still holds its volume, and
+        // counting only this frame's draws let the resident set grow past the
+        // cap indefinitely while BudgetExhausted stayed at zero.
+        //
+        // AcquireCoatVolume maintains it from here — it is the only place that
+        // creates or reclaims one.
+        u32 residentCoatVolumes = CountResidentCoatVolumes();
 
         for (const auto& request : m_Requests)
         {
@@ -780,7 +863,6 @@ namespace OloEngine
                 coatDecision.Effective != GroomCoatShadowTechnique::None && entry->CoatVolume != nullptr;
             if (coatActive)
             {
-                ++residentCoatVolumes;
                 m_Stats.CoatShadow.ResidentBytes += entry->CoatBytes;
                 m_Stats.CoatShadow.ResolutionInForce = std::max(m_Stats.CoatShadow.ResolutionInForce,
                                                                 entry->CoatResolution);

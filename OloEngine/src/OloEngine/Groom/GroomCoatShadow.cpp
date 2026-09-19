@@ -328,6 +328,16 @@ namespace OloEngine::GroomCoatShadow
         bool any = false;
         for (const CoatSegment& segment : segments)
         {
+            // SKIPPED, not fatal. One NaN endpoint taken through min/max
+            // poisons the whole box, and an earlier version then returned
+            // false — so a single corrupt curve cost the ENTIRE coat its
+            // shadow, which is the opposite of BuildCoatSegments' promise that
+            // a bad curve is dropped rather than allowed to poison anything.
+            if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
+                !std::isfinite(segment.RadiusB))
+            {
+                continue;
+            }
             const f32 r = std::max(segment.RadiusA, segment.RadiusB);
             lo = glm::min(lo, glm::min(segment.A, segment.B) - glm::vec3(r));
             hi = glm::max(hi, glm::max(segment.A, segment.B) + glm::vec3(r));
@@ -808,6 +818,18 @@ namespace OloEngine::GroomCoatShadow
 
         for (const CoatSegment& segment : segments)
         {
+            if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
+                !std::isfinite(segment.RadiusB))
+            {
+                // Rejected here as well as in CoatSegmentBounds: a segment the
+                // bounds skipped would otherwise still walk this loop and
+                // deposit at a NaN coordinate, which the index range test
+                // cannot catch — every comparison against a NaN is false, so
+                // the "outside the grid" guard lets it through.
+                ++rejected;
+                continue;
+            }
+
             const glm::vec3 ab = segment.B - segment.A;
             const f32 length = glm::length(ab);
             if (!std::isfinite(length) || length <= 0.0f)
@@ -1184,6 +1206,18 @@ namespace OloEngine::GroomCoatShadow
 
         for (const CoatSegment& segment : segments)
         {
+            if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
+                !std::isfinite(segment.RadiusB))
+            {
+                // Rejected here as well as in CoatSegmentBounds: a segment the
+                // bounds skipped would otherwise still walk this loop and
+                // deposit at a NaN coordinate, which the index range test
+                // cannot catch — every comparison against a NaN is false, so
+                // the "outside the grid" guard lets it through.
+                ++rejected;
+                continue;
+            }
+
             const glm::vec3 ab = segment.B - segment.A;
             const f32 length = glm::length(ab);
             if (!std::isfinite(length) || length <= 0.0f)

@@ -115,7 +115,12 @@ step (see below — three voxels per step is better *and* cheaper), deep map 3 f
 candidate could use. **What actually ships is one RGBA32F volume, 16 bytes a voxel** — 3.6 MiB for
 the pelt at 64³ — because `Texture3D`'s RGBA16F declares 8 bytes a texel while uploading its client
 data as `GL_FLOAT`, so `SetData` rejects the only buffer it could be handed. Half of that is
-available the moment that path is fixed. The consequence for the selection is stated below: both
+available the moment that path is fixed.
+
+**And the volume is not literally 64³.** `Resolution` sets the voxel count on the LONGEST bounds
+axis only; `BuildDensityVolume` derives the other two so the voxels stay cubic. On the reference
+pelt that is **59 x 64 x 59 = 222 784 voxels**, which is where the 3.6 MiB comes from. "64³" below
+is shorthand for "`Resolution = 64`", not a claim about the grid's shape. The consequence for the selection is stated below: both
 volume modes cost the same bytes at runtime, so the isotropic arm is a compute saving, not a memory
 one.
 
@@ -176,8 +181,10 @@ costs a third of the taps. Past four it degrades sharply on the pelt, which is t
 
 **Selected: `AnisotropicDensityVolume`, 64 voxels on the longest axis, marched at 3 voxels per step.**
 
-1. **Most accurate in every case measured** — 0.0122 to 0.0254 mean transmittance error, 1.7x to
-   2.1x better than the best deep opacity map.
+1. **Most accurate in every case measured** — 0.0122 to 0.0254 mean transmittance error, **1.8x to
+   2.4x** better than the best deep opacity map. Those errors are the SELECTED configuration's
+   (three voxels per step); the best-of-breed table above lists the one-voxel march, whose ratios
+   are a little narrower at 1.6x to 2.1x. The shipped number is the one quoted here.
 2. **Light-independent.** One bake serves every light, so an animated light costs *zero* rebuilds.
    Acceptance criterion 4 asks that animated light movement not cause flicker or stale density; a
    representation that does not depend on the light cannot go stale when the light moves, which is a
@@ -189,10 +196,16 @@ experiment that rejects an approach is a reportable result.
 
 - It is genuinely cheaper: 3 fetches against ~10 taps, and 320 KiB against 2.1 MiB.
 - But it is **per light**. It must be rebuilt whenever the light *or* the coat moves, and with more
-  than one shadowing light it costs one map each — so its memory advantage inverts at three lights
-  and its rebuild cost is paid every frame a light animates. That is the exact failure mode
-  criterion 4 names.
-- And it is **~2x less accurate** at its own optimum.
+  than one shadowing light it costs one map each, and its rebuild cost is paid every frame a light
+  animates. That rebuild cost is the decisive one and it is the exact failure mode criterion 4
+  names.
+
+  Its memory advantage, to be accurate about it, does **not** invert at three lights: at 320 KiB a
+  map against the shipped volume's 3.6 MiB, the crossover is about **twelve** lights. An earlier
+  revision of this document said three, which was arithmetic against the CPU model's tighter
+  packing rather than against what ships. The map is rejected on rebuild cost and accuracy, not on
+  memory.
+- And it is **1.8x to 2.4x less accurate** than the shipped volume, at its own optimum.
 
 **Kept as a declared fallback: `IsotropicDensityVolume`.** The same bake with the direction channel
 ignored: 1.5x to 2.2x the error, and no direction arithmetic in the march.
@@ -212,8 +225,10 @@ runtime is therefore the shadow LOD, which is cubic in the resolution, not the c
    crossing strands has low coherence and blends towards the isotropic `pi/4`; it cannot represent
    two distinct directions.
 2. **The representation contains the groom's own strands and nothing else.** Body-to-hair occlusion
-   is the scene shadow map's, and the seam that keeps the two from double-counting is
-   `GroomCoatShadowTechnique.h`.
+   is **not implemented in this slice** — the strand shader reads no cascade or atlas lookup, so a
+   coat in shade is lit as if it were in the open. It is tracked as #1323 together with the
+   hair-to-body direction, and the double-count boundary that will matter once both exist is stated
+   in `GroomCoatShadowTechnique.h`.
 3. **`kappa` is authored, not derived.** How opaque one fibre is to direct light is a coat property;
    deriving it from the pigment would be exactly the double-count the scope note forbids.
 4. **Wall-clock cost is not asserted.** The comparison counts taps and bytes, which are

@@ -300,7 +300,21 @@ namespace OloEngine
         /// resident bake is not already right. Returns the decision, so the
         /// caller records the reason rather than re-deriving it.
         [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
-                                                                u32 residentVolumes);
+                                                                u32& residentVolumes);
+
+        /// Coat volumes currently held across the WHOLE cache, not just the
+        /// ones drawn this frame. Counting live draws instead let the resident
+        /// set exceed its cap: a groom that stopped being visible kept its
+        /// volume, was not counted, and the next newcomer was still granted a
+        /// slot — so alternating groups of eight coats retained more than
+        /// kMaxResidentCoatVolumes textures indefinitely.
+        [[nodiscard]] u32 CountResidentCoatVolumes() const noexcept;
+
+        /// Frees the least-recently-used coat volume that is NOT in use this
+        /// frame, so a newly visible coat can take its slot. Returns false when
+        /// every resident volume belongs to a groom drawn this frame, which is
+        /// the honest "budget really is full" case.
+        bool ReclaimLeastRecentlyUsedCoatVolume();
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;

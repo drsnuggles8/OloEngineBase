@@ -382,6 +382,12 @@ TEST(GroomCoatShadowVolume, AnEmptyOrDegenerateInputIsRefusedRatherThanBuilt)
 
 TEST(GroomCoatShadowVolume, ANonFiniteCurveIsDroppedRatherThanPoisoningTheDensity)
 {
+    // A MIXED set: one good segment and two corrupt ones. This is the case
+    // that matters, and an earlier version of this test did not have it -- it
+    // used a lone good segment, so it could not see that CoatSegmentBounds
+    // took the min/max over the NaN, returned false, and failed the WHOLE
+    // build. One bad curve cost the entire coat its shadow, which is the
+    // opposite of the drop-the-curve promise BuildCoatSegments makes.
     std::vector<CoatSegment> segments;
     CoatSegment good;
     good.A = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -390,14 +396,36 @@ TEST(GroomCoatShadowVolume, ANonFiniteCurveIsDroppedRatherThanPoisoningTheDensit
     good.RadiusB = 0.001f;
     segments.push_back(good);
 
+    CoatSegment corrupt = good;
+    corrupt.B = glm::vec3(std::numeric_limits<f32>::quiet_NaN(), 0.1f, 0.0f);
+    segments.push_back(corrupt);
+
+    CoatSegment corruptRadius = good;
+    corruptRadius.RadiusB = std::numeric_limits<f32>::infinity();
+    segments.push_back(corruptRadius);
+
     DensityVolumeSettings settings;
     settings.Resolution = 8u;
     DensityVolume volume;
-    ASSERT_TRUE(BuildDensityVolume(segments, settings, volume, nullptr));
+    DensityVolumeBuildStats stats;
+    ASSERT_TRUE(BuildDensityVolume(segments, settings, volume, &stats))
+        << "one corrupt segment failed the whole build instead of being dropped";
+    EXPECT_EQ(stats.SegmentsBinned, 1u) << "the good segment was not binned";
+    EXPECT_EQ(stats.SegmentsRejected, 2u) << "the corrupt segments were not counted as rejected";
+    EXPECT_GT(stats.OccupiedVoxels, 0u) << "the good segment deposited nothing";
+    EXPECT_TRUE(std::isfinite(stats.TotalArealMass));
     for (const f32 density : volume.Density)
     {
         EXPECT_TRUE(std::isfinite(density));
     }
+    for (const glm::vec3& direction : volume.Direction)
+    {
+        EXPECT_TRUE(std::isfinite(direction.x) && std::isfinite(direction.y) && std::isfinite(direction.z));
+    }
+    // And the BOX is finite -- a NaN corner makes every UVW mapping a NaN,
+    // which the shader's range test cannot catch because every comparison
+    // against a NaN is false.
+    EXPECT_TRUE(std::isfinite(volume.BoundsMin.x) && std::isfinite(volume.BoundsMax.x));
 
     // A non-finite optical depth must read as FULLY LIT, not fully shadowed:
     // the failure mode of a missing occlusion term has to be a bright coat,

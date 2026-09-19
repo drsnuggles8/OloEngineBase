@@ -128,6 +128,13 @@ namespace OloEngine
         // The axis-aligned bounds of a segment set, INFLATED by each segment's
         // radius. Returns false and leaves the outputs untouched for an empty
         // set — a zero-extent box would divide by zero in every voxel mapping.
+        //
+        // A NON-FINITE segment is SKIPPED, not fatal. Taking the min/max over
+        // one NaN endpoint poisons the whole box, so an earlier version
+        // returned false and a single corrupt curve cost the entire coat its
+        // shadow — the opposite of BuildCoatSegments' promise that a bad curve
+        // is dropped rather than allowed to poison the measurement. False now
+        // means "nothing usable here at all".
         [[nodiscard]] bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin,
                                              glm::vec3& outMax);
 
@@ -341,8 +348,10 @@ namespace OloEngine
             std::vector<glm::vec3> Direction;
 
             [[nodiscard]] bool IsValid() const noexcept;
-            /// Bytes the GPU copy would occupy: one R16F plus one RGBA16F 3D
-            /// texture, which is what the renderer uploads.
+            /// Bytes the GPU copy occupies: ONE RGBA32F 3D texture at 16 bytes
+            /// a voxel, which is what GroomRenderPass actually uploads. Not the
+            /// tighter packing the channels would allow — see the definition
+            /// for why RGBA16F is unavailable through Texture3D::SetData.
             [[nodiscard]] u64 GpuBytes() const noexcept;
             [[nodiscard]] glm::vec3 VoxelSize() const noexcept;
         };

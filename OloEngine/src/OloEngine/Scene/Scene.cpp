@@ -8261,9 +8261,13 @@ namespace OloEngine
             if (const auto* coat = m_Registry.try_get<GroomCoatShadowComponent>(entity); coat != nullptr)
             {
                 request.CoatShadow = MakeGroomCoatShadowMode(*coat);
-                request.CoatKappa = coat->m_Kappa;
+                // Through the sanitisers, never the raw fields: OLO_SERIALIZE
+                // guards scene YAML and the deserialisers, but a direct MCP or
+                // native write reaches neither, and this is the one boundary
+                // those values cross on the way to the shader.
+                request.CoatKappa = MakeGroomCoatKappa(*coat);
                 request.CoatLod = MakeGroomCoatLodPolicy(*coat);
-                request.CoatStepVoxels = coat->m_StepVoxels;
+                request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
             }
 
             DeformGroomAgainstSurface(groomEntity, *groom, request);

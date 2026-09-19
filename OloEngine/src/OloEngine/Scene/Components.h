@@ -6156,18 +6156,49 @@ namespace OloEngine
         const GroomCoatShadowComponent& component) noexcept
     {
         GroomCoatShadow::CoatLodPolicy policy;
-        policy.BaseResolution = std::max(component.m_Resolution, 1u);
-        policy.MaxLodSteps = component.m_MaxLodSteps;
+        // CLAMPED TO THE COMPONENT'S DOCUMENTED RANGES, not merely made
+        // non-zero. OLO_SERIALIZE guards scene YAML and the deserialisers; it
+        // does NOT guard a direct MCP or native write, and this helper is the
+        // one boundary those writes cross on the way to BuildDensityVolume.
+        // Unclamped, an authored m_Resolution of 1024 is accepted there and
+        // asks for ~1.07e9 voxels — about 17 GB at 16 bytes each.
+        policy.BaseResolution = std::clamp(component.m_Resolution, 8u, 256u);
+        policy.MaxLodSteps = std::min(component.m_MaxLodSteps, 6u);
         policy.PixelSizeForLod0 = std::isfinite(component.m_PixelSizeForLod0) && component.m_PixelSizeForLod0 > 0.0f
-                                      ? component.m_PixelSizeForLod0
+                                      ? std::clamp(component.m_PixelSizeForLod0, 16.0f, 4096.0f)
                                       : 512.0f;
         // SANITISED HERE, not at the point of use. Scene YAML, a save game and
         // the MCP write path all reach the component directly, and only this
         // function stands between any of them and a resolution floor above the
         // base resolution — which would make every coat fall back for a reason
         // that is true but nobody authored.
-        policy.MinResolution = std::clamp(component.m_MinResolution, 1u, policy.BaseResolution);
+        policy.MinResolution = std::clamp(component.m_MinResolution, 4u, std::min(64u, policy.BaseResolution));
         return policy;
+    }
+
+    /// The authored march step, sanitised. Same boundary and same reason as
+    /// MakeGroomCoatLodPolicy: a direct MCP or native write reaches no
+    /// OLO_SERIALIZE clamp, and a NaN here becomes the shader's `stepWorld`.
+    /// The shader only rejects `stepWorld <= 0.0`, which a NaN passes — it then
+    /// flows through ceil(), clamp() and an integer conversion, where a NaN is
+    /// undefined rather than merely wrong.
+    [[nodiscard]] inline f32 MakeGroomCoatStepVoxels(const GroomCoatShadowComponent& component) noexcept
+    {
+        if (!std::isfinite(component.m_StepVoxels) || component.m_StepVoxels <= 0.0f)
+        {
+            return 3.0f;
+        }
+        return std::clamp(component.m_StepVoxels, 0.25f, 8.0f);
+    }
+
+    /// The authored per-crossing extinction, sanitised at the same boundary.
+    [[nodiscard]] inline f32 MakeGroomCoatKappa(const GroomCoatShadowComponent& component) noexcept
+    {
+        if (!std::isfinite(component.m_Kappa) || component.m_Kappa < 0.0f)
+        {
+            return 1.0f;
+        }
+        return std::min(component.m_Kappa, 16.0f);
     }
 
     /// The requested mode, validated. A corrupt index renders UNSHADOWED rather

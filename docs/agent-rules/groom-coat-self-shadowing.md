@@ -46,8 +46,11 @@ coat half of `GroomStrand.glsl`, or `GroomCoatShadowComponent`.
    **rejected** for precisely this: it must be rebuilt whenever the light or the coat moves.
    `GroomCoatShadowVisualEvidence.AnAnimatedLightCausesNoVolumeRebuilds` asserts the zero.
 
-7. **The bake is in GROOM OBJECT SPACE.** A coat that merely moves reuses it; only a resolution
-   change or new geometry invalidates it. The consequence is that `u_GroomCoatWorldToObject` must
+7. **The bake is in GROOM OBJECT SPACE.** A coat that merely moves reuses it. What DOES invalidate
+   it: a resolution change (the shadow LOD), new geometry, and **`WidthScale`** — that one is easy
+   to miss, because it multiplies the cooked diameters and therefore the areal density the volume
+   stores, so without it in the rebuild condition dragging the slider changes every ribbon on
+   screen and leaves the shadow describing the coat's previous thickness. The consequence is that `u_GroomCoatWorldToObject` must
    be **rigid**: the march compares angles in that space against each voxel's mean fibre direction,
    and a scale in the rotation tilts every fibre by an amount that depends on which way the ray
    points.
