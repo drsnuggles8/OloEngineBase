@@ -249,10 +249,19 @@ float oloGroomCoatOpticalDepth(sampler3D coatVolume, mat4 worldToObject, vec3 bo
 // attenuates INSIDE the fibre in GroomFibreCommon.glsl.
 float oloGroomCoatTransmittance(float opticalDepth, float kappa)
 {
-	if (!(opticalDepth > 0.0) || !(kappa > 0.0))
+	if (!(opticalDepth > 0.0) || !(kappa > 0.0) || isinf(opticalDepth) || isinf(kappa))
 	{
 		// Also catches NaN, because a NaN fails every comparison: an unshadowed
 		// coat is the loud failure, a black one is the silent one.
+		//
+		// AN INFINITY IS THE SAME LOUD FAILURE, and it needs its own test
+		// because it is the one non-finite value that passes `> 0.0`. The march
+		// cannot produce one from a finite density over a finite span, so an
+		// infinite tau means the volume or its uniforms are corrupt — and
+		// exp(-inf) would quietly return a BLACK coat, which is indistinguishable
+		// from a correct silhouette. The CPU twin has always rejected it; this
+		// side did not, which made the pair disagree on exactly the input that
+		// matters most.
 		return 1.0;
 	}
 	return clamp(exp(-kappa * opticalDepth), 0.0, 1.0);
