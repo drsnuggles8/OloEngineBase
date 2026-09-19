@@ -1070,7 +1070,18 @@ namespace OloEngine
         RHI::ResourceHandle vertexArrayID{};
         u32 baseIndex = 0;
         u32 indexCount = 0;
+        // Every instance the generator placed. With GPU culling on this is NOT
+        // the draw count -- see indirectBufferID -- but it stays the number the
+        // validity check and the profiler read, and the number the uncompacted
+        // fallback draws.
         u32 instanceCount = 0;
+
+        // GPU patch + instance cull result (issue #1235). Valid = draw
+        // indirectly from the command at indirectOffsetBytes, whose instanceCount
+        // the cull compute wrote; vertexArrayID then streams the COMPACTED
+        // instances. Null = the instanced draw this command has always issued.
+        RHI::ResourceHandle indirectBufferID{};
+        u32 indirectOffsetBytes = 0;
 
         // Shader
         RHI::ResourceHandle shaderRendererID{};

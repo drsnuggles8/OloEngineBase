@@ -3355,7 +3355,8 @@ namespace OloEngine
     }
 
     void VulkanRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                                      RHI::PrimitiveTopology topology)
+                                                      RHI::PrimitiveTopology topology,
+                                                      u32 offsetBytes)
     {
         auto& ctx = Ctx();
         const ResolvedIndirectBuffer indirect =
@@ -3365,7 +3366,7 @@ namespace OloEngine
         if (PrepareDraw(ctx.BoundVertexArray, ToVkTopology(topology)) && BindIndexBufferFor(ctx.BoundVertexArray))
         {
             VkDrawIndirect2InfoKHR info{};
-            if (!MakeDrawIndirect2Info(indirect, 0, 1, sizeof(VkDrawIndexedIndirectCommand),
+            if (!MakeDrawIndirect2Info(indirect, offsetBytes, 1, sizeof(VkDrawIndexedIndirectCommand),
                                        sizeof(VkDrawIndexedIndirectCommand), info))
             {
                 UnimplementedStub("DrawBoundElementsIndirect(indirect range too small for the command)",
@@ -4614,6 +4615,27 @@ namespace OloEngine
         {
             bindingState.SetStorageBuffer(bindingPoint, static_cast<VulkanStorageBuffer*>(entry->Object));
             bindingState.SetStorageBufferAddress(bindingPoint, 0);
+            return;
+        }
+
+        // A VERTEX buffer is a legitimate SSBO occupant too (issue #1235). The
+        // foliage GPU cull READS a layer's 48-byte instance stream and WRITES
+        // the compacted survivors into a second one, and both of those buffers
+        // must still be VAO stream 1 afterwards -- on GL as attributes, on
+        // Vulkan as the binding-63 pull. VulkanVertexBuffer is already created
+        // with VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | SHADER_DEVICE_ADDRESS_BIT
+        // (see CreateVertexBufferResources), so nothing about the allocation
+        // changes; what was missing was the handle -> address hop, because the
+        // VertexBuffer root entry was registered for diagnostics only.
+        //
+        // The PERSISTENT address, never a frame snapshot: a GPU-written stream
+        // must land where the draw that consumes it resolves, which is the same
+        // reason the raw-buffer arm below takes the persistent allocation.
+        if (entry != nullptr && entry->Kind == VulkanRootObjectKind::VertexBuffer)
+        {
+            const auto* vb = static_cast<VulkanVertexBuffer*>(entry->Object);
+            bindingState.SetStorageBuffer(bindingPoint, nullptr);
+            bindingState.SetStorageBufferAddress(bindingPoint, vb->GetDeviceAddress());
             return;
         }
 

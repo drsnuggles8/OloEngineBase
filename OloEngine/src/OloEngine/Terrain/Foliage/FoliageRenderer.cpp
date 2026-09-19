@@ -14,6 +14,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
@@ -441,6 +442,39 @@ namespace OloEngine
             if (data.InstanceVBO)
                 data.MeshVAO->AddInstanceBuffer(data.InstanceVBO);
         }
+
+        // The GPU cull's arrays stream the SAME geometry over a different
+        // instance buffer, so a geometry change invalidates them too (issue
+        // #1235). Rebuilding here rather than at each call site is the same
+        // argument this function was split out for.
+        for (u32 slot = 0; slot < FoliageGPUCuller::kViewSlotCount; ++slot)
+            RebuildCulledVertexArrays(data, slot);
+    }
+
+    void FoliageRenderer::RebuildCulledVertexArrays(LayerRenderData& data, u32 slot) const
+    {
+        auto& view = data.CullViews[slot];
+        view.CardVAO.Reset();
+        view.MeshVAO.Reset();
+
+        const Ref<VertexBuffer>& compacted = view.Resources.Compacted;
+        if (!compacted)
+            return;
+
+        if (data.QuadVBO && data.IBO)
+        {
+            view.CardVAO = VertexArray::Create();
+            view.CardVAO->AddVertexBuffer(data.QuadVBO);
+            view.CardVAO->SetIndexBuffer(data.IBO);
+            view.CardVAO->AddInstanceBuffer(compacted);
+        }
+        if (data.MeshVBO && data.MeshIBO)
+        {
+            view.MeshVAO = VertexArray::Create();
+            view.MeshVAO->AddVertexBuffer(data.MeshVBO);
+            view.MeshVAO->SetIndexBuffer(data.MeshIBO);
+            view.MeshVAO->AddInstanceBuffer(compacted);
+        }
     }
 
     void FoliageRenderer::UploadInstances(LayerRenderData& data, const std::vector<FoliageInstanceData>& instances)
@@ -853,7 +887,18 @@ namespace OloEngine
         for (auto& layer : m_Layers)
         {
             layer.InstanceCount = 0;
+            // The cull's per-layer data describes a generation that no longer
+            // exists, and every view slot's compacted set describes plants that
+            // are gone. Dropping the group/row tables forces a rebuild if the
+            // layer ever repopulates; clearing Active is what stops a slot
+            // replaying a stale compacted draw in the meantime.
+            layer.CullLayer = {};
+            for (auto& view : layer.CullViews)
+            {
+                view.Active = false;
+            }
         }
+        m_MainViewCulled = false;
     }
 
     void FoliageRenderer::Render(
@@ -1017,7 +1062,7 @@ namespace OloEngine
         }
     }
 
-    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time) const
+    void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1025,6 +1070,13 @@ namespace OloEngine
         {
             return;
         }
+
+        // This view's cull slot, filled by DispatchShadowViewCulling before the
+        // region's parallel recording began. Nothing here writes it.
+        const u32 shadowSlot = (shadowViewIndex < FoliageGPUCuller::kMaxShadowViews)
+                                   ? FoliageGPUCuller::ShadowSlot(shadowViewIndex)
+                                   : static_cast<u32>(FoliageGPUCuller::ViewSlot::Main);
+        const bool shadowCulled = shadowViewIndex < FoliageGPUCuller::kMaxShadowViews;
 
         depthShader->Bind();
 
@@ -1060,8 +1112,11 @@ namespace OloEngine
                 continue;
 
             EnumerateLayerDraws(layer, draws);
+            const auto& shadowView = layer.CullViews[shadowSlot];
+            u32 partIndex = 0;
             for (const auto& draw : draws)
             {
+                const u32 part = partIndex++;
                 const bool impostor = !draw.IsAuthoredMesh && layer.UseImpostor && layer.Impostor.IsValid();
                 const auto& program = impostor ? m_ImpostorDepthShader : depthShader;
                 if (!program || !program->IsReady())
@@ -1119,10 +1174,37 @@ namespace OloEngine
                                                      RHI::HeapSlotLifetime::Persistent);
                 }
 
-                draw.VAO->Bind();
+                // The compacted stream when this cascade culled, the full one
+                // otherwise. Both are correct frames; only the second costs the
+                // vertex work of every plant on the island.
+                const Ref<VertexArray>& culledVAO = draw.IsAuthoredMesh ? shadowView.MeshVAO : shadowView.CardVAO;
+                const bool indirect = shadowCulled && shadowView.Active && culledVAO &&
+                                      shadowView.Resources.DrawArgs && part < shadowView.Resources.PartCount;
+
+                const Ref<VertexArray>& boundVAO = indirect ? culledVAO : draw.VAO;
+                // BindVertexArrayRaw, not VertexArray::Bind(): the latter is a
+                // deliberate NO-OP on Vulkan (geometry reaches the shader by
+                // device address, and the VAO-shaped state lives in the draw
+                // path's tracker), so an indirect draw after it would take
+                // whatever array was bound last. That showed up as
+                // "'Foliage_Depth' STORAGE binding 63 has no published occupant"
+                // -- the instance stream missing from a draw whose own array
+                // carries one. The non-indirect call below passes the handle
+                // explicitly and never had the problem; binding both the same
+                // way is what keeps that from being a difference to remember.
+                RenderCommand::BindVertexArrayRaw(boundVAO->GetRHIHandle());
                 HeapBinding::FlushOffsets();
-                RenderCommand::DrawIndexedInstancedRaw(draw.VAO->GetRHIHandle(), draw.IndexCount,
-                                                       draw.BaseIndex, layer.InstanceCount);
+                if (indirect)
+                {
+                    RenderCommand::DrawBoundElementsIndirect(shadowView.Resources.DrawArgs->GetRHIHandle(),
+                                                             RHI::PrimitiveTopology::TriangleList,
+                                                             FoliageGPUCuller::DrawArgsOffset(part));
+                }
+                else
+                {
+                    RenderCommand::DrawIndexedInstancedRaw(boundVAO->GetRHIHandle(), draw.IndexCount,
+                                                           draw.BaseIndex, layer.InstanceCount);
+                }
             }
         }
     }
@@ -1218,15 +1300,38 @@ namespace OloEngine
             }
 
             // Same enumeration as Render / RenderShadows — see EnumerateLayerDraws.
+            // Part i of the main view's indirect args block IS draw i of this
+            // list, because CullForView built the args from this same call.
             EnumerateLayerDraws(layer, draws);
+            const auto& mainView = layer.CullViews[static_cast<u32>(FoliageGPUCuller::ViewSlot::Main)];
+            u32 partIndex = 0;
             for (const auto& draw : draws)
             {
+                const u32 part = partIndex++;
+
                 FoliageLayerDrawInfo info;
                 info.LayerIndex = layerIndex;
                 info.VertexArrayID = draw.VAO->GetRHIHandle();
                 info.BaseIndex = draw.BaseIndex;
                 info.IndexCount = draw.IndexCount;
                 info.InstanceCount = layer.InstanceCount;
+
+                // The compacted stream, when this frame's main-view cull
+                // produced one. The vertex array is the slot's own — a draw
+                // whose indirect command counts compacted instances but whose
+                // array still streams the FULL buffer would draw the first N
+                // generated plants rather than the N visible ones, which looks
+                // almost right and is entirely wrong.
+                if (mainView.Active)
+                {
+                    const Ref<VertexArray>& culledVAO = draw.IsAuthoredMesh ? mainView.MeshVAO : mainView.CardVAO;
+                    if (culledVAO && mainView.Resources.DrawArgs && part < mainView.Resources.PartCount)
+                    {
+                        info.VertexArrayID = culledVAO->GetRHIHandle();
+                        info.IndirectBufferID = mainView.Resources.DrawArgs->GetRHIHandle();
+                        info.IndirectOffsetBytes = FoliageGPUCuller::DrawArgsOffset(part);
+                    }
+                }
                 info.AlbedoTextureID = draw.Albedo ? draw.Albedo->GetRHIHandle() : RHI::NullResource;
                 info.IsAuthoredMesh = draw.IsAuthoredMesh;
                 info.MeshHandoverStartDistance = draw.HandoverStart;
@@ -1281,5 +1386,191 @@ namespace OloEngine
         }
 
         return result;
+    }
+
+    // ── GPU patch + instance culling (issue #1235) ────────────────────────────
+
+    // The lever, not a private static: OLO_FOLIAGE_CPU_CULL is registered in
+    // Core/DebugLevers.inl, which gets it an environment variable, a line in the
+    // startup log and a LIVE setter through olo_debug_levers_set -- so the
+    // dense-scene A/B can be measured inside one editor session instead of two.
+    // Phrased as CPU-cull-on rather than GPU-cull-off because the shipped path
+    // is the culled one and a lever should name the thing it turns ON.
+    void FoliageRenderer::SetGPUCullingEnabled(bool enabled)
+    {
+        Levers::SetFoliageCpuCull(!enabled);
+    }
+
+    bool FoliageRenderer::IsGPUCullingEnabled()
+    {
+        return !Levers::FoliageCpuCull();
+    }
+
+    void FoliageRenderer::SetDebugCullCapacity(u32 entries)
+    {
+        m_Culler.SetDebugOutputCapacity(entries);
+    }
+    bool FoliageRenderer::ReadbackCull(u32 layerIndex, FoliageGPUCuller::ViewSlot slot,
+                                       FoliageGPUCuller::Readback& out) const
+    {
+        out = {};
+        if (layerIndex >= m_Layers.size())
+            return false;
+
+        const auto& layer = m_Layers[layerIndex];
+        const auto& view = layer.CullViews[static_cast<u32>(slot)];
+        if (!view.Active)
+            return false;
+
+        return m_Culler.ReadbackResult(layer.CullLayer, view.Resources, out);
+    }
+
+    FoliageGPUCuller::ViewInputs FoliageRenderer::MakeCullInputs(const glm::mat4& worldViewProjection,
+                                                                 const glm::vec3& mainViewWorldPosition) const
+    {
+        // Terrain-LOCAL, through the frame's render origin: the instance rows and
+        // the group bounds are terrain-local (SetTerrainTransform's comment), and
+        // evaluating there keeps the subtraction on small operands far from the
+        // world origin (#429). The origin is the one the frame is actually
+        // rendering with, not a recomputed guess, so the cull cannot disagree
+        // with the draw about where things are.
+        const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+
+        FoliageGPUCuller::ViewInputs inputs;
+        inputs.ViewFrustum = Frustum(MakeObjectLocalViewProjection(worldViewProjection, m_TerrainTransform, origin));
+        inputs.DistanceOrigin = MakeObjectLocalCameraPos(mainViewWorldPosition, m_TerrainTransform, origin);
+        // Filled per layer by CullForView -- each layer fades out at its own
+        // ViewDistance, and that authored number is the cutoff.
+        inputs.MaxDistance = 0.0f;
+        return inputs;
+    }
+
+    void FoliageRenderer::DispatchMainViewCulling(const glm::mat4& worldViewProjection,
+                                                  const glm::vec3& viewWorldPosition)
+    {
+        OLO_PROFILE_FUNCTION();
+        m_MainViewCulled = CullForView(static_cast<u32>(FoliageGPUCuller::ViewSlot::Main),
+                                       MakeCullInputs(worldViewProjection, viewWorldPosition));
+    }
+
+    void FoliageRenderer::ResetShadowViewCulling()
+    {
+        for (auto& layer : m_Layers)
+        {
+            for (u32 i = 0; i < FoliageGPUCuller::kMaxShadowViews; ++i)
+                layer.CullViews[FoliageGPUCuller::ShadowSlot(i)].Active = false;
+        }
+    }
+
+    bool FoliageRenderer::DispatchShadowViewCulling(u32 shadowViewIndex, const FoliageGPUCuller::ViewInputs& cullInputs)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (shadowViewIndex >= FoliageGPUCuller::kMaxShadowViews)
+        {
+            // Bounded and named, not silent. The view still renders -- it just
+            // draws every generated instance, which is what the pass did before
+            // this feature existed.
+            if (!m_WarnedShadowViewOverflow)
+            {
+                OLO_CORE_WARN("FoliageRenderer: shadow view {} is past the {} that get their own GPU cull — it "
+                              "draws every generated instance instead. Further views not logged.",
+                              shadowViewIndex, FoliageGPUCuller::kMaxShadowViews);
+                m_WarnedShadowViewOverflow = true;
+            }
+            return false;
+        }
+        return CullForView(FoliageGPUCuller::ShadowSlot(shadowViewIndex), cullInputs);
+    }
+
+    bool FoliageRenderer::CullForView(u32 slotIndex, const FoliageGPUCuller::ViewInputs& inputs)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // Cleared FIRST and unconditionally. A slot that is not re-culled this
+        // frame must not keep claiming last frame's compacted set -- that is the
+        // latched-flag failure TerrainGPUQuadtree::HasDispatched documents, and
+        // here it would draw the plants that were visible from a camera position
+        // the viewer has already left.
+        for (auto& layer : m_Layers)
+            layer.CullViews[slotIndex].Active = false;
+
+        if (!IsGPUCullingEnabled())
+            return false;
+
+        m_Culler.EnsureInitialised();
+        if (!m_Culler.IsAvailable())
+        {
+            if (!m_WarnedCullUnavailable)
+            {
+                OLO_CORE_ERROR("FoliageRenderer: GPU culling is unavailable — every generated instance is "
+                               "submitted instead. The frame is correct and slower, not empty.");
+                m_WarnedCullUnavailable = true;
+            }
+            return false;
+        }
+
+        bool any = false;
+        std::vector<LayerDraw> draws;
+        std::vector<FoliageGPUCuller::Part> parts;
+
+        for (u32 layerIndex = 0; layerIndex < static_cast<u32>(m_Layers.size()); ++layerIndex)
+        {
+            auto& layer = m_Layers[layerIndex];
+            if (layer.InstanceCount == 0 || !layer.InstanceVBO)
+                continue;
+
+            if (!m_Culler.BuildLayer(layer.CullLayer, m_Registry, layerIndex, layer.InstanceCount,
+                                     layer.BoundsProfile))
+                continue;
+
+            // THE list, the same one the beauty and shadow paths walk. Part i of
+            // the indirect args block is draw i here, so the two cannot disagree
+            // about which index range a command describes.
+            EnumerateLayerDraws(layer, draws);
+            if (draws.empty())
+                continue;
+            if (draws.size() > FoliageGPUCuller::kMaxParts)
+            {
+                // Latched. This runs per layer per view slot per frame, so an
+                // unlatched warning about a condition that does not change is
+                // five identical lines every frame forever.
+                if (!m_WarnedTooManyParts)
+                {
+                    OLO_CORE_WARN("FoliageRenderer: layer {} emits {} draws, more than the {} an indirect args "
+                                  "block holds — this layer keeps the uncompacted path. Further layers not "
+                                  "logged.",
+                                  layerIndex, draws.size(), FoliageGPUCuller::kMaxParts);
+                    m_WarnedTooManyParts = true;
+                }
+                continue;
+            }
+
+            parts.clear();
+            parts.reserve(draws.size());
+            for (const auto& draw : draws)
+                parts.push_back(FoliageGPUCuller::Part{ draw.IndexCount, draw.BaseIndex });
+
+            auto& view = layer.CullViews[slotIndex];
+            const bool recreated =
+                m_Culler.EnsureViewCapacity(view.Resources, layer.InstanceCount, layer.CullLayer.GroupCount);
+            if (recreated || (!view.CardVAO && !view.MeshVAO))
+                RebuildCulledVertexArrays(layer, slotIndex);
+
+            FoliageGPUCuller::ViewInputs layerInputs = inputs;
+            layerInputs.MaxDistance = layer.ViewDistance;
+
+            // Only the MAIN view publishes the ratio counters — see the
+            // s_EmitStats comment in FoliageCullCommon.glsl.
+            const bool emitStats = slotIndex == static_cast<u32>(FoliageGPUCuller::ViewSlot::Main);
+            if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), parts, layerInputs,
+                              emitStats))
+            {
+                view.Active = true;
+                any = true;
+            }
+        }
+
+        return any;
     }
 } // namespace OloEngine

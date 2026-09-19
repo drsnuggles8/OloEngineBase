@@ -1750,7 +1750,14 @@ namespace OloEngine
             // Defaulted to 1 rather than 0 because the feature's off switch is
             // the absence of an influence SOURCE, not a per-layer opt-in — see
             // FoliageLayer::InteractionResponse.
-            f32 interactionResponse = 1.0f);
+            f32 interactionResponse = 1.0f,
+            // GPU cull result (issue #1235). A valid buffer makes this an
+            // INDIRECT draw: `vertexArrayID` then streams the compacted
+            // instances and the command at `indirectOffsetBytes` carries the
+            // count, which only the GPU knows. Null keeps the instanced draw of
+            // `instanceCount`, which is what an unculled or fallback frame is.
+            RHI::ResourceHandle indirectBufferID = {},
+            u32 indirectOffsetBytes = 0);
 
         // Water rendering parameters (grouped to avoid 25+ parameter function)
         struct WaterDrawParams

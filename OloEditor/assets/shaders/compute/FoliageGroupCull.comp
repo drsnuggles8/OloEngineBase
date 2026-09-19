@@ -1,0 +1,46 @@
+#version 450 core
+
+// Foliage PATCH cull — one thread per spatial group (issue #1235).
+//
+// FoliageInstanceRegistry buckets every layer's plants into 16 m spatial groups
+// with terrain-local bounds (#1230). This kernel tests those bounds once per
+// group and leaves a visibility bit behind; FoliageInstanceCull.comp then skips
+// every instance of a rejected group without touching its row. That is the
+// whole point of the two levels — a camera looking at one corner of an island
+// rejects ~95% of the plants with ~40 box tests instead of 50 000.
+//
+// The bounds are CONSERVATIVE by construction: a group's AABB is the union of
+// its instances' AABBs, and each of those already carries the wind and
+// interaction displacement padding (FoliageBoundsProfile, #1236 / #1238). A
+// group can therefore never reject an instance its own instance test would have
+// kept.
+
+layout(local_size_x = 64) in;
+
+#include "../include/FoliageCullCommon.glsl"
+#include "../include/GPUReadbackStats.glsl"
+
+void main()
+{
+    uint group = gl_GlobalInvocationID.x;
+    if (group >= s_GroupCount)
+        return;
+
+    if (s_EmitStats != 0u)
+        oloStatAdd(OLO_STAT_FoliageCullGroupsTested, 1u);
+
+    vec3 lo;
+    vec3 hi;
+    oloFoliageGroupBounds(group, lo, hi);
+
+    bool visible = oloFoliageBoxVisible(lo, hi) &&
+                   oloFoliageBoxDistance(lo, hi) <= s_DistanceOrigin.w;
+
+    s_Tail[group] = visible ? 1u : 0u;
+    if (visible)
+    {
+        atomicAdd(s_GroupsVisible, 1u);
+        if (s_EmitStats != 0u)
+            oloStatAdd(OLO_STAT_FoliageCullGroupsVisible, 1u);
+    }
+}

@@ -10607,6 +10607,16 @@ namespace OloEngine
                     i32 entityID = static_cast<i32>(std::to_underlying(foliageEntity));
                     glm::mat4 modelMat = foliageTransform.GetTransform();
 
+                    // GPU patch + instance cull for the MAIN view (issue #1235),
+                    // dispatched here so the compacted buffers and the indirect
+                    // commands exist by the time FoliageRenderPass replays this
+                    // bucket. The CULLING camera's matrices, not the render
+                    // camera's: with the observer frozen (#726) a cull that
+                    // quietly followed the observer would produce a plausible
+                    // set that is not the frozen one.
+                    foliage.m_Renderer->DispatchMainViewCulling(Renderer3D::GetCullViewProjectionMatrix(),
+                                                                Renderer3D::GetCullViewPosition());
+
                     auto layerInfos = foliage.m_Renderer->GetActiveLayerDrawInfo();
                     for (const auto& layer : layerInfos)
                     {
@@ -10659,7 +10669,8 @@ namespace OloEngine
                             leaf,
                             layer.IsAuthoredMesh,
                             layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance, layer.WindWeights,
-                            layer.InteractionResponse);
+                            layer.InteractionResponse,
+                            layer.IndirectBufferID, layer.IndirectOffsetBytes);
                     }
                 }
             }

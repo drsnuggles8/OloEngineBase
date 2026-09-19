@@ -140,6 +140,12 @@ OLO_LEVER_TEXT(UsdPluginPath, "OLO_USD_PLUGIN_PATH",
 // visible failure.
 OLO_LEVER_EXACT(TerrainCpuLod, "OLO_TERRAIN_CPU_LOD",
                 "Force the CPU terrain LOD selection path instead of the GPU quadtree descent.")
+OLO_LEVER_EXACT(FoliageCpuCull, "OLO_FOLIAGE_CPU_CULL",
+                "Submit every generated foliage instance instead of the GPU patch + instance cull (issue "
+                "#1235). The A/B for the dense-scene timing claim, and the first question when foliage is "
+                "missing from a frame: if it comes back under this, the cull removed it. Exact-match for the "
+                "same reason OLO_TERRAIN_CPU_LOD is -- a typo here would be a silent performance cliff, not a "
+                "visible failure.")
 OLO_LEVER_EXACT(TerrainCpuPick, "OLO_TERRAIN_CPU_PICK",
                 "Force the CPU terrain raycast (a 1-unit march over the CPU heightmap mirror) instead of the "
                 "GPU pick pass (issue #717). The twin of OLO_TERRAIN_CPU_LOD, and for the same reason: when "

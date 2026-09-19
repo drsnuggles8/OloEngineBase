@@ -610,7 +610,7 @@ namespace OloEngine::Testing
             DrawArraysIndirect(vertexArray, Native(indirectBuffer, RHI::ResourceKind::Buffer));
         }
         void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                       RHI::PrimitiveTopology /*topology*/) override
+                                       RHI::PrimitiveTopology /*topology*/, u32 /*offsetBytes*/) override
         {
             DrawBoundElementsIndirect(Native(indirectBuffer, RHI::ResourceKind::Buffer));
         }

@@ -207,7 +207,9 @@ namespace OloEngine
         f32 meshHandoverStart,
         f32 meshHandoverEnd,
         const glm::vec4& windWeights,
-        f32 interactionResponse)
+        f32 interactionResponse,
+        RHI::ResourceHandle indirectBufferID,
+        u32 indirectOffsetBytes)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -296,6 +298,8 @@ namespace OloEngine
         cmd->baseIndex = baseIndex;
         cmd->indexCount = indexCount;
         cmd->instanceCount = instanceCount;
+        cmd->indirectBufferID = indirectBufferID;
+        cmd->indirectOffsetBytes = indirectOffsetBytes;
         cmd->shaderRendererID = activeShader->GetRHIHandle();
         cmd->modelTransform = modelTransform;
         cmd->normalMatrix = glm::transpose(glm::inverse(modelTransform));

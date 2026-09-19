@@ -1,0 +1,158 @@
+#version 450 core
+
+// Foliage INSTANCE cull + compaction + indirect submission (issue #1235).
+//
+// One thread per row of a layer's instance stream. Skips every row whose patch
+// FoliageGroupCull.comp rejected, tests the survivors against the view frustum
+// and the layer's draw distance using the SAME conservative deformation bound
+// the registry computed on the CPU, and atomic-appends the survivors into a
+// compacted stream that IS the indirect draw's VAO stream 1 — no copy, no CPU
+// round trip.
+//
+// ── Identity, and why the compaction cannot steal another plant's history ────
+//
+// The named failure of this issue is a plant that leaves the frustum, comes
+// back, and inherits a different instance's history. Two things prevent it, and
+// both are structural rather than defended by a check:
+//
+//   1. A row is copied WHOLE. `b_DstInstances[outIdx] = b_SrcInstances[idx]` is
+//      the only write, so the compacted record is bit-identical to the source
+//      record — same position, scale, rotation, height, fade and tint. Nothing
+//      is recomputed from the output index.
+//   2. Every per-instance history downstream is keyed on the instance's own
+//      POSITION, not on its slot: the wind phase is hashed from instanceXZ
+//      (FoliageInstanceGeometry.glsl), the previous-frame position is the same
+//      deformation evaluated at prevTime, and the LOD hand-over is a function
+//      of distance. So a plant that reappears at compacted slot 0 having been
+//      at slot 4 812 evaluates exactly the same history it would have evaluated
+//      uncompacted. The one thing that WOULD break this — a shader indexing a
+//      per-instance history array by gl_InstanceIndex — does not exist in the
+//      foliage stages, and the parity test asserts the survivor ROWS are
+//      bit-equal to the source rows so it cannot appear unnoticed.
+//
+// `s_Tail[s_SourceRowOffset + outIdx]` records which source row landed in each
+// compacted slot. Nothing in the draw reads it; it exists so that the claim
+// above is CHECKABLE — FoliageInstanceRegistry::GetIdForBufferRow turns a
+// source row into the canonical FoliageInstanceId, so a test (and the MCP
+// inspector) can assert that the same plant is the same plant across a
+// leave-and-return.
+
+layout(local_size_x = 256) in;
+
+#include "../include/FoliageCullCommon.glsl"
+#include "../include/GPUReadbackStats.glsl"
+
+// One row of FoliageRenderer's 48-byte instance stream. Layout mirrors
+// OloEngine::FoliageInstanceData (Terrain/Foliage/FoliageLayer.h) and the
+// attribute / pull layout FoliageInstanceVertexStage.glsl reads.
+struct FoliageInstanceRow
+{
+    vec4 PositionScale;  // xyz = terrain-local position, w = uniform scale
+    vec4 RotationHeight; // x = Y rotation (rad), y = height, z = fade, w = unused
+    vec4 ColorAlpha;     // rgb = tint, a = alpha cutoff
+};
+
+// binding 16: the layer's full instance stream — a VertexBuffer read as an SSBO
+// (VulkanRendererAPI::BindStorageBuffer's VertexBuffer arm; on GL a buffer is a
+// buffer).
+layout(std430, binding = 16) readonly buffer FoliageCullInput
+{
+    FoliageInstanceRow b_SrcInstances[];
+};
+
+// binding 15: the compacted survivors, ALSO a VertexBuffer, so it becomes VAO
+// stream 1 for the indirect draw with no copy (GL attributes / Vulkan's
+// binding-63 pull).
+layout(std430, binding = 15) writeonly buffer FoliageCullOutput
+{
+    FoliageInstanceRow b_DstInstances[];
+};
+
+// binding 17: one DrawElementsIndirectCommand per drawable part of the layer.
+// The CPU writes count / firstIndex / baseVertex / baseInstance and zeros
+// instanceCount; this kernel atomic-adds each landed survivor into EVERY part's
+// instanceCount, because a layer's parts (the authored mesh's submeshes and the
+// card) draw the SAME instance set through different index ranges and
+// materials. 8 uints per record so the stride is 32 and each part's draw offset
+// stays 4-byte aligned on both backends.
+struct FoliageDrawArgs
+{
+    uint Count;
+    uint InstanceCount;
+    uint FirstIndex;
+    uint BaseVertex;
+    uint BaseInstance;
+    uint Pad0;
+    uint Pad1;
+    uint Pad2;
+};
+
+layout(std430, binding = 17) buffer FoliageCullIndirect
+{
+    FoliageDrawArgs b_DrawArgs[];
+};
+
+void main()
+{
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= s_InstanceCount)
+        return;
+
+    // Counted in the SHADER, for the same reason InstanceFrustumCull.comp counts
+    // its input here: a number the CPU wrote would agree with the CPU by
+    // construction and prove nothing about whether the dispatch ran at all.
+    // MAIN view only -- see s_EmitStats.
+    if (s_EmitStats != 0u)
+        oloStatAdd(OLO_STAT_FoliageCullGenerated, 1u);
+
+    // ── Level 1: did this plant's patch survive? ──
+    uint group = l_Tail[l_RowGroupOffset + idx];
+    if (group >= s_GroupCount || s_Tail[group] == 0u)
+        return;
+
+    if (s_EmitStats != 0u)
+        oloStatAdd(OLO_STAT_FoliageCullTested, 1u);
+
+    // ── Level 2: the plant itself ──
+    FoliageInstanceRow row = b_SrcInstances[idx];
+    vec3 lo;
+    vec3 hi;
+    oloFoliageInstanceBounds(row.PositionScale.xyz, row.PositionScale.w, row.RotationHeight.y, lo, hi);
+
+    if (!oloFoliageBoxVisible(lo, hi))
+        return;
+    if (oloFoliageBoxDistance(lo, hi) > s_DistanceOrigin.w)
+        return;
+
+    atomicAdd(s_VisibleCount, 1u);
+    if (s_EmitStats != 0u)
+        oloStatAdd(OLO_STAT_FoliageCullVisible, 1u);
+
+    // ── Append ──
+    //
+    // TWO counters, and the split is what makes the bound check safe — the same
+    // argument InstanceFrustumCull.comp spells out. `s_ReserveCursor` is
+    // MONOTONIC, so every invocation owns a distinct slot; the parts'
+    // instanceCount is bumped only after a write lands, so it stays an exact
+    // count of what the draw may read. Decrementing a single counter on
+    // overflow would, under concurrency, hand two invocations the same slot and
+    // turn a truncation into a duplicated-and-lost plant.
+    uint outIdx = atomicAdd(s_ReserveCursor, 1u);
+    if (outIdx >= s_OutputCapacity)
+    {
+        // Bounded and LOUD, never a quiet short draw: the flag names the
+        // condition and the counter says by how much. The CPU reads both back
+        // and warns (FoliageGPUCuller::PollOverflow).
+        oloStatOverflow(OLO_STATFLAG_FoliageCullOutput, OLO_STAT_FoliageCullDropped, 1u);
+        return;
+    }
+
+    b_DstInstances[outIdx] = row;
+    s_Tail[s_SourceRowOffset + outIdx] = idx;
+
+    for (uint part = 0u; part < s_PartCount; ++part)
+        atomicAdd(b_DrawArgs[part].InstanceCount, 1u);
+
+    if (s_EmitStats != 0u)
+        oloStatAdd(OLO_STAT_FoliageCullSubmitted, 1u);
+}

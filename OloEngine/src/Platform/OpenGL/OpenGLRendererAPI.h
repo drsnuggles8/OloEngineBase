@@ -91,7 +91,8 @@ namespace OloEngine
 
         void DrawElementsIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
         void DrawArraysIndirect(const Ref<VertexArray>& vertexArray, RHI::ResourceHandle indirectBuffer) override;
-        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer, RHI::PrimitiveTopology topology) override;
+        void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer, RHI::PrimitiveTopology topology,
+                                       u32 offsetBytes) override;
         void MultiDrawElementsIndirectCountRaw(RHI::ResourceHandle vertexArray, RHI::ResourceHandle indirectBuffer,
                                                u32 indirectOffsetBytes,
                                                RHI::ResourceHandle parameterBuffer, u32 parameterOffsetBytes,
