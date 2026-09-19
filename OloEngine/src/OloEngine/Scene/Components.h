@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
@@ -5885,6 +5886,162 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomBindingComponent) == 24,
                   "GroomBindingComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    // ── Groom fibre scattering (issue #1247) ─────────────────────
+    //
+    // The fibre BCSDF's authored parameters. Every field's meaning, and the
+    // measurements behind the defaults, are in Groom/GroomFibreScattering.h;
+    // this is the authoring surface for them.
+    //
+    // A SEPARATE COMPONENT, NOT FIELDS ON GroomComponent, for the same three
+    // reasons GroomBindingComponent is one, and the first is the one that
+    // decides it here:
+    //   * ITS ABSENCE IS THE #1246 BEHAVIOUR. A groom with no fibre material
+    //     renders the neutral root-to-tip ramp the visibility slice shipped, so
+    //     every capture committed by #1246 still means what it meant and every
+    //     existing scene loads looking exactly as it did. A component that was
+    //     always present but usually inert could not say that.
+    //   * GroomComponent's layout is PINNED at 48 bytes with a whole-object
+    //     memcmp, and widening it revs the save-game format for every scene
+    //     with a groom in it, lit or not.
+    //   * A material is a thing in its own right: removing the component is how
+    //     a coat goes back to unlit, which is one operation rather than a mode
+    //     field to remember to clear.
+    //
+    // ONE MATERIAL PER GROOM ENTITY, not per group. A cooked groom carries
+    // groups (a scalp and its eyebrows are different groups), and a real
+    // production shader gives each its own material. That is a deliberate
+    // omission with a named reason rather than an oversight: per-group
+    // materials need a per-group draw split in GroomRenderPass, which is a
+    // change to the visibility slice's geometry cache and not to its shading.
+    // Stated here so the next reader does not have to work out whether it was
+    // considered.
+    //
+    // Not annotated OLO_PROPERTY and not registered with Lua, matching
+    // GroomComponent and GroomBindingComponent. A coat's pigment is authoring
+    // state; a script that wants a different coat wants a different entity.
+    struct GroomFibreComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// The reflectance the coat should end up with, in PigmentMode
+        /// BaseColor. Inverted to an absorption through Chiang's fit, which is
+        /// what folds multiple scattering into the answer — see
+        /// GroomFibreSigmaAFromColor.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        glm::vec3 m_BaseColor{ 0.42f, 0.26f, 0.14f };
+
+        /// Raw sigma_a, in PigmentMode Absorption. Per fibre DIAMETER and
+        /// dimensionless, so it does not change with strand width.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 32.0f)
+        glm::vec3 m_Absorption{ 0.84f, 1.39f, 2.74f };
+
+        /// Pigment concentrations, in PigmentMode Melanin — the mode with a
+        /// physical meaning. Measured spectra, so these numbers are comparable
+        /// with published hair data: 1.3 / 0 is dark brown, 0.1 / 0.05 a pale
+        /// blonde, 0.35 / 1.4 red.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 8.0f)
+        f32 m_Eumelanin = 1.3f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 8.0f)
+        f32 m_Pheomelanin = 0.0f;
+
+        /// How far the highlight smears ALONG the fibre.
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 1.0f)
+        f32 m_LongitudinalRoughness = 0.3f;
+
+        /// How far each lobe smears AROUND the fibre. Also drives how much
+        /// multiple scattering the BaseColor inversion assumes, which is why
+        /// moving it shifts the colour slightly — that coupling is physical.
+        OLO_SERIALIZE(Clamp, Min = 0.01f, Max = 1.0f)
+        f32 m_AzimuthalRoughness = 0.3f;
+
+        /// Cuticle scale tilt, degrees. Separates the R and TRT highlights by
+        /// 2*alpha and -4*alpha respectively; zero looks like plastic.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 15.0f)
+        f32 m_TiltDegrees = 2.0f;
+
+        /// Keratin is 1.55.
+        OLO_SERIALIZE(Clamp, Min = 1.01f, Max = 3.0f)
+        f32 m_IndexOfRefraction = 1.55f;
+
+        /// A plain exposure multiplier, applied after the energy check rather
+        /// than inside it — so turning it up is visibly a lighting decision and
+        /// not a claim about the fibre.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 64.0f)
+        f32 m_Intensity = 1.0f;
+
+        /// h-quadrature order. 4 is the measured default: it reproduces the
+        /// converged far field to 0.18 relative RMS with an azimuthal
+        /// smoothness within 5-17 % of the truth, and the error falls roughly
+        /// linearly in cost from there. docs/analysis/groom-fibre-scattering-1247.md
+        /// is the table.
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 32)
+        u32 m_HSamples = 4;
+
+        /// GroomFibrePigmentMode. Stored as a u8 so the component keeps its
+        /// pinned, hole-free, trivially-copyable layout.
+        ///
+        /// REJECT, not Clamp: this is a discriminated mode index, so saturating
+        /// turns a corrupt value into a DIFFERENT valid one and the coat
+        /// renders a colour nobody authored. Same reasoning, and the same
+        /// reference, as GroomComponent::m_CompositionMode.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+        u8 m_PigmentMode = static_cast<u8>(GroomFibrePigmentMode::Melanin);
+
+        /// GroomFibreDebugMode — which contribution the pass renders. The
+        /// separated lobes are acceptance criterion 3's diagnostic output, and
+        /// they are the only way to tell a too-dim TT from a too-bright TRT.
+        /// Reject for the same reason as above.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 5)
+        u8 m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+
+        /// Light the coat at all. Off renders #1246's neutral ramp, which is
+        /// the A/B control every capture in this feature's evidence is measured
+        /// against — not a performance switch.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+
+        GroomFibreComponent() = default;
+        GroomFibreComponent(const GroomFibreComponent&) = default;
+        GroomFibreComponent& operator=(const GroomFibreComponent&) = default;
+        GroomFibreComponent(GroomFibreComponent&&) noexcept = default;
+        GroomFibreComponent& operator=(GroomFibreComponent&&) noexcept = default;
+
+        auto operator==(const GroomFibreComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomFibreComponent) == 60,
+                  "GroomFibreComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored fields as the scattering model wants them. The ONE place
+    /// the component becomes model input, so the renderer, a test and the
+    /// editor preview cannot each interpret the fields slightly differently.
+    [[nodiscard]] inline GroomFibreAuthoring MakeGroomFibreAuthoring(const GroomFibreComponent& component) noexcept
+    {
+        GroomFibreAuthoring authored;
+        authored.PigmentMode = IsValidGroomFibrePigmentMode(static_cast<i32>(component.m_PigmentMode))
+                                   ? static_cast<GroomFibrePigmentMode>(component.m_PigmentMode)
+                                   : GroomFibrePigmentMode::Melanin;
+        authored.Eumelanin = component.m_Eumelanin;
+        authored.Pheomelanin = component.m_Pheomelanin;
+        authored.BaseColor = component.m_BaseColor;
+        authored.Absorption = component.m_Absorption;
+        authored.LongitudinalRoughness = component.m_LongitudinalRoughness;
+        authored.AzimuthalRoughness = component.m_AzimuthalRoughness;
+        authored.TiltDegrees = component.m_TiltDegrees;
+        authored.IndexOfRefraction = component.m_IndexOfRefraction;
+        authored.Intensity = component.m_Intensity;
+        authored.HSamples = component.m_HSamples;
+        // SANITIZED HERE, not at the point of use. Scene YAML, a save game and
+        // the MCP write path all reach the component directly, and only this
+        // function stands between any of them and a NaN in a pow().
+        return SanitizeGroomFibreAuthoring(authored);
+    }
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────
 

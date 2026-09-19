@@ -2237,6 +2237,7 @@ namespace OloEngine
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
+            DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -8474,8 +8475,10 @@ namespace OloEngine
             ImGui::ColorEdit3("Strand Color", glm::value_ptr(component.m_StrandColor));
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Neutral albedo. There is no lighting term on strands in #1246 - the only "
-                                  "modulation is a geometric root-to-tip ramp.");
+                ImGui::SetTooltip("The UNLIT albedo, used when this entity has no Groom Fibre Material: the "
+                                  "coat is then a neutral colour modulated by a geometric root-to-tip ramp, "
+                                  "which is what #1246 shipped. Add a Groom Fibre Material to light it, and "
+                                  "this colour stops being read.");
             }
 
             ImGui::DragFloat("Width Scale", &component.m_WidthScale, 0.01f, 0.01f, 100.0f, "%.2f");
@@ -8524,6 +8527,119 @@ namespace OloEngine
                         }
                     }
                 }
+            } });
+
+        // ── Groom fibre scattering (issue #1247) ───────────────────
+        //
+        // The panel's job here is to keep the PHYSICS visible while it is being
+        // authored. Every slider below is a quantity with a meaning, not a
+        // look-development knob, so the section shows what each one resolves to
+        // — the absorption a pigment produces, the lobe shifts a tilt produces —
+        // rather than only its raw value. A coat that looks wrong is then a
+        // question about a number the author can see.
+        DrawComponent<GroomFibreComponent>("Groom Fibre Material", entity, [entity](auto& component)
+                                           {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there are no strands to light. Add a "
+                                   "Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            if (!entity.GetComponent<GroomComponent>().m_RenderStrands)
+            {
+                // NOT an error, and not silently ignored either: the debug
+                // preview is a legitimate way to work, and this material lights
+                // the PRODUCTION strands only.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this material is authored but "
+                                   "not drawn. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off renders the neutral root-to-tip ramp the visibility pass shipped (#1246).\n"
+                                  "That is the A/B control this feature's evidence is measured against, not a\n"
+                                  "performance switch.");
+            }
+
+            ImGui::SeparatorText("Pigment");
+            {
+                constexpr std::array<const char*, 3> kModes{ "Melanin (measured)", "Base colour", "Absorption" };
+                int mode = static_cast<int>(component.m_PigmentMode);
+                if (ImGui::Combo("Mode", &mode, kModes.data(), static_cast<int>(kModes.size())))
+                {
+                    component.m_PigmentMode = static_cast<u8>(std::clamp(mode, 0, 2));
+                }
+            }
+
+            switch (static_cast<GroomFibrePigmentMode>(component.m_PigmentMode))
+            {
+                case GroomFibrePigmentMode::Melanin:
+                    ImGui::DragFloat("Eumelanin", &component.m_Eumelanin, 0.01f, 0.0f, 8.0f);
+                    ImGui::DragFloat("Pheomelanin", &component.m_Pheomelanin, 0.01f, 0.0f, 8.0f);
+                    ImGui::TextDisabled("1.3 / 0 dark brown   0.1 / 0.05 blonde   0.35 / 1.4 red");
+                    break;
+                case GroomFibrePigmentMode::BaseColor:
+                    ImGui::ColorEdit3("Base colour", glm::value_ptr(component.m_BaseColor));
+                    ImGui::TextDisabled("Inverted to an absorption that reproduces this colour once");
+                    ImGui::TextDisabled("multiple scattering has had its say, so it moves with roughness.");
+                    break;
+                case GroomFibrePigmentMode::Absorption:
+                case GroomFibrePigmentMode::Count:
+                    ImGui::DragFloat3("Absorption", glm::value_ptr(component.m_Absorption), 0.01f, 0.0f, 32.0f);
+                    ImGui::TextDisabled("Per fibre diameter, dimensionless: a thicker strand of the same");
+                    ImGui::TextDisabled("pigment is not darker.");
+                    break;
+            }
+
+            // WHAT THE PIGMENT RESOLVED TO. Three authoring modes reach one
+            // sigma_a, and the mode that is easy to author is the one whose
+            // answer is least obvious — so the answer is shown for all three.
+            {
+                const GroomFibreParams resolved = MakeGroomFibreParams(MakeGroomFibreAuthoring(component));
+                ImGui::Text("sigma_a: %.3f  %.3f  %.3f", resolved.SigmaA.r, resolved.SigmaA.g, resolved.SigmaA.b);
+                const glm::vec3 albedo = GroomFibreAmbientResponse(resolved, 0.0f).Sum();
+                ImGui::Text("Head-on albedo: %.3f  %.3f  %.3f", albedo.r, albedo.g, albedo.b);
+            }
+
+            ImGui::SeparatorText("Fibre");
+            ImGui::DragFloat("Longitudinal roughness", &component.m_LongitudinalRoughness, 0.005f, 0.01f, 1.0f);
+            ImGui::DragFloat("Azimuthal roughness", &component.m_AzimuthalRoughness, 0.005f, 0.01f, 1.0f);
+            ImGui::DragFloat("Cuticle tilt (deg)", &component.m_TiltDegrees, 0.05f, 0.0f, 15.0f);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Shifts the R highlight by +2x and the TRT highlight by -4x this angle.\n"
+                                  "Real hair measures 2-3 degrees; zero looks like plastic.");
+            }
+            ImGui::DragFloat("Index of refraction", &component.m_IndexOfRefraction, 0.005f, 1.01f, 3.0f);
+            ImGui::DragFloat("Intensity", &component.m_Intensity, 0.01f, 0.0f, 64.0f);
+
+            ImGui::SeparatorText("Quality");
+            {
+                int samples = static_cast<int>(component.m_HSamples);
+                if (ImGui::SliderInt("Width samples", &samples, 1, 32))
+                {
+                    component.m_HSamples = static_cast<u32>(std::clamp(samples, 1, 32));
+                }
+                ImGui::TextDisabled("Per-fragment cost is linear in this. 4 is the measured default:");
+                ImGui::TextDisabled("see docs/analysis/groom-fibre-scattering-1247.md, table 1.");
+            }
+
+            ImGui::SeparatorText("Diagnostics");
+            {
+                constexpr std::array<const char*, 6> kDebug{ "Full",     "R only",       "TT only",
+                                                             "TRT only", "Residual only", "Tangent frame" };
+                int debug = static_cast<int>(component.m_DebugMode);
+                if (ImGui::Combo("Show", &debug, kDebug.data(), static_cast<int>(kDebug.size())))
+                {
+                    component.m_DebugMode = static_cast<u8>(std::clamp(debug, 0, 5));
+                }
+                ImGui::TextDisabled("A pale coat that looks wrong is almost always a TT that is too dim");
+                ImGui::TextDisabled("or a TRT that is too bright, and the sum cannot tell you which.");
             } });
 
         // ── Groom surface binding (issue #1249) ────────────────────

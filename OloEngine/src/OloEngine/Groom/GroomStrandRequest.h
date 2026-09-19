@@ -29,6 +29,7 @@
 // here fails in every translation unit that merely HOLDS one of these — which
 // after Renderer3D.h includes it is most of the renderer.
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
@@ -58,9 +59,28 @@ namespace OloEngine
         glm::mat4 Transform{ 1.0f };
         glm::mat4 PreviousTransform{ 1.0f };
 
-        /// Neutral albedo. #1246 renders an unlit coat on purpose — see
-        /// GroomStrand.glsl — so this is the only colour in play.
+        /// Neutral albedo, used when this groom carries NO fibre material —
+        /// #1246's unlit coat, which is still what a groom without a
+        /// GroomFibreComponent renders.
         glm::vec3 Color{ 0.55f, 0.48f, 0.42f };
+
+        // ── Fibre scattering (#1249's sibling, #1247) ────────────────
+        //
+        // DERIVED HERE, on the producer side, for the same reason the asset and
+        // the deformation are: MakeGroomFibreParams runs a pow, a log and a sin
+        // per groom, and the render thread should receive an answer rather than
+        // an authoring struct to interpret. It also means the editor preview,
+        // the evidence tests and the pass all light from the same bytes.
+
+        /// True when this groom has a fibre material at all. False renders the
+        /// neutral ramp, so a scene authored before this feature is unchanged.
+        bool Lit = false;
+
+        /// The derived BCSDF parameters. Meaningless unless `Lit`.
+        GroomFibreParams Fibre;
+
+        /// Which contribution to render — the separated diagnostic lobes.
+        GroomFibreDebugMode FibreDebug = GroomFibreDebugMode::Full;
 
         /// Root-to-tip brightness floor, the same geometric ramp the debug
         /// preview uses. 1.0 is a flat colour.

@@ -56,6 +56,7 @@ SAVE_COMPONENT(FootIKComponent, entity, writer);
 SAVE_COMPONENT(GoapAgentComponent, entity, writer);
 SAVE_COMPONENT(GroomBindingComponent, entity, writer);
 SAVE_COMPONENT(GroomComponent, entity, writer);
+SAVE_COMPONENT(GroomFibreComponent, entity, writer);
 SAVE_COMPONENT(IDComponent, entity, writer);
 SAVE_COMPONENT(IKTargetComponent, entity, writer);
 SAVE_COMPONENT(InstancePortalComponent, entity, writer);

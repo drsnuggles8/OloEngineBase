@@ -2,8 +2,10 @@
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/RGBuilder.h"
@@ -394,6 +396,32 @@ namespace OloEngine
 
         m_Shader->Bind();
 
+        // The scene's global IBL, bound EXPLICITLY rather than inherited — the
+        // same decision, for the same reason, as the foliage draw's (see
+        // CommandDispatch::DrawFoliageInstances). In a frame with lit meshes
+        // TEX_USER_0 would usually already hold the irradiance cube, and
+        // "usually" is the problem: reading it from Renderer3D's global IBL
+        // state makes a coat's ambient independent of what drew before it.
+        //
+        // Cube, so the typed null kind matters: with no environment bound the
+        // slot must answer as a black CUBE, and a 2D null sampler on a
+        // samplerCube declaration is undefined behaviour, not a black read.
+        // Persistent lifetime because the map is asset-owned rather than
+        // graph-owned, so its heap offset is worth memoising.
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, Renderer3D::GetGlobalIrradianceMapHandle(),
+                                        RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
+        context.FlushHeapOffsets();
+
+        // Camera-relative rendering (#429). Every world matrix the GPU sees is
+        // relative to this point, including the one behind u_ViewProjection
+        // (RenderPipeline.cpp's MakeViewProjectionRelative) and the light
+        // positions in the multi-light UBO (Renderer3D::UploadMultiLightUBO).
+        // A groom whose model matrix stayed absolute would be drawn offset from
+        // the body it grows on, and lit from a direction shifted by the same
+        // amount — invisible near the world origin, which is where every test
+        // scene sits, and wrong everywhere else.
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+
         for (const auto& request : m_Requests)
         {
             if (!request.Groom)
@@ -441,8 +469,13 @@ namespace OloEngine
             const f32 objectScale = (axisX + axisY + axisZ) / 3.0f;
 
             UBOStructures::GroomStrandParamsUBO params;
-            params.Model = request.Transform;
-            params.PrevModel = request.PreviousTransform;
+            params.Model = MakeModelRelative(request.Transform, renderOrigin);
+            // The SAME origin for both, not last frame's: the previous-frame
+            // clip matrix is itself made relative with the current origin
+            // (RenderPipeline.cpp), so a previous model relative to a different
+            // point would emit a velocity equal to the origin's jump on every
+            // cell crossing — a whole-screen smear once per grid cell.
+            params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(spec.Width), static_cast<f32>(spec.Height), 0.0f, 0.0f);
@@ -451,6 +484,24 @@ namespace OloEngine
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
+
+            // The DERIVED fibre parameters, straight across. Nothing is
+            // recomputed here: Scene built them once with the same
+            // MakeGroomFibreParams the tests and the analysis call, so the
+            // shader, the CPU model and the measured numbers cannot drift.
+            params.FibreSigmaEta = glm::vec4(request.Fibre.SigmaA, request.Fibre.Eta);
+            params.FibreLobe = glm::vec4(request.Fibre.V[0], request.Fibre.S, request.Fibre.Intensity, 0.0f);
+            params.FibreSinAlpha = glm::vec4(request.Fibre.Sin2kAlpha[0], request.Fibre.Sin2kAlpha[1],
+                                             request.Fibre.Sin2kAlpha[2], 0.0f);
+            params.FibreCosAlpha = glm::vec4(request.Fibre.Cos2kAlpha[0], request.Fibre.Cos2kAlpha[1],
+                                             request.Fibre.Cos2kAlpha[2], 0.0f);
+            params.FibreModes = glm::ivec4(request.Lit ? 1 : 0, static_cast<i32>(request.Fibre.HSamples),
+                                           static_cast<i32>(request.FibreDebug), 0);
+            if (request.Lit)
+            {
+                ++m_Stats.GroomsLit;
+                m_Stats.FibreSamplesPerFragment = std::max(m_Stats.FibreSamplesPerFragment, request.Fibre.HSamples);
+            }
             // UPLOAD, THEN BIND — in that order, every draw, the shape
             // CloudscapeRenderPass::UploadAndBindUBO established.
             //
@@ -487,6 +538,14 @@ namespace OloEngine
         // that looks like the later one's bug.
         RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
         CommandDispatch::InvalidateRenderStateCache();
+        // This pass bound TEX_USER_0 through the RGCommandContext seam, which
+        // does not go through the dispatcher's redundant-bind cache — so that
+        // cache still believes whatever the last command-queue draw left there.
+        // A later pass binding its own texture to the same slot would find a
+        // matching entry and skip the bind, and would then sample this pass's
+        // irradiance cube. Telling the cache the slot was clobbered is the
+        // documented way out (CommandDispatch::InvalidateTextureSlot).
+        CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_USER_0);
         m_SceneFramebuffer->Unbind();
 
         // A change of dominant reason, not a per-frame line: the same warning

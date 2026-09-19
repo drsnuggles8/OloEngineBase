@@ -242,6 +242,12 @@
 		"OloEngine/Groom/GroomDeformation.cpp"
 		"OloEngine/Asset/Serializers/GroomBindingSerializer.cpp"
 		"OloEngine/Serialization/GroomBindingBinaryFormat.h"
+		# Fibre scattering (#1247). The BCSDF, its sampling triple and the
+		# reference far-field integral the shipped approximation is measured
+		# against. Pure CPU and free of renderer headers, which is what lets the
+		# lobe comparison and the energy check run in CI on a machine with no GPU.
+		"OloEngine/Groom/GroomFibreScattering.h"
+		"OloEngine/Groom/GroomFibreScattering.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

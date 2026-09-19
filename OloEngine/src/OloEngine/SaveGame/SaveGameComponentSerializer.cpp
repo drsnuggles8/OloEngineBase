@@ -3293,6 +3293,59 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomFibreComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1247
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the
+        // load never reaches this function. That is also why this band did NOT
+        // take a kSaveGameFormatVersion number — spending one would have
+        // collided with whatever another branch is appending to an EXISTING
+        // component, for no benefit here. Same reasoning as
+        // GroomBindingComponent above.
+        ar << c.m_BaseColor << c.m_Absorption;
+        ar << c.m_Eumelanin << c.m_Pheomelanin;
+        ar << c.m_LongitudinalRoughness << c.m_AzimuthalRoughness;
+        ar << c.m_TiltDegrees << c.m_IndexOfRefraction << c.m_Intensity;
+        ar << c.m_HSamples << c.m_PigmentMode << c.m_DebugMode << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other, and these values
+            // reach a pow(), a log() and a division in the shader — where a NaN
+            // is not a wrong colour but a NaN written into scene colour and
+            // then blurred across the frame by the post chain.
+            //
+            // The OLO_SERIALIZE annotations on the fields reach scene YAML and
+            // the live-write registries, NOT this archive, so the bounds have
+            // to be restated here or a corrupt save is the one route that
+            // bypasses every one of them. Restated by CALLING the model's own
+            // sanitiser rather than by repeating the numbers: a third copy of
+            // the bounds is a third thing to keep in step.
+            const GroomFibreAuthoring clean = MakeGroomFibreAuthoring(c);
+            c.m_BaseColor = clean.BaseColor;
+            c.m_Absorption = clean.Absorption;
+            c.m_Eumelanin = clean.Eumelanin;
+            c.m_Pheomelanin = clean.Pheomelanin;
+            c.m_LongitudinalRoughness = clean.LongitudinalRoughness;
+            c.m_AzimuthalRoughness = clean.AzimuthalRoughness;
+            c.m_TiltDegrees = clean.TiltDegrees;
+            c.m_IndexOfRefraction = clean.IndexOfRefraction;
+            c.m_Intensity = clean.Intensity;
+            c.m_HSamples = clean.HSamples;
+            c.m_PigmentMode = static_cast<u8>(clean.PigmentMode);
+
+            // REJECT, not clamp, for the debug mode — the same reason the
+            // annotation on the field says Reject. Saturating a corrupt value
+            // onto a valid neighbour would render a single lobe and look like
+            // the material being wrong.
+            if (!IsValidGroomFibreDebugMode(static_cast<i32>(c.m_DebugMode)))
+            {
+                c.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
     {
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
@@ -5395,6 +5448,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(GroomComponent);
         REGISTER_SAVE_COMPONENT(GroomBindingComponent);
+        REGISTER_SAVE_COMPONENT(GroomFibreComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

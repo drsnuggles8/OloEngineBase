@@ -532,6 +532,7 @@ add_executable(OloEngine-Tests
 		# on the CPU, so a drift between the two makes every stochastic number a
 		# description of a pattern that is not on screen.
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
+		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp
@@ -602,6 +603,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
@@ -682,6 +684,7 @@ add_executable(OloEngine-Tests
 		# on the CPU so the measured evidence is re-run by CI rather than quoted
 		# from a PR body.
 		Rendering/PropertyTests/GroomCoveragePropertyTests.cpp
+		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
 		Rendering/PropertyTests/ShaderCompilationTest.cpp
 		# Issue #691 Phase 3. BindlessShaderPipelineTest pins the toolchain
 		# constraint (bindless GLSL cannot enter the Vulkan-SPIR-V pipeline);
@@ -823,6 +826,7 @@ add_executable(OloEngine-Tests
 		SaveGame/FoliageLeafMaterialSaveLoadTest.cpp
         SaveGame/FoliageWindSaveLoadTest.cpp
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
+		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp

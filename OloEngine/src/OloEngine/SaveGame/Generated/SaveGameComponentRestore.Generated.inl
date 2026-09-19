@@ -56,6 +56,7 @@ TRY_LOAD_COMPONENT(FootIKComponent);
 TRY_LOAD_COMPONENT(GoapAgentComponent);
 TRY_LOAD_COMPONENT(GroomBindingComponent);
 TRY_LOAD_COMPONENT(GroomComponent);
+TRY_LOAD_COMPONENT(GroomFibreComponent);
 TRY_LOAD_COMPONENT(IDComponent);
 TRY_LOAD_COMPONENT(IKTargetComponent);
 TRY_LOAD_COMPONENT(InstancePortalComponent);
