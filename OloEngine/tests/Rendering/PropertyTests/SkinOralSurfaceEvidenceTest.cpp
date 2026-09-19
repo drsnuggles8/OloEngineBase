@@ -338,18 +338,18 @@ namespace OloEngine::Tests
         Entity m_LowerTeeth;
         Entity m_Throat;
 
-        AssetHandle m_DryControlProfile{};   // transport version 3 — the A/B control
+        AssetHandle m_DryControlProfile{}; // transport version 3 — the A/B control
         // A SECOND HANDLE WITH IDENTICAL PARAMETERS. Not a duplicate by
         // oversight — it is the floor the identity claim is measured against.
         // See where it is built.
         AssetHandle m_DryControlTwin{};
-        AssetHandle m_NeutralV4Profile{};    // version 4, every oral field at its default
-        AssetHandle m_LipProfile{};          // wet mucosa, cavity off
+        AssetHandle m_NeutralV4Profile{}; // version 4, every oral field at its default
+        AssetHandle m_LipProfile{};       // wet mucosa, cavity off
         // THE ONE-VARIABLE CONTROL for the coat claims: byte-for-byte the lip
         // profile with CoatStrength alone at 0. See the comment where it is
         // built for why m_DryControlProfile cannot serve.
         AssetHandle m_LipDryProfile{};
-        AssetHandle m_LipCavityProfile{};    // wet mucosa, cavity fully spent
+        AssetHandle m_LipCavityProfile{}; // wet mucosa, cavity fully spent
         AssetHandle m_LipHalfCavityProfile{};
         AssetHandle m_TongueProfile{};
         AssetHandle m_GumProfile{};

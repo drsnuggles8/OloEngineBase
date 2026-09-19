@@ -15,7 +15,7 @@ namespace OloEngine
         // include/PBRCommon.glsl, repeated here rather than included so this
         // file has no dependency on the shader tree. ShaderUnit_SkinOralSurface
         // asserts the two sides agree about both.
-        constexpr f32 kEpsilon = 1.0e-4f;     // PBRCommon's EPSILON
+        constexpr f32 kEpsilon = 1.0e-4f; // PBRCommon's EPSILON
         constexpr f32 kPi = 3.14159265358979323846f;
 
         // GGX/Trowbridge-Reitz, transcribed from distributionGGX in
