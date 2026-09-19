@@ -415,12 +415,19 @@ rejected together with `--olo-gl-backend=none`, which the Vulkan gate honours.
 build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=VulkanPassSuite.* --olo-require-vulkan
 ```
 
-**CI does not run the DEVICE-BACKED half of this, and that is a fact about the hardware, not an
+**No PR job runs the DEVICE-BACKED half of this, and that is a fact about the hardware, not an
 omission.** (The device-free `VulkanCoverageReportTest` does run there, like any other test.) The AMD
 self-hosted runner cannot run Vulkan at all (RADV has no descriptor heap) and the hosted runners
-have no GPU. Vulkan execution is a developer-box capability here; making CI able to run it is
-#1301. The banner is what keeps that honest in the meantime — a CI log that says `NOT EXERCISED`
-is telling the truth about itself.
+have no GPU, so every PR run still says `NOT EXERCISED` — and the banner is what keeps that honest.
+
+**A nightly job does run it, on a software driver.**
+`.github/workflows/vulkan-software.yml` hosts the Vulkan suites on Mesa's lavapipe (issue #1301),
+passing `--olo-require-vulkan` so a run that cannot reach a device fails instead of reporting green.
+It is nightly plus dispatch, not per-PR: "caught within a day", not "blocks review". What lavapipe
+can and cannot do for this engine — including the Mesa 26.2.0 floor, which is set by the ADR 0010
+extension contract rather than by the API version — is
+[vulkan-software-driver-ci.md](vulkan-software-driver-ci.md). Hardware Vulkan remains a
+developer-box capability.
 
 **Reusable.** `VulkanCoverage::FormatBanner` is a pure function over a `Tally`, tested device-free
 in `VulkanCoverageReportTest.cpp`. Issue #1294's "make skipped visible" for the L7 ray-query gap
