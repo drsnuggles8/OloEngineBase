@@ -152,6 +152,11 @@ namespace OloEngine
             Ref<StorageBuffer> LayerBuffer;
             u32 GroupCount = 0;
             u32 InstanceCount = 0;
+            // The union of this layer's group bounds, terrain-local -- the same
+            // box FoliageRenderer computes per layer, derived here from the
+            // bounds already being walked so the two cannot drift. Cull() uses
+            // it to reject a whole layer before dispatching anything.
+            BoundingBox LocalBounds;
             // Registry generation + terrain transform the buffer was built from.
             // The transform matters because group bounds are cached in world
             // space by the registry while these are terrain-local — a move does

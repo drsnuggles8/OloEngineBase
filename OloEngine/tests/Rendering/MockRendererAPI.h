@@ -325,9 +325,16 @@ namespace OloEngine::Testing
             Record("DrawArraysIndirect");
             ++m_DrawCallCount;
         }
-        void DrawBoundElementsIndirect(u32 /*bufID*/)
+        void DrawBoundElementsIndirect(u32 bufID, u32 offsetBytes = 0)
         {
+            // ParamU32_0 = the indirect buffer, ParamU32_1 = the byte offset.
+            // The offset is what selects WHICH command of a multi-part args
+            // block a draw reads (issue #1235's foliage layers put one per
+            // drawable part in one buffer), so a mock that dropped it could not
+            // tell part 3's draw from part 0's.
             Record("DrawBoundElementsIndirect");
+            m_Calls.back().ParamU32_0 = bufID;
+            m_Calls.back().ParamU32_1 = offsetBytes;
             ++m_DrawCallCount;
         }
         void MultiDrawElementsIndirectCountRaw(u32 /*vaoID*/, u32 /*bufID*/, u32 /*indirectOffset*/, u32 /*paramBufID*/,
@@ -610,9 +617,9 @@ namespace OloEngine::Testing
             DrawArraysIndirect(vertexArray, Native(indirectBuffer, RHI::ResourceKind::Buffer));
         }
         void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                       RHI::PrimitiveTopology /*topology*/, u32 /*offsetBytes*/) override
+                                       RHI::PrimitiveTopology /*topology*/, u32 offsetBytes) override
         {
-            DrawBoundElementsIndirect(Native(indirectBuffer, RHI::ResourceKind::Buffer));
+            DrawBoundElementsIndirect(Native(indirectBuffer, RHI::ResourceKind::Buffer), offsetBytes);
         }
         void DispatchComputeIndirect(RHI::ResourceHandle /*argsBuffer*/, u32 /*offsetBytes*/) override
         {

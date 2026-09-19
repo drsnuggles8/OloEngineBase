@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <limits>
 
 namespace OloEngine
 {
@@ -175,6 +176,8 @@ namespace OloEngine
         std::memcpy(scratch.data(), &header, sizeof(header));
 
         const u32 tailBase = static_cast<u32>(sizeof(FoliageCullLayerHeader)) / 4u;
+        glm::vec3 unionMin(std::numeric_limits<f32>::max());
+        glm::vec3 unionMax(std::numeric_limits<f32>::lowest());
         for (u32 local = 0; local < groupCount; ++local)
         {
             // TERRAIN-LOCAL bounds, matching the space the instance rows are in.
@@ -189,6 +192,8 @@ namespace OloEngine
             scratch[base + 4] = std::bit_cast<u32>(box.Max.x);
             scratch[base + 5] = std::bit_cast<u32>(box.Max.y);
             scratch[base + 6] = std::bit_cast<u32>(box.Max.z);
+            unionMin = glm::min(unionMin, box.Min);
+            unionMax = glm::max(unionMax, box.Max);
         }
         std::memcpy(scratch.data() + tailBase + boundsWords, rowGroup.data(), instanceCount * sizeof(u32));
 
@@ -204,6 +209,7 @@ namespace OloEngine
         }
 
         out.LayerBuffer->SetData(scratch.data(), sizeBytes, 0);
+        out.LocalBounds = BoundingBox(unionMin, unionMax);
         out.GroupCount = groupCount;
         out.InstanceCount = instanceCount;
         out.BuiltGeneration = generation;
@@ -280,6 +286,22 @@ namespace OloEngine
 
         const auto partCount = static_cast<u32>(parts.size());
 
+        // A layer wholly outside this view rejects here, before either kernel is
+        // dispatched. Two dispatches are ~22 us of launch cost on this box and
+        // they are paid per layer PER VIEW, so with five views and five layers a
+        // camera facing away from an island was paying for fifty of them to
+        // compute zero survivors.
+        //
+        // It must still SEED the args and report success, not `return false`:
+        // false means "no compacted set", which sends the draw down the
+        // uncompacted path and renders every instance of the layer that was just
+        // proven invisible. Seeding instanceCount = 0 makes the indirect draw
+        // draw nothing, which is the whole point. The bound is the union of the
+        // group bounds, each of which already carries the deformation padding,
+        // so it can only reject a layer the per-instance test would reject
+        // entirely.
+        const bool layerVisible = inputs.ViewFrustum.IsBoundingBoxVisible(layer.LocalBounds);
+
         // Write-after-READ. This slot's buffers may still be the source of a
         // draw recorded earlier in the frame -- the shadow regions run one after
         // another and reuse the slots, so the atlas region's cull writes over
@@ -298,6 +320,12 @@ namespace OloEngine
             args[i].FirstIndex = parts[i].BaseIndex;
         }
         view.DrawArgs->SetData(args.data(), partCount * kDrawArgsStride, 0);
+
+        if (!layerVisible)
+        {
+            view.PartCount = partCount;
+            return true;
+        }
 
         // ── 2. Seed the state header. Only the header: the tail's group bits
         // are fully rewritten by the group kernel every dispatch, and the
