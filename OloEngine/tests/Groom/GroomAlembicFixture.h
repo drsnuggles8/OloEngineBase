@@ -27,6 +27,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <string>
@@ -63,6 +64,12 @@ namespace OloEngine::Tests
             // Uniform-scope int32 arbGeomParams. Empty leaves them off.
             std::vector<i32> GuideFlags;
             std::vector<i32> SubGroups;
+            // The GroomCoatRole per curve (issue #1251). Authored per curve
+            // because Alembic has no per-group scope, and REQUIRED by the
+            // importer to be constant within a group — which is a rejection the
+            // rejection tests can now author, since a fixture can write two
+            // different values into one group on purpose.
+            std::vector<i32> Roles;
 
             // Any extra arbGeomParam to author, by name. Used by the rejection
             // tests to plant an unsupported `groom_*` attribute.
@@ -135,6 +142,7 @@ namespace OloEngine::Tests
 
                     writeIntParam("groom_guide", prim.GuideFlags);
                     writeIntParam("groom_group", prim.SubGroups);
+                    writeIntParam("groom_role", prim.Roles);
                     for (const std::string& extra : prim.ExtraIntParamNames)
                     {
                         // One value per curve, so the param itself is
@@ -267,6 +275,356 @@ namespace OloEngine::Tests
                 prim.SubGroups.push_back(static_cast<i32>(s % std::max(1u, subGroupCount)));
             }
             return prim;
+        }
+
+        // ── The two reference animals (issue #1251) ─────────────────────────
+        //
+        // Criterion 4 asks for a SHORT-COATED and a LONG-COATED animal with
+        // distinct muzzle, ears, body and tail regions, and for whisker /
+        // long-hair groups where present. Both are built here, from the same
+        // integer arithmetic the two grooms above use, for the same reason: the
+        // capture that judges the coat has to be a capture of a groom that is
+        // bit-identical on every machine, or the picture and the numbers beside
+        // it are measurements of different animals.
+        //
+        // HOW THE STRUCTURE MAPS ONTO THE IMPORTER'S CONVENTIONS, because this is
+        // the part that is easy to get subtly wrong:
+        //
+        //   * ONE PRIM PER REGION (muzzle, ears, body, tail, mane). A prim's path
+        //     is its group name, so the regions are separable by name in the
+        //     editor and in a log line.
+        //   * `groom_group` WITHIN a prim splits it into coat LAYERS, so a
+        //     region's undercoat and guard hairs are different groups and can be
+        //     adjusted apart. The importer names them "<prim>#<n>".
+        //   * `groom_role` carries the GroomCoatRole per curve, constant within
+        //     each of those groups — which is what the importer requires, and
+        //     what makes the runtime undercoat/guard sliders reach them.
+        //   * ROOT UVs are laid out in DISJOINT V BANDS per region, so one
+        //     regional map painted in [0,1]^2 addresses the muzzle, the ears, the
+        //     body and the tail separately. That is what criterion 2's "regional
+        //     maps" needs to be testable at all: without disjoint bands every
+        //     region samples the same texels and a regional map is indistinguish-
+        //     able from a global multiplier.
+
+        // Which layer a curve belongs to, spelled out rather than left as a bare
+        // integer at each call site.
+        enum class CoatLayer : i32
+        {
+            Undercoat = 0,
+            Guard = 1,
+        };
+
+        // The GroomCoatRole values, restated as plain ints so this header does
+        // not have to include the engine's Groom headers — it is compiled into
+        // the test binary beside them, and the numbers are a FORMAT contract
+        // (GroomCoat.h says "append, never renumber"), so pinning them here is a
+        // second place that notices if they ever move.
+        constexpr i32 kRoleUndercoat = 1;
+        constexpr i32 kRoleGuardHair = 2;
+        constexpr i32 kRoleWhisker = 3;
+        constexpr i32 kRoleLongHair = 4;
+
+        // One region of a coat: a band of strands over a section of the body,
+        // split into an undercoat and a guard layer.
+        struct CoatRegionSpec
+        {
+            std::string Name; // becomes the prim path, and so the group name
+            u32 UndercoatStrands = 0;
+            u32 GuardStrands = 0;
+            u32 PointsPerStrand = 4;
+            f32 UndercoatLength = 0.02f;
+            f32 GuardLength = 0.05f;
+            f32 UndercoatWidth = 0.00004f;
+            f32 GuardWidth = 0.00010f;
+            // The body interval this region covers, along the animal's z axis.
+            f32 BodyFrom = -0.4f;
+            f32 BodyTo = 0.4f;
+            f32 BodyRadius = 0.12f;
+            // The DISJOINT root-UV v band. See the note above.
+            f32 VFrom = 0.0f;
+            f32 VTo = 1.0f;
+            // When set, the whole region is ONE group at this role instead of an
+            // undercoat/guard pair — whiskers and a mane are single layers.
+            i32 SingleRole = 0;
+            u32 SingleStrands = 0;
+            f32 SingleLength = 0.0f;
+            f32 SingleWidth = 0.0f;
+        };
+
+        // Builds one region's ICurves prim.
+        //
+        // Deterministic by construction: every position comes from the strand
+        // index through fixed arithmetic, with no random number generator and no
+        // floating-point accumulation across strands.
+        inline CurvesPrim MakeCoatRegion(const CoatRegionSpec& spec)
+        {
+            CurvesPrim prim;
+            prim.Name = spec.Name;
+            prim.Type = AbcG::kLinear;
+            prim.WidthScope = AbcG::kVertexScope;
+            prim.UVScope = AbcG::kUniformScope;
+
+            constexpr f32 kGoldenAngle = 2.39996323f;
+            constexpr f32 kTwoPi = 6.28318531f;
+
+            // Layer, count, length, width, role — the four or two layers this
+            // region emits, in a fixed order so the group ids are a pure
+            // function of the spec.
+            struct LayerPlan
+            {
+                u32 Count;
+                f32 Length;
+                f32 Width;
+                i32 Role;
+                i32 SubGroup;
+            };
+            std::vector<LayerPlan> layers;
+            if (spec.SingleRole != 0)
+            {
+                layers.push_back({ spec.SingleStrands, spec.SingleLength, spec.SingleWidth, spec.SingleRole, 0 });
+            }
+            else
+            {
+                layers.push_back({ spec.UndercoatStrands, spec.UndercoatLength, spec.UndercoatWidth, kRoleUndercoat,
+                                   static_cast<i32>(CoatLayer::Undercoat) });
+                layers.push_back({ spec.GuardStrands, spec.GuardLength, spec.GuardWidth, kRoleGuardHair,
+                                   static_cast<i32>(CoatLayer::Guard) });
+            }
+
+            u32 total = 0;
+            for (const LayerPlan& layer : layers)
+            {
+                total += layer.Count;
+            }
+            prim.Positions.reserve(static_cast<sizet>(total) * spec.PointsPerStrand);
+            prim.Widths.reserve(static_cast<sizet>(total) * spec.PointsPerStrand);
+            prim.VertexCounts.reserve(total);
+            prim.UVs.reserve(total);
+            prim.GuideFlags.reserve(total);
+            prim.SubGroups.reserve(total);
+            prim.Roles.reserve(total);
+
+            for (const LayerPlan& layer : layers)
+            {
+                for (u32 s = 0; s < layer.Count; ++s)
+                {
+                    const f32 t = (static_cast<f32>(s) + 0.5f) / static_cast<f32>(std::max(1u, layer.Count));
+                    // The golden angle is OFFSET PER LAYER, so the undercoat and
+                    // the guard hairs do not land on the same points of the body
+                    // — a guard hair growing out of the exact root of an
+                    // undercoat strand would make the two layers perfectly
+                    // correlated, and every test of "the guard coat survived the
+                    // budget" would then be measuring the undercoat.
+                    const f32 phi = (kGoldenAngle * static_cast<f32>(s)) + (static_cast<f32>(layer.SubGroup) * 1.1f);
+                    const f32 alongBody = spec.BodyFrom + (t * (spec.BodyTo - spec.BodyFrom));
+
+                    const Imath::V3f normal(std::cos(phi), std::sin(phi), 0.0f);
+                    const Imath::V3f root(normal.x * spec.BodyRadius, normal.y * spec.BodyRadius, alongBody);
+
+                    for (u32 p = 0; p < spec.PointsPerStrand; ++p)
+                    {
+                        const f32 along = static_cast<f32>(p) / static_cast<f32>(spec.PointsPerStrand - 1);
+                        Imath::V3f point = root + (normal * (layer.Length * along));
+                        // Laid backwards along the body, as a coat lies, and
+                        // drooping — so the strand has a real shape for the
+                        // clump and length scaling to act on rather than being a
+                        // straight spike whose modifications are invisible.
+                        point.z += layer.Length * 0.6f * along;
+                        point.y -= layer.Length * 0.25f * along * along;
+                        prim.Positions.push_back(point);
+                        prim.Widths.push_back(layer.Width * (1.0f - (0.7f * along)));
+                    }
+
+                    prim.VertexCounts.push_back(static_cast<i32>(spec.PointsPerStrand));
+                    // u from the angle around the body, v inside this region's
+                    // OWN band. Disjoint bands are what make a regional map
+                    // regional.
+                    const f32 u = std::fmod(phi / kTwoPi, 1.0f);
+                    prim.UVs.emplace_back(u < 0.0f ? u + 1.0f : u, spec.VFrom + (t * (spec.VTo - spec.VFrom)));
+                    // Every 23rd strand is a guide. A prime stride so it does not
+                    // beat against the layer counts.
+                    prim.GuideFlags.push_back(((s % 23u) == 0) ? 1 : 0);
+                    prim.SubGroups.push_back(layer.SubGroup);
+                    prim.Roles.push_back(layer.Role);
+                }
+            }
+            return prim;
+        }
+
+        // The SHORT-COATED animal: a dense fine undercoat under sparse short
+        // guard hairs, plus whiskers on the muzzle. The coat is close to the
+        // body everywhere, so its silhouette is carried almost entirely by the
+        // guard layer — which is what makes it the animal that shows a budget
+        // eating the silhouette.
+        inline std::vector<CurvesPrim> MakeShortCoatAnimal(u32 scale = 1000)
+        {
+            std::vector<CurvesPrim> prims;
+
+            CoatRegionSpec body;
+            body.Name = "body";
+            body.UndercoatStrands = scale * 6u;
+            body.GuardStrands = scale;
+            body.UndercoatLength = 0.012f;
+            body.GuardLength = 0.022f;
+            body.BodyFrom = -0.35f;
+            body.BodyTo = 0.30f;
+            body.BodyRadius = 0.11f;
+            body.VFrom = 0.00f;
+            body.VTo = 0.50f;
+            prims.push_back(MakeCoatRegion(body));
+
+            CoatRegionSpec head = body;
+            head.Name = "head";
+            head.UndercoatStrands = scale;
+            head.GuardStrands = scale / 4u;
+            head.UndercoatLength = 0.006f;
+            head.GuardLength = 0.010f;
+            head.BodyFrom = 0.30f;
+            head.BodyTo = 0.42f;
+            head.BodyRadius = 0.075f;
+            head.VFrom = 0.50f;
+            head.VTo = 0.70f;
+            prims.push_back(MakeCoatRegion(head));
+
+            CoatRegionSpec ears = body;
+            ears.Name = "ears";
+            ears.UndercoatStrands = scale / 4u;
+            ears.GuardStrands = scale / 8u;
+            ears.UndercoatLength = 0.004f;
+            ears.GuardLength = 0.014f;
+            ears.BodyFrom = 0.42f;
+            ears.BodyTo = 0.48f;
+            ears.BodyRadius = 0.05f;
+            ears.VFrom = 0.70f;
+            ears.VTo = 0.85f;
+            prims.push_back(MakeCoatRegion(ears));
+
+            CoatRegionSpec tail = body;
+            tail.Name = "tail";
+            tail.UndercoatStrands = scale / 2u;
+            tail.GuardStrands = scale / 4u;
+            tail.UndercoatLength = 0.015f;
+            tail.GuardLength = 0.030f;
+            tail.BodyFrom = -0.50f;
+            tail.BodyTo = -0.35f;
+            tail.BodyRadius = 0.035f;
+            tail.VFrom = 0.85f;
+            tail.VTo = 1.00f;
+            prims.push_back(MakeCoatRegion(tail));
+
+            // The whiskers: a handful, very long, very thick, on the muzzle.
+            // They are a SINGLE group at the Whisker role, and they are why that
+            // role exists — a budget that removed three of them would be visible
+            // damage rather than distance.
+            CoatRegionSpec muzzle;
+            muzzle.Name = "muzzle_whiskers";
+            muzzle.PointsPerStrand = 6;
+            muzzle.SingleRole = kRoleWhisker;
+            muzzle.SingleStrands = 24;
+            muzzle.SingleLength = 0.070f;
+            muzzle.SingleWidth = 0.00025f;
+            muzzle.BodyFrom = 0.44f;
+            muzzle.BodyTo = 0.47f;
+            muzzle.BodyRadius = 0.045f;
+            muzzle.VFrom = 0.50f;
+            muzzle.VTo = 0.52f;
+            prims.push_back(MakeCoatRegion(muzzle));
+
+            return prims;
+        }
+
+        // The LONG-COATED animal: the same regions, with a long guard coat, a
+        // mane and a tail plume. The mane and plume are the LongHair role —
+        // neither structural guard coat nor whisker — and they are what a capture
+        // of this animal is checked for: a long coat that renders as the short
+        // one's fuzz at a different scale is criterion 4's failure.
+        inline std::vector<CurvesPrim> MakeLongCoatAnimal(u32 scale = 1000)
+        {
+            std::vector<CurvesPrim> prims;
+
+            CoatRegionSpec body;
+            body.Name = "body";
+            body.PointsPerStrand = 6;
+            body.UndercoatStrands = scale * 5u;
+            body.GuardStrands = scale;
+            body.UndercoatLength = 0.030f;
+            body.GuardLength = 0.090f;
+            body.UndercoatWidth = 0.00005f;
+            body.GuardWidth = 0.00014f;
+            body.BodyFrom = -0.35f;
+            body.BodyTo = 0.30f;
+            body.BodyRadius = 0.12f;
+            body.VFrom = 0.00f;
+            body.VTo = 0.50f;
+            prims.push_back(MakeCoatRegion(body));
+
+            CoatRegionSpec head = body;
+            head.Name = "head";
+            head.UndercoatStrands = scale;
+            head.GuardStrands = scale / 4u;
+            head.UndercoatLength = 0.012f;
+            head.GuardLength = 0.028f;
+            head.BodyFrom = 0.30f;
+            head.BodyTo = 0.42f;
+            head.BodyRadius = 0.080f;
+            head.VFrom = 0.50f;
+            head.VTo = 0.70f;
+            prims.push_back(MakeCoatRegion(head));
+
+            CoatRegionSpec ears = body;
+            ears.Name = "ears";
+            ears.UndercoatStrands = scale / 4u;
+            ears.GuardStrands = scale / 8u;
+            ears.UndercoatLength = 0.008f;
+            ears.GuardLength = 0.035f;
+            ears.BodyFrom = 0.42f;
+            ears.BodyTo = 0.48f;
+            ears.BodyRadius = 0.055f;
+            ears.VFrom = 0.70f;
+            ears.VTo = 0.85f;
+            prims.push_back(MakeCoatRegion(ears));
+
+            CoatRegionSpec tail = body;
+            tail.Name = "tail_plume";
+            tail.SingleRole = kRoleLongHair;
+            tail.SingleStrands = scale;
+            tail.SingleLength = 0.160f;
+            tail.SingleWidth = 0.00012f;
+            tail.BodyFrom = -0.52f;
+            tail.BodyTo = -0.35f;
+            tail.BodyRadius = 0.040f;
+            tail.VFrom = 0.85f;
+            tail.VTo = 1.00f;
+            prims.push_back(MakeCoatRegion(tail));
+
+            CoatRegionSpec mane = body;
+            mane.Name = "mane";
+            mane.SingleRole = kRoleLongHair;
+            mane.SingleStrands = scale * 2u;
+            mane.SingleLength = 0.140f;
+            mane.SingleWidth = 0.00013f;
+            mane.BodyFrom = 0.16f;
+            mane.BodyTo = 0.32f;
+            mane.BodyRadius = 0.115f;
+            mane.VFrom = 0.52f;
+            mane.VTo = 0.68f;
+            prims.push_back(MakeCoatRegion(mane));
+
+            CoatRegionSpec muzzle;
+            muzzle.Name = "muzzle_whiskers";
+            muzzle.PointsPerStrand = 6;
+            muzzle.SingleRole = kRoleWhisker;
+            muzzle.SingleStrands = 24;
+            muzzle.SingleLength = 0.080f;
+            muzzle.SingleWidth = 0.00028f;
+            muzzle.BodyFrom = 0.44f;
+            muzzle.BodyTo = 0.47f;
+            muzzle.BodyRadius = 0.048f;
+            muzzle.VFrom = 0.50f;
+            muzzle.VTo = 0.52f;
+            prims.push_back(MakeCoatRegion(muzzle));
+
+            return prims;
         }
     } // namespace GroomFixture
 } // namespace OloEngine::Tests

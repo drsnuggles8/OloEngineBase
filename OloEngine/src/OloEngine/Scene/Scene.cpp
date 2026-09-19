@@ -8198,6 +8198,9 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         std::vector<GroomStrandRequest> groomRequests;
+        // Every root-UV map handle a groom asked for this frame; the tail of this
+        // function evicts the cached pixels of every map that is not in it.
+        std::unordered_set<AssetHandle> liveRegionMaps;
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -8270,11 +8273,123 @@ namespace OloEngine
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
             }
 
+            // Coat authoring, if this groom has any (#1251). Its ABSENCE is the
+            // #1249 behaviour — the cook's own strands, at the cook's own
+            // lengths and widths — so a scene authored before this existed
+            // renders exactly as it did, and every capture those issues
+            // committed still means what it meant.
+            //
+            // Through MakeGroomCoatSettings, never the raw fields, for the
+            // reason the coat-shadow block above gives: OLO_SERIALIZE guards
+            // scene YAML and the deserialisers, a direct MCP or native write
+            // reaches neither, and this is the one boundary those values cross
+            // on the way to the geometry.
+            if (const auto* coat = m_Registry.try_get<GroomCoatComponent>(entity); coat != nullptr)
+            {
+                request.Coat = MakeGroomCoatSettings(*coat);
+                // RESOLVED HERE, on the producer side, for the two reasons the
+                // asset and the deformation already are: a readback is a
+                // graphics call the render thread may not make, and the answer
+                // is identical on every frame.
+                request.Coat.RegionMap = ResolveGroomRegionMap(coat->m_RegionMap);
+                request.Coat.ColorMap = ResolveGroomRegionMap(coat->m_ColorMap);
+                // Recorded even when the resolve FAILED: the entry that holds
+                // the failure latch is what stops a map with no graphics device
+                // behind it warning once per frame, so evicting it would undo
+                // exactly the thing it is for.
+                if (coat->m_RegionMap != 0)
+                {
+                    liveRegionMaps.insert(coat->m_RegionMap);
+                }
+                if (coat->m_ColorMap != 0)
+                {
+                    liveRegionMaps.insert(coat->m_ColorMap);
+                }
+            }
+            // The digest goes into the BUILD SETTINGS, which is what the strand
+            // cache is keyed on and compared against — so a slider moved in the
+            // inspector rebuilds the geometry through the existing mechanism
+            // rather than a second one that could disagree with it.
+            request.Build.CoatDigest = GroomCoatDigest(request.Coat);
+
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
             groomRequests.push_back(std::move(request));
         }
+
+        // Drop the CPU copy of any root-UV map no groom asked for this frame.
+        //
+        // The cache is keyed by ASSET HANDLE, so entity destruction is not the
+        // eviction point the binding runtime's is — a map outlives every entity
+        // that used it. Without this, repointing a coat's region map during an
+        // editing session leaves the previous map's pixels resident for the
+        // Scene's lifetime, and a 2048-square map is 16 MB of them.
+        //
+        // Rebuilt from the live set rather than reference-counted: the live set
+        // is at most a handful of handles and is already in hand here, whereas a
+        // refcount would have to be maintained at every path that clears a
+        // handle, including the ones that do it by loading a scene over the top.
+        if (!m_GroomRegionMaps.empty())
+        {
+            std::erase_if(m_GroomRegionMaps,
+                          [&liveRegionMaps](const auto& entry)
+                          { return !liveRegionMaps.contains(entry.first); });
+        }
+
         Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
+    }
+
+    Ref<GroomRegionMap> Scene::ResolveGroomRegionMap(AssetHandle handle)
+    {
+        if (handle == 0)
+        {
+            return nullptr;
+        }
+        auto texture = AssetManager::GetAsset<Texture2D>(handle);
+        if (!texture)
+        {
+            return nullptr; // the asset manager already logged the miss
+        }
+
+        auto& entry = m_GroomRegionMaps[handle];
+        if (entry.m_Source == texture && (entry.m_Map || entry.m_Failed))
+        {
+            return entry.m_Map;
+        }
+        // A different Texture2D under the same handle is a hot-reload: rebuild,
+        // and clear the failure latch so a map that could not be read while the
+        // device was busy is retried once on the next edit rather than never.
+        entry.m_Source = texture;
+        entry.m_Map = nullptr;
+        entry.m_Failed = false;
+
+        std::vector<u8> pixels;
+        if (!texture->GetData(pixels))
+        {
+            // LOUD AND ONCE. A coat whose density map silently did nothing is
+            // the failure this branch exists to name: the picture is a plausible
+            // coat, so nothing else in the frame says anything is wrong.
+            OLO_CORE_WARN("GroomCoat: could not read back region map {} on the CPU; the coat will render without it. "
+                          "A process with no graphics device (OloServer, a headless test) cannot sample one.",
+                          static_cast<u64>(handle));
+            entry.m_Failed = true;
+            return nullptr;
+        }
+
+        entry.m_Map = GroomRegionMap::FromRGBA8(texture->GetWidth(), texture->GetHeight(), pixels);
+        if (!entry.m_Map)
+        {
+            // FromRGBA8 refuses a buffer that is not exactly width*height*4,
+            // which is what a compressed or single-channel texture gives back.
+            // Refused rather than reinterpreted: a BC7 payload read as RGBA8 is
+            // a density map of noise, and noise looks like authored variation.
+            OLO_CORE_WARN("GroomCoat: region map {} is {}x{} but read back {} bytes, not {} of tightly packed RGBA8; "
+                          "the coat will render without it. Use an uncompressed 8-bit RGBA texture.",
+                          static_cast<u64>(handle), texture->GetWidth(), texture->GetHeight(), pixels.size(),
+                          static_cast<u64>(texture->GetWidth()) * texture->GetHeight() * 4u);
+            entry.m_Failed = true;
+        }
+        return entry.m_Map;
     }
 
     void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)
@@ -8531,7 +8646,13 @@ namespace OloEngine
         const bool hasHistory = cause == GroomHistoryResetCause::None;
 
         // ── Deform, but only the strands that will be drawn ─────────────────
-        SelectGroomStrandCurves(groom, request.Build, state.m_SelectedCurves);
+        // THROUGH THE SAME COAT the pass will build with. A selection made
+        // without it names curves the coat has already removed and misses the
+        // ones its per-role strides kept — so the deformer would pay for roots
+        // that are never drawn and, worse, leave drawn strands at the bind pose.
+        // GroomStrandMesh.h says the same thing at the point the two must agree.
+        const GroomCoatContext coat{ &request.Coat, groom.GetGroupCoats() };
+        SelectGroomStrandCurves(groom, request.Build, state.m_SelectedCurves, &coat);
 
         GroomDeformationInputs inputs;
         inputs.Surface = view;
@@ -13358,6 +13479,16 @@ namespace OloEngine
                 settings.GuidesOnly = groomComponent.m_GuidesOnly;
                 settings.MaxStrands = groomComponent.m_MaxPreviewStrands;
                 settings.RootMarkerSize = groomComponent.m_RootMarkerSize;
+                // The debug preview honours the coat's role mask too (#1251),
+                // so hiding the undercoat hides it in BOTH views rather than
+                // leaving the diagnostic showing a layer the renderer is not
+                // drawing. An entity with no GroomCoatComponent keeps the
+                // default all-visible mask.
+                if (const auto* coat = m_Registry.try_get<GroomCoatComponent>(entity);
+                    coat != nullptr && coat->m_Enabled)
+                {
+                    settings.RoleVisibilityMask = coat->m_RoleVisibilityMask & ((1u << GroomCoatRoleCount) - 1u);
+                }
 
                 // Deliberately no per-frame logging here: this runs once per
                 // groom per frame, and a TRACE in a render loop is a log flood

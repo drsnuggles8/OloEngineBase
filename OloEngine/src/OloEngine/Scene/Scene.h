@@ -1452,6 +1452,37 @@ namespace OloEngine
         };
         std::unordered_map<UUID, GroomBindingRuntimeState> m_GroomBindingRuntime;
 
+        // ── Coat authoring: the CPU copy of a root-UV map (issue #1251) ──
+        //
+        // A regional or colour map is a Texture2D asset, and the strand build
+        // samples it PER STRAND on the CPU — see GroomRegionMap for why that is
+        // the right side of the bus for a value that decides whether a strand
+        // exists at all. Getting the pixels back out of a Texture2D is a GPU
+        // readback, so it is done ONCE per map and cached here.
+        //
+        // KEYED BY HANDLE, INVALIDATED BY THE TEXTURE OBJECT'S IDENTITY. A
+        // hot-reload hands the asset manager a NEW Texture2D under the same
+        // handle, so a handle-only key would serve the old pixels forever and an
+        // artist repainting a density map would see nothing change. Holding the
+        // source Ref and comparing it is what catches that.
+        struct GroomRegionMapCacheEntry
+        {
+            Ref<Texture2D> m_Source;
+            Ref<GroomRegionMap> m_Map;
+            /// True once a readback has been ATTEMPTED and failed, so a process
+            /// with no usable graphics device (OloServer, a headless test) logs
+            /// once rather than every frame.
+            bool m_Failed = false;
+        };
+        std::unordered_map<AssetHandle, GroomRegionMapCacheEntry> m_GroomRegionMaps;
+
+        /// The CPU copy of a texture asset's pixels, or null. Null is not an
+        /// error: it is the answer for handle 0, for an asset that will not
+        /// resolve, and for a process with no graphics device — and the coat
+        /// reads a null map as "no modulation", which is the coat the groom
+        /// asset already describes.
+        [[nodiscard]] Ref<GroomRegionMap> ResolveGroomRegionMap(AssetHandle handle);
+
         /// Publish this frame's grooms for the production strand pass, deforming
         /// the bound ones against their body surfaces first (issues #1246,
         /// #1249). Called once per frame from ProcessScene3DSharedLogic.

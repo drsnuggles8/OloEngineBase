@@ -63,6 +63,16 @@ namespace OloEngine
     //   groom_guide            non-zero marks the curve as a GUIDE.
     //   groom_group            a sub-group index within the prim. The curve's
     //                          group becomes "<prim path>#<index>".
+    //   groom_role             a GroomCoatRole (issue #1251): 0 Unassigned,
+    //                          1 Undercoat, 2 GuardHair, 3 Whisker, 4 LongHair.
+    //                          Authored PER CURVE because Alembic has no
+    //                          per-group scope, but it IS a per-group property:
+    //                          a group whose curves disagree is rejected by
+    //                          name, and an out-of-range value is rejected too.
+    //                          Absent -> every group keeps the role inferred
+    //                          from its NAME (InferGroomCoatRole), which is what
+    //                          a groom exported by a DCC that knows nothing of
+    //                          this engine gets.
     //
     // Any OTHER arbGeomParam whose name begins with `groom_` is REJECTED by
     // name: it is groom semantics this build does not implement, and importing
@@ -89,7 +99,10 @@ namespace OloEngine
         // Bumped whenever this importer's output for an unchanged input
         // changes. Stored in every cooked groom's provenance, so a stale
         // .ologroom can be told apart from a current one without re-importing.
-        static constexpr u32 kImporterVersion = 1;
+        // 2: issue #1251 added `groom_role` and the name-inferred coat role, so
+        // this importer's output for an UNCHANGED input now carries a coat table
+        // it did not before — which is exactly what this number is for.
+        static constexpr u32 kImporterVersion = 2;
 
         // The width substituted when a prim carries no `widths` param, in
         // source units. 0.1 mm — a human hair is 0.06-0.1 mm, so this is a

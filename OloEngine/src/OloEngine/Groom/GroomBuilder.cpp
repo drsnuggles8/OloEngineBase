@@ -36,6 +36,9 @@ namespace OloEngine
 
         const auto id = static_cast<u16>(m_GroupNames.size());
         m_GroupNames.push_back(name);
+        GroomCoatGroupDesc coat;
+        coat.Role = static_cast<u8>(InferGroomCoatRole(name));
+        m_GroupCoats.push_back(coat);
         m_GroupIdsByName.emplace(name, id);
         outGroupId = id;
         return true;
@@ -139,6 +142,24 @@ namespace OloEngine
         return true;
     }
 
+    bool GroomBuilder::SetGroupCoat(u16 groupId, const GroomCoatGroupDesc& coat, std::vector<std::string>& outReasons)
+    {
+        if (static_cast<sizet>(groupId) >= m_GroupCoats.size())
+        {
+            outReasons.push_back(std::format("cannot set coat parameters: group {} does not exist ({} registered)",
+                                             groupId, m_GroupCoats.size()));
+            return false;
+        }
+        GroomCoatGroupDesc sanitised = coat;
+        // Deliberately ignores the return: a repair is reported through
+        // outReasons, and refusing the whole assignment because one tint channel
+        // was out of range would leave the group at a description the caller
+        // never chose.
+        (void)SanitizeGroomCoatGroupDesc(sanitised, groupId, outReasons);
+        m_GroupCoats[groupId] = sanitised;
+        return true;
+    }
+
     Ref<GroomAsset> GroomBuilder::Build(std::string& outReason)
     {
         auto groom = Ref<GroomAsset>::Create();
@@ -150,6 +171,7 @@ namespace OloEngine
         groom->m_CurveGroupIds = std::move(m_CurveGroupIds);
         groom->m_CurveFlags = std::move(m_CurveFlags);
         groom->m_GroupNames = std::move(m_GroupNames);
+        groom->m_GroupCoats = std::move(m_GroupCoats);
         groom->m_Basis = m_Basis;
         groom->m_Provenance = std::move(m_Provenance);
 
@@ -167,6 +189,7 @@ namespace OloEngine
         m_CurveGroupIds.clear();
         m_CurveFlags.clear();
         m_GroupNames.clear();
+        m_GroupCoats.clear();
         m_GroupIdsByName.clear();
         m_Provenance = {};
 

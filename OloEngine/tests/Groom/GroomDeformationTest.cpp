@@ -876,15 +876,22 @@ TEST(GroomDeformation, TheSelectionStopsOnTheSameCurveTheBuildStopsOn)
     // emitted, and the binding preview drew a frame at a strand the viewport
     // did not contain.
     //
-    // The case that shows it is a SMALL budget against LONG strands, and the
-    // reason is worth stating because it is not the obvious one: the stride is
-    // widened from the average segments per curve, so for a uniform coat it is
-    // self-correcting and the surplus is at most the truncated last curve. But
-    // SelectCurves only widens the stride while at least one whole curve is
-    // affordable (`affordableCurves >= 1.0`); below that it gives up and leaves
-    // the stride at 1. So a budget under one strand's length selects the ENTIRE
-    // groom and builds exactly one strand of it -- the largest possible gap,
-    // reached by the smallest possible budget.
+    // The case that shows it is a SMALL budget against LONG strands: the stride
+    // is derived from the average segments per curve, so for a uniform coat it
+    // is self-correcting and the surplus is at most the truncated last curve,
+    // while a budget under one strand's length is where the two can diverge by
+    // the whole groom.
+    //
+    // THE PREMISE MOVED IN #1251, and the movement is the reason to record it
+    // here rather than quietly re-fit the numbers. The old selection only
+    // widened the stride while at least one WHOLE curve was affordable and left
+    // it at 1 below that, so this budget selected every one of the 20 curves and
+    // built one of them. The per-role solver has no such floor -- it solves for
+    // a retained fraction and turns it into a stride whatever the budget -- so
+    // the same case now strides to 40 and names one curve. That is strictly
+    // better, and the invariant under test is unchanged: the selection and the
+    // build must name the same curves. Only the stride the premise asserts had
+    // to move.
     GridSurface grid = MakeGrid(6u);
     WeightAllToBone0(grid);
     const Bound bound = BindCoat(grid, 20u, 21u); // 20 curves of 20 segments
@@ -900,7 +907,9 @@ TEST(GroomDeformation, TheSelectionStopsOnTheSameCurveTheBuildStopsOn)
     std::vector<u32> indices;
     const GroomStrandMeshStats stats = BuildGroomStrandMesh(*bound.Groom, build, vertices, indices);
     ASSERT_TRUE(stats.SegmentBudgetLimited) << "this case is only interesting under a real budget";
-    ASSERT_EQ(stats.Stride, 1u) << "the premise: the stride did not absorb the budget";
+    ASSERT_GT(stats.Stride, 1u) << "the premise: the budget is tight enough to have widened the stride";
+    ASSERT_LT(selected.size(), static_cast<sizet>(bound.Groom->GetCurveCount()))
+        << "the premise: the budget excluded some curves";
 
     // Four vertices per emitted segment.
     EXPECT_EQ(static_cast<u32>(vertices.size() / 4u), stats.SegmentCount);

@@ -108,6 +108,10 @@ add_executable(OloEngine-Tests
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp
+		# Coat groups, roles and coat variation (#1251). The role table's survival
+		# through the cook, the per-role budget that keeps the silhouette, and the
+		# pose-independence that makes a regional map stay attached.
+		Groom/GroomCoatAuthoringTest.cpp
 		Groom/GroomStrandMeshTest.cpp
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
@@ -632,6 +636,10 @@ add_executable(OloEngine-Tests
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
+		# Criterion 4's pictures: both reference animals under front/side/backlight,
+		# on all three rendering paths, plus the silhouette-under-budget and
+		# layer-separability measurements a screenshot cannot make (#1251).
+		Rendering/PropertyTests/FurCoatAuthoringVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp

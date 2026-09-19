@@ -27,6 +27,7 @@
 
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
 
 #if defined(OLO_WITH_ALEMBIC)
@@ -34,6 +35,7 @@
 #endif
 
 #include <chrono>
+#include <map>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -134,13 +136,19 @@ namespace
 
     // Imports, cooks, reloads and checks the whole chain for one reference
     // groom. Returns the measurement so the caller can assert on it.
+    //
+    // The vector overload is what the multi-REGION animals need (#1251): one
+    // ICurves prim per region, so the regions are separable by group name.
     ReferenceMeasurement LoadReferenceGroom(const Tests::GroomFixture::CurvesPrim& prim, const std::string& stem,
-                                            const std::string& provenancePath)
+                                            const std::string& provenancePath);
+
+    ReferenceMeasurement LoadReferenceGroom(const std::vector<Tests::GroomFixture::CurvesPrim>& prims,
+                                            const std::string& stem, const std::string& provenancePath)
     {
         ReferenceMeasurement measurement;
 
         const std::filesystem::path abcPath = Tests::TempFile(stem + ".abc");
-        EXPECT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, { prim })) << "failed to author " << stem;
+        EXPECT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, prims)) << "failed to author " << stem;
 
         AlembicGroomImporter::Options options;
         options.ProvenancePath = provenancePath;
@@ -196,6 +204,15 @@ namespace
             std::chrono::duration<f64, std::milli>(importEnd - importStart).count();
         measurement.CookMilliseconds = std::chrono::duration<f64, std::milli>(cookEnd - cookStart).count();
         return measurement;
+    }
+} // namespace
+
+namespace
+{
+    ReferenceMeasurement LoadReferenceGroom(const Tests::GroomFixture::CurvesPrim& prim, const std::string& stem,
+                                            const std::string& provenancePath)
+    {
+        return LoadReferenceGroom(std::vector<Tests::GroomFixture::CurvesPrim>{ prim }, stem, provenancePath);
     }
 } // namespace
 
@@ -261,8 +278,85 @@ TEST(GroomReferenceAssets, ExportsTheEditorFixtures)
     EXPECT_EQ(animal.CurveCount, kEditorAnimalStrands);
     EXPECT_EQ(animal.GroupCount, kAnimalSubGroups);
 
+    // ── The two coat-authoring reference animals (#1251) ────────────────
+    //
+    // Criterion 4's "short- and long-coated animal references". They are here
+    // rather than in their own test for the reason this one exists at all: the
+    // committed editor fixtures and the fixtures under test must be the same
+    // bytes, and the only way to guarantee that is for one code path to produce
+    // both.
+    //
+    // Unlike the two grooms above, these carry a `groom_role` per curve, so
+    // their groups come back with real Undercoat / GuardHair / Whisker /
+    // LongHair roles and the live editor scene has something for the coat
+    // sliders and the visibility mask to act on. A groom with no roles is a
+    // groom where hiding "Undercoat" correctly removes nothing — which is not a
+    // bug, but is also not a demonstration.
+    const ReferenceMeasurement shortCoat = LoadReferenceGroom(
+        Tests::GroomFixture::MakeShortCoatAnimal(600), "reference-shortcoat-animal",
+        "Grooms/reference-shortcoat-animal.abc");
+    const ReferenceMeasurement longCoat = LoadReferenceGroom(
+        Tests::GroomFixture::MakeLongCoatAnimal(600), "reference-longcoat-animal",
+        "Grooms/reference-longcoat-animal.abc");
+
+    // One group per (region, layer): the short coat has four regions with an
+    // undercoat and a guard layer each, plus a single whisker group.
+    EXPECT_EQ(shortCoat.GroupCount, 9u) << "four regions x two layers, plus whiskers";
+    // The long coat trades the ears' and tail's guard layers for a mane and a
+    // tail plume, both single-layer LongHair groups.
+    EXPECT_EQ(longCoat.GroupCount, 9u) << "three regions x two layers, plus mane, plume and whiskers";
+    EXPECT_GT(longCoat.CurveCount, 0u);
+    EXPECT_GT(shortCoat.CurveCount, 0u);
+
     RecordMeasurement("editor-human", human);
     RecordMeasurement("editor-animal", animal);
+    RecordMeasurement("editor-shortcoat", shortCoat);
+    RecordMeasurement("editor-longcoat", longCoat);
+}
+
+// The ROLES survive the whole chain — importer heuristic or `groom_role`
+// attribute, builder, cook, reload — which is what makes the committed fixtures
+// usable as a live demonstration of the coat sliders rather than only as a
+// topology test.
+TEST(GroomReferenceAssets, TheReferenceAnimalsCarryRealCoatRoles)
+{
+    const auto prims = Tests::GroomFixture::MakeLongCoatAnimal(200);
+    const std::filesystem::path abcPath = Tests::TempFile("roles.abc");
+    ASSERT_TRUE(Tests::GroomFixture::WriteArchive(abcPath, prims));
+
+    const auto result = AlembicGroomImporter::Import(abcPath);
+    ASSERT_TRUE(result.Succeeded()) << result.Diagnostic;
+
+    std::string reason;
+    std::vector<u8> cooked;
+    ASSERT_TRUE(GroomCooker::CookToBytes(*result.Groom, cooked, reason)) << reason;
+    Ref<GroomAsset> reloaded;
+    ASSERT_TRUE(GroomSerializer::DecodeFromBytes(cooked.data(), cooked.size(), reloaded, reason)) << reason;
+
+    std::map<GroomCoatRole, u32> curvesByRole;
+    for (u32 curve = 0; curve < reloaded->GetCurveCount(); ++curve)
+    {
+        ++curvesByRole[reloaded->GetGroupCoat(reloaded->GetCurveGroupIds()[curve]).GetRole()];
+    }
+
+    for (const auto& [role, count] : curvesByRole)
+    {
+        std::printf("[groom] longcoat role %-11s %u curves\n", std::string(ToString(role)).c_str(), count);
+    }
+
+    // All four authored roles are present after the round trip, and NOTHING is
+    // Unassigned: a fixture that came back Unassigned would still render, and
+    // every coat slider in the editor would silently do nothing.
+    EXPECT_GT(curvesByRole[GroomCoatRole::Undercoat], 0u);
+    EXPECT_GT(curvesByRole[GroomCoatRole::GuardHair], 0u);
+    EXPECT_GT(curvesByRole[GroomCoatRole::Whisker], 0u);
+    EXPECT_GT(curvesByRole[GroomCoatRole::LongHair], 0u);
+    EXPECT_EQ(curvesByRole[GroomCoatRole::Unassigned], 0u)
+        << "every group of a reference animal must have an authored role";
+
+    // And the undercoat really is the numerous one, which is what makes the
+    // per-role budget weighting meaningful on this asset.
+    EXPECT_GT(curvesByRole[GroomCoatRole::Undercoat], curvesByRole[GroomCoatRole::GuardHair]);
 }
 
 TEST(GroomReferenceAssets, AMissingWidthsParamIsDiagnosedRatherThanGuessed)

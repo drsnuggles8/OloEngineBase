@@ -56,6 +56,31 @@ namespace OloEngine
         return glm::mix(HueToRgb(hue), glm::vec3(1.0f), 0.25f);
     }
 
+    namespace
+    {
+        // Whether the debug view may draw this curve at all: the guides-only
+        // switch and the coat's role mask (#1251). One helper because the plan
+        // and the selection must agree exactly — a plan that counted a curve the
+        // selection then skipped would make the stride wrong for every group
+        // after it.
+        [[nodiscard]] bool PreviewCurveVisible(const GroomAsset& groom, u32 curve,
+                                               const GroomPreviewSettings& settings) noexcept
+        {
+            if (settings.GuidesOnly && !groom.IsGuide(curve))
+            {
+                return false;
+            }
+            const GroomCoatRole role = groom.GetGroupCoat(groom.GetCurveGroupIds()[curve]).GetRole();
+            return (settings.RoleVisibilityMask & (1u << static_cast<u32>(role))) != 0u;
+        }
+
+        [[nodiscard]] bool AllRolesVisible(const GroomPreviewSettings& settings) noexcept
+        {
+            constexpr u32 all = (1u << GroomCoatRoleCount) - 1u;
+            return (settings.RoleVisibilityMask & all) == all;
+        }
+    } // namespace
+
     GroomPreviewStats PlanGroomPreview(const GroomAsset& groom, const GroomPreviewSettings& settings)
     {
         GroomPreviewStats stats;
@@ -68,7 +93,22 @@ namespace OloEngine
         // Which curves are candidates at all. GuidesOnly is resolved first so
         // the stride below subsamples the guides, not the whole groom (a groom
         // with 300 guides in 1M strands would otherwise show almost none).
-        const u32 candidateCount = settings.GuidesOnly ? groom.GetGuideCount() : curveCount;
+        // The O(1) shortcut survives for the common case — every role visible —
+        // because GetGuideCount() and the curve count are both already derived.
+        // A mask with a bit cleared has no such counter, so it is scanned; that
+        // is O(curveCount), which every other loop in this file already is.
+        u32 candidateCount = settings.GuidesOnly ? groom.GetGuideCount() : curveCount;
+        if (!AllRolesVisible(settings))
+        {
+            candidateCount = 0;
+            for (u32 curve = 0; curve < curveCount; ++curve)
+            {
+                if (PreviewCurveVisible(groom, curve, settings))
+                {
+                    ++candidateCount;
+                }
+            }
+        }
         stats.StrandsAvailable = candidateCount;
         if (candidateCount == 0)
         {
@@ -158,7 +198,7 @@ namespace OloEngine
 
         for (u32 curve = 0; curve < curveCount; ++curve)
         {
-            if (settings.GuidesOnly && !groom.IsGuide(curve))
+            if (!PreviewCurveVisible(groom, curve, settings))
             {
                 continue;
             }

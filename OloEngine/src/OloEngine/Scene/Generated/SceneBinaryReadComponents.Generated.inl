@@ -515,6 +515,41 @@ case 799220825u: // GroomBindingComponent
     if (!SceneBinIO::Read(reader, comp.m_ShowBindingPreview)) return false;
     break;
 }
+case 4176992713u: // GroomCoatComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomCoatComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_RegionMap)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_ColorMap)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_UndercoatDensity)) return false;
+    comp.m_UndercoatDensity = std::clamp(comp.m_UndercoatDensity, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (!SceneBinIO::Read(reader, comp.m_UndercoatLength)) return false;
+    comp.m_UndercoatLength = std::clamp(comp.m_UndercoatLength, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_UndercoatWidth)) return false;
+    comp.m_UndercoatWidth = std::clamp(comp.m_UndercoatWidth, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_UndercoatClump)) return false;
+    comp.m_UndercoatClump = std::clamp(comp.m_UndercoatClump, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GuardDensity)) return false;
+    comp.m_GuardDensity = std::clamp(comp.m_GuardDensity, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GuardLength)) return false;
+    comp.m_GuardLength = std::clamp(comp.m_GuardLength, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GuardWidth)) return false;
+    comp.m_GuardWidth = std::clamp(comp.m_GuardWidth, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_GuardClump)) return false;
+    comp.m_GuardClump = std::clamp(comp.m_GuardClump, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (!SceneBinIO::Read(reader, comp.m_LengthJitter)) return false;
+    comp.m_LengthJitter = std::clamp(comp.m_LengthJitter, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_WidthJitter)) return false;
+    comp.m_WidthJitter = std::clamp(comp.m_WidthJitter, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ShadeJitter)) return false;
+    comp.m_ShadeJitter = std::clamp(comp.m_ShadeJitter, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ClumpCellSize)) return false;
+    comp.m_ClumpCellSize = std::clamp(comp.m_ClumpCellSize, static_cast<f32>(0.000244f), static_cast<f32>(0.25f));
+    if (!SceneBinIO::Read(reader, comp.m_VariationSeed)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_RoleVisibilityMask)) return false;
+    comp.m_RoleVisibilityMask = std::clamp(comp.m_RoleVisibilityMask, static_cast<u32>(0), static_cast<u32>(31));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 2438904161u: // GroomCoatShadowComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomCoatShadowComponent>();

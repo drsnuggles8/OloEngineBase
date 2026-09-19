@@ -85,6 +85,19 @@ float oloGroomPixelsPerUnitAtUnitW(mat4 projection, float viewportHeight)
     return abs(projection[1][1]) * viewportHeight * 0.5;
 }
 
+// The per-strand coat tint (issue #1251), unpacked from the strand vertex's
+// spare float lane. TWIN OF UnpackGroomCoatTint in OloEngine/Groom/GroomCoat.h,
+// and the mask is the load-bearing half: the C++ side forces the top byte to
+// 0x3F so every possible payload is a NORMAL float rather than a denormal a
+// vertex pipeline may flush to zero. Masking it off here is what turns that
+// exponent back into nothing. Dropping the mask would multiply every coat by a
+// tint whose blue channel is 0x3F.
+vec3 oloGroomUnpackTint(float packed)
+{
+	uint bits = floatBitsToUint(packed) & 0x00FFFFFFu;
+	return vec3(float(bits & 0xFFu), float((bits >> 8) & 0xFFu), float((bits >> 16) & 0xFFu)) * (1.0 / 255.0);
+}
+
 // Composition modes. Twin of GroomCompositionMode in
 // OloEngine/Groom/GroomVisibility.h; only the two modes the strand pass
 // IMPLEMENTS appear here. AlphaToCoverage and WeightedBlendedOIT are enum
