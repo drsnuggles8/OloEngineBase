@@ -7,7 +7,7 @@ memory evidence**. This document is that comparison and that record.
 **The decision: an anisotropic density volume at 64 voxels on the longest axis, marched at three
 voxels per step.** A deep opacity map was measured, is competitive on cost, and is **rejected** —
 its reason is below and its numbers are kept. An isotropic density volume ships as the declared
-memory-constrained fallback.
+lower-cost fallback.
 
 ## What is being measured
 
@@ -186,9 +186,17 @@ experiment that rejects an approach is a reportable result.
   criterion 4 names.
 - And it is **~2x less accurate** at its own optimum.
 
-**Kept as a declared fallback: `IsotropicDensityVolume`.** The same bake without the direction
-texture: one fifth of the memory, 1.5x to 2.2x the error. It exists for the memory-constrained tier
-and as the honest answer when the direction volume cannot be afforded — not as a silent degradation.
+**Kept as a declared fallback: `IsotropicDensityVolume`.** The same bake with the direction channel
+ignored: 1.5x to 2.2x the error, and no direction arithmetic in the march.
+
+A correction worth stating, because the table above does not say it. In the CPU comparison the
+isotropic mode needs only the density channel, so it is quoted at one fifth of the anisotropic
+mode's memory. **The shipped GPU representation packs both into ONE RGBA volume**, so at runtime the
+two modes cost the *same* bytes and the isotropic arm is a compute saving rather than a memory one.
+The packing is deliberate and is not a concession: the march is a per-fragment hot loop of about ten
+taps per light, so two fetches per step would double its bandwidth for a channel the isotropic arm
+does not read — and the sampler namespace had exactly one index left to spend. The memory lever at
+runtime is therefore the shadow LOD, which is cubic in the resolution, not the choice of mode.
 
 ## Declared approximations
 

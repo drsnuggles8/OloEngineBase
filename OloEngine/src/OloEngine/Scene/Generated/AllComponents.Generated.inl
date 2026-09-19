@@ -55,6 +55,7 @@ using AllComponents = ComponentGroup<
     FootIKComponent,
     GoapAgentComponent,
     GroomBindingComponent,
+    GroomCoatShadowComponent,
     GroomComponent,
     GroomFibreComponent,
     IKTargetComponent,

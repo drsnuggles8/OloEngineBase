@@ -43,6 +43,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -58,6 +59,7 @@ namespace OloEngine
     class Framebuffer;
     class IndexBuffer;
     class Shader;
+    class Texture3D;
     class UniformBuffer;
     class VertexArray;
     class VertexBuffer;
@@ -125,6 +127,15 @@ namespace OloEngine
         /// per-fragment cost is linear in it, so it is the one number that
         /// explains a strand pass that suddenly got expensive.
         u32 FibreSamplesPerFragment = 0;
+
+        // ── Coat self-shadowing (#1248) ─────────────────────────────
+
+        /// What each coat asked for, what it got, and why it is not what was
+        /// asked. Acceptance criterion 3 wants the representation's resolution
+        /// and update policy INSPECTABLE; these are counters rather than a log
+        /// line so the panel can show them without the renderer having to have
+        /// said anything.
+        GroomCoatShadowStats CoatShadow;
 
         GroomCompositionStats Composition;
 
@@ -218,6 +229,45 @@ namespace OloEngine
             /// the body's pose. A static entry's buffers are immutable and must
             /// never be handed to the refill path.
             bool Dynamic = false;
+
+            // ── Coat self-shadowing (#1248) ─────────────────────────
+
+            // The bake lives in the GEOMETRY cache, keyed the same way, because
+            // it is a function of the same two things the geometry is: the
+            // groom asset and the build settings. Keeping it anywhere else
+            // would need a second eviction policy that could disagree with this
+            // one about when a coat is still in use.
+
+            /// The packed RGBA16F volume: xyz = the voxel's mean fibre
+            /// direction times its coherence, w = fibre areal density. Null
+            /// until the first successful bake.
+            Ref<Texture3D> CoatVolume;
+            /// The volume's object-space box, needed to map a shading point
+            /// into it.
+            glm::vec3 CoatBoundsMin{ 0.0f };
+            glm::vec3 CoatBoundsMax{ 0.0f };
+            /// Voxels on the longest axis of the bake actually resident.
+            u32 CoatResolution = 0;
+            /// GPU bytes the volume occupies.
+            u64 CoatBytes = 0;
+            /// The LOD step the resident bake was made at, the step the policy
+            /// is currently ASKING for, and how many consecutive frames it has
+            /// asked for it. The three together are the hysteresis state: a
+            /// coat straddling a LOD boundary must not rebuild every frame,
+            /// which is the flicker criterion's failure mode showing up as a
+            /// counter before it shows up as a picture.
+            u32 CoatLodStep = 0;
+            u32 CoatRequestedLodStep = 0;
+            u32 CoatLodStableFrames = 0;
+            /// The cache tick the volume was last rebuilt at, so staleness is a
+            /// number rather than an impression.
+            u64 CoatBuiltTick = 0;
+            /// The mode the resident bake serves. A volume baked for one mode
+            /// serves both volume modes — the isotropic arm simply does not
+            /// read the direction channel — so this exists to detect a switch
+            /// TO or FROM a per-light representation, not between the two
+            /// volume modes.
+            GroomCoatShadowTechnique CoatMode = GroomCoatShadowTechnique::None;
         };
 
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
@@ -239,9 +289,22 @@ namespace OloEngine
         /// that only this pass advances cannot do either.
         u64 m_CacheTick = 0;
 
+        /// Rebuilds `entry`'s coat volume if the request needs one and the
+        /// resident bake is not already right. Returns the decision, so the
+        /// caller records the reason rather than re-deriving it.
+        [[nodiscard]] GroomCoatShadowDecision AcquireCoatVolume(const GroomStrandRequest& request, CacheEntry& entry,
+                                                                u32 residentVolumes);
+
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
         Ref<Framebuffer> m_SceneFramebuffer;
+
+        /// A 1x1x1 zero volume, bound whenever a draw has no coat volume of its
+        /// own. A dangling sampler is undefined behaviour, not a zero read, so
+        /// something valid is bound ALWAYS and the routing lane — never the
+        /// binding — decides whether it is sampled. Same discipline, same
+        /// reason, as VolumetricFogPass's density-volume placeholder.
+        Ref<Texture3D> m_CoatPlaceholder;
 
         // Last reported dominant fallback, so the log line fires on a CHANGE
         // of reason rather than once per frame.

@@ -515,6 +515,30 @@ case 799220825u: // GroomBindingComponent
     if (!SceneBinIO::Read(reader, comp.m_ShowBindingPreview)) return false;
     break;
 }
+case 2438904161u: // GroomCoatShadowComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomCoatShadowComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Kappa)) return false;
+    comp.m_Kappa = std::clamp(comp.m_Kappa, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Resolution)) return false;
+    comp.m_Resolution = std::clamp(comp.m_Resolution, static_cast<u32>(8), static_cast<u32>(256));
+    if (!SceneBinIO::Read(reader, comp.m_StepVoxels)) return false;
+    comp.m_StepVoxels = std::clamp(comp.m_StepVoxels, static_cast<f32>(0.25f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxLodSteps)) return false;
+    comp.m_MaxLodSteps = std::clamp(comp.m_MaxLodSteps, static_cast<u32>(0), static_cast<u32>(6));
+    if (!SceneBinIO::Read(reader, comp.m_PixelSizeForLod0)) return false;
+    comp.m_PixelSizeForLod0 = std::clamp(comp.m_PixelSizeForLod0, static_cast<f32>(16.0f), static_cast<f32>(4096.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MinResolution)) return false;
+    comp.m_MinResolution = std::clamp(comp.m_MinResolution, static_cast<u32>(4), static_cast<u32>(64));
+    {
+        decltype(comp.m_Mode) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_Mode)>(0) && v <= static_cast<decltype(comp.m_Mode)>(3))
+            comp.m_Mode = v;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 2551117928u: // GroomComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();

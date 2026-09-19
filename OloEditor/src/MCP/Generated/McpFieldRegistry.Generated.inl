@@ -407,6 +407,16 @@ registry.push_back(OLO_GFW_FIELD_RANGE(GroomBindingComponent, "TeleportDistance"
 registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(GroomBindingComponent, "ShowBindingPreview", m_ShowBindingPreview));
 
+// GroomCoatShadowComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "Kappa", m_Kappa, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(16.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "Resolution", m_Resolution, OLO_GFW_BOUND(8), OLO_GFW_BOUND(256)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "StepVoxels", m_StepVoxels, OLO_GFW_BOUND(0.25f), OLO_GFW_BOUND(8.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "MaxLodSteps", m_MaxLodSteps, OLO_GFW_BOUND(0), OLO_GFW_BOUND(6)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "PixelSizeForLod0", m_PixelSizeForLod0, OLO_GFW_BOUND(16.0f), OLO_GFW_BOUND(4096.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "MinResolution", m_MinResolution, OLO_GFW_BOUND(4), OLO_GFW_BOUND(64)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomCoatShadowComponent, "Mode", m_Mode, OLO_GFW_BOUND(0), OLO_GFW_BOUND(3)));
+registry.push_back(OLO_GFW_FIELD(GroomCoatShadowComponent, "Enabled", m_Enabled));
+
 // GroomComponent
 registry.push_back(OLO_GFW_FIELD(GroomComponent, "Groom", m_Groom));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));

@@ -1474,6 +1474,49 @@ namespace OloEngine
             // make an exact comparison a rounding question.
             glm::ivec4 FibreModes{ 0, 4, 0, 0 };
 
+            // ── Coat self-shadowing (#1248) ──────────────────────────
+            //
+            // The lanes that let a strand ask the coat-shadow volume at
+            // TEX_GROOM_COAT_VOLUME how much hair is between it and each light.
+            // GLSL twin: the GroomStrandParams block in GroomStrand.glsl, which
+            // declares them in BOTH stages field for field — a uniform block of
+            // one name must match across stages or the program fails to LINK,
+            // and compiling the stages separately cannot see it.
+            //
+            // THEY GO UP INACTIVE AND THE SUCCESS PATH TURNS THEM ON.
+            // CoatModes.x is CoatShadowMode::None here, and only the code that
+            // has a built, bound volume in hand writes anything else. Every way
+            // the build can fail therefore leaves the strand shader on the
+            // unshadowed branch by construction rather than by someone
+            // remembering to reset a flag on each early return — the structural
+            // fallback technique-selection-seams.md asks for. An unshadowed coat
+            // is #1247's picture, which is a legitimate state; a coat shadowed
+            // by a volume that was never built is not.
+
+            // RIGID render-relative world -> groom OBJECT space. Rigid is
+            // load-bearing: the march takes ANGLES in this space to compare the
+            // ray against each voxel's mean fibre direction, and a scale in here
+            // would tilt every fibre by an amount that depends on which way the
+            // ray points. The volume is baked in object space precisely so a
+            // coat that merely moves reuses its bake.
+            glm::mat4 CoatWorldToObject{ 1.0f };
+            // xyz = the volume's object-space minimum corner, w = kappa, the
+            // per-crossing extinction. Kappa is dimensionless and is a COAT
+            // property, not a pigment one — the pigment already attenuates
+            // inside each fibre and applying it twice is the double-count the
+            // issue's scope note forbids.
+            glm::vec4 CoatBoundsMin{ 0.0f, 0.0f, 0.0f, 1.0f };
+            // xyz = 1 / (boundsMax - boundsMin), w = the march step in WORLD
+            // METRES. Three voxels is the measured selection; see
+            // docs/analysis/groom-coat-self-shadowing-1248.md finding 2, where a
+            // coarser march is both cheaper and slightly more accurate.
+            glm::vec4 CoatInvExtent{ 0.0f, 0.0f, 0.0f, 0.0f };
+            // x = the EFFECTIVE GroomCoatShadow::CoatShadowMode this draw got,
+            // never the requested one. An int lane because the shader compares
+            // it against integer constants, and a float lane would make an exact
+            // comparison a rounding question.
+            glm::ivec4 CoatModes{ 0, 0, 0, 0 };
+
             static constexpr u32 GetSize()
             {
                 return static_cast<u32>(sizeof(GroomStrandParamsUBO));
@@ -1482,13 +1525,14 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 288 B: 208 through #1246's lanes, plus the five vec4/ivec4 lanes
-        // #1247's fibre material added. Every lane is vec4-sized, so the
-        // std140 layout is the C++ layout and the number is a plain sum —
-        // which is what makes this assertion able to catch a lane added to one
-        // side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 288,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (288 B)");
+        // 400 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
+        // fibre material added (288), and #1248's coat-shadow block — one mat4
+        // and three vec4-sized lanes (112). Every lane is vec4-sized or a mat4,
+        // so the std140 layout is the C++ layout and the number is a plain sum
+        // — which is what makes this assertion able to catch a lane added to
+        // one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 400,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (400 B)");
 
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
@@ -3282,6 +3326,36 @@ namespace OloEngine
         // size, so the table size is a coincidence rather than a check.
         static constexpr u32 TEX_RESTIR_GI_RADIANCE = 74;
 
+        // The GROOM COAT-SHADOW VOLUME (issue #1248) — a sampler3D RGBA16F in
+        // GROOM OBJECT SPACE holding, per voxel, the coat's mean fibre direction
+        // times its coherence (xyz) and its fibre areal density in 1/metre (w).
+        // Marched by GroomStrand.glsl through include/GroomCoatShadowCommon.glsl
+        // to get the expected fibre crossings between a strand and a light.
+        // CPU twin: OloEngine/Groom/GroomCoatShadow.h.
+        //
+        // ONE RGBA16F rather than a separate R16F density and an RGB direction,
+        // and that is a bandwidth decision rather than a packing convenience.
+        // The march is a per-fragment hot loop — about ten taps per light — so
+        // two fetches per step would double its bandwidth for a channel the
+        // isotropic arm does not read at all. It also costs ONE sampler index,
+        // and after this one exactly one remains below the GL 4.6 minimum of 80.
+        //
+        // SLOT 75 WAS THE LAST UNCLAIMED INDEX. 57 and 63 are deliberately kept
+        // sampler-free for the Vulkan vertex-pull and bone-pull SSBO streams and
+        // are NOT available; see the storage-buffer section.
+        //
+        // ADDING THIS SLOT MOVED TEX_SHADER_GRAPH_0 77 -> 78 and therefore
+        // HEAP_IMAGE_SLOT_BASE 78 -> 79, WHICH IS A SHADER EDIT:
+        // OLO_HEAP_IMAGE_BASE in include/BindlessHeap.glsl and the copy in
+        // BindlessHeapGpuTest.cpp's inline prologue moved with it in the same
+        // commit. This is the SIXTH slot to move that base, and like the first
+        // five it did NOT move the offset table's size (86 used entries and 87
+        // both round to 88) — so once again the array size, the more obvious of
+        // the two mirrors, still matched while the base did not.
+        // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout is what
+        // actually catches it.
+        static constexpr u32 TEX_GROOM_COAT_VOLUME = 75; // sampler3D RGBA16F — xyz = mean fibre direction * coherence, w = areal density
+
         // The SKIN THICKNESS MAP (issue #1242) — the KHR_materials_volume
         // thickness texture, red channel, a per-pixel modulation of the
         // material's thickness factor. Sampled by the forward PBR shaders and by
@@ -3303,11 +3377,14 @@ namespace OloEngine
         // updated alongside.
         //
         // ⚠ MOVING IT MOVES HEAP_IMAGE_SLOT_BASE, WHICH IS MIRRORED IN GLSL BY
-        // HAND. #1242's slot is the SIXTH to do this, and the first since #1140
+        // HAND. #1242's slot was the SIXTH to do this, and the first since #1140
         // to ALSO move the table size (86 used entries round to 88, not the 84
-        // they rounded to before) — so both GLSL mirrors move this time, not just
-        // the base literal. See the HEAP_IMAGE_SLOT_BASE comment below.
-        static constexpr u32 TEX_SHADER_GRAPH_0 = 77;
+        // they rounded to before) — so both GLSL mirrors moved that time, not
+        // just the base literal. #1248's TEX_GROOM_COAT_VOLUME is the SEVENTH and
+        // is back in the usual blind spot: 87 used entries still round to 88, so
+        // the table size did NOT move and only OLO_HEAP_IMAGE_BASE (78 -> 79)
+        // did. See the HEAP_IMAGE_SLOT_BASE comment below.
+        static constexpr u32 TEX_SHADER_GRAPH_0 = 78;
 
         // Tracker capacity for CommandDispatchData::BoundTextureIDs. Must be
         // strictly greater than the highest engine-reserved slot so redundant-
@@ -4449,6 +4526,13 @@ namespace OloEngine
                     // ReSTIR GI's resolved indirect diffuse (issue #1169).
                     // Declared once, in include/DeferredLightingShared.glsl.
                     return name == "u_ReSTIRGIRadiance";
+                case TEX_GROOM_COAT_VOLUME:
+                    // The groom coat-shadow volume (issue #1248). Declared once,
+                    // in GroomStrand.glsl; include/GroomCoatShadowCommon.glsl
+                    // deliberately takes the sampler as a PARAMETER instead of
+                    // declaring it, so a shader that includes the helpers is not
+                    // forced to bind a volume it does not have.
+                    return name == "u_GroomCoatVolume";
                 case TEX_SKIN_THICKNESS:
                     // The skin thickness map (issue #1242). Declared by the four
                     // PBR shaders that sample it — PBR_MultiLight{,_Skinned} and

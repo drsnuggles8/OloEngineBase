@@ -612,6 +612,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
+		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,
+		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
+		# rebuild counters that answer criterion 4 as a number rather than a look.
+		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
@@ -841,6 +845,7 @@ add_executable(OloEngine-Tests
         SaveGame/FoliageWindSaveLoadTest.cpp
 		SaveGame/FoliageHabitatRulesSaveLoadTest.cpp
 		SaveGame/GroomFibreMaterialSaveLoadTest.cpp
+		SaveGame/GroomCoatShadowSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		SaveGame/DestructibleComponentSaveLoadSanitizeTest.cpp
 		SaveGame/SaveFileWorldDatabaseTest.cpp

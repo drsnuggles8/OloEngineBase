@@ -461,6 +461,22 @@ if (entity.HasComponent<GroomBindingComponent>())
     out << YAML::EndMap; // GroomBindingComponent
 }
 
+if (entity.HasComponent<GroomCoatShadowComponent>())
+{
+    out << YAML::Key << "GroomCoatShadowComponent";
+    out << YAML::BeginMap; // GroomCoatShadowComponent
+    auto const& comp = entity.GetComponent<GroomCoatShadowComponent>();
+    out << YAML::Key << "Kappa" << YAML::Value << comp.m_Kappa;
+    out << YAML::Key << "Resolution" << YAML::Value << comp.m_Resolution;
+    out << YAML::Key << "StepVoxels" << YAML::Value << comp.m_StepVoxels;
+    out << YAML::Key << "MaxLodSteps" << YAML::Value << comp.m_MaxLodSteps;
+    out << YAML::Key << "PixelSizeForLod0" << YAML::Value << comp.m_PixelSizeForLod0;
+    out << YAML::Key << "MinResolution" << YAML::Value << comp.m_MinResolution;
+    out << YAML::Key << "Mode" << YAML::Value << static_cast<u32>(comp.m_Mode);
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // GroomCoatShadowComponent
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     out << YAML::Key << "GroomComponent";

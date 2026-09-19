@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
@@ -6041,6 +6042,147 @@ namespace OloEngine
         // the MCP write path all reach the component directly, and only this
         // function stands between any of them and a NaN in a pow().
         return SanitizeGroomFibreAuthoring(authored);
+    }
+
+    // ── Dense-coat self-shadowing (issue #1248) ──────────────────────────
+    //
+    // How much of this coat sits between each of its own strands and each
+    // light. A SEPARATE COMPONENT from GroomFibreComponent for the same reason
+    // that one is separate from GroomComponent: its ABSENCE is the previous
+    // slice's picture. A groom without this component renders #1247's coat —
+    // every strand lit as if it were alone — which is what keeps the captures
+    // those issues committed meaning what they meant.
+    //
+    // WHY NOT A FIELD ON ShadowSettings. Coat shadowing is a property of a
+    // GROOM, not of the scene's lighting: two coats in one frame legitimately
+    // want different resolutions and different update policies, and a
+    // scene-level knob could not express that. ShadowSettings owns what the
+    // LIGHT does. See GroomCoatShadowTechnique.h.
+    struct GroomCoatShadowComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// Per-crossing extinction — how opaque one fibre is to direct light.
+        /// DIMENSIONLESS: 1.0 means one expected fibre crossing attenuates to
+        /// 1/e.
+        ///
+        /// NOT THE PIGMENT, and that separation is the issue's scope note
+        /// rather than a style choice. #1247's model already absorbs light
+        /// INSIDE each fibre through sigma_a; this is the purely geometric
+        /// occlusion BETWEEN fibres. Deriving one from the other would apply
+        /// the pigment twice and darken every coloured coat.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
+        f32 m_Kappa = 1.0f;
+
+        /// Voxels along the volume's longest axis, at LOD 0.
+        ///
+        /// 64 IS MEASURED, not a round number, and FINER IS WORSE. Below about
+        /// two strand spacings a voxel holds one strand or none, so what it
+        /// stores is a sample rather than an average and the volume aliases
+        /// against the coat: 128 scored worse than 64 on the reference pelt
+        /// while costing eight times the memory. The sweep is table "finding 1"
+        /// in docs/analysis/groom-coat-self-shadowing-1248.md.
+        OLO_SERIALIZE(Clamp, Min = 8, Max = 256)
+        u32 m_Resolution = 64;
+
+        /// March step in VOXELS.
+        ///
+        /// 3 IS MEASURED TOO, and a coarser march is not a quality compromise:
+        /// it was at or within noise of the error minimum on both reference
+        /// coats and cost a third of the taps of a one-voxel march, because the
+        /// volume's error is a systematic bias rather than quadrature. Past
+        /// about four it degrades sharply on a dense coat.
+        OLO_SERIALIZE(Clamp, Min = 0.25f, Max = 8.0f)
+        f32 m_StepVoxels = 3.0f;
+
+        /// Halvings the shadow LOD may apply as the coat shrinks on screen.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 6)
+        u32 m_MaxLodSteps = 3;
+
+        /// Apparent coat size, in pixels of the frame's height, at which LOD 0
+        /// is used.
+        OLO_SERIALIZE(Clamp, Min = 16.0f, Max = 4096.0f)
+        f32 m_PixelSizeForLod0 = 512.0f;
+
+        /// Resolution floor. Below it the volume resolves nothing and the coat
+        /// falls back to unshadowed WITH A COUNTED REASON, rather than marching
+        /// a 4-cubed grid to produce noise at full price.
+        OLO_SERIALIZE(Clamp, Min = 4, Max = 64)
+        u32 m_MinResolution = 8;
+
+        /// GroomCoatShadow::CoatShadowMode. Stored as a u8 so the component
+        /// keeps its pinned, hole-free, trivially-copyable layout.
+        ///
+        /// REJECT, not Clamp: this is a discriminated mode index, so saturating
+        /// turns a corrupt value into a DIFFERENT valid one and the coat is
+        /// shadowed by a representation nobody authored. Same reasoning, and
+        /// the same reference, as GroomComponent::m_CompositionMode.
+        ///
+        /// Anisotropic by default because it is what the bake-off selected: it
+        /// is the most accurate candidate in every case measured.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 3)
+        u8 m_Mode = static_cast<u8>(GroomCoatShadow::CoatShadowMode::AnisotropicDensityVolume);
+
+        /// Shadow the coat at all. Off renders #1247's unshadowed coat, which
+        /// is the A/B control every capture in this feature's evidence is
+        /// measured against — not a performance switch.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomCoatShadowComponent() = default;
+        GroomCoatShadowComponent(const GroomCoatShadowComponent&) = default;
+        GroomCoatShadowComponent& operator=(const GroomCoatShadowComponent&) = default;
+        GroomCoatShadowComponent(GroomCoatShadowComponent&&) noexcept = default;
+        GroomCoatShadowComponent& operator=(GroomCoatShadowComponent&&) noexcept = default;
+
+        auto operator==(const GroomCoatShadowComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomCoatShadowComponent) == 28,
+                  "GroomCoatShadowComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored fields as the LOD policy wants them. The ONE place the
+    /// component becomes policy input, so the renderer, a test and the editor
+    /// cannot each interpret the fields slightly differently — the same reason
+    /// MakeGroomFibreAuthoring exists.
+    [[nodiscard]] inline GroomCoatShadow::CoatLodPolicy MakeGroomCoatLodPolicy(
+        const GroomCoatShadowComponent& component) noexcept
+    {
+        GroomCoatShadow::CoatLodPolicy policy;
+        policy.BaseResolution = std::max(component.m_Resolution, 1u);
+        policy.MaxLodSteps = component.m_MaxLodSteps;
+        policy.PixelSizeForLod0 = std::isfinite(component.m_PixelSizeForLod0) && component.m_PixelSizeForLod0 > 0.0f
+                                      ? component.m_PixelSizeForLod0
+                                      : 512.0f;
+        // SANITISED HERE, not at the point of use. Scene YAML, a save game and
+        // the MCP write path all reach the component directly, and only this
+        // function stands between any of them and a resolution floor above the
+        // base resolution — which would make every coat fall back for a reason
+        // that is true but nobody authored.
+        policy.MinResolution = std::clamp(component.m_MinResolution, 1u, policy.BaseResolution);
+        return policy;
+    }
+
+    /// The requested mode, validated. A corrupt index renders UNSHADOWED rather
+    /// than picking a mode nobody authored — the loud answer, and the one that
+    /// leaves #1247's picture on screen.
+    [[nodiscard]] inline GroomCoatShadow::CoatShadowMode MakeGroomCoatShadowMode(
+        const GroomCoatShadowComponent& component) noexcept
+    {
+        if (!component.m_Enabled)
+        {
+            return GroomCoatShadow::CoatShadowMode::None;
+        }
+        return GroomCoatShadow::IsValidCoatShadowMode(static_cast<i32>(component.m_Mode))
+                   ? static_cast<GroomCoatShadow::CoatShadowMode>(component.m_Mode)
+                   : GroomCoatShadow::CoatShadowMode::None;
     }
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────

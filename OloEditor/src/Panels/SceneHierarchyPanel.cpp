@@ -2239,6 +2239,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomComponent>("Groom");
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
+            DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -8721,6 +8722,168 @@ namespace OloEngine
         // has moved since, looks perfectly fine in the bind pose and only comes
         // apart in motion — so every number this section shows is one that
         // separates those two cases while the character is standing still.
+        // Dense-coat self-shadowing (#1248). Acceptance criterion 3 asks that
+        // "representation resolution and update policy are inspectable", and
+        // this section is the editor half of that: everything it shows is
+        // either a knob that sets the policy or a live readout of what the
+        // renderer actually did with it. A number that only appears in a log
+        // is not inspectable.
+        DrawComponent<GroomCoatShadowComponent>("Groom Coat Shadow", entity, [entity](auto& component)
+                                                {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is no coat to shadow. Add a "
+                                   "Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            if (!entity.GetComponent<GroomComponent>().m_RenderStrands)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this is authored but not "
+                                   "drawn. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+            if (!entity.HasComponent<GroomFibreComponent>())
+            {
+                // NOT an error: an unlit coat is a legitimate state. But coat
+                // shadowing modulates the LIGHTING, and #1246's neutral ramp
+                // has no lighting to modulate, so this component would author a
+                // volume nothing reads.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This groom has no Groom Fibre Material, so it renders the neutral ramp and "
+                                   "there is no lighting for the coat shadow to attenuate.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off renders the unshadowed coat the fibre material shipped (#1247).\n"
+                                  "That is the A/B control this feature's evidence is measured against, not a\n"
+                                  "performance switch.");
+            }
+
+            ImGui::SeparatorText("Representation");
+            {
+                constexpr std::array<const char*, 4> kModes{ "None", "Density volume (isotropic)",
+                                                             "Density volume (anisotropic)",
+                                                             "Deep opacity map (measured, not wired)" };
+                int mode = static_cast<int>(component.m_Mode);
+                if (ImGui::Combo("Mode", &mode, kModes.data(), static_cast<int>(kModes.size())))
+                {
+                    if (GroomCoatShadow::IsValidCoatShadowMode(mode))
+                    {
+                        component.m_Mode = static_cast<u8>(mode);
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Anisotropic is what the bake-off selected: it was the most accurate\n"
+                                      "candidate in every case measured, and it is light-independent, so an\n"
+                                      "animated light costs no rebuilds. The deep opacity map was measured and\n"
+                                      "rejected -- see docs/analysis/groom-coat-self-shadowing-1248.md.");
+                }
+            }
+
+            ImGui::DragFloat("Fibre opacity", &component.m_Kappa, 0.01f, 0.0f, 16.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How opaque one fibre is to direct light. Dimensionless: 1.0 means one\n"
+                                  "expected fibre crossing attenuates to 1/e.\n\n"
+                                  "This is NOT the pigment. The fibre material already absorbs light inside\n"
+                                  "each strand; this is the geometric occlusion between strands, and keeping\n"
+                                  "them apart is what stops a coloured coat being darkened twice.");
+            }
+
+            ImGui::SeparatorText("Resolution and update policy");
+            {
+                int resolution = static_cast<int>(component.m_Resolution);
+                if (ImGui::DragInt("Voxels (longest axis)", &resolution, 1.0f, 8, 256))
+                {
+                    component.m_Resolution = static_cast<u32>(std::clamp(resolution, 8, 256));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("64 is MEASURED, and finer is WORSE. Below about two strand spacings a\n"
+                                      "voxel holds one strand or none, so what it stores is a sample rather\n"
+                                      "than an average and the volume aliases against the coat -- 128 scored\n"
+                                      "worse than 64 on the reference pelt while costing eight times the\n"
+                                      "memory.");
+                }
+
+                ImGui::DragFloat("March step (voxels)", &component.m_StepVoxels, 0.05f, 0.25f, 8.0f, "%.2f");
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("3 is measured too, and a coarser march is not a compromise: it was at\n"
+                                      "or within noise of the error minimum on both reference coats and cost\n"
+                                      "a third of the taps of a one-voxel march. Past about four it degrades\n"
+                                      "sharply on a dense coat.");
+                }
+
+                int lodSteps = static_cast<int>(component.m_MaxLodSteps);
+                if (ImGui::DragInt("Max LOD halvings", &lodSteps, 1.0f, 0, 6))
+                {
+                    component.m_MaxLodSteps = static_cast<u32>(std::clamp(lodSteps, 0, 6));
+                }
+                ImGui::DragFloat("Full detail at (px)", &component.m_PixelSizeForLod0, 1.0f, 16.0f, 4096.0f, "%.0f");
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Apparent coat height, in pixels, at which the full resolution is used.\n"
+                                      "Below it the volume halves once per octave, with three frames of\n"
+                                      "hysteresis before COARSENING so a coat sitting on a boundary cannot\n"
+                                      "rebuild every frame. Refining is immediate.");
+                }
+
+                int minResolution = static_cast<int>(component.m_MinResolution);
+                if (ImGui::DragInt("Resolution floor", &minResolution, 1.0f, 4, 64))
+                {
+                    component.m_MinResolution = static_cast<u32>(std::clamp(minResolution, 4, 64));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Below this the volume resolves nothing, so the coat falls back to\n"
+                                      "unshadowed with a counted reason rather than marching a tiny grid to\n"
+                                      "produce noise at full price.");
+                }
+            }
+
+            // ── What the renderer ACTUALLY did ──────────────────────────
+            //
+            // The knobs above are a request. These lines are the answer, read
+            // back from the pass, and they are the half of "inspectable" that
+            // matters: a coat that is not being shadowed says so here, with a
+            // reason, instead of just looking flat.
+            ImGui::SeparatorText("Live");
+            if (const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass())
+            {
+                const GroomCoatShadowStats& stats = pass->GetStats().CoatShadow;
+                ImGui::Text("Shadowed grooms: %u   fallback: %u   unshadowed by choice: %u", stats.ShadowedGrooms,
+                            stats.FallbackGrooms, stats.UnshadowedByChoice);
+                ImGui::Text("Resolution in force: %u (LOD step %u)", stats.ResolutionInForce, stats.LodStepInForce);
+                ImGui::Text("Resident volumes: %.2f MiB", static_cast<double>(stats.ResidentBytes) / (1024.0 * 1024.0));
+                // Rebuilds is the update policy made visible. A static coat
+                // under a moving light should sit at ZERO -- the volume is
+                // light-independent -- and anything else is the policy
+                // thrashing, which is the flicker criterion's failure mode
+                // showing up as a number before it shows up as a picture.
+                ImGui::Text("Rebuilds this frame: %u   oldest bake: %u frames", stats.Rebuilds, stats.MaxAgeFrames);
+
+                const GroomCoatShadowFallbackReason reason = stats.DominantFallbackReason();
+                if (reason != GroomCoatShadowFallbackReason::None)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("%s", Describe(reason).data());
+                    ImGui::PopStyleColor();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("The groom pass has not run yet.");
+            }
+        });
+
         DrawComponent<GroomBindingComponent>("Groom Binding", entity, [this, entity](auto& component)
                                              {
             if (!entity.HasComponent<GroomComponent>())

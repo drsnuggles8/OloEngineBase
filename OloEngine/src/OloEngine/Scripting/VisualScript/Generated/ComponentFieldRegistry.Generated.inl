@@ -413,6 +413,16 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomBindingComponent, "TeleportDistance"
 registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomBindingComponent, "ShowBindingPreview", m_ShowBindingPreview, Bool));
 
+// GroomCoatShadowComponent
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Kappa", m_Kappa, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(16.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Resolution", m_Resolution, Int, OLO_VSF_BOUND(8), OLO_VSF_BOUND(256)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "StepVoxels", m_StepVoxels, Float, OLO_VSF_BOUND(0.25f), OLO_VSF_BOUND(8.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "MaxLodSteps", m_MaxLodSteps, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(6)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "PixelSizeForLod0", m_PixelSizeForLod0, Float, OLO_VSF_BOUND(16.0f), OLO_VSF_BOUND(4096.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "MinResolution", m_MinResolution, Int, OLO_VSF_BOUND(4), OLO_VSF_BOUND(64)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomCoatShadowComponent, "Mode", m_Mode, Int, OLO_VSF_BOUND(0), OLO_VSF_BOUND(3)));
+registry.push_back(OLO_VSF_FIELD(GroomCoatShadowComponent, "Enabled", m_Enabled, Bool));
+
 // GroomComponent
 registry.push_back(OLO_VSF_FIELD(GroomComponent, "Groom", m_Groom, Asset));
 registry.push_back(OLO_VSF_FIELD_RANGE(GroomComponent, "RootMarkerSize", m_RootMarkerSize, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(10.0f)));

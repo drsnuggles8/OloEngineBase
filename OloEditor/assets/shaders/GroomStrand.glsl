@@ -96,6 +96,15 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
 	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
+	// Coat self-shadowing (#1248). Mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO. These go up INACTIVE
+	// (u_GroomCoatModes.x == 0) and only a draw with a built, bound volume
+	// turns them on, so every way the bake can fail leaves this shader on the
+	// unshadowed branch by construction.
+	mat4 u_GroomCoatWorldToObject; // RIGID world -> groom object space
+	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
+	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
+	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -230,6 +239,7 @@ void main()
 
 #include "include/GroomStrandCommon.glsl"
 #include "include/GroomFibreCommon.glsl"
+#include "include/GroomCoatShadowCommon.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -262,6 +272,20 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10) // TEX_USER_0
 #else
 layout(binding = 10) uniform samplerCube u_IrradianceMap; // TEX_USER_0
+#endif
+
+// The coat-shadow volume (#1248), TEX_GROOM_COAT_VOLUME. xyz = the voxel's mean
+// fibre direction times its coherence, w = fibre areal density in 1/metre.
+//
+// ALWAYS DECLARED AND ALWAYS BOUND, even when no coat is shadowing: the pass
+// binds a 1x1x1 zero volume otherwise, the way VolumetricFogPass binds a
+// placeholder for its density volume. A dangling sampler is undefined
+// behaviour, not a zero read, so the ROUTING (u_GroomCoatModes.x) decides
+// whether the volume is sampled — never the binding.
+#ifdef OLO_BINDLESS
+#define u_GroomCoatVolume OLO_HEAP_TEX_3D(75) // TEX_GROOM_COAT_VOLUME
+#else
+layout(binding = 75) uniform sampler3D u_GroomCoatVolume; // TEX_GROOM_COAT_VOLUME
 #endif
 
 layout(location = 0) out vec4 o_Color;
@@ -314,6 +338,15 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibreSinAlpha; // xyz = sin(2^k alpha)
 	vec4 u_GroomFibreCosAlpha; // xyz = cos(2^k alpha)
 	ivec4 u_GroomFibreModes;   // x = lit, y = h-quadrature order, z = debug mode, w unused
+	// Coat self-shadowing (#1248). Mirrored lane for lane from
+	// UBOStructures::GroomStrandParamsUBO. These go up INACTIVE
+	// (u_GroomCoatModes.x == 0) and only a draw with a built, bound volume
+	// turns them on, so every way the bake can fail leaves this shader on the
+	// unshadowed branch by construction.
+	mat4 u_GroomCoatWorldToObject; // RIGID world -> groom object space
+	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
+	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
+	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
 };
 
 vec2 octEncode(vec3 n)
@@ -348,15 +381,22 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 
 // The lit fibre response at this fragment.
 //
-// NO SHADOWING, and that is a scope boundary rather than an omission: #1247 is
-// the LOCAL fibre response, and inter-fibre occlusion and density transport
-// belong to #1248 (dense-coat self-shadowing). A coat lit here is lit as if
-// every strand were alone, which is exactly what the separated diagnostic
-// lobes are for — you can see which lobe is carrying the light before anything
-// occludes it. The cascaded shadow lookup is not read here either, for the
-// same reason a half-implemented one would be worse than none: a coat that
-// self-shadowed but was not occluded by its own body would be wrong in a way
-// that reads as the BCSDF being wrong.
+// COAT SELF-SHADOWING (#1248) MULTIPLIES THE INCOMING RADIANCE, and nothing
+// else. Each light's radiance is attenuated by exp(-kappa * tau), where tau is
+// the expected number of fibre crossings between this fragment and that light,
+// marched through the coat-shadow volume. The BCSDF below is untouched.
+//
+// THAT IS WHERE THE DOUBLE-COUNT BOUNDARY LIVES. #1247's per-fibre
+// attenuations already absorb light INSIDE one fibre, so the coat term must be
+// geometric and colourless or the pigment is applied twice — which is the trap
+// the issue's scope note names. tau sees no colour: it is fibre length density
+// times diameter times the sine of the angle to the fibre, and nothing else.
+//
+// WHAT IS STILL NOT HERE: occlusion by the rest of the SCENE. A body casting
+// onto its own coat is the shadow map's job, not this volume's, and the volume
+// deliberately contains the groom's own strands and nothing else. With the
+// coat term active the geometric root-to-tip ramp is bypassed — see main() —
+// because that ramp was the crude stand-in for exactly this.
 vec3 oloGroomShadeFibre()
 {
 	OloGroomFibre fibre = oloGroomFibreFromUniforms();
@@ -435,7 +475,15 @@ vec3 oloGroomShadeFibre()
 			continue;
 		}
 
-		vec3 radiance = light.color.rgb * light.color.w * attenuation;
+		// How much of this coat is between the fragment and this light. Zero
+		// crossings (or an inactive mode) gives transmittance 1, so a coat with
+		// no volume built renders exactly as it did before this existed.
+		float coatTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
+		                                         u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+		                                         v_WorldPos, L, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
+
+		vec3 radiance = light.color.rgb * light.color.w * attenuation * coatShadow;
 
 		// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
 		// its own length intercepts almost no light per unit length, and this
@@ -467,6 +515,17 @@ vec3 oloGroomShadeFibre()
 	{
 		vec3 envDir = normalize(perpV);
 		vec3 averageRadiance = texture(u_IrradianceMap, envDir).rgb * (1.0 / OLO_GROOM_FIBRE_PI);
+
+		// The environment is occluded by the coat too, and along the SAME
+		// direction it is sampled from — so this is the one extra march that is
+		// consistent with the term it attenuates rather than an invented
+		// ambient-occlusion factor. A strand buried in the coat sees the sky
+		// through the coat; one on the surface sees it directly.
+		float envTau = oloGroomCoatOpticalDepth(u_GroomCoatVolume, u_GroomCoatWorldToObject,
+		                                        u_GroomCoatBoundsMin.xyz, u_GroomCoatInvExtent.xyz,
+		                                        v_WorldPos, envDir, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
+		averageRadiance *= oloGroomCoatTransmittance(envTau, u_GroomCoatBoundsMin.w);
+
 		oloGroomAccumulate(total, oloGroomFibreAmbientResponse(fibre, sinThetaO), averageRadiance);
 	}
 
@@ -515,7 +574,19 @@ void main()
 	// GEOMETRIC ramp only — see the file header. v_Coords.x is the root-to-tip
 	// parameter, so a groom imported tip-first reads inverted here exactly as
 	// it does in the debug preview.
+	//
+	// AND IT IS BYPASSED ONCE COAT SHADOWING IS ACTIVE (#1248). The ramp exists
+	// because "a strand is darker near the root because it is deeper in the
+	// coat" — which is precisely what the density volume now measures, per
+	// fragment and per light, instead of assuming. Keeping both would darken
+	// the roots twice, and the issue's scope note forbids exactly that kind of
+	// double count. A coat with no volume keeps the ramp, so every capture
+	// #1246 and #1247 committed still means what it meant.
 	float ramp = mix(u_GroomRampWidth.x, 1.0, clamp(v_Coords.x, 0.0, 1.0));
+	if (u_GroomCoatModes.x != OLO_GROOM_COAT_MODE_NONE)
+	{
+		ramp = 1.0;
+	}
 
 	vec3 colour;
 	if (u_GroomFibreModes.x != 0)
