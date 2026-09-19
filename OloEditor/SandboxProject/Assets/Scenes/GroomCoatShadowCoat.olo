@@ -1,0 +1,322 @@
+Scene: GroomCoatShadowCoat.olo
+# ─────────────────────────────────────────────────────────────────────────────
+# Dense-coat self-shadowing — the live scene (#1248).
+#
+# A NEW scene rather than a change to Scenes/GroomFibreCoat.olo, deliberately
+# and for the same reason that one is not a change to GroomStrandCoat.olo: the
+# fibre scene is #1247's evidence, and its coats are lit as if every strand were
+# ALONE on purpose. Adding coat shadowing to it would make every judgement it
+# supports a judgement about the shadow too.
+#
+# WHAT IS IN FRAME, AND WHY:
+#
+#   THE SAME THREE COATS as the fibre scene — dark (eumelanin 4.0), pale
+#   (0.1 / 0.05) and red (0.35 / 1.4) — each now carrying a
+#   GroomCoatShadowComponent at the SELECTED representation: an anisotropic
+#   density volume, 64 voxels on the longest axis, marched at three voxels per
+#   step. Those two numbers are measured, not tasteful; see
+#   docs/analysis/groom-coat-self-shadowing-1248.md.
+#
+#   KEEPING ALL THREE PIGMENTS is the point rather than a copy: acceptance
+#   criterion 2 asks that undercoat, guard hairs and transmission stay distinct
+#   INCLUDING on pale coats, and a coat shadow strong enough to flatten the
+#   pigment would look like a success from a single screenshot of one coat.
+#   Side by side, it does not.
+#
+#   THE SUN POINTS INTO THE CAMERA, as in the fibre scene, so the coats are
+#   BACKLIT — the regime where transmission carries the coat and where
+#   inter-fibre occlusion matters most.
+#
+#   WIDTH SCALE 25, inherited and for the same stated reason: real hair is far
+#   thinner than a pixel at any framing a person would use. It is here so the
+#   strands are legible by eye, NOT because it is what hair looks like. Judge
+#   the representation from the CPU measurements, never from this entity.
+#
+# WHAT TO LOOK FOR. Toggle "Enabled" on the Groom Coat Shadow component. The
+# coat's interior and the underside should darken while the outermost guard
+# hairs keep their brightness — that gradient IS the feature. Note that the
+# geometric root-to-tip ramp is BYPASSED while the component is on (it was the
+# crude stand-in for exactly this), so a coat too sparse to self-shadow will get
+# BRIGHTER rather than darker. That is correct; see the agent-rules guide.
+#
+# The component's "Live" section reports the resolution in force, the LOD step,
+# resident bytes and REBUILDS THIS FRAME. Swing the light around: rebuilds must
+# stay at zero, because the representation is light-independent. That is
+# acceptance criterion 4, readable from the panel.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PostProcessSettings:
+  TonemapOperator: 2
+  Exposure: 1
+  Gamma: 2.2
+  BloomEnabled: false
+  BloomThreshold: 1.2
+  BloomIntensity: 0.25
+  BloomIterations: 5
+  VignetteEnabled: false
+  VignetteIntensity: 0.5
+  VignetteSmoothness: 0.2
+  ChromaticAberrationEnabled: false
+  ChromaticAberrationIntensity: 0.5
+  # FXAA off: a spatial edge filter over sub-pixel strands blurs the very
+  # thing being looked at.
+  FXAAEnabled: false
+  DOFEnabled: false
+  DOFFocusDistance: 10
+  DOFFocusRange: 5
+  DOFBokehRadius: 3
+  MotionBlurEnabled: false
+  MotionBlurStrength: 0.5
+  MotionBlurSamples: 4
+  ColorGradingEnabled: false
+  SSAOEnabled: false
+  SSAORadius: 0.35
+  SSAOBias: 0.025
+  SSAOIntensity: 1
+  SSAOSamples: 32
+  SSAODebugView: false
+  TAAEnabled: true
+  TAAFeedback: 0.9
+  TAASharpness: 0.25
+  Upscale: 0
+  RCASSharpness: 0.5
+  UpscaleTechnique: 0
+  FSR2SharpeningEnabled: true
+  FSR2Sharpness: 0.5
+Entities:
+  # ── Camera ──
+  - Entity: 124800000000001
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0.36, 0.12, 0.85]
+      Rotation: [-0.06, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 0.7854
+        PerspectiveNear: 0.02
+        PerspectiveFar: 500
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  # ── THE KEY LIGHT, pointing INTO the camera: the coats are backlit, which is
+  #    where the three pigments diverge most. Swing it to [-0.15, -0.25, -0.85]
+  #    for the frontal case and [-0.9, -0.15, 0] for grazing. ──
+  - Entity: 124800000000002
+    TagComponent:
+      Tag: Sun
+    TransformComponent:
+      Translation: [0, 2, -2]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    DirectionalLightComponent:
+      Direction: [0.15, -0.25, 0.85]
+      Color: [1, 0.98, 0.95]
+      Intensity: 4
+      CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
+      MaxShadowDistance: 20
+      CascadeSplitLambda: 0.9
+      CascadeDebugVisualization: false
+  # ── DARK: eumelanin 4.0, no pheomelanin. Nearly black hair. Its TT lobe is
+  #    absorbed away, so backlit it is carried by the same white surface sheen
+  #    it has from the front. ──
+  - Entity: 124800000000003
+    TagComponent:
+      Tag: DarkBody
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.088, 0.088, 0.088]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.08, 0.07, 0.07]
+      Metallic: 0
+      Roughness: 0.85
+  - Entity: 124800000000004
+    TagComponent:
+      Tag: DarkCoat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 15952688685437936282
+      RootMarkerSize: 0
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 200000
+      WidthScale: 25
+      StrandColor: [0.34, 0.24, 0.17]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.42, 0.26, 0.14]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 4
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 0
+      DebugMode: 0
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 1
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+  # ── PALE: eumelanin 0.1, pheomelanin 0.05. Blonde. Backlit this one should
+  #    glow: its transmission lobe reaches the eye at roughly 180x its surface
+  #    reflection, which is the measured difference from the dark coat. ──
+  - Entity: 124800000000005
+    TagComponent:
+      Tag: PaleBody
+    TransformComponent:
+      Translation: [0.36, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.088, 0.088, 0.088]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.08, 0.07, 0.07]
+      Metallic: 0
+      Roughness: 0.85
+  - Entity: 124800000000006
+    TagComponent:
+      Tag: PaleCoat
+    TransformComponent:
+      Translation: [0.36, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 15952688685437936282
+      RootMarkerSize: 0
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 200000
+      WidthScale: 25
+      StrandColor: [0.62, 0.5, 0.38]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.42, 0.26, 0.14]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 0.1
+      Pheomelanin: 0.05
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 0
+      DebugMode: 0
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 1
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+  # ── RED: eumelanin 0.35, pheomelanin 1.4. Pheomelanin is flatter and weaker
+  #    than eumelanin, so this stays saturated at a concentration that would
+  #    make a eumelanin fibre nearly black. ──
+  - Entity: 124800000000007
+    TagComponent:
+      Tag: RedBody
+    TransformComponent:
+      Translation: [0.72, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.088, 0.088, 0.088]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [0.08, 0.07, 0.07]
+      Metallic: 0
+      Roughness: 0.85
+  - Entity: 124800000000008
+    TagComponent:
+      Tag: RedCoat
+    TransformComponent:
+      Translation: [0.72, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 15952688685437936282
+      RootMarkerSize: 0
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 200000
+      WidthScale: 25
+      StrandColor: [0.55, 0.3, 0.2]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [0.42, 0.26, 0.14]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 0.35
+      Pheomelanin: 1.4
+      LongitudinalRoughness: 0.3
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 6
+      HSamples: 4
+      PigmentMode: 0
+      DebugMode: 0
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 1
+      Resolution: 64
+      StepVoxels: 3
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+  # ── Ground. Dark, because the coats are what the frame is measuring. ──
+  - Entity: 124800000000009
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0.36, -0.115, 0]
+      Rotation: [0, 0, 0]
+      Scale: [4, 0.01, 4]
+    MeshComponent:
+      Primitive: 1
+    MaterialComponent:
+      AlbedoColor: [0.12, 0.12, 0.13]
+      Metallic: 0
+      Roughness: 0.9
