@@ -3484,6 +3484,66 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomCoatComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1251
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the
+        // load never reaches this function. Same reasoning as
+        // GroomCoatShadowComponent above, and the same reason this band did not
+        // take a kSaveGameFormatVersion number.
+        ar << c.m_RegionMap << c.m_ColorMap;
+        ar << c.m_UndercoatDensity << c.m_UndercoatLength << c.m_UndercoatWidth << c.m_UndercoatClump;
+        ar << c.m_GuardDensity << c.m_GuardLength << c.m_GuardWidth << c.m_GuardClump;
+        ar << c.m_LengthJitter << c.m_WidthJitter << c.m_ShadeJitter << c.m_ClumpCellSize;
+        ar << c.m_VariationSeed << c.m_RoleVisibilityMask << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other. The OLO_SERIALIZE
+            // annotations on these fields reach scene YAML and the live-write
+            // registries, NOT this archive, so the bounds have to be restated
+            // here or a corrupt save is the one route that bypasses all of them
+            // -- and these values reach a hash draw whose result is compared
+            // against a density, a multiply against every vertex of the coat,
+            // and a divide by the clump cell size.
+            //
+            // MakeGroomCoatSettings sanitises the same fields on the way to the
+            // renderer, so a bad value could not reach the build even without
+            // this. It is repaired HERE as well because the EDITOR shows the
+            // component, and a NaN sitting in an inspector field that renders
+            // correctly is a bug report about the renderer.
+            const auto sane = [](f32& value, f32 lo, f32 hi, f32 fallback)
+            {
+                // Finite first, then range: std::clamp(NaN, lo, hi) is NaN.
+                if (!std::isfinite(value))
+                {
+                    value = fallback;
+                    return;
+                }
+                value = std::clamp(value, lo, hi);
+            };
+
+            sane(c.m_UndercoatDensity, 0.0f, 4.0f, 1.0f);
+            sane(c.m_UndercoatLength, 0.05f, 8.0f, 1.0f);
+            sane(c.m_UndercoatWidth, 0.05f, 8.0f, 1.0f);
+            sane(c.m_UndercoatClump, 0.0f, 4.0f, 1.0f);
+            sane(c.m_GuardDensity, 0.0f, 4.0f, 1.0f);
+            sane(c.m_GuardLength, 0.05f, 8.0f, 1.0f);
+            sane(c.m_GuardWidth, 0.05f, 8.0f, 1.0f);
+            sane(c.m_GuardClump, 0.0f, 4.0f, 1.0f);
+            sane(c.m_LengthJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+            sane(c.m_WidthJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+            sane(c.m_ShadeJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+            sane(c.m_ClumpCellSize, GroomCoatLimits::MinClumpCellSize, GroomCoatLimits::MaxClumpCellSize, 0.03f);
+
+            // CLAMPED, matching the field's annotation: every bit pattern in
+            // range names a real set of roles, and the bits above the last role
+            // mean nothing, so saturating to "all visible" is the honest answer.
+            c.m_RoleVisibilityMask &= (1u << GroomCoatRoleCount) - 1u;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
     {
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
@@ -5588,6 +5648,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomBindingComponent);
         REGISTER_SAVE_COMPONENT(GroomFibreComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);
+        REGISTER_SAVE_COMPONENT(GroomCoatComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

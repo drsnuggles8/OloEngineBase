@@ -18,6 +18,7 @@ namespace OloEngine
         bytes += static_cast<u64>(m_CurveGroupIds.size()) * sizeof(u16);
         bytes += static_cast<u64>(m_CurveFlags.size()) * sizeof(u8);
         bytes += static_cast<u64>(m_GroupRanges.size()) * sizeof(GroomGroupRange);
+        bytes += static_cast<u64>(m_GroupCoats.size()) * sizeof(GroomCoatGroupDesc);
         for (const auto& name : m_GroupNames)
         {
             bytes += static_cast<u64>(name.size()) + sizeof(std::string);
@@ -202,6 +203,38 @@ namespace OloEngine
             {
                 outReason = std::format("curve {} names group {} but only {} groups exist",
                                         curve, m_CurveGroupIds[curve], m_GroupNames.size());
+                return false;
+            }
+        }
+
+        // ── Coat table (issue #1251) ──
+        // Exactly two shapes are legal: EMPTY (a groom with no coat authoring,
+        // which every consumer reads as identity) or one entry per group. A
+        // SHORT table is the dangerous middle: GetGroupCoat would answer
+        // identity for the tail groups, so the guard hairs of a long-coated
+        // animal would silently lose their role and their density and the
+        // picture would be a slightly-too-uniform coat with no error anywhere.
+        if (!m_GroupCoats.empty() && m_GroupCoats.size() != m_GroupNames.size())
+        {
+            outReason = std::format("coat table has {} entries but the groom has {} groups; it must be empty or "
+                                    "one entry per group",
+                                    m_GroupCoats.size(), m_GroupNames.size());
+            return false;
+        }
+        for (sizet g = 0; g < m_GroupCoats.size(); ++g)
+        {
+            const GroomCoatGroupDesc& coat = m_GroupCoats[g];
+            if (!std::isfinite(coat.Density) || !std::isfinite(coat.Length) || !std::isfinite(coat.Width) ||
+                !std::isfinite(coat.Clump) || !std::isfinite(coat.Tint.r) || !std::isfinite(coat.Tint.g) ||
+                !std::isfinite(coat.Tint.b))
+            {
+                outReason = std::format("group {} ('{}') has a non-finite coat parameter", g, m_GroupNames[g]);
+                return false;
+            }
+            if (!IsValidGroomCoatRole(static_cast<i32>(coat.Role)))
+            {
+                outReason = std::format("group {} ('{}') has coat role {}, which is not a GroomCoatRole",
+                                        g, m_GroupNames[g], coat.Role);
                 return false;
             }
         }

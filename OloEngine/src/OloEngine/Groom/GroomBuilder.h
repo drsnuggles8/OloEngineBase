@@ -49,7 +49,25 @@ namespace OloEngine
         // source file's traversal order rather than of hash-map iteration.
         // Returns false (and leaves outGroupId untouched) when the name is
         // empty, too long, or the group budget is exhausted.
+        //
+        // The new group's coat description (#1251) starts at identity with its
+        // ROLE INFERRED FROM THE NAME — see InferGroomCoatRole. The inference
+        // happens exactly here, at the one point a group comes into being, and
+        // the answer is then data: nothing downstream ever re-reads a group name
+        // to decide how to shade it, so renaming a group in a DCC cannot change
+        // how an already-cooked coat looks.
         [[nodiscard]] bool AddGroup(const std::string& name, u16& outGroupId, std::string& outReason);
+
+        // Replaces `groupId`'s authored coat description. Every float is
+        // sanitised on the way in (GroomCoat.h) and the repairs are appended to
+        // `outReasons`, so an importer reading garbage out of an arbGeomParam
+        // gets a coat that is still authored rather than a groom that refuses to
+        // build — a malformed CURVE is a rejection, a malformed coat PARAMETER
+        // is a repair with a name, because the second cannot corrupt topology.
+        //
+        // Returns false only when `groupId` names no group.
+        [[nodiscard]] bool SetGroupCoat(u16 groupId, const GroomCoatGroupDesc& coat,
+                                        std::vector<std::string>& outReasons);
 
         // Appends one curve. Returns false with a named reason on any violation
         // of the input convention; the builder is left unchanged so the caller
@@ -93,6 +111,7 @@ namespace OloEngine
         std::vector<u8> m_CurveFlags;
 
         std::vector<std::string> m_GroupNames;
+        std::vector<GroomCoatGroupDesc> m_GroupCoats; // parallel to m_GroupNames
         // Name -> id. Iteration order of this map is never used; ids come from
         // m_GroupNames' order, which is insertion order.
         std::unordered_map<std::string, u16> m_GroupIdsByName;

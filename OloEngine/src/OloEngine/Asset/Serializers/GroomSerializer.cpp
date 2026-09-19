@@ -195,13 +195,14 @@ namespace OloEngine
         {
             groupNameBytes += sizeof(u32) + name.size();
         }
+        const u64 coatBytes = static_cast<u64>(groupCount) * sizeof(GroomCoatGroupDesc);
         const u64 provenanceBytes = sizeof(OloGroomFormat::ProvenanceHeader) +
                                     groom.GetProvenance().SourcePath.size() +
                                     groom.GetProvenance().SourceFormat.size();
 
         const u64 payloadSize = (static_cast<u64>(OloGroomFormat::kSectionCount) * sizeof(OloGroomFormat::SectionFrame)) +
                                 sizeof(OloGroomFormat::InfoSection) + offsetBytes + pointBytes + widthBytes +
-                                rootUVBytes + groupIdBytes + flagBytes + groupNameBytes + provenanceBytes;
+                                rootUVBytes + groupIdBytes + flagBytes + groupNameBytes + provenanceBytes + coatBytes;
         if (payloadSize > OloGroomFormat::MaxUncompressedPayloadSize)
         {
             outReason = std::format("cooked payload size {} exceeds the format cap {}",
@@ -277,6 +278,34 @@ namespace OloEngine
             AppendBytes(bytes, provenance.SourcePath.data(), provenance.SourcePath.size());
             AppendBytes(bytes, provenance.SourceFormat.data(), provenance.SourceFormat.size());
             AppendSection(payload, OloGroomFormat::SectionType::Provenance, bytes.data(), bytes.size());
+        }
+
+        // ── Section 9: per-group coat authoring (#1251) ──
+        //
+        // ALWAYS GroupCount entries, even when the in-memory table is empty.
+        // Writing a variable-length table would make "no coat authoring" and "a
+        // coat authored to identity" two different files for one groom, and the
+        // reader would then need a rule for a short table — the exact ambiguity
+        // GroomAsset::Validate refuses in memory. One shape on disk, decided
+        // here.
+        {
+            std::vector<GroomCoatGroupDesc> coats = groom.GetGroupCoats();
+            if (coats.size() != static_cast<sizet>(groupCount))
+            {
+                coats.assign(static_cast<sizet>(groupCount), GroomCoatGroupDesc{});
+            }
+            // Pads zeroed on the way out. GroomCoatGroupDesc is asserted to have
+            // no IMPLICIT padding, but its three explicit pad bytes are ordinary
+            // members that a caller could have left at anything, and two cooks
+            // of one groom must be byte-identical (GroomCooker.h).
+            for (GroomCoatGroupDesc& coat : coats)
+            {
+                coat.Pad0 = 0;
+                coat.Pad1 = 0;
+                coat.Pad2 = 0;
+            }
+            AppendSection(payload, OloGroomFormat::SectionType::GroupCoats, coats.data(),
+                          static_cast<u64>(coats.size()) * sizeof(GroomCoatGroupDesc));
         }
 
         // ── Compress + header ──
@@ -522,6 +551,34 @@ namespace OloEngine
             {
                 outReason = "Provenance section length disagrees with its contents";
                 return false;
+            }
+        }
+
+        // ── Section 9: per-group coat authoring (#1251) ──
+        //
+        // Fixed-size: exactly GroupCount descriptions, which is what the writer
+        // always emits. Every float is then SANITISED rather than trusted —
+        // these values reach a cast to an integer (the density draw) and a
+        // multiply against strand geometry, and CLAUDE.md's rule about floats
+        // arriving from an asset applies to a binary asset exactly as it does to
+        // YAML. A repair is LOGGED by name rather than silently applied: a coat
+        // that quietly reverts to identity on load is the silent fallback this
+        // repo forbids, and the artist's question is "why does my guard coat
+        // look wrong", which the log answers.
+        if (!ReadArraySection(reader, OloGroomFormat::SectionType::GroupCoats, groom->m_GroupCoats, info.GroupCount,
+                              "GroupCoats", outReason))
+        {
+            return false;
+        }
+        {
+            std::vector<std::string> repairs;
+            for (u32 g = 0; g < info.GroupCount; ++g)
+            {
+                (void)SanitizeGroomCoatGroupDesc(groom->m_GroupCoats[g], g, repairs);
+            }
+            for (const std::string& repair : repairs)
+            {
+                OLO_CORE_WARN("GroomSerializer: coat parameter repaired on load: {}", repair);
             }
         }
 

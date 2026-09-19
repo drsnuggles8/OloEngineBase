@@ -55,6 +55,7 @@ TRY_LOAD_COMPONENT(FoliageInteractionComponent);
 TRY_LOAD_COMPONENT(FootIKComponent);
 TRY_LOAD_COMPONENT(GoapAgentComponent);
 TRY_LOAD_COMPONENT(GroomBindingComponent);
+TRY_LOAD_COMPONENT(GroomCoatComponent);
 TRY_LOAD_COMPONENT(GroomCoatShadowComponent);
 TRY_LOAD_COMPONENT(GroomComponent);
 TRY_LOAD_COMPONENT(GroomFibreComponent);

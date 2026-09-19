@@ -109,6 +109,10 @@ add_executable(OloEngine-Tests
 		# Dense-coat self-shadowing (#1248). The pure selection seam: which
 		# representation a coat gets and why it is not what was asked for.
 		Groom/GroomCoatShadowSelectionTest.cpp
+		# Coat groups, roles and coat variation (#1251). The role table's survival
+		# through the cook, the per-role budget that keeps the silhouette, and the
+		# pose-independence that makes a regional map stay attached.
+		Groom/GroomCoatAuthoringTest.cpp
 		Groom/GroomStrandMeshTest.cpp
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
@@ -210,6 +214,13 @@ add_executable(OloEngine-Tests
 		Rendering/MeshSourceBoundsTest.cpp
 		Rendering/MeshBVHRaycastTest.cpp
 		Rendering/PathTracing/ReferenceBRDFTest.cpp
+		# #1255: independent references for the three specialised material
+		# models, which the Cook-Torrance reference tracer above cannot
+		# represent. Two files, split on the local / nonlocal line the issue's
+		# second acceptance criterion draws.
+		Rendering/PathTracing/FibreScatteringReferenceTest.cpp
+		Rendering/PathTracing/LeafTransmissionReferenceTest.cpp
+		Rendering/PathTracing/NonlocalTransportReferenceTest.cpp
 		Rendering/PathTracing/ClosureV2Test.cpp
 		Rendering/PathTracing/ClosureV2ConsistencyTest.cpp
 		Rendering/PathTracing/PathTracerFurnaceTest.cpp
@@ -542,6 +553,10 @@ add_executable(OloEngine-Tests
 		# description of a pattern that is not on screen.
 		Rendering/PropertyTests/GroomStrandGpuParityTest.cpp
 		Rendering/PropertyTests/GroomFibreGpuParityTest.cpp
+		# #1255: the shipped shaders' linear AOVs against the independent
+		# material references, and the keeper for the leaf lobe's C++
+		# transcription.
+		Rendering/PropertyTests/MaterialReferenceAovParityTest.cpp
 		# #869: the readback edge of the richer bake world — the only part of it
 		# that needs a device, and the one a headless run cannot cover.
 		Rendering/PathTracing/ReferenceTextureCaptureGpuTest.cpp
@@ -624,6 +639,10 @@ add_executable(OloEngine-Tests
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
+		# Criterion 4's pictures: both reference animals under front/side/backlight,
+		# on all three rendering paths, plus the silhouette-under-budget and
+		# layer-separability measurements a screenshot cannot make (#1251).
+		Rendering/PropertyTests/FurCoatAuthoringVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumetricFogVisualEvidenceTest.cpp
 		Rendering/PropertyTests/VolumeVDBVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ReflectionProbeVisualEvidenceTest.cpp

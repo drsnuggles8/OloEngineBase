@@ -18,6 +18,8 @@
 #include <format>
 #include <fstream>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -39,6 +41,9 @@ namespace OloEngine
 
         constexpr const char* kGuideParamName = "groom_guide";
         constexpr const char* kGroupParamName = "groom_group";
+        // Issue #1251. A GroomCoatRole per curve, constant within a group — see
+        // the header's convention note for why a mixed group is a rejection.
+        constexpr const char* kRoleParamName = "groom_role";
         constexpr const char* kGroomParamPrefix = "groom_";
 
         // Accumulated across the whole archive. `Failed` short-circuits the
@@ -140,7 +145,7 @@ namespace OloEngine
                                    primPath, name);
                     continue;
                 }
-                if (name == kGuideParamName || name == kGroupParamName)
+                if (name == kGuideParamName || name == kGroupParamName || name == kRoleParamName)
                 {
                     continue;
                 }
@@ -392,8 +397,10 @@ namespace OloEngine
 
             std::vector<i32> guideFlags;
             std::vector<i32> subGroups;
+            std::vector<i32> roles;
             if (!ReadUniformIntParam(state, arbGeomParams, kGuideParamName, curveCount, primPath, guideFlags) ||
-                !ReadUniformIntParam(state, arbGeomParams, kGroupParamName, curveCount, primPath, subGroups))
+                !ReadUniformIntParam(state, arbGeomParams, kGroupParamName, curveCount, primPath, subGroups) ||
+                !ReadUniformIntParam(state, arbGeomParams, kRoleParamName, curveCount, primPath, roles))
             {
                 return;
             }
@@ -439,6 +446,67 @@ namespace OloEngine
                         return;
                     }
                     groupIdBySubGroup[c] = id;
+                }
+            }
+
+            // ── Coat roles (issue #1251) ──
+            //
+            // A ROLE IS A PROPERTY OF THE GROUP, not of the curve, so the
+            // per-curve param is collapsed here and a group whose curves
+            // disagree is REJECTED by name rather than resolved by a majority
+            // vote. The rejection is the point: "half of my undercoat is tagged
+            // as guard hair" is an authoring mistake the artist can fix in
+            // seconds and cannot see at all once it has been averaged away.
+            //
+            // With no `groom_role` param at all, every group keeps the role
+            // GroomBuilder::AddGroup inferred from its NAME — which is the path
+            // every groom exported by a DCC that has never heard of this engine
+            // takes, and is why the name heuristic exists.
+            if (!roles.empty())
+            {
+                std::unordered_map<u16, i32> roleByGroup;
+                for (sizet c = 0; c < curveCount; ++c)
+                {
+                    const u16 groupId = groupIdBySubGroup.empty() ? primGroupId : groupIdBySubGroup[c];
+                    if (!IsValidGroomCoatRole(roles[c]))
+                    {
+                        state.Fail(std::format("'{}': curve {} has groom_role {}, which is not one of the {} "
+                                               "GroomCoatRole values",
+                                               primPath, c, roles[c], GroomCoatRoleCount));
+                        return;
+                    }
+                    const auto [it, inserted] = roleByGroup.emplace(groupId, roles[c]);
+                    if (!inserted && it->second != roles[c])
+                    {
+                        state.Fail(std::format("'{}': group {} carries both groom_role {} and {}; a coat role is a "
+                                               "property of the group and must be constant within it",
+                                               primPath, groupId, it->second, roles[c]));
+                        return;
+                    }
+                }
+                // Iterated as a SORTED vector, not as the map: the map's own
+                // order is unspecified, and although only the reasons (not the
+                // asset) would differ, GroomCooker.h's determinism rule is that
+                // nothing here iterates an unordered container to produce
+                // output.
+                std::vector<std::pair<u16, i32>> ordered(roleByGroup.begin(), roleByGroup.end());
+                std::sort(ordered.begin(), ordered.end());
+                std::vector<std::string> repairs;
+                for (const auto& [groupId, role] : ordered)
+                {
+                    GroomCoatGroupDesc desc;
+                    desc.Role = static_cast<u8>(role);
+                    if (!state.Builder.SetGroupCoat(groupId, desc, repairs))
+                    {
+                        state.Fail(std::format("'{}': {}", primPath,
+                                               repairs.empty() ? std::string("coat role assignment failed")
+                                                               : repairs.back()));
+                        return;
+                    }
+                }
+                for (const std::string& repair : repairs)
+                {
+                    OLO_CORE_WARN("AlembicGroomImporter: '{}': {}", primPath, repair);
                 }
             }
 

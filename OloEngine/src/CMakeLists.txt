@@ -257,6 +257,13 @@
 		"OloEngine/Groom/GroomCoatShadow.h"
 		"OloEngine/Groom/GroomCoatShadow.cpp"
 		"OloEngine/Groom/GroomCoatShadowTechnique.h"
+		# Coat groups and texture-driven coat variation (#1251). Pure CPU and free
+		# of renderer headers for the same reason the rest of Groom/ is: the role
+		# table, the per-strand evaluation and the budget solver are what the
+		# criterion-1 assertions are made against, and they must run in CI on a
+		# machine with no GPU.
+		"OloEngine/Groom/GroomCoat.h"
+		"OloEngine/Groom/GroomCoat.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

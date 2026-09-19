@@ -25,6 +25,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomDeformation.h"
 
 #include <glm/glm.hpp>
@@ -46,6 +47,17 @@ namespace OloEngine
         // strands and a few hundred guides; this is how the guides get looked
         // at at all.
         bool GuidesOnly = false;
+
+        // Bit per GroomCoatRole (issue #1251). A clear bit hides that layer of
+        // the coat in the debug view — which is how "is my undercoat sitting
+        // under my guard hairs" gets looked at, since the two are drawn on top
+        // of each other and the undercoat is by far the more numerous.
+        //
+        // Read from the ASSET's own coat table, not passed in: the preview
+        // already has the groom, and a groom with no table is every curve
+        // Unassigned, whose bit is set by default. So a groom that predates
+        // #1251 draws exactly as it did.
+        u32 RoleVisibilityMask = (1u << GroomCoatRoleCount) - 1u;
 
         // Hard cap on drawn strands. A debug line is one command packet, so an
         // uncapped preview of a real groom would submit millions of them and

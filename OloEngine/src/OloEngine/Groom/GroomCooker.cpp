@@ -113,6 +113,17 @@ namespace OloEngine
             working.m_CurveGroupIds = groom.m_CurveGroupIds;
             working.m_CurveFlags = groom.m_CurveFlags;
             working.m_GroupNames = groom.m_GroupNames;
+            // The COAT TABLE (#1251). Copied here explicitly, like every other
+            // array, and that explicitness is the whole trap: this function
+            // copies field by field rather than cloning, so an array added to
+            // GroomAsset and forgotten here is silently dropped by the COOK
+            // alone. The loose asset would keep its guard-hair roles, the cooked
+            // one would lose them, and the difference is a coat that is slightly
+            // too uniform — which is criterion 1's "preserving density and
+            // silhouette during cooking" failing in exactly the way it is
+            // written to fail. GroomCoatAuthoringTest cooks and re-reads for
+            // this reason.
+            working.m_GroupCoats = groom.m_GroupCoats;
             working.m_Basis = groom.m_Basis;
             working.m_Provenance = groom.m_Provenance;
 

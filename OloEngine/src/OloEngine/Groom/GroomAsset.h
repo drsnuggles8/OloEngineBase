@@ -28,6 +28,7 @@
 #include "OloEngine/Asset/Asset.h"
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/GroomCoat.h"
 
 #include <glm/glm.hpp>
 
@@ -266,6 +267,34 @@ namespace OloEngine
             return static_cast<u32>(m_GroupNames.size());
         }
 
+        // ── Coat authoring (issue #1251) ────────────────────────────
+        //
+        // Parallel to GetGroupNames(), and SERIALIZED — section 9 of the cooked
+        // format. This is what makes a coat group a first-class authored thing
+        // rather than a name: the role (undercoat, guard hair, whisker, long
+        // hair) and the density, length, width, clump and tint it was groomed
+        // with. See GroomCoat.h.
+        //
+        // EMPTY IS LEGAL AND MEANS "IDENTITY", not "no groups": a .ologroom
+        // written before format version 2 cannot be read at all (the format is a
+        // derived artifact and moves its minimum version with its current one),
+        // but a groom built in memory by a test or by a tool that does not care
+        // about coats has an empty table and every consumer must treat that as
+        // the description GroomCoat.h calls identity. GroomCoatContext::GroupDesc
+        // is the one place that decision is made.
+        [[nodiscard]] const std::vector<GroomCoatGroupDesc>& GetGroupCoats() const noexcept
+        {
+            return m_GroupCoats;
+        }
+
+        // The description for `groupId`, identity when the table is empty or the
+        // id is out of range.
+        [[nodiscard]] GroomCoatGroupDesc GetGroupCoat(u16 groupId) const noexcept
+        {
+            const auto index = static_cast<sizet>(groupId);
+            return index < m_GroupCoats.size() ? m_GroupCoats[index] : GroomCoatGroupDesc{};
+        }
+
         // ── Bounds / basis / provenance ─────────────────────────────────────
         [[nodiscard]] const glm::vec3& GetBoundsMin() const noexcept
         {
@@ -326,6 +355,11 @@ namespace OloEngine
         std::vector<u8> m_CurveFlags;     // CurveCount — GroomCurveFlag bits
 
         std::vector<std::string> m_GroupNames;
+        // Parallel to m_GroupNames, or EMPTY. Not derived: authored, cooked and
+        // read back. Kept as a separate array rather than a field on a group
+        // struct so the name table's on-disk section (7) is unchanged and the
+        // coat table is its own appended section.
+        std::vector<GroomCoatGroupDesc> m_GroupCoats;
         std::vector<GroomGroupRange> m_GroupRanges; // derived
 
         glm::vec3 m_BoundsMin{ 0.0f };

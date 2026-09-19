@@ -29,6 +29,7 @@
 // here fails in every translation unit that merely HOLDS one of these — which
 // after Renderer3D.h includes it is most of the renderer.
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
@@ -168,5 +169,20 @@ namespace OloEngine
         /// of the taps of a one-voxel march. See finding 2 in
         /// docs/analysis/groom-coat-self-shadowing-1248.md.
         f32 CoatStepVoxels = 3.0f;
+
+        // ── Coat authoring (#1251) ───────────────────────────────────
+        //
+        // Disabled by default, so a groom with no GroomCoatComponent builds
+        // exactly the geometry it built before this issue. Assembled by Scene
+        // through MakeGroomCoatSettings — the one boundary the component's
+        // fields cross — with the two maps resolved to CPU pixels there, because
+        // the readback is a graphics call the render thread must not make and
+        // because the answer is the same on every frame.
+        //
+        // The per-group TABLE is not carried here: it belongs to the asset, and
+        // `Groom` is already in this request. The pass builds a GroomCoatContext
+        // from the two at the point of use, which is the only place both are
+        // certainly alive.
+        GroomCoatSettings Coat;
     };
 } // namespace OloEngine

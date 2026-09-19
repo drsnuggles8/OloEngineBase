@@ -73,7 +73,7 @@ namespace OloEngine
                                  { ShaderDataType::Float, "a_Radius" },
                                  { ShaderDataType::Float2, "a_Coords" },
                                  { ShaderDataType::Float, "a_SegmentId" },
-                                 { ShaderDataType::Float, "a_Pad0" },
+                                 { ShaderDataType::Float, "a_Tint" },
                                  // #1249: last frame's centreline point. Declared
                                  // even though an unbound groom writes it equal to
                                  // a_Position, because a layout that varied with
@@ -207,6 +207,14 @@ namespace OloEngine
         key = mix(key, static_cast<u64>(request.Build.MaxStrands));
         key = mix(key, static_cast<u64>(request.Build.MaxSegments));
         key = mix(key, request.Build.GuidesOnly ? 1ull : 0ull);
+        // The coat authoring (#1251), as one digest. It is a FIELD of the build
+        // settings for exactly this reason: the geometry a coat produces depends
+        // on every slider on GroomCoatComponent and on the CONTENT of both root-UV
+        // maps, and none of that could live in a key that only saw the budget.
+        // GroomCoatDigest folds the maps in by content hash, so repainting one in
+        // place rebuilds the coat instead of serving the strands the old pixels
+        // made.
+        key = mix(key, request.Build.CoatDigest);
         // A DEFORMED groom's vertices depend on a body's pose, so its geometry
         // is per ENTITY: two characters sharing one groom asset at one budget
         // must not share one buffer. Mixing the entity id in only on the
@@ -271,8 +279,14 @@ namespace OloEngine
 
         std::vector<GroomStrandVertex> vertices;
         std::vector<u32> indices;
-        const GroomStrandMeshStats stats =
-            BuildGroomStrandMesh(*request.Groom, request.Build, vertices, indices, deformed ? &deformation : nullptr);
+        // The coat context is assembled HERE, at the point of use, because it is
+        // the only place both halves are certainly alive: the settings come from
+        // the request and the per-group table belongs to the asset the request
+        // holds. It is a view — a span over the asset's own table and a pointer
+        // to the request's settings — so nothing is copied per build.
+        const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+        const GroomStrandMeshStats stats = BuildGroomStrandMesh(
+            *request.Groom, request.Build, vertices, indices, deformed ? &deformation : nullptr, &coat);
         if (vertices.empty() || indices.empty())
         {
             // An empty groom is not an error — a guides-only view of a groom
