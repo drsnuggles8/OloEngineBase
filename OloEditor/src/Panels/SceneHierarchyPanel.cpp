@@ -8769,7 +8769,7 @@ namespace OloEngine
             {
                 constexpr std::array<const char*, 4> kModes{ "None", "Density volume (isotropic)",
                                                              "Density volume (anisotropic)",
-                                                             "Deep opacity map (measured, not wired)" };
+                                                             "Deep opacity map (measured, REJECTED - renders unshadowed)" };
                 int mode = static_cast<int>(component.m_Mode);
                 if (ImGui::Combo("Mode", &mode, kModes.data(), static_cast<int>(kModes.size())))
                 {

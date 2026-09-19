@@ -361,6 +361,21 @@ namespace OloEngine
         // baking from the deformed strand positions the pass builds, which is
         // a larger change than this slice — so it is counted and named here
         // instead of approximated.
+        // Refused before the bake, not after: the bake does not branch on the
+        // mode, so building here and refusing later would spend a volume's
+        // memory and build time on a draw that will render unshadowed.
+        if (!GroomCoatShadowModeIsImplemented(request.CoatShadow))
+        {
+            m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
+            entry.CoatVolume = nullptr;
+            entry.CoatResolution = 0;
+            entry.CoatBytes = 0;
+            inputs.ResolvedResolution = request.CoatLod.BaseResolution;
+            inputs.RepresentationReady = false;
+            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+            return SelectGroomCoatShadow(inputs);
+        }
+
         inputs.GroomIsDeformed = IsDeformed(request);
         if (inputs.GroomIsDeformed && request.CoatShadow != GroomCoatShadowTechnique::None)
         {

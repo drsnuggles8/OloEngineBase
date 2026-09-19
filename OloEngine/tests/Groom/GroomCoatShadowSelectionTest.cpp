@@ -143,28 +143,73 @@ TEST(GroomCoatShadowSelection, ADeviceWithNo3DTextureRefusesBothVolumeModes)
     }
 }
 
-TEST(GroomCoatShadowSelection, ADeviceWithNo3DTextureDoesNotRefuseTheDeepOpacityMap)
+TEST(GroomCoatShadowSelection, TheRejectedDeepOpacityMapIsRefusedRatherThanSilentlySubstituted)
 {
-    // The deep map is a pair of 2D textures. Refusing it for a 3D-texture
-    // capability it never uses would be a fallback with a reason that is not
-    // true, which is worse than no counter at all.
+    // THE CASE THAT CAUGHT A REAL SILENT FALLBACK. An earlier version of this
+    // file asserted the opposite — that a deep-map request was DELIVERED — and
+    // it passed, because the seam said yes. Downstream, the pass does not
+    // branch on the mode when it bakes: it built a DENSITY VOLUME, handed the
+    // shader mode 3, and the shader's only test (`mode != ANISOTROPIC`)
+    // marched that volume isotropically. So the coat rendered, the counters
+    // reported the deep map as delivered, and the picture was a different
+    // representation than the one asked for.
+    //
+    // A rejected candidate that still reports success is worse than one that
+    // is missing, because nothing looks wrong.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.Requested = GroomCoatShadowTechnique::DeepOpacityMap;
+
+    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::ModeNotImplemented);
+    EXPECT_TRUE(decision.IsFallback());
+    EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
+    EXPECT_EQ(decision.Slot, kNoGroomCoatShadowSlot);
+}
+
+TEST(GroomCoatShadowSelection, TheImplementedSetIsExactlyWhatAShaderRenders)
+{
+    // The bake-off measures four modes and the renderer implements three.
+    // Pinning the difference here is what stops a future mode being added to
+    // the comparison and silently becoming selectable.
+    EXPECT_TRUE(GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique::None));
+    EXPECT_TRUE(GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique::IsotropicDensityVolume));
+    EXPECT_TRUE(GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique::AnisotropicDensityVolume));
+    EXPECT_FALSE(GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique::DeepOpacityMap));
+}
+
+TEST(GroomCoatShadowSelection, AnUnimplementedModeIsRefusedBeforeAnyCapabilityCheck)
+{
+    // Ordering: "nothing renders this" is a permanent property of the request,
+    // like a hardware limit, so it must win over a per-frame fact. Reporting
+    // VolumeTexturesUnavailable for a mode that does not use a 3D texture
+    // would be a reason that is not true.
     GroomCoatShadowInputs inputs = FullyCapable();
     inputs.Requested = GroomCoatShadowTechnique::DeepOpacityMap;
     inputs.VolumeTexturesSupported = false;
+    inputs.HasDirectionalLight = false;
+    inputs.GroomIsDeformed = true;
 
-    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
-    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::None);
-    EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::DeepOpacityMap);
+    EXPECT_EQ(SelectGroomCoatShadow(inputs).Reason, GroomCoatShadowFallbackReason::ModeNotImplemented);
 }
 
-TEST(GroomCoatShadowSelection, APerLightModeWithNoDirectionalLightFallsBack)
+TEST(GroomCoatShadowSelection, ThePerLightGuardIsReachableAndNamesItsOwnReason)
 {
+    // The NoDirectionalLight arm is currently UNREACHABLE through a real
+    // request, because the only per-light mode is the rejected deep map and
+    // that is refused first. It is covered here directly rather than deleted:
+    // the guard is what a future per-light representation would need, and an
+    // uncovered reason is one nobody would notice had stopped working.
+    //
+    // Asserted against the predicate rather than a hand-built decision, so this
+    // case starts exercising the real path the moment such a mode is wired.
+    ASSERT_TRUE(GroomCoatShadow::CoatShadowModeIsPerLight(GroomCoatShadowTechnique::DeepOpacityMap));
+    ASSERT_FALSE(GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique::DeepOpacityMap))
+        << "a per-light mode is implemented now — point this case at it and drop the note above";
+
     GroomCoatShadowInputs inputs = FullyCapable();
     inputs.Requested = GroomCoatShadowTechnique::DeepOpacityMap;
     inputs.HasDirectionalLight = false;
-
-    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
-    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::NoDirectionalLight);
+    EXPECT_EQ(SelectGroomCoatShadow(inputs).Reason, GroomCoatShadowFallbackReason::ModeNotImplemented);
 }
 
 TEST(GroomCoatShadowSelection, ALightIndependentModeDoesNotNeedADirectionalLight)

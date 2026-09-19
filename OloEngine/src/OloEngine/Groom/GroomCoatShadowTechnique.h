@@ -84,6 +84,23 @@ namespace OloEngine
         /// be saturated by coats that are working exactly as authored.
         NotRequested,
 
+        /// The mode was measured in the bake-off and is NOT wired to a shader.
+        /// The deep opacity map is the rejected candidate: its numbers are kept
+        /// in docs/analysis/groom-coat-self-shadowing-1248.md and its builder
+        /// and sampler live in GroomCoatShadow.h for the comparison to run, but
+        /// nothing uploads one and no draw consumes one.
+        ///
+        /// REFUSED HERE RATHER THAN LEFT TO THE PASS, because the pass does not
+        /// branch on the mode when it bakes: asked for a deep map it would
+        /// build a DENSITY VOLUME, hand the shader mode 3, and the shader —
+        /// whose only test is `mode != ANISOTROPIC` — would march that volume
+        /// isotropically. The coat would render, the counters would report the
+        /// deep map as DELIVERED, and the picture would be a different
+        /// representation than the one asked for. That is a silent fallback
+        /// wearing a success counter, which is the pair of failures this whole
+        /// seam exists to prevent.
+        ModeNotImplemented,
+
         /// The groom has no curves, or every curve was rejected. There is
         /// nothing to build a representation OF, so this is the coat's own
         /// import being empty rather than anything about shadowing.
@@ -138,6 +155,9 @@ namespace OloEngine
                 return "The coat got the representation it asked for.";
             case GroomCoatShadowFallbackReason::NotRequested:
                 return "This groom did not ask for coat shadowing, so it renders unshadowed by choice.";
+            case GroomCoatShadowFallbackReason::ModeNotImplemented:
+                return "This representation was measured in the bake-off and rejected; nothing renders it, so the "
+                       "coat is unshadowed.";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "The groom has no curves to build a shadow representation from.";
             case GroomCoatShadowFallbackReason::GroomIsDeformed:
@@ -167,6 +187,8 @@ namespace OloEngine
                 return "None";
             case GroomCoatShadowFallbackReason::NotRequested:
                 return "NotRequested";
+            case GroomCoatShadowFallbackReason::ModeNotImplemented:
+                return "ModeNotImplemented";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "GroomHasNoGeometry";
             case GroomCoatShadowFallbackReason::GroomIsDeformed:
@@ -185,6 +207,18 @@ namespace OloEngine
                 break;
         }
         return "Unknown";
+    }
+
+    // Does a shader actually render this mode?
+    //
+    // A PROPERTY OF THE MODE, not of the frame, which is why it lives here
+    // beside the enum rather than in the gathered inputs. The bake-off measures
+    // four modes and the renderer implements three; keeping that difference in
+    // one predicate is what stops the pass and the selection seam from
+    // disagreeing about which is which.
+    [[nodiscard]] constexpr bool GroomCoatShadowModeIsImplemented(GroomCoatShadowTechnique mode) noexcept
+    {
+        return mode != GroomCoatShadow::CoatShadowMode::DeepOpacityMap;
     }
 
     // -------------------------------------------------------------------------
@@ -272,6 +306,12 @@ namespace OloEngine
         if (inputs.SegmentCount == 0)
         {
             decision.Reason = GroomCoatShadowFallbackReason::GroomHasNoGeometry;
+            return decision;
+        }
+
+        if (!GroomCoatShadowModeIsImplemented(inputs.Requested))
+        {
+            decision.Reason = GroomCoatShadowFallbackReason::ModeNotImplemented;
             return decision;
         }
 
