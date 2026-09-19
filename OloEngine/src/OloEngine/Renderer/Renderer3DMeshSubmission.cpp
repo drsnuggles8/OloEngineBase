@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/SkinLayeredSpecular.h"
+#include "OloEngine/Renderer/SkinOralSurface.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
@@ -568,6 +569,19 @@ namespace OloEngine
                         SkinDetailStrength(profile.Parameters.Specular, material.GetSkinExpressionDetail());
                 }
 
+                // THE ORAL SURFACE (issue #1245). Packed here for the reason
+                // every lane above it is: the deferred path's per-frame table
+                // packs the SAME lane with the SAME function, and the IOR ->
+                // F0 conversion inside SkinOralLane is a physical decision that
+                // Renderer/SkinOralSurface.h's opening rule keeps on the CPU.
+                //
+                // ONLY AT TRANSPORT VERSION 4, so a version-3 profile does not
+                // even upload a coat. A version this code has no arm for leaves
+                // the lane zero, which shades as dry with the transmitted term
+                // exactly as #1242 shipped it.
+                if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel))
+                    data.skinOralLane = SkinOralLane(profile.Parameters);
+
                 // TRANSMISSION IS TESTED WITH `>=`-IN-SPIRIT AND SPELLED OUT,
                 // because the versions are CUMULATIVE: version 3 is "everything
                 // version 2 does, plus the layered specular", so a version-3
@@ -579,7 +593,8 @@ namespace OloEngine
                 // The same trap #1242 documented one version earlier, in
                 // oloSkinDiffusionOutput.
                 if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
                 {
                     data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
                     data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
@@ -2590,7 +2605,8 @@ namespace OloEngine
                             // head forward, and this diagnostic exists precisely
                             // because the failure is otherwise invisible.
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
@@ -2675,7 +2691,8 @@ namespace OloEngine
                             // head forward, and this diagnostic exists precisely
                             // because the failure is otherwise invisible.
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,

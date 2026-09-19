@@ -1,0 +1,65 @@
+SkinProfile:
+  Name: Oral Enamel
+  # TRANSPORT VERSION 4 (issue #1245) — everything version 3 does, plus the two
+  # terms an oral surface needs and facial skin does not: a WET COAT (a thin
+  # dielectric film in FRONT of the tissue, which takes energy from the response
+  # underneath rather than adding to it) and a CAVITY WEIGHT (which gates the
+  # version-2 transmitted lobe by the material's own occlusion, so the inside of
+  # a closed mouth stops glowing).
+  #
+  # The version is an AUTHORING act, not a renderer switch: moving a profile to
+  # 4 with the Oral block left at its defaults changes nothing at all. See
+  # docs/adr/0024-material-kind-is-not-the-closure-version.md and
+  # docs/guides/skin-oral-surfaces.md.
+  EvaluationModel: 4
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # ENAMEL IS NOT MUCOSA, and this is the first of the three places the profile
+  # says so. A tooth's transport albedo is NEAR-ACHROMATIC: dentin under enamel
+  # scatters, but it does not carry red the way a dermis does, and a tooth
+  # authored with a skin ScatterColor reads as a gum with a highlight.
+  ScatterColor: [0.92, 0.9, 0.88]
+  ScatterRadiusMM: [0.42, 0.4, 0.38]
+  # Metres -> millimetres. 1000 is the identity, and every profile in this
+  # project uses it: the exaggeration knobs are the radii, not the scale.
+  ThicknessScale: 1000
+  SpecularTint: [1.0, 1.0, 0.98]
+  # The transmission lobe (issue #1242). Full strength with a forward-biased
+  # exit: light that crosses a lip comes out mostly the way it was going.
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  # The layered surface response (issue #1243). A small broad lobe over the
+  # narrow one; the variance filter stays at 0 here because these surfaces carry
+  # no pore normal map to filter.
+  Specular:
+    LobeMix: 0.1
+    LobeRoughnessScale: 1.6
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  # ---------------------------------------------------------------------------
+  # The oral surface (issue #1245). Read ONLY at transport version 4.
+  # ---------------------------------------------------------------------------
+  Oral:
+    # How much wet film is present. 0 is dry and skips the coat entirely.
+    # Enamel's own film. Lower than a tongue's because the SUBSTRATE is already
+    # a hard, smooth dielectric — most of the gloss on a tooth is the tooth.
+    CoatStrength: 0.45
+    # The film's own perceptual roughness. A saliva film is smooth; the
+    # highlight it makes is meant to be small and bright, which is the whole
+    # difference between "wet" and "shiny".
+    CoatRoughness: 0.04
+    # The film's index of refraction, seen from air. ENAMEL, 1.63, against saliva's 1.33 — roughly three
+    # times the reflectance at normal incidence, and the single field that makes
+    # teeth stop shading like the gum they sit in.
+    # The CPU converts this to a Fresnel F0 once (SkinOralCoatF0) and the lane
+    # carries the result, so no shader has a second opinion about it.
+    CoatIor: 1.63
+    # How much of the material's own AO is spent on the THIN-REGION TRANSMISSION
+    # term of issue #1242 — the one term in the skin transport that has no
+    # visibility of its own. 0 leaves it exactly as #1242 shipped it.
+    # FULLY SPENT: teeth are interior surfaces, and an incisal edge that
+    # transmitted under a backlight with the mouth CLOSED would glow through the
+    # lip in front of it.
+    CavityOcclusion: 1.0

@@ -278,6 +278,28 @@ namespace OloEngine
             // exactly as it did.
             glm::vec4 SkinSpecularLane{ 0.0f, 0.0f, 0.0f, 0.0f };
 
+            // THE ORAL SURFACE LANE (issue #1245), packed by SkinOralLane so
+            // that this UBO and the deferred path's per-frame profile table are
+            // handed the same four numbers in the same order.
+            //
+            //   x = CoatStrength   y = CoatRoughness
+            //   z = CoatF0 (DERIVED from the authored CoatIor, on the CPU, so
+            //       there is no second opinion about the conversion in any
+            //       shader)                                w = CavityOcclusion
+            //
+            // INSERTED HERE, at 192, and not after the four scalars below, for
+            // the reason the three lanes above are where they are: 192 is
+            // 16-byte aligned, so std140 inserts NOTHING, while putting it after
+            // the scalars would have padded the block invisibly. The
+            // static_assert below is what stops that happening by accident.
+            //
+            // NEUTRAL AT ALL-ZERO, and unlike the layered-specular lane it takes
+            // only x: a zero CoatStrength skips the coat entirely (the
+            // attenuation is 1 and the lobe is never evaluated), and a zero .w
+            // leaves the transmitted term untouched. So a material that never
+            // touches the new setters shades exactly as it did.
+            glm::vec4 SkinOralLane{ 0.0f, 0.0f, 0.0f, 0.0f };
+
             // The thickness map (issue #1242). The flag gates the sample; the
             // offset is how the BINDLESS path reaches the texture.
             //
@@ -2669,14 +2691,15 @@ namespace OloEngine
     // assert is what stops the C++ and GLSL layouts drifting, which std140
     // would otherwise punish by silently shifting every field after the
     // divergence.
-    // 256 since issue #1243 inserted the layered-specular lane (240 since #1242's
-    // two thin-region transmission lanes plus the thickness-map flag, heap
-    // offset and padding; 192 since #1231; 160 before it). #1243's per-draw
-    // detail strength took over #1242's explicit pad rather than growing the
-    // block again, so the whole feature costs exactly one vec4.
+    // 272 since issue #1245 inserted the oral-surface lane (256 since #1243's
+    // layered-specular lane; 240 since #1242's two thin-region transmission
+    // lanes plus the thickness-map flag, heap offset and padding; 192 since
+    // #1231; 160 before it). #1243's per-draw detail strength took over #1242's
+    // explicit pad rather than growing the block again, so that feature cost
+    // exactly one vec4 and #1245 costs exactly one more.
     // INSERTED in front of the heap offsets, never appended after them, for the
     // reason the HeapOffsets assert below states.
-    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 256, "PBRMaterialUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::PBRMaterialUBO) == 272, "PBRMaterialUBO unexpected size — update GLSL layout");
     // The physical block sits exactly where the shaders expect it: right after
     // the PBRModel selector at 92 and immediately before the heap offsets.
     // offsetof rather than a comment, so a reordering fails the build instead
@@ -2709,8 +2732,13 @@ namespace OloEngine
     // the particular number — because include/BindlessHeap.glsl and
     // CommandDispatch::WriteMaterialHeapOffsets both index them as the last
     // block and a slot-based shader declares only the prefix ending before them.
-    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 208,
-                  "PBRMaterialUBO heap offsets must stay trailing at 208 B (issue #691 lane layout, +16 B from #1243)");
+    // The #1245 oral lane, inserted between the #1243 lane and the four
+    // trailing scalars. 192 is 16-byte aligned for the reason 176 and 144 are,
+    // and asserted for their reason: the alignment IS the argument.
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, SkinOralLane) == 192,
+                  "PBRMaterialUBO oral-surface lane must start at 192 B, on a 16-byte boundary — GLSL mirrors assume it");
+    static_assert(offsetof(UBOStructures::PBRMaterialUBO, HeapOffsets) == 224,
+                  "PBRMaterialUBO heap offsets must stay trailing at 224 B (issue #691 lane layout, +16 B from #1243, +16 B from #1245)");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) % 16 == 0, "SelectionOutlineUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::SelectionOutlineUBO) == 304, "SelectionOutlineUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::GTAOUBO) % 16 == 0, "GTAOUBO size must be 16-byte aligned for std140");

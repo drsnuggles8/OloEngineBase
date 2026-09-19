@@ -15,6 +15,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/SkinProfileTable.h"
 #include "OloEngine/Renderer/SkinLayeredSpecular.h"
+#include "OloEngine/Renderer/SkinOralSurface.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 
@@ -122,6 +123,24 @@ namespace OloEngine
             // filtering — so a stale slot loses the effect rather than
             // acquiring someone else's.
             std::array<glm::vec4, kMaxSkinProfileSlots> SkinSpecularLobe{};
+
+            // THE ORAL SURFACE TABLE (issue #1245), a fourth tenant of the same
+            // three-bit slot, packed by SkinOralLane — the SAME function the
+            // forward path's submission packs the material UBO's lane with.
+            //
+            //   x = CoatStrength   y = CoatRoughness
+            //   z = CoatF0 (derived from CoatIor)   w = CavityOcclusion
+            //
+            // ALL FOUR ARE READ ON THIS PATH, unlike the lane above: the coat is
+            // a LIGHTING-time term (it is a second BRDF, not a property of the
+            // surface normal) and the cavity weight gates the transmitted lobe,
+            // which is also evaluated here. So this table is the only route the
+            // deferred path has to either of them.
+            //
+            // An unclaimed slot stays all-zero, which is dry with the
+            // transmitted term untouched — so a stale slot loses the effect
+            // rather than acquiring someone else's wetness.
+            std::array<glm::vec4, kMaxSkinProfileSlots> SkinOralLane{};
         };
         static_assert(kMaxFoliageLeafSlots == kMaxSkinProfileSlots,
                       "The leaf profile table and the skin profile table are two tenants of ONE three-bit "
@@ -131,6 +150,7 @@ namespace OloEngine
         static_assert(sizeof(DeferredControlsData) == 32 + kMaxSkinProfileSlots * 16 +
                                                           kMaxFoliageLeafSlots * 32 +
                                                           kMaxSkinProfileSlots * 32 +
+                                                          kMaxSkinProfileSlots * 16 +
                                                           kMaxSkinProfileSlots * 16,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
@@ -457,6 +477,13 @@ namespace OloEngine
                 // reads the version out of SkinProfileParams[slot].w, and zeroing
                 // the lane here as well would put one decision in two places.
                 controls.SkinSpecularLobe[slot] = SkinSpecularLane(parameters);
+                // The oral surface lane (issue #1245), packed for EVERY slot
+                // regardless of transport version for the reason the three
+                // above are: the version test on this path lives in the SHADER,
+                // which reads the version out of SkinProfileParams[slot].w, and
+                // zeroing the lane here as well would put one decision in two
+                // places and let them disagree.
+                controls.SkinOralLane[slot] = SkinOralLane(parameters);
             }
         }
 

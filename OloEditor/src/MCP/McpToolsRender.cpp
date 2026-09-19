@@ -1710,7 +1710,8 @@ namespace OloEngine::MCP
                                     // count exists to prevent.
                                     if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
                                         model == SkinEvaluationModel::ThicknessTransmission ||
-                                        model == SkinEvaluationModel::LayeredSpecular)
+                                        model == SkinEvaluationModel::LayeredSpecular ||
+                                        model == SkinEvaluationModel::OralSurface)
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

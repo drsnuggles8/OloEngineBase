@@ -255,6 +255,16 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     //   z = NormalVarianceStrength   w = 0, reserved
     // All-zero is neutral: no second lobe and no variance filtering.
     vec4 u_SkinSpecularLane;
+    // The oral surface lane (issue #1245). MUST mirror
+    // PBRMaterialUBO::SkinOralLane, packed by SkinOralLane().
+    //   x = CoatStrength   y = CoatRoughness
+    //   z = CoatF0 (derived on the CPU from the authored CoatIor)
+    //   w = CavityOcclusion
+    // All-zero is neutral: dry, with the transmitted term left as #1242 shipped
+    // it. Declared UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets like every
+    // lane above it -- omitting it would relayout the heap offsets by 16 B and
+    // every texture would sample the wrong descriptor.
+    vec4 u_SkinOralLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
@@ -265,7 +275,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_SkinDetailStrength;
 #if defined(OLO_BINDLESS) || defined(OLO_MATERIAL_VULKAN_HEAP_READER)
     // The per-material offset lanes, declared on EITHER bindless arm. The
-    // C++ PBRMaterialUBO always uploads them (sizeof == 240 since issue #1242);
+    // C++ PBRMaterialUBO always uploads them (sizeof == 272 since issue #1245);
     // a std140 block may declare a PREFIX of what the CPU writes, which is why
     // the slot-based build can stop before these and stay correct. Note the
     // prefix now has to run through the #1231 lanes, not stop at u_PBRModel:
@@ -552,6 +562,15 @@ void main()
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
 
+    // ---- THE ORAL SURFACE LANE (issue #1245) -----------------------------
+    //
+    // Resolved ONCE, through oloSkinEvaluatesOralSurface so the version test is the one
+    // function the clustered and deferred paths also call. All-zero for every
+    // non-skin pixel and every profile below transport version 4, which is dry
+    // and costs one compare per light rather than a GGX evaluation.
+    vec4 skinOralLane = oloSkinEvaluatesOralSurface(u_MaterialKind, u_SkinEvaluationModel)
+                            ? u_SkinOralLane : vec4(0.0);
+
     // Cloud shadow (issue #633): the cloudscape occludes the directional body
     // regardless of the CSM gate below — evaluated once, applied per
     // directional light inside the loop.
@@ -583,7 +602,8 @@ void main()
     // the moment its author turned the lobes on.
     bool isSkinTransmitting = (u_MaterialKind == OLO_MATERIAL_KIND_SKIN) &&
                               ((u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
-                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR));
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE));
     float skinThicknessMM = 0.0;
     if (isSkinTransmitting)
     {
@@ -622,7 +642,8 @@ void main()
         Lo = oloSurfaceLightingAdd(Lo, fplusEvaluateTileLightsSplit(N, V, v_WorldPos, albedo, metallic,
                                                                     roughness, fplusViewDepth, u_PBRModel,
                                                                     oloSkinLobeFor(u_MaterialKind, u_SkinEvaluationModel,
-                                                                                   u_SkinSpecularLane)));
+                                                                                   u_SkinSpecularLane),
+                                                                    skinOralLane));
     }
 
     // UBO light loop: when Forward+ is active, only evaluate directional lights
@@ -766,6 +787,35 @@ void main()
             }
         }
 
+        // THE WET COAT (issue #1245), applied BEFORE the visibility factor and
+        // AFTER the surface closure. Both halves of that placement matter.
+        //
+        // AFTER the closure, because the coat is a layer in FRONT of whatever
+        // the closure produced and has to attenuate it — it cannot attenuate a
+        // value that has not been computed yet.
+        //
+        // BEFORE the visibility, so the coat's own lobe is gated by the SAME
+        // shadow factor the surface lobe and the transmitted lobe are. A
+        // highlight that survived a shadow map would be the brightest wrong
+        // pixel in the frame.
+        //
+        // Skipped for a sphere area light, which oloLightSample declines to give
+        // a direction for: that evaluator's representative point depends on N
+        // and V, so there is no single L for a second BRDF to be evaluated
+        // along. Declined rather than approximated, exactly as the transmitted
+        // lobe below declines it.
+        //
+        // THE COSINE IS APPLIED TO THE RADIANCE HERE, because oloLightSample
+        // returns the radiance WITHOUT it while oloSkinLightContributionSplit
+        // folds it in before returning. Handing the coat the un-cosine-weighted
+        // radiance would light the film by a different number than the surface
+        // beneath it and break the partition that makes the coat conservative.
+        if (skinOralLane.x > 0.0 && lightHasDirection)
+        {
+            vec3 coatRadiance = lightRadiance * max(dot(N, lightL), 0.0);
+            lightContrib = oloSkinOralApplyCoat(lightContrib, N, V, lightL, coatRadiance, skinOralLane);
+        }
+
         Lo = oloSurfaceLightingAdd(Lo, oloSurfaceLightingScale(lightContrib, vec3(lightVisibility)));
 
         // THE TRANSMITTED LOBE, gated by the SAME visibility the reflected lobe
@@ -779,9 +829,19 @@ void main()
         // helper rather than approximated here.
         if (isSkinTransmitting && lightHasDirection)
         {
+            // THE CAVITY WEIGHT (issue #1245) multiplies HERE and nowhere else.
+            // The transmitted lobe is the only term in this shader that is not
+            // already occluded — the reflected lobes carry `lightVisibility`
+            // and the ambient ladder is scaled by `ao` below — so this is the
+            // one place an authored occlusion can stop a closed mouth glowing
+            // from inside without being applied twice.
+            //
+            // A zero CavityOcclusion returns exactly 1, so a version-4 profile
+            // that authored only a coat transmits precisely what #1242 shipped.
             transmitted += oloSkinTransmissionDirect(N, V, lightL, lightRadiance, lightVisibility,
                                                      albedo, skinThicknessMM,
-                                                     u_SkinTransmitScatter, u_SkinTransmitScaling);
+                                                     u_SkinTransmitScatter, u_SkinTransmitScaling)
+                           * oloSkinOralCavityWeight(ao, skinOralLane.w);
         }
     }
 

@@ -194,7 +194,8 @@ namespace OloEngine
         // .glsl, not just the shaders.
         if (parameters.EvaluationModel != SkinEvaluationModel::ScreenSpaceDiffusion &&
             parameters.EvaluationModel != SkinEvaluationModel::ThicknessTransmission &&
-            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular)
+            parameters.EvaluationModel != SkinEvaluationModel::LayeredSpecular &&
+            parameters.EvaluationModel != SkinEvaluationModel::OralSurface)
             return SkinDiffusionKernel::Identity();
 
         const f32 supportRadiusMM = SkinDiffusionSupportRadiusMM(parameters);

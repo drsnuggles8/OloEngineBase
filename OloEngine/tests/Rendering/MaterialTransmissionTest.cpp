@@ -412,7 +412,8 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     //
     // The block grew 176 -> 192 with issue #1231's material-kind / skin-profile
     // group, 192 -> 240 with issue #1242's thin-region transmission group, and
-    // 240 -> 256 with issue #1243's layered-specular lane. ALL THREE were
+    // 240 -> 256 with issue #1243's layered-specular lane, 256 -> 272 with
+    // #1245's oral-surface lane. ALL FOUR were
     // INSERTED after the physical scalars and before the heap offsets — so every
     // offset asserted below is unchanged and only the trailing lanes moved. That
     // is the property this test is really guarding, and it is why the growth is
@@ -429,7 +430,7 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // texture's descriptor offset while compiling, linking and drawing normally.
     using UBO = ShaderBindingLayout::PBRMaterialUBO;
 
-    EXPECT_EQ(sizeof(UBO), 256u);
+    EXPECT_EQ(sizeof(UBO), 272u);
     EXPECT_EQ(offsetof(UBO, TransmissionFactor), 96u);
     EXPECT_EQ(offsetof(UBO, IOR), 100u);
     EXPECT_EQ(offsetof(UBO, ThicknessFactor), 104u);
@@ -447,7 +448,12 @@ TEST(MaterialTransmissionTest, MaterialUboCarriesThePhysicalBlockBeforeTheHeapOf
     // and for the same reason.
     EXPECT_EQ(offsetof(UBO, SkinSpecularLane), 176u)
         << "the #1243 layered-specular lane must start on a 16-byte boundary, or std140 pads in front of it";
-    EXPECT_EQ(offsetof(UBO, HeapOffsets), 208u) << "the heap-offset lanes must stay LAST (issue #691)";
+    // The #1245 oral-surface lane, on the next 16-byte boundary after it and
+    // for the same reason. Every offset ABOVE this line is unchanged by #1245,
+    // which is the property this whole test exists to guard.
+    EXPECT_EQ(offsetof(UBO, SkinOralLane), 192u)
+        << "the #1245 oral-surface lane must start on a 16-byte boundary, or std140 pads in front of it";
+    EXPECT_EQ(offsetof(UBO, HeapOffsets), 224u) << "the heap-offset lanes must stay LAST (issue #691)";
 
     // A default-constructed UBO is neutral, which is what a draw that never
     // touched a physical material uploads.
