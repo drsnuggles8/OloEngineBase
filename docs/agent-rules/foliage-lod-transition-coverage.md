@@ -18,10 +18,12 @@ Measured on the #1237 fixture, over two eyes one metre apart in a 3274-plant lay
 | thresholds | plants flipping | mean distance | **std dev** |
 |---|---|---|---|
 | one shared distance | 11 | 47.44 m | **0.49 m** |
-| spread over 30 m | 47 | 48.54 m | **8.22 m** |
+| spread over 30 m | 39 | 46.69 m | **7.26 m** |
 
-The count went *up*. The first cut of the evidence test asserted `flipsOn * 2 < flipsOff` and failed
-94 vs 11 — which is the correct answer to the wrong question.
+The count went *up*, from 11 to 39. The first cut of the evidence test asserted
+`flipsOn * 2 < flipsOff` on the expectation that decorrelation would reduce it, and GoogleTest
+printed the comparison as **94 vs 11** — the 94 being twice the flip count that run produced, not a
+count of anything. It is the correct answer to the wrong question either way.
 
 A ring sweeping across a meadow is precisely the statement that the flipping instances are all at
 the same distance, so they read as one coherent arc instead of as scattered individuals. So the
@@ -30,8 +32,8 @@ instance shares one threshold, of the order of `spread / sqrt(12)` when they do 
 
 **A pixel RMSE over a walking camera will not tell you this.** Over a 30 m step the frame-to-frame
 RMSE is dominated by parallax — plants changing size and occluding each other — and the LOD
-contribution is in the noise. On the same fixture the worst consecutive-step RMSE moved from 95.56
-to 94.66 with the feature on: a real improvement, and an unusable assertion. Capture the sweep for a
+contribution is in the noise. On the same fixture the worst consecutive-step RMSE moved from 95.52
+to 94.80 with the feature on: a real improvement, and an unusable assertion. Capture the sweep for a
 human to read; assert on the geometry.
 
 ## 2. A fade band belongs **above** the keep threshold, never below it
@@ -69,7 +71,7 @@ population measurement over real hashes — the closed form alone passes with th
 **The cap is not a detail.** At a density floor of `1/64` the uncapped factor is 8x, and an instance
 drawn eight times its authored size is a different plant. Past the cap the layer genuinely thins;
 say so in the editor rather than clamping quietly. On the #1237 fixture the measured screen coverage
-at the far pose was 2.78% full, 1.07% thinned-uncompensated, 2.58% thinned-and-compensated — the
+at the far pose was 2.78% full, 1.19% thinned-uncompensated, 2.89% thinned-and-compensated — the
 uncompensated arm is the control that makes the third number mean something.
 
 ## 4. A transition-smoothing change must not move a scene that did not ask for it

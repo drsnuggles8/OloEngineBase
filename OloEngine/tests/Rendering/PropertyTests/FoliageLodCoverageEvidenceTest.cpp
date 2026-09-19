@@ -270,6 +270,35 @@ namespace OloEngine::Tests
             Renderer3D::ApplyRendererSettings();
         }
 
+        // Puts the rendering path back where it was found
+        // (docs/agent-rules/cross-test-renderer-state.md rule 2). Every test
+        // here drives the path, and in the single-process run a later suite
+        // would otherwise start on whatever this one finished on — the MSAA
+        // sample count and the render-target size are already saved and
+        // restored, and the path is the one lever that was not.
+        //
+        // RAII rather than a trailing assignment, because two of these tests
+        // can leave early: OLO_ENSURE_GPU_OR_SKIP returns, and an ASSERT_* in
+        // Capture returns from the middle of a cell.
+        struct ScopedRenderPath
+        {
+            explicit ScopedRenderPath(FoliageLodCoverageEvidenceTest& owner)
+                : m_Owner(owner), m_Path(Renderer3D::GetRendererSettings().Path)
+            {
+            }
+
+            ~ScopedRenderPath()
+            {
+                m_Owner.SetPath(m_Path);
+            }
+
+            ScopedRenderPath(const ScopedRenderPath&) = delete;
+            auto operator=(const ScopedRenderPath&) -> ScopedRenderPath& = delete;
+
+            FoliageLodCoverageEvidenceTest& m_Owner;
+            RenderingPath m_Path;
+        };
+
         // `width`/`height` default to the fixture's native size; the
         // conditional-resolution cell passes its own.
         void Capture(const CameraPose& pose, std::vector<u8>& outPixels, u32 width = kWidth,
@@ -400,6 +429,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(foliage.m_Renderer);
         ASSERT_GT(foliage.m_Renderer->GetTotalInstanceCount(), 0u) << "no pines were scattered — the fixture is broken";
 
+        const ScopedRenderPath restorePath(*this);
         constexpr std::array<RenderingPath, 3> kPaths{ RenderingPath::Forward, RenderingPath::ForwardPlus,
                                                        RenderingPath::Deferred };
         for (const RenderingPath path : kPaths)
@@ -436,14 +466,13 @@ namespace OloEngine::Tests
             // and parallax far more than any one of them changes shape — so
             // this number is a sanity check and the PNGs above are what a human
             // reads. The direct measurement of "how many plants pop in one
-            // frame" is FewPlantsChangeRepresentationInASingleCameraStep below,
-            // which counts crossings over the real scattered positions instead
-            // of inferring them from pixels the camera also moved.
+            // frame" is FlippingPlantsScatterInDepthRatherThanFormingARing
+            // below, which measures the DEPTH DISPERSION of the crossings over
+            // the real scattered positions instead of inferring it from pixels
+            // the camera also moved.
             EXPECT_LE(on.WorstStep, off.WorstStep)
                 << "the #1237 transitions made the worst frame-to-frame step of the sweep WORSE";
         }
-
-        SetPath(RenderingPath::Deferred);
     }
 
     // ── Where the plants that change shape in one frame ARE ──────────────────
@@ -580,6 +609,7 @@ namespace OloEngine::Tests
             }
         } scopedMockTime(kCaptureTime);
 
+        const ScopedRenderPath restorePath(*this);
         SetPath(RenderingPath::Deferred);
 
         // A pose deep in the density band, where the keep fraction is at or
@@ -762,6 +792,7 @@ namespace OloEngine::Tests
         // this cell runs deferred, which is also where the stochastic coverage
         // resolve replaces a hard alpha cut-off and therefore where MSAA has
         // the most to interact with.
+        const ScopedRenderPath restorePath(*this);
         SetPath(RenderingPath::Deferred);
         const u32 samplesBefore = settings.Deferred.MSAASampleCount;
         settings.Deferred.MSAASampleCount = 1;
