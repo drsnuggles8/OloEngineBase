@@ -116,8 +116,11 @@ namespace OloEngine
         const f32 roughness = std::clamp(coatRoughness, kMinSkinOralCoatRoughness, kMaxSkinOralCoatRoughness);
         const f32 D = DistributionGGX(normal, half, roughness);
         const f32 Vis = VisibilitySmithGGXCorrelated(normal, view, lightDir, roughness);
-        // dot(N, H), not dot(N, V) — see SkinOralCoatFresnel's contract.
-        const f32 F = SkinOralCoatFresnel(coatF0, glm::dot(normal, half));
+        // dot(V, H) — the angle of INCIDENCE on the microfacet that reflected
+        // this light. See SkinOralCoatFresnel's contract, and note that every
+        // other Fresnel in this engine passes the same quantity (PBRCommon.glsl
+        // spells it `dot(H, V)` / `VdotH` at all six of its call sites).
+        const f32 F = SkinOralCoatFresnel(coatF0, glm::dot(view, half));
 
         return D * Vis * F;
     }
@@ -147,7 +150,10 @@ namespace OloEngine
             return result;
         const glm::vec3 half = sum * (1.0f / std::sqrt(lenSq));
 
-        const f32 fresnel = SkinOralCoatFresnel(oralLane.z, glm::dot(normal, half));
+        // dot(V, H), matching SkinOralCoatSpecular above — the attenuation and
+        // the lobe MUST use one Fresnel, or the partition they form stops
+        // summing to one.
+        const f32 fresnel = SkinOralCoatFresnel(oralLane.z, glm::dot(view, half));
         const f32 attenuation = SkinOralCoatAttenuation(strength, fresnel);
 
         const f32 coat = SkinOralCoatSpecular(normal, view, lightDir, oralLane.y, oralLane.z);

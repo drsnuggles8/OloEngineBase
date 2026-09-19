@@ -77,8 +77,12 @@ float oloSkinOralCoatF0(float ior)
 // worth modelling over its thickness, and the tissue underneath is where colour
 // comes from.
 //
-// `cosTheta` is dot(N, H), the HALF-VECTOR angle. Using dot(N, V) instead is the
-// classic error that makes a coat's rim too bright and its centre too dark.
+// `cosTheta` is dot(V, H) — the angle of INCIDENCE on the microfacet that
+// reflected this light. NOT dot(N, V), and NOT dot(N, H): see
+// Renderer/SkinOralSurface.h, which records that dot(N, H) shipped in the first
+// version of this file and is invisible at a head-on fixture while being wrong
+// by a factor of nine at grazing. Every Fresnel in PBRCommon.glsl passes
+// `dot(H, V)`.
 float oloSkinOralCoatFresnel(float f0, float cosTheta)
 {
     float clampedF0 = clamp(f0, 0.0, 1.0);
@@ -120,7 +124,7 @@ float oloSkinOralCoatSpecular(vec3 N, vec3 V, vec3 L, float coatRoughness, float
 
     float D = distributionGGX(N, H, roughness);
     float Vis = visibilitySmithGGXCorrelated(N, V, L, roughness);
-    float F = oloSkinOralCoatFresnel(coatF0, dot(N, H));
+    float F = oloSkinOralCoatFresnel(coatF0, dot(V, H));
 
     return D * Vis * F;
 }
@@ -151,7 +155,9 @@ OloSurfaceLighting oloSkinOralApplyCoat(OloSurfaceLighting lighting, vec3 N, vec
         return lighting;
     vec3 H = sum * inversesqrt(lenSq);
 
-    float fresnel = oloSkinOralCoatFresnel(oralLane.z, dot(N, H));
+    // dot(V, H), matching oloSkinOralCoatSpecular — the attenuation and the
+    // lobe MUST use one Fresnel or the partition stops summing to one.
+    float fresnel = oloSkinOralCoatFresnel(oralLane.z, dot(V, H));
     float attenuation = oloSkinOralCoatAttenuation(strength, fresnel);
 
     float coat = oloSkinOralCoatSpecular(N, V, L, oralLane.y, oralLane.z);

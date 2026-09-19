@@ -18,10 +18,11 @@
 //   * as an EXACT IDENTITY — attenuation + strength * fresnel == 1 — swept over
 //     the whole legal domain, which is what "a partition, not a blend" means;
 //   * as a NUMERICALLY INTEGRATED BOUND — the coat lobe's directional albedo
-//     never exceeds 1, and at a smooth coat sits essentially ON its Fresnel —
-//     which is the part the identity cannot reach, because a partition of the
+//     never exceeds UNITY, and at a smooth coat sits essentially on its Fresnel
+//     — which is the part the identity cannot reach, because a partition of the
 //     incident energy says nothing about what a GGX lobe then does with its
-//     share.
+//     share. The bound is 1 rather than F0 on purpose; the test that asserts it
+//     is named for the bound it checks.
 //
 // The second is the one that would catch a missing 1/(4 NdotV NdotL), a Smith
 // term paired with the wrong alpha, or a normalization dropped from D. None of
@@ -222,7 +223,7 @@ TEST(SkinOralSurfaceTest, FresnelRisesMonotonicallyToOneAtGrazing)
 // The coat's directional albedo — the claim the identity cannot reach
 // -----------------------------------------------------------------------------
 
-TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoNeverExceedsItsFresnel)
+TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoNeverExceedsUnity)
 {
     // THE BOUND: a Smith-masked GGX lobe with no multiple-scattering
     // compensation loses energy and never creates it, so the fraction the coat
@@ -252,47 +253,77 @@ TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoNeverExceedsItsFresnel)
     }
 }
 
-TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoIsCloseToItsFresnelForASmoothCoat)
+TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoIsCloseToItsFresnelNearNormalIncidence)
 {
     // THE BOUND ABOVE PASSES TRIVIALLY FOR A LOBE THAT IS IDENTICALLY ZERO, so
     // this is the case that says the lobe is actually there — and it is the
     // tightest statement this file makes about the coat's magnitude.
     //
-    // At roughness 0.3 a Smith-masked single-scattering GGX loses almost
-    // nothing, so its directional albedo should sit essentially ON its Fresnel
-    // at normal incidence. The measured figure is 0.99 x F0 for both indices;
-    // the band below is wide enough that a legitimate quadrature wobble or a
-    // change of Smith convention does not trip it, and narrow enough that the
-    // errors worth catching cannot hide in it:
+    // NEAR NORMAL INCIDENCE ONLY, and the restriction is physics rather than
+    // convenience. There the half-vector stays close to both N and V, the
+    // Schlick sits at its floor, and a Smith-masked GGX at roughness 0.3 loses
+    // almost nothing — so the directional albedo should sit essentially ON F0.
+    // Measured: 0.97 to 1.00 x F0 for both indices. Away from normal the
+    // Fresnel inside the lobe climbs and the albedo legitimately exceeds F0;
+    // that is the SEPARATE, directional claim below.
+    //
+    // The band below is wide enough that a quadrature wobble or a change of
+    // Smith convention does not trip it, and narrow enough that the errors
+    // worth catching cannot hide in it:
     //
     //   * a missing 1/(4 NdotV NdotL) — the classic one, since this file uses
     //     the VISIBILITY form and a reader who "restores" the division gets a
-    //     lobe four times too dim at normal incidence;
+    //     lobe four times too dim;
     //   * a 4*pi or 1/(4*pi) from a solid-angle confusion;
     //   * D normalized to 1 instead of to 1/cos — a factor of pi.
     //
-    // Every one of those is more than 30% and none of them changes the
-    // partition, the monotonicity or the <= 1 bound by a single bit.
+    // None of those changes the partition, the monotonicity or the <= 1 bound
+    // by a single bit.
     for (const f32 ior : { kSalivaIor, kEnamelIor })
     {
         const f32 f0 = SkinOralCoatF0(ior);
-        for (const f32 NdotV : { 0.5f, 0.85f, 1.0f })
+        for (const f32 NdotV : { 0.85f, 1.0f })
         {
             const f32 rho = CoatDirectionalAlbedo(0.3f, f0, NdotV);
             EXPECT_GT(rho, 0.8f * f0) << "ior " << ior << " NdotV " << NdotV
-                                      << ": the coat lobe is missing a third of its energy";
+                                      << ": the coat lobe is missing a fifth of its energy";
             EXPECT_LT(rho, 1.3f * f0) << "ior " << ior << " NdotV " << NdotV
                                       << ": the coat lobe is carrying far more than its Fresnel";
         }
     }
+}
 
-    // NOT AT GRAZING, and the omission is deliberate rather than convenient: at
-    // NdotV 0.25 the lobe straddles the horizon and the Schlick inside it runs
-    // up toward 1, so the directional albedo legitimately EXCEEDS F0 — 1.7 x at
-    // roughness 0.8. Energy is still conserved (the <= 1 bound above covers it,
-    // and it is the honest bound there); it is the "close to F0" framing that
-    // stops applying, and asserting it anyway would be asserting a coincidence
-    // of the near-normal case.
+TEST(SkinOralSurfaceTest, CoatDirectionalAlbedoRisesAsTheViewGoesGrazing)
+{
+    // FRESNEL RIM BRIGHTENING, as a direction rather than a picture — and it is
+    // the SECOND instrument that catches the wrong cosine.
+    //
+    // A coat whose Schlick took dot(N, H) has almost no rim response: for a
+    // reasonably smooth lobe the half-vector stays near the normal at every
+    // view angle, so that Fresnel barely moves and the albedo stays flat at F0.
+    // Taking dot(V, H) — the angle of incidence on the microfacet, which is
+    // what Schlick is about — makes it climb steeply as the view goes oblique,
+    // because the lobe's edges then see the surface edge-on.
+    //
+    // Measured at roughness 0.3: 0.99 x F0 head-on rising to 9.6 x F0 at
+    // dot(N, V) 0.25 for saliva. THAT is what makes a wet surface read as wet,
+    // and the first version of this feature did not have it.
+    for (const f32 ior : { kSalivaIor, kEnamelIor })
+    {
+        const f32 f0 = SkinOralCoatF0(ior);
+        f32 previous = CoatDirectionalAlbedo(0.3f, f0, 1.0f);
+        for (const f32 NdotV : { 0.85f, 0.5f, 0.25f })
+        {
+            const f32 rho = CoatDirectionalAlbedo(0.3f, f0, NdotV);
+            EXPECT_GT(rho, previous) << "ior " << ior << " NdotV " << NdotV
+                                     << ": the coat got DIMMER as the view went grazing — a dielectric film "
+                                        "does the opposite, and a Fresnel fed dot(N, H) instead of dot(V, H) "
+                                        "is the way to lose this";
+            previous = rho;
+        }
+        // And the rise is large, not a rounding artefact.
+        EXPECT_GT(CoatDirectionalAlbedo(0.3f, f0, 0.25f), 1.5f * f0) << "ior " << ior;
+    }
 }
 
 TEST(SkinOralSurfaceTest, EnamelReflectsMoreThanMucosaAtEveryAngle)
@@ -309,6 +340,58 @@ TEST(SkinOralSurfaceTest, EnamelReflectsMoreThanMucosaAtEveryAngle)
         EXPECT_GT(SkinOralCoatFresnel(enamel, cosTheta), SkinOralCoatFresnel(saliva, cosTheta))
             << "cos " << cosTheta;
     }
+}
+
+TEST(SkinOralSurfaceTest, CoatFresnelUsesTheViewHalfAngleAndNotTheNormalHalfAngle)
+{
+    // THE ANGLE SCHLICK TAKES IS dot(V, H), NOT dot(N, H), and this test exists
+    // because the first version of this feature shipped the latter.
+    //
+    // WHY IT SURVIVED EVERY OTHER TEST. Near normal incidence the two agree to
+    // five decimal places, so a head-on fixture — which is what the parity
+    // probe and the evidence scene both use — passes either way. The error is
+    // only visible at GRAZING, which is exactly where a wet surface earns its
+    // Fresnel and where the coat's entire rim response lives.
+    //
+    // So the configuration below is chosen to SEPARATE them rather than to look
+    // typical: dot(N, H) is 0.30 while dot(V, H) is 0.97, and the saliva Fresnel
+    // at those two angles differs by a factor of nine. A test that could not
+    // tell them apart would be the same test that let this through.
+    const glm::vec3 N{ 0.0f, 0.0f, 1.0f };
+    const glm::vec3 V = glm::normalize(glm::vec3(0.90f, 0.0f, 0.4359f));
+    const glm::vec3 L = glm::normalize(glm::vec3(0.9123f, 0.3801f, 0.1521f));
+    const glm::vec3 H = glm::normalize(V + L);
+
+    const f32 NdotH = glm::dot(N, H);
+    const f32 VdotH = glm::dot(V, H);
+    ASSERT_LT(NdotH, 0.5f) << "the fixture stopped separating the two angles";
+    ASSERT_GT(VdotH, 0.9f) << "the fixture stopped separating the two angles";
+
+    constexpr f32 kRoughness = 0.25f;
+    const f32 f0 = SkinOralCoatF0(kSalivaIor);
+
+    // The lobe, divided by the D * Vis it shares with either spelling, IS the
+    // Fresnel the implementation chose. Comparing that against both candidates
+    // is what makes this a statement about the code rather than about a number.
+    const f32 lobe = SkinOralCoatSpecular(N, V, L, kRoughness, f0);
+    ASSERT_GT(lobe, 0.0f);
+
+    const f32 fresnelIfViewHalf = SkinOralCoatFresnel(f0, VdotH);
+    const f32 fresnelIfNormalHalf = SkinOralCoatFresnel(f0, NdotH);
+    ASSERT_GT(fresnelIfNormalHalf, 4.0f * fresnelIfViewHalf)
+        << "the fixture no longer distinguishes the two Fresnels, so the assertion below is empty";
+
+    const f32 lobeWithViewHalf = lobe;
+    const f32 impliedDVis = lobeWithViewHalf / fresnelIfViewHalf;
+    const f32 lobeIfNormalHalf = impliedDVis * fresnelIfNormalHalf;
+
+    EXPECT_NEAR(lobe, impliedDVis * fresnelIfViewHalf, 1.0e-6f * std::max(1.0f, lobe));
+    EXPECT_LT(lobe, 0.5f * lobeIfNormalHalf)
+        << "THE COAT'S FRESNEL IS TAKING dot(N, H) RATHER THAN dot(V, H). Schlick is a statement about the "
+           "angle of INCIDENCE on the microfacet that reflected this light, which is the view-to-half angle; "
+           "dot(N, H) measures how far that microfacet is TILTED and is a different quantity. Every other "
+           "Fresnel in this engine passes dot(H, V) (include/PBRCommon.glsl, six call sites). The error is "
+           "invisible head-on and wrong by a factor of nine at grazing.";
 }
 
 TEST(SkinOralSurfaceTest, CoatSpecularIsZeroForADegenerateHalfVector)

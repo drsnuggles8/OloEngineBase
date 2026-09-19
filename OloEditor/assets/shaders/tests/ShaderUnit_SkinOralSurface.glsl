@@ -75,6 +75,14 @@
 //                           acquiring someone else's wetness.
 //  15  LANE GATE, RIGHT VERSION — and returns the lane for a version-4 skin
 //                           pixel, so case 14 is not passing by being broken.
+//  16  COAT LOBE AT GRAZING — the coat lobe at a configuration where
+//                           dot(N, H) is 0.30 while dot(V, H) is 0.97. Every
+//                           case above is near normal incidence, where the two
+//                           Schlick values agree to five decimals — so they
+//                           CANNOT tell which cosine the implementation took,
+//                           and the first version of this feature took the
+//                           wrong one and passed. This case is the one that
+//                           separates them, on the GPU, against the CPU.
 // =============================================================================
 
 #type vertex
@@ -109,6 +117,12 @@ const float kCavityOcclusion = 0.6;
 const float kObliqueCos = 0.37;
 
 const float kAo = 0.25;
+
+// A GRAZING view with the light on the same side: dot(N, H) 0.30 against
+// dot(V, H) 0.97, where the saliva Fresnel differs by a factor of nine.
+// Chosen to SEPARATE the two cosines rather than to look typical.
+const vec3 kGrazingV = vec3(0.9, 0.0, 0.4359);
+const vec3 kGrazingL = vec3(0.9123, 0.3801, 0.1521);
 
 void main()
 {
@@ -206,6 +220,14 @@ void main()
         vec4 notSkin = oloSkinEvaluatesOralSurface(OLO_MATERIAL_KIND_GENERIC, OLO_SKIN_MODEL_ORAL_SURFACE)
                            ? kLane : vec4(0.0);
         result = vec4(length(stale), length(notSkin), 0.0, 1.0);
+    }
+    else if (caseIndex == 16) // COAT LOBE AT GRAZING — which cosine Schlick took
+    {
+        vec3 gv = normalize(kGrazingV);
+        vec3 gl = normalize(kGrazingL);
+        vec3 gh = normalize(gv + gl);
+        result = vec4(oloSkinOralCoatSpecular(N, gv, gl, 0.25, kLane.z),
+                      dot(N, gh), dot(gv, gh), 1.0);
     }
     else if (caseIndex == 15) // LANE GATE, RIGHT VERSION
     {

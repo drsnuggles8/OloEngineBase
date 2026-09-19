@@ -78,6 +78,7 @@ namespace OloEngine::Tests
             CaseCavityMonotone = 13,
             CaseLaneGateWrongVersion = 14,
             CaseLaneGateRightVersion = 15,
+            CaseCoatLobeAtGrazing = 16,
             CaseCount
         };
 
@@ -93,6 +94,11 @@ namespace OloEngine::Tests
         constexpr f32 kCavityOcclusion = 0.6f;
         constexpr f32 kObliqueCos = 0.37f;
         constexpr f32 kAo = 0.25f;
+
+        // The grazing pair, mirrored from the probe. dot(N, H) 0.30 against
+        // dot(V, H) 0.97 — the configuration that separates the two cosines
+        // Schlick could be given. See CaseCoatLobeAtGrazing.
+        constexpr f32 kGrazingRoughness = 0.25f;
 
         // THE TOLERANCE IS A PROPERTY OF THE FORMAT, not a number chosen until
         // the test passed — the same reasoning, and the same helper, as
@@ -324,6 +330,33 @@ namespace OloEngine::Tests
                "a frame after a scene change, and a stale slot must LOSE the effect rather than acquire someone "
                "else's wetness.";
         EXPECT_FLOAT_EQ(stale.g, 0.0f) << "a non-skin material acquired a coat";
+
+        // ── The coat lobe at grazing — WHICH COSINE SCHLICK TOOK ────────────
+
+        // THE CASE THAT WOULD HAVE CAUGHT THE ORIGINAL BUG. Every other case in
+        // this probe is near normal incidence, where Schlick at dot(N, H) and at
+        // dot(V, H) agree to five decimal places — so all of them passed while
+        // the implementation took the wrong one. This configuration separates
+        // them by a factor of nine.
+        const glm::vec4 grazing = texel(CaseCoatLobeAtGrazing);
+        const glm::vec3 gv = glm::normalize(glm::vec3(0.90f, 0.0f, 0.4359f));
+        const glm::vec3 gl = glm::normalize(glm::vec3(0.9123f, 0.3801f, 0.1521f));
+        const glm::vec3 gh = glm::normalize(gv + gl);
+
+        // The probe reports both cosines, so a fixture that stopped separating
+        // them fails HERE rather than silently weakening the comparison below.
+        EXPECT_LT(grazing.g, 0.5f) << "the probe's grazing fixture no longer separates the two cosines";
+        EXPECT_GT(grazing.b, 0.9f) << "the probe's grazing fixture no longer separates the two cosines";
+        EXPECT_NEAR(grazing.g, glm::dot(N, gh), HalfTolerance(glm::dot(N, gh)));
+        EXPECT_NEAR(grazing.b, glm::dot(gv, gh), HalfTolerance(glm::dot(gv, gh)));
+
+        const f32 cpuGrazing = SkinOralCoatSpecular(N, gv, gl, kGrazingRoughness, cpuSaliva);
+        EXPECT_NEAR(grazing.r, cpuGrazing, HalfTolerance(cpuGrazing))
+            << "THE SHADER AND THE CPU DISAGREE ABOUT THE COAT AT GRAZING. This is the case that tells "
+               "dot(V, H) from dot(N, H): if one side takes the view-to-half angle and the other the "
+               "normal-to-half angle, every head-on case still agrees and only this one moves. Schlick is a "
+               "statement about the angle of INCIDENCE on the reflecting microfacet — include/PBRCommon.glsl "
+               "passes dot(H, V) at all six of its microfacet call sites.";
 
         const glm::vec4 live = texel(CaseLaneGateRightVersion);
         EXPECT_NEAR(live.x, kCoatStrength, HalfTolerance(kCoatStrength))

@@ -30,7 +30,7 @@ head changes appearance on a version bump.
 
 > `CoatIor` is authored, **F0 is not.** The conversion
 > `F0 = ((n-1)/(n+1))^2` happens once, on the CPU, in `SkinOralCoatF0`, and the profile lane carries
-> the result. The IOR is the number that exists in a reference table; `0.0177` and `0.0573` are
+> the result. The IOR is the number that exists in a reference table; `0.0201` and `0.0574` are
 > numbers nobody can check by eye.
 
 ## Teeth are authored, not branched

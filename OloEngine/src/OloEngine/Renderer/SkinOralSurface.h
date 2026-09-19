@@ -56,10 +56,17 @@
 // The "on average" is load-bearing and is stated rather than hidden: a GGX lobe
 // concentrates the energy it is given, so the coat CAN be brighter than what it
 // replaced in the highlight's few pixels, and darker everywhere else. What is
-// bounded is the hemispherical integral — the coat's directional albedo is at
-// most F_coat, because Smith-masked GGX with no multiple-scattering compensation
-// loses energy and never creates it. SkinOralSurfaceTest integrates the lobe
-// numerically and asserts that bound, because the alternative is believing it.
+// bounded is the hemispherical integral — the coat's directional albedo never
+// exceeds UNITY, because Smith-masked GGX with no multiple-scattering
+// compensation loses energy and never creates it. SkinOralSurfaceTest
+// integrates the lobe numerically and asserts that bound, because the
+// alternative is believing it.
+//
+// THE BOUND IS 1 AND NOT F0, and the looser number is the honest one. The
+// Schlick inside the lobe runs up toward 1 as the half-vector approaches
+// grazing, so a wide lobe at an oblique view legitimately returns MORE than F0
+// — 1.7x F0 at roughness 0.8 and dot(N, V) 0.25, measured. Claiming F0 here
+// would be claiming a near-normal coincidence.
 //
 // -----------------------------------------------------------------------------
 // WHY THE CAVITY TERM GATES THE TRANSMISSION AND NOTHING ELSE
@@ -113,7 +120,7 @@ namespace OloEngine
     // decision in this file worth defending. F0 is the number the shader wants;
     // the IOR is the number that exists in a reference table. Saliva is 1.33
     // (it is essentially water), enamel is 1.63, and an author who has to type
-    // 0.0177 and 0.0573 instead is typing numbers they cannot check. The
+    // 0.0201 and 0.0574 instead is typing numbers they cannot check. The
     // conversion happens once, here, on the CPU, and the lane carries the
     // result — so there is no second opinion about it in any shader.
     //
@@ -130,10 +137,23 @@ namespace OloEngine
     // plus an invitation to tint it. The tissue underneath is where colour comes
     // from, and the profile already has SpecularTint and ScatterColor for it.
     //
-    // `cosTheta` is dot(N, H) — the HALF-VECTOR angle, not dot(N, V). Schlick's
-    // approximation is a statement about the microfacet that actually reflected
-    // the light, and using the view angle instead is the classic error that
-    // makes a coat's rim too bright and its centre too dark.
+    // `cosTheta` is dot(V, H) — the angle between the VIEW direction and the
+    // HALF-VECTOR, i.e. the angle of incidence on the microfacet that actually
+    // reflected this light. It is NOT dot(N, V) (the macro-surface view angle)
+    // and it is NOT dot(N, H) (how far that microfacet is tilted).
+    //
+    // dot(N, H) IS THE ERROR THIS COMMENT USED TO PRESCRIBE, and it shipped in
+    // the first version of #1245. It is wrong in a way no still frame shows:
+    // near normal incidence the two agree to five decimal places, so every
+    // parity case at a head-on fixture passes either way. They diverge at
+    // GRAZING — at dot(N,H) 0.30 against dot(V,H) 0.97 the saliva Fresnel is
+    // 0.182 against 0.020, a factor of NINE — which is exactly where a wet
+    // surface is most interesting and where the coat's whole rim response is.
+    //
+    // Every other Fresnel in this engine takes the same quantity:
+    // include/PBRCommon.glsl passes `dot(H, V)` / `VdotH` at all six of its
+    // microfacet call sites, and `dot(N, V)` only to fresnelSchlickRoughness,
+    // which is the IBL split-sum approximation and a different integral.
     [[nodiscard]] f32 SkinOralCoatFresnel(f32 f0, f32 cosTheta) noexcept;
 
     // @brief How much of the base response survives the coat.
