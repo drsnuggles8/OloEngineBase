@@ -221,7 +221,20 @@ float oloSkinOralCavityWeight(float occlusion, float cavityOcclusion)
 // test still lives in exactly one place, which was the point of the helper.
 bool oloSkinEvaluatesOralSurface(int materialKind, int evaluationModel)
 {
-    return materialKind == OLO_MATERIAL_KIND_SKIN && evaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE;
+    // BOTH COATING VERSIONS, mirroring SkinEvaluatesOralSurface on the CPU.
+    // Version 5 (issue #1244) is not an afterthought here: THE TEAR FILM IS
+    // THIS COAT. A tear film and a saliva film are the same interface and their
+    // indices differ by 0.007, so a version-5 eye authors its wetness in the
+    // `Oral` block with CoatIor 1.337 rather than through a second
+    // implementation.
+    //
+    // Omitting version 5 DRIED EVERY EYE, silently, while the CPU mirror said
+    // otherwise — the exact two-sided drift this file's opening rule exists to
+    // stop, and it is the reason that rule says the two sides are driven
+    // against each other rather than merely written to match.
+    return materialKind == OLO_MATERIAL_KIND_SKIN &&
+           (evaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE ||
+            evaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE);
 }
 
 #endif // SKIN_ORAL_SURFACE_GLSL

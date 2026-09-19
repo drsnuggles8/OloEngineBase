@@ -240,9 +240,20 @@ namespace OloEngine
     // and for their reason: a version this code has no arm for must apply
     // NOTHING rather than guess that a later transport meant the same thing by
     // these fields.
+    // BOTH COATING VERSIONS, and version 5 is not an afterthought here: the
+    // TEAR FILM IS THIS COAT. A tear film and a saliva film are the same
+    // interface — a thin water layer over wet tissue — and their indices differ
+    // by 0.007, an F0 of 0.0208 against 0.0201. Issue #1244 measured that
+    // (question 7 of experiments/eye-cornea-reference) and concluded that a
+    // second coat implementation would be a second opinion about one number.
+    //
+    // So a version-5 profile authors its tear line in the `Oral` block with
+    // CoatIor 1.337, and omitting version 5 from this list would have made
+    // moving a profile to it silently DRY THE EYE — the same cumulative-version
+    // trap SkinDiffusion.cpp and SkinTransmission.cpp have each recorded.
     [[nodiscard]] constexpr bool SkinEvaluatesOralSurface(SkinEvaluationModel model) noexcept
     {
-        return model == SkinEvaluationModel::OralSurface;
+        return model == SkinEvaluationModel::OralSurface || model == SkinEvaluationModel::OcularSurface;
     }
 
 } // namespace OloEngine

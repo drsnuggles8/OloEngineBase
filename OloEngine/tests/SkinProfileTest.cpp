@@ -90,6 +90,34 @@ namespace
         p.Specular.NormalVarianceStrength = 0.875f;
         p.Specular.DetailStrength = 0.625f;
         p.Specular.ExpressionDetailGain = 1.375f;
+        // The wet coat and the cavity weight (issue #1245). ADDED BY #1244:
+        // these four were never in the sentinel, so
+        // AuthoredValuesSurviveAYamlRoundTrip compared four defaults against
+        // four defaults and would have passed for a serializer that never
+        // wrote the Oral block at all. That is exactly the trap the comment
+        // above describes, left open one version.
+        p.Oral.CoatStrength = 0.6875f;
+        p.Oral.CoatRoughness = 0.1875f;
+        p.Oral.CoatIor = 1.4375f;
+        p.Oral.CavityOcclusion = 0.8125f;
+        // The eye (issue #1244), every field off its default for the same
+        // reason. Note the two that default to NON-zero — RefractionStrength
+        // (1) and PupilDarkening (1) — have to be moved DOWN to be sentinels at
+        // all, which is why they are 0.8125 and 0.6875 rather than something
+        // larger.
+        p.Ocular.OcularStrength = 0.9375f;
+        p.Ocular.RefractionStrength = 0.8125f;
+        p.Ocular.EyeRadiusMM = 11.5f;
+        p.Ocular.CorneaRadiusMM = 7.25f;
+        p.Ocular.IrisRadiusMM = 5.5f;
+        p.Ocular.PupilRadiusMM = 1.75f;
+        p.Ocular.IrisPlaneDepthMM = 2.625f;
+        p.Ocular.CorneaIor = 1.3125f;
+        p.Ocular.LimbalRingWidthMM = 0.875f;
+        p.Ocular.LimbalRingStrength = 0.5625f;
+        p.Ocular.PupilDarkening = 0.6875f;
+        p.Ocular.IrisConcavity = 0.3125f;
+        p.Ocular.IrisColor = glm::vec3(0.3125f, 0.4375f, 0.5625f);
         return p;
     }
 } // namespace
@@ -295,6 +323,87 @@ namespace OloEngine::Tests
                 << "the serializer did not emit Specular." << key << ":\n"
                 << yaml;
         }
+    }
+
+    TEST(SkinProfileSerializerTest, AProfileWrittenBeforeTheEyeStillLoadsUnchanged)
+    {
+        // Exactly what #1245's serializer emitted: no Ocular node.
+        //
+        // THIS IS THE "PRIOR ON-DISK VERSION" CELL of issue #1244's
+        // verification matrix, and it is the one that would restate every head
+        // in the project if it broke. Nine of the thirteen ocular fields default
+        // to NON-zero, so an old file does acquire them on load — what makes
+        // that harmless is that they are read only at transport version 5, and
+        // OcularStrength, the field that decides whether they are read at all,
+        // still defaults to 0.
+        const std::string yaml = R"(SkinProfile:
+  Name: Legacy Lip
+  EvaluationModel: 4
+  ScatterColor: [0.86, 0.5, 0.42]
+  ScatterRadiusMM: [2.1, 1.05, 0.7]
+  ThicknessScale: 1000
+  SpecularTint: [0.98, 0.95, 0.93]
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.35
+    LobeRoughnessScale: 2
+    NormalVarianceStrength: 0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.35
+    CoatRoughness: 0.09
+    CoatIor: 1.33
+    CavityOcclusion: 0.35
+)";
+
+        const SkinProfileSerializer serializer;
+        auto read = Ref<SkinProfile>::Create();
+        ASSERT_TRUE(serializer.DeserializeFromYAML(yaml, read))
+            << "a .oloskin written before #1244 no longer loads at all";
+
+        const SkinProfileParameters& p = read->GetParameters();
+        EXPECT_EQ(p.EvaluationModel, SkinEvaluationModel::OralSurface)
+            << "the transport version moved on load — every such head would be restated";
+        EXPECT_FLOAT_EQ(p.Oral.CoatStrength, 0.35f) << "the version-4 fields did not survive";
+
+        // The master switch is what makes the other twelve harmless.
+        const SkinOcularParameters defaults{};
+        EXPECT_FLOAT_EQ(p.Ocular.OcularStrength, 0.0f)
+            << "a pre-#1244 profile acquired an eye, which would restate every head in the project";
+        EXPECT_TRUE(p.Ocular == defaults) << "a pre-#1244 profile's ocular block is not the default one";
+    }
+
+    // THE COOKED FORM IS THE LOOSE FORM. SkinProfileSerializer's asset-pack
+    // path calls SerializeToYAML / DeserializeFromYAML — the same two functions
+    // the .oloskin on disk goes through — so the cooked bytes ARE the loose
+    // bytes and "survives cooking" (issue #1244's first acceptance criterion)
+    // is the round-trip above rather than a second code path.
+    //
+    // Asserted rather than left as a reading of the implementation, because the
+    // day somebody gives the pack its own binary encoder this test is the one
+    // that says the criterion now needs its own coverage.
+    TEST(SkinProfileSerializerTest, TheCookedFormIsTheLooseForm)
+    {
+        auto written = Ref<SkinProfile>::Create();
+        written->SetName("Eye Iris");
+        ASSERT_TRUE(written->SetParameters(SentinelParameters()));
+
+        const SkinProfileSerializer serializer;
+        const std::string yaml = serializer.SerializeToYAML(written);
+
+        auto read = Ref<SkinProfile>::Create();
+        ASSERT_TRUE(serializer.DeserializeFromYAML(yaml, read));
+        EXPECT_TRUE(read->GetParameters() == written->GetParameters());
+
+        // And the ocular block specifically, named so a failure says which
+        // feature lost its authoring rather than "a field changed".
+        EXPECT_TRUE(read->GetParameters().Ocular == written->GetParameters().Ocular)
+            << "the Ocular block did not survive the serializer both .oloskin files and the "
+               "asset pack share — an eye would cook to a sphere";
     }
 
     // THE PRIOR-ON-DISK-VERSION CELL (issue #1243). A `.oloskin` authored before

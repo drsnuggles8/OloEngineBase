@@ -1711,7 +1711,8 @@ namespace OloEngine::MCP
                                     if (model == SkinEvaluationModel::ScreenSpaceDiffusion ||
                                         model == SkinEvaluationModel::ThicknessTransmission ||
                                         model == SkinEvaluationModel::LayeredSpecular ||
-                                        model == SkinEvaluationModel::OralSurface)
+                                        model == SkinEvaluationModel::OralSurface ||
+                                        model == SkinEvaluationModel::OcularSurface)
                                         ++diffusing;
                                 }
                                 if (assigned == 0u)

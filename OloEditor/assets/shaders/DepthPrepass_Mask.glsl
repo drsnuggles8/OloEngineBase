@@ -164,6 +164,29 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // lane above it -- omitting it would relayout the heap offsets by 16 B and
     // every texture would sample the wrong descriptor.
     vec4 u_SkinOralLane;
+    // The three ocular lanes (issue #1244). MUST mirror
+    // PBRMaterialUBO::SkinOcular{Cornea,Iris,Response}Lane, packed by the three
+    // matching CPU functions.
+    //   Cornea:   x = eta (derived from CorneaIor)  y = curvature ratio
+    //             z = iris plane depth, eye radii   w = limbus cosine
+    //   Iris:     x = iris radius, eye radii        y = pupil radius, disc units
+    //             z = limbal ring width, disc units w = OcularStrength (MASTER)
+    //   Response: x = LimbalRingStrength            y = PupilDarkening
+    //             z = IrisConcavity                 w = RefractionStrength
+    // All-zero is neutral BECAUSE THE MASTER IS ZERO -- the other eleven
+    // components are inert rather than meaningful at zero, and that is safe
+    // only because irisLane.w gates every one of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets like every lane above
+    // them -- omitting them would relayout the heap offsets by 48 B and every
+    // texture would sample the wrong descriptor.
+    vec4 u_SkinOcularCorneaLane;
+    vec4 u_SkinOcularIrisLane;
+    vec4 u_SkinOcularResponseLane;
+    // The fourth ocular lane: xyz = IrisColor (linear Rec.709),
+    // w = the iris edge band. ALL-ZERO IS BLACK HERE, NOT NEUTRAL -- the
+    // colour is multiplied in, so neutral is WHITE. Safe only because
+    // u_SkinOcularIrisLane.w gates the whole block.
+    vec4 u_SkinOcularTintLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES

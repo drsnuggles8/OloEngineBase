@@ -134,6 +134,91 @@ namespace OloEngine
                Math::BitwiseEqual(CavityOcclusion, other.CavityOcclusion);
     }
 
+    bool SkinOcularParameters::Sanitize()
+    {
+        const SkinOcularParameters defaults{};
+        bool ok = true;
+
+        ok = SanitizeRange(OcularStrength, 0.0f, 1.0f, defaults.OcularStrength) && ok;
+        ok = SanitizeRange(RefractionStrength, 0.0f, 1.0f, defaults.RefractionStrength) && ok;
+
+        ok = SanitizeRange(EyeRadiusMM, kMinSkinEyeRadiusMM, kMaxSkinEyeRadiusMM, defaults.EyeRadiusMM) && ok;
+        ok = SanitizeRange(CorneaRadiusMM, kMinSkinCorneaRadiusMM, kMaxSkinCorneaRadiusMM,
+                           defaults.CorneaRadiusMM) &&
+             ok;
+        ok = SanitizeRange(IrisRadiusMM, kMinSkinIrisRadiusMM, kMaxSkinIrisRadiusMM, defaults.IrisRadiusMM) && ok;
+        ok = SanitizeRange(PupilRadiusMM, kMinSkinPupilRadiusMM, kMaxSkinPupilRadiusMM,
+                           defaults.PupilRadiusMM) &&
+             ok;
+        ok = SanitizeRange(IrisPlaneDepthMM, kMinSkinIrisPlaneDepthMM, kMaxSkinIrisPlaneDepthMM,
+                           defaults.IrisPlaneDepthMM) &&
+             ok;
+        ok = SanitizeRange(CorneaIor, kMinSkinCorneaIor, kMaxSkinCorneaIor, defaults.CorneaIor) && ok;
+
+        ok = SanitizeRange(LimbalRingWidthMM, kMinSkinLimbalRingWidthMM, kMaxSkinLimbalRingWidthMM,
+                           defaults.LimbalRingWidthMM) &&
+             ok;
+        ok = SanitizeRange(LimbalRingStrength, kMinSkinLimbalRingStrength, kMaxSkinLimbalRingStrength,
+                           defaults.LimbalRingStrength) &&
+             ok;
+        ok = SanitizeRange(PupilDarkening, 0.0f, 1.0f, defaults.PupilDarkening) && ok;
+        ok = SanitizeRange(IrisConcavity, kMinSkinIrisConcavity, kMaxSkinIrisConcavity,
+                           defaults.IrisConcavity) &&
+             ok;
+        ok = SanitizeUnitColor(IrisColor, defaults.IrisColor) && ok;
+
+        // THE ONE CROSS-FIELD RULE IN THIS STRUCT, and it is here rather than
+        // in the lane packers because a lane packer cannot report. Three of the
+        // lengths are RATIOS in disguise and each has a length it must not
+        // exceed:
+        //
+        //   * an iris wider than the globe puts the limbus past the equator,
+        //     where sin(limbus) leaves [0, 1] and the cosine goes imaginary;
+        //   * a pupil wider than the iris leaves no iris;
+        //   * a cornea FLATTER than the globe is not an eye, and its curvature
+        //     ratio would invert the normal bend.
+        //
+        // Clamped to the bounding length rather than to the default, because
+        // the author's intent in every one of these cases is "as large as it
+        // can be" and snapping to 5.85 mm when they typed 20 would be a
+        // different kind of wrong. Reported through the return value either way.
+        if (IrisRadiusMM > EyeRadiusMM)
+        {
+            IrisRadiusMM = EyeRadiusMM;
+            ok = false;
+        }
+        if (PupilRadiusMM > IrisRadiusMM)
+        {
+            PupilRadiusMM = IrisRadiusMM;
+            ok = false;
+        }
+        if (CorneaRadiusMM > EyeRadiusMM)
+        {
+            CorneaRadiusMM = EyeRadiusMM;
+            ok = false;
+        }
+
+        return ok;
+    }
+
+    bool SkinOcularParameters::operator==(const SkinOcularParameters& other) const noexcept
+    {
+        // Bit-exact, for the reason SkinProfileParameters::operator== states.
+        return Math::BitwiseEqual(OcularStrength, other.OcularStrength) &&
+               Math::BitwiseEqual(RefractionStrength, other.RefractionStrength) &&
+               Math::BitwiseEqual(EyeRadiusMM, other.EyeRadiusMM) &&
+               Math::BitwiseEqual(CorneaRadiusMM, other.CorneaRadiusMM) &&
+               Math::BitwiseEqual(IrisRadiusMM, other.IrisRadiusMM) &&
+               Math::BitwiseEqual(PupilRadiusMM, other.PupilRadiusMM) &&
+               Math::BitwiseEqual(IrisPlaneDepthMM, other.IrisPlaneDepthMM) &&
+               Math::BitwiseEqual(CorneaIor, other.CorneaIor) &&
+               Math::BitwiseEqual(LimbalRingWidthMM, other.LimbalRingWidthMM) &&
+               Math::BitwiseEqual(LimbalRingStrength, other.LimbalRingStrength) &&
+               Math::BitwiseEqual(PupilDarkening, other.PupilDarkening) &&
+               Math::BitwiseEqual(IrisConcavity, other.IrisConcavity) &&
+               Math::BitwiseEqual(IrisColor, other.IrisColor);
+    }
+
     bool SkinProfileParameters::Sanitize()
     {
         const SkinProfileParameters defaults{};
@@ -171,6 +256,10 @@ namespace OloEngine
         // gate and for the same reason.
         ok = Oral.Sanitize() && ok;
 
+        // The cornea, the iris and the tear line (issue #1244), through the same
+        // one gate and for the same reason.
+        ok = Ocular.Sanitize() && ok;
+
         return ok;
     }
 
@@ -186,7 +275,7 @@ namespace OloEngine
                Math::BitwiseEqual(SpecularTint, other.SpecularTint) &&
                Math::BitwiseEqual(ThicknessScale, other.ThicknessScale) &&
                Transmission == other.Transmission && Specular == other.Specular &&
-               Oral == other.Oral;
+               Oral == other.Oral && Ocular == other.Ocular;
     }
 
     bool SkinProfile::SetParameters(const SkinProfileParameters& parameters)

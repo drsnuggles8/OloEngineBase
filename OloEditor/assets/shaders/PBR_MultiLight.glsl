@@ -265,6 +265,29 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     // lane above it -- omitting it would relayout the heap offsets by 16 B and
     // every texture would sample the wrong descriptor.
     vec4 u_SkinOralLane;
+    // The three ocular lanes (issue #1244). MUST mirror
+    // PBRMaterialUBO::SkinOcular{Cornea,Iris,Response}Lane, packed by the three
+    // matching CPU functions.
+    //   Cornea:   x = eta (derived from CorneaIor)  y = curvature ratio
+    //             z = iris plane depth, eye radii   w = limbus cosine
+    //   Iris:     x = iris radius, eye radii        y = pupil radius, disc units
+    //             z = limbal ring width, disc units w = OcularStrength (MASTER)
+    //   Response: x = LimbalRingStrength            y = PupilDarkening
+    //             z = IrisConcavity                 w = RefractionStrength
+    // All-zero is neutral BECAUSE THE MASTER IS ZERO -- the other eleven
+    // components are inert rather than meaningful at zero, and that is safe
+    // only because irisLane.w gates every one of them. Declared
+    // UNCONDITIONALLY and BEFORE u_MaterialHeapOffsets like every lane above
+    // them -- omitting them would relayout the heap offsets by 48 B and every
+    // texture would sample the wrong descriptor.
+    vec4 u_SkinOcularCorneaLane;
+    vec4 u_SkinOcularIrisLane;
+    vec4 u_SkinOcularResponseLane;
+    // The fourth ocular lane: xyz = IrisColor (linear Rec.709),
+    // w = the iris edge band. ALL-ZERO IS BLACK HERE, NOT NEUTRAL -- the
+    // colour is multiplied in, so neutral is WHITE. Safe only because
+    // u_SkinOcularIrisLane.w gates the whole block.
+    vec4 u_SkinOcularTintLane;
     int u_UseThicknessMap;            // 0 = no thickness map; the factor alone
     uint u_ThicknessMapHeapOffset;    // bindless descriptor offset; 0xFFFFFFFF = none
     float u_SkinThicknessBaseMM;      // thicknessFactor (m) * profile ThicknessScale, MILLIMETRES
@@ -275,7 +298,7 @@ layout(std140, binding = 2) uniform PBRMaterialProperties {
     float u_SkinDetailStrength;
 #if defined(OLO_BINDLESS) || defined(OLO_MATERIAL_VULKAN_HEAP_READER)
     // The per-material offset lanes, declared on EITHER bindless arm. The
-    // C++ PBRMaterialUBO always uploads them (sizeof == 272 since issue #1245);
+    // C++ PBRMaterialUBO always uploads them (sizeof == 336 since issue #1244);
     // a std140 block may declare a PREFIX of what the CPU writes, which is why
     // the slot-based build can stop before these and stay correct. Note the
     // prefix now has to run through the #1231 lanes, not stop at u_PBRModel:
@@ -562,6 +585,46 @@ void main()
     if (u_MaterialKind == OLO_MATERIAL_KIND_SKIN)
         roughness = oloSkinFilteredRoughness(roughness, N, u_SkinSpecularLane.z);
 
+    // ---- THE CORNEA AND THE IRIS (issue #1244) ---------------------------
+    //
+    // HERE, and the position is load-bearing in both directions.
+    //
+    // AFTER the variance filter above, because that filter measures the
+    // SCREEN-SPACE VARIANCE OF THE SURFACE NORMAL and the iris dish tilt is not
+    // surface micro-detail. Filtering a smooth authored gradient would widen
+    // the corneal highlight for a reason that has nothing to do with roughness
+    // -- an eye that goes matte the moment its iris gains depth.
+    //
+    // BEFORE any light is looked at, because a refraction is NOT a BRDF: it
+    // decides WHICH iris point this pixel is, and everything after shades that
+    // point. That is the same reason this block appears in the G-Buffer
+    // shaders as well as the forward ones and NOT in the deferred lighting
+    // pass -- see include/SkinOcularSurface.glsl.
+    //
+    // THE OPTICAL AXIS IS THE ENTITY TRANSFORM'S +Z, read straight out of the
+    // model matrix that include/InstanceBlock.glsl already puts in this stage.
+    // Nothing is plumbed and no lane carries it, and that IS the left/right eye
+    // convention: both eyes name the SAME .oloskin and differ only by their
+    // transforms. Passed UNNORMALIZED -- oloSkinOcularApply tests its squared
+    // length before normalizing, so a degenerate transform loses the eye
+    // instead of producing a NaN albedo.
+    //
+    // Gated through oloSkinEvaluatesOcularSurface with the three lanes selected
+    // by a ternary AT THIS CALL SITE, never by a helper that returns them. See
+    // that function's comment for the miscompile the other shape caused in
+    // #1245 -- with three lanes to select, the temptation was larger and so is
+    // the blast radius.
+    if (oloSkinEvaluatesOcularSurface(u_MaterialKind, u_SkinEvaluationModel))
+    {
+        OloSkinOcular oloOcular = oloSkinOcularApply(albedo, N,
+                                                     normalize(u_CameraPosition - v_WorldPos),
+                                                     u_Model[2].xyz,
+                                                     u_SkinOcularCorneaLane, u_SkinOcularIrisLane,
+                                                     u_SkinOcularResponseLane, u_SkinOcularTintLane);
+        albedo = oloOcular.Albedo;
+        N = oloOcular.Normal;
+    }
+
     // ---- THE ORAL SURFACE LANE (issue #1245) -----------------------------
     //
     // Resolved ONCE, through oloSkinEvaluatesOralSurface so the version test is the one
@@ -603,7 +666,8 @@ void main()
     bool isSkinTransmitting = (u_MaterialKind == OLO_MATERIAL_KIND_SKIN) &&
                               ((u_SkinEvaluationModel == OLO_SKIN_MODEL_THICKNESS_TRANSMISSION) ||
                                (u_SkinEvaluationModel == OLO_SKIN_MODEL_LAYERED_SPECULAR) ||
-                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE));
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_ORAL_SURFACE) ||
+                               (u_SkinEvaluationModel == OLO_SKIN_MODEL_OCULAR_SURFACE));
     float skinThicknessMM = 0.0;
     if (isSkinTransmitting)
     {

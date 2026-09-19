@@ -1,0 +1,87 @@
+SkinProfile:
+  Name: Eye Tear Line
+  # TRANSPORT VERSION 5 (issue #1244), but for the ONE surface in the eye
+  # assembly that has no cornea: the TEAR MENISCUS at the lower lid margin.
+  #
+  # WHY THIS IS A SEPARATE ASSET AND NOT A FIELD ON EyeIris.oloskin. The tear
+  # line is a different SURFACE, not a different setting: it is the fillet of
+  # tear fluid where the lid meets the globe, it has no iris behind it and no
+  # dome in front of it, and it is wetter and smoother than the cornea. A single
+  # profile covering both would have needed a per-pixel mask to decide which of
+  # its two behaviours applied — a texture slot, an importer path and an
+  # authoring convention, to express something two assets already express.
+  #
+  # This is the same shape #1245 used for teeth: a genuinely different response
+  # reached by AUTHORING rather than by a second code path that would then have
+  # to be kept in step with the first.
+  EvaluationModel: 5
+  Units: "colours: linear Rec.709 (unitless 0..1); lengths: millimetres"
+  # The lid margin's tissue: thin, vascular skin, much redder than a sclera and
+  # further-travelling. Closer to OralLip.oloskin than to EyeIris.oloskin,
+  # because that is what it anatomically is.
+  ScatterColor: [0.84, 0.48, 0.42]
+  ScatterRadiusMM: [1.6, 0.85, 0.6]
+  ThicknessScale: 1000
+  SpecularTint: [1, 0.99, 0.98]
+  Transmission:
+    Strength: 0.7
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.3
+    LobeRoughnessScale: 2
+    NormalVarianceStrength: 0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  # ---------------------------------------------------------------------------
+  # THE TEAR FILM — and here it is the whole point of the asset rather than one
+  # term among several.
+  #
+  # A tear meniscus is a CONCAVE fillet a few tenths of a millimetre across,
+  # which is why the highlight it makes is a thin, very bright streak rather
+  # than a round catchlight: a concave mirror compresses the light it reflects.
+  # This profile cannot make the geometry concave — that is the mesh's job — but
+  # it can make the film as strong and as smooth as it really is, which is what
+  # turns the lid margin into a line of light instead of a dull edge.
+  # ---------------------------------------------------------------------------
+  Oral:
+    # Higher than the cornea's 0.5: a meniscus is standing liquid, not a film.
+    CoatStrength: 0.85
+    # SMOOTHER than the cornea's 0.04, and this is the field that decides
+    # whether the lid margin reads as a TEAR LINE or as a shiny edge. The
+    # difference between "wet" and "shiny" is the size of the highlight.
+    CoatRoughness: 0.025
+    # Tears. Essentially water, 1.337 — the same index EyeIris.oloskin carries,
+    # because it is the same fluid.
+    CoatIor: 1.337
+    # MODEST. Half the meniscus faces outward, where the transmitted rim IS the
+    # effect that makes a lid margin read as flesh; occluding it fully would
+    # remove that.
+    CavityOcclusion: 0.3
+  # ---------------------------------------------------------------------------
+  # THE EYE BLOCK IS OFF, and that absence is the point of this file.
+  #
+  # OcularStrength 0 means this surface has no cornea, no iris and no pupil —
+  # ApplySkinOcularSurface returns its inputs untouched and the pixel costs one
+  # compare. Everything that makes the tear line visible is the COAT above,
+  # which is version 4's and needs none of this.
+  #
+  # The geometric constants below are left at their defaults rather than
+  # deleted, because a reader comparing this file with EyeIris.oloskin should be
+  # able to see that the ONE field that differs in kind is the master switch.
+  # ---------------------------------------------------------------------------
+  Ocular:
+    OcularStrength: 0
+    RefractionStrength: 1
+    EyeRadiusMM: 12
+    CorneaRadiusMM: 7.8
+    IrisRadiusMM: 5.85
+    PupilRadiusMM: 2
+    IrisPlaneDepthMM: 2.48
+    CorneaIor: 1.336
+    LimbalRingWidthMM: 0.7
+    LimbalRingStrength: 0
+    PupilDarkening: 1
+    IrisConcavity: 0
+    # White: neutral, and a meniscus has no iris to tint anyway.
+    IrisColor: [1, 1, 1]

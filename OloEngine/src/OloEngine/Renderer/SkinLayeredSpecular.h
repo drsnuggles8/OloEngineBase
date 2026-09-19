@@ -371,7 +371,8 @@ namespace OloEngine
     // fields.
     [[nodiscard]] constexpr bool SkinEvaluatesLayeredSpecular(SkinEvaluationModel model) noexcept
     {
-        return model == SkinEvaluationModel::LayeredSpecular || model == SkinEvaluationModel::OralSurface;
+        return model == SkinEvaluationModel::LayeredSpecular || model == SkinEvaluationModel::OralSurface ||
+               model == SkinEvaluationModel::OcularSurface;
     }
 
 } // namespace OloEngine

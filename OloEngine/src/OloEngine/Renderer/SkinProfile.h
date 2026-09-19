@@ -126,6 +126,39 @@ namespace OloEngine
         // SkinOralSurfaceEvidenceTest captures.
         OralSurface = 4,
 
+        // What #1244 ships: everything version 4 does, plus the one term an EYE
+        // needs and no other surface on a head does — a CORNEAL REFRACTION.
+        // The iris sits ~2.5 mm behind a transparent dome of index 1.336, so a
+        // viewer never sees it where it is; version 5 refracts the view ray at
+        // that dome, finds the iris point behind it, and applies the iris's own
+        // depth response (a limbal ring, a pupil and a dish tilt) at THAT point.
+        // See Renderer/SkinOcularSurface.h for the maths and the measured
+        // comparison the approximation was chosen on, and
+        // docs/guides/eye-cornea-iris.md for the authoring path.
+        //
+        // AN EYE IS THREE SURFACES AND TWO OF THEM ARE ALREADY SKIN, which is
+        // why this is a version and not a MaterialKind. The SCLERA scatters
+        // (version 1's Burley kernel); the TEAR FILM is version 4's wet coat
+        // with the index of tears instead of saliva — an F0 of 0.0208 against
+        // 0.0201, a 3% difference, which is the measured argument for reusing
+        // the coat rather than minting a second one. ONLY THE CORNEA IS NEW.
+        //
+        // IT RUNS IN THE MATERIAL STAGE, NOT THE LIGHTING STAGE, which is the
+        // structural difference from every version before it: a refraction
+        // changes WHICH POINT you are looking at, not how it reflects, so it
+        // resolves once in the G-Buffer / forward fragment shader and the
+        // deferred lighting pass never learns that eyes exist. Three
+        // consequences — the paths agree by construction, no G-Buffer lane is
+        // touched, and the cornea/iris/tear ordering cannot sort wrongly
+        // because it is code order and not depth order.
+        //
+        // A VERSION, NOT A FLAG, for the fifth time and the same reason: a
+        // profile stays where its author left it. Its master switch
+        // (OcularStrength) defaults to 0, so moving a profile to version 5
+        // changes NOTHING until a field is authored — the neutral-identity arm
+        // SkinOcularSurfaceEvidenceTest captures.
+        OcularSurface = 5,
+
         Count
     };
 
@@ -145,6 +178,8 @@ namespace OloEngine
                 return "LayeredSpecular";
             case SkinEvaluationModel::OralSurface:
                 return "OralSurface";
+            case SkinEvaluationModel::OcularSurface:
+                return "OcularSurface";
             case SkinEvaluationModel::Count:
                 break;
         }
@@ -318,6 +353,272 @@ namespace OloEngine
     // Both ends are the ends of a mix weight, so neither is a taste bound.
     inline constexpr f32 kMinSkinOralCavityOcclusion = 0.0f;
     inline constexpr f32 kMaxSkinOralCavityOcclusion = 1.0f;
+
+    // -------------------------------------------------------------------------
+    // The eye (issue #1244). Transport version 5.
+    //
+    // FIVE CLINICAL LENGTHS, IN MILLIMETRES, AND ONE INDEX. Every ratio the
+    // shader actually wants — the refraction eta, the corneal curvature ratio,
+    // the iris-plane depth in eye radii, the limbus cosine, the pupil and ring
+    // radii in disc coordinates — is DERIVED from these on the CPU by the three
+    // lane packers in Renderer/SkinOcularSurface.h.
+    //
+    // That direction is the whole authoring argument and it is the one
+    // SkinOralCoatF0 made one version earlier: 12.0 mm, 7.8 mm and 5.85 mm are
+    // numbers an author can find in Bennett & Rabbetts and check against a real
+    // eye; 0.7485, 1.5385 and 0.8724 are numbers nobody can check against
+    // anything. The defaults below are the schematic eye of
+    // experiments/eye-cornea-reference/compare_refraction.py, which is itself
+    // validated against the literature's entrance-pupil magnification before
+    // any of these numbers were chosen.
+    // -------------------------------------------------------------------------
+
+    // The eyeball's radius. The reference length EVERY other ocular length is
+    // divided by, which is why it is authored rather than assumed 1: an eye
+    // authored in a scene whose unit is the centimetre still has a 12 mm globe,
+    // and the ratios that reach the GPU are unaffected by either.
+    //
+    // The bounds span an infant eye (16 mm axial, ~8 mm radius) to a severely
+    // myopic adult one, so they bound authoring corruption rather than taste.
+    inline constexpr f32 kMinSkinEyeRadiusMM = 4.0f;
+    inline constexpr f32 kMaxSkinEyeRadiusMM = 20.0f;
+
+    // The anterior cornea's radius of curvature. 7.8 mm is the clinical mean.
+    //
+    // ITS ONLY JOB IS THE CURVATURE RATIO EyeRadiusMM / CorneaRadiusMM, which is
+    // how much steeper the corneal dome is than the sphere the mesh actually
+    // supplies. SETTING IT EQUAL TO EyeRadiusMM IS THE DOCUMENTED WAY TO SAY
+    // "this mesh already has corneal geometry": the ratio becomes exactly 1 and
+    // SkinCornealNormal returns the interpolated normal untouched.
+    //
+    // The floor is well below the steepest keratoconic cornea and the ceiling is
+    // above any human globe; a ratio below 1 would be a cornea FLATTER than the
+    // globe, which is not an eye, and kMinSkinCorneaCurvatureRatio refuses it.
+    inline constexpr f32 kMinSkinCorneaRadiusMM = 3.0f;
+    inline constexpr f32 kMaxSkinCorneaRadiusMM = 20.0f;
+
+    // The derived curvature ratio's bounds, applied after the division so a
+    // corrupt pair of radii cannot produce an inf or a bend that inverts the
+    // normal. 1 is the neutral end, exactly (see SkinCornealNormal).
+    inline constexpr f32 kMinSkinCorneaCurvatureRatio = 1.0f;
+    inline constexpr f32 kMaxSkinCorneaCurvatureRatio = 4.0f;
+
+    // The visible iris's radius — half the horizontal visible iris diameter,
+    // 11.7 mm in the clinical mean, so 5.85. ALSO SETS THE LIMBUS: the boundary
+    // between cornea and sclera is where the iris ends, so one authored length
+    // decides both where the refraction applies and where the iris runs out.
+    // Two fields could have disagreed; one cannot.
+    inline constexpr f32 kMinSkinIrisRadiusMM = 1.0f;
+    inline constexpr f32 kMaxSkinIrisRadiusMM = 12.0f;
+
+    // The pupil's radius. 2.0 mm is a mesopic pupil; the bounds are the
+    // physiological range, fully constricted to fully dilated.
+    inline constexpr f32 kMinSkinPupilRadiusMM = 0.3f;
+    inline constexpr f32 kMaxSkinPupilRadiusMM = 5.0f;
+
+    // The derived pupil radius in DISC COORDINATES (pupil / iris). The ceiling
+    // is below 1 because a pupil that filled the iris would leave no iris at
+    // all, and the floor keeps the soft edge band from collapsing to nothing.
+    inline constexpr f32 kMinSkinPupilRadialRatio = 0.02f;
+    inline constexpr f32 kMaxSkinPupilRadialRatio = 0.95f;
+
+    // How wide the pupil's soft edge is, as a fraction of the pupil radius.
+    // FIXED RATHER THAN AUTHORED: it is an anti-aliasing measure, not a look —
+    // the real pupil margin is a few tens of microns and would be a hard step at
+    // any render resolution, which crawls under a temporal upscaler. Expressed
+    // as a fraction so a constricted pupil does not become all edge.
+    inline constexpr f32 kSkinPupilEdgeBandFraction = 0.06f;
+
+    // The axial distance from the eye's APEX to the iris plane.
+    //
+    // 2.48 mm IS THE DEFAULT AND IT IS NOT THE CLINICAL ANTERIOR CHAMBER DEPTH,
+    // which is 3.6 mm, and the difference is the one number in this block that
+    // needs its own defence. The clinical figure is measured from the CORNEAL
+    // apex, and a sphere-primitive eye has no corneal bulge: its apex sits
+    // 1.12 mm behind where a real one would. 3.6 - 1.12 = 2.48 mm, DERIVED from
+    // the schematic eye rather than fitted to a frame — question 4b of the
+    // optical reference sweeps this value and finds a flat-bottomed curve
+    // around it, so the derived number costs 0.7 points of accuracy against the
+    // best fitted one and is worth it for being re-derivable.
+    //
+    // An eye mesh WITH corneal geometry authors the clinical 3.6 here, together
+    // with CorneaRadiusMM == EyeRadiusMM above.
+    inline constexpr f32 kMinSkinIrisPlaneDepthMM = 0.2f;
+    inline constexpr f32 kMaxSkinIrisPlaneDepthMM = 8.0f;
+
+    // The derived iris-plane depth in EYE RADII. The ceiling is below 1 because
+    // a plane at or past the eye's centre is behind the equator, where no
+    // refracted ray from the cornea reaches it.
+    inline constexpr f32 kMinSkinIrisPlaneDepthRatio = 0.01f;
+    inline constexpr f32 kMaxSkinIrisPlaneDepthRatio = 0.9f;
+
+    // The cornea's index of refraction, seen from air.
+    //
+    // 1.336 — THE AQUEOUS HUMOUR — AND NOT 1.376, THE CORNEAL STROMA, and this
+    // is the trap in the whole feature. 1.376 is the number an author looks up
+    // for "cornea" and it is twenty times worse: the ray spends 0.55 mm in the
+    // stroma and 3 mm in the aqueous behind it, so the index that decides where
+    // it lands is the one it ENDS in. Measured, in the optical reference: 0.1%
+    // of the iris radius against 2.0%. The error is also in the direction that
+    // looks plausible — it under-refracts, so the eye reads slightly painted.
+    //
+    // The floor is 1, the index of air, which refracts nothing and is a second
+    // way to say "no cornea"; below it the eta inverts and the ray bends the
+    // wrong way. The ceiling is above diamond and far above anything in an eye.
+    inline constexpr f32 kMinSkinCorneaIor = 1.0f;
+    inline constexpr f32 kMaxSkinCorneaIor = 2.5f;
+
+    // The width of the band over which the IRIS DISC fades into the sclera, as
+    // a fraction of the iris radius. NOT AUTHORED: it is the same boundary the
+    // limbal ring is drawn on, so it is derived from LimbalRingWidthMM with a
+    // floor — a ring of width 0 would otherwise give the iris a hard edge, and
+    // a hard edge at the limbus aliases into a crawling circle under any
+    // temporal upscaler.
+    //
+    // The floor is small enough to still read as a limbus rather than as a
+    // gradient, and large enough to span more than one pixel at any resolution
+    // a head is rendered at.
+    inline constexpr f32 kMinSkinIrisEdgeBand = 0.02f;
+
+    // The limbal ring's width, measured inward from the iris edge. 0.7 mm is
+    // the visible band on a mid-tone iris; the ceiling is the iris radius
+    // itself, where the "ring" has become the whole iris.
+    inline constexpr f32 kMinSkinLimbalRingWidthMM = 0.0f;
+    inline constexpr f32 kMaxSkinLimbalRingWidthMM = 12.0f;
+
+    // The derived ring width in DISC COORDINATES (width / iris radius).
+    //
+    // ITS FLOOR IS kMinSkinIrisEdgeBand AND NOT ZERO, which is a correctness
+    // bound rather than a taste one. The ring is a smoothstep over
+    // [1 - 2w, 1 - w] and the iris edge is a smoothstep over [1 - w, 1]; at
+    // w == 0 both collapse to smoothstep(1, 1, x), which is a DIVISION BY THE
+    // SPAN and is undefined in GLSL. The CPU's SmoothStep guards it explicitly
+    // and the shader's builtin does not, so a zero here is a NaN albedo on the
+    // GPU and a clean 0-or-1 on the CPU — a parity divergence that only appears
+    // for an author who set the ring's width to 0 while leaving its strength up.
+    //
+    // A zero-WIDTH ring is meaningless anyway: "no ring" is what
+    // LimbalRingStrength 0 says, exactly and by a cheaper path.
+    inline constexpr f32 kMinSkinLimbalRingWidthRatio = kMinSkinIrisEdgeBand;
+    inline constexpr f32 kMaxSkinLimbalRingWidthRatio = 0.45f;
+
+    // How much albedo the limbal ring takes at its darkest. 1 is fully black,
+    // which is a legal ring rather than a corrupt one — a very dark iris under
+    // a shallow chamber genuinely reads that way — so the ceiling is not a
+    // taste bound. 0 is the neutral default and returns exactly 1.
+    inline constexpr f32 kMinSkinLimbalRingStrength = 0.0f;
+    inline constexpr f32 kMaxSkinLimbalRingStrength = 1.0f;
+
+    // How far the iris dish tilts its shading normal, as a tangent added to the
+    // corneal normal before renormalizing.
+    //
+    // The ceiling is 0.5 and it IS a domain bound rather than taste: the tilt is
+    // added to a unit normal, so at 0.5 the shading normal has turned about 26
+    // degrees off the surface it belongs to, which is already more than the
+    // corneal normal's own variation across the whole iris. Beyond it the
+    // "perturbation" would be the dominant term and the specular highlight —
+    // which must stay where the cornea put it — would start to slide.
+    inline constexpr f32 kMinSkinIrisConcavity = 0.0f;
+    inline constexpr f32 kMaxSkinIrisConcavity = 0.5f;
+
+    // @brief The ocular half of a skin profile's authored parameters (#1244).
+    //
+    // A nested aggregate for the reason SkinOralParameters is one: every
+    // function in Renderer/SkinOcularSurface.h that needs only the geometry can
+    // take THIS, and the derivation of the four corneal ratios reads as a
+    // property of five lengths instead of of twenty-nine fields. Serialized as
+    // part of the profile and sanitized by the profile's own Sanitize() —
+    // SkinProfile.h promises ONE validation gate and this struct does not open
+    // a fourth.
+    struct SkinOcularParameters
+    {
+        // THE MASTER SWITCH. How much of the ocular model applies. Meaningful
+        // only at transport version 5 (SkinEvaluationModel::OcularSurface); the
+        // version branch, not this field, is what stops an older profile
+        // acquiring an eye.
+        //
+        // DEFAULT 0 — no eye, and bit-identical to the version-4 frame. That is
+        // the fourth time this file has made that choice and it is the same
+        // choice: a profile moved to version 5 changes NOTHING until an author
+        // asks for an eye. The neutral-identity arm
+        // SkinOcularSurfaceEvidenceTest captures is that sentence.
+        f32 OcularStrength = 0.0f;
+
+        // How much of the CORNEAL REFRACTION applies, once the eye is on. The
+        // quality ladder for issue #1244's fourth acceptance criterion: 1 is
+        // the full refracted model, 0 is a painted iris that still has a pupil,
+        // a limbal ring and a dish tilt. Continuous in between — the iris-plane
+        // landing point is interpolated, so crossing the ladder does not pop.
+        //
+        // DEFAULT 1, the opposite polarity to OcularStrength above, and the
+        // difference is deliberate: an author who has turned an eye on wants the
+        // refraction, which is the entire reason the eye is a feature rather
+        // than a texture. Turning it DOWN is the deliberate act.
+        //
+        // AUTHORED, NEVER CHOSEN BY THE RENDERER. See the lane comment in
+        // Renderer/SkinOcularSurface.h: an effect that silently degrades is one
+        // nobody notices is missing.
+        f32 RefractionStrength = 1.0f;
+
+        // The five clinical lengths, MILLIMETRES, and the one index. Defaults
+        // are the schematic eye — real values rather than neutral ones, for the
+        // reason SkinOralParameters::CoatIor defaults to saliva: these are not
+        // effects an author opts into but MATERIAL CONSTANTS, and a profile that
+        // had an eye and no eye radius would have to invent one.
+        f32 EyeRadiusMM = 12.0f;
+        f32 CorneaRadiusMM = 7.8f;
+        f32 IrisRadiusMM = 5.85f;
+        f32 PupilRadiusMM = 2.0f;
+        f32 IrisPlaneDepthMM = 2.48f;
+        f32 CorneaIor = 1.336f;
+
+        // The limbal ring. WIDTH is a shape and defaults to a real 0.7 mm;
+        // STRENGTH is the effect and defaults to 0, so the ring costs nothing
+        // and shows nothing until it is authored.
+        f32 LimbalRingWidthMM = 0.7f;
+        f32 LimbalRingStrength = 0.0f;
+
+        // How dark the pupil is. 1 — fully black — is the DEFAULT rather than
+        // the neutral 0, because a pupil is an aperture into an absorbing
+        // chamber and a profile with an eye and a bright pupil is not a look,
+        // it is a missing field. It is still gated by OcularStrength, so a
+        // neutral profile is unaffected.
+        f32 PupilDarkening = 1.0f;
+
+        // The iris dish's tilt. The effect, so 0.
+        f32 IrisConcavity = 0.0f;
+
+        // The iris's own colour, LINEAR Rec.709, [0,1]. MULTIPLIED into the
+        // material's albedo inside the iris disc and faded out at the limbus,
+        // so the sclera keeps whatever the material authored.
+        //
+        // WHITE IS THE DEFAULT AND IT IS THE NEUTRAL ONE: multiplying by 1
+        // changes nothing, so a profile that has not authored an iris colour
+        // shades exactly as it did. That is the same property every other
+        // default in this struct has, reached here by the colour's identity
+        // rather than by a zero.
+        //
+        // A MULTIPLY AND NOT A REPLACE, which is what makes white neutral and
+        // is also the physically sensible direction: an iris is PIGMENTED
+        // TISSUE seen through the same chamber the sclera is, so it is darker
+        // and more saturated than the surface around it, never brighter. An
+        // author who wants a pale blue iris on a warm sclera writes the
+        // TRANSMITTANCE of that pigment here, which is what they would measure.
+        //
+        // WITHOUT THIS THE EYE IS A SPHERE WITH A DOT. The limbal ring and the
+        // pupil alone leave the iris exactly the colour of the sclera, which
+        // reads worse than the "flat painted eye" issue #1244's second
+        // acceptance criterion forbids — and that is how the first evidence
+        // capture of this feature came out.
+        glm::vec3 IrisColor{ 1.0f, 1.0f, 1.0f };
+
+        // Clamp every field into its bound and replace every non-finite value
+        // with the default. Returns true when nothing had to be corrected.
+        // Called by SkinProfileParameters::Sanitize, never on its own.
+        bool Sanitize();
+
+        [[nodiscard]] bool operator==(const SkinOcularParameters& other) const noexcept;
+    };
 
     // @brief The oral-surface half of a skin profile's authored parameters
     //        (issue #1245).
@@ -515,6 +816,11 @@ namespace OloEngine
         // transport version 4; see SkinOralParameters above and
         // Renderer/SkinOralSurface.h.
         SkinOralParameters Oral{};
+
+        // The cornea, the iris behind it and the tear line (issue #1244). Read
+        // only at transport version 5; see SkinOcularParameters above and
+        // Renderer/SkinOcularSurface.h.
+        SkinOcularParameters Ocular{};
 
         // Clamp every field into its bound and replace every non-finite value
         // with the default. Returns true when nothing had to be corrected, so

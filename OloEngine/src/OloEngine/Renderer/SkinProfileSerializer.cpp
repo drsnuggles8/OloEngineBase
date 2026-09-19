@@ -101,6 +101,28 @@ namespace OloEngine
         out << YAML::Key << "CoatIor" << YAML::Value << p.Oral.CoatIor;
         out << YAML::Key << "CavityOcclusion" << YAML::Value << p.Oral.CavityOcclusion;
         out << YAML::EndMap;
+
+        // The eye (issue #1244), nested for the reason the three blocks above
+        // are. TWELVE fields rather than four, and they are worth the space:
+        // six of them are clinical lengths and an index, which is what lets an
+        // author read this block against a real eye instead of against a
+        // shader. Written in the order the guide's authoring table lists them —
+        // the two strengths first, because they are the two an author touches.
+        out << YAML::Key << "Ocular" << YAML::Value << YAML::BeginMap;
+        out << YAML::Key << "OcularStrength" << YAML::Value << p.Ocular.OcularStrength;
+        out << YAML::Key << "RefractionStrength" << YAML::Value << p.Ocular.RefractionStrength;
+        out << YAML::Key << "EyeRadiusMM" << YAML::Value << p.Ocular.EyeRadiusMM;
+        out << YAML::Key << "CorneaRadiusMM" << YAML::Value << p.Ocular.CorneaRadiusMM;
+        out << YAML::Key << "IrisRadiusMM" << YAML::Value << p.Ocular.IrisRadiusMM;
+        out << YAML::Key << "PupilRadiusMM" << YAML::Value << p.Ocular.PupilRadiusMM;
+        out << YAML::Key << "IrisPlaneDepthMM" << YAML::Value << p.Ocular.IrisPlaneDepthMM;
+        out << YAML::Key << "CorneaIor" << YAML::Value << p.Ocular.CorneaIor;
+        out << YAML::Key << "LimbalRingWidthMM" << YAML::Value << p.Ocular.LimbalRingWidthMM;
+        out << YAML::Key << "LimbalRingStrength" << YAML::Value << p.Ocular.LimbalRingStrength;
+        out << YAML::Key << "PupilDarkening" << YAML::Value << p.Ocular.PupilDarkening;
+        out << YAML::Key << "IrisConcavity" << YAML::Value << p.Ocular.IrisConcavity;
+        EmitVec3(out, "IrisColor", p.Ocular.IrisColor);
+        out << YAML::EndMap;
         out << YAML::EndMap;
         out << YAML::EndMap;
         return std::string(out.c_str());
@@ -216,6 +238,56 @@ namespace OloEngine
                 parameters.Oral.CoatIor = ReadFinite(oral["CoatIor"], defaults.Oral.CoatIor, "Oral.CoatIor");
                 parameters.Oral.CavityOcclusion =
                     ReadFinite(oral["CavityOcclusion"], defaults.Oral.CavityOcclusion, "Oral.CavityOcclusion");
+            }
+
+            // The eye (issue #1244). Same shape and same argument as the three
+            // blocks above: a file written before #1244 has no Ocular node,
+            // every field keeps its default, and such a file is at transport
+            // version 0..4 where none of them is evaluated. So a .oloskin
+            // authored against any earlier version round-trips to the SAME
+            // PIXELS — which is the prior-on-disk-version cell of this task's
+            // verification matrix, and SkinProfileTest pins it as an assertion
+            // rather than as a claim.
+            //
+            // NINE OF THE TWELVE DEFAULT TO NON-ZERO — the five clinical
+            // lengths, the index, the ring width, the pupil darkening and
+            // RefractionStrength — so an old file loaded here does acquire
+            // them. That is not a behaviour change for it, for the reason the
+            // note above gives about CoatRoughness: they are read only at
+            // version 5, and OcularStrength, the field that decides whether
+            // they are read at all, still defaults to 0.
+            if (auto ocular = section["Ocular"]; ocular)
+            {
+                const auto read = [&](const char* key, f32 fallback, const char* label)
+                {
+                    return ReadFinite(ocular[key], fallback, label);
+                };
+                parameters.Ocular.OcularStrength =
+                    read("OcularStrength", defaults.Ocular.OcularStrength, "Ocular.OcularStrength");
+                parameters.Ocular.RefractionStrength =
+                    read("RefractionStrength", defaults.Ocular.RefractionStrength, "Ocular.RefractionStrength");
+                parameters.Ocular.EyeRadiusMM =
+                    read("EyeRadiusMM", defaults.Ocular.EyeRadiusMM, "Ocular.EyeRadiusMM");
+                parameters.Ocular.CorneaRadiusMM =
+                    read("CorneaRadiusMM", defaults.Ocular.CorneaRadiusMM, "Ocular.CorneaRadiusMM");
+                parameters.Ocular.IrisRadiusMM =
+                    read("IrisRadiusMM", defaults.Ocular.IrisRadiusMM, "Ocular.IrisRadiusMM");
+                parameters.Ocular.PupilRadiusMM =
+                    read("PupilRadiusMM", defaults.Ocular.PupilRadiusMM, "Ocular.PupilRadiusMM");
+                parameters.Ocular.IrisPlaneDepthMM =
+                    read("IrisPlaneDepthMM", defaults.Ocular.IrisPlaneDepthMM, "Ocular.IrisPlaneDepthMM");
+                parameters.Ocular.CorneaIor =
+                    read("CorneaIor", defaults.Ocular.CorneaIor, "Ocular.CorneaIor");
+                parameters.Ocular.LimbalRingWidthMM =
+                    read("LimbalRingWidthMM", defaults.Ocular.LimbalRingWidthMM, "Ocular.LimbalRingWidthMM");
+                parameters.Ocular.LimbalRingStrength =
+                    read("LimbalRingStrength", defaults.Ocular.LimbalRingStrength, "Ocular.LimbalRingStrength");
+                parameters.Ocular.PupilDarkening =
+                    read("PupilDarkening", defaults.Ocular.PupilDarkening, "Ocular.PupilDarkening");
+                parameters.Ocular.IrisConcavity =
+                    read("IrisConcavity", defaults.Ocular.IrisConcavity, "Ocular.IrisConcavity");
+                parameters.Ocular.IrisColor = ReadFiniteVec3(ocular["IrisColor"], defaults.Ocular.IrisColor,
+                                                             "Ocular.IrisColor");
             }
 
             if (!profile->SetParameters(parameters))

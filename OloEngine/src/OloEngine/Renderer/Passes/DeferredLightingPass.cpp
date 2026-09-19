@@ -484,6 +484,15 @@ namespace OloEngine
                 // zeroing the lane here as well would put one decision in two
                 // places and let them disagree.
                 controls.SkinOralLane[slot] = SkinOralLane(parameters);
+                // NO OCULAR LANE HERE, AND THAT IS THE POINT (issue #1244).
+                // The cornea, the iris and the tear line resolve in the
+                // MATERIAL stage — PBR_GBuffer{,_Skinned}.glsl writes an albedo
+                // and a normal that already have the refraction in them — so
+                // this pass is handed a finished G-Buffer and needs none of the
+                // twelve ocular numbers. Stated rather than left as an absence,
+                // because "the fourth table is missing" is otherwise
+                // indistinguishable from the fourth table having been forgotten,
+                // which is exactly the shape of the #1288 lane bug.
             }
         }
 

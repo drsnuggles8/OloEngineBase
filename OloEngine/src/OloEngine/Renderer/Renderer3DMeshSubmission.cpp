@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Occlusion/OcclusionState.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/SkinLayeredSpecular.h"
+#include "OloEngine/Renderer/SkinOcularSurface.h"
 #include "OloEngine/Renderer/SkinOralSurface.h"
 #include "OloEngine/Renderer/SkinTransmission.h"
 #include "OloEngine/Renderer/SubmeshMaterialResolve.h"
@@ -582,6 +583,31 @@ namespace OloEngine
                 if (SkinEvaluatesOralSurface(profile.Parameters.EvaluationModel))
                     data.skinOralLane = SkinOralLane(profile.Parameters);
 
+                // THE EYE (issue #1244). Packed here for the reason every lane
+                // above it is, with one difference worth naming: there is no
+                // deferred table to keep in step, because the ocular terms
+                // resolve in the MATERIAL stage on all three paths. So this is
+                // the only site that packs them, and the "two tables could
+                // disagree" hazard the comments above guard against does not
+                // exist for these three.
+                //
+                // ONLY AT TRANSPORT VERSION 5, so a version-4 profile does not
+                // even upload an eye. A version this code has no arm for leaves
+                // the lanes zero, whose master component is zero, which shades
+                // as version-4 skin.
+                //
+                // ALL FOUR OR NONE. They are packed together and gated once,
+                // because a cornea lane without its iris lane is an eye whose
+                // refraction lands on a disc of radius zero — a division this
+                // code refuses and a frame nobody would be able to read.
+                if (SkinEvaluatesOcularSurface(profile.Parameters.EvaluationModel))
+                {
+                    data.skinOcularCorneaLane = SkinOcularCorneaLane(profile.Parameters);
+                    data.skinOcularIrisLane = SkinOcularIrisLane(profile.Parameters);
+                    data.skinOcularResponseLane = SkinOcularResponseLane(profile.Parameters);
+                    data.skinOcularTintLane = SkinOcularTintLane(profile.Parameters);
+                }
+
                 // TRANSMISSION IS TESTED WITH `>=`-IN-SPIRIT AND SPELLED OUT,
                 // because the versions are CUMULATIVE: version 3 is "everything
                 // version 2 does, plus the layered specular", so a version-3
@@ -594,7 +620,8 @@ namespace OloEngine
                 // oloSkinDiffusionOutput.
                 if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                     profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
+                    profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
                 {
                     data.skinTransmitScatter = SkinTransmissionScatterLane(profile.Parameters);
                     data.skinTransmitScaling = SkinTransmissionScalingLane(profile.Parameters);
@@ -2606,7 +2633,8 @@ namespace OloEngine
                             // because the failure is otherwise invisible.
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
@@ -2692,7 +2720,8 @@ namespace OloEngine
                             // because the failure is otherwise invisible.
                             if (profile.Parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
                                 profile.Parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface)
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
+                                profile.Parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
                             {
                                 Renderer3D::GetSkinProfileTable().ReportTransmissionFallback(
                                     SkinTransmissionFallbackReason::DeferredThicknessLaneUnavailable,
