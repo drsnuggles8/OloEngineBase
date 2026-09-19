@@ -144,6 +144,23 @@ namespace OloEngine
             f32 MaxDistance = 0.0f;
         };
 
+        // The layer's LOD transition + density parameters (issue #1237),
+        // already packed into the two lanes FoliageUBO::LodTransition0/1
+        // carries. PER LAYER rather than per view, which is why they ride
+        // their own argument instead of ViewInputs: the same layer is culled
+        // for the main view and four cascades, and all five must thin the
+        // SAME plants or a cascade casts shadows for plants the beauty pass
+        // dropped.
+        //
+        // Not on LayerResources either: that is rebuilt only when the registry
+        // generation moves, and these are authored numbers the editor can
+        // change on any frame without the plants changing at all.
+        struct LodInputs
+        {
+            glm::vec4 Transition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+            glm::vec4 Transition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+        };
+
         // Per-LAYER GPU data: group bounds + the row -> group table + the bounds
         // profile. Rebuilt only when the registry generation moves, which is
         // what makes the per-frame cost two dispatches and no uploads.
@@ -235,7 +252,13 @@ namespace OloEngine
         // instance stream. Returns false without dispatching when anything is
         // missing, so the caller can take the uncompacted path.
         bool Cull(const LayerResources& layer, ViewResources& view, RHI::ResourceHandle sourceInstances,
-                  std::span<const Part> parts, const ViewInputs& inputs, bool emitStats);
+                  std::span<const Part> parts, const ViewInputs& inputs, bool emitStats,
+                  // NOT defaulted: `= {}` needs LodInputs's default member
+                  // initializers inside the enclosing class body, which Clang
+                  // rejects (MSVC accepts it non-conformingly) — the same trap
+                  // Renderer3D::DrawFoliageLayer's `impostor` parameter
+                  // documents. Callers pass `LodInputs{}` for the identity.
+                  const LodInputs& lod);
 
         // Artificially shrink the capacity the append bound-checks against, so
         // the overflow path can be exercised for real (issue #1235's fourth
@@ -343,8 +366,17 @@ namespace OloEngine
         u32 StatsPad0 = 0;
         u32 StatsPad1 = 0;
         u32 StatsPad2 = 0;
+        // Coverage-preserving density LOD (issue #1237), in exactly the two
+        // lanes FoliageUBO::LodTransition0/1 carry and with the same packing —
+        // FoliageLod::PackFlags for the first component. The cull drops a row
+        // precisely when FoliageLod::EvaluateDensity says its alpha is 0, so a
+        // plant the cull removed is one the draw would have drawn fully
+        // transparent, never one that was still on screen. Both default to the
+        // identity, so a layer with the feature off culls exactly as it did.
+        glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+        glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
     };
-    static_assert(sizeof(FoliageCullStateHeader) == 160, "FoliageCullStateHeader must match the std430 block");
+    static_assert(sizeof(FoliageCullStateHeader) == 192, "FoliageCullStateHeader must match the std430 block");
 
     // One DrawElementsIndirectCommand as the kernels and both backends read it.
     struct FoliageCullDrawArgs

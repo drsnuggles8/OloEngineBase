@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 #include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Core/YAMLConverters.h"
 
@@ -1661,6 +1662,35 @@ namespace OloEngine
                     layer.ImpostorStartDistance = std::max(v, 0.0f);
                 if (const f32 v = layerNode["ImpostorTransitionBand"].as<f32>(layer.ImpostorTransitionBand); std::isfinite(v))
                     layer.ImpostorTransitionBand = std::max(v, 0.0f);
+
+                // LOD transitions + coverage-preserving density (issue #1237).
+                // A scene authored before this reads NONE of these keys and
+                // keeps the constructor defaults, every one of which is the
+                // identity — so its ladder is exactly the ladder it had. The
+                // bounds mirror FoliageLod::Sanitise; both are applied, here so
+                // the editor shows sane numbers and there so a value that
+                // reached the struct another way still cannot NaN a smoothstep.
+                if (const f32 v = layerNode["LodTransitionSpread"].as<f32>(layer.LodTransitionSpread); std::isfinite(v))
+                    layer.LodTransitionSpread = std::clamp(v, 0.0f, 500.0f);
+                if (const f32 v = layerNode["LodHysteresis"].as<f32>(layer.LodHysteresis); std::isfinite(v))
+                    layer.LodHysteresis = std::clamp(v, 0.0f, 0.5f);
+                layer.LodStochasticCoverage =
+                    layerNode["LodStochasticCoverage"].as<bool>(layer.LodStochasticCoverage);
+                layer.UseDensityLod = layerNode["UseDensityLod"].as<bool>(layer.UseDensityLod);
+                if (const f32 v = layerNode["DensityLodStartDistance"].as<f32>(layer.DensityLodStartDistance);
+                    std::isfinite(v))
+                    layer.DensityLodStartDistance = std::max(v, 0.0f);
+                if (const f32 v = layerNode["DensityLodEndDistance"].as<f32>(layer.DensityLodEndDistance);
+                    std::isfinite(v))
+                    layer.DensityLodEndDistance = std::max(v, layer.DensityLodStartDistance);
+                if (const f32 v = layerNode["DensityLodMinFraction"].as<f32>(layer.DensityLodMinFraction);
+                    std::isfinite(v))
+                    layer.DensityLodMinFraction = std::clamp(v, FoliageLod::kMinKeepFraction, 1.0f);
+                if (const f32 v = layerNode["DensityLodFadeFraction"].as<f32>(layer.DensityLodFadeFraction);
+                    std::isfinite(v))
+                    layer.DensityLodFadeFraction = std::clamp(v, 0.0f, 1.0f);
+                if (const f32 v = layerNode["DensityLodMaxScale"].as<f32>(layer.DensityLodMaxScale); std::isfinite(v))
+                    layer.DensityLodMaxScale = std::clamp(v, 1.0f, 8.0f);
                 layer.ImpostorFramesPerAxis = layerNode["ImpostorFramesPerAxis"].as<u32>(layer.ImpostorFramesPerAxis);
                 layer.ImpostorAtlasResolution = layerNode["ImpostorAtlasResolution"].as<u32>(layer.ImpostorAtlasResolution);
                 layer.ImpostorHemiOctahedral = layerNode["ImpostorHemiOctahedral"].as<bool>(layer.ImpostorHemiOctahedral);
@@ -5924,6 +5954,16 @@ namespace OloEngine
                     out << YAML::Key << "UseImpostor" << YAML::Value << layer.UseImpostor;
                     out << YAML::Key << "ImpostorStartDistance" << YAML::Value << layer.ImpostorStartDistance;
                     out << YAML::Key << "ImpostorTransitionBand" << YAML::Value << layer.ImpostorTransitionBand;
+                    // LOD transitions + coverage-preserving density (#1237).
+                    out << YAML::Key << "LodTransitionSpread" << YAML::Value << layer.LodTransitionSpread;
+                    out << YAML::Key << "LodHysteresis" << YAML::Value << layer.LodHysteresis;
+                    out << YAML::Key << "LodStochasticCoverage" << YAML::Value << layer.LodStochasticCoverage;
+                    out << YAML::Key << "UseDensityLod" << YAML::Value << layer.UseDensityLod;
+                    out << YAML::Key << "DensityLodStartDistance" << YAML::Value << layer.DensityLodStartDistance;
+                    out << YAML::Key << "DensityLodEndDistance" << YAML::Value << layer.DensityLodEndDistance;
+                    out << YAML::Key << "DensityLodMinFraction" << YAML::Value << layer.DensityLodMinFraction;
+                    out << YAML::Key << "DensityLodFadeFraction" << YAML::Value << layer.DensityLodFadeFraction;
+                    out << YAML::Key << "DensityLodMaxScale" << YAML::Value << layer.DensityLodMaxScale;
                     out << YAML::Key << "ImpostorFramesPerAxis" << YAML::Value << layer.ImpostorFramesPerAxis;
                     out << YAML::Key << "ImpostorAtlasResolution" << YAML::Value << layer.ImpostorAtlasResolution;
                     out << YAML::Key << "ImpostorHemiOctahedral" << YAML::Value << layer.ImpostorHemiOctahedral;

@@ -178,7 +178,12 @@ namespace OloEngine
     // keeps the constructor default of 1 — which is right, because the
     // feature's off switch is the absence of an influence SOURCE, and a v36
     // save cannot contain one.
-    static constexpr u32 kSaveGameFormatVersion = 37;
+    // v38 (issue #1237): FoliageLayer's LOD transition spread and hysteresis,
+    // the stochastic-coverage switch and the coverage-preserving density band.
+    // A v37 save stops before them and keeps the constructor defaults, every
+    // one of which is the identity — so its plants hand over at exactly the
+    // distances that save's build handed over at, and none of them thins.
+    static constexpr u32 kSaveGameFormatVersion = 38;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Oldest FormatVersion this build will still load. Every version from here up to

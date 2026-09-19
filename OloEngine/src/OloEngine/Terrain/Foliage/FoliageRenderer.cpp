@@ -521,6 +521,24 @@ namespace OloEngine
         data.InstanceCount = requiredCount;
     }
 
+    namespace
+    {
+        // The two FoliageUBO lanes, from the sanitised parameters. ONE
+        // definition of the packing (issue #1237): the beauty submission path,
+        // the shadow path, the direct Render() path and the cull state header
+        // all take their lanes from here, so a reordering cannot leave one
+        // site reading `end` where another writes `minFraction`.
+        [[nodiscard]] glm::vec4 FoliageLodTransition0(const FoliageLod::Params& lod)
+        {
+            return glm::vec4(FoliageLod::PackFlags(lod), lod.Start, lod.End, lod.MinFraction);
+        }
+
+        [[nodiscard]] glm::vec4 FoliageLodTransition1(const FoliageLod::Params& lod)
+        {
+            return glm::vec4(lod.FadeFraction, lod.MaxScale, lod.TransitionSpread, lod.Hysteresis);
+        }
+    } // namespace
+
     void FoliageRenderer::EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const
     {
         out.clear();
@@ -548,6 +566,8 @@ namespace OloEngine
                 draw.HandoverEnd = handoverEnd;
                 draw.FadeStart = data.FadeStartDistance;
                 draw.ViewDistance = data.ViewDistance;
+                draw.LodTransition0 = FoliageLodTransition0(data.Lod);
+                draw.LodTransition1 = FoliageLodTransition1(data.Lod);
                 out.push_back(std::move(draw));
             }
         }
@@ -568,6 +588,8 @@ namespace OloEngine
             draw.HandoverEnd = handoverEnd;
             draw.FadeStart = data.FadeStartDistance;
             draw.ViewDistance = data.ViewDistance;
+            draw.LodTransition0 = FoliageLodTransition0(data.Lod);
+            draw.LodTransition1 = FoliageLodTransition1(data.Lod);
             out.push_back(std::move(draw));
         }
     }
@@ -679,6 +701,27 @@ namespace OloEngine
                 std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
             renderData.BaseColor = layer.BaseColor;
             renderData.AlphaCutoff = layer.AlphaCutoff;
+
+            // LOD transitions + coverage-preserving density (issue #1237).
+            // Sanitised HERE, once, for the same reason InteractionResponse
+            // above is: these numbers reach a smoothstep and a reciprocal
+            // square root in four shader stages AND the cull kernel's drop
+            // test, and the cull may only remove plants the draw would have
+            // drawn transparent — which is only true while both sides read the
+            // same sanitised value.
+            {
+                FoliageLod::Params authored;
+                authored.Enabled = layer.UseDensityLod;
+                authored.StochasticCoverage = layer.LodStochasticCoverage;
+                authored.Start = layer.DensityLodStartDistance;
+                authored.End = layer.DensityLodEndDistance;
+                authored.MinFraction = layer.DensityLodMinFraction;
+                authored.FadeFraction = layer.DensityLodFadeFraction;
+                authored.MaxScale = layer.DensityLodMaxScale;
+                authored.TransitionSpread = layer.LodTransitionSpread;
+                authored.Hysteresis = layer.LodHysteresis;
+                renderData.Lod = FoliageLod::Sanitise(authored);
+            }
 
             // Near-field hand-over band (issue #1233). Sanitised here rather
             // than trusted: these reach a smoothstep in the vertex and fragment
@@ -830,6 +873,32 @@ namespace OloEngine
             // would retire and re-issue the whole layer's ids as it walked past.
             renderData.BoundsProfile.m_InteractionDisplacement =
                 FoliageInteractionMaximumDisplacement(renderData.InteractionResponse);
+
+            // Coverage-preserving density GROWS the surviving plants (issue
+            // #1237), and a plant is culled by its bound. Uncompensated, the
+            // bound describes the authored size while the vertex stages draw up
+            // to MaxScale times it, so a grown plant is rejected by a box
+            // smaller than the plant and pops in at the edge of the frustum.
+            //
+            // Inflated by the CAP rather than by the distance-dependent factor,
+            // for two reasons that both matter more than the tightness lost: a
+            // bound has to be CONSERVATIVE, and it is hashed into every
+            // instance's identity — a bound that moved with the camera would
+            // retire and re-issue the whole layer's ids every frame, exactly
+            // the trap the interaction displacement above documents.
+            //
+            // Applied here, after every other term, so the registry, the CPU
+            // per-layer AABB and the GPU cull's oloFoliageInstanceBounds all
+            // read the same inflated profile with no shader change at all.
+            if (renderData.Lod.Enabled)
+            {
+                const f32 grow = std::max(renderData.Lod.MaxScale, 1.0f);
+                renderData.BoundsProfile.m_HalfExtentXZ *= grow;
+                renderData.BoundsProfile.m_HalfExtentXZHeightScaled *= grow;
+                renderData.BoundsProfile.m_MinY *= grow;
+                renderData.BoundsProfile.m_MaxY *= grow;
+            }
+
             m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
                                   FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
                                   FoliagePlacement::SpacingForDensity(layer.Density),
@@ -980,6 +1049,9 @@ namespace OloEngine
                 foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
                                                       draw.HandoverStart, draw.HandoverEnd, 0.0f);
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                // The #1237 lanes, from the draw the enumeration packed them on.
+                foliageUBOData.LodTransition0 = draw.LodTransition0;
+                foliageUBOData.LodTransition1 = draw.LodTransition1;
                 // The interaction field (issue #1238). Read from the field
                 // itself, exactly as the wind snapshot above is — the set is
                 // global per frame, so only the layer's response is per draw.
@@ -1145,6 +1217,9 @@ namespace OloEngine
                 // the lit frame drew the card and the plant's shadow would be a
                 // different shape than the plant (issue #1233, fourth criterion).
                 foliageUBOData.MeshViewPos = glm::vec4(renderRelativeViewPos, 0.0f);
+                // The #1237 lanes, from the draw the enumeration packed them on.
+                foliageUBOData.LodTransition0 = draw.LodTransition0;
+                foliageUBOData.LodTransition1 = draw.LodTransition1;
                 // The SAME influence set the lit pass reads (issue #1238).
                 // Without it a plant bends and its shadow does not, which reads
                 // as a detached shadow rather than as a missing feature.
@@ -1338,6 +1413,8 @@ namespace OloEngine
                 info.MeshHandoverEndDistance = draw.HandoverEnd;
                 info.ViewDistance = draw.ViewDistance;
                 info.FadeStartDistance = draw.FadeStart;
+                info.LodTransition0 = draw.LodTransition0;
+                info.LodTransition1 = draw.LodTransition1;
                 info.WindStrength = layer.WindStrength;
                 info.WindSpeed = layer.WindSpeed;
                 info.WindWeights = layer.WindWeights;
@@ -1563,8 +1640,15 @@ namespace OloEngine
             // Only the MAIN view publishes the ratio counters — see the
             // s_EmitStats comment in FoliageCullCommon.glsl.
             const bool emitStats = slotIndex == static_cast<u32>(FoliageGPUCuller::ViewSlot::Main);
+            // The SAME packed lanes every one of this layer's draws carries
+            // (issue #1237), so the main view and all four cascades thin the
+            // same plants — a cascade that kept a thinned-out plant would cast
+            // a shadow with nothing above it.
+            FoliageGPUCuller::LodInputs lodInputs;
+            lodInputs.Transition0 = FoliageLodTransition0(layer.Lod);
+            lodInputs.Transition1 = FoliageLodTransition1(layer.Lod);
             if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), parts, layerInputs,
-                              emitStats))
+                              emitStats, lodInputs))
             {
                 view.Active = true;
                 any = true;

@@ -3,7 +3,7 @@
 // Foliage_Impostor_GBuffer.glsl (deferred, #1225). Included by the FRAGMENT
 // stage after it has declared: the CameraMatrices and FoliageParams UBO blocks
 // and the varyings v_CardWorld, v_PivotWorld, v_AlphaCutoff, v_Rotation,
-// v_Radius, v_MeshCoverage. Declares the two atlas samplers itself.
+// v_Radius, v_MeshCoverage, v_LodSeedFade. Declares the two atlas samplers itself.
 //
 // SampleImpostorCard() also owns the DISCARD RULE, on purpose. The two paths
 // used to disagree: forward discarded on `coverage < cutoff` and past
@@ -165,17 +165,39 @@ ImpostorSample SampleImpostorCard()
     // partition whose near side is the plant's real geometry, and a forward
     // copy and a deferred copy of that test would drift exactly as the coverage
     // test once did. `false` = this draw is the card side.
-    if (!foliageLodKeep(false, v_MeshCoverage, gl_FragCoord.xy))
+    if (!foliageLodKeep(false, v_MeshCoverage, gl_FragCoord.xy, v_LodSeedFade.x,
+                        foliageStochasticCoverage(u_LodTransition0)))
         discard;
 
     // Alpha test against the baked coverage.
     if (coverage < v_AlphaCutoff)
         discard;
 
-    // Distance fade (matches the flat-billboard path).
-    float distFade = 1.0 - smoothstep(u_FadeStart, u_ViewDistance, dist);
+    // Distance fade (matches the flat-billboard path), times this plant's
+    // per-instance thinning fade (issue #1237) and its layer fade — the same
+    // product the flat card forms from v_Fade, carried here on v_LodSeedFade.y
+    // because this stage never read the instance fade lane.
+    float distFade = (1.0 - smoothstep(u_FadeStart, u_ViewDistance, dist)) * v_LodSeedFade.y;
     if (distFade <= 0.0)
         discard;
+
+    // In a pass with NO ALPHA to blend the fade has to become a keep-or-
+    // discard, and every consumer of this function resolves it the same way
+    // (issue #1237): the deferred card writes a G-Buffer and the shadow card
+    // writes depth, so both would otherwise take a hard cut-off that deletes
+    // the far canopy along a line. Dithered, it dissolves. The forward card
+    // blends `Coverage * DistFade` as it always did and skips this.
+// THE FADE, not `coverage * distFade`. The baked coverage is this card's
+// cutout and was already tested against v_AlphaCutoff above; dithering the
+// product would stipple every card's silhouette at every distance. Same
+// argument, same lane, as Foliage_Instance_GBuffer.glsl — and the two must
+// agree, because a layer draws its near geometry and its far card as one
+// partition.
+#ifndef OLO_FOLIAGE_IMPOSTOR_ALPHA_BLENDED
+    if (foliageStochasticCoverage(u_LodTransition0) &&
+        !foliageDensityKeep(distFade, gl_FragCoord.xy, v_LodSeedFade.x))
+        discard;
+#endif
 
     ImpostorSample s;
     s.Albedo = albedo;

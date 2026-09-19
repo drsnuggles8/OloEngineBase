@@ -22,6 +22,8 @@
 #ifndef OLO_FOLIAGE_INSTANCE_GEOMETRY_GLSL
 #define OLO_FOLIAGE_INSTANCE_GEOMETRY_GLSL
 
+#include "FoliageLodTransition.glsl"
+
 // Place a geometry vertex in instance-local space.
 //
 // The CARD is anisotropic: x/z by `scale`, y by `height * scale`. That is
@@ -90,27 +92,111 @@ float foliageMeshCoverage(float dist, float bandStart, float bandEnd)
     return 1.0 - smoothstep(bandStart, end, dist);
 }
 
-// Per-pixel dither threshold. A plain hash, not blue noise: the band is crossed
-// over many frames and the pattern is never still, so the cheap one is not
-// distinguishable here. Quantised to whole pixels so the pattern does not
-// shimmer within a pixel under MSAA sample positions.
-float foliageLodDither(vec2 fragCoord)
+// The same hand-over, DECORRELATED PER INSTANCE and hysteretic (issue #1237).
+//
+// The band keeps its authored WIDTH and slides bodily by this plant's own
+// offset, so every plant still cross-fades over exactly the interval the
+// author sized — only the interval's position differs, and its mean over the
+// layer is the authored one. Sliding only one edge would quietly change the
+// hand-over's duration per plant, which is a different feature.
+//
+// `receding` is (dist >= prevDist) from the CURRENT and PREVIOUS main eye. It
+// moves both edges outward while the viewer retreats and inward while it
+// approaches, so a plant holds the representation it already has. See the C++
+// header for what that does and does not guarantee.
+//
+// EVERY caller must pass the same arguments for a given plant — the mesh draw,
+// the card draw, the impostor draw and the shadow depth stage — or the two
+// sides of the partition disagree and the plant either doubles or disappears
+// across its band. That is why this takes the layer parameters rather than
+// reading a UBO: the shadow stage does not have the same one bound.
+float foliageMeshCoverageLod(float dist, float prevDist, float bandStart, float bandEnd,
+                             float offset01, float spread, float hysteresis)
+{
+    if (bandEnd <= 0.0)
+        return 0.0;
+    // ONE offset for both edges — that is what makes the band slide rather
+    // than stretch. A per-edge factor scales the band's WIDTH by (1 +- h) too,
+    // so a plant's hand-over would take longer walking away than walking in.
+    float shift = foliageLodHysteresisOffset(bandStart, dist >= prevDist, hysteresis);
+    float start = foliageLodTransitionDistance(bandStart, offset01, spread, shift);
+    float end = foliageLodTransitionDistance(bandEnd, offset01, spread, shift);
+    return foliageMeshCoverage(dist, start, end);
+}
+
+// Per-pixel dither threshold.
+//
+// TWO IMPLEMENTATIONS, and the switch between them is the whole reason there
+// are two. The first is the `fract(sin(dot(...)))` hash this started as
+// (issue #1233), kept EXACTLY as it was: it is what every layer authored
+// before #1237 partitions its hand-over with, and replacing it outright moved
+// the committed FoliageWind golden by an SSIM of 0.011 for a layer that had
+// opted into nothing. A transition-smoothing feature must not change the image
+// of a scene that did not ask for it.
+//
+// The second is INTERLEAVED GRADIENT NOISE, decorrelated per plant, and it is
+// what `LodStochasticCoverage` buys. Both are cheap; the difference is the
+// DISTRIBUTION. A sine hash clusters — over any small pixel neighbourhood its
+// values are far from uniform — so a coverage of 0.5 does not hand the mesh
+// half the pixels of a plant that only covers forty of them, it hands it a
+// lumpy two thirds, and across a hand-over that reads as the plant changing
+// DENSITY as well as shape. Interleaved gradient noise is uniform over a 3x3
+// neighbourhood by construction, which is the property the partition needs.
+//
+// `instanceSeed` is this plant's own draw (foliageLodInstanceHash). Without it
+// two overlapping plants mid-hand-over at the same pixel make the SAME
+// keep/discard decision, so their bands correlate and the thinning shows up as
+// a moire between them rather than as noise. It must be a per-INSTANCE
+// constant, never per-fragment: the mesh draw and the card draw have to agree
+// pixel for pixel or neither covers it.
+//
+// Both quantise to whole pixels so the pattern does not shimmer within a pixel
+// under MSAA sample positions.
+float foliageLodDither(vec2 fragCoord, float instanceSeed, bool decorrelate)
 {
     vec2 p = floor(fragCoord);
-    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+    if (!decorrelate)
+        return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+    // The IGN constants (Jimenez 2014), with the instance's draw folded into
+    // the phase the way a frame index normally is.
+    return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y + instanceSeed));
 }
 
 // Does THIS draw own the pixel? The mesh takes the fraction `coverage` of
 // pixels and the card takes the rest, so the two calls partition them exactly.
-bool foliageLodKeep(bool isAuthoredMesh, float coverage, vec2 fragCoord)
+bool foliageLodKeep(bool isAuthoredMesh, float coverage, vec2 fragCoord, float instanceSeed, bool decorrelate)
 {
     if (coverage <= 0.0)
         return !isAuthoredMesh; // past the band (or no mesh at all): card only
     if (coverage >= 1.0)
         return isAuthoredMesh; // inside the band's near end: mesh only
 
-    return isAuthoredMesh ? (foliageLodDither(fragCoord) < coverage)
-                          : (foliageLodDither(fragCoord) >= coverage);
+    float d = foliageLodDither(fragCoord, instanceSeed, decorrelate);
+    return isAuthoredMesh ? (d < coverage) : (d >= coverage);
+}
+
+// The per-instance thinning fade (issue #1237) resolved to a keep/discard in a
+// pass that has NO ALPHA to blend — the G-Buffer, and the shadow depth pass.
+//
+// Stochastic for the same reason the hand-over above is: a hard alpha cut-off
+// would delete a thinning plant the instant its fade dropped below the
+// threshold, which is the pop the density feature exists to remove, moved one
+// step down the ladder. Dithering it means a plant at fade 0.4 keeps four
+// tenths of its pixels and shrinks away instead of vanishing.
+//
+// Only ever reached with the decorrelated dither — it is called behind
+// foliageStochasticCoverage, which is the same switch — and the seed is offset
+// by a constant so a plant that is simultaneously mid-hand-over AND
+// mid-thinning does not make the two decisions with the same number, which
+// would couple them and delete exactly the pixels the other draw was counting
+// on.
+bool foliageDensityKeep(float densityAlpha, vec2 fragCoord, float instanceSeed)
+{
+    if (densityAlpha >= 1.0)
+        return true;
+    if (densityAlpha <= 0.0)
+        return false;
+    return foliageLodDither(fragCoord, fract(instanceSeed + 0.5), true) < densityAlpha;
 }
 
 #endif // OLO_FOLIAGE_INSTANCE_GEOMETRY_GLSL

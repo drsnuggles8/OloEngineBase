@@ -218,6 +218,15 @@ Entities:
           BaseColor: [0.3, 0.46, 0.16]
           Roughness: 0.8
           AlphaCutoff: 0.5
+          LodTransitionSpread: 24
+          LodHysteresis: 0.06
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 40
+          DensityLodEndDistance: 150
+          DensityLodMinFraction: 0.3
+          DensityLodFadeFraction: 0.18
+          DensityLodMaxScale: 2.0
           Enabled: true
         - Name: Wildflowers
           MeshPath: ""
@@ -257,6 +266,15 @@ Entities:
           BaseColor: [0.66, 0.56, 0.24]
           Roughness: 0.8
           AlphaCutoff: 0.5
+          LodTransitionSpread: 18
+          LodHysteresis: 0.06
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 35
+          DensityLodEndDistance: 120
+          DensityLodMinFraction: 0.35
+          DensityLodFadeFraction: 0.18
+          DensityLodMaxScale: 1.8
           Enabled: true
         - Name: Shrubs
           MeshPath: ""
@@ -296,6 +314,15 @@ Entities:
           BaseColor: [0.22, 0.34, 0.14]
           Roughness: 0.8
           AlphaCutoff: 0.5
+          LodTransitionSpread: 30
+          LodHysteresis: 0.08
+          LodStochasticCoverage: true
+          UseDensityLod: false
+          DensityLodStartDistance: 60
+          DensityLodEndDistance: 200
+          DensityLodMinFraction: 0.5
+          DensityLodFadeFraction: 0.15
+          DensityLodMaxScale: 1.5
           Enabled: true
         - Name: Leaf Litter
           MeshPath: ""
@@ -335,6 +362,15 @@ Entities:
           BaseColor: [0.4, 0.29, 0.14]
           Roughness: 0.8
           AlphaCutoff: 0.5
+          LodTransitionSpread: 14
+          LodHysteresis: 0.05
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 25
+          DensityLodEndDistance: 80
+          DensityLodMinFraction: 0.25
+          DensityLodFadeFraction: 0.2
+          DensityLodMaxScale: 2.0
           Enabled: true
         - Name: Dune Grass
           MeshPath: ""
@@ -374,6 +410,15 @@ Entities:
           BaseColor: [0.62, 0.6, 0.32]
           Roughness: 0.8
           AlphaCutoff: 0.5
+          LodTransitionSpread: 20
+          LodHysteresis: 0.06
+          LodStochasticCoverage: true
+          UseDensityLod: true
+          DensityLodStartDistance: 45
+          DensityLodEndDistance: 120
+          DensityLodMinFraction: 0.4
+          DensityLodFadeFraction: 0.18
+          DensityLodMaxScale: 1.6
           Enabled: true
   - Entity: 100000000000041
     TagComponent:

@@ -647,6 +647,27 @@ namespace OloEngine
             glm::vec4 WindClock{ 0.0f };       // current/previous legacy field clocks
             glm::vec4 PrevMeshViewPos{ 0.0f }; // previous main eye, relative to this frame origin
 
+            // ── LOD transition + coverage-preserving density (issue #1237) ──
+            //
+            // Twin of FoliageLod::Params, packed for std140 and decoded by
+            // include/FoliageLodTransition.glsl's foliageDensity* helpers.
+            // Every field's neutral value is here as the default, so a
+            // default-constructed FoliageUBO — which the Render() path and
+            // several tests upload — is the pre-#1237 ladder exactly.
+            //
+            //   LodTransition0 = (densityEnabled, start, end, minFraction)
+            //   LodTransition1 = (fadeFraction, maxScale, transitionSpread,
+            //                     hysteresis)
+            //
+            // `densityEnabled` is a float rather than a bool because the block
+            // is std140 floats; 0 is the off switch. `transitionSpread` and
+            // `hysteresis` are NOT gated by it — they shape the mesh/card and
+            // card/impostor hand-overs, which exist whether or not the layer
+            // thins, and both are 0 by default so an unauthored layer's
+            // hand-over stays the single authored distance it always was.
+            glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
+            glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+
             // -- Local interaction bending (issue #1238) --------------------
             //
             //   x - how many of Interactions below are live. ZERO IS THE OFF
@@ -2621,7 +2642,7 @@ namespace OloEngine
     // include/FoliageParams.glsl and the CPU field cannot disagree about how
     // many influences one frame carries.
     static_assert(sizeof(FoliageInteractionSlot) == 64, "FoliageInteractionSlot must stay four std140 vec4");
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 1312, "FoliageUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 1344, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");

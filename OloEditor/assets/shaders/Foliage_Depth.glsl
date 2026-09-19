@@ -77,6 +77,11 @@ layout(std140, binding = 0) uniform CameraMatrices
 layout(location = 0) out vec2 v_TexCoord;
 layout(location = 1) out float v_AlphaCutoff;
 layout(location = 2) out float v_MeshCoverage;
+// (this plant's own draw, its density fade) — issue #1237, the twin of the
+// beauty stage's v_InstanceSeed / v_Fade pair. The caster set has to thin with
+// the drawn set or a thinned-out plant keeps casting a shadow with nothing
+// above it.
+layout(location = 3) out vec2 v_LodSeedFade;
 
 void main()
 {
@@ -98,6 +103,19 @@ void main()
     float height = a_RotationHeight.y;
     bool isAuthoredMesh = u_MeshParams.x > 0.5;
 
+    // LOD transition + density (issue #1237), from the same pivot, the same
+    // hash and the same UBO parameters the beauty stage uses — the caster and
+    // the drawn plant are the same plant at the same size or the shadow is of
+    // something that is not there.
+    vec3 lodPivot = (u_Model * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    vec3 lodPivotPrev = (u_PrevModel * vec4(a_PositionScale.xyz, 1.0)).xyz;
+    float lodDist = distance(lodPivot, u_MeshViewPos.xyz);
+    float lodPrevDist = distance(lodPivotPrev, u_PrevMeshViewPos.xyz);
+    float instanceSeed = foliageLodInstanceHash(a_PositionScale.xyz);
+    float densityAlpha = foliageDensityAlphaAt(u_LodTransition0, u_LodTransition1, instanceSeed, lodDist);
+    scale *= foliageDensityScaleAt(u_LodTransition0, u_LodTransition1, lodDist);
+    v_LodSeedFade = vec2(instanceSeed, densityAlpha * a_RotationHeight.z);
+
     vec3 rotatedPos = foliageInstanceRotation(rotation) *
                       foliageInstanceLocalPos(a_Position, scale, height, isAuthoredMesh);
 
@@ -110,9 +128,9 @@ void main()
     // origin rather than the camera for exactly the reason this stage exists:
     // u_CameraPosition is the LIGHT's here, and a hand-over keyed on it would
     // shadow the card where the lit frame drew the mesh.
-    vec3 pivotRenderRel = (u_Model * vec4(instancePos, 1.0)).xyz;
-    v_MeshCoverage = foliageMeshCoverage(distance(pivotRenderRel, u_MeshViewPos.xyz),
-                                         u_MeshParams.y, u_MeshParams.z);
+    v_MeshCoverage = foliageMeshCoverageLod(lodDist, lodPrevDist, u_MeshParams.y, u_MeshParams.z,
+                                            instanceSeed, foliageLodSpread(u_LodTransition1),
+                                            foliageLodHysteresis(u_LodTransition1));
 
     v_TexCoord = a_TexCoord;
     v_AlphaCutoff = a_ColorAlpha.a;
@@ -121,7 +139,7 @@ void main()
 
     // Collapse whole instances this draw does not own — see the same guard in
     // FoliageInstanceVertexStage.glsl.
-    if (isAuthoredMesh ? (v_MeshCoverage <= 0.0) : (v_MeshCoverage >= 1.0))
+    if ((isAuthoredMesh ? (v_MeshCoverage <= 0.0) : (v_MeshCoverage >= 1.0)) || densityAlpha <= 0.0)
     {
         gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
     }
@@ -133,6 +151,7 @@ void main()
 layout(location = 0) in vec2 v_TexCoord;
 layout(location = 1) in float v_AlphaCutoff;
 layout(location = 2) in float v_MeshCoverage;
+layout(location = 3) in vec2 v_LodSeedFade;
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -156,7 +175,15 @@ void main()
     // matching coverage, which is what a dithered LOD is; what it cannot do is
     // shadow a quad where the lit frame drew a pine, because the coverage both
     // passes partition is computed per instance from the same pivot.
-    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy))
+    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy, v_LodSeedFade.x,
+                        foliageStochasticCoverage(u_LodTransition0)))
+        discard;
+
+    // The thinning fade, resolved the same way (issue #1237): a depth pass has
+    // no alpha either, so a plant mid-thinning casts a dithered shadow rather
+    // than a full one that vanishes in a frame.
+    if (foliageStochasticCoverage(u_LodTransition0) &&
+        !foliageDensityKeep(v_LodSeedFade.y, gl_FragCoord.xy, v_LodSeedFade.x))
         discard;
 
     float alpha = texture(u_DiffuseTexture, v_TexCoord).a;

@@ -54,7 +54,8 @@ layout(location = 5) in float v_Rotation;
 layout(location = 6) in vec3 v_PrevCardWorld;
 layout(location = 8) in float v_WindDisplacement;
 layout(location = 7) in float v_Radius;
-layout(location = 2) in float v_MeshCoverage; // WORLD-space card radius
+layout(location = 2) in float v_MeshCoverage;
+layout(location = 3) in vec2 v_LodSeedFade; // (instance draw, thinning fade) — issue #1237 // WORLD-space card radius
 
 layout(std140, binding = 0) uniform CameraMatrices
 {

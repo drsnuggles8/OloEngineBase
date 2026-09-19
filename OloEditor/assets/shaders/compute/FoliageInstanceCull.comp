@@ -40,6 +40,7 @@
 layout(local_size_x = 256) in;
 
 #include "../include/FoliageCullCommon.glsl"
+#include "../include/FoliageLodTransition.glsl"
 #include "../include/GPUReadbackStats.glsl"
 
 // One row of FoliageRenderer's 48-byte instance stream. Layout mirrors
@@ -123,6 +124,39 @@ void main()
         return;
     if (oloFoliageBoxDistance(lo, hi) > s_DistanceOrigin.w)
         return;
+
+    // ── Level 3: coverage-preserving density (issue #1237) ──
+    //
+    // The row is dropped only where the vertex stages would have drawn it at
+    // ALPHA ZERO — the same hash, the same keep fraction, the same fade ramp,
+    // from the shared include both sides compile. That equality is the whole
+    // safety argument: this kernel is an optimisation over a decision the draw
+    // makes anyway, so a disagreement could only ever delete a visible plant,
+    // and there is no second copy of the rule to disagree with.
+    //
+    // Measured from the PIVOT here, while the tests above use the padded AABB.
+    // Deliberate, and the same split the mesh hand-over makes: the bounds test
+    // must be conservative (a bent plant whose box still reaches the frustum is
+    // kept), while the thinning is a per-plant identity decision that has to
+    // give the same answer as the vertex stage's, which reads the pivot.
+    //
+    // TERRAIN-LOCAL, like every other distance in this kernel — s_DistanceOrigin
+    // is the main eye put into the same space as the rows (see its comment in
+    // FoliageCullCommon.glsl), so no per-instance transform is needed. The
+    // vertex stages measure the same distance in RENDER-RELATIVE world, and the
+    // two agree exactly while the owning terrain's transform is a rigid motion,
+    // which every authored terrain here is. Under a SCALED terrain transform
+    // they would differ by that scale — the pre-existing draw-distance test two
+    // lines up has the identical property, so this inherits the convention
+    // rather than introducing it, but it is the thing to look at first if a
+    // scaled terrain ever drops a plant that is plainly on screen.
+    if (foliageDensityEnabled(s_LodTransition0))
+    {
+        float lodDist = distance(row.PositionScale.xyz, s_DistanceOrigin.xyz);
+        float lodHash = foliageLodInstanceHash(row.PositionScale.xyz);
+        if (foliageDensityAlphaAt(s_LodTransition0, s_LodTransition1, lodHash, lodDist) <= 0.0)
+            return;
+    }
 
     atomicAdd(s_VisibleCount, 1u);
     if (s_EmitStats != 0u)

@@ -44,6 +44,7 @@
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
+#include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 
 namespace OloEngine
@@ -648,6 +649,19 @@ namespace OloEngine
                 l.TransmissionAmbient = std::clamp(l.TransmissionAmbient, 0.0f, 4.0f);
             }
         }
+        // LOD transitions and coverage-preserving density appended in
+        // save-format v38 (issue #1237). v37 and older saves stop before them
+        // and keep the constructor defaults, every one of which is the
+        // IDENTITY — so an older save's plants hand over at exactly the
+        // distances that save's build handed over at, and none of them thins.
+        //
+        // Appended AFTER the v35 block below it in FIELD ORDER as well as in
+        // version order: this is a positional archive, so the two must agree
+        // or a v38 reader walks a v35 save's bytes into the wrong fields. The
+        // block therefore sits at the very END of this function, not here —
+        // this comment marks only that it exists, because the v35 block below
+        // is where a reader would otherwise expect the newest fields to be.
+        //
         // Species habitat rules, clumping and ground contact appended in
         // save-format v35 (issue #1254). v34 and older saves stop before them
         // and keep the constructor defaults, every one of which is OFF — so an
@@ -746,6 +760,69 @@ namespace OloEngine
         else if (ar.IsLoading())
         {
             l.InteractionResponse = 1.0f;
+        }
+        // LOD transitions + coverage-preserving density appended at v38
+        // (issue #1237), after every older field. A v37-or-older save stops
+        // before this block and keeps the constructor defaults, each of which
+        // is the identity: no spread, no hysteresis, no stochastic coverage,
+        // no thinning — so that save's ladder is the ladder it was written
+        // with, not one that acquired a look nobody authored.
+        if (HasFieldsSince(ar, 38))
+        {
+            ar << l.LodTransitionSpread << l.LodHysteresis << l.LodStochasticCoverage;
+            ar << l.UseDensityLod;
+            ar << l.DensityLodStartDistance << l.DensityLodEndDistance;
+            ar << l.DensityLodMinFraction << l.DensityLodFadeFraction << l.DensityLodMaxScale;
+
+            if (ar.IsLoading())
+            {
+                // The same bounds DeserializeFoliageComponent applies, for the
+                // same reason: every one of these reaches a smoothstep and a
+                // reciprocal square root in four shader stages AND the cull
+                // kernel's drop test, and a save file is no more trusted than
+                // a .olo. Kept textually parallel to that deserializer so a
+                // future edit to one is visibly missing from the other.
+                if (!std::isfinite(l.LodTransitionSpread))
+                    l.LodTransitionSpread = 0.0f;
+                l.LodTransitionSpread = std::clamp(l.LodTransitionSpread, 0.0f, 500.0f);
+                if (!std::isfinite(l.LodHysteresis))
+                    l.LodHysteresis = 0.0f;
+                l.LodHysteresis = std::clamp(l.LodHysteresis, 0.0f, 0.5f);
+                if (!std::isfinite(l.DensityLodStartDistance))
+                    l.DensityLodStartDistance = 30.0f;
+                l.DensityLodStartDistance = std::max(l.DensityLodStartDistance, 0.0f);
+                if (!std::isfinite(l.DensityLodEndDistance))
+                    l.DensityLodEndDistance = 80.0f;
+                l.DensityLodEndDistance = std::max(l.DensityLodEndDistance, l.DensityLodStartDistance);
+                if (!std::isfinite(l.DensityLodMinFraction))
+                    l.DensityLodMinFraction = 0.25f;
+                l.DensityLodMinFraction =
+                    std::clamp(l.DensityLodMinFraction, FoliageLod::kMinKeepFraction, 1.0f);
+                if (!std::isfinite(l.DensityLodFadeFraction))
+                    l.DensityLodFadeFraction = 0.15f;
+                l.DensityLodFadeFraction = std::clamp(l.DensityLodFadeFraction, 0.0f, 1.0f);
+                if (!std::isfinite(l.DensityLodMaxScale))
+                    l.DensityLodMaxScale = 2.0f;
+                l.DensityLodMaxScale = std::clamp(l.DensityLodMaxScale, 1.0f, 8.0f);
+            }
+        }
+        else if (ar.IsLoading())
+        {
+            // Reset, not merely "left at the default" — the same shape the v36
+            // and v37 bands above take, and for the same reason: the restore
+            // path RESIZES FoliageComponent::m_Layers rather than clearing it,
+            // so a layer object is reused across loads. Without this, loading a
+            // v37 save after a v38 one leaves the v38 save's thinning on a
+            // layer that never authored any.
+            l.LodTransitionSpread = 0.0f;
+            l.LodHysteresis = 0.0f;
+            l.LodStochasticCoverage = false;
+            l.UseDensityLod = false;
+            l.DensityLodStartDistance = 30.0f;
+            l.DensityLodEndDistance = 80.0f;
+            l.DensityLodMinFraction = 0.25f;
+            l.DensityLodFadeFraction = 0.15f;
+            l.DensityLodMaxScale = 2.0f;
         }
         // AlbedoTexture and the leaf maps beside it (Ref<Texture2D>) are
         // runtime — the PATHS above are what round-trips.

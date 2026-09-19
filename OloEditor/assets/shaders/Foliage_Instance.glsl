@@ -60,6 +60,7 @@ layout(location = 4) in float v_AlphaCutoff;
 layout(location = 5) in float v_Fade;
 layout(location = 6) in vec3 v_PrevWorldPos;
 layout(location = 7) in float v_MeshCoverage;
+layout(location = 8) in float v_InstanceSeed; // this plant's own draw (issue #1237)
 
 // Camera UBO (binding 0)
 layout(std140, binding = 0) uniform CameraMatrices
@@ -164,7 +165,8 @@ void main()
     // its card draw run this with the same coverage and the same dither, so
     // between them they cover each pixel exactly once — no stretch where a pine
     // and a billboard of that pine are both on screen.
-    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy))
+    if (!foliageLodKeep(u_MeshParams.x > 0.5, v_MeshCoverage, gl_FragCoord.xy, v_InstanceSeed,
+                        foliageStochasticCoverage(u_LodTransition0)))
         discard;
 
     // Sample albedo

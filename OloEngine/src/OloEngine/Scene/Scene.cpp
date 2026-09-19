@@ -10728,7 +10728,10 @@ namespace OloEngine
                             layer.IsAuthoredMesh,
                             layer.MeshHandoverStartDistance, layer.MeshHandoverEndDistance, layer.WindWeights,
                             layer.InteractionResponse,
-                            layer.IndirectBufferID, layer.IndirectOffsetBytes);
+                            layer.IndirectBufferID, layer.IndirectOffsetBytes,
+                            // LOD transitions + coverage-preserving density
+                            // (issue #1237), packed by FoliageRenderer.
+                            layer.LodTransition0, layer.LodTransition1);
                     }
                 }
             }
