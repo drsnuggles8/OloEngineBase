@@ -2152,7 +2152,7 @@ void main() {
                 culled.OutputBuffer->Bind();
                 ASSERT_TRUE(api.SetNextDrawRootData(culled.RootDataBuffer->GetRHIHandle(), ShaderBindingLayout::SSBO_INSTANCE_DATA,
                                                     culled.RootDataAddressOffsetBytes));
-                api.DrawBoundElementsIndirect(culled.IndirectBuffer->GetRHIHandle(), RHI::PrimitiveTopology::TriangleList);
+                api.DrawBoundElementsIndirect(culled.IndirectBuffer->GetRHIHandle(), RHI::PrimitiveTopology::TriangleList, 0);
             }
             else
             {

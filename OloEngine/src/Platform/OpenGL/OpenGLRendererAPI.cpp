@@ -863,7 +863,8 @@ namespace OloEngine
     }
 
     void OpenGLRendererAPI::DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                                      RHI::PrimitiveTopology topology)
+                                                      RHI::PrimitiveTopology topology,
+                                                      u32 offsetBytes)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -874,7 +875,10 @@ namespace OloEngine
         // No glBindVertexArray: the caller's BindVAOIfNeeded already bound it,
         // and binding here would defeat that cache (see the DrawBound* family).
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
-        glDrawElementsIndirect(Utils::ToGL(topology), GL_UNSIGNED_INT, nullptr);
+        // glDrawElementsIndirect takes the offset as a BYTE OFFSET cast to a
+        // pointer, the usual GL buffer-object convention -- not an address.
+        glDrawElementsIndirect(Utils::ToGL(topology), GL_UNSIGNED_INT,
+                               reinterpret_cast<const void*>(static_cast<uintptr_t>(offsetBytes)));
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
         // The actual instance/triangle counts live on the GPU (the cull

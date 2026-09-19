@@ -5,12 +5,14 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
+#include "OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
 
 #include <glm/glm.hpp>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -43,7 +45,20 @@ namespace OloEngine
         // one shared buffer, each with its own material (issue #1233).
         u32 BaseIndex = 0;
         u32 IndexCount = 0;
+        // The instance count the CPU knows about: every instance the generator
+        // placed for this layer. With GPU culling active this is NOT what the
+        // draw draws -- the indirect command's instanceCount is, and it lives on
+        // the GPU. Kept because it is the "generated" figure the profiler and
+        // the census report, and because it is exactly what the draw falls back
+        // to when culling is unavailable.
         u32 InstanceCount = 0;
+        // GPU cull result (issue #1235). When valid, VertexArrayID above is the
+        // vertex array over the COMPACTED instance stream and the dispatcher
+        // issues DrawBoundElementsIndirect from this buffer at this offset
+        // instead of an instanced draw of InstanceCount. Null = the uncompacted
+        // path, which is the correct frame either way.
+        RHI::ResourceHandle IndirectBufferID{};
+        u32 IndirectOffsetBytes = 0;
         RHI::ResourceHandle AlbedoTextureID{};
         // This entry draws the layer's authored plant mesh rather than the flat
         // card. The vertex stage needs it: a card is scaled anisotropically
@@ -153,8 +168,83 @@ namespace OloEngine
             const glm::vec3& cameraPos,
             const Ref<Shader>& shader);
 
-        // Render shadow depth pass for all layers
-        void RenderShadows(const Ref<Shader>& depthShader, f32 time) const;
+        // Render shadow depth pass for all layers.
+        //
+        // `shadowViewIndex` is this cascade's / atlas entry's item index in the
+        // region. It selects the cull slot DispatchShadowViewCulling filled for
+        // it; a slot that was never culled (index past kMaxShadowViews, or no
+        // cull at all) draws every generated instance, which is a correct frame
+        // and a slower one.
+        //
+        // READS ONLY, and that is load-bearing: this runs inside
+        // ShadowRenderPass's RecordParallel region, where a buffer written by
+        // two items is a hard Vulkan error. Every write happens earlier, in
+        // DispatchShadowViewCulling.
+        void RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex) const;
+
+        // Cull ONE shadow view into its own slot. Call once per active view,
+        // BEFORE the region's parallel recording starts; `shadowViewIndex` is
+        // the item index. Returns false when the index is past kMaxShadowViews
+        // or nothing could be culled -- that view then draws uncompacted.
+        bool DispatchShadowViewCulling(u32 shadowViewIndex, const FoliageGPUCuller::ViewInputs& cullInputs);
+
+        // Retire every shadow slot's result. Call at the top of a shadow region,
+        // before its per-view culls: a slot left Active from the PREVIOUS region
+        // (or the previous frame) would have a later cascade draw the plants some
+        // other light could see.
+        void ResetShadowViewCulling();
+
+        // ── GPU patch + instance culling (issue #1235) ────────────────────
+
+        // Dispatch the MAIN view's cull. Called at submission, before
+        // GetActiveLayerDrawInfo, so the compacted buffers and indirect commands
+        // exist by the time the foliage pass replays its bucket.
+        //
+        // `maxDistanceScale` is not a parameter: each layer's own ViewDistance
+        // is the cutoff, because that is the distance its shaders fade it out
+        // at, and a second authored number would be a second thing to keep in
+        // step.
+        void DispatchMainViewCulling(const glm::mat4& worldViewProjection, const glm::vec3& viewWorldPosition);
+
+        // Terrain-local cull inputs for a view given its WORLD view-projection
+        // and the MAIN view's world position. Exposed because ShadowRenderPass
+        // has to build the light's, and the terrain transform that makes the
+        // conversion possible lives here.
+        [[nodiscard]] FoliageGPUCuller::ViewInputs MakeCullInputs(const glm::mat4& worldViewProjection,
+                                                                  const glm::vec3& mainViewWorldPosition) const;
+
+        // The A/B lever for the dense-scene timing the issue's third criterion
+        // asks for, and the switch a capability failure flips. Process-wide
+        // rather than per renderer: the comparison it exists for is "this frame
+        // with culling vs this frame without", and a per-object flag would make
+        // that depend on which terrain entity you happened to select.
+        static void SetGPUCullingEnabled(bool enabled);
+        [[nodiscard]] static bool IsGPUCullingEnabled();
+
+        // Forwards to FoliageGPUCuller::SetDebugOutputCapacity -- see there for
+        // why the overflow path is exercised by genuinely truncating rather than
+        // by faking the flag.
+        void SetDebugCullCapacity(u32 entries);
+
+        // True when the last main-view dispatch produced a compacted draw for at
+        // least one layer. Deliberately not latched: a frame that fell back must
+        // report that it fell back.
+        [[nodiscard]] bool WasMainViewCulled() const
+        {
+            return m_MainViewCulled;
+        }
+        // Physical layer slots this renderer holds, including ones with no
+        // instances. Indexes ReadbackCull, and is the space the draw info's
+        // LayerIndex lives in.
+        [[nodiscard]] u32 GetLayerCount() const
+        {
+            return static_cast<u32>(m_Layers.size());
+        }
+
+        // Read one layer's cull result back to the CPU. STALLS -- see
+        // FoliageGPUCuller::Readback. False when that slot has no live cull.
+        [[nodiscard]] bool ReadbackCull(u32 layerIndex, FoliageGPUCuller::ViewSlot slot,
+                                        FoliageGPUCuller::Readback& out) const;
 
         // The owning terrain entity's world transform. GenerateInstances emits
         // instance positions in TERRAIN-LOCAL space (x/z in [0, WorldSize], y
@@ -267,6 +357,28 @@ namespace OloEngine
             u32 InstanceCount = 0;
             u32 InstanceCapacity = 0;
             u32 IndexCount = 0;
+
+            // ── GPU cull state (issue #1235) ─────────────────────────────
+            // Group bounds + the row -> group table, rebuilt only when the
+            // registry generation moves.
+            FoliageGPUCuller::LayerResources CullLayer;
+            // One set per view slot: the compacted stream, its state and
+            // indirect buffers, and the vertex arrays that stream it. The
+            // arrays are per slot because each slot compacts into its OWN
+            // buffer, and a vertex array names the buffer it streams.
+            struct CullViewSlot
+            {
+                FoliageGPUCuller::ViewResources Resources;
+                Ref<VertexArray> CardVAO;
+                Ref<VertexArray> MeshVAO;
+                // The cull this frame produced something drawable. Cleared
+                // before every dispatch, so a slot that fell back reports it
+                // rather than replaying the last successful frame's set --
+                // the latched-flag bug TerrainGPUQuadtree::HasDispatched
+                // documents.
+                bool Active = false;
+            };
+            std::array<CullViewSlot, FoliageGPUCuller::kViewSlotCount> CullViews;
             f32 ViewDistance = 100.0f;
             f32 FadeStartDistance = 80.0f;
             f32 WindStrength = 0.3f;
@@ -345,6 +457,12 @@ namespace OloEngine
         };
         void EnumerateLayerDraws(const LayerRenderData& data, std::vector<LayerDraw>& out) const;
 
+        // Run one view's cull over every layer. Returns true when at least one
+        // layer produced a compacted draw.
+        bool CullForView(u32 slotIndex, const FoliageGPUCuller::ViewInputs& inputs);
+        // (Re)create the vertex arrays that stream `slot`'s compacted buffer.
+        void RebuildCulledVertexArrays(LayerRenderData& data, u32 slot) const;
+
         void BuildQuadGeometry(LayerRenderData& data) const;
         // Builds (or rebuilds) the layer's private copy of the authored mesh.
         // Returns false and logs loudly when the mesh will not load — the layer
@@ -364,6 +482,15 @@ namespace OloEngine
 
         std::vector<LayerRenderData> m_Layers;
         FoliageInstanceRegistry m_Registry;
+        FoliageGPUCuller m_Culler;
+        bool m_MainViewCulled = false;
+        // Warn-once latches: a capability failure or a per-layer refusal must
+        // say so, but a renderer that says it every frame at 60 Hz is the same
+        // as saying nothing (35k lines in one session -- see the GLStateGuard
+        // note in docs/agent-rules).
+        mutable bool m_WarnedCullUnavailable = false;
+        bool m_WarnedShadowViewOverflow = false;
+        bool m_WarnedTooManyParts = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
         u32 m_VisibleInstances = 0;
         f32 m_LegacyWindEnvelope = 2.0f;

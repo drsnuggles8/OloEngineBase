@@ -189,8 +189,17 @@ namespace OloEngine
         // Triangles through. It is an explicit parameter rather than a default
         // argument: a default on a virtual is resolved from the STATIC type, so
         // an override declaring a different one would silently disagree.
+        // `offsetBytes` selects ONE command in a multi-command indirect buffer.
+        // Explicit rather than defaulted for the reason `topology` is: a default
+        // argument on a virtual resolves from the STATIC type, so an override
+        // declaring a different one would silently disagree. Foliage's GPU cull
+        // (issue #1235) writes one command per drawable part of a layer into a
+        // single buffer -- the parts share an instance count but carry different
+        // index ranges and materials, so they are separate draws into the same
+        // args block.
         virtual void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                               RHI::PrimitiveTopology topology) = 0;
+                                               RHI::PrimitiveTopology topology,
+                                               u32 offsetBytes) = 0;
         // Multi-draw indirect with a GPU-sourced draw count (core GL 4.6, issue #629):
         // reads DrawElementsIndirectCommand records from indirectBufferID starting at
         // indirectOffsetBytes and the u32 draw count from parameterBufferID at

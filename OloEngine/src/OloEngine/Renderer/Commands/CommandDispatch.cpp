@@ -2551,7 +2551,7 @@ namespace OloEngine
             }
             // The VAO is already bound by BindVAOIfNeeded above — draw from it
             // rather than re-binding behind the redundant-bind cache's back.
-            api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID, RHI::PrimitiveTopology::TriangleList);
+            api.DrawBoundElementsIndirect(cmd->cullIndirectBufferID, RHI::PrimitiveTopology::TriangleList, 0);
 
             // Profiler stats — we DON'T know the surviving instance count
             // without a CPU readback (which would stall the GPU pipeline),
@@ -3036,7 +3036,7 @@ namespace OloEngine
         {
             api.BindStorageBuffer(ShaderBindingLayout::SSBO_TERRAIN_VISIBLE_NODES, cmd->terrainVisibleNodesID);
             HeapBinding::FlushOffsets();
-            api.DrawBoundElementsIndirect(cmd->terrainIndirectArgsID, RHI::PrimitiveTopology::PatchList);
+            api.DrawBoundElementsIndirect(cmd->terrainIndirectArgsID, RHI::PrimitiveTopology::PatchList, 0);
             ++Data().Stats.DrawCalls;
             return;
         }
@@ -3455,8 +3455,21 @@ namespace OloEngine
         // Bind VAO (cached) and draw instanced foliage
         BindVAOIfNeeded(api, cmd->vertexArrayID);
         HeapBinding::FlushOffsets();
-        api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
-                                      RHI::IndexType::UInt32, cmd->baseIndex, cmd->instanceCount);
+        if (cmd->indirectBufferID.IsValid())
+        {
+            // The cull compute wrote count / firstIndex / instanceCount; nothing
+            // here re-derives them. `baseIndex` and `instanceCount` on the
+            // command are the CPU's copy of the first two and the GENERATED
+            // count, kept for the profiler and the fallback below — reading them
+            // here instead would draw the wrong number of the right plants.
+            api.DrawBoundElementsIndirect(cmd->indirectBufferID, RHI::PrimitiveTopology::TriangleList,
+                                          cmd->indirectOffsetBytes);
+        }
+        else
+        {
+            api.DrawBoundIndexedInstanced(RHI::PrimitiveTopology::TriangleList, cmd->indexCount,
+                                          RHI::IndexType::UInt32, cmd->baseIndex, cmd->instanceCount);
+        }
         ++Data().Stats.DrawCalls;
     }
     void CommandDispatch::DrawWater(const void* data, RendererAPI& api)

@@ -335,9 +335,10 @@ namespace OloEngine
         // frustum-cull path (Triangles) and the GPU-driven terrain path
         // (PatchList), whose callers have just run BindVAOIfNeeded.
         static void DrawBoundElementsIndirect(RHI::ResourceHandle indirectBuffer,
-                                              RHI::PrimitiveTopology topology)
+                                              RHI::PrimitiveTopology topology,
+                                              u32 offsetBytes = 0)
         {
-            s_RendererAPI->DrawBoundElementsIndirect(indirectBuffer, topology);
+            s_RendererAPI->DrawBoundElementsIndirect(indirectBuffer, topology, offsetBytes);
         }
 
         static void MemoryBarrier(MemoryBarrierFlags flags)

@@ -1360,6 +1360,8 @@
 		"OloEngine/Terrain/Foliage/FoliagePlacement.cpp"
 		"OloEngine/Terrain/Foliage/FoliageInteraction.h"
 		"OloEngine/Terrain/Foliage/FoliageInteraction.cpp"
+		"OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
+		"OloEngine/Terrain/Foliage/FoliageGPUCuller.cpp"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
 

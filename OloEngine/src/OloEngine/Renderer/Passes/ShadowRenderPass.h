@@ -256,7 +256,10 @@ namespace OloEngine
         void RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
                                  const Frustum* cullFrustum,
                                  const ShadowCasterShaders& shaders, ItemResources& resources,
-                                 ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources) const;
+                                 ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources,
+                                 // This view's item index in the region, so the foliage draw can pick the
+                                 // cull slot RecordShadowRegion filled for it (issue #1235).
+                                 u32 shadowViewIndex) const;
 
         // Grow the per-item pool to `count` entries. Render thread, before the
         // fork: rule 7 refuses resource creation on an item context.

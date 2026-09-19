@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualGeometryShadow.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshRegistry.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -474,6 +475,39 @@ namespace OloEngine
             m_VirtualItemResources.resize(activeCount);
         const bool virtualCasters = VirtualGeometryShadow::PrepareViews(
             std::span<VirtualGeometryShadow::ViewResources>(m_VirtualItemResources.data(), activeCount));
+
+        // Foliage GPU culling for every view in this region (issue #1235), run
+        // HERE and not inside recordItem. The region records in parallel on
+        // Vulkan, and a cull dispatched from an item would upload its header
+        // through a one-shot submit and write a buffer a sibling item also
+        // writes -- both hard errors under amendment (92) rule 6, and both
+        // observed before this moved out. Each item's draws then only READ the
+        // slot this loop filled for it.
+        for (auto& caster : m_FoliageCasters)
+        {
+            if (!caster.renderer)
+                continue;
+            caster.renderer->ResetShadowViewCulling();
+            for (u32 item = 0; item < activeCount; ++item)
+            {
+                // lightVP is world-space, which is what MakeCullInputs converts
+                // from. The DISTANCE half of the test still uses the main view's
+                // position: the plants a cascade must draw are the ones the
+                // beauty pass draws, and those are chosen by distance from the
+                // VIEWER, not from the light.
+                // The CULLING camera's position, not the render camera's — the
+                // same source Scene.cpp's main-view cull uses. With the observer
+                // frozen (#726) the beauty pass draws the frozen survivor set,
+                // and a cascade measuring distance from the LIVE camera would
+                // cull away the casters of everything the frozen view still
+                // draws: the plants would keep their pixels and lose their
+                // shadows, which reads as a lighting bug rather than as the
+                // debug tool doing something.
+                caster.renderer->DispatchShadowViewCulling(
+                    item, caster.renderer->MakeCullInputs(m_ActiveViews[item].LightVP,
+                                                          Renderer3D::GetCullViewPosition()));
+            }
+        }
         const auto recordItem = [&](const u32 item)
         {
             const ActiveShadowView& view = m_ActiveViews[item];
@@ -482,7 +516,7 @@ namespace OloEngine
                 RenderCommand::ClearDepthOnly();
             RenderCascadeOrFace(view.LightVP, type, view.Index, &view.CullFrustum,
                                 shaders, m_ItemResources[item], recordingInstancedDraws ? &m_ItemTallies[item] : nullptr,
-                                virtualCasters ? &m_VirtualItemResources[item] : nullptr);
+                                virtualCasters ? &m_VirtualItemResources[item] : nullptr, item);
         };
         RenderCommand::RecordParallel(activeCount, recordItem, instanceCapacity);
         ReplayProfilerTallies(type, recordingInstancedDraws);
@@ -566,7 +600,8 @@ namespace OloEngine
     void ShadowRenderPass::RenderCascadeOrFace(const glm::mat4& lightVP, ShadowPassType type, u32 layerOrLight,
                                                const Frustum* cullFrustum,
                                                const ShadowCasterShaders& shaders, ItemResources& resources,
-                                               ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources) const
+                                               ItemProfilerTally* tally, VirtualGeometryShadow::ViewResources* virtualResources,
+                                               u32 shadowViewIndex) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -874,7 +909,9 @@ namespace OloEngine
             if (caster.renderer && caster.depthShader)
             {
                 caster.depthShader->Bind();
-                caster.renderer->RenderShadows(caster.depthShader, caster.time);
+                // Draws from the slot RecordShadowRegion culled for THIS item.
+                // Read-only — see FoliageRenderer::RenderShadows.
+                caster.renderer->RenderShadows(caster.depthShader, caster.time, shadowViewIndex);
             }
         }
 

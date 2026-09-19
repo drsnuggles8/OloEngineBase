@@ -412,7 +412,12 @@ namespace OloEngine::Tests
             cameraBuffer->Bind();
             HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_DIFFUSE,
                                              previouslyBound->GetRHIHandle(), RHI::HeapSlotLifetime::Persistent);
-            foliage.m_Renderer->RenderShadows(shader, 0.0f);
+            // An UNCULLED shadow view index (past kMaxShadowViews): this fixture
+            // renders the shadow depth of EVERY generated instance on purpose.
+            // The GPU cull is exercised by FoliageGPUCullEvidenceTest; here an
+            // unculled draw is the control the wind assertions were written
+            // against (issue #1235).
+            foliage.m_Renderer->RenderShadows(shader, 0.0f, FoliageGPUCuller::kMaxShadowViews);
             std::vector<f32> depths(256 * 256);
             glGetTextureImage(target->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
                               static_cast<GLsizei>(depths.size() * sizeof(f32)), depths.data());

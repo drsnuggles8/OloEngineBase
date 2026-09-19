@@ -63,11 +63,19 @@ const uint OLO_STAT_VSMPagesRequestDropped = 8u;
 const uint OLO_STAT_VSMPagesAllocated = 9u;
 const uint OLO_STAT_VSMPagesEvicted = 10u;
 const uint OLO_STAT_VSMPagesAllocFailed = 11u;
+const uint OLO_STAT_FoliageCullGenerated = 12u;
+const uint OLO_STAT_FoliageCullGroupsTested = 13u;
+const uint OLO_STAT_FoliageCullGroupsVisible = 14u;
+const uint OLO_STAT_FoliageCullTested = 15u;
+const uint OLO_STAT_FoliageCullVisible = 16u;
+const uint OLO_STAT_FoliageCullSubmitted = 17u;
+const uint OLO_STAT_FoliageCullDropped = 18u;
 
 // ---- Overflow flag bits (C++ twin: OLO_GPU_STAT_FLAGS) ----------------------
 const uint OLO_STATFLAG_InstanceCullOutput = 0u;
 const uint OLO_STATFLAG_VSMRequestRing = 1u;
 const uint OLO_STATFLAG_VSMPhysicalPool = 2u;
+const uint OLO_STATFLAG_FoliageCullOutput = 3u;
 
 // The block layout mirrors GPUReadbackStats::GPUStatsBlock (C++). Header first,
 // counters last: std430 allows only the trailing member to be unsized, and

@@ -64,6 +64,28 @@ namespace OloEngine
         VSMPagesAllocated,
         VSMPagesEvicted,
         VSMPagesAllocFailed,
+        // Foliage GPU patch + instance cull (FoliageGPUCuller / FoliageGroupCull.comp,
+        // FoliageInstanceCull.comp, FoliageCullArgs.comp). Adopter #3, issue #1235.
+        // The four the issue's third criterion names are Generated / Tested /
+        // Visible / Submitted, and they are FOUR counters rather than one because
+        // each pair can differ for a different reason: Generated vs Tested is what
+        // the PATCH cull removed, Tested vs Visible is what the per-instance test
+        // removed, and Visible vs Submitted is overflow -- a single "culled" number
+        // cannot tell a working cull from a truncating one.
+        //
+        // The first six describe the MAIN VIEW ONLY. The stats block is one per
+        // FRAME and every dispatch sums into it, so with CSM these would
+        // otherwise be a sum over five culls -- a Generated count five times the
+        // number of plants that exist. FoliageCullDropped and the overflow flag
+        // deliberately stay a sum: a truncation in any view is a condition the
+        // frame has.
+        FoliageCullGenerated,
+        FoliageCullGroupsTested,
+        FoliageCullGroupsVisible,
+        FoliageCullTested,
+        FoliageCullVisible,
+        FoliageCullSubmitted,
+        FoliageCullDropped,
         Count
     };
 
@@ -79,6 +101,7 @@ namespace OloEngine
         InstanceCullOutput,
         VSMRequestRing,
         VSMPhysicalPool,
+        FoliageCullOutput,
         Count
     };
 
@@ -136,6 +159,20 @@ namespace OloEngine
           "Resident pages evicted by the allocator to satisfy a request" },
         { std::to_underlying(GPUStatCounter::VSMPagesAllocFailed), "VSMPagesAllocFailed",
           "Requests the physical pool could not satisfy" },
+        { std::to_underlying(GPUStatCounter::FoliageCullGenerated), "FoliageCullGenerated",
+          "Foliage instances the generator placed, across every culled layer of the MAIN view" },
+        { std::to_underlying(GPUStatCounter::FoliageCullGroupsTested), "FoliageCullGroupsTested",
+          "Foliage spatial groups (patches) the main view's group cull tested" },
+        { std::to_underlying(GPUStatCounter::FoliageCullGroupsVisible), "FoliageCullGroupsVisible",
+          "Foliage spatial groups that survived the main view's patch test" },
+        { std::to_underlying(GPUStatCounter::FoliageCullTested), "FoliageCullTested",
+          "Main-view foliage instances that reached the per-instance test (their patch survived)" },
+        { std::to_underlying(GPUStatCounter::FoliageCullVisible), "FoliageCullVisible",
+          "Main-view foliage instances that passed the per-instance frustum + distance test" },
+        { std::to_underlying(GPUStatCounter::FoliageCullSubmitted), "FoliageCullSubmitted",
+          "Main-view foliage instances the compaction wrote, and the beauty pass's indirect draw draws" },
+        { std::to_underlying(GPUStatCounter::FoliageCullDropped), "FoliageCullDropped",
+          "Visible foliage instances refused because a compacted buffer ran out of room, summed over EVERY view" },
     } };
 
     inline constexpr std::array<GPUStatEntry, kGPUStatFlagCount> kGPUStatFlags{ {
@@ -145,6 +182,8 @@ namespace OloEngine
           "The VSM page-request ring truncated" },
         { std::to_underlying(GPUStatFlag::VSMPhysicalPool), "VSMPhysicalPool",
           "The VSM physical page pool could not back every requested page" },
+        { std::to_underlying(GPUStatFlag::FoliageCullOutput), "FoliageCullOutput",
+          "The foliage GPU cull's compacted instance buffer truncated" },
     } };
 
     // THE DRIFT GUARD, and the whole reason `GPUStatEntry::Id` exists. A row
