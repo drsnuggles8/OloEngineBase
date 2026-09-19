@@ -97,6 +97,37 @@ TEST(GroomCoatShadowSelection, AnEmptyGroomReportsItsOwnGeometryRatherThanTheCac
     EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
 }
 
+TEST(GroomCoatShadowSelection, ADeformingGroomIsRefusedRatherThanShadowedAtItsBindPose)
+{
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.GroomIsDeformed = true;
+
+    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
+    // The bake reads the asset's REST-POSE curves, so on an animating body the
+    // drawn strands move and the volume does not. A coat carrying its bind-pose
+    // shadow around reads as a shading bug rather than as the missing feature
+    // it is, so it is refused and COUNTED.
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::GroomIsDeformed);
+    EXPECT_TRUE(decision.IsFallback());
+    EXPECT_EQ(decision.Effective, GroomCoatShadowTechnique::None);
+    EXPECT_EQ(decision.Slot, kNoGroomCoatShadowSlot);
+}
+
+TEST(GroomCoatShadowSelection, ADeformingGroomThatNeverAskedIsStillNotAFallback)
+{
+    // Ordering: NotRequested is more fundamental than GroomIsDeformed, because
+    // a coat that never asked cannot have failed at anything. Most bound
+    // grooms in a scene are in exactly this state, and counting them as
+    // failures would bury the ones that really did ask.
+    GroomCoatShadowInputs inputs = FullyCapable();
+    inputs.Requested = GroomCoatShadowTechnique::None;
+    inputs.GroomIsDeformed = true;
+
+    const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
+    EXPECT_EQ(decision.Reason, GroomCoatShadowFallbackReason::NotRequested);
+    EXPECT_FALSE(decision.IsFallback());
+}
+
 TEST(GroomCoatShadowSelection, ADeviceWithNo3DTextureRefusesBothVolumeModes)
 {
     for (const GroomCoatShadowTechnique mode : { GroomCoatShadowTechnique::IsotropicDensityVolume,
@@ -191,6 +222,7 @@ TEST(GroomCoatShadowSelection, TheMostFundamentalReasonWinsWhenSeveralApply)
     // symptom in the chain.
     GroomCoatShadowInputs inputs = FullyCapable();
     inputs.SegmentCount = 0u;
+    inputs.GroomIsDeformed = true;
     inputs.RepresentationReady = false;
     inputs.GrantedSlot = kNoGroomCoatShadowSlot;
     inputs.ResolvedResolution = 2u;

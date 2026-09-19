@@ -89,6 +89,13 @@ namespace OloEngine
         /// import being empty rather than anything about shadowing.
         GroomHasNoGeometry,
 
+        /// The groom is bound to a deforming surface. The bake reads the
+        /// asset's REST-POSE curves, so on an animating body the drawn strands
+        /// move and the volume does not — the coat would carry its bind-pose
+        /// shadow around, which reads as a shading bug rather than as the
+        /// missing feature it is. Refused and counted instead of approximated.
+        GroomIsDeformed,
+
         /// This device cannot sample a 3D texture, so neither volume mode can
         /// run. Distinct from RepresentationNotBuilt on purpose: one is a
         /// hardware fact that will never change within the session, the other
@@ -133,6 +140,9 @@ namespace OloEngine
                 return "This groom did not ask for coat shadowing, so it renders unshadowed by choice.";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "The groom has no curves to build a shadow representation from.";
+            case GroomCoatShadowFallbackReason::GroomIsDeformed:
+                return "This groom is bound to a deforming surface, and the coat volume does not follow a "
+                       "deformation yet.";
             case GroomCoatShadowFallbackReason::VolumeTexturesUnavailable:
                 return "This device cannot sample a 3D texture, so no density volume can be built.";
             case GroomCoatShadowFallbackReason::NoDirectionalLight:
@@ -159,6 +169,8 @@ namespace OloEngine
                 return "NotRequested";
             case GroomCoatShadowFallbackReason::GroomHasNoGeometry:
                 return "GroomHasNoGeometry";
+            case GroomCoatShadowFallbackReason::GroomIsDeformed:
+                return "GroomIsDeformed";
             case GroomCoatShadowFallbackReason::VolumeTexturesUnavailable:
                 return "VolumeTexturesUnavailable";
             case GroomCoatShadowFallbackReason::NoDirectionalLight:
@@ -192,6 +204,11 @@ namespace OloEngine
         /// Segments the groom actually produced. Zero means there is nothing to
         /// shadow with.
         u32 SegmentCount = 0;
+
+        /// This groom's strands are deformed by a body's pose this frame.
+        /// A RESULT, like everything else here: it is what the frame resolved,
+        /// not what the component asked for.
+        bool GroomIsDeformed = false;
 
         /// The device can create and sample a 3D texture.
         bool VolumeTexturesSupported = true;
@@ -255,6 +272,12 @@ namespace OloEngine
         if (inputs.SegmentCount == 0)
         {
             decision.Reason = GroomCoatShadowFallbackReason::GroomHasNoGeometry;
+            return decision;
+        }
+
+        if (inputs.GroomIsDeformed)
+        {
+            decision.Reason = GroomCoatShadowFallbackReason::GroomIsDeformed;
             return decision;
         }
 

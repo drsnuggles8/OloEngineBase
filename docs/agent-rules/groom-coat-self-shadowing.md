@@ -121,6 +121,14 @@ than a tolerance.
 
 ## What this slice does NOT do
 
+**A bound, deforming groom is REFUSED, not approximated.** The bake reads the `GroomAsset`'s
+rest-pose curves, so on a character whose body animates the drawn strands move and the volume does
+not — the coat would carry its bind-pose shadow around, which reads as a shading bug rather than as
+the missing feature it is. `GroomRenderPass::AcquireCoatVolume` therefore reports
+`GroomIsDeformed` and renders the coat unshadowed. Following a deformation means baking from the
+deformed strand positions the pass already builds, which is the natural next slice.
+
+
 **Neither direction of coat-to-scene shadow integration.** The volume contains the groom's own
 strands and nothing else, so:
 

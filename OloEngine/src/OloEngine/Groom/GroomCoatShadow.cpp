@@ -711,11 +711,19 @@ namespace OloEngine::GroomCoatShadow
         }
         const u64 voxels = static_cast<u64>(Dimensions.x) * static_cast<u64>(Dimensions.y) *
                            static_cast<u64>(Dimensions.z);
-        // R16F density + RGBA16F direction: what the renderer uploads. The
-        // direction volume is the anisotropic mode's whole extra cost and is
-        // reported separately by the comparison so the two candidates are not
-        // quoted at one another's memory.
-        return voxels * (2ull + 8ull);
+        // ONE RGBA32F, 16 bytes a voxel: what the renderer actually uploads.
+        //
+        // It is not what the packing would prefer -- RGBA16F would halve it --
+        // but Texture3D's RGBA16F declares 8 bytes a texel while uploading its
+        // client data as GL_FLOAT, so SetData rejects the only buffer it could
+        // be handed. Quoting the smaller number here would make every memory
+        // row in the analysis describe a texture the engine cannot currently
+        // create.
+        //
+        // BOTH volume modes therefore cost the same bytes, and the isotropic
+        // arm is a COMPUTE saving rather than a memory one. The memory lever at
+        // runtime is the shadow LOD, which is cubic in the resolution.
+        return voxels * 16ull;
     }
 
     glm::vec3 DensityVolume::VoxelSize() const noexcept

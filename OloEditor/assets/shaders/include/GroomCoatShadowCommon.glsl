@@ -4,10 +4,15 @@
 //
 // TWIN OF OloEngine/Groom/GroomCoatShadow.{h,cpp}. SampleDensityVolume on the
 // CPU and oloGroomCoatOpticalDepth here compute the same number the same way,
-// and GroomCoatShadowGpuParityTest compares them over a grid of directions. The
-// order of operations is mirrored deliberately, not just the formula: a
-// mathematically equal rearrangement moves the last bits, and a tolerance loose
-// enough to absorb that stops being able to catch a real divergence.
+// and the order of operations is mirrored deliberately rather than just the
+// formula: a mathematically equal rearrangement moves the last bits.
+//
+// THERE IS NO GPU PARITY TEST FOR THIS PAIR YET, and that is stated rather than
+// implied. #1246 and #1247 each ship one (GroomStrandGpuParityTest,
+// GroomFibreGpuParityTest) and this twin deserves the same; what guards it
+// today is the CPU comparison plus the visual-evidence A/B, neither of which
+// can see the two sides drifting in the same direction. Do not read the
+// mirroring above as something a test is currently checking.
 //
 // WHAT IT COMPUTES. tau = the expected number of fibre crossings between a
 // point and the light, from which transmittance is exp(-kappa * tau). Purely
@@ -58,11 +63,16 @@ const float OLO_GROOM_COAT_ISOTROPIC_MEAN_SINE = 0.78539816339744830961;
 // The packed volume: xyz = the voxel's mean fibre direction times its
 // coherence, w = the fibre areal density in 1/metre.
 //
-// ONE RGBA16F rather than a separate R16F density and RGB direction, and that
+// ONE RGBA texture rather than a separate density and direction pair, and that
 // is a bandwidth decision rather than a packing convenience: the march is the
 // hot loop, and two fetches per step would double its bandwidth for a channel
 // the isotropic arm does not even read. It also costs ONE sampler slot, and the
 // sampler namespace has exactly one index left (ShaderBindingLayout.h).
+//
+// RGBA32F on the wire, 16 bytes a voxel. RGBA16F would halve that and is what
+// the packing wants, but Texture3D's RGBA16F declares 8 bytes a texel while
+// uploading its client data as GL_FLOAT, so SetData rejects the only buffer it
+// could be handed. See GroomRenderPass's bake.
 struct OloGroomCoatVolumeSample
 {
 	vec3 Direction; // mean direction * coherence, object space
@@ -155,7 +165,7 @@ bool oloGroomCoatIntersectUnitBox(vec3 originUvw, vec3 dirUvw, out float tEnter,
 // Expected fibre crossings between `worldPos` and the light, along `L` (the
 // direction TOWARDS the light, already normalised).
 //
-//   coatVolume      the packed RGBA16F volume
+//   coatVolume      the packed RGBA32F volume
 //   worldToObject   RIGID render-relative-world -> groom object space
 //   boundsMin       the volume's object-space minimum corner
 //   invExtent       1 / (boundsMax - boundsMin), object space

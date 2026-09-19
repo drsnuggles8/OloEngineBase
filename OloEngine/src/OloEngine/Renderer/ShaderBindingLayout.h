@@ -3326,14 +3326,14 @@ namespace OloEngine
         // size, so the table size is a coincidence rather than a check.
         static constexpr u32 TEX_RESTIR_GI_RADIANCE = 74;
 
-        // The GROOM COAT-SHADOW VOLUME (issue #1248) — a sampler3D RGBA16F in
+        // The GROOM COAT-SHADOW VOLUME (issue #1248) — a sampler3D RGBA32F in
         // GROOM OBJECT SPACE holding, per voxel, the coat's mean fibre direction
         // times its coherence (xyz) and its fibre areal density in 1/metre (w).
         // Marched by GroomStrand.glsl through include/GroomCoatShadowCommon.glsl
         // to get the expected fibre crossings between a strand and a light.
         // CPU twin: OloEngine/Groom/GroomCoatShadow.h.
         //
-        // ONE RGBA16F rather than a separate R16F density and an RGB direction,
+        // ONE RGBA texture rather than a separate density and direction pair,
         // and that is a bandwidth decision rather than a packing convenience.
         // The march is a per-fragment hot loop — about ten taps per light — so
         // two fetches per step would double its bandwidth for a channel the
@@ -3354,7 +3354,7 @@ namespace OloEngine
         // the two mirrors, still matched while the base did not.
         // BindlessShaderPipeline.HeapImageBaseMatchesTheBindingLayout is what
         // actually catches it.
-        static constexpr u32 TEX_GROOM_COAT_VOLUME = 75; // sampler3D RGBA16F — xyz = mean fibre direction * coherence, w = areal density
+        static constexpr u32 TEX_GROOM_COAT_VOLUME = 75; // sampler3D RGBA32F — xyz = mean fibre direction * coherence, w = areal density
 
         // The SKIN THICKNESS MAP (issue #1242) — the KHR_materials_volume
         // thickness texture, red channel, a per-pixel modulation of the

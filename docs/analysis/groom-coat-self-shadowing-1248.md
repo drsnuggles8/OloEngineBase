@@ -107,9 +107,17 @@ competitor is how a bake-off flatters the answer it started with.
 | scalp, side light | 0.8937 | 0.0207 | **0.0130** | 0.0275 |
 | scalp, oblique light | 0.8783 | 0.0181 | **0.0134** | 0.0218 |
 
-Mean absolute transmittance error. Memory: isotropic 435 KiB (pelt) / 252 KiB (scalp), anisotropic
-2.1 MiB / 1.2 MiB, deep map 320 KiB **per light**. Samples per query: volumes ~26–32 march steps at
-one voxel per step (see below — three voxels per step is better *and* cheaper), deep map 3 fetches.
+Mean absolute transmittance error. Samples per query: volumes ~26–32 march steps at one voxel per
+step (see below — three voxels per step is better *and* cheaper), deep map 3 fetches.
+
+**Memory, as the CPU model accounts it:** isotropic 435 KiB (pelt) / 252 KiB (scalp), anisotropic
+2.1 MiB / 1.2 MiB, deep map 320 KiB **per light**. Those figures assume the tightest packing each
+candidate could use. **What actually ships is one RGBA32F volume, 16 bytes a voxel** — 3.6 MiB for
+the pelt at 64³ — because `Texture3D`'s RGBA16F declares 8 bytes a texel while uploading its client
+data as `GL_FLOAT`, so `SetData` rejects the only buffer it could be handed. Half of that is
+available the moment that path is fixed. The consequence for the selection is stated below: both
+volume modes cost the same bytes at runtime, so the isotropic arm is a compute saving, not a memory
+one.
 
 ### Finding 1: finer is worse, for both representations
 

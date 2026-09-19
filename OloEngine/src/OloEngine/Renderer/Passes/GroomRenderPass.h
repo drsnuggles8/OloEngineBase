@@ -248,6 +248,13 @@ namespace OloEngine
             glm::vec3 CoatBoundsMax{ 0.0f };
             /// Voxels on the longest axis of the bake actually resident.
             u32 CoatResolution = 0;
+            /// The bake's REAL voxel size, carried rather than re-derived. Only
+            /// the longest axis gets `CoatResolution` voxels, so
+            /// extent/resolution is that axis's voxel size and nobody else's.
+            f32 CoatVoxelSize = 0.0f;
+            /// The width scale the bake was made at. It multiplies the cooked
+            /// diameters and therefore the density stored, so it invalidates.
+            f32 CoatWidthScale = 0.0f;
             /// GPU bytes the volume occupies.
             u64 CoatBytes = 0;
             /// The LOD step the resident bake was made at, the step the policy

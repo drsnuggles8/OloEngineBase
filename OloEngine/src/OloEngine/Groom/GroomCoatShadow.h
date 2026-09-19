@@ -202,8 +202,8 @@ namespace OloEngine
         // bounding box overlaps a cell the ray enters, and the same exact
         // ray-cylinder test then decides the hit. The grid can only add
         // candidates, never remove a real one, which is the property that lets
-        // TheGridAgreesWithBruteForce assert bit-equality rather than a
-        // tolerance.
+        // GroomCoatShadowReference.TheGridChangesTheCostAndNotTheAnswer assert
+        // bit-equality rather than a tolerance.
         struct CoatSegmentGrid
         {
             glm::ivec3 Dimensions{ 0 };

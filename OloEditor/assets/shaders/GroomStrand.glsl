@@ -583,7 +583,11 @@ void main()
 	// double count. A coat with no volume keeps the ramp, so every capture
 	// #1246 and #1247 committed still means what it meant.
 	float ramp = mix(u_GroomRampWidth.x, 1.0, clamp(v_Coords.x, 0.0, 1.0));
-	if (u_GroomCoatModes.x != OLO_GROOM_COAT_MODE_NONE)
+	// BOTH conditions, not just the coat mode. The coat term is applied inside
+	// oloGroomShadeFibre(), which only runs on a LIT groom — so bypassing the
+	// ramp on an unlit one would remove the only depth cue it has and put
+	// nothing in its place, leaving a flat coat that is darker nowhere.
+	if (u_GroomFibreModes.x != 0 && u_GroomCoatModes.x != OLO_GROOM_COAT_MODE_NONE)
 	{
 		ramp = 1.0;
 	}
