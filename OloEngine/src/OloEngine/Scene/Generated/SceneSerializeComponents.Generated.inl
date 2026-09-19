@@ -461,6 +461,31 @@ if (entity.HasComponent<GroomBindingComponent>())
     out << YAML::EndMap; // GroomBindingComponent
 }
 
+if (entity.HasComponent<GroomCoatComponent>())
+{
+    out << YAML::Key << "GroomCoatComponent";
+    out << YAML::BeginMap; // GroomCoatComponent
+    auto const& comp = entity.GetComponent<GroomCoatComponent>();
+    out << YAML::Key << "RegionMap" << YAML::Value << static_cast<u64>(comp.m_RegionMap);
+    out << YAML::Key << "ColorMap" << YAML::Value << static_cast<u64>(comp.m_ColorMap);
+    out << YAML::Key << "UndercoatDensity" << YAML::Value << comp.m_UndercoatDensity;
+    out << YAML::Key << "UndercoatLength" << YAML::Value << comp.m_UndercoatLength;
+    out << YAML::Key << "UndercoatWidth" << YAML::Value << comp.m_UndercoatWidth;
+    out << YAML::Key << "UndercoatClump" << YAML::Value << comp.m_UndercoatClump;
+    out << YAML::Key << "GuardDensity" << YAML::Value << comp.m_GuardDensity;
+    out << YAML::Key << "GuardLength" << YAML::Value << comp.m_GuardLength;
+    out << YAML::Key << "GuardWidth" << YAML::Value << comp.m_GuardWidth;
+    out << YAML::Key << "GuardClump" << YAML::Value << comp.m_GuardClump;
+    out << YAML::Key << "LengthJitter" << YAML::Value << comp.m_LengthJitter;
+    out << YAML::Key << "WidthJitter" << YAML::Value << comp.m_WidthJitter;
+    out << YAML::Key << "ShadeJitter" << YAML::Value << comp.m_ShadeJitter;
+    out << YAML::Key << "ClumpCellSize" << YAML::Value << comp.m_ClumpCellSize;
+    out << YAML::Key << "VariationSeed" << YAML::Value << comp.m_VariationSeed;
+    out << YAML::Key << "RoleVisibilityMask" << YAML::Value << comp.m_RoleVisibilityMask;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // GroomCoatComponent
+}
+
 if (entity.HasComponent<GroomCoatShadowComponent>())
 {
     out << YAML::Key << "GroomCoatShadowComponent";

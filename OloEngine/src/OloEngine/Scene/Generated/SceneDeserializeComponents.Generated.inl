@@ -532,6 +532,40 @@ if (auto node = entity["GroomBindingComponent"]; node)
     comp.m_ShowBindingPreview = node["ShowBindingPreview"].as<bool>(comp.m_ShowBindingPreview);
 }
 
+if (auto node = entity["GroomCoatComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomCoatComponent>();
+    comp.m_RegionMap = node["RegionMap"].as<u64>(static_cast<u64>(comp.m_RegionMap));
+    comp.m_ColorMap = node["ColorMap"].as<u64>(static_cast<u64>(comp.m_ColorMap));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["UndercoatDensity"], v))
+        comp.m_UndercoatDensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["UndercoatLength"], v))
+        comp.m_UndercoatLength = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["UndercoatWidth"], v))
+        comp.m_UndercoatWidth = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["UndercoatClump"], v))
+        comp.m_UndercoatClump = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GuardDensity"], v))
+        comp.m_GuardDensity = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GuardLength"], v))
+        comp.m_GuardLength = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GuardWidth"], v))
+        comp.m_GuardWidth = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["GuardClump"], v))
+        comp.m_GuardClump = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(4.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["LengthJitter"], v))
+        comp.m_LengthJitter = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["WidthJitter"], v))
+        comp.m_WidthJitter = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadeJitter"], v))
+        comp.m_ShadeJitter = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ClumpCellSize"], v))
+        comp.m_ClumpCellSize = std::clamp(v, static_cast<f32>(0.000244f), static_cast<f32>(0.25f));
+    comp.m_VariationSeed = node["VariationSeed"].as<u32>(comp.m_VariationSeed);
+    comp.m_RoleVisibilityMask = std::clamp(node["RoleVisibilityMask"].as<u32>(comp.m_RoleVisibilityMask), static_cast<u32>(0), static_cast<u32>(31));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["GroomCoatShadowComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomCoatShadowComponent>();

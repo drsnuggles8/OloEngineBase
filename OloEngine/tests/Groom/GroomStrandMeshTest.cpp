@@ -88,7 +88,7 @@ TEST(GroomStrandMesh, VertexIsExactlySixteenFloats)
     EXPECT_EQ(offsetof(GroomStrandVertex, Radius), 28u);
     EXPECT_EQ(offsetof(GroomStrandVertex, Coords), 32u);
     EXPECT_EQ(offsetof(GroomStrandVertex, SegmentId), 40u);
-    EXPECT_EQ(offsetof(GroomStrandVertex, Pad0), 44u);
+    EXPECT_EQ(offsetof(GroomStrandVertex, Tint), 44u);
     // #1249: the previous-frame centreline, at float 12. The offsets above are
     // unchanged on purpose — the four floats were APPENDED, so the Vulkan
     // pull's existing reads all still land where they did and only the stride

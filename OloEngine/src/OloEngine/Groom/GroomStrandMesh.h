@@ -27,6 +27,7 @@
 
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomBinding.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
@@ -87,7 +88,16 @@ namespace OloEngine
         /// bit-casts it back; no arithmetic is ever done on it as a float.
         f32 SegmentId = 0.0f;
 
-        f32 Pad0 = 0.0f;
+        /// This strand's coat TINT (issue #1251), 8:8:8 in the low 24 bits of
+        /// this lane with the exponent forced — see PackGroomCoatTint, which is
+        /// the twin of GroomStrand.glsl's unpack, and which explains why the
+        /// exponent is not optional.
+        ///
+        /// It took the lane that was Pad0. The vertex is SIXTEEN FLOATS and the
+        /// Vulkan arm pulls it as a flat float array at that stride, so spending
+        /// the spare lane rather than widening the struct is what keeps this a
+        /// change to a value and not to a layout.
+        f32 Tint = GroomCoatIdentityTint;
 
         /// This corner's centreline point AS IT WAS LAST FRAME, object space.
         ///
@@ -112,6 +122,16 @@ namespace OloEngine
 
     struct GroomStrandBuildSettings
     {
+        /// A digest of the coat authoring this build was made with (#1251).
+        ///
+        /// The coat itself travels as a GroomCoatContext POINTER beside these
+        /// settings, because it holds two Ref<GroomRegionMap> and a span and is
+        /// therefore neither hashable nor comparable. This lane is what puts it
+        /// in the cache key and in the collision guard all the same — see
+        /// GroomCoatDigest. Zero means "no coat authoring", which is the value
+        /// every call site that predates #1251 leaves it at.
+        u64 CoatDigest = 0;
+
         /// Upper bound on the strands the mesh contains. A stride over the
         /// whole groom, never the first N — see the header.
         u32 MaxStrands = 100000;
@@ -173,6 +193,26 @@ namespace OloEngine
         /// deformed frame. Zero on an unbound groom, by construction.
         u32 StrandsHeldAtRest = 0;
 
+        // ── Coat authoring (#1251) ────────────────────────────────────
+
+        /// Strands the COAT removed: a hidden role, or a lost density draw.
+        /// Counted apart from the budget because the two have different fixes —
+        /// one is an authoring choice and the other is a budget — and a coat
+        /// that came out sparse for the wrong reason is otherwise indisting-
+        /// uishable from one that came out sparse for the right one.
+        u32 StrandsDroppedByCoat = 0;
+
+        /// Per GroomCoatRole: how many strands were available after the coat's
+        /// density decision, and how many the BUDGET then kept. The ratio of the
+        /// two per role IS criterion 1's silhouette claim as a number, which is
+        /// what GroomCoatAuthoringTest asserts on and what the editor shows.
+        u32 AvailableByRole[GroomCoatRoleCount]{};
+        u32 SelectedByRole[GroomCoatRoleCount]{};
+
+        /// The stride the budget chose for each role. All equal on a groom with
+        /// no coat authoring, which is the pre-#1251 behaviour.
+        u32 StrideByRole[GroomCoatRoleCount]{};
+
         [[nodiscard]] bool operator==(const GroomStrandMeshStats&) const = default;
     };
 
@@ -206,10 +246,15 @@ namespace OloEngine
     // The index buffer is 32-bit and its values are bounded by the vertex
     // count, which the segment budget bounds in turn — so a groom cannot
     // produce indices a u32 cannot address.
+    //
+    // `coat` is null for a groom with no coat authoring, so the un-authored path
+    // is byte-for-byte the one that existed before #1251 rather than a special
+    // case of a new one — the same shape `deformation` already uses.
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
                                               std::vector<u32>& outIndices,
-                                              const GroomStrandDeformation* deformation = nullptr);
+                                              const GroomStrandDeformation* deformation = nullptr,
+                                              const GroomCoatContext* coat = nullptr);
 
     // The curve indices this build will walk, in the order it walks them.
     //
@@ -218,11 +263,12 @@ namespace OloEngine
     // groom when the budget will draw 20k of them is the difference between a
     // frame cost and a frame. `outCurves` is cleared first.
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves);
+                                 std::vector<u32>& outCurves, const GroomCoatContext* coat = nullptr);
 
     // The stats a build WOULD produce, without building anything. Pure and
     // cheap, so the editor's inspector can show the budget's effect on every
     // frame without allocating a megabyte to find out.
     [[nodiscard]] GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom,
-                                                           const GroomStrandBuildSettings& settings);
+                                                           const GroomStrandBuildSettings& settings,
+                                                           const GroomCoatContext* coat = nullptr);
 } // namespace OloEngine

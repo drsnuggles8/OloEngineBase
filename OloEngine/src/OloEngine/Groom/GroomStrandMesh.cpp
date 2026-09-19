@@ -4,9 +4,11 @@
 #include "OloEngine/Groom/GroomAsset.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <unordered_map>
 
 namespace OloEngine
 {
@@ -22,12 +24,49 @@ namespace OloEngine
         // is the exact failure GroomPreview already learned. A stride covers
         // the whole groom at lower density, which is what a budget should look
         // like.
+        //
+        // WHY THE STRIDE IS PER ROLE (issue #1251). One stride over everything
+        // removes the same FRACTION of every coat layer, so a budget that halves
+        // a coat also halves the sparse guard hairs that draw its outline — and
+        // the animal loses its silhouette before it loses any of the fuzz. The
+        // per-role strides below are solved so that the retained fraction of a
+        // role is proportional to GroomCoatBudgetWeight(role), saturated at 1.
+        // On a groom with no coat authoring every curve is Unassigned, every
+        // weight is the same, and the solution is the single stride this code
+        // computed before the roles existed.
         struct Selection
         {
-            u32 Stride = 1;
+            std::array<u32, GroomCoatRoleCount> Stride{};
+            std::array<u32, GroomCoatRoleCount> Available{};
             u32 Selected = 0;
-            u32 Available = 0;
+            u32 AvailableTotal = 0;
+            u32 DroppedByCoat = 0;
             bool SegmentBudgetLimited = false;
+            /// True when any group asks for clumping, so the build knows whether
+            /// the clump prepass is worth a second walk over the groom.
+            bool WantsClumping = false;
+
+            Selection() noexcept
+            {
+                Stride.fill(1u);
+            }
+        };
+
+        // A per-role counter, so "every Nth strand of this role" is a rule the
+        // selection, the plan and the build all apply identically. They must:
+        // a selection that disagreed with the build by one curve would deform a
+        // strand that is not drawn and draw a strand that was not deformed.
+        struct RoleWalk
+        {
+            std::array<u32, GroomCoatRoleCount> Taken{};
+
+            [[nodiscard]] bool Take(GroomCoatRole role, const Selection& selection) noexcept
+            {
+                const auto index = static_cast<sizet>(role);
+                const bool selected = (Taken[index] % selection.Stride[index]) == 0u;
+                ++Taken[index];
+                return selected;
+            }
         };
 
         [[nodiscard]] u32 CountCurveSegments(const GroomAsset& groom, u32 curveIndex) noexcept
@@ -36,6 +75,30 @@ namespace OloEngine
             return points >= 2u ? points - 1u : 0u;
         }
 
+        // What the COAT says about one curve, plus its role — the answer every
+        // pass needs and the only place the evaluation is spelled out.
+        struct CurveCoat
+        {
+            GroomCoatRole Role = GroomCoatRole::Unassigned;
+            GroomCoatStrandParams Params{};
+        };
+
+        [[nodiscard]] CurveCoat CoatOfCurve(const GroomAsset& groom, u32 curveIndex, const GroomCoatContext* coat)
+        {
+            CurveCoat result;
+            if (coat == nullptr || !coat->IsActive())
+            {
+                return result;
+            }
+            const u16 groupId = groom.GetCurveGroupIds()[curveIndex];
+            result.Role = coat->GroupDesc(groupId).GetRole();
+            result.Params = EvaluateGroomCoatStrand(*coat, curveIndex, groom.GetRootUVs()[curveIndex], groupId);
+            return result;
+        }
+
+        // Topology and the guides-only switch: the eligibility that existed
+        // before the coat did. Kept separate from the coat's own Keep decision so
+        // the stats can say which of the two removed a strand.
         [[nodiscard]] bool CurveIsEligible(const GroomAsset& groom, u32 curveIndex,
                                            const GroomStrandBuildSettings& settings) noexcept
         {
@@ -46,65 +109,197 @@ namespace OloEngine
             return groom.GetCurvePointCount(curveIndex) >= 2u;
         }
 
-        [[nodiscard]] Selection SelectCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings)
+        [[nodiscard]] Selection SelectCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                             const GroomCoatContext* coat)
         {
             Selection selection;
 
-            u64 eligibleSegments = 0;
-            for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+            std::array<u64, GroomCoatRoleCount> segmentsByRole{};
+            const u32 curveCount = groom.GetCurveCount();
+            for (u32 curve = 0; curve < curveCount; ++curve)
             {
                 if (!CurveIsEligible(groom, curve, settings))
                 {
                     continue;
                 }
-                ++selection.Available;
-                eligibleSegments += CountCurveSegments(groom, curve);
+                const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+                if (!curveCoat.Params.Keep)
+                {
+                    ++selection.DroppedByCoat;
+                    continue;
+                }
+                if (curveCoat.Params.Clump > 0.0f)
+                {
+                    selection.WantsClumping = true;
+                }
+                const auto role = static_cast<sizet>(curveCoat.Role);
+                ++selection.Available[role];
+                ++selection.AvailableTotal;
+                segmentsByRole[role] += CountCurveSegments(groom, curve);
             }
 
-            if (selection.Available == 0u)
+            if (selection.AvailableTotal == 0u)
             {
-                selection.Selected = 0;
                 return selection;
             }
 
-            const u32 maxStrands = std::max(1u, settings.MaxStrands);
-            u32 stride = 1u;
-            if (selection.Available > maxStrands)
+            // ── The budget, as a fraction per role ───────────────────
+            //
+            // Find k in (0, 1] with sum_r count_r * min(1, k * w_r) == budget,
+            // for BOTH budgets — strands, and segments expressed as an
+            // equivalent strand count through each role's own mean strand
+            // length. The tighter of the two answers wins.
+            //
+            // Bisection rather than a closed form: the saturation makes the sum
+            // piecewise linear in k with a breakpoint per distinct weight, and
+            // forty halvings of [0, 1] in f64 reach the exact answer to far
+            // beyond the precision a u32 stride can express. It is forty
+            // iterations of a five-element loop, once per build.
+            const auto retainedFor = [&selection](f64 k, sizet role)
             {
-                stride = (selection.Available + maxStrands - 1u) / maxStrands;
-            }
+                const f64 weight = static_cast<f64>(GroomCoatBudgetWeight(static_cast<GroomCoatRole>(role)));
+                return std::min(1.0, k * weight);
+            };
 
-            // The segment budget is the one that actually sizes the buffer, so
-            // it can widen the stride further. It is applied from the AVERAGE
-            // segments per eligible curve; a groom with wildly varying strand
-            // lengths can still overshoot, which is why the build below also
-            // stops exactly at the cap and says so.
-            const u32 maxSegments = std::max(1u, settings.MaxSegments);
-            const f64 segmentsPerCurve =
-                static_cast<f64>(eligibleSegments) / static_cast<f64>(selection.Available);
-            if (segmentsPerCurve > 0.0)
+            const auto solve = [&](auto&& costOfRole, f64 budget) -> f64
             {
-                const f64 affordableCurves = static_cast<f64>(maxSegments) / segmentsPerCurve;
-                if (affordableCurves >= 1.0 && static_cast<f64>(selection.Available) > affordableCurves)
+                f64 total = 0.0;
+                for (sizet role = 0; role < GroomCoatRoleCount; ++role)
                 {
-                    const u32 segmentStride = static_cast<u32>(
-                        std::ceil(static_cast<f64>(selection.Available) / affordableCurves));
-                    if (segmentStride > stride)
+                    total += costOfRole(role);
+                }
+                if (total <= budget || total <= 0.0)
+                {
+                    return 1.0;
+                }
+                f64 lo = 0.0;
+                f64 hi = 1.0;
+                for (i32 iteration = 0; iteration < 40; ++iteration)
+                {
+                    const f64 mid = (lo + hi) * 0.5;
+                    f64 spent = 0.0;
+                    for (sizet role = 0; role < GroomCoatRoleCount; ++role)
                     {
-                        stride = segmentStride;
-                        selection.SegmentBudgetLimited = true;
+                        spent += costOfRole(role) * retainedFor(mid, role);
+                    }
+                    if (spent > budget)
+                    {
+                        hi = mid;
+                    }
+                    else
+                    {
+                        lo = mid;
                     }
                 }
-            }
+                return lo;
+            };
 
-            selection.Stride = std::max(1u, stride);
-            selection.Selected = (selection.Available + selection.Stride - 1u) / selection.Stride;
+            const f64 strandK = solve([&selection](sizet role)
+                                      { return static_cast<f64>(selection.Available[role]); },
+                                      static_cast<f64>(std::max(1u, settings.MaxStrands)));
+            const f64 segmentK = solve([&segmentsByRole](sizet role)
+                                       { return static_cast<f64>(segmentsByRole[role]); },
+                                       static_cast<f64>(std::max(1u, settings.MaxSegments)));
+
+            // The SEGMENT budget is the one that actually sizes the buffer, so
+            // when it is the binding one the stats say so — raising "Max
+            // Strands" and seeing no change is otherwise indistinguishable from
+            // a broken slider.
+            selection.SegmentBudgetLimited = segmentK < strandK;
+            const f64 k = std::min(strandK, segmentK);
+
+            selection.Selected = 0;
+            for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+            {
+                const f64 fraction = retainedFor(k, role);
+                // std::lround, not a truncating cast: 1/0.6 is 1.67, and
+                // truncating it to a stride of 1 would keep every strand of a
+                // role the solver decided to thin, blowing the budget it was
+                // solved against. Rounding keeps the MEAN density right and lets
+                // the build's hard cap catch the overshoot.
+                const u32 stride =
+                    fraction >= 1.0 ? 1u : std::max(1u, static_cast<u32>(std::lround(1.0 / std::max(fraction, 1e-9))));
+                selection.Stride[role] = stride;
+                selection.Selected += (selection.Available[role] + stride - 1u) / stride;
+            }
             return selection;
+        }
+
+        // ── Clumping (issue #1251) ───────────────────────────────────
+        //
+        // A clump is a patch of the PELT, quantised in root UV, and its shape is
+        // the mean growth vector (tip - root, after the length scale) of the
+        // strands that grow in it. A strand is then pulled toward its own root
+        // plus that vector — so roots never move and tips converge.
+        //
+        // COMPUTED OVER EVERY COAT-KEPT CURVE, NOT OVER THE SELECTED ONES, and
+        // that is deliberate: the budget's stride is a distance/LOD decision, and
+        // letting it into the clump mean would make a tuft change shape as the
+        // camera walked toward it. Two walks over the groom rather than one, paid
+        // once per cache miss.
+        //
+        // The accumulator is an unordered_map, which GroomCooker.h forbids
+        // ITERATING to produce output. Nothing here iterates it — it is only ever
+        // looked up by key — so the output order and every value in it are a pure
+        // function of the groom.
+        using ClumpTable = std::unordered_map<u64, GroomCoatClumpAccum>;
+
+        [[nodiscard]] ClumpTable BuildClumpTable(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                                 const GroomCoatContext* coat)
+        {
+            ClumpTable table;
+            if (coat == nullptr || !coat->IsActive())
+            {
+                return table;
+            }
+            const f32 cellSize = coat->Settings->ClumpCellSize;
+            const auto& points = groom.GetPoints();
+            const u32 curveCount = groom.GetCurveCount();
+            for (u32 curve = 0; curve < curveCount; ++curve)
+            {
+                if (!CurveIsEligible(groom, curve, settings))
+                {
+                    continue;
+                }
+                const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+                if (!curveCoat.Params.Keep)
+                {
+                    continue;
+                }
+                const u32 first = groom.GetCurveFirstPoint(curve);
+                const u32 count = groom.GetCurvePointCount(curve);
+                const glm::vec3& root = points[first];
+                const glm::vec3& tip = points[first + count - 1u];
+                const u64 cell = GroomCoatClumpCell(groom.GetRootUVs()[curve], cellSize);
+                GroomCoatClumpAccum& accum = table[cell];
+                // The LENGTH-SCALED growth, so a clump of strands that were all
+                // shortened converges at the shortened tips rather than reaching
+                // for where the tips used to be.
+                accum.GrowthSum += (tip - root) * curveCoat.Params.Length;
+                ++accum.Count;
+            }
+            return table;
+        }
+
+        [[nodiscard]] glm::vec3 ClumpGrowthFor(const ClumpTable& table, const GroomAsset& groom, u32 curveIndex,
+                                               f32 cellSize) noexcept
+        {
+            const auto it = table.find(GroomCoatClumpCell(groom.GetRootUVs()[curveIndex], cellSize));
+            return it != table.end() ? it->second.MeanGrowth() : glm::vec3(0.0f);
+        }
+
+        void FillRoleStats(GroomStrandMeshStats& stats, const Selection& selection) noexcept
+        {
+            for (sizet role = 0; role < GroomCoatRoleCount; ++role)
+            {
+                stats.AvailableByRole[role] = selection.Available[role];
+                stats.StrideByRole[role] = selection.Stride[role];
+            }
         }
     } // namespace
 
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
-                                 std::vector<u32>& outCurves)
+                                 std::vector<u32>& outCurves, const GroomCoatContext* coat)
     {
         outCurves.clear();
 
@@ -114,18 +309,24 @@ namespace OloEngine
         // would deform a strand that is not drawn and draw a strand that was
         // not deformed, and the second of those is a coat with one stiff hair
         // in it that no assertion would ever catch.
-        const Selection selection = SelectCurves(groom, settings);
+        const Selection selection = SelectCurves(groom, settings, coat);
         outCurves.reserve(selection.Selected);
 
-        u32 taken = 0;
+        RoleWalk walk;
         u64 segments = 0;
-        for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+        const u32 curveCount = groom.GetCurveCount();
+        for (u32 curve = 0; curve < curveCount; ++curve)
         {
             if (!CurveIsEligible(groom, curve, settings))
             {
                 continue;
             }
-            if ((taken % selection.Stride) == 0u)
+            const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+            if (!curveCoat.Params.Keep)
+            {
+                continue;
+            }
+            if (walk.Take(curveCoat.Role, selection))
             {
                 // And the SEGMENT BUDGET too, not only the stride. The stride
                 // comes from an average strand length, so the build can run out
@@ -148,29 +349,41 @@ namespace OloEngine
                 outCurves.push_back(curve);
                 segments += CountCurveSegments(groom, curve);
             }
-            ++taken;
         }
     }
 
-    GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings)
+    GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                             const GroomCoatContext* coat)
     {
         GroomStrandMeshStats stats;
-        const Selection selection = SelectCurves(groom, settings);
-        stats.StrandsAvailable = selection.Available;
+        const Selection selection = SelectCurves(groom, settings, coat);
+        stats.StrandsAvailable = selection.AvailableTotal;
         stats.StrandsSelected = selection.Selected;
-        stats.Stride = selection.Stride;
+        stats.StrandsDroppedByCoat = selection.DroppedByCoat;
         stats.SegmentBudgetLimited = selection.SegmentBudgetLimited;
+        FillRoleStats(stats, selection);
+        // The reported scalar stride is the one the LARGEST role pays, which is
+        // the number an inspector showing a single "Stride" field should show: a
+        // whisker group's stride of 1 says nothing about why the coat is thin.
+        stats.Stride = *std::max_element(selection.Stride.begin(), selection.Stride.end());
 
         u64 segments = 0;
-        u32 taken = 0;
-        for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+        RoleWalk walk;
+        const u32 curveCount = groom.GetCurveCount();
+        for (u32 curve = 0; curve < curveCount; ++curve)
         {
             if (!CurveIsEligible(groom, curve, settings))
             {
                 continue;
             }
-            if ((taken % selection.Stride) == 0u)
+            const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+            if (!curveCoat.Params.Keep)
             {
+                continue;
+            }
+            if (walk.Take(curveCoat.Role, selection))
+            {
+                ++stats.SelectedByRole[static_cast<sizet>(curveCoat.Role)];
                 // TRUNCATES MID-CURVE, exactly as BuildGroomStrandMesh does.
                 // Refusing the whole curve instead would make the plan and the
                 // build disagree whenever one curve straddles the cap: a groom
@@ -189,7 +402,6 @@ namespace OloEngine
                 }
                 segments += wanted;
             }
-            ++taken;
         }
 
         stats.SegmentCount = static_cast<u32>(segments);
@@ -202,7 +414,7 @@ namespace OloEngine
 
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
-                                              const GroomStrandDeformation* deformation)
+                                              const GroomStrandDeformation* deformation, const GroomCoatContext* coat)
     {
         outVertices.clear();
         outIndices.clear();
@@ -215,15 +427,23 @@ namespace OloEngine
         const bool deformed = deformation != nullptr && deformation->IsUsable(groom.GetCurveCount());
 
         GroomStrandMeshStats stats;
-        const Selection selection = SelectCurves(groom, settings);
-        stats.StrandsAvailable = selection.Available;
+        const Selection selection = SelectCurves(groom, settings, coat);
+        stats.StrandsAvailable = selection.AvailableTotal;
         stats.StrandsSelected = selection.Selected;
-        stats.Stride = selection.Stride;
+        stats.StrandsDroppedByCoat = selection.DroppedByCoat;
         stats.SegmentBudgetLimited = selection.SegmentBudgetLimited;
+        FillRoleStats(stats, selection);
+        stats.Stride = *std::max_element(selection.Stride.begin(), selection.Stride.end());
 
-        const GroomStrandMeshStats plan = PlanGroomStrandMesh(groom, settings);
+        const GroomStrandMeshStats plan = PlanGroomStrandMesh(groom, settings, coat);
         outVertices.reserve(plan.VertexCount);
         outIndices.reserve(plan.IndexCount);
+
+        // Only when something actually asks to clump: the prepass is a whole
+        // extra walk over the groom plus a hash-map insert per strand, and a
+        // coat with no clumping is the common case.
+        const ClumpTable clumps = selection.WantsClumping ? BuildClumpTable(groom, settings, coat) : ClumpTable{};
+        const f32 clumpCellSize = (coat != nullptr && coat->IsActive()) ? coat->Settings->ClumpCellSize : 0.0f;
 
         const auto& points = groom.GetPoints();
         const auto& widths = groom.GetPointWidths();
@@ -231,9 +451,10 @@ namespace OloEngine
         glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
         glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
 
-        u32 taken = 0;
+        RoleWalk walk;
         u32 emittedSegments = 0;
-        for (u32 curve = 0; curve < groom.GetCurveCount(); ++curve)
+        const u32 curveCount = groom.GetCurveCount();
+        for (u32 curve = 0; curve < curveCount; ++curve)
         {
             if (groom.GetCurvePointCount(curve) < 2u)
             {
@@ -245,12 +466,16 @@ namespace OloEngine
                 continue;
             }
 
-            const bool selected = (taken % selection.Stride) == 0u;
-            ++taken;
-            if (!selected)
+            const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+            if (!curveCoat.Params.Keep)
             {
                 continue;
             }
+            if (!walk.Take(curveCoat.Role, selection))
+            {
+                continue;
+            }
+            ++stats.SelectedByRole[static_cast<sizet>(curveCoat.Role)];
 
             // The budget is spent: every remaining curve would enter the segment
             // loop below and leave it on the first iteration having emitted
@@ -288,6 +513,27 @@ namespace OloEngine
                 }
             }
 
+            // ── The coat's shape, in REST space, BEFORE the deformation ──
+            //
+            // That order is the whole of criterion 2. Length, clump and width
+            // are functions of the root UV and the curve index, applied to the
+            // asset's own points; the binding's root transform is applied to the
+            // result. So a coat authored on a bind-pose pelt arrives on a
+            // running animal transformed by the body and by nothing else — the
+            // regional map cannot slide, because it was never consulted in a
+            // space the body moves.
+            const glm::vec3& curveRoot = points[first];
+            const glm::vec3 clumpGrowth =
+                curveCoat.Params.Clump > 0.0f ? ClumpGrowthFor(clumps, groom, curve, clumpCellSize) : glm::vec3(0.0f);
+            const f32 packedTint = PackGroomCoatTint(curveCoat.Params.Tint);
+
+            const auto shape = [&](u32 pointIndex)
+            {
+                const f32 t = static_cast<f32>(pointIndex) * invSpan;
+                return ApplyGroomCoatShape(curveRoot, points[first + pointIndex], t, curveCoat.Params.Length,
+                                           curveCoat.Params.Clump, clumpGrowth);
+            };
+
             const auto place = [&](const glm::vec3& restPoint, bool previous)
             {
                 return transform != nullptr ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
@@ -307,13 +553,14 @@ namespace OloEngine
                     break;
                 }
 
-                // The REST points from the asset, then the deformed pair this
-                // frame and the deformed pair last frame. An undeformed groom
-                // takes the identity path through `place`, so `p0 == rest0` and
-                // `prev0 == p0` and the emitted bytes are what they were before
-                // #1249.
-                const glm::vec3& rest0 = points[first + i];
-                const glm::vec3& rest1 = points[first + i + 1u];
+                // The REST points from the asset THROUGH THE COAT, then the
+                // deformed pair this frame and the deformed pair last frame. An
+                // undeformed groom takes the identity path through `place`, and a
+                // groom with no coat takes the identity path through `shape`, so
+                // `p0 == rest0` and `prev0 == p0` and the emitted bytes are what
+                // they were before #1249 and #1251.
+                const glm::vec3 rest0 = shape(i);
+                const glm::vec3 rest1 = shape(i + 1u);
                 const glm::vec3 p0 = place(rest0, false);
                 const glm::vec3 p1 = place(rest1, false);
                 const glm::vec3 prev0 = place(rest0, true);
@@ -324,9 +571,12 @@ namespace OloEngine
                 const glm::vec3 delta = p1 - p0;
 
                 // The cooked widths are DIAMETERS (the Alembic/USD
-                // convention); the halving happens exactly once, here.
-                const f32 r0 = widths[first + i] * 0.5f;
-                const f32 r1 = widths[first + i + 1u] * 0.5f;
+                // convention); the halving happens exactly once, here. The
+                // coat's width multiplier rides along with it rather than being
+                // folded into the request's WidthScale, because that one is a
+                // per-GROOM unit-scale lever and this one is per strand.
+                const f32 r0 = widths[first + i] * 0.5f * curveCoat.Params.Width;
+                const f32 r1 = widths[first + i + 1u] * 0.5f * curveCoat.Params.Width;
 
                 // The box covers the RIBBON, not the centreline it is built
                 // around. GroomStrand.glsl expands each segment sideways by
@@ -364,6 +614,7 @@ namespace OloEngine
 
                 GroomStrandVertex vertex;
                 vertex.SegmentId = segmentId;
+                vertex.Tint = packedTint;
 
                 // Corner order: (-side at P0), (+side at P0), (+side at P1),
                 // (-side at P1) — a quad, not a bowtie, because `Other` gives

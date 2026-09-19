@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .ologroom Binary Groom Format — Version 1 (issue #1232)
+    // .ologroom Binary Groom Format — Version 2 (issues #1232, #1251)
     //
     // The engine-native cooked groom. Produced from an Alembic ICurves archive
     // (or any other curve source) by GroomCooker::CookToBytes; read back by
@@ -39,6 +39,13 @@ namespace OloEngine
     //   Section 7 GroupNames   — u32 count, then (u32 byteLength, bytes) * count
     //   Section 8 Provenance   — ProvenanceHeader, then SourcePath then
     //                            SourceFormat bytes (lengths in the header)
+    //   Section 9 GroupCoats   — GroomCoatGroupDesc * GroupCount (issue #1251):
+    //                            each group's coat role, density, length, width,
+    //                            clump and tint. Exactly GroupCount entries — a
+    //                            groom whose in-memory table is empty writes the
+    //                            identity description for every group, so the
+    //                            section is fixed-size and the reader never has
+    //                            to decide what a short table means.
     //
     // All multi-byte values are little-endian. FileHeader::Checksum is the
     // CRC32 of the payload bytes as stored on disk (i.e. of the COMPRESSED
@@ -61,8 +68,14 @@ namespace OloEngine
     namespace OloGroomFormat
     {
         constexpr u32 MagicNumber = 0x4D524750; // "PGRM" in little-endian
-        constexpr u32 CurrentVersion = 1;
-        constexpr u32 MinSupportedVersion = 1; // == CurrentVersion, on purpose — see header comment
+        // Version 2 added section 9 (per-group coat authoring, issue #1251).
+        // A version-1 file is REJECTED BY VERSION rather than read without its
+        // coat table: a .ologroom is a derived artifact, so the minimum moves
+        // with the current one and the fix is one re-import — the policy
+        // docs/agent-rules/binary-format-versioning.md sets for this class of
+        // file, and the reason the reader has no migration branch.
+        constexpr u32 CurrentVersion = 2;
+        constexpr u32 MinSupportedVersion = 2; // == CurrentVersion, on purpose — see header comment
 
         constexpr u32 FlagCompressed = 1; // Bit 0: payload is zlib-compressed
 
@@ -93,7 +106,8 @@ namespace OloEngine
             CurveFlags = 6,
             GroupNames = 7,
             Provenance = 8,
-            Count = 9 // sentinel
+            GroupCoats = 9,
+            Count = 10 // sentinel
         };
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);

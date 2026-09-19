@@ -2241,6 +2241,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
+            DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -8431,7 +8432,9 @@ namespace OloEngine
         // the STATIC DEBUG PREVIEW steerable and to report what the groom
         // actually contains — an import that dropped its root UVs or its
         // guides is invisible unless the counts are on screen.
-        DrawComponent<GroomComponent>("Groom", entity, [](auto& component)
+        // The entity is captured since #1251: the preview readout below applies the
+        // coat's role visibility mask, which lives on a sibling component.
+        DrawComponent<GroomComponent>("Groom", entity, [entity](auto& component)
                                       {
             const std::string groomLabel = component.m_Groom != 0
                 ? "Groom: " + std::to_string(static_cast<u64>(component.m_Groom))
@@ -8576,6 +8579,17 @@ namespace OloEngine
                     settings.GuidesOnly = component.m_GuidesOnly;
                     settings.MaxStrands = component.m_MaxPreviewStrands;
                     settings.RootMarkerSize = component.m_RootMarkerSize;
+                    // The same mask the viewport applies, so this readout counts
+                    // the strands that are actually drawn rather than the ones a
+                    // coat with a hidden layer would have drawn.
+                    if (entity.HasComponent<GroomCoatComponent>())
+                    {
+                        if (const auto& coat = entity.GetComponent<GroomCoatComponent>(); coat.m_Enabled)
+                        {
+                            settings.RoleVisibilityMask =
+                                coat.m_RoleVisibilityMask & ((1u << GroomCoatRoleCount) - 1u);
+                        }
+                    }
 
                     const GroomPreviewStats plan = PlanGroomPreview(*groom, settings);
                     const u32 willDraw = (plan.Stride > 0)
@@ -8842,6 +8856,289 @@ namespace OloEngine
         // either a knob that sets the policy or a live readout of what the
         // renderer actually did with it. A number that only appears in a log
         // is not inspectable.
+        // ── Coat authoring (issue #1251) ───────────────────────────
+        //
+        // Criterion 3: "editor preview exposes group visibility, density, widths
+        // and clumps with bounded runtime parameter edits."
+        //
+        // Two halves, and the split is the point. The GROUPS panel is READ-ONLY:
+        // it shows what the cooked asset says each group is, because that is
+        // authored in the DCC and baked, and a slider here that appeared to
+        // change it would be a slider whose value is thrown away on the next
+        // import. The OVERRIDES below it are the editable half, and every one is
+        // a multiplier on the authored value with a hard range — which is what
+        // "bounded" means.
+        DrawComponent<GroomCoatComponent>("Groom Coat", entity, [entity](auto& component)
+                                          {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is no coat to author. Add a "
+                                   "Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            const GroomComponent& groomComponent = entity.GetComponent<GroomComponent>();
+            if (!groomComponent.m_RenderStrands)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this is authored but not "
+                                   "drawn. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off builds the coat exactly as the cook produced it.\n"
+                                  "That is the A/B control this feature's evidence is measured against.");
+            }
+
+            Ref<GroomAsset> groom = groomComponent.m_Groom != 0
+                                        ? AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom)
+                                        : nullptr;
+
+            // ── The asset's own groups, read-only ────────────────
+            ImGui::SeparatorText("Coat groups (from the asset)");
+            if (!groom)
+            {
+                ImGui::TextDisabled("No groom asset resolved.");
+            }
+            else if (groom->GetGroupCoats().empty())
+            {
+                // NOT an error, and said plainly rather than left blank: a groom
+                // cooked with no coat table is every group at identity, which is
+                // a perfectly good coat — it just has no roles for the overrides
+                // below to reach.
+                ImGui::TextWrapped("This groom carries no coat table: every group is Unassigned at identity. "
+                                   "Re-import it with group names the importer recognises (or a groom_role "
+                                   "attribute) to give it an undercoat and guard hairs.");
+            }
+            else if (ImGui::BeginTable("##groomcoatgroups", 7,
+                                       ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                           ImGuiTableFlags_SizingStretchProp))
+            {
+                ImGui::TableSetupColumn("Group");
+                ImGui::TableSetupColumn("Role");
+                ImGui::TableSetupColumn("Curves");
+                ImGui::TableSetupColumn("Density");
+                ImGui::TableSetupColumn("Length");
+                ImGui::TableSetupColumn("Width");
+                ImGui::TableSetupColumn("Clump");
+                ImGui::TableHeadersRow();
+
+                // A groom may legally hold 65535 groups, and a widget per row of
+                // that is the budget cpp-coding-quality.md §9 forbids. The
+                // clipper virtualises it; a production groom has a handful of
+                // groups, so this costs nothing in the normal case and bounds
+                // the pathological one.
+                ImGuiListClipper clipper;
+                clipper.Begin(static_cast<int>(groom->GetGroupCount()));
+                while (clipper.Step())
+                {
+                    for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+                    {
+                        const auto groupIndex = static_cast<u16>(row);
+                        const GroomCoatGroupDesc desc = groom->GetGroupCoat(groupIndex);
+                        const auto& ranges = groom->GetGroupRanges();
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        // The colour the viewport preview draws this group in, so
+                        // a row and a tuft on screen can be matched by eye.
+                        const glm::vec3 hue = GroomGroupColor(groupIndex);
+                        ImGui::ColorButton("##hue", ImVec4(hue.r, hue.g, hue.b, 1.0f),
+                                           ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker,
+                                           ImVec2(12.0f, 12.0f));
+                        ImGui::SameLine();
+                        ImGui::TextUnformatted(groom->GetGroupNames()[groupIndex].c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(std::string(ToString(desc.GetRole())).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", groupIndex < ranges.size() ? ranges[groupIndex].CurveCount : 0u);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", static_cast<f64>(desc.Density));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", static_cast<f64>(desc.Length));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", static_cast<f64>(desc.Width));
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%.2f", static_cast<f64>(desc.Clump));
+                    }
+                }
+                ImGui::EndTable();
+            }
+
+            // ── Group visibility ─────────────────────────────────
+            ImGui::SeparatorText("Group visibility");
+            {
+                u32 mask = component.m_RoleVisibilityMask;
+                for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+                {
+                    const u32 bit = 1u << role;
+                    bool visible = (mask & bit) != 0u;
+                    const std::string label(ToString(static_cast<GroomCoatRole>(role)));
+                    if (ImGui::Checkbox(label.c_str(), &visible))
+                    {
+                        mask = visible ? (mask | bit) : (mask & ~bit);
+                    }
+                    if (role + 1u < GroomCoatRoleCount)
+                    {
+                        ImGui::SameLine();
+                    }
+                }
+                component.m_RoleVisibilityMask = mask & ((1u << GroomCoatRoleCount) - 1u);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("A hidden role is removed from the strand BUILD, not discarded in the shader,\n"
+                                  "so it costs no geometry and frees its share of the budget for the rest.");
+            }
+
+            // ── The two independent layers ───────────────────────
+            ImGui::SeparatorText("Undercoat");
+            ImGui::DragFloat("Density##under", &component.m_UndercoatDensity, 0.01f, 0.0f, 4.0f, "%.3f");
+            ImGui::DragFloat("Length##under", &component.m_UndercoatLength, 0.01f, 0.05f, 8.0f, "%.3f");
+            ImGui::DragFloat("Width##under", &component.m_UndercoatWidth, 0.01f, 0.05f, 8.0f, "%.3f");
+            ImGui::DragFloat("Clump##under", &component.m_UndercoatClump, 0.01f, 0.0f, 4.0f, "%.3f");
+
+            ImGui::SeparatorText("Guard hair");
+            ImGui::DragFloat("Density##guard", &component.m_GuardDensity, 0.01f, 0.0f, 4.0f, "%.3f");
+            ImGui::DragFloat("Length##guard", &component.m_GuardLength, 0.01f, 0.05f, 8.0f, "%.3f");
+            ImGui::DragFloat("Width##guard", &component.m_GuardWidth, 0.01f, 0.05f, 8.0f, "%.3f");
+            ImGui::DragFloat("Clump##guard", &component.m_GuardClump, 0.01f, 0.0f, 4.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Every value here MULTIPLIES what the group was groomed with, so one slider\n"
+                                  "means the same thing on every animal. Only these two roles have runtime\n"
+                                  "overrides: whiskers and long hair are authored in the asset, where a group\n"
+                                  "of twelve strands has no useful density slider.");
+            }
+
+            // ── Regional maps ────────────────────────────────────
+            ImGui::SeparatorText("Regional maps (sampled at the strand's root UV)");
+            // Drag-and-drop from the content browser, the same shape every other
+            // texture slot in this panel uses. A dropped asset that is not a
+            // Texture2D is IGNORED rather than assigned: a handle to a mesh in a
+            // map slot would read back as whatever bytes the readback returned.
+            const auto textureSlot = [](const char* label, const char* id, AssetHandle& handle)
+            {
+                ImGui::Text("%s: %s", label, handle != 0 ? "Set" : "None");
+                ImGui::SameLine();
+                ImGui::Button((std::string("Drop##") + id).c_str(), ImVec2(60.0f, 0.0f));
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+                    {
+                        std::filesystem::path texPath = PathFromUtf8Payload(*payload);
+                        if (auto assetManager = Project::GetAssetManager().As<EditorAssetManager>())
+                        {
+                            if (auto const imported = assetManager->ImportAsset(texPath);
+                                imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
+                            {
+                                handle = imported;
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+                if (handle != 0)
+                {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton((std::string("X##Clear") + id).c_str()))
+                    {
+                        handle = 0;
+                    }
+                }
+            };
+            textureSlot("Region map (R length, G density, B clump)", "GroomCoatRegion", component.m_RegionMap);
+            textureSlot("Colour map (root-UV colour pattern)", "GroomCoatColor", component.m_ColorMap);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Both are read back to the CPU ONCE and sampled per strand, not per fragment:\n"
+                                  "two of the region map's channels decide whether a strand exists and how long\n"
+                                  "it is, which no fragment shader can answer.\n\n"
+                                  "Use an UNCOMPRESSED 8-bit RGBA texture -- a BC-compressed one cannot be read\n"
+                                  "back as RGBA8 and is refused with a warning in the log.");
+            }
+
+            // ── Variation ────────────────────────────────────────
+            ImGui::SeparatorText("Variation");
+            ImGui::DragFloat("Length jitter", &component.m_LengthJitter, 0.005f, 0.0f, 1.0f, "%.3f");
+            ImGui::DragFloat("Width jitter", &component.m_WidthJitter, 0.005f, 0.0f, 1.0f, "%.3f");
+            ImGui::DragFloat("Shade jitter", &component.m_ShadeJitter, 0.005f, 0.0f, 1.0f, "%.3f");
+            ImGui::DragFloat("Clump cell size (UV)", &component.m_ClumpCellSize, 0.001f, 0.000244f, 0.25f, "%.4f");
+            {
+                int seed = static_cast<int>(component.m_VariationSeed);
+                if (ImGui::DragInt("Variation seed", &seed, 1.0f, 0, 65535))
+                {
+                    component.m_VariationSeed = static_cast<u32>(std::max(0, seed));
+                }
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Jitter is applied SYMMETRICALLY about the authored value from each strand's\n"
+                                  "own hash, so turning it up varies the coat without lengthening it.\n\n"
+                                  "The seed salts every hash: two animals sharing one groom asset are identical\n"
+                                  "without it.");
+            }
+
+            // ── What the coat actually built ─────────────────────
+            //
+            // The same argument the budget readouts above make: a coat that came
+            // out sparse because a role is hidden and one that came out sparse
+            // because the budget bit look identical on screen, and the fix is
+            // different. This says which.
+            if (groom && groomComponent.m_RenderStrands)
+            {
+                ImGui::SeparatorText("Resulting build");
+                GroomStrandBuildSettings build;
+                build.MaxStrands = groomComponent.m_MaxRenderStrands;
+                build.GuidesOnly = groomComponent.m_GuidesOnly;
+                GroomCoatSettings settings = MakeGroomCoatSettings(component);
+                // The MAPS are deliberately not resolved for this readout: the
+                // readback belongs to Scene, on the frame's own schedule, and
+                // doing it from a panel would put a GPU readback in the middle
+                // of the inspector. The plan is therefore the coat WITHOUT its
+                // maps, and says so rather than quietly reporting the wrong
+                // number as if it were the built one.
+                build.CoatDigest = GroomCoatDigest(settings);
+                const GroomCoatContext coat{ &settings, groom->GetGroupCoats() };
+                const GroomStrandMeshStats plan = PlanGroomStrandMesh(*groom, build, &coat);
+                ImGui::Text("%u of %u strands built, %u removed by the coat", plan.StrandsSelected,
+                            plan.StrandsAvailable, plan.StrandsDroppedByCoat);
+                if (ImGui::BeginTable("##groomcoatroles", 4,
+                                      ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                          ImGuiTableFlags_SizingStretchProp))
+                {
+                    ImGui::TableSetupColumn("Role");
+                    ImGui::TableSetupColumn("Available");
+                    ImGui::TableSetupColumn("Built");
+                    ImGui::TableSetupColumn("Every");
+                    ImGui::TableHeadersRow();
+                    for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+                    {
+                        if (plan.AvailableByRole[role] == 0u)
+                        {
+                            continue;
+                        }
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(std::string(ToString(static_cast<GroomCoatRole>(role))).c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", plan.AvailableByRole[role]);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", plan.SelectedByRole[role]);
+                        ImGui::TableNextColumn();
+                        ImGui::Text("%u", plan.StrideByRole[role]);
+                    }
+                    ImGui::EndTable();
+                }
+                if (component.m_RegionMap != 0 || component.m_ColorMap != 0)
+                {
+                    ImGui::TextDisabled("(counts exclude the regional maps, which are sampled by the renderer)");
+                }
+            } });
+
         DrawComponent<GroomCoatShadowComponent>("Groom Coat Shadow", entity, [entity](auto& component)
                                                 {
             if (!entity.HasComponent<GroomComponent>())

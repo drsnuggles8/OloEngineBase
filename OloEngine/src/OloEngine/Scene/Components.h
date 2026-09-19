@@ -4,6 +4,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
+#include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -6214,6 +6215,194 @@ namespace OloEngine
         return GroomCoatShadow::IsValidCoatShadowMode(static_cast<i32>(component.m_Mode))
                    ? static_cast<GroomCoatShadow::CoatShadowMode>(component.m_Mode)
                    : GroomCoatShadow::CoatShadowMode::None;
+    }
+
+    // ── Coat authoring (issue #1251) ─────────────────────────────
+    //
+    // Bounded, per-entity edits on top of the coat the GROOM ASSET was authored
+    // with. The asset carries the roles, densities, lengths, widths, clumps and
+    // tints of its groups (GroomCoat.h, cooked as section 9); this component is
+    // the runtime lever over them, and is what criterion 3's "bounded runtime
+    // parameter edits" means in the editor.
+    //
+    // A SEPARATE COMPONENT, NOT FIELDS ON GroomComponent, for the reasons
+    // GroomBindingComponent gives at length and one of its own: GroomComponent's
+    // layout is PINNED at 48 bytes with a whole-object memcmp, and a coat is
+    // useful on exactly the grooms that have coat groups — a component that is
+    // always present but usually inert is a component whose absence means
+    // nothing.
+    //
+    // EVERY FIELD DEFAULTS TO IDENTITY, so adding this component with defaults
+    // renders the coat the asset describes and nothing else. That is not
+    // politeness: it is what makes "remove the component" the A/B control for
+    // every capture in this feature's evidence, and what keeps a scene authored
+    // before #1251 unchanged when the component is added by a tool.
+    //
+    // Not annotated OLO_PROPERTY and not registered with Lua, the same decision
+    // GroomComponent and GroomBindingComponent made and for the same reason:
+    // which coat an animal wears is authoring state, and a script that wants a
+    // different one wants a different entity. Stated as a decision rather than
+    // left as an omission.
+    struct GroomCoatComponent
+    {
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// RGB at the strand's ROOT UV: R scales length, G scales density, B
+        /// scales clump. This is criterion 2's "regional map" — muzzle, ears,
+        /// body and tail painted in the pelt's own UV space. Zero means no map,
+        /// which is all three at 1.
+        ///
+        /// Sampled per STRAND on the CPU at build time, not per fragment: two of
+        /// the three channels decide whether a strand exists and how long it is,
+        /// and neither is a question a fragment shader can answer. See
+        /// GroomRegionMap.
+        AssetHandle m_RegionMap = 0;
+
+        /// RGB at the root UV, multiplied into the strand's tint — criterion 2's
+        /// "root UV colour pattern". Zero means no map.
+        AssetHandle m_ColorMap = 0;
+
+        // ── The two roles criterion 1 names, adjustable independently ──
+        //
+        // Multipliers on the group's AUTHORED value, not replacements: an
+        // undercoat density of 0.5 halves whatever the groom was groomed with,
+        // so one slider means the same thing on every animal. The upper bounds
+        // are above 1 on purpose — an artist tuning a reference needs to be able
+        // to push past the authored value to see what it is doing.
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_UndercoatDensity = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 8.0f)
+        f32 m_UndercoatLength = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 8.0f)
+        f32 m_UndercoatWidth = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_UndercoatClump = 1.0f;
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_GuardDensity = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 8.0f)
+        f32 m_GuardLength = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 8.0f)
+        f32 m_GuardWidth = 1.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 4.0f)
+        f32 m_GuardClump = 1.0f;
+
+        // ── Deterministic variation ──────────────────────────────────
+        //
+        // A fraction of the value, applied SYMMETRICALLY about it from the
+        // strand's own hash — so turning variation up does not also make the
+        // coat longer. Criterion 2's "deterministic variation avoids visible
+        // repetition": the hash is over the curve index, so it has no period at
+        // all and nothing to repeat.
+
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_LengthJitter = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_WidthJitter = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ShadeJitter = 0.0f;
+
+        /// The root-UV cell edge a clump forms over. Small enough and every
+        /// strand is its own clump; large enough and the whole animal is one
+        /// tuft. The bounds are GroomCoatLimits' and are restated here because
+        /// this annotation is what guards scene YAML.
+        OLO_SERIALIZE(Clamp, Min = 0.000244f, Max = 0.25f)
+        f32 m_ClumpCellSize = 0.03f;
+
+        /// Salts every per-strand hash. Two animals sharing one groom asset and
+        /// one set of parameters are identical without it — which is exactly the
+        /// "visible repetition" criterion 2 forbids, appearing between two
+        /// instances rather than within one.
+        u32 m_VariationSeed = 0;
+
+        /// Bit per GroomCoatRole (Unassigned, Undercoat, GuardHair, Whisker,
+        /// LongHair). A clear bit removes that role's strands from the build
+        /// entirely — this is criterion 3's "group visibility", and it is a
+        /// build-time removal rather than a shader discard so a hidden layer
+        /// costs no geometry and no budget.
+        ///
+        /// CLAMP, not Reject: unlike a mode index every bit pattern in range is
+        /// meaningful, and the bits above the last role mean nothing at all, so
+        /// saturating a corrupt value to "all roles visible" is the honest
+        /// answer rather than a different valid mode.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 31)
+        u32 m_RoleVisibilityMask = 31;
+
+        /// Apply any of this at all. Off builds the coat exactly as the cook
+        /// produced it, which is the pre-#1251 picture.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad2 = 0;
+        OLO_SERIALIZE(Skip)
+        u32 Pad3 = 0;
+
+        GroomCoatComponent() = default;
+        GroomCoatComponent(const GroomCoatComponent&) = default;
+        GroomCoatComponent& operator=(const GroomCoatComponent&) = default;
+        GroomCoatComponent(GroomCoatComponent&&) noexcept = default;
+        GroomCoatComponent& operator=(GroomCoatComponent&&) noexcept = default;
+
+        auto operator==(const GroomCoatComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomCoatComponent) == 80,
+                  "GroomCoatComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored fields as the strand build wants them.
+    ///
+    /// THE ONE PLACE this component becomes renderer input, so scene YAML, a
+    /// save game, an MCP write and a native write cannot each interpret it
+    /// slightly differently — the same boundary MakeGroomCoatLodPolicy is, and
+    /// the same reason: OLO_SERIALIZE guards the deserialisers and guards
+    /// nothing else, and these values reach a hash draw, a multiply against
+    /// strand geometry and a cast to an integer.
+    ///
+    /// The two MAPS are not resolved here: this header may not reach the asset
+    /// manager, and the caller (Scene) is the only place that holds both the
+    /// component and a resolved map. It fills them in afterwards.
+    [[nodiscard]] inline GroomCoatSettings MakeGroomCoatSettings(const GroomCoatComponent& component) noexcept
+    {
+        // A helper rather than eleven repeated expressions. `fallback` is
+        // returned for a non-finite value, which must be tested BEFORE the
+        // clamp: std::clamp(NaN, lo, hi) is NaN, so a clamp alone lets one
+        // through to a multiply against every vertex of the coat.
+        const auto sane = [](f32 value, f32 lo, f32 hi, f32 fallback)
+        {
+            return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback;
+        };
+
+        GroomCoatSettings settings;
+        settings.Enabled = component.m_Enabled;
+        // The bits above the last role are meaningless; masking them off here
+        // means IsRoleVisible never has to wonder about them.
+        settings.RoleVisibilityMask = component.m_RoleVisibilityMask & ((1u << GroomCoatRoleCount) - 1u);
+
+        settings.Undercoat.Density = sane(component.m_UndercoatDensity, 0.0f, 4.0f, 1.0f);
+        settings.Undercoat.Length = sane(component.m_UndercoatLength, 0.05f, 8.0f, 1.0f);
+        settings.Undercoat.Width = sane(component.m_UndercoatWidth, 0.05f, 8.0f, 1.0f);
+        settings.Undercoat.Clump = sane(component.m_UndercoatClump, 0.0f, 4.0f, 1.0f);
+
+        settings.Guard.Density = sane(component.m_GuardDensity, 0.0f, 4.0f, 1.0f);
+        settings.Guard.Length = sane(component.m_GuardLength, 0.05f, 8.0f, 1.0f);
+        settings.Guard.Width = sane(component.m_GuardWidth, 0.05f, 8.0f, 1.0f);
+        settings.Guard.Clump = sane(component.m_GuardClump, 0.0f, 4.0f, 1.0f);
+
+        settings.LengthJitter = sane(component.m_LengthJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+        settings.WidthJitter = sane(component.m_WidthJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+        settings.ShadeJitter = sane(component.m_ShadeJitter, 0.0f, GroomCoatLimits::MaxJitter, 0.0f);
+        settings.ClumpCellSize = sane(component.m_ClumpCellSize, GroomCoatLimits::MinClumpCellSize,
+                                      GroomCoatLimits::MaxClumpCellSize, 0.03f);
+        settings.Seed = component.m_VariationSeed;
+        return settings;
     }
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────

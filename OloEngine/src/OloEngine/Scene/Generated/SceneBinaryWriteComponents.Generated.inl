@@ -392,6 +392,29 @@ if (entity.HasComponent<GroomBindingComponent>())
     SceneBinIO::Write(out, comp.m_ShowBindingPreview);
 }
 
+if (entity.HasComponent<GroomCoatComponent>())
+{
+    SceneBinIO::WriteU32(out, 4176992713u); // GroomCoatComponent
+    auto const& comp = entity.GetComponent<GroomCoatComponent>();
+    SceneBinIO::Write(out, comp.m_RegionMap);
+    SceneBinIO::Write(out, comp.m_ColorMap);
+    SceneBinIO::Write(out, comp.m_UndercoatDensity);
+    SceneBinIO::Write(out, comp.m_UndercoatLength);
+    SceneBinIO::Write(out, comp.m_UndercoatWidth);
+    SceneBinIO::Write(out, comp.m_UndercoatClump);
+    SceneBinIO::Write(out, comp.m_GuardDensity);
+    SceneBinIO::Write(out, comp.m_GuardLength);
+    SceneBinIO::Write(out, comp.m_GuardWidth);
+    SceneBinIO::Write(out, comp.m_GuardClump);
+    SceneBinIO::Write(out, comp.m_LengthJitter);
+    SceneBinIO::Write(out, comp.m_WidthJitter);
+    SceneBinIO::Write(out, comp.m_ShadeJitter);
+    SceneBinIO::Write(out, comp.m_ClumpCellSize);
+    SceneBinIO::Write(out, comp.m_VariationSeed);
+    SceneBinIO::Write(out, comp.m_RoleVisibilityMask);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<GroomCoatShadowComponent>())
 {
     SceneBinIO::WriteU32(out, 2438904161u); // GroomCoatShadowComponent

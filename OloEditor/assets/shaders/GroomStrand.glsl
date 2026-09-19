@@ -48,7 +48,7 @@ layout(location = 2) in float a_Side;      // -1 or +1: which edge of the ribbon
 layout(location = 3) in float a_Radius;    // object-space RADIUS here (the cooked width is a diameter)
 layout(location = 4) in vec2 a_Coords;     // x = root-to-tip parameter, y = across-ribbon in [-1, 1]
 layout(location = 5) in float a_SegmentId;   // uintBitsToFloat of the stochastic-hash segment identity
-layout(location = 6) in float a_Pad0;
+layout(location = 6) in float a_Tint;       // packed coat tint, see oloGroomUnpackTint
 layout(location = 7) in vec3 a_PrevPosition; // this centreline point as it was LAST frame, object space
 layout(location = 8) in float a_Pad1;
 #endif
@@ -120,6 +120,10 @@ layout(location = 6) out vec3 v_WorldPos;
 layout(location = 7) out vec3 v_WorldTangent;
 // Surface -> eye, UNNORMALISED so it interpolates correctly across the ribbon.
 layout(location = 8) out vec3 v_WorldView;
+// The per-strand coat tint (#1251), already unpacked. FLAT: it is constant over
+// the whole ribbon, and interpolating the packed lane instead would be
+// arithmetic on a bit pattern.
+layout(location = 9) flat out vec3 v_CoatTint;
 
 void main()
 {
@@ -131,6 +135,7 @@ void main()
 	float a_Radius = b_Vertices.v[base + 7];
 	vec2 a_Coords = vec2(b_Vertices.v[base + 8], b_Vertices.v[base + 9]);
 	float a_SegmentId = b_Vertices.v[base + 10];
+	float a_Tint = b_Vertices.v[base + 11];
 	vec3 a_PrevPosition = vec3(b_Vertices.v[base + 12], b_Vertices.v[base + 13], b_Vertices.v[base + 14]);
 #endif
 
@@ -156,6 +161,7 @@ void main()
 		v_WorldPos = vec3(0.0);
 		v_WorldTangent = vec3(1.0, 0.0, 0.0);
 		v_WorldView = vec3(0.0, 0.0, 1.0);
+		v_CoatTint = vec3(1.0);
 		return;
 	}
 
@@ -232,6 +238,7 @@ void main()
 	// way.
 	vec3 eyeWorld = -(transpose(mat3(u_View)) * u_View[3].xyz);
 	v_WorldView = eyeWorld - worldCurr.xyz;
+	v_CoatTint = oloGroomUnpackTint(a_Tint);
 }
 
 #type fragment
@@ -303,6 +310,7 @@ layout(location = 5) in vec3 v_ViewNormal;
 layout(location = 6) in vec3 v_WorldPos;
 layout(location = 7) in vec3 v_WorldTangent;
 layout(location = 8) in vec3 v_WorldView;
+layout(location = 9) flat in vec3 v_CoatTint;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -615,6 +623,26 @@ void main()
 	else
 	{
 		colour = u_GroomColor.rgb * ramp;
+	}
+
+	// THE COAT TINT (#1251), applied LAST and to the shaded result.
+	//
+	// It multiplies the exit radiance rather than modulating the fibre's
+	// sigma_a, and that is an APPROXIMATION, stated here rather than left to be
+	// discovered: a real pigment variation would change the absorption inside
+	// each fibre and therefore the hue of the TT lobe differently from the R
+	// lobe. Doing it properly means a per-strand sigma_a, which means editing
+	// include/GroomFibreCommon.glsl — #1247's model, which #1255 is validating
+	// against independent references at the time of writing. The approximation
+	// is what a per-strand albedo variation buys at zero risk to that work; the
+	// exact version belongs with whoever next opens the BCSDF.
+	//
+	// The TANGENT diagnostic is deliberately left untinted: it is a picture of a
+	// geometric input, and colouring it by the coat would make a tint look like
+	// a broken tangent frame.
+	if (u_GroomFibreModes.z != OLO_GROOM_FIBRE_DEBUG_TANGENT || u_GroomFibreModes.x == 0)
+	{
+		colour *= v_CoatTint;
 	}
 
 	o_Color = vec4(colour, 1.0);
