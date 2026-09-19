@@ -80,6 +80,11 @@ namespace OloEngine::Tests
             CaseZeroMasterExact = 14,
             CaseScleraUntouched = 15,
             CaseRefractionMovesTheIris = 16,
+            // The BOUNDS, driven out of range — see the probe's header.
+            CaseCurvatureRatioOverTheTop = 17,
+            CaseIrisPlaneDepthOverTheTop = 18,
+            CasePupilRadialOverTheTop = 19,
+            CaseConcavityOverTheTop = 20,
             CaseCount
         };
 
@@ -240,6 +245,22 @@ namespace OloEngine::Tests
         ASSERT_TRUE(harness.m_Shader) << "the probe shader failed to load";
 
         harness.Draw();
+
+        // AND THAT IT COMPILED. AFTER the draw, which is where this differs
+        // from the three sibling parity fixtures: Bind() is what FINISHES a
+        // still-compiling shader, so the status read before it can legally be
+        // Compiling and an assertion there is a race this one does not run.
+        //
+        // A non-null Shader is not a working one: Shader::Create
+        // hands back an OpenGLShader even when its status is Failed, Bind()
+        // then returns without binding, and Draw() carries on regardless. The
+        // non-zero cases below would catch the all-zero attachment that
+        // produces, but the cases that legitimately expect a ZERO — the
+        // bit-exact identity arms, the degenerate guards — would pass on a
+        // frame no fragment shader ever wrote.
+        ASSERT_TRUE(harness.m_Shader->IsReady())
+            << "the probe shader did not compile or link, so every zero-valued case below would "
+               "have passed on an attachment nothing wrote";
 
         std::vector<f32> pixels;
         harness.ReadOutputRgbaFloat(pixels);
@@ -405,6 +426,50 @@ namespace OloEngine::Tests
             EXPECT_GT(got.z, 0.01f)
                 << "the refraction moves the iris by less than 1% of its radius on the GPU; "
                    "the shader is computing a refraction and then discarding it";
+        }
+
+        // --- 17-20: THE CLAMPS AGREE, NOT JUST THE ARITHMETIC ------------------
+        //
+        // Every clamp in include/SkinOcularSurface.glsl is a hardcoded literal
+        // mirroring a named constant in SkinProfile.h. The cases above all pass
+        // in-range values, so a bound that drifted on one side would be
+        // invisible to them — and would surface as a corrupt lane shading
+        // differently on the GPU than the CPU says it does, which is the #1288
+        // failure shape. These four drive one function each far outside its
+        // range and require the two sides to land in the same place.
+        {
+            const glm::vec3 expected = SkinCornealNormal(kObliqueN, kAxis, 99.0f);
+            const glm::vec4 got = at(CaseCurvatureRatioOverTheTop);
+            EXPECT_NEAR(got.x, expected.x, HalfTolerance(expected.x))
+                << "the curvature ratio's ceiling differs between the CPU and the shader";
+            EXPECT_NEAR(got.y, expected.y, HalfTolerance(expected.y));
+            EXPECT_NEAR(got.z, expected.z, HalfTolerance(expected.z));
+        }
+        {
+            glm::vec3 refracted{};
+            ASSERT_TRUE(SkinOcularRefract(-view, SkinCornealNormal(kObliqueN, kAxis, corneaLane.y),
+                                          corneaLane.x, refracted));
+            glm::vec3 expected{};
+            ASSERT_TRUE(SkinIrisPlaneHit(kObliqueN, kAxis, refracted, 5.0f, expected));
+            const glm::vec4 got = at(CaseIrisPlaneDepthOverTheTop);
+            EXPECT_GT(got.w, 0.5f);
+            EXPECT_NEAR(got.x, expected.x, HalfTolerance(expected.x))
+                << "the iris-plane depth's ceiling differs between the CPU and the shader";
+            EXPECT_NEAR(got.z, expected.z, HalfTolerance(expected.z));
+        }
+        {
+            const f32 expected = SkinIrisPupilMask(0.9f, 5.0f, kPupilDarkening);
+            EXPECT_NEAR(at(CasePupilRadialOverTheTop).x, expected, HalfTolerance(expected))
+                << "the pupil radius' ceiling differs between the CPU and the shader";
+        }
+        {
+            const glm::vec3 expected = SkinIrisShadingNormal(
+                kObliqueN, kAxis, glm::vec3(irisLane.x * 0.2f, 0.0f, 0.8f), irisLane.x, 9.0f);
+            const glm::vec4 got = at(CaseConcavityOverTheTop);
+            EXPECT_NEAR(got.x, expected.x, HalfTolerance(expected.x))
+                << "the concavity's ceiling differs between the CPU and the shader";
+            EXPECT_NEAR(got.y, expected.y, HalfTolerance(expected.y));
+            EXPECT_NEAR(got.z, expected.z, HalfTolerance(expected.z));
         }
     }
 

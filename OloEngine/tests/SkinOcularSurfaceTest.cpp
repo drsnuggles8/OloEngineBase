@@ -534,6 +534,8 @@ namespace OloEngine::Tests
         EXPECT_EQ(r.Normal, normal);
         EXPECT_LT(r.IrisRadial, 0.0f) << "a neutral profile must report no iris, not iris radius zero";
         EXPECT_FALSE(r.Refracted);
+        EXPECT_EQ(r.Reason, SkinOcularFallbackReason::NotAuthored)
+            << "a profile with no eye should say so, not name a failure it did not hit";
     }
 
     TEST(SkinOcularSurfaceTest, ScleraIsLeftToTheSkinTransport)
@@ -553,6 +555,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(r.Albedo, albedo) << "an eye's white must stay a skin term, untouched";
         EXPECT_EQ(r.Normal, normal);
         EXPECT_LT(r.IrisRadial, 0.0f);
+        EXPECT_EQ(r.Reason, SkinOcularFallbackReason::OutsideLimbus);
     }
 
     TEST(SkinOcularSurfaceTest, ACurvatureRatioOfOneIsABitExactIdentity)
@@ -810,6 +813,9 @@ namespace OloEngine::Tests
                 ApplySkinOcularSurface(albedo, n, view, axis, cornea, iris, refractedResponse, tint);
             ASSERT_GE(a.IrisRadial, 0.0f) << "painted arm lost the iris at " << degrees << " degrees";
             ASSERT_GE(b.IrisRadial, 0.0f) << "refracted arm lost the iris at " << degrees << " degrees";
+            EXPECT_EQ(b.Reason, SkinOcularFallbackReason::None)
+                << "a pixel that refracted still names a failure reason — the success path is "
+                   "assigning one, which is what made every refracting pixel claim to be sclera";
 
             EXPECT_LT(b.IrisRadial, a.IrisRadial)
                 << "the cornea must MAGNIFY the iris, so a refracted sample lands nearer the axis "

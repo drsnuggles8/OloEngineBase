@@ -73,7 +73,8 @@
 //     same code at the same stage", which is a structural answer rather than a
 //     measured coincidence.
 //   * There is no G-Buffer lane and no deferred profile table entry. The
-//     G-Buffer flags lane that #1288 is the receipt for is not touched.
+//     G-Buffer flags lane whose packing #1288 records getting wrong is
+//     neither read nor written here.
 //   * LAYER SORTING CANNOT GO WRONG, which is #1244's second criterion in the
 //     words it uses. Cornea, iris and tear film are not three depth-sorted
 //     surfaces here; they are three terms evaluated in a fixed order at one
@@ -286,16 +287,6 @@ namespace OloEngine
     // why those two are not allowed to disagree.
     [[nodiscard]] f32 SkinIrisDiscMask(f32 radial, f32 band) noexcept;
 
-    // @brief The iris disc coordinate of a point on the iris plane: its
-    //        distance from the optical axis, divided by the iris radius.
-    //
-    // 0 at the pupil centre, 1 at the iris edge. UNITLESS on purpose — it is
-    // the coordinate every response below is a function of, and expressing the
-    // limbal ring's width in the same unit is what lets an author move the iris
-    // radius without re-tuning the ring.
-    [[nodiscard]] f32 SkinIrisRadialCoordinate(const glm::vec3& irisPlanePoint, const glm::vec3& axis,
-                                               f32 irisRadius) noexcept;
-
     // @brief How much of the iris albedo survives the limbal ring at disc
     //        coordinate `radial`.
     //
@@ -395,21 +386,35 @@ namespace OloEngine
     // same conditions, and a condition that cannot occur needs no diagnostic.
     enum class SkinOcularFallbackReason : u8
     {
-        // The pixel is outside the limbus. NOT AN ERROR and not counted as one
-        // — it is sclera, and sclera is version-4 skin. Present in this enum so
-        // that "why is this pixel not refracting" has an answer for every pixel.
-        OutsideLimbus = 0,
+        // THE FULL MODEL APPLIED. First, and zero, so that a result which has
+        // not been down a failure path reads as a SUCCESS rather than as
+        // whichever failure happened to be listed first. The first version of
+        // this enum put OutsideLimbus at 0 and the success path assigned it,
+        // which made every refracting pixel claim to be sclera — a field that
+        // was wrong on the one branch nobody thinks to check.
+        None = 0,
+        // The profile has no eye: OcularStrength is 0. NOT AN ERROR — it is the
+        // neutral default every version-5 profile starts at, and the arm the
+        // evidence matrix's identity captures are taken on. Also what a
+        // RefractionStrength of 0 reports, since the refraction the feature is
+        // named for did not apply even though the iris response did.
+        NotAuthored = 1,
+        // The pixel is outside the limbus. NOT AN ERROR either — it is sclera,
+        // and sclera is version-4 skin. Present so that "why is this pixel not
+        // refracting" has an answer for EVERY pixel rather than for the
+        // interesting ones.
+        OutsideLimbus = 2,
         // The refraction total-internal-reflected. Physically impossible
         // entering a denser medium from air, so reaching this means the lane
         // carries an eta above 1 — an inverted IOR conversion.
-        TotalInternalReflection = 1,
+        TotalInternalReflection = 3,
         // The refracted ray does not travel inward, so it cannot reach the iris
         // plane. Reachable with a corrupt axis or a back-facing normal.
-        RayDoesNotReachIris = 2,
+        RayDoesNotReachIris = 4,
         // The eye entity's transform is not uniformly scaled, so the
         // interpolated normal is not the globe's radial direction and the whole
         // eye-local frame is wrong. See the convention note at the top.
-        NonUniformEyeScale = 3,
+        NonUniformEyeScale = 5,
         Count
     };
 
@@ -433,7 +438,7 @@ namespace OloEngine
         // Whether the full refracted model applied. False means `Reason` says
         // why, and it is the field the renderer counts.
         bool Refracted{ false };
-        SkinOcularFallbackReason Reason{ SkinOcularFallbackReason::OutsideLimbus };
+        SkinOcularFallbackReason Reason{ SkinOcularFallbackReason::None };
     };
 
     // @brief Resolve one eye pixel: refract through the cornea, find the iris

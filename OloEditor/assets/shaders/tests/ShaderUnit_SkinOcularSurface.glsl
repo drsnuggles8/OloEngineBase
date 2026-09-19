@@ -68,6 +68,25 @@
 //  15  SCLERA IS UNTOUCHED — a normal outside the limbus returns the input
 //                            albedo and a negative radial, so an eye's white
 //                            stays a skin term.
+//  17-20 THE BOUNDS THEMSELVES. Each drives one function with an input FAR
+//                            OUTSIDE its range and compares against the CPU.
+//                            Every clamp in this file is a hardcoded literal
+//                            mirroring a named constant in SkinProfile.h --
+//                            twelve of them -- and nothing else checks that the
+//                            two agree. The cases above all pass in-range
+//                            values, so a bound that drifted on one side would
+//                            be invisible to them and would surface as a
+//                            corrupt lane shading differently on the GPU than
+//                            the CPU says it does. That is the #1288 failure
+//                            shape, and these four columns are what make the
+//                            "operation for operation" claim cover the clamps
+//                            as well as the arithmetic.
+//
+//  17  CURVATURE RATIO, OVER THE TOP   — 99 against kMaxSkinCorneaCurvatureRatio 4.
+//  18  IRIS PLANE DEPTH, OVER THE TOP  — 5 against kMaxSkinIrisPlaneDepthRatio 0.9.
+//  19  PUPIL RADIAL, OVER THE TOP      — 5 against kMaxSkinPupilRadialRatio 0.95.
+//  20  CONCAVITY, OVER THE TOP         — 9 against kMaxSkinIrisConcavity 0.5.
+//
 //  16  REFRACTION MOVES THE IRIS — the same pixel with RefractionStrength 1 and
 //                            0 lands at DIFFERENT iris radials, and the
 //                            refracted one is nearer the axis (the corneal
@@ -248,6 +267,29 @@ void main()
                                vec4(kRingStrength, kPupilDarkening, kConcavity, 0.0), tintLane);
         result = vec4(refractedArm.IrisRadial, paintedArm.IrisRadial,
                       paintedArm.IrisRadial - refractedArm.IrisRadial, 1.0);
+    }
+
+    else if (caseIndex == 17) // CURVATURE RATIO, OVER THE TOP
+    {
+        result = vec4(oloSkinCornealNormal(kObliqueN, kAxis, 99.0), 1.0);
+    }
+    else if (caseIndex == 18) // IRIS PLANE DEPTH, OVER THE TOP
+    {
+        vec3 refracted;
+        oloSkinOcularRefract(-V, oloSkinCornealNormal(kObliqueN, kAxis, kCurvatureRatio), kEta, refracted);
+        vec3 hit;
+        bool ok = oloSkinIrisPlaneHit(kObliqueN, kAxis, refracted, 5.0, hit);
+        result = vec4(hit, ok ? 1.0 : 0.0);
+    }
+    else if (caseIndex == 19) // PUPIL RADIAL, OVER THE TOP
+    {
+        result = vec4(oloSkinIrisPupilMask(0.9, 5.0, kPupilDarkening), 0.0, 0.0, 1.0);
+    }
+    else if (caseIndex == 20) // CONCAVITY, OVER THE TOP
+    {
+        vec3 tilted = oloSkinIrisShadingNormal(kObliqueN, kAxis, vec3(kIrisRadius * 0.2, 0.0, 0.8),
+                                               kIrisRadius, 9.0);
+        result = vec4(tilted, 1.0);
     }
 
     o_Result = result;

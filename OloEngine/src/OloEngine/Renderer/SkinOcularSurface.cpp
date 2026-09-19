@@ -165,18 +165,6 @@ namespace OloEngine
         return Math::IsFinite(hit);
     }
 
-    f32 SkinIrisRadialCoordinate(const glm::vec3& irisPlanePoint, const glm::vec3& axis, f32 irisRadius) noexcept
-    {
-        if (!Math::IsFinite(irisPlanePoint) || !IsUsableDirection(axis))
-            return -1.0f;
-        if (!std::isfinite(irisRadius) || !(irisRadius > 0.0f))
-            return -1.0f;
-
-        const glm::vec3 a = glm::normalize(axis);
-        const glm::vec3 perpendicular = irisPlanePoint - a * glm::dot(irisPlanePoint, a);
-        return glm::length(perpendicular) / irisRadius;
-    }
-
     f32 SkinIrisDiscMask(f32 radial, f32 band) noexcept
     {
         if (!std::isfinite(radial) || !std::isfinite(band))
@@ -277,7 +265,7 @@ namespace OloEngine
                                             const glm::vec4& responseLane,
                                             const glm::vec4& tintLane) noexcept
     {
-        SkinOcularResult result{ albedo, normal, -1.0f, false, SkinOcularFallbackReason::OutsideLimbus };
+        SkinOcularResult result{ albedo, normal, -1.0f, false, SkinOcularFallbackReason::NotAuthored };
 
         const f32 ocularStrength = irisLane.w;
         // A zero master returns the inputs UNTOUCHED — not blended with
@@ -304,7 +292,10 @@ namespace OloEngine
         // "refracting by zero", is what keeps an eye's white a skin term.
         const f32 cosTheta = glm::dot(n, a);
         if (!(cosTheta >= corneaLane.w))
+        {
+            result.Reason = SkinOcularFallbackReason::OutsideLimbus;
             return result;
+        }
 
         // ---- Refract at the cornea -----------------------------------------
         const glm::vec3 cornealNormal = SkinCornealNormal(n, a, corneaLane.y);
@@ -398,7 +389,13 @@ namespace OloEngine
         result.Normal = tilted;
         result.IrisRadial = radial;
         result.Refracted = refractionStrength > 0.0f;
-        result.Reason = SkinOcularFallbackReason::OutsideLimbus;
+        // `None` on the full-model path, and `NotAuthored` when the quality
+        // ladder has been turned all the way down: the iris still has a pupil,
+        // a ring and a tilt, but the refraction the feature is named for did
+        // not apply, and a caller asking "did this pixel refract?" deserves the
+        // distinction rather than a bool it has to interpret.
+        result.Reason = result.Refracted ? SkinOcularFallbackReason::None
+                                         : SkinOcularFallbackReason::NotAuthored;
         return result;
     }
 

@@ -325,19 +325,6 @@ namespace OloEngine::Tests
         }
     }
 
-    // THE PRIOR-ON-DISK-VERSION CELL (issue #1243). A `.oloskin` authored before
-    // this change has no `Specular` node at all, and must still load — and, more
-    // than that, must still SHADE THE SAME. The second half is the one that can
-    // go wrong silently: the reader could load such a file "successfully" while
-    // quietly giving it a lobe mixture, and every head authored against an
-    // earlier transport would change appearance because this build shipped.
-    //
-    // The argument has two legs and both are asserted:
-    //   1. the absent fields take their defaults, and
-    //   2. the file is at a transport version BELOW 3, where those fields are
-    //      not evaluated at all.
-    // Leg 2 is why NormalVarianceStrength defaulting to 0.5 rather than to 0 is
-    // not a behaviour change for an old file.
     TEST(SkinProfileSerializerTest, AProfileWrittenBeforeTheEyeStillLoadsUnchanged)
     {
         // Exactly what #1245's serializer emitted: no Ocular node.
@@ -419,6 +406,19 @@ namespace OloEngine::Tests
                "asset pack share — an eye would cook to a sphere";
     }
 
+    // THE PRIOR-ON-DISK-VERSION CELL (issue #1243). A `.oloskin` authored before
+    // this change has no `Specular` node at all, and must still load — and, more
+    // than that, must still SHADE THE SAME. The second half is the one that can
+    // go wrong silently: the reader could load such a file "successfully" while
+    // quietly giving it a lobe mixture, and every head authored against an
+    // earlier transport would change appearance because this build shipped.
+    //
+    // The argument has two legs and both are asserted:
+    //   1. the absent fields take their defaults, and
+    //   2. the file is at a transport version BELOW 3, where those fields are
+    //      not evaluated at all.
+    // Leg 2 is why NormalVarianceStrength defaulting to 0.5 rather than to 0 is
+    // not a behaviour change for an old file.
     TEST(SkinProfileSerializerTest, AProfileWrittenBeforeLayeredSpecularStillLoadsUnchanged)
     {
         // Exactly what #1242's serializer emitted: no Specular node.

@@ -172,8 +172,10 @@ PBR_GBuffer.glsl    / PBR_GBuffer_Skinned.glsl      (deferred)
 G-Buffer already carries an albedo and a normal with the cornea in them. Three consequences:
 
 - **the three raster paths agree by construction**, not by three matching edits;
-- **no G-Buffer lane is touched** — the flags lane #1288 is the receipt for is untouched, and there
-  is no fourth deferred profile table;
+- **no G-Buffer lane is touched** — the G-Buffer flags lane, whose packing #1288 records getting
+  wrong (`model * 2` became `model * 64`, a test kept writing the literal, and one arm shaded with
+  the wrong closure), is not read or written here at all, and there is no fourth deferred profile
+  table;
 - **layer sorting cannot go wrong.** Cornea, iris and tear film are not three depth-sorted surfaces;
   they are three terms at one surface in a fixed code order — refract, then the iris response, then
   the surface closure, then the coat. There is no arrangement of them that can sort incorrectly.

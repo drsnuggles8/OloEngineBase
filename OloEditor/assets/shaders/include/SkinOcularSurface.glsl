@@ -44,7 +44,8 @@
 //     "identical", and it is identical because of where the code is rather than
 //     because three edits happened to match.
 //   * NOTHING TOUCHES THE G-BUFFER LANES. No flags bit, no profile table, no
-//     new attachment. The lane layout #1288 is the receipt for is untouched.
+//     new attachment. The G-Buffer flags lane whose packing #1288 records
+//     getting wrong is neither read nor written here.
 //   * LAYER SORTING CANNOT GO WRONG. Cornea, iris and tear film are not three
 //     depth-sorted surfaces — they are three terms at one surface in a fixed
 //     code order: refract (which iris point is this?), iris response (what
