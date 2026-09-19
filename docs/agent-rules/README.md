@@ -107,6 +107,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
+- [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md): a pass whose `Setup()` declares nothing when it has no work must have that gate in the blackboard fingerprint, or it stays culled while its bucket fills.
 - [ddgi-probe-cascades-and-sparsity.md](ddgi-probe-cascades-and-sparsity.md): the DDGI clipmap is toroidal, `%` truncates toward zero, and sparsity fails as "no GI, no error".
 - [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md): the GI units ledger, UV2 as a parallel stream, and keying the seam split after the unwrap.
 - [lightmap-receiver-identity.md](lightmap-receiver-identity.md): a baked lightmap region is addressed by (entity UUID, sub-key), never by the entity alone.
@@ -445,6 +446,7 @@ Code that exists, is tested, and has no production caller, or has more callers t
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 | The game scene never set `TessellationEnabled`, and no shipped scene ever set `UseImpostor`. A flag that appears only in its own test has no product coverage. |
 | [render-pass-published-state.md](render-pass-published-state.md) | `MeshComponent { Primitive: 0 }` is `None`: an entity that never renders. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 | A `Setup()` that early-returns while a feature is off freezes that decision into the frame-graph fingerprint. |
+| [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md) | Five passes declare nothing when they have no work; one frame rendered with the bucket empty culled the pass, and 1310 generated, culled and submitted plant instances were never drawn. |
 
 ---
 

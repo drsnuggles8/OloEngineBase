@@ -4,6 +4,12 @@
 #include "RenderingTestUtils.h"
 
 #include "OloEngine/Renderer/Renderer3DInternal.h"
+#include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
+#include "OloEngine/Renderer/Passes/DecalRenderPass.h"
+#include "OloEngine/Renderer/Passes/FoliageRenderPass.h"
+#include "OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
+#include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -80,6 +86,72 @@ namespace OloEngine::Tests
             data.GlobalBRDFLutMapID = ibl.BRDFLut;
             data.GlobalEnvironmentMapID = ibl.Environment;
             return data.Pipeline->ComputeBlackboardFingerprint(data);
+        }
+
+        // Fingerprint with one render-stream pass attached, optionally holding a
+        // draw. `select` picks which member of the pass set to build, so the
+        // caller names a pass rather than reaching into the private set itself.
+        enum class Stream
+        {
+            Foliage,
+            Decal,
+            ForwardOverlay,
+            Water,
+        };
+
+        struct StreamFingerprints
+        {
+            u64 Empty = 0;    // the bucket has no draws
+            u64 WithDraw = 0; // the same pass, one draw submitted
+            u64 Restated = 0; // recomputed with no further change
+        };
+
+        // Both fingerprints come from ONE Renderer3DData holding ONE pass
+        // instance, with a draw submitted in between. That is deliberate:
+        // HashPassState folds in the pass POINTER, so building a second
+        // pipeline to represent "the other frame" would differ for a reason
+        // that has nothing to do with the bucket. It is also what actually
+        // happens — the pass outlives the frame and its bucket fills.
+        [[nodiscard]] static StreamFingerprints FingerprintAcrossFirstDraw(Stream stream)
+        {
+            Renderer3D::Renderer3DData data;
+            data.Settings = RendererSettings{};
+            data.Settings.Path = RenderingPath::Deferred;
+
+            auto& passes = data.Pipeline->RenderStreamPasses;
+            CommandBufferRenderPass* node = nullptr;
+            switch (stream)
+            {
+                case Stream::Foliage:
+                    passes.Foliage = Ref<FoliageRenderPass>::Create();
+                    node = passes.Foliage.Raw();
+                    break;
+                case Stream::Decal:
+                    passes.Decal = Ref<DecalRenderPass>::Create();
+                    node = passes.Decal.Raw();
+                    break;
+                case Stream::ForwardOverlay:
+                    passes.ForwardOverlay = Ref<ForwardOverlayRenderPass>::Create();
+                    node = passes.ForwardOverlay.Raw();
+                    break;
+                case Stream::Water:
+                    passes.Water = Ref<WaterRenderPass>::Create();
+                    node = passes.Water.Raw();
+                    break;
+            }
+
+            StreamFingerprints out;
+            out.Empty = data.Pipeline->ComputeBlackboardFingerprint(data);
+
+            // The allocator outlives both remaining calls; the packet's
+            // contents are never read, only counted.
+            CommandAllocator allocator;
+            ClearCommand payload{};
+            node->GetCommandBucket().Submit(payload, {}, &allocator);
+
+            out.WithDraw = data.Pipeline->ComputeBlackboardFingerprint(data);
+            out.Restated = data.Pipeline->ComputeBlackboardFingerprint(data);
+            return out;
         }
     };
 
@@ -311,5 +383,69 @@ namespace OloEngine::Tests
         // Stability: the same IDs must produce the same fingerprint, or the blackboard would
         // repopulate every frame and the cache would be pointless.
         EXPECT_EQ(Access::FingerprintWithIBL(base), baseFp);
+    }
+
+    // A render-stream pass whose Setup() declares nothing when its command
+    // bucket is empty (issue #1315).
+    //
+    // FoliageRenderPass, DecalRenderPass, ForwardOverlayRenderPass and
+    // WaterRenderPass all begin `Setup()` with an early return on
+    // `GetCommandCount() == 0`. A graph compiled during a frame where one of
+    // them had no draws therefore caches a node with no reads and no writes,
+    // and the reachability pass culls it. Gaining the first draw moves nothing
+    // else in the fingerprint, so BuildFrameGraph keeps serving that cached
+    // build, Setup() never runs again, and the pass stays culled while its
+    // bucket fills every frame.
+    //
+    // #1315 is what that costs. A tessellated-terrain evidence test left the
+    // graph cached with an empty foliage bucket; the next test in the same
+    // process generated 1310 plant instances, culled them and submitted two
+    // draws per frame, and drew none of them until an unrelated
+    // rendering-path switch happened to move the fingerprint. The frame was
+    // otherwise pixel-plausible — the subject was simply absent — so only the
+    // #931 content-mask floor caught it at all.
+    //
+    // Water was hashed, and groom — a seventh pass with the same shape but a
+    // request list instead of a bucket — was hashed by #1246. The three in
+    // between were not, because each earlier fix saw only its own pass. This
+    // test covers all four bucket-gated ones together so the next pass to
+    // adopt that Setup shape is caught by accounting rather than by a golden.
+    TEST(RenderGraphFingerprint, EveryBucketGatedStreamPassChangesFingerprintOnFirstDraw)
+    {
+        using Access = RenderPipelineFingerprintAccess;
+        struct Case
+        {
+            const char* Name;
+            Access::Stream Stream;
+        };
+        const std::vector<Case> cases = {
+            { "FoliageRenderPass", Access::Stream::Foliage },
+            { "DecalRenderPass", Access::Stream::Decal },
+            { "ForwardOverlayRenderPass", Access::Stream::ForwardOverlay },
+            { "WaterRenderPass", Access::Stream::Water },
+        };
+        // GroomRenderPass has the same Setup shape and was hashed by #1246,
+        // but its gate is a request list owned by Renderer3D's static state
+        // rather than a bucket on the pass, so it cannot be driven from a bare
+        // Renderer3DData the way these four can. It is covered by its own
+        // fingerprint line, not by this loop. The two fluid passes are out for
+        // the same reason — their draw list lives on a sibling pass. See
+        // docs/agent-rules/render-graph-setup-declaration-gates.md.
+
+        for (const Case& c : cases)
+        {
+            const auto fp = Access::FingerprintAcrossFirstDraw(c.Stream);
+            EXPECT_NE(fp.Empty, fp.WithDraw)
+                << c.Name
+                << " gates its Setup() declarations on an empty command bucket, but its "
+                   "bucket state is not in ComputeBlackboardFingerprint. The graph keeps the "
+                   "cached build in which the pass declared nothing, reachability culls it, and "
+                   "everything it was asked to draw is silently absent from the frame (#1315).";
+
+            // Stability: the cache exists to be hit. Recomputing with nothing
+            // changed must agree, or the graph would rebuild every frame and
+            // the bit above would be paying for itself many times over.
+            EXPECT_EQ(fp.Restated, fp.WithDraw) << c.Name;
+        }
     }
 } // namespace OloEngine::Tests
