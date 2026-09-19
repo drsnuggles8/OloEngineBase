@@ -735,13 +735,19 @@ namespace OloEngine::Tests
             return total;
         }
 
-        /// THE CONTROL: a separable kernel carrying the WALK's profile on a fine
-        /// uniform grid — no fit error and no tap budget. What the pass would do
-        /// if both errors #1255 measured were repaired perfectly and the taps
-        /// were free. `bins` per side; 60 is converged against 300, which the
-        /// test checks rather than assumes.
-        [[nodiscard]] SeparableKernel1D ExactTransportKernel(const Ref::SearchlightProfile& walk, f64 supportMM,
-                                                             i32 bins)
+        /// THE CONTROL: a separable kernel carrying the WALK's own profile on a
+        /// fine uniform grid, in place of the Burley fit and the 17-tap budget.
+        ///
+        /// IT IS FINITE AND IT IS TRUNCATED, and both words matter enough to be
+        /// in the name rather than in a footnote. `bins` per side gives 2*bins
+        /// 1D entries — 600 at the 300 the test uses, against production's 17 —
+        /// and the grid stops at `supportMM`, with whatever energy lies beyond
+        /// folded back in by the normalisation. So this is not "the exact
+        /// profile with unlimited taps"; it is the fit error and the tap budget
+        /// removed, which is what the comparison needs. The test drives it at
+        /// the walk's FULL histogram support for exactly this reason.
+        [[nodiscard]] SeparableKernel1D FinelySampledTransportKernel(const Ref::SearchlightProfile& walk,
+                                                                     f64 supportMM, i32 bins)
         {
             std::vector<f64> mid;
             std::vector<f64> weight;
@@ -982,15 +988,20 @@ namespace OloEngine::Tests
     {
         // ACCEPTANCE CRITERION 2 OF #1361, DECIDED: THE FIT IS NOT REVISITED,
         // and this is why. It is the one measurement in this file that compares
-        // the pass against a version of ITSELF with every error #1255 found
+        // the pass against a version of ITSELF with the errors #1255 found
         // removed, and the result is the opposite of the expected one.
         //
-        // The control is a separable kernel carrying the WALK's own profile with
-        // UNLIMITED taps: no Burley fit, no 0.995 truncation, no 17-tap
-        // discretisation. Everything the issue proposed repairing, repaired
-        // perfectly and for free. At the default ScatterColor's red channel it is
-        // FURTHER from transport at a bright small feature than the shipped
+        // The control carries the WALK's own profile, sampled 600 entries to a
+        // side against production's 17, across the walk's FULL histogram
+        // support: the Burley fit gone, the 0.995 support truncation gone, the
+        // tap budget gone. What is left is the SEPARABLE PROJECTION and the
+        // control's own quadrature. At the default ScatterColor's red channel it
+        // is FURTHER from transport at a bright small feature than the shipped
         // kernel is.
+        //
+        // FULL SUPPORT RATHER THAN THE WALK's 99.5% RADIUS, so that "the control
+        // is itself truncated" cannot explain the result away. It does not: the
+        // two differ by 0.0004 of the feature's energy.
         //
         // The reason is the third approximation, the one neither lever touches:
         // the pass is SEPARABLE. TheSeparableKernelIsNotTheTwoDimensionalProfile
@@ -1013,35 +1024,69 @@ namespace OloEngine::Tests
         const SkinDiffusionKernel shipped = BuildSkinDiffusionKernel(parameters, SkinDiffusionQuality::Medium);
         ASSERT_FALSE(shipped.IsIdentity());
 
-        const f64 transportSupport = walk.RadiusForFraction(0.995);
-        ASSERT_LT(transportSupport, kMaxRadius);
+        // The control spans the walk's whole histogram, not its 99.5% radius.
+        const f64 controlSupport = walk.Edges.back();
+        ASSERT_GT(controlSupport, 0.0);
 
-        const f64 shippedError = WorstHaloError(ProductionKernel(shipped), walk);
-        const f64 exactError = WorstHaloError(ExactTransportKernel(walk, transportSupport, 60), walk);
+        const SeparableKernel1D shippedKernel = ProductionKernel(shipped);
+        const SeparableKernel1D control = FinelySampledTransportKernel(walk, controlSupport, 60);
+        const SeparableKernel1D controlFine = FinelySampledTransportKernel(walk, controlSupport, 300);
 
-        // THE CONTROL IS CONVERGED, checked rather than taken on trust: a 60-bin
-        // kernel must agree with a 300-bin one, or the comparison below would be
-        // measuring the control's own quadrature instead of the projection.
-        const f64 fineError = WorstHaloError(ExactTransportKernel(walk, transportSupport, 300), walk);
+        const f64 shippedError = WorstHaloError(shippedKernel, walk);
+        const f64 exactError = WorstHaloError(control, walk);
+        const f64 fineError = WorstHaloError(controlFine, walk);
+
+        // THE CONTROL IS CONVERGED, AND THAT IS CHECKED AT EVERY RADIUS RATHER
+        // THAN ON THE WORST ONE. Two kernels can reach the same worst error at
+        // DIFFERENT radii while disagreeing everywhere else, so comparing the
+        // two maxima would be comparing two summaries rather than two curves.
+        // The energies themselves are what has to agree.
+        for (const f64 r : kHaloRadiiMM)
+        {
+            EXPECT_NEAR(SeparableFeatureEnergy(control, kFeatureRadiusMM, r),
+                        SeparableFeatureEnergy(controlFine, kFeatureRadiusMM, r), 0.01)
+                << "the 60-bin and 300-bin controls disagree at r = " << r << " mm";
+        }
         EXPECT_LT(std::abs(exactError - fineError), 0.01)
             << "60 bins -> " << exactError << ", 300 bins -> " << fineError;
+
+        // AND THE CONTROL IS NOT A SMALL PERTURBATION OF WHAT SHIPS. Both
+        // numbers above are a DISTANCE TO TRANSPORT; this is the distance
+        // between the two KERNELS, and without it "the exact one is worse"
+        // could be two nearly identical curves straddling the truth.
+        f64 kernelGap = 0.0;
+        for (const f64 r : kHaloRadiiMM)
+        {
+            kernelGap = std::max(kernelGap, std::abs(SeparableFeatureEnergy(shippedKernel, kFeatureRadiusMM, r) -
+                                                     SeparableFeatureEnergy(control, kFeatureRadiusMM, r)));
+        }
+        EXPECT_GT(kernelGap, 0.02) << "the shipped kernel and the control differ by only " << kernelGap
+                                   << " of the feature's energy, so neither is telling us much about the other";
 
         // Both are real errors — neither side is exact, and a test that implied
         // the shipped kernel is RIGHT would overclaim badly.
         EXPECT_GT(shippedError, 0.02) << "shipped halo error " << shippedError;
         EXPECT_GT(exactError, 0.02) << "exact-transport halo error " << exactError;
 
-        // THE ORDERING, which is the finding. A margin is required so a reseeded
-        // walk cannot flip it by noise.
+        // THE ORDERING, which is the finding, and what it does and does not say.
+        //
+        // The control has ONE error term left in it — the separable projection —
+        // and it lands FURTHER from transport than the shipped kernel does with
+        // ALL of them. A single term measured alone exceeding the total of every
+        // term together is what "dominant" means here; it is not inferred from
+        // the cancellation, it is read off the control.
+        //
+        // A margin is required so a reseeded walk cannot flip it by noise.
         EXPECT_GT(exactError, shippedError + 0.01)
-            << "shipped kernel " << shippedError << " from transport, a separable pass carrying the EXACT "
-            << "transport profile with unlimited taps " << exactError
-            << " — if the exact one is now the closer of the two, the separable projection is no longer the "
+            << "shipped kernel " << shippedError << " from transport; the walk's own profile, finely sampled at "
+            << "full support, " << exactError
+            << " — if the control is now the closer of the two, the separable projection is no longer the "
             << "dominant error and #1361's decision to leave the fit alone should be revisited";
 
         GTEST_LOG_(INFO) << "#1361 fit decision @ authored 0.85: halo error, shipped kernel " << shippedError
-                         << " vs a separable pass carrying the exact transport profile with unlimited taps "
-                         << exactError << " (converged control: " << fineError << ")";
+                         << " vs a separable pass carrying the walk's own profile at full support, 600 entries "
+                         << "a side: " << fineError << " (60-bin control " << exactError << "); the two kernels "
+                         << "themselves differ by " << kernelGap;
 
         // AND IT IS A LARGE ERROR IN ABSOLUTE TERMS, not merely the larger of two
         // small ones: nearly a twelfth of the feature's light lands at the wrong

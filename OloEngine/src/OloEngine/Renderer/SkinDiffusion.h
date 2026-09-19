@@ -68,30 +68,34 @@ namespace OloEngine
     // red channel — and 93% at 0.95.
     //
     // RAISING IT WAS THE OBVIOUS FIX AND IT IS THE WRONG ONE. Covering 99.5% of
-    // the TRANSPORT at 0.85 needs 27.6 mm of support where the fit asks for
-    // 15.0 mm: a 1.84x widening. The tap count does not widen with it, so every
-    // tap offset scales by 1.84 and the kernel simply gets coarser. The centre
+    // the TRANSPORT at 0.85 needs 27.05 mm of support where the fit asks for
+    // 15.02 mm: a 1.80x widening. The tap count does not widen with it, so every
+    // tap offset scales by 1.80 and the kernel simply gets coarser. The centre
     // tap — the part of the profile the pass does not resolve at all — goes from
-    // standing for 0.23 mm of the surface to 0.43 mm, and its share of the
-    // profile rises from 0.143 to 0.220: a sixth of the blur becomes no blur.
+    // standing for 0.23 mm of the surface to 0.42 mm, and its share of the
+    // profile rises by half again, from 0.143 to 0.217: another seven percent of
+    // the profile stops being blurred at all.
     //
     // WHAT IT BUYS IS NOTHING YOU CAN SEE, and that is the part worth writing
     // down. Judged on the image the tail actually shows up in — a bright small
     // feature against dark skin, not a terminator — the widened support moves
-    // the halo by less than 0.003 of a unit step at 0.85. The support radius is
-    // not where the missing energy is: the outer taps draw their weight from the
-    // same narrow fit, so moving them out moves a near-zero weight out with them.
-    // Only a wider PROFILE would put energy there, and the fit is the profile.
+    // the halo by 0.004 OF THE FEATURE'S OWN ENERGY at 0.85, against an error of
+    // 0.056 that it was meant to fix. The support radius is not where the
+    // missing energy is: the outer taps draw their weight from the same narrow
+    // fit, so moving them out moves a near-zero weight out with them. Only a
+    // wider PROFILE would put energy there, and the fit is the profile.
     //
     // AND THE FIT IS NOT THE LIMITING ERROR EITHER. The pass is SEPARABLE, and
-    // at a bright small feature that is the dominant approximation by some way:
-    // a separable pass carrying the EXACT transport profile with UNLIMITED taps
-    // sits 0.078 from transport at 0.85, where this kernel — narrow fit,
-    // truncated support, 17 taps and all — sits 0.056. Making the profile more
-    // accurate moves the image AWAY from transport at the one albedo that
-    // ships. That is a coincidence of two errors with opposite signs rather
-    // than a design, so it is not something to preserve; it is the reason
-    // neither lever is worth pulling.
+    // at a bright small feature that is the dominant approximation by some way.
+    // Replace the fit and the tap budget with the WALK's own profile, sampled
+    // 600 entries to a side across the walk's full support, and the result sits
+    // 0.079 from transport at 0.85 — where this kernel, narrow fit and truncated
+    // support and 17 taps and all, sits 0.056. One error term measured ALONE
+    // exceeds the total of every term together, which is what "dominant" means
+    // here. Making the profile more accurate moves the image AWAY from transport
+    // at the one albedo that ships. That is a coincidence of two errors with
+    // opposite signs rather than a design, so it is not something to preserve;
+    // it is the reason neither lever is worth pulling.
     //
     // SkinDiffusionReference in NonlocalTransportReferenceTest.cpp holds all
     // three measurements, against a Monte Carlo searchlight walk.

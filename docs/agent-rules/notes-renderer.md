@@ -1394,9 +1394,10 @@ three times over, and the terms are not the sizes their descriptions suggest:
 whole fix". Both are real and both were measured against a Monte Carlo searchlight walk. Neither is
 the dominant term. Judged on a bright small feature against dark skin — the image a *tail* error
 shows up in, as opposed to a terminator, which is dominated by tap discretisation — a separable pass
-carrying the **exact transport profile with unlimited taps**, i.e. (1) and (2) repaired perfectly
-and for free, sits **further** from transport (0.078 of the feature's energy) than the shipped
-kernel does (0.056). (3) over-spreads the core along the axes; (1) and (2) pull energy back in.
+carrying **the walk's own profile, 600 entries a side across its full support**, i.e. (1) and (2)
+removed, sits **further** from transport (0.079 of the feature's energy) than the shipped kernel
+does (0.056). One term measured ALONE exceeds the total of every term together, which is what
+"dominant" means here. (3) over-spreads the core along the axes; (1) and (2) pull energy back in.
 
 So the fix that looked cheap turned out to be a cost with no benefit, and the fix that looked
 expensive would have made the image worse — and neither could be known without the control. The
@@ -1408,8 +1409,9 @@ Two corollaries that generalise past skin:
 - **A support radius carries no energy — the tap WEIGHTS do.** Moving the outer taps further out
   moves a near-zero weight further out and coarsens everything inside them. Widening this kernel's
   support to cover the transport needs 1.8x the radius at a fixed 17 taps, takes the centre tap's
-  share of the profile from 0.143 to 0.220 (a sixth of the blur becomes no blur), and moves the
-  halo by under 0.003 of the feature's energy.
+  share of the profile from 0.143 to 0.217 — half again as much of the profile stops being blurred
+  at all — and moves the halo by 0.004 of the feature's energy, against the 0.056 it was meant to
+  fix.
 - **Pick the image from the error's shape, not from the feature's name.** A cumulative response (an
   edge, a terminator) is dominated by where the bulk of the energy sits, so a *tail* error barely
   reaches it; #1255 measured exactly that and it is why the issue named a small bright feature
