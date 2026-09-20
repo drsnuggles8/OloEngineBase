@@ -226,6 +226,7 @@ namespace OloEngine::RayTracing
         m_Latest = {};
         m_FrameIndex = 0;
         m_UnavailableReason.clear();
+        m_UnavailableBatchId = 0;
     }
 
     void RayTracingProbe::Poll()
@@ -333,9 +334,14 @@ namespace OloEngine::RayTracing
         // a dispatch that cannot happen, and report a timeout instead of the
         // reason — which is the difference between "your GPU has no ray tracing"
         // and "something went wrong, try again".
-        const auto refuse = [this](std::string reason)
+        // The batch id is captured BEFORE the pending batch is consumed, so a
+        // refusal can say WHOSE it is. A reason without an owner gets reported
+        // against whatever batch asks next.
+        const u32 pendingBatchId = m_PendingBatch.BatchId;
+        const auto refuse = [this, pendingBatchId](std::string reason)
         {
             m_UnavailableReason = std::move(reason);
+            m_UnavailableBatchId = pendingBatchId;
             m_HasPendingBatch = false;
             return false;
         };
@@ -415,6 +421,7 @@ namespace OloEngine::RayTracing
         RenderCommand::DispatchCompute((rayCount + kWorkgroupSize - 1u) / kWorkgroupSize, 1u, 1u);
 
         m_UnavailableReason.clear();
+        m_UnavailableBatchId = 0;
         // A staged capture is what makes this batch answerable. If the ring had
         // no free slot, or the driver refused a fence, the dispatch still RAN
         // but nothing will ever read it back — so this is a refusal with a

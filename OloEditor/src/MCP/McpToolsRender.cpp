@@ -100,12 +100,14 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -6687,6 +6689,22 @@ namespace OloEngine::MCP
         // trace between the submit and the poll.
         std::atomic<u32> s_RayTraceBatchId{ 0 };
 
+        // ONE TRACE AT A TIME, across the whole submit -> settle -> re-poll
+        // window. The handler body runs on an HTTP worker, and nothing
+        // serializes those: two concurrent calls would have the second
+        // SubmitBatch overwrite the first's queued batch (the probe answers the
+        // LATEST question by design), after which the first call settles its
+        // full budget and reports `pending` — telling its caller the editor did
+        // not render, which is false. Worse, a refusal of the second batch would
+        // be read by the first as ITS reason. Both are confidently wrong
+        // answers, which is the one thing a diagnostic must never produce.
+        //
+        // Serializing costs a second caller its wait (bounded by the 8 s settle
+        // budget) and buys a correct answer for both. Safe to hold across
+        // MarshalRead: the main thread never takes this lock — RayTracingScenePass
+        // only calls into the probe, which knows nothing about it.
+        std::mutex s_RayTraceMutex;
+
         // Read the probe's latest answer and shape it, matching on batch id.
         Json PollRayTraceResult(const RayTraceRay::Request& request, u32 batchId)
         {
@@ -6708,7 +6726,8 @@ namespace OloEngine::MCP
             // was consumed and no answer is coming, so reporting pending would
             // make the caller wait out the whole settle window and then blame
             // the editor rather than read the reason.
-            if (!isOurs && !probe.HasPendingBatch() && !probe.GetUnavailableReason().empty())
+            if (!isOurs && !probe.HasPendingBatch() && !probe.GetUnavailableReason().empty() &&
+                probe.GetUnavailableBatchId() == batchId)
             {
                 snapshot.UnavailableReason = probe.GetUnavailableReason();
                 return RayTraceRay::BuildResult(snapshot);
@@ -6763,6 +6782,9 @@ namespace OloEngine::MCP
             {
                 return ToolResult::Error(*error);
             }
+
+            // Held for the whole call, not just the submit — see s_RayTraceMutex.
+            const std::scoped_lock<std::mutex> traceLock(s_RayTraceMutex);
 
             const u32 batchId = s_RayTraceBatchId.fetch_add(1u, std::memory_order_relaxed) + 1u;
 

@@ -186,12 +186,26 @@ namespace OloEngine::RayTracing
             return m_SlotsInFlight;
         }
 
-        // Empty while the probe is usable; otherwise why it is not. Set by
-        // Dispatch, so it describes the last real attempt rather than a guess
-        // made without one.
+        // Empty while the probe is usable; otherwise why the LAST REFUSED
+        // BATCH was refused. Set by Dispatch, so it describes a real attempt
+        // rather than a guess made without one.
+        //
+        // ALWAYS READ IT BESIDE GetUnavailableBatchId(). The probe holds one
+        // reason, but batches are submitted by whoever asks — so a reason read
+        // without checking whose it is can be reported against someone else's
+        // batch id, which is a confidently wrong diagnosis rather than a
+        // missing one. The tool above serializes its calls as well; this pairing
+        // is what keeps the invariant local to the probe instead of depending on
+        // that lock.
         [[nodiscard]] const std::string& GetUnavailableReason() const
         {
             return m_UnavailableReason;
+        }
+
+        // The batch GetUnavailableReason() describes. 0 when there is none.
+        [[nodiscard]] u32 GetUnavailableBatchId() const
+        {
+            return m_UnavailableBatchId;
         }
 
         // The probe shader's hit record. MUST match OloRtProbeHit in
@@ -268,6 +282,7 @@ namespace OloEngine::RayTracing
         bool m_HasPendingBatch = false;
         Result m_Latest{};
         std::string m_UnavailableReason;
+        u32 m_UnavailableBatchId = 0;
     };
 
     static_assert(sizeof(RayTracingProbe::GpuHit) == 80,
