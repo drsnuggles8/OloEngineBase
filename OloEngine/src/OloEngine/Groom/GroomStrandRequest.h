@@ -24,6 +24,8 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomDeformation.h"
+#include "OloEngine/Groom/GroomGuideInfluence.h"
+#include "OloEngine/Groom/GroomGuideSimulation.h"
 // The COMPLETE GroomAsset, not a forward declaration: Ref<T> needs T to be a
 // complete RefCounted to construct, copy or destroy, so a forward declaration
 // here fails in every translation unit that merely HOLDS one of these — which
@@ -184,5 +186,80 @@ namespace OloEngine
         // from the two at the point of use, which is the only place both are
         // certainly alive.
         GroomCoatSettings Coat;
+
+        // == Guide simulation (#1250) ==
+        //
+        // Absent by default, so a groom with no GroomSimulationComponent builds
+        // exactly the geometry it built before this issue -- the same shape the
+        // coat and the binding above already use.
+        //
+        // STEPPED BY THE PRODUCER, not by the pass, for the three reasons the
+        // deformation is: it needs the scene's bone palettes and the target's
+        // mesh, neither of which the render thread may touch; it is per-frame
+        // CPU work that must not sit inside a pass; and it must run exactly once
+        // per frame, while a pass runs once per CAMERA. That last one is not a
+        // performance argument -- a coat stepped twice for a second viewport
+        // would advance at twice the rate in a split-screen scene, and the two
+        // views would then disagree about where the fur is.
+
+        /// The asset's guide-to-strand influence table, shared by every entity
+        /// wearing this groom. Null when this groom is not simulated.
+        Ref<GroomGuideInfluenceTable> Influence;
+
+        /// This frame's and last frame's OBJECT-space guide displacements, laid
+        /// out by `SimulationGuideOffsets`. Empty when not simulated.
+        std::vector<glm::vec3> SimulationDisplacements;
+        std::vector<glm::vec3> SimulationPrevDisplacements;
+        std::vector<u32> SimulationGuideOffsets;
+
+        /// Table slot -> this frame's guide index, or GroomNoGuide for a slot
+        /// the budget did not simulate. Sized by the table's guide count, so a
+        /// strand's slot lookup is always in range.
+        std::vector<u32> SimulationGuideOfSlot;
+        /// Guide index -> table slot, the inverse of the above.
+        std::vector<u32> SimulationSlotOfGuide;
+
+        /// What the step did, forwarded to the renderer's statistics panel so
+        /// "why is this coat not moving" is answerable from the editor.
+        GroomSimulationStats SimulationStats;
+
+        /// The declared length tolerance the stats above should be read
+        /// against. Carried rather than re-read from the component, because the
+        /// panel that shows the measurement must show the contract it was taken
+        /// against and not this build's default.
+        f32 SimulationStretchTolerance = GroomSimulationLimits::DefaultStretchTolerance;
+
+        /// The fitted body proxy, WORLD space, for the debug view. Empty when
+        /// the view is off -- a capsule list per groom per frame is not carried
+        /// across the bus to be ignored.
+        std::vector<GroomCollider> SimulationColliders;
+
+        /// The requested debug view. What it can actually DRAW depends on the
+        /// editor debug flags, which the pass checks, so this is a request in
+        /// exactly the sense CoatShadow and RequestedMode are.
+        GroomSimulationDebugView SimulationDebug = GroomSimulationDebugView::None;
+
+        /// The view over the four arrays above, assembled at the point of use.
+        ///
+        /// A FUNCTION rather than a stored view, because a GroomStrandRequest is
+        /// MOVED (Scene builds it, pushes it into a vector and hands the vector
+        /// to Renderer3D) and a span stored beside the vector it points into
+        /// would dangle the moment the vector reallocated. Assembling it here
+        /// costs nothing and cannot be stale.
+        [[nodiscard]] GroomStrandSimulation Simulation() const noexcept
+        {
+            GroomStrandSimulation simulation;
+            if (!Influence)
+            {
+                return simulation;
+            }
+            simulation.Influence = Influence.Raw();
+            simulation.GuideOfSlot = SimulationGuideOfSlot;
+            simulation.Displacements.GuideOffsets = SimulationGuideOffsets;
+            simulation.Displacements.Displacements = SimulationDisplacements;
+            simulation.Displacements.PrevDisplacements = SimulationPrevDisplacements;
+            simulation.Displacements.SlotOfGuide = SimulationSlotOfGuide;
+            return simulation;
+        }
     };
 } // namespace OloEngine

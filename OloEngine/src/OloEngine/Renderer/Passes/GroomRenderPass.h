@@ -116,6 +116,46 @@ namespace OloEngine
         /// discontinuity.
         u32 GroomsHistoryRejected = 0;
 
+        // == Guide simulation (#1250) ==
+        //
+        // Criterion 1 is stated as a TOLERANCE, so the evidence for it is a
+        // NUMBER and it has to be readable from the panel -- a coat that is
+        // slightly rubbery looks exactly like a coat that is not.
+
+        /// Grooms whose guides were simulated this frame.
+        u32 GroomsSimulated = 0;
+        /// Guides and guide particles actually solved. The cost of the feature,
+        /// and the number a per-role budget is tuned against.
+        u32 GuidesSimulated = 0;
+        u32 GuidePointsSimulated = 0;
+        /// Rendered strands that took their motion from a guide, and the ones
+        /// that could not. A non-zero Unguided count is a fact about the
+        /// AUTHORING -- a group groomed with no guide -- not about the frame.
+        u32 StrandsSimulated = 0;
+        u32 StrandsUnguided = 0;
+        /// Particle-collider overlaps resolved on the last substep.
+        u32 SimulationContacts = 0;
+        /// Fixed steps taken, summed over every simulated groom, and whether any
+        /// of them dropped arrears. A coat permanently in arrears looks fine in
+        /// a still frame and lags the body by a constant offset in motion, which
+        /// reads as a binding error -- so the flag is how anyone finds it.
+        u32 SimulationSteps = 0;
+        bool SimulationStepsClamped = false;
+        /// Grooms whose particles were RE-SEEDED this frame: a teleport, a
+        /// budget change, the reset control, the first frame. Such a frame emits
+        /// zero motion by design, so a count that never falls to zero is a coat
+        /// that is being reset every frame and can therefore never move.
+        u32 SimulationReseeds = 0;
+        /// THE criterion-1 number: the worst |segment| / restLength over every
+        /// simulated segment of every groom, and the tightest tolerance any of
+        /// them declared. In contract while |ratio - 1| <= the tolerance.
+        f32 WorstStretchRatio = 1.0f;
+        f32 DeclaredStretchTolerance = 1.0f;
+        /// Worst distance from a particle to its groomed rest position, world
+        /// units. The rest-shape half: a coat that preserves length perfectly
+        /// while hanging straight down has a stretch ratio of exactly 1.
+        f32 WorstRestDeviation = 0.0f;
+
         // ── Fibre scattering (#1247) ─────────────────────────────────
 
         /// Grooms drawn with a fibre material this frame. The rest render

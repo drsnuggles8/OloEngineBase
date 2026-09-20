@@ -634,6 +634,45 @@ if (auto node = entity["GroomFibreComponent"]; node)
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 
+if (auto node = entity["GroomSimulationComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();
+    comp.m_Gravity = node["Gravity"].as<glm::vec3>(comp.m_Gravity);
+    comp.m_Gravity = glm::clamp(comp.m_Gravity, glm::vec3(-1000.0f), glm::vec3(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Stiffness"], v))
+        comp.m_Stiffness = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(2000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Damping"], v))
+        comp.m_Damping = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["VelocityCorrection"], v))
+        comp.m_VelocityCorrection = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FixedHz"], v))
+        comp.m_FixedHz = std::clamp(v, static_cast<f32>(15.0f), static_cast<f32>(480.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["StretchTolerance"], v))
+        comp.m_StretchTolerance = std::clamp(v, static_cast<f32>(0.0001f), static_cast<f32>(0.5f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TeleportDistance"], v))
+        comp.m_TeleportDistance = std::clamp(v, static_cast<f32>(0.001f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ColliderRadiusScale"], v))
+        comp.m_ColliderRadiusScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ColliderPadding"], v))
+        comp.m_ColliderPadding = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ColliderFriction"], v))
+        comp.m_ColliderFriction = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_MaxSubsteps = std::clamp(node["MaxSubsteps"].as<u32>(comp.m_MaxSubsteps), static_cast<u32>(1), static_cast<u32>(8));
+    comp.m_Iterations = std::clamp(node["Iterations"].as<u32>(comp.m_Iterations), static_cast<u32>(1), static_cast<u32>(16));
+    comp.m_MaxGuidesUnassigned = std::clamp(node["MaxGuidesUnassigned"].as<u32>(comp.m_MaxGuidesUnassigned), static_cast<u32>(0), static_cast<u32>(65536));
+    comp.m_MaxGuidesUndercoat = std::clamp(node["MaxGuidesUndercoat"].as<u32>(comp.m_MaxGuidesUndercoat), static_cast<u32>(0), static_cast<u32>(65536));
+    comp.m_MaxGuidesGuardHair = std::clamp(node["MaxGuidesGuardHair"].as<u32>(comp.m_MaxGuidesGuardHair), static_cast<u32>(0), static_cast<u32>(65536));
+    comp.m_MaxGuidesWhisker = std::clamp(node["MaxGuidesWhisker"].as<u32>(comp.m_MaxGuidesWhisker), static_cast<u32>(0), static_cast<u32>(65536));
+    comp.m_MaxGuidesLongHair = std::clamp(node["MaxGuidesLongHair"].as<u32>(comp.m_MaxGuidesLongHair), static_cast<u32>(0), static_cast<u32>(65536));
+    comp.m_ResetKey = node["ResetKey"].as<u32>(comp.m_ResetKey);
+    if (const decltype(comp.m_Model) v = node["Model"].as<decltype(comp.m_Model)>(comp.m_Model); v >= static_cast<decltype(comp.m_Model)>(0) && v <= static_cast<decltype(comp.m_Model)>(2))
+        comp.m_Model = v;
+    if (const decltype(comp.m_DebugView) v = node["DebugView"].as<decltype(comp.m_DebugView)>(comp.m_DebugView); v >= static_cast<decltype(comp.m_DebugView)>(0) && v <= static_cast<decltype(comp.m_DebugView)>(3))
+        comp.m_DebugView = v;
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_Collide = node["Collide"].as<bool>(comp.m_Collide);
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

@@ -2242,6 +2242,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
+            DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -9138,6 +9139,270 @@ namespace OloEngine
                 if (component.m_RegionMap != 0 || component.m_ColorMap != 0)
                 {
                     ImGui::TextDisabled("(counts exclude the regional maps, which are sampled by the renderer)");
+                }
+            } });
+
+        DrawComponent<GroomSimulationComponent>("Groom Simulation", entity, [entity](auto& component)
+                                                {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is nothing to simulate. Add a "
+                                   "Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+            const GroomComponent& groomComponent = entity.GetComponent<GroomComponent>();
+            if (!groomComponent.m_RenderStrands)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("The Groom component has Render Strands off, so this is authored but not "
+                                   "drawn. Turn Render Strands on to see it.");
+                ImGui::PopStyleColor();
+            }
+            if (!entity.HasComponent<GroomBindingComponent>())
+            {
+                // The one prerequisite that is a hard one, and it is worth
+                // saying plainly: the guides are solved against the shape the
+                // BINDING carries onto the body, so an unbound groom has nothing
+                // for the solver to deviate from and Scene never steps it.
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This groom has no Groom Binding, so it is not simulated. The guides are "
+                                   "solved against the pose the binding carries them into, and an unbound coat "
+                                   "has none. Add a Groom Binding component.");
+                ImGui::PopStyleColor();
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off draws the groomed coat exactly as it was before this feature.\n"
+                                  "That is the A/B control the motion evidence is measured against, and it is\n"
+                                  "also how the per-frame cost is taken to zero.");
+            }
+
+            // == The reset control (criterion 4) ==
+            ImGui::SameLine();
+            if (ImGui::Button("Reset now"))
+            {
+                // A COUNTER, not a flag the scene clears. Scene compares this
+                // against the value it last saw, so the control works
+                // identically from here, from a save game and from an MCP write
+                // -- see GroomSimulationComponent::m_ResetKey.
+                ++component.m_ResetKey;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Snaps every guide back to its groomed shape on the next frame, and emits\n"
+                                  "zero motion for that frame. The same thing a teleport does.");
+            }
+
+            // == Solver ==
+            ImGui::SeparatorText("Solver");
+            {
+                int model = static_cast<int>(component.m_Model);
+                const char* const models[] = { "Follow the leader", "Dynamic follow the leader (default)",
+                                               "Position-based distance" };
+                if (ImGui::Combo("Model", &model, models, IM_ARRAYSIZE(models)))
+                {
+                    component.m_Model = static_cast<u8>(std::clamp(model, 0, IM_ARRAYSIZE(models) - 1));
+                }
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The two follow-the-leader models preserve segment length EXACTLY, at any\n"
+                                  "step size, because the pass is a projection rather than an iteration.\n"
+                                  "Position-based distance leaves a residual that grows with the step, and is\n"
+                                  "kept as the measurement reference -- see\n"
+                                  "docs/analysis/groom-guide-simulation-1250.md.");
+            }
+            ImGui::DragFloat3("Gravity", &component.m_Gravity.x, 0.05f, -1000.0f, 1000.0f, "%.2f");
+            ImGui::DragFloat("Stiffness", &component.m_Stiffness, 1.0f, 0.0f, 2000.0f, "%.1f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Acceleration back toward the GROOMED shape, per unit of offset.\n"
+                                  "High holds the groom and only trembles; zero hangs off the body like wet\n"
+                                  "rope. This is the difference between fur and hair.");
+            }
+            ImGui::DragFloat("Damping", &component.m_Damping, 0.1f, 0.0f, 60.0f, "%.2f");
+            ImGui::DragFloat("Velocity correction", &component.m_VelocityCorrection, 0.01f, 0.0f, 1.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How much of the momentum the length projection removes is handed back.\n"
+                                  "Zero turns Dynamic follow-the-leader into plain follow-the-leader, which is\n"
+                                  "why they are one code path; one rings.");
+            }
+            ImGui::DragFloat("Fixed step (Hz)", &component.m_FixedHz, 1.0f, 15.0f, 480.0f, "%.0f");
+            {
+                int substeps = static_cast<int>(component.m_MaxSubsteps);
+                if (ImGui::DragInt("Max substeps", &substeps, 0.1f, 1, 8))
+                {
+                    component.m_MaxSubsteps = static_cast<u32>(std::clamp(substeps, 1, 8));
+                }
+                int iterations = static_cast<int>(component.m_Iterations);
+                if (ImGui::DragInt("Iterations (PBD only)", &iterations, 0.1f, 1, 16))
+                {
+                    component.m_Iterations = static_cast<u32>(std::clamp(iterations, 1, 16));
+                }
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The coat integrates at the fixed step whatever the frame rate is.\n"
+                                  "Arrears past (Max substeps / Fixed step) seconds are DROPPED and reported,\n"
+                                  "never integrated -- a four-second alt-tab must not run 240 steps.");
+            }
+            ImGui::DragFloat("Stretch tolerance", &component.m_StretchTolerance, 0.0005f, 0.0001f, 0.5f, "%.4f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The DECLARED length tolerance, as a fraction of rest length. A contract,\n"
+                                  "not a quality slider: the readout below reports the measured worst case\n"
+                                  "against it, and the tests fail when the measurement exceeds it.");
+            }
+            ImGui::DragFloat("Teleport distance", &component.m_TeleportDistance, 0.05f, 0.001f, 1000.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("World units this entity may move in one frame before the frame is a CUT.\n"
+                                  "On a cut the coat is re-seeded at its groomed shape instead of being\n"
+                                  "dragged across the level by its own length constraint.");
+            }
+
+            // == Body collision ==
+            ImGui::SeparatorText("Body collision");
+            ImGui::Checkbox("Collide", &component.m_Collide);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The proxy is FITTED from the bound body's own vertices, one capsule per\n"
+                                  "bone -- there is no rig to place. The two sliders below are what stands in\n"
+                                  "for hand placement; see docs/agent-rules/groom-guide-simulation.md.");
+            }
+            ImGui::DragFloat("Radius scale", &component.m_ColliderRadiusScale, 0.01f, 0.0f, 100.0f, "%.3f");
+            ImGui::DragFloat("Padding", &component.m_ColliderPadding, 0.001f, 0.0f, 1000.0f, "%.4f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Collision is resolved BEFORE the length projection, so length is exact and\n"
+                                  "a particle may end a step a fraction of a segment inside the proxy.\n"
+                                  "Padding is the shell that buys that back.");
+            }
+            ImGui::DragFloat("Friction", &component.m_ColliderFriction, 0.01f, 0.0f, 1.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Tangential velocity retained on contact. 0 is fur sticking to skin,\n"
+                                  "1 is a frictionless slide.");
+            }
+
+            // == Per-group budgets (criterion 4) ==
+            ImGui::SeparatorText("Guide budget, per role");
+            {
+                const auto budget = [](const char* label, u32& value)
+                {
+                    int guides = static_cast<int>(value);
+                    if (ImGui::DragInt(label, &guides, 1.0f, 0, 65536))
+                    {
+                        value = static_cast<u32>(std::clamp(guides, 0, 65536));
+                    }
+                };
+                budget("Unassigned##guides", component.m_MaxGuidesUnassigned);
+                budget("Undercoat##guides", component.m_MaxGuidesUndercoat);
+                budget("Guard hair##guides", component.m_MaxGuidesGuardHair);
+                budget("Whisker##guides", component.m_MaxGuidesWhisker);
+                budget("Long hair##guides", component.m_MaxGuidesLongHair);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("A STRIDE over the role's guides, never the first N: taking the first N\n"
+                                  "takes one end of the pelt and leaves the other side of the animal still.\n\n"
+                                  "Zero means the role is not simulated at all, which is a legitimate choice\n"
+                                  "for an undercoat that never leaves the skin -- it is NOT a stride of one.");
+            }
+
+            // == Debug views (criterion 4) ==
+            ImGui::SeparatorText("Debug view");
+            {
+                int view = static_cast<int>(component.m_DebugView);
+                const char* const views[] = { "None", "Guides", "Colliders", "Guides and colliders" };
+                if (ImGui::Combo("Show", &view, views, IM_ARRAYSIZE(views)))
+                {
+                    component.m_DebugView = static_cast<u8>(std::clamp(view, 0, IM_ARRAYSIZE(views) - 1));
+                }
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Gated on the editor's debug-draw flags like every other component\n"
+                                  "visualisation, so a capture turns it off.");
+            }
+
+            // == What the guide set actually is ==
+            //
+            // The same argument the coat's build readout makes: a coat that does
+            // not move because its groom has no guides and one that does not
+            // move because a role's budget is zero look identical on screen, and
+            // the fix is different. This says which.
+            if (Ref<GroomAsset> groom = groomComponent.m_Groom != 0
+                                            ? AssetManager::GetAsset<GroomAsset>(groomComponent.m_Groom)
+                                            : nullptr)
+            {
+                ImGui::SeparatorText("Guides in this groom");
+                ImGui::Text("%u guide curves of %u", groom->GetGuideCount(), groom->GetCurveCount());
+                if (groom->GetGuideCount() == 0u)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("This groom was exported with no guide curves, so nothing can be "
+                                       "simulated. Re-export it with a guide set.");
+                    ImGui::PopStyleColor();
+                }
+            }
+
+            // == What the solver actually did, last frame ==
+            //
+            // Criterion 1 is stated as a TOLERANCE, so its evidence is a NUMBER
+            // and it belongs beside the slider that declares it: a coat that is
+            // slightly rubbery looks exactly like a coat that is not, and the
+            // only place the difference exists is here.
+            if (const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass())
+            {
+                const GroomRenderStats& stats = pass->GetStats();
+                ImGui::SeparatorText("Last frame");
+                if (stats.GroomsSimulated == 0u)
+                {
+                    ImGui::TextDisabled("Not simulated this frame.");
+                }
+                else
+                {
+                    ImGui::Text("%u guides / %u particles, %u strands interpolated (%u unguided)",
+                                stats.GuidesSimulated, stats.GuidePointsSimulated, stats.StrandsSimulated,
+                                stats.StrandsUnguided);
+                    ImGui::Text("%u fixed steps, %u contacts resolved", stats.SimulationSteps,
+                                stats.SimulationContacts);
+                    const f32 stretch = std::abs(stats.WorstStretchRatio - 1.0f);
+                    const bool inContract = stretch <= stats.DeclaredStretchTolerance;
+                    if (!inContract)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.3f, 1.0f));
+                    }
+                    ImGui::Text("Worst stretch %.5f of a declared %.5f", static_cast<f64>(stretch),
+                                static_cast<f64>(stats.DeclaredStretchTolerance));
+                    if (!inContract)
+                    {
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::Text("Worst deviation from the groom: %.4f world units",
+                                static_cast<f64>(stats.WorstRestDeviation));
+                    if (stats.SimulationStepsClamped)
+                    {
+                        // A coat permanently in arrears looks fine in a still
+                        // frame and lags the body by a constant offset in
+                        // motion, which reads as a binding error. This line is
+                        // the only place anyone finds out.
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::TextWrapped("The catch-up bound DROPPED simulation time this frame. Raise Max "
+                                           "substeps, lower the fixed step, or accept that the coat lags.");
+                        ImGui::PopStyleColor();
+                    }
+                    if (stats.SimulationReseeds > 0u)
+                    {
+                        ImGui::TextDisabled("%u groom(s) re-seeded this frame (teleport, budget change or reset).",
+                                            stats.SimulationReseeds);
+                    }
                 }
             } });
 

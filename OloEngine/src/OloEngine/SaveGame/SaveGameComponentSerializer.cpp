@@ -3544,6 +3544,97 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSimulationComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1250
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the load
+        // never reaches this function. Same reasoning as GroomCoatComponent
+        // above, and the same reason this band did not take a
+        // kSaveGameFormatVersion number -- which also means it cannot collide
+        // with a parallel branch over the next free version integer.
+        ar << c.m_Gravity.x << c.m_Gravity.y << c.m_Gravity.z;
+        ar << c.m_Stiffness << c.m_Damping << c.m_VelocityCorrection << c.m_FixedHz;
+        ar << c.m_StretchTolerance << c.m_TeleportDistance;
+        ar << c.m_ColliderRadiusScale << c.m_ColliderPadding << c.m_ColliderFriction;
+        ar << c.m_MaxSubsteps << c.m_Iterations;
+        ar << c.m_MaxGuidesUnassigned << c.m_MaxGuidesUndercoat << c.m_MaxGuidesGuardHair;
+        ar << c.m_MaxGuidesWhisker << c.m_MaxGuidesLongHair;
+        ar << c.m_ResetKey << c.m_Model << c.m_DebugView << c.m_Enabled << c.m_Collide;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other. The OLO_SERIALIZE
+            // annotations on these fields reach scene YAML and the live-write
+            // registries, NOT this archive, so the bounds are restated here or a
+            // corrupt save is the one route that bypasses all of them -- and
+            // these values reach an explicit integrator that runs sixty times a
+            // second, whose step size is 1/m_FixedHz and whose particles feed
+            // every strand of the coat.
+            //
+            // MakeGroomSimulationParams sanitises the same fields on the way to
+            // the solver, so a bad value could not reach the integrator even
+            // without this. It is repaired HERE as well because the EDITOR shows
+            // the component, and a NaN sitting in an inspector field above a coat
+            // that renders correctly is a bug report about the renderer.
+            const auto sane = [](f32& value, f32 lo, f32 hi, f32 fallback)
+            {
+                // Finite first, then range: std::clamp(NaN, lo, hi) is NaN.
+                if (!std::isfinite(value))
+                {
+                    value = fallback;
+                    return;
+                }
+                value = std::clamp(value, lo, hi);
+            };
+
+            sane(c.m_Gravity.x, -1000.0f, 1000.0f, 0.0f);
+            sane(c.m_Gravity.y, -1000.0f, 1000.0f, -9.81f);
+            sane(c.m_Gravity.z, -1000.0f, 1000.0f, 0.0f);
+            sane(c.m_Stiffness, GroomSimulationLimits::MinStiffness, GroomSimulationLimits::MaxStiffness, 90.0f);
+            sane(c.m_Damping, GroomSimulationLimits::MinDamping, GroomSimulationLimits::MaxDamping, 6.0f);
+            sane(c.m_VelocityCorrection, GroomSimulationLimits::MinVelocityCorrection,
+                 GroomSimulationLimits::MaxVelocityCorrection, 0.85f);
+            sane(c.m_FixedHz, GroomSimulationLimits::MinFixedHz, GroomSimulationLimits::MaxFixedHz, 60.0f);
+            sane(c.m_StretchTolerance, GroomSimulationLimits::MinStretchTolerance,
+                 GroomSimulationLimits::MaxStretchTolerance, GroomSimulationLimits::DefaultStretchTolerance);
+            sane(c.m_TeleportDistance, GroomSimulationLimits::MinTeleportDistance,
+                 GroomSimulationLimits::MaxTeleportDistance, 1.0f);
+            sane(c.m_ColliderRadiusScale, GroomSimulationLimits::MinRadiusScale,
+                 GroomSimulationLimits::MaxRadiusScale, 1.0f);
+            sane(c.m_ColliderPadding, 0.0f, GroomSimulationLimits::MaxPadding, 0.0f);
+            sane(c.m_ColliderFriction, GroomSimulationLimits::MinFriction, GroomSimulationLimits::MaxFriction,
+                 0.35f);
+
+            c.m_MaxSubsteps = std::clamp(c.m_MaxSubsteps, GroomSimulationLimits::MinSubsteps,
+                                         GroomSimulationLimits::MaxSubsteps);
+            c.m_Iterations = std::clamp(c.m_Iterations, GroomSimulationLimits::MinIterations,
+                                        GroomSimulationLimits::MaxIterations);
+
+            const auto budget = [](u32& value)
+            { value = std::min(value, GroomSimulationLimits::MaxGuides); };
+            budget(c.m_MaxGuidesUnassigned);
+            budget(c.m_MaxGuidesUndercoat);
+            budget(c.m_MaxGuidesGuardHair);
+            budget(c.m_MaxGuidesWhisker);
+            budget(c.m_MaxGuidesLongHair);
+
+            // REJECTED to the default, never saturated. Both of these are
+            // discriminated indices, so clamping a corrupt value turns it into a
+            // DIFFERENT valid one -- a coat silently simulated by a solver
+            // nobody chose, which is exactly the case the fields' Reject
+            // annotations name.
+            if (!IsValidGroomSolverModel(static_cast<i32>(c.m_Model)))
+            {
+                c.m_Model = static_cast<u8>(GroomSolverModel::DynamicFollowTheLeader);
+            }
+            if (!IsValidGroomSimulationDebugView(static_cast<i32>(c.m_DebugView)))
+            {
+                c.m_DebugView = static_cast<u8>(GroomSimulationDebugView::None);
+            }
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomComponent& c)
     {
         ar << c.m_Groom << c.m_RootMarkerSize << c.m_MaxPreviewStrands;
@@ -5649,6 +5740,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomFibreComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatComponent);
+        REGISTER_SAVE_COMPONENT(GroomSimulationComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

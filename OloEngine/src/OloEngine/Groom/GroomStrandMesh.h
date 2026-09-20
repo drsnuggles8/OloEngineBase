@@ -29,6 +29,7 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomDeformation.h"
+#include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 
 #include <glm/glm.hpp>
@@ -213,6 +214,17 @@ namespace OloEngine
         /// no coat authoring, which is the pre-#1251 behaviour.
         u32 StrideByRole[GroomCoatRoleCount]{};
 
+        // ── Guide simulation (#1250) ────────────────────────────
+        //
+        // A strand is SIMULATED when its guides moved and it had weight to
+        // apply; it is UNGUIDED when its group was groomed without a guide, or
+        // when every guide it names fell outside this frame's budget. The two
+        // are counted apart because a coat that does not move has a different
+        // fix in each case — authoring a guide, or raising the budget — and
+        // one combined counter would not say which.
+        u32 StrandsSimulated = 0;
+        u32 StrandsUnguided = 0;
+
         [[nodiscard]] bool operator==(const GroomStrandMeshStats&) const = default;
     };
 
@@ -250,11 +262,18 @@ namespace OloEngine
     // `coat` is null for a groom with no coat authoring, so the un-authored path
     // is byte-for-byte the one that existed before #1251 rather than a special
     // case of a new one — the same shape `deformation` already uses.
+    //
+    // `simulation` is null for a groom whose guides are not being simulated,
+    // for the same reason and with the same guarantee (#1250). It is applied
+    // AFTER the deformation and never instead of it: the displacement it
+    // carries is measured from the deformed rest shape, so a groom whose guides
+    // happen not to have moved emits exactly the bytes it emitted without it.
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
                                               std::vector<u32>& outIndices,
                                               const GroomStrandDeformation* deformation = nullptr,
-                                              const GroomCoatContext* coat = nullptr);
+                                              const GroomCoatContext* coat = nullptr,
+                                              const GroomStrandSimulation* simulation = nullptr);
 
     // The curve indices this build will walk, in the order it walks them.
     //

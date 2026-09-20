@@ -415,4 +415,100 @@ namespace OloEngine
 
         return stats;
     }
+
+    GroomGuidePreviewStats DrawGroomGuidePreview(std::span<const glm::vec3> positions, std::span<const u32> offsets,
+                                                 u32 maxGuides)
+    {
+        GroomGuidePreviewStats stats;
+        if (offsets.size() < 2u || offsets.back() != positions.size())
+        {
+            // A layout that does not describe these positions is treated as
+            // ABSENT rather than partially drawn, the rule the binding preview
+            // above states: half a picture says something about the other half
+            // that is not true.
+            return stats;
+        }
+
+        const u32 guideCount = static_cast<u32>(offsets.size() - 1u);
+        const u32 cap = std::max(1u, maxGuides);
+        stats.Stride = guideCount > cap ? ((guideCount + cap - 1u) / cap) : 1u;
+
+        // World-space, in units of 5 mm -- Renderer3D::DrawLine's `thickness` is
+        // not a pixel width, see DrawGroomPreview. A guide is read by eye
+        // against the coat it drives, so it is deliberately fatter than a
+        // strand.
+        constexpr f32 kGuideThickness = 0.15f;
+
+        for (u32 guide = 0; guide < guideCount; guide += stats.Stride)
+        {
+            const u32 first = offsets[guide];
+            const u32 last = offsets[guide + 1u];
+            if (last <= first + 1u)
+            {
+                continue;
+            }
+            ++stats.GuidesDrawn;
+            for (u32 i = first; i + 1u < last; ++i)
+            {
+                // Root to tip, cyan to magenta, so the DIRECTION of a guide is
+                // readable in a still frame. A guide drawn in one colour looks
+                // identical to the same guide inverted, which is exactly the
+                // failure a root-transform bug produces.
+                const f32 t = static_cast<f32>(i - first) / static_cast<f32>(last - first - 1u);
+                const glm::vec3 colour{ 0.2f + 0.7f * t, 0.9f - 0.6f * t, 0.9f };
+                SubmitLine(positions[i], positions[i + 1u], colour, kGuideThickness);
+                ++stats.LinesDrawn;
+            }
+        }
+        return stats;
+    }
+
+    GroomGuidePreviewStats DrawGroomColliderPreview(std::span<const GroomCollider> colliders)
+    {
+        GroomGuidePreviewStats stats;
+        constexpr f32 kColliderThickness = 0.2f;
+        constexpr u32 kRingSegments = 16u;
+        constexpr glm::vec3 kColour{ 1.0f, 0.75f, 0.2f };
+
+        for (const GroomCollider& collider : colliders)
+        {
+            if (!(collider.Radius > 0.0f))
+            {
+                continue;
+            }
+            const glm::vec3 delta = collider.PointB - collider.PointA;
+            const f32 length2 = glm::dot(delta, delta);
+            // A sphere is a capsule whose points coincide; its "axis" is then
+            // arbitrary, and up is as good as any.
+            const glm::vec3 axis = length2 > 1.0e-12f ? delta * glm::inversesqrt(length2)
+                                                      : glm::vec3(0.0f, 1.0f, 0.0f);
+            const glm::vec3 seed =
+                std::abs(axis.x) < 0.9f ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            const glm::vec3 u = glm::normalize(glm::cross(axis, seed));
+            const glm::vec3 v = glm::cross(axis, u);
+
+            // Three rings -- both caps and the middle -- plus the axis. Enough
+            // to read the capsule's extent and radius by eye, and few enough
+            // that a full biped's proxy is a few hundred lines rather than a
+            // few thousand: every line here is a command packet.
+            for (u32 ring = 0; ring < 3u; ++ring)
+            {
+                const glm::vec3 centre = collider.PointA + delta * (static_cast<f32>(ring) * 0.5f);
+                glm::vec3 previous = centre + u * collider.Radius;
+                for (u32 step = 1; step <= kRingSegments; ++step)
+                {
+                    const f32 angle = 6.2831853f * static_cast<f32>(step) / static_cast<f32>(kRingSegments);
+                    const glm::vec3 point =
+                        centre + (u * std::cos(angle) + v * std::sin(angle)) * collider.Radius;
+                    SubmitLine(previous, point, kColour, kColliderThickness);
+                    previous = point;
+                    ++stats.LinesDrawn;
+                }
+            }
+            SubmitLine(collider.PointA, collider.PointB, kColour, kColliderThickness);
+            ++stats.LinesDrawn;
+            ++stats.CollidersDrawn;
+        }
+        return stats;
+    }
 } // namespace OloEngine

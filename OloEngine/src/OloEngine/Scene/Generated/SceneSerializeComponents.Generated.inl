@@ -545,6 +545,36 @@ if (entity.HasComponent<GroomFibreComponent>())
     out << YAML::EndMap; // GroomFibreComponent
 }
 
+if (entity.HasComponent<GroomSimulationComponent>())
+{
+    out << YAML::Key << "GroomSimulationComponent";
+    out << YAML::BeginMap; // GroomSimulationComponent
+    auto const& comp = entity.GetComponent<GroomSimulationComponent>();
+    out << YAML::Key << "Gravity" << YAML::Value << comp.m_Gravity;
+    out << YAML::Key << "Stiffness" << YAML::Value << comp.m_Stiffness;
+    out << YAML::Key << "Damping" << YAML::Value << comp.m_Damping;
+    out << YAML::Key << "VelocityCorrection" << YAML::Value << comp.m_VelocityCorrection;
+    out << YAML::Key << "FixedHz" << YAML::Value << comp.m_FixedHz;
+    out << YAML::Key << "StretchTolerance" << YAML::Value << comp.m_StretchTolerance;
+    out << YAML::Key << "TeleportDistance" << YAML::Value << comp.m_TeleportDistance;
+    out << YAML::Key << "ColliderRadiusScale" << YAML::Value << comp.m_ColliderRadiusScale;
+    out << YAML::Key << "ColliderPadding" << YAML::Value << comp.m_ColliderPadding;
+    out << YAML::Key << "ColliderFriction" << YAML::Value << comp.m_ColliderFriction;
+    out << YAML::Key << "MaxSubsteps" << YAML::Value << comp.m_MaxSubsteps;
+    out << YAML::Key << "Iterations" << YAML::Value << comp.m_Iterations;
+    out << YAML::Key << "MaxGuidesUnassigned" << YAML::Value << comp.m_MaxGuidesUnassigned;
+    out << YAML::Key << "MaxGuidesUndercoat" << YAML::Value << comp.m_MaxGuidesUndercoat;
+    out << YAML::Key << "MaxGuidesGuardHair" << YAML::Value << comp.m_MaxGuidesGuardHair;
+    out << YAML::Key << "MaxGuidesWhisker" << YAML::Value << comp.m_MaxGuidesWhisker;
+    out << YAML::Key << "MaxGuidesLongHair" << YAML::Value << comp.m_MaxGuidesLongHair;
+    out << YAML::Key << "ResetKey" << YAML::Value << comp.m_ResetKey;
+    out << YAML::Key << "Model" << YAML::Value << static_cast<u32>(comp.m_Model);
+    out << YAML::Key << "DebugView" << YAML::Value << static_cast<u32>(comp.m_DebugView);
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "Collide" << YAML::Value << comp.m_Collide;
+    out << YAML::EndMap; // GroomSimulationComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";
