@@ -30,8 +30,9 @@
 # the function name (from `.symtab`) and file:line (from `.debug_line`, which stays in the
 # object) — so an ASan report keeps its frames and their locations, and loses the inlined
 # ones. Packaging the side-cars into a `.dwp` did not restore it in that probe either, but
-# that probe symbolized a `.o` rather than an executable, where the lookup differs — treat
-# the `.dwp` route as UNPROVEN rather than ruled out.
+# that probe symbolized a `.o` rather than an executable, where the lookup differs.
+# RESOLVED 2026-09-20: re-probed on an executable, the `.dwp` DOES restore them — see
+# "THE VERSION WORTH HAVING" below.
 #
 # Mitigating, and the reason this is a small loss rather than a blocker: every sanitizer
 # job is `CMAKE_BUILD_TYPE=Debug`, where there is very little inlining to lose.
@@ -63,11 +64,29 @@
 # — the saving is margin, not a fix for a live failure, and margin is worth less than a
 # readable stack. Flip it if the margin is ever what is short.
 #
-# THE VERSION WORTH HAVING costs nothing: make the `.dwo` resolvable and the symbolization
-# loss goes away with it. The cause is `DW_AT_comp_dir=/olo`, so `-fdebug-compilation-dir`
-# pointing somewhere real, or a `.dwp` beside the executable, would plausibly give the 22%
-# AND keep the frames. Neither is verified — the `.dwp` probe in this file's measurement
-# used a `.o`, where the lookup differs.
+# THE VERSION WORTH HAVING costs nothing, AND IT IS NOW VERIFIED (2026-09-20). Re-running
+# this file's probe on an EXECUTABLE rather than a `.o` — which is the difference that left
+# the `.dwp` route unproven above — an `llvm-dwp`-packaged `.dwp` beside the binary RESTORES
+# the inlined frames in full, with `-ffile-prefix-map=/olo` still in effect:
+#
+#     -g                                        inlined frame RESOLVES
+#     -g -gsplit-dwarf                          inlined frame LOST      <- reproduces the above
+#     -g -gsplit-dwarf  + <exe>.dwp             inlined frame RESOLVES  <- the fix
+#
+# clang 23.1.0, `always_inline` callee overflowing a heap buffer under ASan, function name
+# and file:line intact in every arm. So the trade this option is OFF for is removable: ship
+# a `.dwp` beside the test binary and the 22% comes with no symbolization loss. Note the
+# `.dwp` route and NOT `-fdebug-compilation-dir`: pointing `DW_AT_comp_dir` at a real
+# absolute path would re-introduce exactly the tree-specific paths `-ffile-prefix-map` exists
+# to remove, ending the cross-slot ccache sharing between the two olo-ci runners. The `.dwp`
+# is resolved relative to the executable, so it keeps the objects path-independent.
+#
+# WHETHER IT IS WORTH BUILDING: probably not, and that is why this commit stops at recording
+# it. cmake/MinimalDebugInfo.cmake's `-g1` removes 93% of the linker-visible debug info
+# against this option's 66%, keeps inlined frames with no side-car file at all, and needs no
+# post-link packaging step. If the `-g1` cell confirms that on the real tree, `.dwp`
+# plumbing is work with nothing left to buy. Kept here because the open question in this
+# file is now closed either way.
 #
 # Re-derive any of this from `.github/workflows/build-memory.yml`'s
 # `Debug + ASan + split DWARF` cell, which runs on the schedule and on demand.
