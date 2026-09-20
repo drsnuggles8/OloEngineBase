@@ -19,6 +19,8 @@
 
 #include "OloEngine/Groom/GroomGuideSimulation.h"
 
+#include "OloEngine/Math/Math.h"
+
 #include <gtest/gtest.h>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -513,6 +515,106 @@ TEST(GroomGuideSimulation, CollisionDisabledLetsGuidesPassThroughAndIsCountedAsZ
         stats = StepGroomGuideSimulation(inputs, state);
     }
     EXPECT_EQ(stats.ContactsResolved, 0u);
+}
+
+// -----------------------------------------------------------------------------
+// The step-dependent stiffness ceiling
+// -----------------------------------------------------------------------------
+
+// The combination this exists for is INSIDE every documented bound and was
+// unstable anyway: the slowest legal step (15 Hz) with the highest legal
+// stiffness (2000) gives Stiffness * dt^2 = 8.9, and the undamped transverse
+// mode leaves the unit circle past 4.
+//
+// The Follow-the-Leader projection does not rescue it, which is what makes this
+// worth a test rather than a comment: length stays EXACT while the direction
+// oscillates, so every length assertion in this file passes while the coat
+// never settles. The symptom is a rest deviation that does not decay.
+TEST(GroomGuideSimulation, TheSlowestStepWithTheStiffestCoatStillSettles)
+{
+    // Horizontal, so gravity can deflect it and there is something to settle.
+    const TestGuides base = TestGuides::Make(1, 12, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+
+    GroomSimulationParams params;
+    params.CollisionEnabled = false;
+    params.FixedHz = GroomSimulationLimits::MinFixedHz;     // 15
+    params.Stiffness = GroomSimulationLimits::MaxStiffness; // 2000
+    params.Damping = GroomSimulationLimits::MaxDamping;     // 60 -> velocityRetain 0
+
+    TestGuides guides = base;
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 15.0f, false), state);
+
+    // Let it run well past any settling time, then measure whether the LAST
+    // second still moves. A settled coat is nearly still; an oscillating one is
+    // not, however exact its segment lengths are.
+    f32 lateTravel = 0.0f;
+    glm::vec3 previousTip = state.Curr.back();
+    for (u32 frame = 0; frame < 300u; ++frame)
+    {
+        const GroomSimulationStats stats =
+            StepGroomGuideSimulation(guides.Inputs(params, 1.0f / 15.0f, true), state);
+        ASSERT_FALSE(stats.Refused) << "frame " << frame;
+        // Length must hold throughout, which it does with or without the fix --
+        // that is precisely why length cannot be the detector here.
+        EXPECT_LE(std::abs(stats.MaxStretchRatio - 1.0f), params.StretchTolerance) << "frame " << frame;
+        if (frame >= 285u)
+        {
+            lateTravel += glm::length(state.Curr.back() - previousTip);
+        }
+        previousTip = state.Curr.back();
+    }
+
+    std::printf("[solver] 15 Hz / stiffness 2000 / damping 60: tip travel over the last second = %.6f m\n",
+                static_cast<f64>(lateTravel));
+
+    // MEASURED, by disabling the clamp and re-running this case:
+    //
+    //   clamp disabled                     27.260134 m
+    //   MaxStiffnessTimesStepSquared = 2    0.106383 m   (marginal: e' = -e)
+    //   MaxStiffnessTimesStepSquared = 1    0.000000 m
+    //
+    // Three orders of magnitude between the bound and the failure, so it does
+    // not need to be delicate. The middle row is why the constant is 1 and not
+    // 2: at exactly 2 with zero velocity retention the error flips sign every
+    // step and never decays, which is marginal stability wearing stability's
+    // clothes. Every length assertion above passed in ALL THREE runs.
+    EXPECT_LT(lateTravel, 0.05f)
+        << "the coat is still oscillating after twenty seconds: Stiffness * dt^2 is past the "
+           "explicit integrator's stability limit and the length projection is hiding it";
+
+    for (const glm::vec3& p : state.Curr)
+    {
+        EXPECT_TRUE(Math::IsFinite(p));
+    }
+}
+
+// The clamp is a function of the STEP, so it must not touch a configuration
+// that is already stable. At 60 Hz the ceiling is 7200 and the authored maximum
+// is 2000, so a fast-stepping coat keeps exactly the stiffness it asked for.
+TEST(GroomGuideSimulation, TheStiffnessCeilingDoesNotBindAtSixtyHertz)
+{
+    const TestGuides base = TestGuides::Make(1, 10, 0.1f, glm::vec3(1.0f, 0.0f, 0.0f));
+
+    GroomSimulationParams stiff;
+    stiff.CollisionEnabled = false;
+    stiff.FixedHz = 60.0f;
+    stiff.Stiffness = GroomSimulationLimits::MaxStiffness;
+
+    // A coat this stiff barely leaves its groom under gravity: g / k is 5 mm.
+    TestGuides guides = base;
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(stiff, 1.0f / 60.0f, false), state);
+    GroomSimulationStats stats;
+    for (u32 frame = 0; frame < 240u; ++frame)
+    {
+        stats = StepGroomGuideSimulation(guides.Inputs(stiff, 1.0f / 60.0f, true), state);
+    }
+    ASSERT_FALSE(stats.Refused);
+    // Had the ceiling bound here it would have cut 2000 to something far lower
+    // and the coat would sag visibly further than the analytic g/k bound.
+    EXPECT_LT(stats.MaxRestDeviation, 9.81f / 1000.0f * 12.0f)
+        << "the 60 Hz ceiling must not be clamping an already-stable stiffness";
 }
 
 // -----------------------------------------------------------------------------

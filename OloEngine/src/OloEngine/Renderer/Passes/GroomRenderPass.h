@@ -135,6 +135,10 @@ namespace OloEngine
         u32 StrandsUnguided = 0;
         /// Particle-collider overlaps resolved on the last substep.
         u32 SimulationContacts = 0;
+        /// Guides solved against their bind-pose shape because their root had no
+        /// deformed frame. Non-zero is a fact about the BODY under this animation,
+        /// and it looks identical to a guide that is simply not moving.
+        u32 GuidesWithHeldRoots = 0;
         /// Fixed steps taken, summed over every simulated groom, and whether any
         /// of them dropped arrears. A coat permanently in arrears looks fine in
         /// a still frame and lags the body by a constant offset in motion, which

@@ -216,10 +216,50 @@ namespace OloEngine
         constexpr u32 MaxSubsteps = 8;
 
         /// Acceleration toward the groomed rest shape, per unit of offset.
-        /// Zero is legal and means free hair; the upper bound is where the
-        /// explicit integrator stops being stable at the slowest legal step.
+        /// Zero is legal and means free hair.
         constexpr f32 MinStiffness = 0.0f;
         constexpr f32 MaxStiffness = 2000.0f;
+
+        /// The STEP-DEPENDENT ceiling on stiffness, as the dimensionless product
+        /// `Stiffness * dt^2`.
+        ///
+        /// MaxStiffness alone is not a stability bound, and believing it was is
+        /// the bug this constant fixes: the predictor integrates the shape term
+        /// explicitly, so a transverse error obeys
+        ///
+        ///     e' = e + rho*(e - ePrev) - kappa*e,   kappa = Stiffness * dt^2
+        ///
+        /// with `rho` the per-step velocity retention. Its characteristic
+        /// polynomial is `z^2 - (1 + rho - kappa) z + rho`, and Jury's criteria
+        /// put both roots inside the unit circle exactly when
+        ///
+        ///     0 < kappa < 2 * (1 + rho)
+        ///
+        /// The worst case is rho = 0 -- which the SLOWEST legal step reaches
+        /// outright, since damping 60 at 15 Hz gives `1 - 60/15 = -3`, clamped
+        /// to zero -- and the bound is then `kappa < 2`, STRICTLY. At that step
+        /// the authored maximum of 2000 gives kappa = 8.9: inside every
+        /// documented bound, and unstable.
+        ///
+        /// 1 rather than 2, and the difference is not cosmetic. At exactly 2
+        /// with rho = 0 the recurrence is `e' = -e`: a period-two oscillation
+        /// that never decays, which is marginal stability rather than stability.
+        /// GroomGuideSimulationTest.TheSlowestStepWithTheStiffestCoatStillSettles
+        /// was written against the first attempt at this constant and failed on
+        /// it, measuring 0.106 m of tip travel a full twenty seconds in. At 1
+        /// the rho = 0 case settles in a single step.
+        ///
+        /// The Follow-the-Leader projection does NOT rescue any of this, which
+        /// is why it needs its own test: the projection restores the exact
+        /// segment length while leaving the DIRECTION oscillating, so every
+        /// length assertion in the suite passes throughout. Positions also stay
+        /// bounded by the chain, so the MaxCoordinate poison check never fires.
+        /// The only symptom is a coat that never settles.
+        ///
+        /// At 60 Hz this permits 3600 and therefore never binds on the authored
+        /// range; it bites only in the low-rate regime that is genuinely
+        /// unstable.
+        constexpr f32 MaxStiffnessTimesStepSquared = 1.0f;
 
         /// Velocity damping rate. 1/s.
         constexpr f32 MinDamping = 0.0f;
@@ -398,6 +438,15 @@ namespace OloEngine
         u32 GuidesSimulated = 0;
         u32 PointsSimulated = 0;
         u32 StepsTaken = 0;
+
+        /// Guides whose ROOT had no deformed frame this tick, so they were
+        /// solved against their bind-pose shape while their neighbours moved.
+        ///
+        /// A per-guide, local wrongness rather than a whole-coat failure -- but
+        /// one nobody can see without a number, because the affected guides look
+        /// exactly like guides that happen not to be moving. Counted by the
+        /// CALLER, which is the only place that holds the root transforms.
+        u32 GuidesWithHeldRoots = 0;
 
         /// Particle-collider overlaps this frame's LAST step had to resolve.
         /// Zero on a coat that is clear of the body; a number that never falls

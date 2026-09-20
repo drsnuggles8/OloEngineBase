@@ -8837,7 +8837,10 @@ namespace OloEngine
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;
 
-        const GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state.m_Solver);
+        GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state.m_Solver);
+        // Counted here because this is the only place that holds the root
+        // transforms; the solver never sees them.
+        stats.GuidesWithHeldRoots = guidesWithHeldRoots;
         if (stats.Refused)
         {
             // The solver cleared its own state; clearing ours is what stops the
@@ -8848,6 +8851,16 @@ namespace OloEngine
             state.m_HasHistory = false;
             state.m_ResetCause = GroomHistoryResetCause::Manual;
             state.m_WorldPosition = worldPosition;
+            // PUBLISHED ON THE WAY OUT. The displacement arrays are cleared, so
+            // GroomStrandSimulation::IsUsable refuses and the pass builds the
+            // groomed rest coat -- but the STATS still have to arrive, or the
+            // pass skips its whole simulation block and the inspector reports
+            // "Not simulated this frame" for a coat that refused. A counter that
+            // reads zero on exactly the frames it matters is the failure every
+            // other refusal in this subsystem is written against.
+            request.Influence = influence;
+            request.SimulationStats = stats;
+            request.SimulationStretchTolerance = params.StretchTolerance;
             return;
         }
 
@@ -8866,6 +8879,16 @@ namespace OloEngine
             state.m_HasHistory = false;
             state.m_ResetCause = GroomHistoryResetCause::Manual;
             state.m_WorldPosition = worldPosition;
+            // PUBLISHED ON THE WAY OUT. The displacement arrays are cleared, so
+            // GroomStrandSimulation::IsUsable refuses and the pass builds the
+            // groomed rest coat -- but the STATS still have to arrive, or the
+            // pass skips its whole simulation block and the inspector reports
+            // "Not simulated this frame" for a coat that refused. A counter that
+            // reads zero on exactly the frames it matters is the failure every
+            // other refusal in this subsystem is written against.
+            request.Influence = influence;
+            request.SimulationStats = stats;
+            request.SimulationStretchTolerance = params.StretchTolerance;
             return;
         }
 

@@ -219,6 +219,15 @@ namespace OloEngine
 
     bool HasGroomGuideInfluence(const GroomStrandSimulation& simulation, u32 curveIndex) noexcept
     {
+        // A null table is a DOCUMENTED state of GroomStrandSimulation -- it is
+        // what GroomStrandRequest::Simulation() returns for an un-simulated
+        // groom -- so these two helpers answer it rather than dereferencing it.
+        // The strand build happens to guard every call through IsUsable today;
+        // that is the caller being careful, not the contract being safe.
+        if (simulation.Influence == nullptr)
+        {
+            return false;
+        }
         const auto& weights = simulation.Influence->GetWeights();
         if (curveIndex >= weights.size())
         {
@@ -243,6 +252,10 @@ namespace OloEngine
     glm::vec3 SampleGroomGuideDisplacement(const GroomStrandSimulation& simulation, u32 curveIndex, f32 t,
                                            bool previous) noexcept
     {
+        if (simulation.Influence == nullptr)
+        {
+            return glm::vec3(0.0f);
+        }
         const auto& weights = simulation.Influence->GetWeights();
         if (curveIndex >= weights.size() || !Math::IsFinite(t))
         {

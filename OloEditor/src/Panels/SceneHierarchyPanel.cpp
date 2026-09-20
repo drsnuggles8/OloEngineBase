@@ -9373,6 +9373,17 @@ namespace OloEngine
                                 stats.StrandsUnguided);
                     ImGui::Text("%u fixed steps, %u contacts resolved", stats.SimulationSteps,
                                 stats.SimulationContacts);
+                    if (stats.GuidesWithHeldRoots > 0u)
+                    {
+                        // A guide solved against its bind pose while its
+                        // neighbours move looks exactly like a guide that is
+                        // not moving, so the number is the only way to see it.
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                        ImGui::Text("%u guide(s) held at the bind pose: the body has degenerate "
+                                    "triangles under their roots",
+                                    stats.GuidesWithHeldRoots);
+                        ImGui::PopStyleColor();
+                    }
                     const f32 stretch = std::abs(stats.WorstStretchRatio - 1.0f);
                     const bool inContract = stretch <= stats.DeclaredStretchTolerance;
                     if (!inContract)

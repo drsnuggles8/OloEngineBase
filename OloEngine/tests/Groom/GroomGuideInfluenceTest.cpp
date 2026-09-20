@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -193,13 +194,29 @@ TEST(GroomGuideInfluence, WeightsSumToOneOverTheUsedSlots)
 // geometric nearest-neighbour search on a muzzle does.
 TEST(GroomGuideInfluence, InfluenceNeverCrossesAGroup)
 {
-    // Three interleaved groups: for most strands the geometrically nearest
-    // curve is in a DIFFERENT group, so a group-blind search would fail here.
-    auto groom = MakeLine(90, 6, 3);
+    // Three interleaved groups, and a guide stride COPRIME with the group
+    // count. With `guideEvery` 6 and 3 groups every guide lands on s % 3 == 0,
+    // so groups 1 and 2 get no guides at all and the loop below only ever sees
+    // their empty slots -- it would still catch a group-blind search that handed
+    // group-0 guides to them, but it would never exercise the case where all
+    // three groups HAVE guides and the wrong one could be chosen. 5 and 3 are
+    // coprime, so the guides cycle through all three groups.
+    auto groom = MakeLine(90, 5, 3);
     ASSERT_TRUE(groom);
     auto table = BuildGroomGuideInfluence(*groom);
 
     const auto& groups = groom->GetCurveGroupIds();
+
+    // EVERY group must actually own guides, or this case silently degrades into
+    // the weaker one the comment above describes.
+    std::set<u16> groupsWithGuides;
+    for (const u32 guideCurve : table->GetGuideCurves())
+    {
+        groupsWithGuides.insert(groups[guideCurve]);
+    }
+    ASSERT_EQ(groupsWithGuides.size(), 3u) << "the stride must spread guides across all three groups";
+
+    u32 checked = 0;
     for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
     {
         const GroomGuideWeights& weights = table->GetWeights()[curve];
@@ -211,8 +228,10 @@ TEST(GroomGuideInfluence, InfluenceNeverCrossesAGroup)
             }
             const u32 guideCurve = table->GetGuideCurves()[weights.Guides[k]];
             EXPECT_EQ(groups[guideCurve], groups[curve]) << "curve " << curve << " slot " << k;
+            ++checked;
         }
     }
+    EXPECT_GT(checked, 0u) << "an assertion that examined no slots proves nothing";
 }
 
 // A group groomed with no guide leaves its strands at the groomed rest shape —

@@ -40,6 +40,12 @@ namespace OloEngine
             p.Damping = std::clamp(p.Damping, MinDamping, MaxDamping);
             p.VelocityCorrection = std::clamp(p.VelocityCorrection, MinVelocityCorrection, MaxVelocityCorrection);
             p.FixedHz = std::clamp(p.FixedHz, MinFixedHz, MaxFixedHz);
+            // AFTER the step is final, because the ceiling is a function of it.
+            // See MaxStiffnessTimesStepSquared: the authored maximum is stable at
+            // 60 Hz and is not at 15, so a bound that ignored the step would admit
+            // a documented, in-range configuration that never settles.
+            const f32 step = 1.0f / p.FixedHz;
+            p.Stiffness = std::min(p.Stiffness, MaxStiffnessTimesStepSquared / (step * step));
             p.StretchTolerance = std::clamp(p.StretchTolerance, MinStretchTolerance, MaxStretchTolerance);
             p.ColliderPadding = std::clamp(p.ColliderPadding, 0.0f, MaxPadding);
             p.ColliderFriction = std::clamp(p.ColliderFriction, MinFriction, MaxFriction);
