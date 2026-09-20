@@ -1692,27 +1692,18 @@ namespace OloEngine::MCP
                                 u32 diffusing = 0;
                                 for (u32 slot = 0; slot < assigned; ++slot)
                                 {
-                                    // BOTH diffusing transports (issue #1242).
-                                    // Version 2 is "everything version 1 does,
-                                    // plus transmission", so it diffuses too —
-                                    // counting only version 1 would tell the
-                                    // caller that an all-version-2 scene's
-                                    // diffusion toggle "changes nothing" while
-                                    // it in fact changes every skin pixel.
+                                    // EVERY DIFFUSING VERSION, through the one
+                                    // predicate that holds the list
+                                    // (Renderer/SkinDiffusion.h). A diagnostic
+                                    // that under-counts tells the caller the
+                                    // toggle changes nothing while it changes
+                                    // every skin pixel, which is the exact lie
+                                    // this count exists to prevent — and it is
+                                    // the lie the editor inspector told for a
+                                    // whole version, which is why the list is
+                                    // no longer kept here.
                                     const SkinEvaluationModel model =
                                         profiles.GetParametersForSlot(slot).EvaluationModel;
-                                    // EVERY DIFFUSING VERSION, and the list has
-                                    // to grow with SkinEvaluationModel — issue
-                                    // #1243 appended version 3, which diffuses
-                                    // like the two before it. A diagnostic that
-                                    // under-counts tells the caller the toggle
-                                    // changes nothing while it changes every
-                                    // skin pixel, which is the exact lie this
-                                    // count exists to prevent.
-                                    // #1368 appended version 6, which diffuses by
-                                    // an isotropic gather rather than the
-                                    // separable pair — a different kernel, but
-                                    // the same toggle turns it off.
                                     if (SkinEvaluatesScreenSpaceDiffusion(model))
                                         ++diffusing;
                                 }
@@ -1720,13 +1711,14 @@ namespace OloEngine::MCP
                                 {
                                     r.Note = "No skin profile is in use in this scene, so this toggle changes "
                                              "nothing. A material must have MaterialKind::Skin and name a .oloskin "
-                                             "authored at EvaluationModel 1 (ScreenSpaceDiffusion).";
+                                             "authored at a diffusing transport version — 1 (ScreenSpaceDiffusion) "
+                                             "or later, of which 6 (IsotropicGather) is the corrected one.";
                                 }
                                 else if (diffusing == 0u)
                                 {
                                     r.Note = "This scene uses " + std::to_string(assigned) +
-                                             " skin profile(s), but none is authored at EvaluationModel 1 "
-                                             "(ScreenSpaceDiffusion), so this toggle changes nothing. That is "
+                                             " skin profile(s), but none is authored at a diffusing transport "
+                                             "version (1 or later), so this toggle changes nothing. That is "
                                              "correct: the transport version is an authoring decision per .oloskin "
                                              "and no renderer switch overrides it (ADR 0024).";
                                 }

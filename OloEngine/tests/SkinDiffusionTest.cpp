@@ -270,13 +270,22 @@ TEST(SkinDiffusionTest, EveryTransportVersionIsClassifiedAndTheClassificationIsW
     // that tells its author the profile is "authored at transport version 0"
     // while it diffuses on screen.
     //
-    // WHAT MAKES THIS A GUARD RATHER THAN A RESTATEMENT is that it does not
-    // check the predicate against a second copy of the same list. It checks the
-    // predicate against WHAT THE ENGINE ACTUALLY DOES — the kernel the builder
-    // returns — for every enumerator that exists, found by iterating to
-    // kSkinEvaluationModelCount rather than by naming them. Append a version
-    // and this test covers it without being edited; forget to put it on the
-    // list and the arms below disagree.
+    // WHICH ARM HAS TEETH, STATED PLAINLY, because the obvious reading of this
+    // test is wrong. The loop below compares the predicate against what the
+    // engine does, and the builder now ASKS that predicate — so the two agree by
+    // construction and the loop cannot currently fail. It is kept as a guard
+    // against a future call site that open-codes the list again (which is what
+    // the nine sites this replaced were), not as a live check.
+    //
+    // THE COUNT AT THE BOTTOM IS THE ARM THAT CATCHES THE REAL DEFECT, and this
+    // is measured rather than argued: removing IsotropicGather from the
+    // predicate on purpose left the loop GREEN and failed the count, "5 of 7
+    // do". A predicate and the behaviour it drives cannot disagree; a predicate
+    // and the engine's position on how many versions diffuse can.
+    //
+    // Both arms iterate to kSkinEvaluationModelCount rather than naming
+    // versions, so an appended enumerator is covered without this test being
+    // edited.
     //
     // The transmission half is pinned the same way in SkinTransmissionTest.
     for (i32 raw = 0; raw < kSkinEvaluationModelCount; ++raw)
@@ -293,7 +302,7 @@ TEST(SkinDiffusionTest, EveryTransportVersionIsClassifiedAndTheClassificationIsW
             << "version " << raw << " (" << ToString(model) << "): SkinEvaluatesScreenSpaceDiffusion says "
             << claims << " but BuildSkinDiffusionKernel returns "
             << (kernel.IsIdentity() ? "the identity" : "a real kernel")
-            << " — one of the two lists is a version behind the other";
+            << " — a call site has stopped asking the predicate";
     }
 
     // AND THE CLASSIFICATION IS NOT VACUOUSLY TRUE. A predicate that returned

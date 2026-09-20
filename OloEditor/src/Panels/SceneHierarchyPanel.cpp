@@ -3750,12 +3750,6 @@ namespace OloEngine
                         // built from them, and it is roughly eight times larger.
                         // Showing only the input is how "1.5 mm" becomes a
                         // surprise at 12 mm of visible bleed.
-                        // BOTH DIFFUSING VERSIONS. Version 2 is "everything
-                        // version 1 does, plus transmission", so a version-2
-                        // profile diffuses too — testing only for version 1 here
-                        // would tell an author their head had stopped scattering
-                        // the moment they enabled transmission, which is exactly
-                        // the wrong thing for a diagnostic readout to claim.
                         // EVERY DIFFUSING VERSION, and it is no longer a list
                         // kept here. #1368 appended version 6 and updated eight
                         // of the nine CPU lists; this was the ninth, so a

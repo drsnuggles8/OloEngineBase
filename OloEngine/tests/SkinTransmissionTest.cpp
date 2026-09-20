@@ -471,11 +471,14 @@ namespace OloEngine::Tests
     {
         // The transmission half of the guard SkinDiffusionTest's
         // EveryTransportVersionIsClassifiedAndTheClassificationIsWhatRuns
-        // explains: SkinEvaluatesThicknessTransmission is checked against what
-        // the evaluator and the energy bound actually DO, for every enumerator
-        // that exists, iterated rather than named. It is a separate list from
-        // the diffusion one and a SHORTER one — version 1 diffuses and does not
-        // transmit — so the two cannot cover for each other.
+        // explains, including which arm has teeth: the loop agrees by
+        // construction because the evaluator asks the predicate, and the COUNT
+        // is what catches a version left unclassified. Sabotaging the predicate
+        // on purpose failed the count here too, "4 of 7 do".
+        //
+        // It is a separate list from the diffusion one and a SHORTER one —
+        // version 1 diffuses and does not transmit — so the two cannot cover for
+        // each other.
         //
         // OlderTransportVersionsDoNotTransmit above names versions 0 and 1;
         // this says the same thing about versions nobody has written yet.
@@ -484,7 +487,13 @@ namespace OloEngine::Tests
             const auto model = static_cast<SkinEvaluationModel>(raw);
             SkinProfileParameters profile{};
             profile.EvaluationModel = model;
-            profile.Transmission.Strength = 1.0f;
+            // AT THE CEILING, not at 1.0, and that is what makes the bound
+            // assertion below a tripwire rather than a tautology: the bound's
+            // transmitted half is `transmittance * albedo * strength`, so it can
+            // only win the max once an author can ask for a strength above 1.
+            // Hard-coding 1.0 here would keep the branch dead no matter what the
+            // ceiling became, which is the first thing this test got wrong.
+            profile.Transmission.Strength = kMaxSkinTransmissionStrength;
             ASSERT_TRUE(profile.Sanitize()) << "version " << raw << " (" << ToString(model) << ")";
 
             const bool claims = SkinEvaluatesThicknessTransmission(model);
@@ -498,32 +507,40 @@ namespace OloEngine::Tests
             EXPECT_EQ(claims, transmits)
                 << "version " << raw << " (" << ToString(model)
                 << "): SkinEvaluatesThicknessTransmission says " << claims << " but the evaluator returned ("
-                << term.x << ", " << term.y << ", " << term.z
-                << ") — one of the two lists is a version behind the other";
+                << term.x << ", " << term.y << ", " << term.z << ")";
 
-            // THE ENERGY BOUND, WHICH IS A SECOND LIST AND WAS ALWAYS A SECOND
-            // EDIT — but it cannot be checked by comparing it against the
-            // classification, and that is worth stating rather than quietly not
-            // doing. The bound is max(diffuse, transmitted), the diffuse half is
-            // `albedo`, and the transmitted half is
+            // THE ENERGY BOUND HAS A SECOND COPY OF THE LIST AND IT IS DEAD
+            // CODE — asserted as such, because a dead branch that nobody has
+            // noticed is dead is how the next person writes a test that cannot
+            // fail. The bound is max(diffuse, transmitted); the diffuse half is
+            // `albedo` and the transmitted half is
             // `transmittance * albedo * strength` with transmittance and
-            // strength both at most 1. So the transmitted half can never win the
-            // max, and the version branch inside SkinTransmissionEnergyBound
-            // changes no number this engine computes. It is defensive against
-            // kMaxSkinTransmissionStrength ever rising above 1, not live.
+            // strength both at most 1, so the transmitted half can NEVER win the
+            // max and the version branch changes no number this engine computes.
             //
-            // WHAT IS CHECKABLE IS THE CONTRACT THE BOUND EXISTS FOR, and it is
-            // the stronger test anyway: the evaluated term must not exceed it,
-            // for EVERY version. A version the evaluator transmits for and the
-            // bound does not would break this the moment the strength ceiling
-            // moved, which is exactly the latent form of the same list error.
-            const glm::vec3 bound = SkinTransmissionEnergyBound(2.0f, glm::vec3(1.0f), profile);
-            const glm::vec3 lit = EvaluateSkinTransmission(kNormalTowardViewer, kViewTowardViewer, kLightBehind,
-                                                           glm::vec3(1.0f), glm::vec3(1.0f), 1.0f, 2.0f, profile);
-            EXPECT_TRUE(glm::all(glm::lessThanEqual(lit, bound + glm::vec3(1.0e-5f))))
-                << "version " << raw << " (" << ToString(model) << "): term (" << lit.x << ", " << lit.y << ", "
-                << lit.z << ") exceeds its own energy bound (" << bound.x << ", " << bound.y << ", " << bound.z
-                << ")";
+            // So the bound is asserted to be INDIFFERENT to the version — the
+            // same value here as for a version that does not transmit at all.
+            // That is a real, falsifiable statement, and it is a tripwire rather
+            // than a restatement: raise kMaxSkinTransmissionStrength above 1 and
+            // the transmitted half starts winning the max, this fails, and
+            // whoever raised it learns that the bound's list has just come alive
+            // and now needs the classification coverage the term above gets.
+            SkinProfileParameters inert = profile;
+            inert.EvaluationModel = SkinEvaluationModel::DiffuseSpecularSplit;
+            ASSERT_TRUE(inert.Sanitize());
+            // A THIN region (0.5 mm), and the thickness is load-bearing. The
+            // transmitted half only wins the max when
+            // `transmittance * strength > 1`; at the default profile's red
+            // channel transmittance is 0.62 at 0.5 mm but only 0.23 at 2 mm, so
+            // a 2 mm probe would keep the branch dead up to a strength ceiling
+            // of 4 and the tripwire would not fire until long after the branch
+            // was live. At 0.5 mm it stays dead at a ceiling of 1 (0.62) and
+            // fires at 2 (1.23).
+            const glm::vec3 bound = SkinTransmissionEnergyBound(0.5f, glm::vec3(0.5f), profile);
+            const glm::vec3 inertBound = SkinTransmissionEnergyBound(0.5f, glm::vec3(0.5f), inert);
+            ExpectVec3Near(bound, inertBound,
+                           "the energy bound's version branch is dead — if this fails it is alive again, and "
+                           "SkinEvaluatesThicknessTransmission now has to be right HERE too");
         }
 
         // NOT VACUOUS, AND COUNTED. Versions 0 and 1 do not transmit and every
