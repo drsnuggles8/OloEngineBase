@@ -69,7 +69,7 @@ namespace OloEngine
             }
         };
 
-        [[nodiscard]] u32 CountCurveSegments(const GroomAsset& groom, u32 curveIndex) noexcept
+        [[nodiscard]] u32 CountCurveSegments(const GroomCurveView& groom, u32 curveIndex) noexcept
         {
             const u32 points = groom.GetCurvePointCount(curveIndex);
             return points >= 2u ? points - 1u : 0u;
@@ -83,7 +83,7 @@ namespace OloEngine
             GroomCoatStrandParams Params{};
         };
 
-        [[nodiscard]] CurveCoat CoatOfCurve(const GroomAsset& groom, u32 curveIndex, const GroomCoatContext* coat)
+        [[nodiscard]] CurveCoat CoatOfCurve(const GroomCurveView& groom, u32 curveIndex, const GroomCoatContext* coat)
         {
             CurveCoat result;
             if (coat == nullptr || !coat->IsActive())
@@ -99,7 +99,7 @@ namespace OloEngine
         // Topology and the guides-only switch: the eligibility that existed
         // before the coat did. Kept separate from the coat's own Keep decision so
         // the stats can say which of the two removed a strand.
-        [[nodiscard]] bool CurveIsEligible(const GroomAsset& groom, u32 curveIndex,
+        [[nodiscard]] bool CurveIsEligible(const GroomCurveView& groom, u32 curveIndex,
                                            const GroomStrandBuildSettings& settings) noexcept
         {
             if (settings.GuidesOnly && !groom.IsGuide(curveIndex))
@@ -109,7 +109,7 @@ namespace OloEngine
             return groom.GetCurvePointCount(curveIndex) >= 2u;
         }
 
-        [[nodiscard]] Selection SelectCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+        [[nodiscard]] Selection SelectCurves(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
                                              const GroomCoatContext* coat)
         {
             Selection selection;
@@ -269,7 +269,7 @@ namespace OloEngine
         // function of the groom.
         using ClumpTable = std::unordered_map<u64, GroomCoatClumpAccum>;
 
-        [[nodiscard]] ClumpTable BuildClumpTable(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+        [[nodiscard]] ClumpTable BuildClumpTable(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
                                                  const GroomCoatContext* coat)
         {
             ClumpTable table;
@@ -306,7 +306,7 @@ namespace OloEngine
             return table;
         }
 
-        [[nodiscard]] glm::vec3 ClumpGrowthFor(const ClumpTable& table, const GroomAsset& groom, u32 curveIndex,
+        [[nodiscard]] glm::vec3 ClumpGrowthFor(const ClumpTable& table, const GroomCurveView& groom, u32 curveIndex,
                                                f32 cellSize) noexcept
         {
             const auto it = table.find(GroomCoatClumpCell(groom.GetRootUVs()[curveIndex], cellSize));
@@ -323,10 +323,32 @@ namespace OloEngine
         }
     } // namespace
 
-    void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+    GroomBuildSource GroomBuildSource::FromAsset(const GroomAsset& groom) noexcept
+    {
+        GroomBuildSource source;
+        source.Curves = groom.GetCurveView();
+        source.BaseCurveCount = groom.GetCurveCount();
+        return source;
+    }
+
+    GroomBuildSource GroomBuildSource::FromLevel(const GroomAsset& base, const GroomLodLevel& level) noexcept
+    {
+        GroomBuildSource source;
+        source.Curves = level.GetCurveView();
+        source.SourceCurves = level.SourceCurves;
+        // The BASE's count, deliberately: it is what the binding's
+        // root-transform array and the guide influence table are sized by, and
+        // what SourceCurves indexes into. GroomLodLevel::Validate has already
+        // bounded every entry against it, on cook and on load.
+        source.BaseCurveCount = base.GetCurveCount();
+        return source;
+    }
+
+    void SelectGroomStrandCurves(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                                  std::vector<u32>& outCurves, const GroomCoatContext* coat)
     {
         outCurves.clear();
+        const GroomCurveView& groom = source.Curves;
 
         // Deliberately the SAME eligibility test and the SAME stride arithmetic
         // the build uses, reached through the same helpers rather than
@@ -377,9 +399,10 @@ namespace OloEngine
         }
     }
 
-    GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+    GroomStrandMeshStats PlanGroomStrandMesh(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                                              const GroomCoatContext* coat)
     {
+        const GroomCurveView& groom = source.Curves;
         GroomStrandMeshStats stats;
         const Selection selection = SelectCurves(groom, settings, coat);
         stats.StrandsAvailable = selection.AvailableTotal;
@@ -437,26 +460,34 @@ namespace OloEngine
         return stats;
     }
 
-    GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+    GroomStrandMeshStats BuildGroomStrandMesh(const GroomBuildSource& source,
+                                              const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
                                               const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
                                               const GroomStrandSimulation* simulation)
     {
         outVertices.clear();
         outIndices.clear();
+        const GroomCurveView& groom = source.Curves;
 
         // A deformation that does not span this groom is treated as ABSENT
         // rather than partially applied. Half a deformed coat is the plausible
         // wrong image #1249 exists to prevent; an undeformed one is visibly at
         // the bind pose, and the caller already counted the refusal that got it
         // here (GroomBindingRejectReason).
-        const bool deformed = deformation != nullptr && deformation->IsUsable(groom.GetCurveCount());
+        // AGAINST THE BASE GROOM'S CURVE COUNT, not this curve set's. A cooked
+        // LOD level has fewer curves than the groom it stands in for, and the
+        // binding's root-transform array is sized by the BASE — so comparing
+        // against the level's count would reject every deformation at card
+        // range and the coat would detach from the body at exactly the distance
+        // nobody is watching closely (issue #1252).
+        const bool deformed = deformation != nullptr && deformation->IsUsable(source.BaseCurveCount);
 
         // Same rule, and for the same reason: a simulation that does not span
         // this groom is ABSENT rather than partially applied. Half a moving coat
         // is the plausible wrong image; a still one is visibly at its groomed
         // rest shape, and the stats below say how many strands that is.
-        const bool simulated = simulation != nullptr && simulation->IsUsable(groom.GetCurveCount());
+        const bool simulated = simulation != nullptr && simulation->IsUsable(source.BaseCurveCount);
 
         GroomStrandMeshStats stats;
         const Selection selection = SelectCurves(groom, settings, coat);
@@ -467,7 +498,7 @@ namespace OloEngine
         FillRoleStats(stats, selection);
         stats.Stride = *std::max_element(selection.Stride.begin(), selection.Stride.end());
 
-        const GroomStrandMeshStats plan = PlanGroomStrandMesh(groom, settings, coat);
+        const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
         outVertices.reserve(plan.VertexCount);
         outIndices.reserve(plan.IndexCount);
 
@@ -526,6 +557,13 @@ namespace OloEngine
             const u32 count = groom.GetCurvePointCount(curve);
             const f32 invSpan = 1.0f / static_cast<f32>(count - 1u);
 
+            // The BASE curve this one stands in for. Identity for the base
+            // groom; for a cooked card it is the member strand whose rest frame
+            // and guides the card borrows (issue #1252). Everything indexed by
+            // the BINDING or by the guide influence table goes through it, and
+            // everything indexed by this curve set's own geometry does not.
+            const u32 sourceCurve = source.SourceCurve(curve);
+
             // One lookup per CURVE, not per point: the root transform is a
             // property of the strand, and re-reading it per segment would be the
             // dominant cost of a long coat for no change in the result.
@@ -533,8 +571,8 @@ namespace OloEngine
             const GroomRootTransform* transform = nullptr;
             if (deformed)
             {
-                record = &deformation->Binding->GetRoot(curve);
-                transform = &deformation->RootTransforms[curve];
+                record = &deformation->Binding->GetRoot(sourceCurve);
+                transform = &deformation->RootTransforms[sourceCurve];
                 if (!transform->Valid)
                 {
                     // Held at rest, and counted, exactly as
@@ -575,7 +613,7 @@ namespace OloEngine
                 // A strand counts as simulated when it names at least one guide
                 // that this frame's budget actually moved — a predicate, never a
                 // comparison of a displacement against zero.
-                curveSimulated = HasGroomGuideInfluence(*simulation, curve);
+                curveSimulated = HasGroomGuideInfluence(*simulation, sourceCurve);
                 if (curveSimulated)
                 {
                     ++stats.StrandsSimulated;
@@ -597,7 +635,7 @@ namespace OloEngine
                 // #1251 built.
                 if (curveSimulated)
                 {
-                    placed += SampleGroomGuideDisplacement(*simulation, curve, t, previous);
+                    placed += SampleGroomGuideDisplacement(*simulation, sourceCurve, t, previous);
                 }
                 return placed;
             };
@@ -743,5 +781,33 @@ namespace OloEngine
             stats.BoundsMax = boundsMax;
         }
         return stats;
+    }
+
+    // ── The GroomAsset overloads ────────────────────────────────────────────
+    //
+    // Every call site that predates #1252 builds the BASE groom, so it says so
+    // by passing the asset and gets the identity source map. Keeping them as
+    // thin forwarders rather than making every caller assemble a
+    // GroomBuildSource is what keeps the LOD change invisible to the debug
+    // preview, the tests and the binding authoring tools.
+    void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                 std::vector<u32>& outCurves, const GroomCoatContext* coat)
+    {
+        SelectGroomStrandCurves(GroomBuildSource::FromAsset(groom), settings, outCurves, coat);
+    }
+
+    GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                             const GroomCoatContext* coat)
+    {
+        return PlanGroomStrandMesh(GroomBuildSource::FromAsset(groom), settings, coat);
+    }
+
+    GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
+                                              std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
+                                              const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
+                                              const GroomStrandSimulation* simulation)
+    {
+        return BuildGroomStrandMesh(GroomBuildSource::FromAsset(groom), settings, outVertices, outIndices, deformation,
+                                    coat, simulation);
     }
 } // namespace OloEngine

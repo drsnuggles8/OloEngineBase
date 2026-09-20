@@ -2,12 +2,223 @@
 #include "OloEngine/Groom/GroomAsset.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <limits>
 
 namespace OloEngine
 {
+    // =========================================================================
+    // GroomCurveView / GroomLodLevel (issue #1252)
+    // =========================================================================
+
+    bool GroomCurveView::IsConsistent() const noexcept
+    {
+        if (CurveOffsets.empty())
+        {
+            // An EMPTY view is consistent and means "no curves". The build
+            // emits nothing for it, which is the right answer for a groom whose
+            // LOD level selected nothing at all.
+            return Points.empty() && PointWidths.empty() && RootUVs.empty() && CurveGroupIds.empty() &&
+                   CurveFlags.empty();
+        }
+        const auto curveCount = static_cast<sizet>(CurveOffsets.size() - 1);
+        if (RootUVs.size() != curveCount || CurveGroupIds.size() != curveCount || CurveFlags.size() != curveCount)
+        {
+            return false;
+        }
+        if (PointWidths.size() != Points.size())
+        {
+            return false;
+        }
+        if (CurveOffsets.front() != 0u || CurveOffsets.back() != Points.size())
+        {
+            return false;
+        }
+        for (sizet i = 0; i + 1 < CurveOffsets.size(); ++i)
+        {
+            if (CurveOffsets[i + 1] < CurveOffsets[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    u64 GroomLodLevel::GetCpuMemoryBytes() const noexcept
+    {
+        u64 bytes = 0;
+        bytes += static_cast<u64>(CurveOffsets.size()) * sizeof(u32);
+        bytes += static_cast<u64>(Points.size()) * sizeof(glm::vec3);
+        bytes += static_cast<u64>(PointWidths.size()) * sizeof(f32);
+        bytes += static_cast<u64>(RootUVs.size()) * sizeof(glm::vec2);
+        bytes += static_cast<u64>(CurveGroupIds.size()) * sizeof(u16);
+        bytes += static_cast<u64>(CurveFlags.size()) * sizeof(u8);
+        bytes += static_cast<u64>(SourceCurves.size()) * sizeof(u32);
+        return bytes;
+    }
+
+    bool GroomLodLevel::operator==(const GroomLodLevel& other) const
+    {
+        // The float arrays go through memcmp rather than std::vector's own
+        // operator==, which would compare f32 with `==` (cpp-coding-quality
+        // §2a). Bit equality is what a cache-invalidation or round-trip check
+        // actually wants here anyway: two grooms that differ by one ulp are two
+        // different cooked artifacts.
+        const auto bytesEqual = [](const auto& a, const auto& b)
+        {
+            if (a.size() != b.size())
+            {
+                return false;
+            }
+            return a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(a[0])) == 0;
+        };
+        return Representation == other.Representation &&
+               Math::BitwiseEqual(SourcePixelSize, other.SourcePixelSize) && CurveOffsets == other.CurveOffsets &&
+               CurveGroupIds == other.CurveGroupIds && CurveFlags == other.CurveFlags &&
+               SourceCurves == other.SourceCurves && bytesEqual(Points, other.Points) &&
+               bytesEqual(PointWidths, other.PointWidths) && bytesEqual(RootUVs, other.RootUVs);
+    }
+
+    bool GroomLodLevel::Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const
+    {
+        return ValidateWithCaps(baseCurveCount, groupCount, GroomLimits::MaxCurveCount, GroomLimits::MaxPointCount,
+                                outReason);
+    }
+
+    bool GroomLodLevel::ValidateWithCaps(u32 baseCurveCount, u32 groupCount, u32 maxCurveCount, u64 maxPointCount,
+                                         std::string& outReason) const
+    {
+        const u32 curveCount = GetCurveCount();
+        if (curveCount == 0)
+        {
+            outReason = "LOD level has zero curves; a level that stands in for nothing must not be cooked";
+            return false;
+        }
+        if (curveCount > maxCurveCount)
+        {
+            outReason = std::format("LOD level curve count {} exceeds the format cap {}", curveCount, maxCurveCount);
+            return false;
+        }
+        // The POINT cap too, symmetric with GroomAsset::Validate's. The decoder
+        // bounds a file-supplied PointCount before it sizes anything, so this is
+        // not the hostile-file guard -- it is the AUTHORED one, for a level that
+        // reached AttachLodLevels from a builder or a tool rather than from
+        // disk. Without it the two paths disagree about what a valid level is,
+        // and the one that disagrees is the one with no file behind it to blame.
+        if (Points.size() > maxPointCount)
+        {
+            outReason = std::format("LOD level point count {} exceeds the format cap {}", Points.size(), maxPointCount);
+            return false;
+        }
+        if (!IsValidGroomRepresentation(static_cast<i32>(Representation)))
+        {
+            outReason =
+                std::format("LOD level representation {} is not a GroomRepresentation", static_cast<i32>(Representation));
+            return false;
+        }
+        if (Representation == GroomRepresentation::Strand)
+        {
+            // The strand tier IS the base groom. A level claiming it would make
+            // FindLodLevel answer with a coarser curve set for the close-up
+            // tier, which is the one thing the scope boundary forbids.
+            outReason = "a LOD level may not claim the Strand representation; that tier is the base groom";
+            return false;
+        }
+        const GroomCurveView view = GetCurveView();
+        if (!view.IsConsistent())
+        {
+            outReason = "LOD level arrays disagree with its curve offset table";
+            return false;
+        }
+        if (SourceCurves.size() != curveCount)
+        {
+            outReason = std::format("LOD level source map has {} entries but the level has {} curves",
+                                    SourceCurves.size(), curveCount);
+            return false;
+        }
+        for (u32 curve = 0; curve < curveCount; ++curve)
+        {
+            if (SourceCurves[curve] >= baseCurveCount)
+            {
+                // Out of bounds here is an out-of-bounds READ of the binding's
+                // root-transform array in the innermost loop of the renderer,
+                // so it is rejected at the boundary rather than clamped.
+                outReason = std::format("LOD level curve {} maps to base curve {} but the base groom has {} curves",
+                                        curve, SourceCurves[curve], baseCurveCount);
+                return false;
+            }
+            const u32 points = view.GetCurvePointCount(curve);
+            if (points < GroomLimits::MinPointsPerCurve || points > GroomLimits::MaxPointsPerCurve)
+            {
+                outReason = std::format("LOD level curve {} has {} control points, outside [{}, {}]", curve, points,
+                                        GroomLimits::MinPointsPerCurve, GroomLimits::MaxPointsPerCurve);
+                return false;
+            }
+            if (CurveGroupIds[curve] >= groupCount)
+            {
+                // Out of range here is NOT an out-of-bounds read: GroupDesc
+                // answers the identity description for an unknown id. That is
+                // the problem — the card silently loses its role, its density
+                // and its budget weight, and the coat comes out slightly too
+                // uniform at range with nothing in any log.
+                outReason = std::format("LOD level curve {} names group {} but the groom has {} groups", curve,
+                                        CurveGroupIds[curve], groupCount);
+                return false;
+            }
+        }
+        for (sizet p = 0; p < Points.size(); ++p)
+        {
+            const glm::vec3& point = Points[p];
+            if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z))
+            {
+                outReason = std::format("LOD level point {} is not finite", p);
+                return false;
+            }
+            if (std::abs(point.x) > GroomLimits::MaxCoordinate || std::abs(point.y) > GroomLimits::MaxCoordinate ||
+                std::abs(point.z) > GroomLimits::MaxCoordinate)
+            {
+                outReason =
+                    std::format("LOD level point {} lies outside the coordinate bound {}", p, GroomLimits::MaxCoordinate);
+                return false;
+            }
+            const f32 width = PointWidths[p];
+            if (!std::isfinite(width) || width < 0.0f || width > GroomLimits::MaxWidth)
+            {
+                outReason = std::format("LOD level width {} is {}, outside [0, {}]", p, width, GroomLimits::MaxWidth);
+                return false;
+            }
+        }
+        for (sizet c = 0; c < RootUVs.size(); ++c)
+        {
+            if (!std::isfinite(RootUVs[c].x) || !std::isfinite(RootUVs[c].y))
+            {
+                outReason = std::format("LOD level root UV of curve {} is not finite", c);
+                return false;
+            }
+        }
+        if (!std::isfinite(SourcePixelSize) || SourcePixelSize < 0.0f)
+        {
+            outReason = "LOD level source pixel size is not a finite, non-negative number";
+            return false;
+        }
+        return true;
+    }
+
+    const GroomLodLevel* GroomAsset::FindLodLevel(GroomRepresentation representation) const noexcept
+    {
+        for (const GroomLodLevel& level : m_LodLevels)
+        {
+            if (level.Representation == representation)
+            {
+                return &level;
+            }
+        }
+        return nullptr;
+    }
+
     u64 GroomAsset::GetCpuMemoryBytes() const noexcept
     {
         u64 bytes = 0;
@@ -22,6 +233,14 @@ namespace OloEngine
         for (const auto& name : m_GroupNames)
         {
             bytes += static_cast<u64>(name.size()) + sizeof(std::string);
+        }
+        // The cooked LOD levels are resident whenever the base groom is, so a
+        // readout that left them out would under-report the asset by however
+        // much the card tier costs — which is the number criterion 4 asks for
+        // by representation.
+        for (const GroomLodLevel& level : m_LodLevels)
+        {
+            bytes += level.GetCpuMemoryBytes();
         }
         return bytes;
     }
@@ -284,6 +503,34 @@ namespace OloEngine
         {
             outReason = std::format("curve basis {} is not one this build knows", static_cast<i32>(m_Basis));
             return false;
+        }
+
+        // ── LOD levels (issue #1252) ──
+        // Validated against THIS groom's curve count, because the source map is
+        // an index into it. A DUPLICATE representation is rejected rather than
+        // resolved first-wins: FindLodLevel would otherwise answer with
+        // whichever level happened to be written first, and which one that is
+        // would depend on the cook's iteration order — a determinism hole in a
+        // format whose whole contract is determinism.
+        {
+            std::array<bool, GroomRepresentationCount> seen{};
+            for (sizet i = 0; i < m_LodLevels.size(); ++i)
+            {
+                std::string levelReason;
+                if (!m_LodLevels[i].Validate(curveCount, static_cast<u32>(m_GroupNames.size()), levelReason))
+                {
+                    outReason = std::format("LOD level {}: {}", i, levelReason);
+                    return false;
+                }
+                const auto slot = static_cast<sizet>(m_LodLevels[i].Representation);
+                if (seen[slot])
+                {
+                    outReason = std::format("LOD level {} is a second level for representation {}", i,
+                                            ToString(m_LodLevels[i].Representation));
+                    return false;
+                }
+                seen[slot] = true;
+            }
         }
 
         if (m_Provenance.SourcePath.size() > GroomLimits::MaxSourcePathLength)

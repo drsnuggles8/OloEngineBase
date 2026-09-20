@@ -545,6 +545,26 @@ if (entity.HasComponent<GroomFibreComponent>())
     out << YAML::EndMap; // GroomFibreComponent
 }
 
+if (entity.HasComponent<GroomLodComponent>())
+{
+    out << YAML::Key << "GroomLodComponent";
+    out << YAML::BeginMap; // GroomLodComponent
+    auto const& comp = entity.GetComponent<GroomLodComponent>();
+    out << YAML::Key << "CardPixelSize" << YAML::Value << comp.m_CardPixelSize;
+    out << YAML::Key << "MeshPixelSize" << YAML::Value << comp.m_MeshPixelSize;
+    out << YAML::Key << "Hysteresis" << YAML::Value << comp.m_Hysteresis;
+    out << YAML::Key << "MaxWidthCompensation" << YAML::Value << comp.m_MaxWidthCompensation;
+    out << YAML::Key << "VisibilityFullPixelSize" << YAML::Value << comp.m_VisibilityFullPixelSize;
+    out << YAML::Key << "SimulationFullPixelSize" << YAML::Value << comp.m_SimulationFullPixelSize;
+    out << YAML::Key << "ShadowFullPixelSize" << YAML::Value << comp.m_ShadowFullPixelSize;
+    out << YAML::Key << "HoldFrames" << YAML::Value << comp.m_HoldFrames;
+    out << YAML::Key << "VisibilitySteps" << YAML::Value << comp.m_VisibilitySteps;
+    out << YAML::Key << "SimulationSteps" << YAML::Value << comp.m_SimulationSteps;
+    out << YAML::Key << "ShadowSteps" << YAML::Value << comp.m_ShadowSteps;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // GroomLodComponent
+}
+
 if (entity.HasComponent<GroomSimulationComponent>())
 {
     out << YAML::Key << "GroomSimulationComponent";

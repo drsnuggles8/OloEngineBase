@@ -8,6 +8,7 @@
 #include "OloEngine/Groom/GroomGuideSimulation.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomVisibility.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/Font.h"
@@ -6170,6 +6171,147 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomCoatShadowComponent) == 28,
                   "GroomCoatShadowComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    // ── Groom representation LOD (issue #1252) ───────────────────
+    //
+    // Which representation this groom is drawn as at a distance, and how far
+    // each of its three budgets scales down.
+    //
+    // A SEPARATE COMPONENT, for the three reasons GroomBindingComponent lists
+    // and with the same one deciding it: GroomComponent's layout is PINNED at
+    // 48 bytes with a whole-object memcmp equality, and widening it revs the
+    // save-game format for every scene that has a groom in it, LODded or not.
+    // Its ABSENCE is the pre-#1252 behaviour — every strand the static budget
+    // affords, at every distance — so a scene authored before this existed
+    // renders exactly as it did, and every capture the earlier groom issues
+    // committed still means what it meant.
+    //
+    // THE POLICY IS AUTHORED HERE AND THE STATE LIVES IN Scene, keyed by UUID.
+    // The hysteresis counters are per-frame working data and keeping them out
+    // of the component is what lets it stay trivially copyable, hole-free and
+    // automatically serialized — the same split GroomBindingComponent makes for
+    // its previous-frame transforms, and the same reason.
+    //
+    // Not annotated OLO_PROPERTY and not registered in LuaScriptGlue, matching
+    // every other groom component. Which LOD ladder a coat climbs is authoring
+    // state; a script repointing it mid-frame would move a hand-over threshold
+    // under a hysteresis that has already committed to a tier. Stated as a
+    // decision rather than left as an omission, because the next reader's
+    // question is "was this forgotten?".
+    struct GroomLodComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// Apparent size, in pixels of the frame's height, BELOW which this
+        /// groom hands over to its cooked card level. A groom with no card
+        /// level stays on strands and reports LevelNotCooked.
+        OLO_SERIALIZE(Clamp, Min = 0.5f, Max = 16384.0f)
+        f32 m_CardPixelSize = 256.0f;
+
+        /// Apparent size below which the SHELL tier would be selected. It is
+        /// not a tier this engine ships — the measured comparison in
+        /// docs/analysis/groom-representation-lod-1252.md did not select it —
+        /// so a coat below this is drawn on cards and says so by name. The
+        /// field exists because the refusal is then a gathered input like every
+        /// other, and shipping a shell later is one producer change.
+        OLO_SERIALIZE(Clamp, Min = 0.5f, Max = 16384.0f)
+        f32 m_MeshPixelSize = 48.0f;
+
+        /// Fraction the held tier's threshold slides by. The dead band a
+        /// transition can happen in is twice this, so a camera whose travel is
+        /// narrower than 2 x this x the threshold cannot flip the coat back and
+        /// forth at all. 0 disables the band and leaves only the frame hold.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.5f)
+        f32 m_Hysteresis = 0.15f;
+
+        /// Cap on the width compensation. Past about 8x a strand reads as a
+        /// flat band rather than a fibre, so beyond the cap the coat genuinely
+        /// thins out — and the inspector shows the achieved compensation next
+        /// to the cap rather than clamping it silently.
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 32.0f)
+        f32 m_MaxWidthCompensation = 8.0f;
+
+        /// Apparent size at and above which each budget runs at full rate.
+        /// THREE numbers, not one, because criterion 3 is that the three scale
+        /// down INDEPENDENTLY: simulation is authored to start earlier than
+        /// visibility because a coat whose guides thin out looks unchanged
+        /// until it moves, while one whose strands thin out is visible standing
+        /// still.
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 16384.0f)
+        f32 m_VisibilityFullPixelSize = 512.0f;
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 16384.0f)
+        f32 m_SimulationFullPixelSize = 384.0f;
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 16384.0f)
+        f32 m_ShadowFullPixelSize = 512.0f;
+
+        /// Consecutive frames a COARSER request must persist before it is
+        /// taken. Refining is immediate. A camera alternating every frame never
+        /// accumulates the run this needs, so it never coarsens at all.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 600)
+        u32 m_HoldFrames = 4;
+
+        /// Halvings each budget may apply. The shadow axis BIASES
+        /// GroomCoatShadowComponent's own LOD rather than replacing it, so its
+        /// steps add to that policy's.
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_VisibilitySteps = 4;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_SimulationSteps = 4;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 16)
+        u32 m_ShadowSteps = 3;
+
+        /// Scale the coat by distance at all. Off is the A/B control every
+        /// capture in this feature's evidence is measured against — and it
+        /// RESETS the hysteresis state, so turning it off is the same picture
+        /// every time rather than whichever tier the camera last left behind.
+        bool m_Enabled = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad2 = 0;
+
+        GroomLodComponent() = default;
+        GroomLodComponent(const GroomLodComponent&) = default;
+        GroomLodComponent& operator=(const GroomLodComponent&) = default;
+        GroomLodComponent(GroomLodComponent&&) noexcept = default;
+        GroomLodComponent& operator=(GroomLodComponent&&) noexcept = default;
+
+        auto operator==(const GroomLodComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomLodComponent) == 48,
+                  "GroomLodComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored fields as GroomLod wants them. The ONE place the component
+    /// becomes policy input, so the renderer, a test and the editor cannot each
+    /// interpret the fields slightly differently — the same reason
+    /// MakeGroomCoatLodPolicy exists, and the same boundary: OLO_SERIALIZE
+    /// guards scene YAML and the deserialisers but NOT a direct MCP or native
+    /// write, and this helper is what those cross on the way to a comparison
+    /// that a NaN would make false in both directions.
+    [[nodiscard]] inline GroomLodPolicy MakeGroomLodPolicy(const GroomLodComponent& component) noexcept
+    {
+        GroomLodPolicy policy;
+        policy.Enabled = component.m_Enabled;
+        policy.CardPixelSize = component.m_CardPixelSize;
+        policy.MeshPixelSize = component.m_MeshPixelSize;
+        policy.Hysteresis = component.m_Hysteresis;
+        policy.MaxWidthCompensation = component.m_MaxWidthCompensation;
+        policy.HoldFrames = component.m_HoldFrames;
+        policy.Visibility = GroomLodBudgetCurve{ component.m_VisibilityFullPixelSize, component.m_VisibilitySteps };
+        policy.Simulation = GroomLodBudgetCurve{ component.m_SimulationFullPixelSize, component.m_SimulationSteps };
+        policy.Shadow = GroomLodBudgetCurve{ component.m_ShadowFullPixelSize, component.m_ShadowSteps };
+        // Through the sanitiser, never raw. It is also what enforces the one
+        // ordering invariant (mesh threshold <= card threshold) that every
+        // stability argument in GroomLod.h rests on.
+        return SanitizeGroomLodPolicy(policy);
+    }
 
     /// The authored fields as the LOD policy wants them. The ONE place the
     /// component becomes policy input, so the renderer, a test and the editor

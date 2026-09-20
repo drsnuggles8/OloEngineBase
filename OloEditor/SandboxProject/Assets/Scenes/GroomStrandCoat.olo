@@ -161,6 +161,19 @@ Entities:
       GuidesOnly: false
       RenderStrands: true
       CompositionMode: 1
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
   # ── The same asset at a thickness a screenshot can resolve. Half a metre to
   #    the right, on its own body. ──
   - Entity: 124600000000005
@@ -198,6 +211,19 @@ Entities:
       GuidesOnly: false
       RenderStrands: true
       CompositionMode: 1
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
   # ── ORDINARY OPAQUE GEOMETRY crossing in front of the coats. Acceptance
   #    criterion 2's other half: strands behind it must be hidden by it. ──
   - Entity: 124600000000007

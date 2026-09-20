@@ -3548,6 +3548,78 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomLodComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1252
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the
+        // load never reaches this function. That is also why this band did NOT
+        // take a kSaveGameFormatVersion number -- spending one would have
+        // collided with whatever another branch is appending to an EXISTING
+        // component, for no benefit here. Same reasoning as
+        // GroomCoatShadowComponent above.
+        ar << c.m_CardPixelSize << c.m_MeshPixelSize << c.m_Hysteresis << c.m_MaxWidthCompensation;
+        ar << c.m_VisibilityFullPixelSize << c.m_SimulationFullPixelSize << c.m_ShadowFullPixelSize;
+        ar << c.m_HoldFrames << c.m_VisibilitySteps << c.m_SimulationSteps << c.m_ShadowSteps;
+        ar << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other, and the OLO_SERIALIZE
+            // annotations on the fields reach scene YAML and the live-write
+            // registries, NOT this archive -- so the bounds are restated here or
+            // a corrupt save is the one route that bypasses every one of them.
+            //
+            // A NON-FINITE THRESHOLD IS THE DANGEROUS ONE, and not because it
+            // crashes. Every comparison against a NaN is false in BOTH
+            // directions, so a coat whose card threshold arrived as a NaN would
+            // sit on one tier forever with nothing in any log -- the silent
+            // fallback this repo forbids, arriving through a save file.
+            //
+            // The repairs come from a default-constructed component rather than
+            // from literals, so a later change to a default reaches this path
+            // too instead of leaving it handing out a value the renderer
+            // stopped using.
+            const GroomLodComponent defaults;
+            const auto repairPixels = [](f32& value, f32 fallback)
+            {
+                if (!std::isfinite(value) || value <= 0.0f)
+                {
+                    value = fallback;
+                }
+                value = std::clamp(value, 0.5f, 16384.0f);
+            };
+            repairPixels(c.m_CardPixelSize, defaults.m_CardPixelSize);
+            repairPixels(c.m_MeshPixelSize, defaults.m_MeshPixelSize);
+            repairPixels(c.m_VisibilityFullPixelSize, defaults.m_VisibilityFullPixelSize);
+            repairPixels(c.m_SimulationFullPixelSize, defaults.m_SimulationFullPixelSize);
+            repairPixels(c.m_ShadowFullPixelSize, defaults.m_ShadowFullPixelSize);
+
+            if (!std::isfinite(c.m_Hysteresis) || c.m_Hysteresis < 0.0f)
+            {
+                c.m_Hysteresis = defaults.m_Hysteresis;
+            }
+            c.m_Hysteresis = std::clamp(c.m_Hysteresis, 0.0f, 0.5f);
+
+            if (!std::isfinite(c.m_MaxWidthCompensation) || c.m_MaxWidthCompensation < 1.0f)
+            {
+                c.m_MaxWidthCompensation = defaults.m_MaxWidthCompensation;
+            }
+            c.m_MaxWidthCompensation = std::clamp(c.m_MaxWidthCompensation, 1.0f, 32.0f);
+
+            c.m_HoldFrames = std::min(c.m_HoldFrames, 600u);
+            c.m_VisibilitySteps = std::min(c.m_VisibilitySteps, 16u);
+            c.m_SimulationSteps = std::min(c.m_SimulationSteps, 16u);
+            c.m_ShadowSteps = std::min(c.m_ShadowSteps, 16u);
+
+            // The ordering invariant is NOT enforced here, deliberately:
+            // MakeGroomLodPolicy is the one place it is, and doing it twice
+            // would mean two definitions of "ordered" that can drift. What this
+            // path owes is finite, in-range numbers; what the ladder owes is
+            // that they are usable, and that is SanitizeGroomLodPolicy's job.
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSimulationComponent& c)
     {
         // NO VERSION GATE, and none is possible: the component is new in #1250
@@ -5745,6 +5817,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatComponent);
         REGISTER_SAVE_COMPONENT(GroomSimulationComponent);
+        REGISTER_SAVE_COMPONENT(GroomLodComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

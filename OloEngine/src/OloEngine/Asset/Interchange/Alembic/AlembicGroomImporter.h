@@ -11,6 +11,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomLodBuilder.h"
 
 #include <filesystem>
 #include <string>
@@ -93,6 +94,30 @@ namespace OloEngine
     // anisotropically scaled strand.
     // ============================================================================
 
+    struct AlembicGroomImportOptions
+    {
+        // Recorded verbatim in the groom's provenance. Pass a
+        // project-relative path; the file name is used when empty. NEVER
+        // pass an absolute path — it would make the cooked bytes differ
+        // between machines, which breaks the determinism contract.
+        std::string ProvenancePath;
+
+        // ── Cooked LOD levels (issue #1252) ──────────────────────
+        //
+        // Built at IMPORT, after canonicalisation, so the groom a caller
+        // holds and the groom that gets cooked carry the same levels — the
+        // same reason the canonicalisation itself happens here rather than
+        // at save time.
+        //
+        // A FAILURE TO BUILD IS NOT A FAILURE TO IMPORT. The commonest
+        // reason is a groom too small or too evenly spread for the cell to
+        // reduce anything, which is a fact about the groom rather than an
+        // error; the import logs the reason by name and the asset simply
+        // never leaves the strand tier, which the inspector says out loud.
+        bool BuildCardLod = true;
+        GroomCardSettings Cards;
+    };
+
     class AlembicGroomImporter
     {
       public:
@@ -138,14 +163,13 @@ namespace OloEngine
             }
         };
 
-        struct Options
-        {
-            // Recorded verbatim in the groom's provenance. Pass a
-            // project-relative path; the file name is used when empty. NEVER
-            // pass an absolute path — it would make the cooked bytes differ
-            // between machines, which breaks the determinism contract.
-            std::string ProvenancePath;
-        };
+        /// Namespace-scope, aliased in: a nested struct's DEFAULT MEMBER
+        /// INITIALIZERS are a complete-class context of the ENCLOSING class, so
+        /// `const Options& options = {}` on the methods below cannot use them
+        /// while AlembicGroomImporter is still being defined. It compiled while
+        /// Options held only a std::string and stopped the moment #1252 gave it
+        /// a field with an initializer.
+        using Options = AlembicGroomImportOptions;
 
         // Returns a Result whose Groom is null and whose Diagnostic NAMES the
         // problem on any rejection — there is no partial import and no silent

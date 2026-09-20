@@ -119,6 +119,15 @@ add_executable(OloEngine-Tests
 		# through the cook, the per-role budget that keeps the silhouette, and the
 		# pose-independence that makes a regional map stay attached.
 		Groom/GroomCoatAuthoringTest.cpp
+		# Representation LOD (#1252). The strand/card/mesh ladder's selection and
+		# its two anti-thrash mechanisms, the coverage compensation's linear rule,
+		# and the card cook's determinism and density conservation.
+		Groom/GroomLodContractTest.cpp
+		# ...and the cooked format's half: the level survives the cook byte for
+		# byte, the cook stays deterministic, a file from before the version bump
+		# is refused by name, and a hostile level header is refused before it
+		# sizes anything.
+		Groom/GroomLodRoundTripTest.cpp
 		Groom/GroomStrandMeshTest.cpp
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
@@ -740,6 +749,16 @@ add_executable(OloEngine-Tests
 		# on the CPU so the measured evidence is re-run by CI rather than quoted
 		# from a PR body.
 		Rendering/PropertyTests/GroomCoveragePropertyTests.cpp
+		# Representation LOD (#1252). This file IS the criterion-1 comparison and
+		# the issue's confidence-0.5 spike: thinning with and without the width
+		# compensation, cooked cards, and the saturation measurement that decides
+		# whether a shell tier is honest on any of the reference coats.
+		Rendering/PropertyTests/GroomLodComparisonTest.cpp
+		# ...and the same claims on real pixels: the hand-over's density on every
+		# rendering path, the compensation's A/B, and the two hysteresis bounds
+		# driven as CAMERA MOTION, which is the only shape in which "does not
+		# thrash" has a truth value.
+		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
 		# The #1248 bake-off itself. Every number in
 		# docs/analysis/groom-coat-self-shadowing-1248.md is an assertion here,

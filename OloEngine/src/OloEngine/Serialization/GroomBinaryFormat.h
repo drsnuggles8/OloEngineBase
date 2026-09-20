@@ -8,7 +8,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .ologroom Binary Groom Format — Version 2 (issues #1232, #1251)
+    // .ologroom Binary Groom Format — Version 3 (issues #1232, #1251, #1252)
     //
     // The engine-native cooked groom. Produced from an Alembic ICurves archive
     // (or any other curve source) by GroomCooker::CookToBytes; read back by
@@ -46,6 +46,16 @@ namespace OloEngine
     //                            identity description for every group, so the
     //                            section is fixed-size and the reader never has
     //                            to decide what a short table means.
+    //   Section 10 LodLevels   — u32 level count, then per level a
+    //                            LodLevelHeader followed by that level's own
+    //                            curve arrays in sections 1-6's order, then its
+    //                            SourceCurves map (u32 * CurveCount). Issue
+    //                            #1252. ZERO LEVELS IS THE COMMON CASE and is
+    //                            written as a count of 0 with nothing after it,
+    //                            so the section is always present and the
+    //                            reader never has to decide whether a missing
+    //                            section means "old file" or "no levels" — the
+    //                            version already answers that.
     //
     // All multi-byte values are little-endian. FileHeader::Checksum is the
     // CRC32 of the payload bytes as stored on disk (i.e. of the COMPRESSED
@@ -68,14 +78,21 @@ namespace OloEngine
     namespace OloGroomFormat
     {
         constexpr u32 MagicNumber = 0x4D524750; // "PGRM" in little-endian
-        // Version 2 added section 9 (per-group coat authoring, issue #1251).
-        // A version-1 file is REJECTED BY VERSION rather than read without its
-        // coat table: a .ologroom is a derived artifact, so the minimum moves
-        // with the current one and the fix is one re-import — the policy
+        // Version 2 added section 9 (per-group coat authoring, issue #1251);
+        // version 3 added section 10 (cooked LOD levels, issue #1252).
+        // An older file is REJECTED BY VERSION rather than read without the new
+        // section: a .ologroom is a derived artifact, so the minimum moves with
+        // the current one and the fix is one re-import — the policy
         // docs/agent-rules/binary-format-versioning.md sets for this class of
         // file, and the reason the reader has no migration branch.
-        constexpr u32 CurrentVersion = 2;
-        constexpr u32 MinSupportedVersion = 2; // == CurrentVersion, on purpose — see header comment
+        //
+        // WHAT THAT MEANS FOR A PROJECT WITH COOKED GROOMS ON DISK: every
+        // .ologroom written before this change fails to load with a named
+        // version error and must be re-imported. That is the deliberate cost of
+        // this policy, and GroomLodRoundTripTest pins the refusal so the
+        // failure is the readable one rather than a mis-parse.
+        constexpr u32 CurrentVersion = 3;
+        constexpr u32 MinSupportedVersion = 3; // == CurrentVersion, on purpose — see header comment
 
         constexpr u32 FlagCompressed = 1; // Bit 0: payload is zlib-compressed
 
@@ -107,8 +124,15 @@ namespace OloEngine
             GroupNames = 7,
             Provenance = 8,
             GroupCoats = 9,
-            Count = 10 // sentinel
+            LodLevels = 10,
+            Count = 11 // sentinel
         };
+
+        // Cooked LOD levels are one per REPRESENTATION, and there are three of
+        // those (GroomRepresentation), of which the finest is the base groom
+        // itself. The cap is deliberately far above that: it bounds a corrupt
+        // count before it sizes a loop, and nothing more.
+        constexpr u32 MaxLodLevels = 8;
 
         constexpr auto kSectionCount = std::to_underlying(SectionType::Count);
 
@@ -149,6 +173,23 @@ namespace OloEngine
             u32 Pad2 = 0;
         };
 
+        // Section 10, one per level. The level's own curve arrays follow
+        // immediately, in sections 1-6's order, then its u32 SourceCurves map.
+        //
+        // The level's counts are HERE rather than in the Info section because
+        // they differ per level; the reader bounds each one against the payload
+        // that actually remains before sizing anything, exactly as
+        // ReadArraySection does for the base arrays.
+        struct LodLevelHeader
+        {
+            u32 CurveCount = 0;
+            u32 PointCount = 0;
+            f32 SourcePixelSize = 0.0f;
+            u8 Representation = 0; // GroomRepresentation
+            u8 Pad0 = 0;
+            u16 Pad1 = 0;
+        };
+
         // Section 8 header. The two strings follow immediately, path first.
         struct ProvenanceHeader
         {
@@ -178,4 +219,8 @@ namespace OloEngine
     static_assert(std::is_trivially_copyable_v<OloGroomFormat::ProvenanceHeader>);
     static_assert(std::is_standard_layout_v<OloGroomFormat::ProvenanceHeader>);
     static_assert(sizeof(OloGroomFormat::ProvenanceHeader) == 24);
+
+    static_assert(std::is_trivially_copyable_v<OloGroomFormat::LodLevelHeader>);
+    static_assert(std::is_standard_layout_v<OloGroomFormat::LodLevelHeader>);
+    static_assert(sizeof(OloGroomFormat::LodLevelHeader) == 16);
 } // namespace OloEngine

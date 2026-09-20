@@ -274,6 +274,16 @@
 		"OloEngine/Groom/GroomGuideInfluence.cpp"
 		"OloEngine/Groom/GroomBodyCollider.h"
 		"OloEngine/Groom/GroomBodyCollider.cpp"
+		# Representation LOD (#1252). The strand/card/mesh ladder, the three
+		# independent budgets and the coverage compensation, plus the cooked LOD
+		# level builder. Pure CPU and free of renderer headers for the reason the
+		# rest of Groom/ is: the selection seam, the hysteresis and the coverage
+		# contract are what criterion 1 and 2 are asserted against, and the
+		# fallback arms are the ones a GPU-less CI runner covers best.
+		"OloEngine/Groom/GroomLod.h"
+		"OloEngine/Groom/GroomLod.cpp"
+		"OloEngine/Groom/GroomLodBuilder.h"
+		"OloEngine/Groom/GroomLodBuilder.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

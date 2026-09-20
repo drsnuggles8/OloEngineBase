@@ -468,6 +468,24 @@ if (entity.HasComponent<GroomFibreComponent>())
     SceneBinIO::Write(out, comp.m_Enabled);
 }
 
+if (entity.HasComponent<GroomLodComponent>())
+{
+    SceneBinIO::WriteU32(out, 2274947583u); // GroomLodComponent
+    auto const& comp = entity.GetComponent<GroomLodComponent>();
+    SceneBinIO::Write(out, comp.m_CardPixelSize);
+    SceneBinIO::Write(out, comp.m_MeshPixelSize);
+    SceneBinIO::Write(out, comp.m_Hysteresis);
+    SceneBinIO::Write(out, comp.m_MaxWidthCompensation);
+    SceneBinIO::Write(out, comp.m_VisibilityFullPixelSize);
+    SceneBinIO::Write(out, comp.m_SimulationFullPixelSize);
+    SceneBinIO::Write(out, comp.m_ShadowFullPixelSize);
+    SceneBinIO::Write(out, comp.m_HoldFrames);
+    SceneBinIO::Write(out, comp.m_VisibilitySteps);
+    SceneBinIO::Write(out, comp.m_SimulationSteps);
+    SceneBinIO::Write(out, comp.m_ShadowSteps);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<GroomSimulationComponent>())
 {
     SceneBinIO::WriteU32(out, 3851266605u); // GroomSimulationComponent

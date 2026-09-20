@@ -29,9 +29,11 @@
 #include "OloEngine/Asset/AssetTypes.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoat.h"
+#include "OloEngine/Groom/GroomLod.h"
 
 #include <glm/glm.hpp>
 
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -156,6 +158,168 @@ namespace OloEngine
         u32 CurveCount = 0;
 
         [[nodiscard]] bool operator==(const GroomGroupRange&) const = default;
+    };
+
+    // -------------------------------------------------------------------------
+    // A non-owning view over one curve set
+    // -------------------------------------------------------------------------
+    // Issue #1252. The strand build used to take a `const GroomAsset&` because
+    // there was only ever one curve set to build from. A cooked LOD level
+    // (GroomLodLevel below) is a SECOND curve set in the same layout, and the
+    // whole value of the card tier is that it goes through the SAME build, the
+    // same shader and the same lighting — so the build's parameter became the
+    // thing both of them are rather than one of them.
+    //
+    // A VIEW OF SPANS, NOT A BASE CLASS. The build is a pure function of curve
+    // arrays; making GroomLodLevel derive from GroomAsset would give a LOD level
+    // an asset handle, a registry identity and a serializer it has no use for,
+    // and would let one be handed to AssetManager. Spans also make a synthetic
+    // curve set in a test one aggregate initialiser rather than a built asset.
+    //
+    // Every accessor mirrors GroomAsset's by NAME, so the build reads the same
+    // either way and a reviewer diffing the refactor sees a substitution rather
+    // than a rewrite.
+    struct GroomCurveView
+    {
+        std::span<const u32> CurveOffsets;  // CurveCount + 1, non-decreasing
+        std::span<const glm::vec3> Points;  // PointCount
+        std::span<const f32> PointWidths;   // PointCount — DIAMETERS
+        std::span<const glm::vec2> RootUVs; // CurveCount
+        std::span<const u16> CurveGroupIds; // CurveCount
+        std::span<const u8> CurveFlags;     // CurveCount
+
+        [[nodiscard]] u32 GetCurveCount() const noexcept
+        {
+            return CurveOffsets.empty() ? 0u : static_cast<u32>(CurveOffsets.size() - 1);
+        }
+        [[nodiscard]] u32 GetPointCount() const noexcept
+        {
+            return static_cast<u32>(Points.size());
+        }
+        [[nodiscard]] u32 GetCurveFirstPoint(u32 curveIndex) const noexcept
+        {
+            return CurveOffsets[curveIndex];
+        }
+        [[nodiscard]] u32 GetCurvePointCount(u32 curveIndex) const noexcept
+        {
+            return CurveOffsets[curveIndex + 1] - CurveOffsets[curveIndex];
+        }
+        [[nodiscard]] const std::span<const glm::vec3>& GetPoints() const noexcept
+        {
+            return Points;
+        }
+        [[nodiscard]] const std::span<const f32>& GetPointWidths() const noexcept
+        {
+            return PointWidths;
+        }
+        [[nodiscard]] const std::span<const glm::vec2>& GetRootUVs() const noexcept
+        {
+            return RootUVs;
+        }
+        [[nodiscard]] const std::span<const u16>& GetCurveGroupIds() const noexcept
+        {
+            return CurveGroupIds;
+        }
+        [[nodiscard]] bool IsGuide(u32 curveIndex) const noexcept
+        {
+            return HasGroomFlag(CurveFlags[curveIndex], GroomCurveFlag::Guide);
+        }
+
+        /// True when every array has the length the offset table implies and the
+        /// table is a usable prefix sum. A view that fails this is REFUSED by
+        /// the build rather than indexed — a short array here is an out-of-
+        /// bounds read in the innermost loop of the renderer.
+        [[nodiscard]] bool IsConsistent() const noexcept;
+    };
+
+    // -------------------------------------------------------------------------
+    // One cooked LOD level
+    // -------------------------------------------------------------------------
+    // Issue #1252, section 10 of the cooked format. A coarser curve set standing
+    // in for the base groom past a distance, plus the map back to the curves it
+    // stands in for.
+    //
+    // WHY THE SOURCE MAP IS NOT OPTIONAL. A card follows its clump's MEAN
+    // centreline, so it is not any one strand — but the binding's rest frame
+    // (#1249) and the guide influence table (#1250) are both indexed by BASE
+    // curve. Without the map a coat at card range would stop following the body
+    // and stop moving, which is criterion 3's "missing coats" showing up as a
+    // silent detachment at exactly the distance nobody is looking closely. The
+    // map names, for each card, the member strand whose root frame and guides
+    // the card borrows.
+    struct GroomLodLevel
+    {
+        std::vector<u32> CurveOffsets;  // CurveCount + 1
+        std::vector<glm::vec3> Points;  // PointCount
+        std::vector<f32> PointWidths;   // PointCount — DIAMETERS, as the base
+        std::vector<glm::vec2> RootUVs; // CurveCount
+        std::vector<u16> CurveGroupIds; // CurveCount
+        std::vector<u8> CurveFlags;     // CurveCount
+
+        /// Level curve -> BASE curve. CurveCount entries, each < the base
+        /// groom's curve count. Validated on cook AND on load: a corrupt entry
+        /// here indexes the root-transform array out of bounds.
+        std::vector<u32> SourceCurves;
+
+        /// Which tier this level serves.
+        GroomRepresentation Representation = GroomRepresentation::Card;
+
+        /// The apparent size, in pixels of frame height, the cook AIMED this
+        /// level at. Advisory and recorded rather than enforced: the runtime
+        /// policy (GroomLodPolicy) decides where the hand-over happens, and a
+        /// level cooked for 256 px being selected at 200 px is a tuning choice,
+        /// not a mismatch. It is carried so the editor can say what the level
+        /// was built for beside what it is being used for.
+        f32 SourcePixelSize = 0.0f;
+
+        [[nodiscard]] u32 GetCurveCount() const noexcept
+        {
+            return CurveOffsets.empty() ? 0u : static_cast<u32>(CurveOffsets.size() - 1);
+        }
+
+        [[nodiscard]] GroomCurveView GetCurveView() const noexcept
+        {
+            return GroomCurveView{ CurveOffsets, Points, PointWidths, RootUVs, CurveGroupIds, CurveFlags };
+        }
+
+        /// Approximate resident CPU size, for the memory readout criterion 4
+        /// asks for by representation.
+        [[nodiscard]] u64 GetCpuMemoryBytes() const noexcept;
+
+        /// Structural self-check. `baseCurveCount` bounds SourceCurves and
+        /// `groupCount` bounds CurveGroupIds; pass the base groom's counts.
+        /// On failure `outReason` names the invariant.
+        ///
+        /// THE GROUP BOUND IS NOT COSMETIC. A card's group id is what
+        /// GroomCoatContext::GroupDesc looks the coat description up by, and an
+        /// out-of-range id there does not throw — it answers IDENTITY. So a
+        /// corrupt id costs that card its role, its density and its budget
+        /// weight, and the only symptom is a coat that is slightly too uniform
+        /// at range. The base groom's ids are bounded the same way, in
+        /// GroomAsset::Validate; a level's were not until CodeRabbit asked.
+        [[nodiscard]] bool Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const;
+
+        /// The same check with the two SIZE caps injected, so the cap branches
+        /// can be reached by a test. They guard allocations of 8 M curves and
+        /// 256 M points; a test that wanted to cross one honestly would have to
+        /// build a multi-gigabyte level, so in practice nobody does and the two
+        /// branches ship unexecuted. Every OTHER invariant here is reachable
+        /// with a handful of curves and is tested that way -- these two are the
+        /// exception only because of their magnitude, not their nature.
+        ///
+        /// Production calls the two-argument form. Lowering a cap cannot make a
+        /// level pass that the real caps would reject, so the seam cannot be
+        /// used to smuggle an oversized level past the boundary.
+        [[nodiscard]] bool ValidateWithCaps(u32 baseCurveCount, u32 groupCount, u32 maxCurveCount, u64 maxPointCount,
+                                            std::string& outReason) const;
+
+        /// Field by field: a defaulted operator== would compare
+        /// SourcePixelSize — and every element of the three float arrays — with
+        /// a float `==`, which cpp-coding-quality §2a forbids. The integer
+        /// arrays compare elementwise; the float ones compare as BYTES, which
+        /// is what a cache-invalidation or round-trip check actually wants
+        /// (two grooms differing by one ulp are two cooked artifacts).
+        [[nodiscard]] bool operator==(const GroomLodLevel& other) const;
     };
 
     class GroomAsset;
@@ -295,6 +459,32 @@ namespace OloEngine
             return index < m_GroupCoats.size() ? m_GroupCoats[index] : GroomCoatGroupDesc{};
         }
 
+        // ── LOD levels (issue #1252) ────────────────────────────────
+        //
+        // Cooked, SERIALIZED (section 10), and EMPTY IS LEGAL: a groom cooked
+        // with no coarser representation simply never leaves the strand tier,
+        // which is reported as GroomLodFallbackReason::LevelNotCooked rather
+        // than as a missing coat. Every level's curves are in the same object
+        // space and the same units as the base groom's, so a level and the base
+        // are interchangeable inputs to the strand build.
+        [[nodiscard]] const std::vector<GroomLodLevel>& GetLodLevels() const noexcept
+        {
+            return m_LodLevels;
+        }
+
+        /// The level serving `representation`, or null. Linear over a table of
+        /// at most a handful of entries, which is cheaper than any index and
+        /// cannot go stale when a level is added.
+        [[nodiscard]] const GroomLodLevel* FindLodLevel(GroomRepresentation representation) const noexcept;
+
+        /// A view over the BASE curve set — what the strand tier builds from,
+        /// and what every consumer that predates #1252 was already using.
+        [[nodiscard]] GroomCurveView GetCurveView() const noexcept
+        {
+            return GroomCurveView{ m_CurveOffsets, m_Points, m_PointWidths,
+                                   m_RootUVs, m_CurveGroupIds, m_CurveFlags };
+        }
+
         // ── Bounds / basis / provenance ─────────────────────────────────────
         [[nodiscard]] const glm::vec3& GetBoundsMin() const noexcept
         {
@@ -342,6 +532,10 @@ namespace OloEngine
         // consumer can observe.
         friend class GroomBuilder;
         friend class GroomSerializer;
+        // Issue #1252: the only path allowed to attach cooked LOD levels, for the
+        // reason every other writer here is a friend rather than a setter — a
+        // half-attached level is not a state a consumer can observe.
+        friend class GroomLodBuilder;
         friend bool GroomCooker::Canonicalize(GroomAsset& groom, std::string& outReason);
         friend bool GroomCooker::CookToBytes(const GroomAsset& groom, std::vector<u8>& outBytes, std::string& outReason);
 
@@ -361,6 +555,11 @@ namespace OloEngine
         // coat table is its own appended section.
         std::vector<GroomCoatGroupDesc> m_GroupCoats;
         std::vector<GroomGroupRange> m_GroupRanges; // derived
+
+        // Cooked coarser representations (#1252). Not derived: built by
+        // GroomLodBuilder at cook time and read back from section 10, so the
+        // runtime never has to cluster a million strands on a load.
+        std::vector<GroomLodLevel> m_LodLevels;
 
         glm::vec3 m_BoundsMin{ 0.0f };
         glm::vec3 m_BoundsMax{ 0.0f };

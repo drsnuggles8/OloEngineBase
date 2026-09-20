@@ -17,15 +17,26 @@
 // lets the layout, the budget and the segment identity be tested on a machine
 // with no GPU.
 //
-// WHAT THIS IS NOT. It is not LOD. The strand budget below exists so a
-// million-strand groom cannot size a buffer by accident; choosing WHICH strands
-// to draw at which distance, and keeping that stable under motion, is #1252.
-// The budget is therefore a flat stride over the whole groom, reported in the
-// stats, and never a silent truncation — a truncated groom would show as a bald
-// patch on one side, which reads as an import failure rather than as a budget.
+// THE BUDGET IS NOT THE LOD, AND STILL IS NOT SINCE #1252. The strand budget
+// below exists so a million-strand groom cannot size a buffer by accident; it
+// is a flat stride over the whole groom, reported in the stats, and never a
+// silent truncation — a truncated groom would show as a bald patch on one side,
+// which reads as an import failure rather than as a budget.
+//
+// What #1252 added is a layer ABOVE it, in Groom/GroomLod.h: which
+// representation this groom is drawn as at this distance, and what each of its
+// three budgets is set to. That layer decides the numbers; this file spends
+// them. The one thing it added HERE is GroomBuildSource — the build now reads a
+// CURVE SET rather than specifically the base groom, so a cooked card level
+// goes through this same code, this same shader and this same lighting instead
+// of a second implementation that could disagree with the first.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+// The COMPLETE GroomAsset, not a forward declaration: GroomBuildSource below
+// holds a GroomCurveView and a GroomLodLevel is one of the two things it is
+// built from, and both live in that header (issue #1252).
+#include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomDeformation.h"
@@ -251,8 +262,47 @@ namespace OloEngine
         }
     };
 
-    // Expands `groom` into ribbon geometry. `outVertices` and `outIndices` are
-    // cleared first. Pure: the same groom and settings always produce the same
+    /**
+     * @brief The curve set a build reads, and how it maps back to the groom.
+     *
+     * Issue #1252. Until then there was only one curve set to build from, so
+     * the build took a `const GroomAsset&`. A cooked LOD level is a SECOND
+     * curve set in the same layout, and the value of the card tier is that it
+     * goes through the SAME build, the same shader and the same lighting — so
+     * the parameter became the thing both of them are.
+     *
+     * `SourceCurves` is EMPTY for the base groom, which makes the base path
+     * byte-for-byte the one that existed before this issue rather than a
+     * special case of a new one — the same shape `deformation`, `coat` and
+     * `simulation` already use.
+     */
+    struct GroomBuildSource
+    {
+        GroomCurveView Curves{};
+
+        /// Curve in `Curves` -> curve in the BASE groom. Empty means identity.
+        /// Everything indexed by the BINDING (#1249) or by the guide influence
+        /// table (#1250) goes through it; everything indexed by this curve
+        /// set's own geometry does not.
+        std::span<const u32> SourceCurves{};
+
+        /// The base groom's curve count — what the deformation and the
+        /// simulation are sized against. Carried rather than derived from
+        /// `Curves`, because for a LOD level the two differ and using the
+        /// level's count would reject every deformation at card range.
+        u32 BaseCurveCount = 0;
+
+        [[nodiscard]] u32 SourceCurve(u32 curve) const noexcept
+        {
+            return SourceCurves.empty() ? curve : SourceCurves[curve];
+        }
+
+        [[nodiscard]] static GroomBuildSource FromAsset(const GroomAsset& groom) noexcept;
+        [[nodiscard]] static GroomBuildSource FromLevel(const GroomAsset& base, const GroomLodLevel& level) noexcept;
+    };
+
+    // Expands `source` into ribbon geometry. `outVertices` and `outIndices` are
+    // cleared first. Pure: the same curves and settings always produce the same
     // bytes, which is what lets a cache key on the pair.
     //
     // The index buffer is 32-bit and its values are bounded by the vertex
@@ -268,6 +318,17 @@ namespace OloEngine
     // AFTER the deformation and never instead of it: the displacement it
     // carries is measured from the deformed rest shape, so a groom whose guides
     // happen not to have moved emits exactly the bytes it emitted without it.
+    GroomStrandMeshStats BuildGroomStrandMesh(const GroomBuildSource& source,
+                                              const GroomStrandBuildSettings& settings,
+                                              std::vector<GroomStrandVertex>& outVertices,
+                                              std::vector<u32>& outIndices,
+                                              const GroomStrandDeformation* deformation = nullptr,
+                                              const GroomCoatContext* coat = nullptr,
+                                              const GroomStrandSimulation* simulation = nullptr);
+
+    /// The BASE groom. Every call site that predates #1252 takes this overload
+    /// and gets the identity source map, so the LOD change is invisible to the
+    /// debug preview, the binding authoring tools and every existing test.
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices,
                                               std::vector<u32>& outIndices,
@@ -281,12 +342,20 @@ namespace OloEngine
     // to happen BEFORE the build, and doing it for every curve of a 200k-strand
     // groom when the budget will draw 20k of them is the difference between a
     // frame cost and a frame. `outCurves` is cleared first.
+    void SelectGroomStrandCurves(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
+                                 std::vector<u32>& outCurves, const GroomCoatContext* coat = nullptr);
     void SelectGroomStrandCurves(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                  std::vector<u32>& outCurves, const GroomCoatContext* coat = nullptr);
 
     // The stats a build WOULD produce, without building anything. Pure and
     // cheap, so the editor's inspector can show the budget's effect on every
-    // frame without allocating a megabyte to find out.
+    // frame without allocating a megabyte to find out — and so the pass can ask
+    // what a budget would retain BEFORE it builds, which is where the LOD's
+    // width compensation gets the ACHIEVED fraction it must be computed from
+    // (GroomLodWidthCompensation, issue #1252).
+    [[nodiscard]] GroomStrandMeshStats PlanGroomStrandMesh(const GroomBuildSource& source,
+                                                           const GroomStrandBuildSettings& settings,
+                                                           const GroomCoatContext* coat = nullptr);
     [[nodiscard]] GroomStrandMeshStats PlanGroomStrandMesh(const GroomAsset& groom,
                                                            const GroomStrandBuildSettings& settings,
                                                            const GroomCoatContext* coat = nullptr);

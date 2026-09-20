@@ -2241,6 +2241,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
+            DisplayAddComponentEntry<GroomLodComponent>("Groom LOD");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
@@ -9557,6 +9558,187 @@ namespace OloEngine
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
                     ImGui::TextWrapped("%s", Describe(reason).data());
+                    ImGui::PopStyleColor();
+                }
+            }
+            else
+            {
+                ImGui::TextDisabled("The groom pass has not run yet.");
+            } });
+
+        DrawComponent<GroomLodComponent>("Groom LOD", entity, [entity](auto& component)
+                                         {
+            if (!entity.HasComponent<GroomComponent>())
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                ImGui::TextWrapped("This entity has no Groom component, so there is no coat to scale. Add a "
+                                   "Groom first, or remove this component.");
+                ImGui::PopStyleColor();
+                return;
+            }
+
+            // WHETHER THE COOK PRODUCED A CARD LEVEL is the first thing to
+            // show, because it is the difference between "LOD is off" and "LOD
+            // is on and can never leave the strand tier" -- and those two look
+            // identical from the viewport.
+            const AssetHandle groomHandle = entity.GetComponent<GroomComponent>().m_Groom;
+            if (auto groom = groomHandle != 0 ? AssetManager::GetAsset<GroomAsset>(groomHandle) : nullptr)
+            {
+                const GroomLodLevel* cards = groom->FindLodLevel(GroomRepresentation::Card);
+                if (cards == nullptr)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("This groom carries no cooked card level, so it can never leave the "
+                                       "strand tier however these thresholds are set. Re-import the groom to "
+                                       "cook one.");
+                    ImGui::PopStyleColor();
+                }
+                else
+                {
+                    ImGui::Text("Cooked cards: %u (from %u strands), cooked for %.0f px, %.2f MiB",
+                                cards->GetCurveCount(), groom->GetCurveCount(),
+                                static_cast<double>(cards->SourcePixelSize),
+                                static_cast<double>(cards->GetCpuMemoryBytes()) / (1024.0 * 1024.0));
+                }
+            }
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off draws every strand the static budget affords at every distance -- the\n"
+                                  "behaviour before this feature, and the A/B control its evidence is\n"
+                                  "measured against. Turning it off also RESETS the hysteresis, so the\n"
+                                  "control is the same picture every time rather than whichever tier the\n"
+                                  "camera last left behind.");
+            }
+
+            ImGui::SeparatorText("Representation thresholds");
+            ImGui::DragFloat("Cards below (px)", &component.m_CardPixelSize, 1.0f, 0.5f, 16384.0f, "%.0f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Apparent coat height, in pixels, below which the cooked card level is\n"
+                                  "drawn instead of the strands. A card is one ribbon per tuft carrying its\n"
+                                  "members' summed width, so it covers the same area -- and it goes through\n"
+                                  "the same shader, so the colour and the highlight do not change.");
+            }
+            ImGui::DragFloat("Shell below (px)", &component.m_MeshPixelSize, 1.0f, 0.5f, 16384.0f, "%.0f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Where the shell tier WOULD be selected. This engine does not ship one:\n"
+                                  "the measured comparison found no reference coat saturates its own\n"
+                                  "footprint at any plausible distance, so a shell would replace a\n"
+                                  "see-through coat with a solid lump. A coat below this is drawn on cards\n"
+                                  "and says so in Live, by name.");
+            }
+
+            ImGui::SeparatorText("Anti-thrash");
+            ImGui::DragFloat("Hysteresis", &component.m_Hysteresis, 0.005f, 0.0f, 0.5f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("The hand-over edge slides by this fraction to HOLD whatever tier the coat\n"
+                                  "has, so the window a transition can happen in is twice this wide. A\n"
+                                  "camera whose travel is narrower than that window changes the coat's\n"
+                                  "representation at most once, ever.");
+            }
+            {
+                int holdFrames = static_cast<int>(component.m_HoldFrames);
+                if (ImGui::DragInt("Hold frames", &holdFrames, 1.0f, 0, 600))
+                {
+                    component.m_HoldFrames = static_cast<u32>(std::clamp(holdFrames, 0, 600));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Consecutive frames a COARSER request must persist before it is taken.\n"
+                                      "Refining is immediate -- a coarse coat up close is a picture anyone\n"
+                                      "can see, while a fine one at distance is merely expensive. A camera\n"
+                                      "that alternates every frame never accumulates this run, so it never\n"
+                                      "coarsens at all.");
+                }
+            }
+
+            ImGui::SeparatorText("Budgets (these scale INDEPENDENTLY)");
+            {
+                const auto steps = [](const char* label, u32& value, const char* tip)
+                {
+                    int v = static_cast<int>(value);
+                    if (ImGui::DragInt(label, &v, 1.0f, 0, 16))
+                    {
+                        value = static_cast<u32>(std::clamp(v, 0, 16));
+                    }
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::SetTooltip("%s", tip);
+                    }
+                };
+
+                ImGui::DragFloat("Visibility full at (px)", &component.m_VisibilityFullPixelSize, 1.0f, 1.0f,
+                                 16384.0f, "%.0f");
+                steps("Visibility halvings", component.m_VisibilitySteps,
+                      "How far the STRAND COUNT may halve. The survivors are widened by exactly the\n"
+                      "factor that keeps the coat's apparent density constant, so a step down is a\n"
+                      "change in where the strands are, not in how much coat there is.");
+
+                ImGui::DragFloat("Simulation full at (px)", &component.m_SimulationFullPixelSize, 1.0f, 1.0f,
+                                 16384.0f, "%.0f");
+                steps("Simulation halvings", component.m_SimulationSteps,
+                      "How far the SIMULATED GUIDE COUNT may halve. Its own curve, authored to start\n"
+                      "earlier than visibility by default: a coat whose guides thin out looks\n"
+                      "unchanged until it moves, while one whose strands thin out is visible\n"
+                      "standing still.");
+
+                ImGui::DragFloat("Shadow full at (px)", &component.m_ShadowFullPixelSize, 1.0f, 1.0f, 16384.0f,
+                                 "%.0f");
+                steps("Shadow halvings", component.m_ShadowSteps,
+                      "How far this BIASES the coat shadow's own LOD, which spends a resolution\n"
+                      "rather than a count. Added to Groom Coat Shadow's answer, never replacing it,\n"
+                      "so the two stay separately authorable.");
+            }
+
+            ImGui::SeparatorText("Coverage compensation");
+            ImGui::DragFloat("Max width x", &component.m_MaxWidthCompensation, 0.05f, 1.0f, 32.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Cap on how much a surviving strand may be widened to stand in for the\n"
+                                  "ones the budget removed. The factor is 1/k -- LINEAR -- because a strand\n"
+                                  "is a band whose covered area is length x width, not a sprite whose area\n"
+                                  "goes as the square of its size. Past about 8x a strand reads as a flat\n"
+                                  "band rather than a fibre, and beyond the cap the coat genuinely thins.");
+            }
+
+            // ── What the renderer ACTUALLY did ──────────────────────────
+            //
+            // The knobs above are a request; these lines are the answer. This
+            // is the half of "inspectable" that matters for a LOD: a coat on
+            // the wrong tier looks like a coat, and only a counter can say
+            // which tier it is on and why.
+            ImGui::SeparatorText("Live");
+            if (const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass())
+            {
+                const GroomLodStats& stats = pass->GetStats().Lod;
+                ImGui::Text("Grooms on the selected tier: %u   held or refused: %u", stats.GroomsOnSelectedTier,
+                            stats.GroomsFellBack);
+                for (u32 tier = 0; tier < GroomRepresentationCount; ++tier)
+                {
+                    if (stats.ByRepresentation[tier] == 0u)
+                    {
+                        continue;
+                    }
+                    ImGui::Text("  %-7s %u groom(s), %u strands, %.2f MiB",
+                                ToString(static_cast<GroomRepresentation>(tier)).data(),
+                                stats.ByRepresentation[tier], stats.StrandsByRepresentation[tier],
+                                static_cast<double>(stats.BytesByRepresentation[tier]) / (1024.0 * 1024.0));
+                }
+                // A number that stays at the groom count IS thrashing, reported
+                // before anyone has to see it. A steady camera scores 0.
+                ImGui::Text("Representation changes this frame: %u", stats.RepresentationChanges);
+                ImGui::Text("Widest compensation applied: %.2fx   grooms at the cap: %u",
+                            static_cast<double>(stats.MaxWidthCompensation), stats.GroomsAtCompensationCap);
+
+                const GroomLodFallbackReason reason = stats.DominantFallbackReason();
+                if (reason != GroomLodFallbackReason::None)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("%s", ToString(reason).data());
                     ImGui::PopStyleColor();
                 }
             }

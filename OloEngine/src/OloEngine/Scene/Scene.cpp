@@ -8289,6 +8289,12 @@ namespace OloEngine
         // for the Scene's lifetime -- and on a 200k-strand coat that table is
         // 6 MB (#1250).
         std::unordered_set<AssetHandle> liveGrooms;
+        // Every entity whose representation LOD was advanced this frame (#1252).
+        // The tail of this function drops the hysteresis counters of every
+        // entity that is not in it, for the region maps' reason: an entity
+        // destroyed mid-session would otherwise keep its counters for the
+        // Scene's lifetime.
+        std::unordered_set<UUID> liveGroomLodEntities;
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -8398,6 +8404,66 @@ namespace OloEngine
             // cache is keyed on and compared against — so a slider moved in the
             // inspector rebuilds the geometry through the existing mechanism
             // rather than a second one that could disagree with it.
+            // Representation LOD (#1252). Its ABSENCE is the #1251 behaviour —
+            // every strand the static budget affords, at every distance — so a
+            // scene authored before this existed renders exactly as it did.
+            //
+            // DECIDED HERE, once, and then spent in three places: the strand
+            // budget below, the guide budget in the simulation step, and the
+            // shadow LOD in the pass. Deciding it in each would mean three
+            // evaluations of a HYSTERETIC function, and three sets of counters
+            // that drift apart by construction.
+            if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
+            {
+                request.LodPolicy = MakeGroomLodPolicy(*lod);
+
+                // THE ENGINE'S LOD VIEW, not a camera built here. It is the
+                // CULLING camera (issue #726, so a frozen cut keeps its LODs)
+                // at the RENDER resolution, projected orientation-independently
+                // — so a camera that merely rotates in place cannot make a coat
+                // pop, which a camera-plane projection would. Every other LOD
+                // in this engine reads the same struct; a groom computing its
+                // own would be the one that disagreed.
+                const LODViewParams& lodView = Renderer3D::GetLODViewParams();
+                BoundingBox localBounds;
+                localBounds.Min = groom->GetBoundsMin();
+                localBounds.Max = groom->GetBoundsMax();
+
+                GroomLodInputs lodInputs;
+                lodInputs.PixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
+                lodInputs.CardLevelAvailable = groom->FindLodLevel(GroomRepresentation::Card) != nullptr;
+                lodInputs.MeshLevelAvailable = groom->FindLodLevel(GroomRepresentation::Mesh) != nullptr;
+                // The shell tier is not one this engine draws. Measured, not
+                // assumed: docs/analysis/groom-representation-lod-1252.md.
+                lodInputs.MeshTierSupported = false;
+
+                GroomLodState& lodState = m_GroomLodRuntime[groomEntity.GetUUID()];
+                request.Lod = AdvanceGroomLod(request.LodPolicy, lodInputs, lodState);
+                liveGroomLodEntities.insert(groomEntity.GetUUID());
+
+                if (request.Lod.Representation == GroomRepresentation::Card)
+                {
+                    // Null is impossible here — AdvanceGroomLod only returns
+                    // Card when CardLevelAvailable said the level exists — but
+                    // the lookup is what produces the pointer, so it is checked
+                    // rather than assumed: a null here is a dereference in the
+                    // innermost loop of the renderer.
+                    request.LodLevel = groom->FindLodLevel(GroomRepresentation::Card);
+                }
+
+                // The strand budget, scaled. THE CACHE IS KEYED ON THESE
+                // SETTINGS, which is why the budget moves in halvings rather
+                // than sliding with the camera: a continuously varying
+                // MaxStrands would rebuild every groom's vertex buffer every
+                // frame, which is the cost the cache exists to remove. What the
+                // halvings would leave as a visible density step is removed by
+                // the width compensation, which is a UBO value the pass applies
+                // per draw — see GroomLod.h.
+                request.Build.MaxStrands =
+                    std::max(1u, static_cast<u32>(static_cast<f32>(groomComponent.m_MaxRenderStrands) *
+                                                  request.Lod.VisibilityFraction));
+            }
+
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
@@ -8435,6 +8501,18 @@ namespace OloEngine
             std::erase_if(m_GroomGuideInfluence,
                           [&liveGrooms](const auto& entry)
                           { return !liveGrooms.contains(entry.first); });
+        }
+
+        // The representation-LOD counters (#1252), on the same rule and for the
+        // same reason. Dropping an entry is not merely a memory saving: an
+        // entity that stops rendering its strands and starts again should begin
+        // from the tier its apparent size selects, not from wherever the camera
+        // left it before it went away.
+        if (!m_GroomLodRuntime.empty())
+        {
+            std::erase_if(m_GroomLodRuntime,
+                          [&liveGroomLodEntities](const auto& entry)
+                          { return !liveGroomLodEntities.contains(entry.first); });
         }
 
         // THE GROOM CLOCK IS CONSUMED HERE, and this is the whole of the
@@ -8549,10 +8627,32 @@ namespace OloEngine
         // budget. The slots are in ascending curve order, and the cook made each
         // group a contiguous range, so a stride over them is a spatially even
         // sample.
+        //
+        // SCALED BY THE LOD'S SIMULATION FRACTION (#1252), which is the whole
+        // of criterion 3's "simulation work scales down independently": this
+        // axis has its own curve on GroomLodComponent and its own hysteresis
+        // counter, so a coat can thin its guides at a distance its strands are
+        // still fully drawn at, or the reverse. `request.Lod` is the decision
+        // PublishGroomStrandRequests already made for this entity this frame —
+        // read here rather than re-derived, because a second evaluation of a
+        // hysteretic function advances its own counters and drifts.
+        //
+        // The scaled budget goes through `budgetMoved` below like any other
+        // budget change, so a step change re-selects the guide set ONCE and the
+        // solver treats it as the discontinuity it is. That is also why the LOD
+        // steps are halvings rather than a slide: a continuously varying guide
+        // budget would re-seed the coat every frame and it would never move at
+        // all — the failure that comment already names, reached by a new route.
         u32 budgetByRole[GroomCoatRoleCount]{};
         for (u32 role = 0; role < GroomCoatRoleCount; ++role)
         {
-            budgetByRole[role] = GroomGuideBudgetForRole(*component, static_cast<GroomCoatRole>(role));
+            const u32 authored = GroomGuideBudgetForRole(*component, static_cast<GroomCoatRole>(role));
+            const auto scaled =
+                static_cast<u32>(static_cast<f32>(authored) * request.Lod.SimulationFraction);
+            // A role the author budgeted for keeps at least one guide: a coat
+            // whose guides rounded away at distance stops moving entirely, and
+            // "stopped moving" and "was never simulated" look identical.
+            budgetByRole[role] = authored > 0u ? std::max(1u, scaled) : 0u;
         }
 
         // Re-selected only when the BUDGET or the asset moved. Re-selecting
@@ -9216,7 +9316,27 @@ namespace OloEngine
         // that are never drawn and, worse, leave drawn strands at the bind pose.
         // GroomStrandMesh.h says the same thing at the point the two must agree.
         const GroomCoatContext coat{ &request.Coat, groom.GetGroupCoats() };
-        SelectGroomStrandCurves(groom, request.Build, state.m_SelectedCurves, &coat);
+        // ...AND THROUGH THE SAME CURVE SET (#1252). At card range the pass
+        // builds the cooked level, not the base groom, so a selection made over
+        // the base names strands no card stands in for — and every card would
+        // then find its representative's root frame invalid and be drawn at the
+        // bind pose. A coat that detaches from its animal only past the
+        // hand-over distance is precisely the silent failure this issue's
+        // confidence-0.5 rating is about.
+        const GroomBuildSource buildSource = request.BuildSource();
+        SelectGroomStrandCurves(buildSource, request.Build, state.m_SelectedCurves, &coat);
+        // Mapped back to BASE curves, because everything downstream of here —
+        // the root-transform evaluation, the guide widening, the binding
+        // preview — is indexed by the base groom. The map is a bijection onto a
+        // subset (a cluster picks one of its own members, and clusters are
+        // disjoint), so this cannot produce duplicates.
+        if (!buildSource.SourceCurves.empty())
+        {
+            for (u32& selected : state.m_SelectedCurves)
+            {
+                selected = buildSource.SourceCurve(selected);
+            }
+        }
         // ...WIDENED to cover every guide the simulation will solve (#1250).
         // A guide with no deformed root is a guide solved against the bind
         // pose, which is a coat that lags its own animal by a whole

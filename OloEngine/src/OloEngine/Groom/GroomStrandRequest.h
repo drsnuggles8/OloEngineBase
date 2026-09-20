@@ -247,6 +247,60 @@ namespace OloEngine
         /// exactly the sense CoatShadow and RequestedMode are.
         GroomSimulationDebugView SimulationDebug = GroomSimulationDebugView::None;
 
+        // ── Representation LOD (#1252) ───────────────────────────────
+        //
+        // Disabled by default, so a groom with no GroomLodComponent builds
+        // exactly the geometry it built before this issue — the same shape the
+        // coat, the binding and the simulation above already use.
+        //
+        // DECIDED BY THE PRODUCER, not by the pass, and this one is the least
+        // obvious of the four. The other three are producer-side because they
+        // need scene data the render thread may not touch; this one is because
+        // the decision has to be made ONCE and then drive THREE consumers that
+        // do not share a call stack: the strand geometry and the shadow volume
+        // are the pass's, and the guide budget is spent in Scene before any
+        // pass runs. Deciding in the pass would mean the simulation budget was
+        // either a frame behind or derived from a second, parallel evaluation —
+        // and two evaluations of a hysteretic decision drift by construction,
+        // because each advances its own counters.
+        //
+        // It is also why the LOD STATE lives in Scene keyed by UUID rather than
+        // in the pass's cache: a pass runs once per CAMERA, so a split-screen
+        // scene would advance the hold twice per frame and halve it.
+
+        /// The authored policy, sanitised. Carried rather than re-read from the
+        /// component because the panel that shows a decision must show the
+        /// contract it was taken against, and because the pass needs the
+        /// compensation cap to apply it.
+        GroomLodPolicy LodPolicy;
+
+        /// This frame's answer: the tier, the three budget steps, and the first
+        /// reason it is not the tier apparent size asked for.
+        GroomLodDecision Lod = IdentityGroomLodDecision();
+
+        /// The cooked level the decision selected, or NULL for the strand tier.
+        ///
+        /// A RAW POINTER INTO `Groom`, which this request holds alive by Ref for
+        /// its whole lifetime — so the pointer cannot outlive the table it
+        /// points into. A Ref to the level is not available (a level is a plain
+        /// member of the asset, not a RefCounted of its own) and copying one
+        /// per frame would be a megabyte of memcpy per groom.
+        const GroomLodLevel* LodLevel = nullptr;
+
+        /// The curve set the pass should build from: the level if one was
+        /// selected, the base groom otherwise. Assembled at the point of use
+        /// for GroomStrandSimulation's reason — a request is MOVED, and a span
+        /// stored beside the vector it points into would dangle the moment the
+        /// vector reallocated.
+        [[nodiscard]] GroomBuildSource BuildSource() const noexcept
+        {
+            if (LodLevel != nullptr && Groom)
+            {
+                return GroomBuildSource::FromLevel(*Groom, *LodLevel);
+            }
+            return Groom ? GroomBuildSource::FromAsset(*Groom) : GroomBuildSource{};
+        }
+
         /// The view over the four arrays above, assembled at the point of use.
         ///
         /// A FUNCTION rather than a stored view, because a GroomStrandRequest is

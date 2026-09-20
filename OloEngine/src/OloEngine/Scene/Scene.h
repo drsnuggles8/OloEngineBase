@@ -1539,6 +1539,22 @@ namespace OloEngine
         };
         std::unordered_map<UUID, GroomSimulationRuntimeState> m_GroomSimulationRuntime;
 
+        // Representation-LOD hysteresis state, per entity (issue #1252).
+        //
+        // HERE RATHER THAN IN GroomRenderPass, and that is not a filing choice.
+        // A pass runs once per CAMERA — a split-screen scene, a second
+        // viewport and a reflection probe all re-enter it — while a hysteresis
+        // must advance once per FRAME. Advanced in the pass, a two-viewport
+        // scene would burn its hold twice as fast and a coat straddling a
+        // threshold would hand over in half the frames it was authored to.
+        // Exactly the reason the guide simulation's clock is consumed in
+        // PublishGroomStrandRequests, and the same fix.
+        //
+        // Keyed by UUID and swept against the entities seen this frame, for
+        // m_GroomRegionMaps' reason: an entity destroyed mid-session would
+        // otherwise leave its counters resident for the Scene's lifetime.
+        std::unordered_map<UUID, GroomLodState> m_GroomLodRuntime;
+
         // The guide-to-strand influence table, keyed by GROOM ASSET HANDLE and
         // invalidated by the asset's identity, exactly as m_GroomRegionMaps is
         // keyed and invalidated -- and for the same reason: a hot-reload or a
