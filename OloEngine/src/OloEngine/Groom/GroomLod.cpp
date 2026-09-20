@@ -244,9 +244,6 @@ namespace OloEngine
 
         // ── Representation ──────────────────────────────────────────────
         const GroomRepresentation ideal = RepresentationAt(policy, pixelSize, state.Representation);
-        state.RepresentationStableFrames =
-            (ideal == state.RequestedRepresentation) ? state.RepresentationStableFrames + 1u : 0u;
-        state.RequestedRepresentation = ideal;
 
         // What the cook and the renderer can actually honour. Walked from the
         // ideal tier toward the finest one, so the FIRST refusal is the one
@@ -276,6 +273,24 @@ namespace OloEngine
             }
             target = GroomRepresentation::Strand;
         }
+
+        // ── The hold counts the ACHIEVABLE target, not the ideal tier ───
+        //
+        // Advanced here, AFTER the fallback walk, and the order is the whole
+        // point. Counting `ideal` instead deadlocks a coat that is straddling
+        // the MESH edge: the shell tier ships in no build today, so `ideal`
+        // alternates Mesh/Card while `target` is Card on both frames — the
+        // counter resets every frame, never reaches HoldFrames, and a groom
+        // still on Strand NEVER hands over. It pays full strand cost at far
+        // range and reports a permanent HeldByHysteresis, which is a reason
+        // that sends its owner to a setting that cannot fix it.
+        //
+        // Two ideal tiers that fall back to the same target are ONE stable
+        // request, because the request the hold exists to stabilise is the one
+        // the coat could actually take.
+        state.RepresentationStableFrames =
+            (target == state.RequestedRepresentation) ? state.RepresentationStableFrames + 1u : 0u;
+        state.RequestedRepresentation = target;
 
         const GroomRepresentation applied =
             ApplyHold(state.Representation, target, state.RepresentationStableFrames, policy.HoldFrames);

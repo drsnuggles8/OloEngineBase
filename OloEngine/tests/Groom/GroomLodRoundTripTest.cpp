@@ -32,10 +32,12 @@
 #include "GroomStrandFixture.h"
 
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Serialization/GroomBinaryFormat.h"
+#include "OloEngine/Serialization/ZlibSection.h"
 
 #include <cstring>
 #include <string>
@@ -114,7 +116,7 @@ TEST(GroomLodRoundTrip, ACookedCardLevelComesBackByteIdentical)
     // And the source map still points into the base groom, which is the one
     // invariant a reorder could break silently.
     std::string levelReason;
-    EXPECT_TRUE(cards->Validate(reloaded->GetCurveCount(), levelReason)) << levelReason;
+    EXPECT_TRUE(cards->Validate(reloaded->GetCurveCount(), reloaded->GetGroupCount(), levelReason)) << levelReason;
 }
 
 TEST(GroomLodRoundTrip, CookingTwiceProducesTheSameBytes)
@@ -174,10 +176,12 @@ TEST(GroomLodRoundTrip, AHostileLevelHeaderIsRefusedBeforeItSizesAnything)
     // innermost loop. Both are bounded at the reader, and a file that trips
     // either must fail rather than allocate or index.
     //
-    // Exercised through the CHECKSUM-CORRECT path: the bytes are re-cooked from
-    // a groom whose level was corrupted in memory, so the reader's CRC passes
-    // and the level validation is genuinely the thing under test. Patching the
-    // compressed payload directly would only prove the CRC works.
+    // THIS case covers the WRITER's half only: AttachLodLevels refuses the
+    // corruption before it can be cooked, and the level's own Validate refuses
+    // it directly. Neither is the decoder.
+    // AChecksumValidFileWithACorruptSourceMapIsRejectedByTheDECODER below is
+    // the other half, and it exists because this one cannot be: nothing here
+    // ever hands GroomSerializer::DecodeFromBytes an invalid level.
     CookedCoat coat = MakeCoatWithCards();
     ASSERT_TRUE(coat.Groom);
     GroomLodLevel level = coat.Level;
@@ -195,13 +199,100 @@ TEST(GroomLodRoundTrip, AHostileLevelHeaderIsRefusedBeforeItSizesAnything)
     ASSERT_EQ(coat.Groom->GetLodLevels().size(), 1u) << "a rejected attach dropped the level the groom had";
     EXPECT_TRUE(coat.Groom->GetLodLevels()[0] == coat.Level);
 
-    // And the reader's own guard, reached by a file that somehow got written
-    // anyway: GroomAsset::Validate runs at the end of DecodeFromBytes over the
-    // levels it just read, so a hand-forged file takes the same refusal. The
-    // in-memory half is asserted directly because a forged compressed payload
-    // is not a thing this suite can build without reimplementing the writer.
+    // The level's own guard, asserted directly. The decoder's is the next case
+    // down, on a genuinely forged and re-checksummed file.
     std::string levelReason;
-    EXPECT_FALSE(level.Validate(coat.Groom->GetCurveCount(), levelReason));
+    EXPECT_FALSE(level.Validate(coat.Groom->GetCurveCount(), coat.Groom->GetGroupCount(), levelReason));
+}
+
+TEST(GroomLodRoundTrip, AChecksumValidFileWithACorruptSourceMapIsRejectedByTheDECODER)
+{
+    // THE CASE THE ONE ABOVE DOES NOT COVER, and the distinction matters: that
+    // one proves the WRITER's guard (AttachLodLevels refuses before cooking)
+    // and the level's own Validate. Neither is the code a shipped game runs. A
+    // file that arrives corrupt — a bad disk, a truncated download, a patcher
+    // that wrote half a file — reaches GroomSerializer::DecodeFromBytes with a
+    // CRC that matches, because whatever produced it produced a consistent
+    // file. That path had no coverage at all.
+    //
+    // So this builds one: decompress the real payload, corrupt it, recompress,
+    // recompute the CRC, and hand the decoder a file it cannot tell from a
+    // legitimate one by checksum.
+    const CookedCoat coat = MakeCoatWithCards();
+    ASSERT_TRUE(coat.Groom);
+    ASSERT_FALSE(coat.Level.SourceCurves.empty());
+
+    std::vector<u8> bytes;
+    std::string reason;
+    ASSERT_TRUE(GroomCooker::CookToBytes(*coat.Groom, bytes, reason)) << reason;
+    ASSERT_GT(bytes.size(), sizeof(OloGroomFormat::FileHeader));
+
+    OloGroomFormat::FileHeader header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    ASSERT_EQ(header.Flags & OloGroomFormat::FlagCompressed, OloGroomFormat::FlagCompressed);
+
+    std::vector<u8> payload = ZlibSection::Decompress(
+        bytes.data() + sizeof(header), bytes.size() - sizeof(header), header.UncompressedPayloadSize,
+        OloGroomFormat::MaxUncompressedPayloadSize, "GroomLodRoundTripTest");
+    ASSERT_EQ(payload.size(), header.UncompressedPayloadSize);
+    ASSERT_GE(payload.size(), sizeof(u32));
+
+    // THE LAST FOUR BYTES OF THE PAYLOAD ARE THE LAST CARD'S SOURCE MAP ENTRY.
+    // Section 10 is the last section, a level's SourceCurves is its last array,
+    // and there is one level — so the tail of the payload is that u32.
+    //
+    // ASSERTED, NOT ASSUMED. If the layout ever changes this reads back
+    // something else and the case fails HERE, naming the reason, rather than
+    // silently patching an unrelated field and then "passing" because the
+    // decoder rejected the file for a completely different reason. That is the
+    // difference between testing the prediction and testing a coincidence.
+    u32 tail = 0;
+    std::memcpy(&tail, payload.data() + payload.size() - sizeof(u32), sizeof(u32));
+    ASSERT_EQ(tail, coat.Level.SourceCurves.back())
+        << "the payload no longer ends with the level's source map; this case is patching the wrong bytes";
+
+    // One past the end of the base groom — the index that would read past the
+    // binding's root-transform array in the renderer's innermost loop.
+    const u32 corrupt = coat.Groom->GetCurveCount();
+    std::memcpy(payload.data() + payload.size() - sizeof(u32), &corrupt, sizeof(corrupt));
+
+    std::vector<u8> recompressed = ZlibSection::Compress(payload.data(), payload.size(), "GroomLodRoundTripTest");
+    ASSERT_FALSE(recompressed.empty());
+
+    std::vector<u8> forged;
+    OloGroomFormat::FileHeader forgedHeader = header;
+    forgedHeader.Checksum = Hash::CRC32(recompressed.data(), recompressed.size());
+    forgedHeader.UncompressedPayloadSize = payload.size();
+    forged.resize(sizeof(forgedHeader) + recompressed.size());
+    std::memcpy(forged.data(), &forgedHeader, sizeof(forgedHeader));
+    std::memcpy(forged.data() + sizeof(forgedHeader), recompressed.data(), recompressed.size());
+
+    Ref<GroomAsset> reloaded;
+    reason.clear();
+    EXPECT_FALSE(GroomSerializer::DecodeFromBytes(forged.data(), forged.size(), reloaded, reason))
+        << "the decoder accepted a level whose source map points past the base groom";
+    EXPECT_EQ(reloaded, nullptr);
+    EXPECT_NE(reason.find("maps to base curve"), std::string::npos)
+        << "the refusal did not name the source map: " << reason;
+
+    // The control: the SAME forging path with the ORIGINAL value put back must
+    // produce a file that loads. Without it, this case would pass for a
+    // decoder that rejected every re-compressed file — which is a different
+    // bug wearing this one's clothes.
+    std::memcpy(payload.data() + payload.size() - sizeof(u32), &tail, sizeof(tail));
+    std::vector<u8> clean = ZlibSection::Compress(payload.data(), payload.size(), "GroomLodRoundTripTest");
+    ASSERT_FALSE(clean.empty());
+    OloGroomFormat::FileHeader cleanHeader = header;
+    cleanHeader.Checksum = Hash::CRC32(clean.data(), clean.size());
+    cleanHeader.UncompressedPayloadSize = payload.size();
+    std::vector<u8> rebuilt(sizeof(cleanHeader) + clean.size());
+    std::memcpy(rebuilt.data(), &cleanHeader, sizeof(cleanHeader));
+    std::memcpy(rebuilt.data() + sizeof(cleanHeader), clean.data(), clean.size());
+
+    Ref<GroomAsset> control;
+    reason.clear();
+    EXPECT_TRUE(GroomSerializer::DecodeFromBytes(rebuilt.data(), rebuilt.size(), control, reason)) << reason;
+    EXPECT_TRUE(control);
 }
 
 TEST(GroomLodRoundTrip, AGroomWithNoLevelsStillRoundTrips)

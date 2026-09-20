@@ -1014,7 +1014,16 @@ namespace OloEngine
             const auto tier = static_cast<sizet>(request.Lod.Representation);
             m_Stats.Lod.Record(request.Lod);
             m_Stats.Lod.StrandsByRepresentation[tier] += entry->Stats.StrandsSelected;
-            m_Stats.Lod.BytesByRepresentation[tier] += entry->Bytes;
+            // ONCE PER ENTRY PER FRAME, not once per draw: see
+            // CacheEntry::BytesCountedTick. The tick is the pass's own
+            // monotonic counter, so an entry drawn by two entities this frame
+            // contributes its allocation once and the figure stays a RESIDENT
+            // byte count rather than a sum of draws.
+            if (entry->BytesCountedTick != m_CacheTick)
+            {
+                entry->BytesCountedTick = m_CacheTick;
+                m_Stats.Lod.BytesByRepresentation[tier] += entry->Bytes;
+            }
             m_Stats.Lod.MaxWidthCompensation =
                 std::max(m_Stats.Lod.MaxWidthCompensation, widthCompensation);
             // A coat AT the cap is genuinely thinner than it was authored, and

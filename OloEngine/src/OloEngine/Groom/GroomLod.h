@@ -216,10 +216,18 @@ namespace OloEngine
     // One axis's policy: how much of its work survives at a given apparent size.
     //
     // A STEP IS A HALVING, and the shape is deliberately the one
-    // GroomCoatShadow::CoatLodPolicy already uses — step k is asked for below
-    // `FullPixelSize / 2^k` — so this engine has ONE idiom for "how far down the
-    // ladder is this coat" rather than two that drift. See the file header for
-    // why the steps are discrete and the compensation that hides them is not.
+    // GroomCoatShadow::CoatLodPolicy already uses, so this engine has ONE idiom
+    // for "how far down the ladder is this coat" rather than two that drift.
+    //
+    // THE RUNG RULE, stated the way the loop actually walks it: halve
+    // `FullPixelSize` until the coat is at least as large as the rung, and the
+    // number of halvings taken is the step. So step k is selected for a coat in
+    // `[FullPixelSize / 2^k, FullPixelSize / 2^(k-1))` — at a 512 px full size,
+    // 100 px is step 3 (it clears the 64 px rung, not the 128 px one), NOT the
+    // step 2 that "below FullPixelSize / 2^k" would suggest. That off-by-one
+    // phrasing is easy to write down and wrong; GroomLodBudget's sweep is what
+    // pins the real rule. See the file header for why the steps are discrete
+    // and the compensation that hides them is not.
     struct GroomLodBudgetCurve
     {
         /// Apparent size, in pixels of the render target's height, at and above

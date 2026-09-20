@@ -322,6 +322,18 @@ namespace OloEngine
             /// The cache tick the volume was last rebuilt at, so staleness is a
             /// number rather than an impression.
             u64 CoatBuiltTick = 0;
+
+            /// The cache tick this entry's GEOMETRY bytes were last counted
+            /// against a representation (#1252).
+            ///
+            /// Two unbound entities sharing one groom asset at one budget share
+            /// ONE entry, so adding its bytes per DRAW reports the same
+            /// allocation twice — and GroomLodStats::BytesByRepresentation is
+            /// displayed as RESIDENT bytes, so it would overstate memory and
+            /// could exceed CachedBytes, which is the one number it should
+            /// never exceed. The strand COUNT stays per draw, because two
+            /// entities really do draw those strands twice.
+            u64 BytesCountedTick = 0;
             /// The mode the resident bake serves. A volume baked for one mode
             /// serves both volume modes — the isotropic arm simply does not
             /// read the direction channel — so this exists to detect a switch

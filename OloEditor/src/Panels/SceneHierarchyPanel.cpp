@@ -9591,7 +9591,8 @@ namespace OloEngine
             const AssetHandle groomHandle = entity.GetComponent<GroomComponent>().m_Groom;
             if (auto groom = groomHandle != 0 ? AssetManager::GetAsset<GroomAsset>(groomHandle) : nullptr)
             {
-                if (groom->FindLodLevel(GroomRepresentation::Card) == nullptr)
+                const GroomLodLevel* cards = groom->FindLodLevel(GroomRepresentation::Card);
+                if (cards == nullptr)
                 {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
                     ImGui::TextWrapped("This groom carries no cooked card level, so it can never leave the "
@@ -9601,7 +9602,6 @@ namespace OloEngine
                 }
                 else
                 {
-                    const GroomLodLevel* cards = groom->FindLodLevel(GroomRepresentation::Card);
                     ImGui::Text("Cooked cards: %u (from %u strands), cooked for %.0f px, %.2f MiB",
                                 cards->GetCurveCount(), groom->GetCurveCount(),
                                 static_cast<double>(cards->SourcePixelSize),

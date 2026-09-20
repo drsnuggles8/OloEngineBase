@@ -123,7 +123,7 @@ reference grooms under `OloEditor/assets/Grooms/` were regenerated with the chan
 | The coat is on cards where you expected a shell | `MeshTierNotSelected` — read the analysis, not the settings |
 | The coat flickers between tiers | `GroomLodStats::RepresentationChanges` staying near the groom count |
 | The coat is thinner than authored at range | `GroomsAtCompensationCap` non-zero; `MaxWidthCompensation` at the cap |
-| The coat detaches from the body only past the hand-over | a stale source map — rule 5 |
+| The coat detaches from the body only past the hand-over | a stale source map — rule 7 |
 | The hand-over rebuilds geometry every frame | the budget is sliding rather than halving — rule 3 |
 
 ## Where the numbers are

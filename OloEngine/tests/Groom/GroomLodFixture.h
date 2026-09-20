@@ -26,6 +26,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cmath>
 #include <format>
 #include <span>
 #include <string>

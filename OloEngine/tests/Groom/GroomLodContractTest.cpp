@@ -209,7 +209,8 @@ TEST(GroomLodBudget, TheThreeAxesMoveIndependently)
     GroomLodState state;
     const GroomLodDecision decision = AdvanceGroomLod(policy, InputsAt(100.0f), state);
 
-    // Step k is asked for below FullPixelSize / 2^k, so at 100 px:
+    // The rung rule: halve FullPixelSize until the coat is at least as large as
+    // the rung, and the number of halvings taken is the step. At 100 px:
     //   512  -> 256, 128, 64: the first rung 100 clears is 64, so step 3
     //   128  ->  64:          step 1
     //   2048 -> ... 64:       step 5
@@ -408,6 +409,70 @@ TEST(GroomLodHysteresis, ASlowOscillationCoarsensAtMostOncePerHold)
     }
 }
 
+TEST(GroomLodHysteresis, StraddlingTheMeshEdgeStillHandsOverToCards)
+{
+    // THE DEADLOCK THE HOLD COUNTER CAUSED WHEN IT COUNTED THE IDEAL TIER.
+    //
+    // The shell tier ships in no build today, so a coat oscillating across the
+    // MESH edge has an `ideal` that alternates Mesh/Card while the tier it can
+    // actually take is Card on both frames. Counting the ideal reset the
+    // stability counter every frame, it never reached HoldFrames, and a groom
+    // still on Strand never handed over at all — paying full strand cost at far
+    // range and reporting a permanent HeldByHysteresis, a reason that sends its
+    // owner to a setting which cannot fix it.
+    //
+    // Reachable by anything that arrives far away rather than walking there: a
+    // spawned or teleported entity starts at Strand, and the camera only has to
+    // jitter across the mesh edge.
+    GroomLodPolicy policy = EnabledPolicy();
+    policy.CardPixelSize = 256.0f;
+    policy.MeshPixelSize = 48.0f;
+    policy.Hysteresis = 0.15f;
+    policy.HoldFrames = 4;
+
+    // 30 px is below the mesh edge (48 x 0.85 = 40.8) and 60 px is above it and
+    // below the card edge (256 x 0.85 = 217.6), so the IDEAL alternates
+    // Mesh/Card while the TARGET is Card on every frame.
+    GroomLodState state;
+    GroomLodDecision decision;
+    u32 lastHeldFrame = 0;
+    u32 heldFrames = 0;
+    for (u32 frame = 0; frame < 40u; ++frame)
+    {
+        decision = AdvanceGroomLod(policy, InputsAt((frame % 2u == 0u) ? 30.0f : 60.0f), state);
+        if (decision.Reason == GroomLodFallbackReason::HeldByHysteresis)
+        {
+            lastHeldFrame = frame;
+            ++heldFrames;
+        }
+    }
+
+    // HeldByHysteresis on the first few frames is CORRECT — the coat starts on
+    // Strand and the hold has genuinely not elapsed. The bug was that it never
+    // elapsed. So what is asserted is TRANSIENCE: the hold must be done with by
+    // the time it has had HoldFrames consecutive stable requests, and nothing
+    // after that may still be waiting on it.
+    EXPECT_LE(lastHeldFrame, policy.HoldFrames)
+        << "the coat was still being held at frame " << lastHeldFrame << " of 40 (" << heldFrames
+        << " held frames in total) — the hold is never elapsing, so the hand-over can never happen";
+
+    EXPECT_EQ(decision.Representation, GroomRepresentation::Card)
+        << "a coat straddling the mesh edge never handed over to cards, so it pays full strand cost at a "
+           "distance it is invisible at";
+
+    // The reason depends on which side of the mesh edge the frame landed on,
+    // and BOTH are correct answers — which is why the loop asserts the absence
+    // of the wrong one rather than the presence of a single right one.
+    //
+    // In the mesh band the coat is on the coarsest tier this engine draws and
+    // the reason names the MEASUREMENT that refused the shell
+    // (docs/analysis/groom-representation-lod-1252.md), not the hold.
+    EXPECT_EQ(AdvanceGroomLod(policy, InputsAt(30.0f), state).Reason,
+              GroomLodFallbackReason::MeshTierNotSelected);
+    // In the card band it is simply on the tier its size selects.
+    EXPECT_EQ(AdvanceGroomLod(policy, InputsAt(60.0f), state).Reason, GroomLodFallbackReason::None);
+}
+
 TEST(GroomLodHysteresis, RefiningIsImmediateBecauseACoarseCoatUpCloseIsAPictureAnyoneCanSee)
 {
     GroomLodPolicy policy = EnabledPolicy();
@@ -483,7 +548,7 @@ TEST(GroomLodCook, ACardCarriesItsClustersTotalWidthAndNeverCrossesAGroup)
     // for the binding's root-transform array, which is the read that would go
     // out of bounds.
     std::string levelReason;
-    EXPECT_TRUE(level.Validate(pelt->GetCurveCount(), levelReason)) << levelReason;
+    EXPECT_TRUE(level.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason)) << levelReason;
 }
 
 TEST(GroomLodCook, ARawFixtureIsRefusedBecauseItsRootUVsAreUnaddressable)
@@ -557,7 +622,7 @@ TEST(GroomLodCook, ALevelMayNotClaimTheStrandTierAndADuplicateIsRejected)
     GroomLodLevel impostor = level;
     impostor.Representation = GroomRepresentation::Strand;
     std::string levelReason;
-    EXPECT_FALSE(impostor.Validate(pelt->GetCurveCount(), levelReason));
+    EXPECT_FALSE(impostor.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason));
 
     // Two levels for one tier would make FindLodLevel's answer depend on write
     // order, which is a determinism hole in a format whose contract is
@@ -590,6 +655,6 @@ TEST(GroomLodCook, ASourceMapPointingPastTheBaseGroomIsRejected)
 
     level.SourceCurves[0] = pelt->GetCurveCount();
     std::string levelReason;
-    EXPECT_FALSE(level.Validate(pelt->GetCurveCount(), levelReason));
+    EXPECT_FALSE(level.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason));
     EXPECT_NE(levelReason.find("maps to base curve"), std::string::npos) << levelReason;
 }

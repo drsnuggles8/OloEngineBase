@@ -249,15 +249,25 @@ namespace OloEngine
             // sum reproducible; the width is what makes it MEANINGFUL, because
             // f32 accumulation over a thousand 7e-5 diameters loses the tail of
             // the cluster and the card comes out systematically thin.
+            //
+            // The per-point sums are MeanCentreline's alone; RepresentativeStrand
+            // resamples the cluster at its member's own parameters below and
+            // would only be paying for a walk it discards. The root sums are
+            // both modes' — the representative is chosen from them.
+            const bool needsMeanSums = settings.Aggregation == GroomCardAggregation::MeanCentreline;
             for (sizet m = runStart; m < runEnd; ++m)
             {
                 const u32 curve = members[m].Curve;
-                for (u32 j = 0; j < pointsPerCard; ++j)
+                if (needsMeanSums)
                 {
-                    const f32 t = pointsPerCard > 1u ? static_cast<f32>(j) / static_cast<f32>(pointsPerCard - 1u) : 0.0f;
-                    const Sampled sample = SampleCurve(base, curve, t);
-                    positionSum[j] += glm::dvec3(sample.Position);
-                    widthSum[j] += static_cast<f64>(sample.Width);
+                    for (u32 j = 0; j < pointsPerCard; ++j)
+                    {
+                        const f32 t =
+                            pointsPerCard > 1u ? static_cast<f32>(j) / static_cast<f32>(pointsPerCard - 1u) : 0.0f;
+                        const Sampled sample = SampleCurve(base, curve, t);
+                        positionSum[j] += glm::dvec3(sample.Position);
+                        widthSum[j] += static_cast<f64>(sample.Width);
+                    }
                 }
                 rootUVSum += glm::dvec2(rootUVs[curve]);
                 rootSum += glm::dvec3(base.GetPoints()[base.GetCurveFirstPoint(curve)]);
@@ -362,7 +372,7 @@ namespace OloEngine
             stats.SmallestCluster = 0;
         }
 
-        if (!out.Validate(baseCurveCount, outReason))
+        if (!out.Validate(baseCurveCount, base.GetGroupCount(), outReason))
         {
             out = GroomLodLevel{};
             return false;

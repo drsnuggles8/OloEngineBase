@@ -286,9 +286,18 @@ namespace OloEngine
         /// asks for by representation.
         [[nodiscard]] u64 GetCpuMemoryBytes() const noexcept;
 
-        /// Structural self-check. `baseCurveCount` bounds SourceCurves; pass the
-        /// base groom's curve count. On failure `outReason` names the invariant.
-        [[nodiscard]] bool Validate(u32 baseCurveCount, std::string& outReason) const;
+        /// Structural self-check. `baseCurveCount` bounds SourceCurves and
+        /// `groupCount` bounds CurveGroupIds; pass the base groom's counts.
+        /// On failure `outReason` names the invariant.
+        ///
+        /// THE GROUP BOUND IS NOT COSMETIC. A card's group id is what
+        /// GroomCoatContext::GroupDesc looks the coat description up by, and an
+        /// out-of-range id there does not throw — it answers IDENTITY. So a
+        /// corrupt id costs that card its role, its density and its budget
+        /// weight, and the only symptom is a coat that is slightly too uniform
+        /// at range. The base groom's ids are bounded the same way, in
+        /// GroomAsset::Validate; a level's were not until CodeRabbit asked.
+        [[nodiscard]] bool Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const;
 
         /// Field by field: a defaulted operator== would compare
         /// SourcePixelSize — and every element of the three float arrays — with

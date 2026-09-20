@@ -82,7 +82,7 @@ namespace OloEngine
                bytesEqual(PointWidths, other.PointWidths) && bytesEqual(RootUVs, other.RootUVs);
     }
 
-    bool GroomLodLevel::Validate(u32 baseCurveCount, std::string& outReason) const
+    bool GroomLodLevel::Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const
     {
         const u32 curveCount = GetCurveCount();
         if (curveCount == 0)
@@ -138,6 +138,17 @@ namespace OloEngine
             {
                 outReason = std::format("LOD level curve {} has {} control points, outside [{}, {}]", curve, points,
                                         GroomLimits::MinPointsPerCurve, GroomLimits::MaxPointsPerCurve);
+                return false;
+            }
+            if (CurveGroupIds[curve] >= groupCount)
+            {
+                // Out of range here is NOT an out-of-bounds read: GroupDesc
+                // answers the identity description for an unknown id. That is
+                // the problem — the card silently loses its role, its density
+                // and its budget weight, and the coat comes out slightly too
+                // uniform at range with nothing in any log.
+                outReason = std::format("LOD level curve {} names group {} but the groom has {} groups", curve,
+                                        CurveGroupIds[curve], groupCount);
                 return false;
             }
         }
@@ -489,7 +500,7 @@ namespace OloEngine
             for (sizet i = 0; i < m_LodLevels.size(); ++i)
             {
                 std::string levelReason;
-                if (!m_LodLevels[i].Validate(curveCount, levelReason))
+                if (!m_LodLevels[i].Validate(curveCount, static_cast<u32>(m_GroupNames.size()), levelReason))
                 {
                     outReason = std::format("LOD level {}: {}", i, levelReason);
                     return false;
