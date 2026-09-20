@@ -104,7 +104,8 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomCoatWorldToObject; // RIGID world -> groom object space
 	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
-	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
+	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, y = samples the scene shadow,
+	                               // z = the object box below is valid for the receiver offset (#1323)
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -275,6 +276,70 @@ layout(std140, binding = 5) uniform MultiLightBuffer {
 	LightData u_Lights[MAX_LIGHTS];
 };
 
+// ── The scene's shadow term (issue #1323) ──────────────────────────────
+//
+// THE OTHER DIRECTION. #1248 gave the coat its own internal occlusion — a
+// density volume holding the groom's own strands and nothing else — and said
+// out loud that a body casting onto its own coat is the shadow map's job. This
+// block is that job: the same four shadow inputs, the same two techniques and
+// the same three functions the lit surface shaders use, so a coat in shade goes
+// dark for exactly the reason the body beside it does.
+//
+// DECLARED IDENTICALLY TO PBR_MultiLight.glsl, down to the sampler kinds. The
+// four units carry a specific sampler state and a specific typed null, and
+// every site that stages a shadow-map offset has to agree about both or
+// whichever pass ran last silently wins (issue #691). GroomRenderPass binds
+// them through CommandDispatch::BindSceneShadowTextures for the same reason —
+// one publisher, not a second copy.
+#ifdef OLO_BINDLESS
+#define u_ShadowMapCSM OLO_HEAP_TEX_2D_ARRAY_SHADOW(8)
+#define u_ShadowAtlas OLO_HEAP_TEX_2D_ARRAY_SHADOW(13)
+#define u_ShadowMapCSMRaw OLO_HEAP_TEX_2D_ARRAY(33)
+#define u_ShadowAtlasRaw OLO_HEAP_TEX_2D_ARRAY(34)
+#else
+layout(binding = 8) uniform sampler2DArrayShadow u_ShadowMapCSM;  // TEX_SHADOW (CSM)
+layout(binding = 13) uniform sampler2DArrayShadow u_ShadowAtlas;  // TEX_SHADOW_ATLAS
+layout(binding = 33) uniform sampler2DArray u_ShadowMapCSMRaw;    // TEX_SHADOW_CSM_RAW
+layout(binding = 34) uniform sampler2DArray u_ShadowAtlasRaw;     // TEX_SHADOW_ATLAS_RAW
+#endif
+
+layout(std140, binding = 6) uniform ShadowData {
+	mat4 u_DirectionalLightSpaceMatrices[4];
+	vec4 u_CascadePlaneDistances;
+	vec4 u_ShadowParams;  // x = bias, y = normalBias, z = softness, w = maxShadowDistance
+	mat4 u_AtlasEntryMatrices[48];
+	vec4 u_AtlasEntryScaleOffset[48];
+	int u_DirectionalShadowEnabled;
+	int u_AtlasEntryCount;
+	int u_ShadowMapResolution;
+	int u_AtlasResolution;
+	int u_CascadeDebugEnabled;
+	int u_SoftShadowMode;
+	float u_AtlasDepthBias;
+	int _shadowPad2;
+};
+
+// The Virtual Shadow Map's consumer half. The engine has TWO directional
+// techniques and a caster family reaches a technique only if somebody wired it
+// there — which is as true of the RECEIVING side as of the casting side, and
+// nothing detects either gap. Including this is the receiving half of that
+// wiring; ShadowRenderPass::RenderGroomVirtualShadowLevels is the casting half.
+#include "include/VirtualShadowSampling.glsl"
+
+// The camera block, declared IDENTICALLY to the vertex stage's — same name,
+// same fields, same order. A uniform block of one name must match across the
+// stages of a program or the LINK fails with "struct fields mismatch", and
+// compiling the stages separately with glslc cannot see it. u_View is what the
+// cascade selection below needs.
+layout(std140, binding = 0) uniform CameraMatrices {
+	mat4 u_ViewProjection;
+	mat4 u_View;
+	mat4 u_Projection;
+	vec3 _groomCameraPadPosition;
+	float _groomCameraPad0;
+	mat4 u_PrevViewProjection;
+};
+
 #ifdef OLO_BINDLESS
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10) // TEX_USER_0
 #else
@@ -354,7 +419,8 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomCoatWorldToObject; // RIGID world -> groom object space
 	vec4 u_GroomCoatBoundsMin;     // xyz = volume min (object space), w = kappa
 	vec4 u_GroomCoatInvExtent;     // xyz = 1/(max-min), w = march step in world metres
-	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, yzw unused
+	ivec4 u_GroomCoatModes;        // x = effective CoatShadowMode, y = samples the scene shadow,
+	                               // z = the object box below is valid for the receiver offset (#1323)
 };
 
 vec2 octEncode(vec3 n)
@@ -408,6 +474,109 @@ void oloGroomAccumulate(inout OloGroomFibreLobes total, OloGroomFibreLobes add, 
 // deliberately contains the groom's own strands and nothing else. With the
 // coat term active the geometric root-to-tip ramp is bypassed — see main() —
 // because that ramp was the crude stand-in for exactly this.
+// How much of `light` reaches this strand THROUGH THE SCENE. Issue #1323.
+//
+// THE RECEIVER IS THE COAT'S LIGHT-EXIT POINT, NOT THE FRAGMENT, and that one
+// substitution is the whole double-count fix. Once grooms are shadow CASTERS
+// their own strands are in the cascade map, so a strand sampling that map at
+// its own position is occluded by its own coat TWICE: once by the density
+// volume in oloGroomShadeFibre and once by the map. Moving the sample to where
+// the light LEAVES the coat leaves the map answering only the part the volume
+// did not — is the coat's lit surface itself in shadow.
+//
+// IT COSTS NOTHING WHEN THERE IS NO VOLUME, and that is not a happy accident:
+// oloGroomCoatLightExitDistance returns 0 for an inactive coat mode, so the
+// receiver is the fragment. Which is the CORRECT answer there — with no volume
+// there is no second count to remove, and the coat's own strands in the map are
+// the only occlusion it gets. The offset therefore applies exactly when the
+// double count exists.
+//
+// A STRAND HAS NO SURFACE NORMAL. The engine's receiver bias is a world-metre
+// offset along the shading normal, and a ribbon's `v_ViewNormal` is written for
+// SSAO rather than for shading — it faces the camera, not the surface. So the
+// bias direction passed below is L: an offset TOWARDS the light, which is the
+// direction the exit offset already moves in and the only direction on a fibre
+// that means anything for occlusion.
+float oloGroomSceneShadow(LightData light, int lightType, vec3 L)
+{
+	if (u_GroomCoatModes.y == 0)
+	{
+		return 1.0;
+	}
+
+	// .z, not .x: the offset is gated on this groom being a CASTER, not on it
+	// having a density volume. The map's occlusion of the coat by its own
+	// strands exists the moment the coat is in the map, and leaving it in
+	// turns the coat black (44.98 -> 0.22 mean luma, measured).
+	float exitDistance = oloGroomCoatLightExitDistance(u_GroomCoatWorldToObject, u_GroomCoatBoundsMin.xyz,
+	                                                   u_GroomCoatInvExtent.xyz, v_WorldPos, L,
+	                                                   u_GroomCoatModes.z);
+	vec3 shadowPos = v_WorldPos + L * exitDistance;
+
+	if (lightType == DIRECTIONAL_LIGHT)
+	{
+		if (u_DirectionalShadowEnabled == 0)
+		{
+			return 1.0;
+		}
+		// VSM owns the directional light when active (#702) — the CSM cascades
+		// are not rendered at all in that case, so this is an either/or rather
+		// than a blend. Reading it at runtime rather than through a shader
+		// variant is what the lit shaders do, for the same reason.
+		if (VSM_ENABLED != 0)
+		{
+			return vsmShadowFactor(shadowPos, L);
+		}
+		vec4 viewSpacePos = u_View * vec4(shadowPos, 1.0);
+		return calculateCascadedShadowFactorCSM(u_ShadowMapCSM, u_ShadowMapCSMRaw, shadowPos, L, viewSpacePos.z,
+		                                        u_DirectionalLightSpaceMatrices, u_CascadePlaneDistances,
+		                                        u_ShadowParams, u_ShadowMapResolution, u_SoftShadowMode);
+	}
+
+	if (lightType == SPOT_LIGHT)
+	{
+		int atlasEntry = int(light.direction.w);
+		float localShadow;
+		if (vsmLocalShadow(shadowPos, L, atlasEntry, false, localShadow))
+		{
+			return localShadow;
+		}
+		if (atlasEntry >= 0 && atlasEntry < u_AtlasEntryCount)
+		{
+			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[atlasEntry],
+			                                 u_AtlasEntryScaleOffset[atlasEntry], u_ShadowAtlas, u_ShadowAtlasRaw,
+			                                 u_AtlasDepthBias, u_AtlasResolution, u_SoftShadowMode,
+			                                 u_ShadowParams.z);
+		}
+		return 1.0;
+	}
+
+	if (lightType == POINT_LIGHT || lightType == SPHERE_AREA_LIGHT)
+	{
+		// direction.w carries the BASE atlas entry of the 6 face tiles. A sphere
+		// area light shadows from its centre, the same representative point the
+		// lighting above treats it as.
+		int baseEntry = int(light.direction.w);
+		float localShadow;
+		if (vsmLocalShadow(shadowPos, L, baseEntry, true, localShadow))
+		{
+			return localShadow;
+		}
+		if (baseEntry >= 0 && baseEntry + 5 < u_AtlasEntryCount)
+		{
+			int entry = baseEntry + atlasCubeFace(shadowPos - light.position.xyz);
+			return calculateAtlasEntryShadow(shadowPos, u_AtlasEntryMatrices[entry],
+			                                 u_AtlasEntryScaleOffset[entry], u_ShadowAtlas, u_ShadowAtlasRaw,
+			                                 u_AtlasDepthBias, u_AtlasResolution,
+			                                 0, // PCF only on cube faces, matching the surface path
+			                                 u_ShadowParams.z);
+		}
+		return 1.0;
+	}
+
+	return 1.0;
+}
+
 vec3 oloGroomShadeFibre()
 {
 	OloGroomFibre fibre = oloGroomFibreFromUniforms();
@@ -494,7 +663,16 @@ vec3 oloGroomShadeFibre()
 		                                         v_WorldPos, L, u_GroomCoatInvExtent.w, u_GroomCoatModes.x);
 		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
 
-		vec3 radiance = light.color.rgb * light.color.w * attenuation * coatShadow;
+		// The SCENE's occlusion (#1323), multiplying the same incoming radiance
+		// the coat's own term does. The two are disjoint by construction: the
+		// volume holds this groom's strands and nothing else, and the map is
+		// sampled at the coat's light-exit point so this groom's own strands are
+		// behind the sample rather than in front of it. That is the three-way
+		// split groom-coat-self-shadowing.md rule 1 states, with its third term
+		// finally present.
+		float sceneShadow = oloGroomSceneShadow(light, lightType, L);
+
+		vec3 radiance = light.color.rgb * light.color.w * attenuation * coatShadow * sceneShadow;
 
 		// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
 		// its own length intercepts almost no light per unit length, and this

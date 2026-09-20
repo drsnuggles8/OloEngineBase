@@ -658,6 +658,15 @@ if (auto node = entity["GroomLodComponent"]; node)
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 
+if (auto node = entity["GroomSceneShadowComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSceneShadowComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowWidthTexels"], v))
+        comp.m_ShadowWidthTexels = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(16.0f));
+    comp.m_CastShadows = node["CastShadows"].as<bool>(comp.m_CastShadows);
+    comp.m_ReceiveShadows = node["ReceiveShadows"].as<bool>(comp.m_ReceiveShadows);
+}
+
 if (auto node = entity["GroomSimulationComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();

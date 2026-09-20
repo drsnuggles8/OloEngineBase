@@ -8367,6 +8367,26 @@ namespace OloEngine
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
             }
 
+            // Scene-shadow routing, in both directions, if this groom asks for
+            // it (#1323). Its ABSENCE is the #1252 behaviour -- a coat that
+            // casts no shadow and is lit as if it stood in the open -- so a
+            // scene authored before this existed renders exactly as it did, and
+            // every capture the earlier groom issues committed still means what
+            // it meant.
+            //
+            // Through MakeGroomShadowWidthTexels, never the raw field, for the
+            // reason the coat-shadow block above gives: OLO_SERIALIZE guards
+            // scene YAML and the deserialisers, a direct MCP or native write
+            // reaches neither, and this is the one boundary that value crosses
+            // on its way to a DIVISOR in the shader's light-space widening.
+            if (const auto* sceneShadow = m_Registry.try_get<GroomSceneShadowComponent>(entity);
+                sceneShadow != nullptr)
+            {
+                request.CastsSceneShadow = sceneShadow->m_CastShadows;
+                request.ReceivesSceneShadow = sceneShadow->m_ReceiveShadows;
+                request.ShadowWidthTexels = MakeGroomShadowWidthTexels(*sceneShadow);
+            }
+
             // Coat authoring, if this groom has any (#1251). Its ABSENCE is the
             // #1249 behaviour — the cook's own strands, at the cook's own
             // lengths and widths — so a scene authored before this existed

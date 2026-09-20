@@ -284,6 +284,18 @@
 		"OloEngine/Groom/GroomLod.cpp"
 		"OloEngine/Groom/GroomLodBuilder.h"
 		"OloEngine/Groom/GroomLodBuilder.cpp"
+		# The per-(asset, settings) strand geometry, lifted out of
+		# GroomRenderPass so ShadowRenderPass can reach it too (#1323). NOT
+		# GPU-free, unlike the rest of Groom/ above: it owns the vertex, index
+		# and 3D-texture objects, which is precisely why it had to become a
+		# thing of its own rather than stay private to a pass.
+		"OloEngine/Groom/GroomStrandCache.h"
+		"OloEngine/Groom/GroomStrandCache.cpp"
+		# The light-space one-texel width floor (#1323), CPU twin of
+		# include/GroomShadowWidening.glsl. Header-only, no renderer headers, so
+		# the claim "a 70 um hair is far below a cascade texel" is assertable in
+		# CI on a machine with no GPU.
+		"OloEngine/Groom/GroomShadowWidening.h"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

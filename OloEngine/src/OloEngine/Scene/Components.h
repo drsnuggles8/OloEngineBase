@@ -6288,6 +6288,104 @@ namespace OloEngine
     static_assert(sizeof(GroomLodComponent) == 48,
                   "GroomLodComponent must have no padding: see BitwiseEqualLayoutTest");
 
+    // ── Groom scene-shadow routing (issue #1323) ─────────────────
+    //
+    // Whether this groom takes part in the engine's shadow TECHNIQUES, in each
+    // direction: hair casting onto the body and the scene, and the body and the
+    // scene casting onto hair.
+    //
+    // A SEPARATE COMPONENT, for the three reasons GroomBindingComponent lists
+    // and with the same one deciding it: GroomComponent's layout is PINNED at
+    // 48 bytes with a whole-object memcmp equality, and widening it revs the
+    // save-game format for every scene that has a groom in it, routed or not.
+    //
+    // ITS ABSENCE IS THE PRE-#1323 BEHAVIOUR — a coat that casts no shadow and
+    // is lit as if it stood in the open — so a scene authored before this
+    // existed renders exactly as it did, and every capture #1246 through #1252
+    // committed still means what it meant. That is the same rule the coat, the
+    // binding, the simulation and the LOD components follow, and here it is
+    // load-bearing rather than polite: a groom that started casting on load
+    // would change every committed groom evidence PNG at once.
+    //
+    // THE TWO DIRECTIONS ARE INDEPENDENT FIELDS ON PURPOSE. They are different
+    // mechanisms that fail differently — casting is a caster family in
+    // ShadowRenderPass and shows up as a shadow on the BODY, receiving is a
+    // cascade lookup in GroomStrand.glsl and shows up as a coat that goes dark
+    // in shade — so being able to turn one off is what makes an A/B of the
+    // other a measurement rather than a picture of both.
+    //
+    // Not annotated OLO_PROPERTY and not registered in LuaScriptGlue, matching
+    // every other groom component. Whether a coat casts is authoring state; a
+    // script flipping it mid-frame would add or remove a caster family between
+    // the shadow pass and the strand pass of the same frame. Stated as a
+    // decision rather than left as an omission, because the next reader's
+    // question is "was this forgotten?".
+    struct GroomSceneShadowComponent
+    {
+        // Members ordered 4-byte then 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// The width floor, in TEXELS of the shadow target, a strand is
+        /// rasterised at from the light.
+        ///
+        /// ONE TEXEL IS THE DERIVATION, NOT A TASTE. A 70 um hair against a
+        /// cascade texel of a few centimetres projects to about a thousandth of
+        /// a texel, so rasterised honestly it crosses a texel centre
+        /// essentially never and an animal's whole coat casts nothing at all.
+        /// The same argument groom-strand-visibility.md rule 2 makes for the
+        /// main pass, three orders of magnitude coarser.
+        ///
+        /// ABOVE ONE IT IS AN AUTHORING LEVER for a coat whose shadow reads too
+        /// thin at distance, and it costs occlusion: a widened strand casts an
+        /// OPAQUE shadow, because a depth target has no alpha to weight and a
+        /// hashed discard would be a stochastic technique with nothing to
+        /// converge it. See Groom/GroomShadowWidening.h.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 16.0f)
+        f32 m_ShadowWidthTexels = 1.0f;
+
+        /// Rasterise this groom from the light — into the CSM cascades, the
+        /// Virtual Shadow Map's clip levels and the local-light atlas alike.
+        bool m_CastShadows = true;
+
+        /// Sample the scene's shadow term in the strand shader, so a character
+        /// standing in shade has a coat that is in shade too.
+        bool m_ReceiveShadows = true;
+
+        OLO_SERIALIZE(Skip)
+        u8 Pad0 = 0;
+        OLO_SERIALIZE(Skip)
+        u8 Pad1 = 0;
+
+        GroomSceneShadowComponent() = default;
+        GroomSceneShadowComponent(const GroomSceneShadowComponent&) = default;
+        GroomSceneShadowComponent& operator=(const GroomSceneShadowComponent&) = default;
+        GroomSceneShadowComponent(GroomSceneShadowComponent&&) noexcept = default;
+        GroomSceneShadowComponent& operator=(GroomSceneShadowComponent&&) noexcept = default;
+
+        auto operator==(const GroomSceneShadowComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomSceneShadowComponent) == 8,
+                  "GroomSceneShadowComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored width floor, sanitised. The ONE place this component's
+    /// field becomes renderer input, for the reason MakeGroomCoatLodPolicy
+    /// exists: OLO_SERIALIZE guards scene YAML and the deserialisers but NOT a
+    /// direct MCP or native write, and this is the boundary those cross on the
+    /// way to a DIVISOR in the shader's widening. A non-finite floor makes the
+    /// half width NaN and the coat vanishes from every shadow map with nothing
+    /// logged.
+    [[nodiscard]] inline f32 MakeGroomShadowWidthTexels(const GroomSceneShadowComponent& component) noexcept
+    {
+        if (!std::isfinite(component.m_ShadowWidthTexels) || component.m_ShadowWidthTexels < 0.0f)
+        {
+            return GroomSceneShadowComponent{}.m_ShadowWidthTexels;
+        }
+        return std::min(component.m_ShadowWidthTexels, 16.0f);
+    }
+
     /// The authored fields as GroomLod wants them. The ONE place the component
     /// becomes policy input, so the renderer, a test and the editor cannot each
     /// interpret the fields slightly differently — the same reason

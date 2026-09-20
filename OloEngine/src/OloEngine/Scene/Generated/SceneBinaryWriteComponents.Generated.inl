@@ -486,6 +486,15 @@ if (entity.HasComponent<GroomLodComponent>())
     SceneBinIO::Write(out, comp.m_Enabled);
 }
 
+if (entity.HasComponent<GroomSceneShadowComponent>())
+{
+    SceneBinIO::WriteU32(out, 774689478u); // GroomSceneShadowComponent
+    auto const& comp = entity.GetComponent<GroomSceneShadowComponent>();
+    SceneBinIO::Write(out, comp.m_ShadowWidthTexels);
+    SceneBinIO::Write(out, comp.m_CastShadows);
+    SceneBinIO::Write(out, comp.m_ReceiveShadows);
+}
+
 if (entity.HasComponent<GroomSimulationComponent>())
 {
     SceneBinIO::WriteU32(out, 3851266605u); // GroomSimulationComponent

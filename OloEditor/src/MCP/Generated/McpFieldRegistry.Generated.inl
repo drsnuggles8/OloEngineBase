@@ -485,6 +485,11 @@ registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "SimulationSteps", m_S
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "ShadowSteps", m_ShadowSteps, OLO_GFW_BOUND(0), OLO_GFW_BOUND(16)));
 registry.push_back(OLO_GFW_FIELD(GroomLodComponent, "Enabled", m_Enabled));
 
+// GroomSceneShadowComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomSceneShadowComponent, "ShadowWidthTexels", m_ShadowWidthTexels, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(16.0f)));
+registry.push_back(OLO_GFW_FIELD(GroomSceneShadowComponent, "CastShadows", m_CastShadows));
+registry.push_back(OLO_GFW_FIELD(GroomSceneShadowComponent, "ReceiveShadows", m_ReceiveShadows));
+
 // GroomSimulationComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomSimulationComponent, "Gravity", m_Gravity, OLO_GFW_BOUND(-1000.0f), OLO_GFW_BOUND(1000.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomSimulationComponent, "Stiffness", m_Stiffness, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(2000.0f)));
