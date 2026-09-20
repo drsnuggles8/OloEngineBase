@@ -85,8 +85,9 @@ permissions:
 
 concurrency:
   # Only workflow_dispatch and schedule reach this workflow, so cancelling a
-  # stale run is always safe — and important here, because a self-hosted runner
-  # has a fixed pool of one. A hung run must not block tomorrow's.
+  # stale run is always safe — and important here, because this job competes for
+  # a two-slot pool it no longer has a reservation in (see `runs-on` below). A
+  # hung OR QUEUED run must not block tomorrow's.
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
@@ -96,7 +97,40 @@ jobs:
     # Defence in depth: even though no fork-reachable trigger exists, refuse to
     # run if this workflow file ever executes outside the upstream repository.
     if: github.repository == 'drsnuggles8/OloEngineBase'
-    runs-on: [self-hosted, linux, x64, gpu-amd]
+    # `olo-ci`, NOT `gpu-amd`. The dedicated runner is retired (see below); this
+    # job now takes one of the two CI slots like every other self-hosted job.
+    #
+    # NO CAPABILITY IS LOST, and that is a fact about this host rather than a
+    # hope: `olo-gpu-amd`, `olo-ci-1` and `olo-ci-2` all run as the same Unix
+    # user, `gh-runner-olo`, which is in `video` and `render`, so all three can
+    # open /dev/dri/renderD128. docs/ops/self-hosted-host-hygiene.md §3 states it
+    # outright — "Labels, not hardware, keep CI off the GPU" — and
+    # gpu-sanitizers-amd.yml already runs GPU work on `olo-ci` for that reason.
+    # The preflight step below re-proves it per run by rejecting llvmpipe, so a
+    # host that ever stopped granting GPU access would fail loudly here rather
+    # than silently conform against a software rasteriser.
+    #
+    # WHY RETIRE IT: the three runners share ONE `MemoryMax=19G` account slice
+    # while each unit is capped at 14 GiB, so the box could dispatch three heavy
+    # jobs into a budget sized for two. That is not theoretical — it is why this
+    # job has failed every night since 2026-09-06: a `cc1plus` in this runner's
+    # cgroup was OOM-killed 15-20 minutes into "Build tests" on six consecutive
+    # nights, each time while asan.yml's 01:23 UTC nightly was building on the
+    # other two slots. Three runners in a two-job budget IS the bug; removing the
+    # third slot fixes it structurally, with no semaphore and no new mechanism.
+    #
+    # WHAT IT COSTS: this job can now queue behind a long CI job instead of
+    # starting the moment its cron fires. That is the right trade — it currently
+    # starts on time and then dies — but it is a real change, so the concurrency
+    # group above (cancel-in-progress) matters more than it did: a run still
+    # queued when tomorrow's fires is cancelled in favour of the newer one.
+    # There is 24 h of slack against a ~90 min run, so this should stay theatre;
+    # if it ever bites, that is the signal to give the nightly a wider window
+    # rather than to re-add a third runner.
+    #
+    # CI jobs cannot contend for the GPU while this runs: every sanitizer job
+    # passes `--olo-gl-backend=none` (asan.yml) and so never opens the device.
+    runs-on: [self-hosted, linux, x64, olo-ci]
     timeout-minutes: 120
 
     env:

@@ -11,7 +11,7 @@ and the Linux CI jobs in
 
 | Runner(s) | Labels | Serves |
 |---|---|---|
-| `olo-gpu-amd` | `self-hosted,Linux,X64,gpu-amd` | the nightly GPU conformance run, exclusively |
+| ~~`olo-gpu-amd`~~ | ~~`self-hosted,Linux,X64,gpu-amd`~~ | **RETIRED 2026-09-20.** Held no capability `olo-ci` lacks (same Unix user, same `video`/`render` groups, same `/dev/dri/renderD128`), while costing a third dispatch slot against an account slice sized for two heavy jobs. `gpu-conformance-amd.yml` now runs on `olo-ci`. Everything below is kept for the provisioning detail, which still describes how the GPU is reached; it is no longer a live runner. |
 | `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | by default **one** Linux sanitizer job — ASan + LSan, and only on a same-repo PR that trips the `native` paths filter; UBSan and TSan defaulted to hosted in [#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) and return here only via their rollback variable — plus `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job. Fork PRs and `force_hosted` dispatches never route here at all. |
 
 **The Linux sanitizer jobs run here with hosted parity** (#1015): every ctest-launched test

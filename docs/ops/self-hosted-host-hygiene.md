@@ -69,8 +69,18 @@ is scheduled when nothing else runs.
 
 ## 3. The runners share one host, one GPU and 31 GiB
 
-`olo-gpu-amd`, `olo-ci-1` and `olo-ci-2` all run as `gh-runner-olo`, which is in `video` and
-`render`, so all three can open `/dev/dri/renderD128`. Labels, not hardware, keep CI off the
+> **`olo-gpu-amd` was retired (2026-09-20) and the box now has TWO slots, not three.** It
+> held no capability the CI runners lack — the sentence below is why — so it was purely a
+> scheduling reservation, and one the memory budget could not afford: three units capped at
+> `MemoryMax=14G` each inside ONE `MemoryMax=19G` account slice let the box dispatch three
+> heavy jobs into a budget sized for two. `gpu-conformance-amd.yml` now requests `olo-ci`.
+> **Do not re-register a third runner on this account.** The slice is the constraint, and it
+> is per-account: adding a runner adds a dispatch slot without adding any memory, which is
+> exactly the state that OOM-killed the conformance nightly every night from 2026-09-06.
+
+
+`olo-ci-1` and `olo-ci-2` run as `gh-runner-olo`, which is in `video` and
+`render`, so both can open `/dev/dri/renderD128`. Labels, not hardware, keep CI off the
 GPU: a CI job that passes `--olo-gl-backend=none` (the sanitizer jobs) touches it never; one
 that passes `--olo-gl-backend=egl` (the GPU jobs) shares it with whatever else is running.
 Memory is the other shared budget: an instrumented compile is ~3 GB per translation unit and
