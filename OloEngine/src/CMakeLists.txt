@@ -264,6 +264,16 @@
 		# machine with no GPU.
 		"OloEngine/Groom/GroomCoat.h"
 		"OloEngine/Groom/GroomCoat.cpp"
+		# Guide simulation and body collision (#1250). Same rule as the coat
+		# above and for the same reason: the solver, the length contract and the
+		# guide-to-strand influence table are what the criterion-1 assertions are
+		# made against, so they must build and run with no renderer and no GPU.
+		"OloEngine/Groom/GroomGuideSimulation.h"
+		"OloEngine/Groom/GroomGuideSimulation.cpp"
+		"OloEngine/Groom/GroomGuideInfluence.h"
+		"OloEngine/Groom/GroomGuideInfluence.cpp"
+		"OloEngine/Groom/GroomBodyCollider.h"
+		"OloEngine/Groom/GroomBodyCollider.cpp"
 		# Build pipeline
 		"OloEngine/Build/GameBuildSettings.h"
 		"OloEngine/Build/GameBuildSettings.cpp"

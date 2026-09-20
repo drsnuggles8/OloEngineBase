@@ -21,6 +21,8 @@
 // GroomRootTransform / GroomHistoryResetCause are members of it rather than
 // pointers to it — so the complete type is needed here, not a declaration.
 #include "OloEngine/Groom/GroomDeformation.h"
+#include "OloEngine/Groom/GroomBodyCollider.h"
+#include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 // Scene builds the groom/target signatures itself to answer
 // GroomBindingAsset::CheckCompatibility before it deforms, so the builder is a
@@ -1451,6 +1453,161 @@ namespace OloEngine
             GroomBindingRejectReason m_LastReportedReject = GroomBindingRejectReason::None;
         };
         std::unordered_map<UUID, GroomBindingRuntimeState> m_GroomBindingRuntime;
+
+        // == Groom guide simulation runtime (issue #1250) ==
+        //
+        // Per-entity working state for a SIMULATED coat: the particles, the
+        // fixed-step accumulator, the fitted body proxy and the two frames of
+        // guide displacement the rendered coat interpolates from.
+        //
+        // KEYED BY UUID and held HERE rather than on GroomSimulationComponent,
+        // the same split m_GroomBindingRuntime and m_ClothRuntime make and for
+        // the same reason: this is per-frame working data, and keeping it out of
+        // the component is what lets the component stay trivially copyable,
+        // hole-free and automatically scene-serialized.
+        //
+        // SEPARATE FROM GroomBindingRuntimeState rather than folded into it,
+        // because the two have different lifetimes and different reset rules. A
+        // coat can be bound and not simulated (every #1249 scene is), and a
+        // binding refusal is not automatically a simulation reset -- the coat
+        // keeps its particles while a body finishes loading, and re-seeds only
+        // when the shape it is simulated AGAINST has actually changed.
+        struct GroomSimulationRuntimeState
+        {
+            GroomGuideSimulationState m_Solver;
+
+            /// The influence table's guide SLOTS this entity's budget selected,
+            /// in ascending slot order, and the inverse map the strand build
+            /// reads. Kept as a pair rather than re-derived per frame because
+            /// the strand build indexes the inverse one per strand per point.
+            std::vector<u32> m_SlotOfGuide; ///< guide index -> table slot
+            std::vector<u32> m_GuideOfSlot; ///< table slot -> guide index, or GroomNoGuide
+
+            /// The groomed rest shape of every simulated guide point, WORLD
+            /// space. Scratch, refilled every frame; held so a bound groom does
+            /// not allocate per frame.
+            std::vector<glm::vec3> m_Targets;
+
+            /// This frame's and last frame's OBJECT-space offset from that rest
+            /// shape. The pair is what makes a simulated coat's motion vectors
+            /// real: the previous position of a moving strand is not recoverable
+            /// from any matrix, exactly as #1249 found for the binding.
+            std::vector<glm::vec3> m_Displacements;
+            std::vector<glm::vec3> m_PrevDisplacements;
+
+            /// The fitted body proxy, in the body's REST object space, and this
+            /// frame's resolution of it into world space.
+            std::vector<GroomColliderBinding> m_ColliderBindings;
+            std::vector<GroomCollider> m_Colliders;
+            GroomColliderBuildStats m_ColliderStats;
+
+            /// The identity the fitted proxy was built against. The proxy is a
+            /// pure function of the surface, so it is re-fitted exactly when one
+            /// of these moves -- the same keys, and the same argument, as
+            /// GroomBindingRuntimeState::m_CachedVerdict.
+            UUID m_ProxyTarget = 0;
+            u64 m_ProxyGeneration = 0;
+            u32 m_ProxyVertexCount = 0;
+            u32 m_ProxyBoneCount = 0;
+            bool m_HasProxy = false;
+
+            /// The groom the guide budget was selected for, and the budget it
+            /// was selected with. A budget change re-selects; nothing else does,
+            /// because re-selecting hands the solver a different particle set
+            /// and re-seeds it.
+            AssetHandle m_BudgetGroom = 0;
+            u32 m_BudgetByRole[GroomCoatRoleCount]{};
+
+            /// The last m_ResetKey this entity was seen with. A CHANGE is the
+            /// reset; comparing rather than clearing is what makes the control
+            /// work identically from the inspector, a script, a save game and an
+            /// MCP write -- see GroomSimulationComponent::m_ResetKey.
+            u32 m_ResetKey = 0;
+            bool m_HasResetKey = false;
+
+            /// The GROOM entity's world position last frame, for the teleport
+            /// test. The groom's and not the body's, because this solver runs in
+            /// WORLD space: it is the coat's own motion through the level that
+            /// the particles have inertia against.
+            glm::vec3 m_WorldPosition{ 0.0f };
+
+            /// False when this frame's previous displacements are not
+            /// comparable. Distinct from the binding's history: a coat whose
+            /// binding is fine can still have had its particles re-seeded.
+            bool m_HasHistory = false;
+            GroomHistoryResetCause m_ResetCause = GroomHistoryResetCause::FirstUse;
+        };
+        std::unordered_map<UUID, GroomSimulationRuntimeState> m_GroomSimulationRuntime;
+
+        // The guide-to-strand influence table, keyed by GROOM ASSET HANDLE and
+        // invalidated by the asset's identity, exactly as m_GroomRegionMaps is
+        // keyed and invalidated -- and for the same reason: a hot-reload or a
+        // re-cook hands the asset manager a NEW GroomAsset under the same
+        // handle, so a handle-only key would serve a table describing the
+        // previous groom's guides forever.
+        //
+        // The table is a pure function of the asset and costs one pass over the
+        // curves, so it is built once and shared by every entity wearing that
+        // groom. See GroomGuideInfluence.h for why it is derived at runtime
+        // rather than cooked.
+        struct GroomGuideInfluenceCacheEntry
+        {
+            Ref<GroomAsset> m_Source;
+            Ref<GroomGuideInfluenceTable> m_Table;
+        };
+        std::unordered_map<AssetHandle, GroomGuideInfluenceCacheEntry> m_GroomGuideInfluence;
+
+        /// The influence table for `groom`, built on first use and cached.
+        /// Never null.
+        [[nodiscard]] Ref<GroomGuideInfluenceTable> ResolveGroomGuideInfluence(AssetHandle handle,
+                                                                               const Ref<GroomAsset>& groom);
+
+        /// Choose which of the asset's guides this entity will simulate, and
+        /// APPEND their curve indices to `selectedCurves`.
+        ///
+        /// The append is the load-bearing part. A guide the strand budget did
+        /// not select has no deformed root transform, so simulating it would
+        /// solve against the BIND POSE while the body moves -- a coat that
+        /// lags its own animal by a whole animation. Widening the deformer's
+        /// selection is what makes the guides and the strands agree about which
+        /// pose they are in.
+        ///
+        /// Returns false when this entity is not simulated at all, in which case
+        /// `selectedCurves` is untouched and the frame costs exactly what it did
+        /// before this issue.
+        [[nodiscard]] bool SelectGroomSimulationGuides(Entity groomEntity, const GroomAsset& groom,
+                                                       const GroomCoatContext& coat,
+                                                       const GroomStrandRequest& request,
+                                                       std::vector<u32>& selectedCurves);
+
+        /// Step this entity's guide simulation and fill in `request`'s
+        /// simulation half. Called from DeformGroomAgainstSurface, AFTER the
+        /// root transforms exist and BEFORE they are swapped into the request,
+        /// because the guides' targets are derived from them.
+        ///
+        /// Leaves the request UN-SIMULATED on every refusal, which draws the
+        /// groomed rest coat -- visibly still, and therefore diagnosable, rather
+        /// than a coat moving with somebody else's particles.
+        void SimulateGroomGuides(Entity groomEntity, const GroomAsset& groom, const GroomBindingAsset& binding,
+                                 const GroomCoatContext& coat, const GroomSurfaceView& surface,
+                                 const GroomSkinningView& skinning, const glm::mat4& surfaceToGroom,
+                                 UUID targetId, u64 targetGeneration,
+                                 std::span<const GroomRootTransform> transforms, bool bindingHasHistory,
+                                 GroomStrandRequest& request);
+
+        /// Drop every simulated groom's particles, attributing the cause. The
+        /// simulation twin of ResetGroomBindingHistory, called from the same
+        /// places for the same reason.
+        void ResetGroomSimulation(GroomHistoryResetCause cause);
+
+        /// Seconds the guide simulation should advance by this frame.
+        ///
+        /// ZERO IN EDIT MODE and zero while paused, both deliberately. A scene
+        /// must not change just from being open -- the rule
+        /// TimeOfDayComponent::m_AdvanceInEditMode states for the clock -- and a
+        /// paused frame must hold the pose it paused on, which is the
+        /// pause/resume half of the issue's criterion 1.
+        f32 m_GroomSimulationDeltaSeconds = 0.0f;
 
         // ── Coat authoring: the CPU copy of a root-UV map (issue #1251) ──
         //

@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Groom/GroomCoat.h"
+#include "OloEngine/Groom/GroomGuideSimulation.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -6429,6 +6430,276 @@ namespace OloEngine
                                       GroomCoatLimits::MaxClumpCellSize, 0.03f);
         settings.Seed = component.m_VariationSeed;
         return settings;
+    }
+
+    // == Groom guide simulation and body collision (issue #1250) ==
+    //
+    // Moves a coat. A GroomComponent alone renders the shape the groom was
+    // cooked with; a GroomBindingComponent (#1249) carries that shape on a
+    // deforming body; this adds INERTIA and BODY COLLISION on top of both, by
+    // simulating the groom's guide curves and interpolating the rendered coat
+    // from them (Groom/GroomGuideSimulation.h, Groom/GroomGuideInfluence.h).
+    //
+    // A SEPARATE COMPONENT, for the three reasons GroomBindingComponent lists
+    // and one more that is specific to this: simulation is the only groom
+    // feature whose cost is paid every frame whether or not the camera moves,
+    // so its ABSENCE has to mean "this coat is free", and a component that is
+    // always present but usually inert cannot say that.
+    //
+    // Runtime state -- the particles, the accumulator, the fitted body proxy --
+    // lives in Scene keyed by UUID, NOT here, exactly as the binding's does:
+    // it is per-frame working data, and keeping it out is what lets this stay
+    // trivially copyable, hole-free and automatically serialized.
+    //
+    // Not annotated OLO_PROPERTY and deliberately NOT registered in
+    // LuaScriptGlue, the same decision GroomComponent and GroomBindingComponent
+    // made. What a coat is groomed and simulated like is authoring state; a
+    // script that wants a different coat wants a different entity. The one thing
+    // a script would legitimately want -- "reset this coat now" -- is
+    // m_ResetKey, which is a plain u32 and needs no glue to be useful from a
+    // save game, an MCP write or the inspector. Stated as a decision rather than
+    // left as an omission, because the next reader's question is "was this
+    // forgotten?".
+    struct GroomSimulationComponent
+    {
+        // Members ordered 8-byte, 4-byte, 1-byte so the layout has no alignment
+        // holes (issue #1019): operator== below is a whole-object memcmp.
+
+        /// WORLD-space acceleration on every guide particle. Authored rather
+        /// than taken from the physics scene: a coat is a look, it is routinely
+        /// tuned away from 9.81 to make fur read at a given scale, and reaching
+        /// into JoltScene from here would make a groom's appearance depend on
+        /// whether the scene has a physics world at all.
+        OLO_SERIALIZE(Clamp, Min = -1000.0f, Max = 1000.0f)
+        glm::vec3 m_Gravity{ 0.0f, -9.81f, 0.0f };
+
+        /// Acceleration back toward the GROOMED rest shape, per unit of offset.
+        /// This is the difference between fur and hair: high holds the groom and
+        /// only trembles, zero hangs off the body like wet rope.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 2000.0f)
+        f32 m_Stiffness = 90.0f;
+
+        /// Velocity damping rate, 1/s.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 60.0f)
+        f32 m_Damping = 6.0f;
+
+        /// How much of the momentum the length projection removes is handed
+        /// back. Zero degenerates DynamicFollowTheLeader into FollowTheLeader,
+        /// which is why the two are one code path; one rings.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_VelocityCorrection = 0.85f;
+
+        /// The fixed step, in Hz. The coat is integrated at THIS rate whatever
+        /// the frame rate is, which is the whole of criterion 1's "across
+        /// variable frame rate" -- see GroomGuideSimulation.h.
+        OLO_SERIALIZE(Clamp, Min = 15.0f, Max = 480.0f)
+        f32 m_FixedHz = 60.0f;
+
+        /// The DECLARED length tolerance, as a fraction of rest length. A
+        /// contract, not a quality slider: the stats report the measured worst
+        /// case against it and GroomGuideSimulationTest fails when the
+        /// measurement exceeds it.
+        OLO_SERIALIZE(Clamp, Min = 0.0001f, Max = 0.5f)
+        f32 m_StretchTolerance = 0.01f;
+
+        /// World-space distance the BODY may move in one frame before the frame
+        /// is a cut rather than motion. On a cut the coat is re-seeded at its
+        /// groomed shape -- it must not be dragged across the level by its own
+        /// length constraint.
+        OLO_SERIALIZE(Clamp, Min = 0.001f, Max = 1000000.0f)
+        f32 m_TeleportDistance = 1.0f;
+
+        /// Multiplies every fitted capsule's radius. The authoring lever that
+        /// stands in for a hand-placed proxy rig -- see GroomBodyCollider.h.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_ColliderRadiusScale = 1.0f;
+
+        /// World-space shell a strand is additionally held off the body by. The
+        /// solver enforces length AFTER penetration, so this is what buys back
+        /// the fraction of a segment a particle may end a step inside the proxy.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1000.0f)
+        f32 m_ColliderPadding = 0.0f;
+
+        /// Tangential velocity retained on contact. 0 is fur sticking to skin,
+        /// 1 is frictionless slide.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ColliderFriction = 0.35f;
+
+        /// The catch-up bound. Arrears past MaxSubsteps * (1/FixedHz) are
+        /// DROPPED and reported, never integrated.
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 8)
+        u32 m_MaxSubsteps = 4;
+
+        /// PositionBasedDistance only.
+        OLO_SERIALIZE(Clamp, Min = 1, Max = 16)
+        u32 m_Iterations = 4;
+
+        // == Per-group simulation budgets (criterion 4) ==
+        //
+        // PER ROLE, not per group id, and five named fields rather than an
+        // array. Per role because that is how the coat is already authored
+        // (GroomCoat.h assigns every group a role, and every other per-group
+        // budget in this subsystem is spent per role); named fields because no
+        // component in this engine has an array member and the generated scene
+        // YAML, save-game and MCP field registry all read a named field with no
+        // special case.
+        //
+        // The budget is a STRIDE over the role's guides, never the first N --
+        // the same rule the strand budget follows, and for the same reason:
+        // taking the first N takes one end of the pelt and leaves the other side
+        // of the animal unsimulated, which reads as a broken binding.
+        //
+        // Whiskers default LOW and guard hair HIGH on purpose. There are a dozen
+        // whiskers and they are individually readable, so they need no
+        // decimation; guard hair makes the silhouette, which is the thing motion
+        // is actually seen in.
+
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 65536)
+        u32 m_MaxGuidesUnassigned = 256;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 65536)
+        u32 m_MaxGuidesUndercoat = 128;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 65536)
+        u32 m_MaxGuidesGuardHair = 512;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 65536)
+        u32 m_MaxGuidesWhisker = 64;
+        OLO_SERIALIZE(Clamp, Min = 0, Max = 65536)
+        u32 m_MaxGuidesLongHair = 512;
+
+        /// The RESET CONTROL (criterion 4). Bump it -- from the inspector, a
+        /// script, a save game or an MCP write -- and the next frame re-seeds
+        /// the coat at its groomed shape and emits zero motion.
+        ///
+        /// A COUNTER, not a bool the scene clears. A bool would make the reset a
+        /// mutation of a component the tick is meant to read, it would be lost
+        /// on a save/load between the set and the consume, and two systems
+        /// asking for a reset on one frame would race to clear it. Comparing
+        /// against a stored copy has none of those problems and costs one u32.
+        u32 m_ResetKey = 0;
+
+        /// GroomSolverModel. Stored as a u8 rather than as the enum so the
+        /// component keeps its pinned, hole-free, trivially-copyable layout.
+        ///
+        /// REJECT, not Clamp: this is a discriminated model index, so saturating
+        /// turns a corrupt value into a DIFFERENT valid solver -- the case
+        /// ComponentReflection.h names, and the case GroomComponent's
+        /// m_CompositionMode was already bitten by.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 2)
+        u8 m_Model = static_cast<u8>(GroomSolverModel::DynamicFollowTheLeader);
+
+        /// GroomSimulationDebugView. Reject for the same reason.
+        OLO_SERIALIZE(Reject, Min = 0, Max = 3)
+        u8 m_DebugView = static_cast<u8>(GroomSimulationDebugView::None);
+
+        /// Simulate at all. Off draws exactly the coat #1251 drew, which is what
+        /// makes every capture those issues committed still mean what it meant.
+        bool m_Enabled = true;
+
+        /// Collide against the fitted body proxy. Off is a coat with inertia and
+        /// no body, which is a legitimate authoring choice for a short pelt that
+        /// never leaves the surface and a useful A/B when diagnosing a proxy.
+        bool m_Collide = true;
+
+        GroomSimulationComponent() = default;
+        GroomSimulationComponent(const GroomSimulationComponent&) = default;
+        GroomSimulationComponent& operator=(const GroomSimulationComponent&) = default;
+        GroomSimulationComponent(GroomSimulationComponent&&) noexcept = default;
+        GroomSimulationComponent& operator=(GroomSimulationComponent&&) noexcept = default;
+
+        auto operator==(const GroomSimulationComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomSimulationComponent) == 84,
+                  "GroomSimulationComponent must have no padding: see BitwiseEqualLayoutTest");
+
+    /// The authored fields as the solver wants them.
+    ///
+    /// THE ONE PLACE this component becomes solver input, so scene YAML, a save
+    /// game, an MCP write and a native write cannot each interpret it slightly
+    /// differently -- the same boundary MakeGroomCoatSettings is, and the same
+    /// reason: OLO_SERIALIZE guards the deserialisers and guards nothing else,
+    /// and these values reach an integrator that runs sixty times a second.
+    [[nodiscard]] inline GroomSimulationParams MakeGroomSimulationParams(
+        const GroomSimulationComponent& component) noexcept
+    {
+        // Finiteness BEFORE the clamp: std::clamp(NaN, lo, hi) is NaN, so a
+        // clamp alone lets one through to the integrator, and one NaN particle
+        // poisons every strand that interpolates from its guide.
+        const auto sane = [](f32 value, f32 lo, f32 hi, f32 fallback)
+        { return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback; };
+
+        GroomSimulationParams params;
+        params.Gravity =
+            Math::IsFinite(component.m_Gravity) ? component.m_Gravity : glm::vec3(0.0f, -9.81f, 0.0f);
+        params.Stiffness = sane(component.m_Stiffness, GroomSimulationLimits::MinStiffness,
+                                GroomSimulationLimits::MaxStiffness, 90.0f);
+        params.Damping = sane(component.m_Damping, GroomSimulationLimits::MinDamping,
+                              GroomSimulationLimits::MaxDamping, 6.0f);
+        params.VelocityCorrection =
+            sane(component.m_VelocityCorrection, GroomSimulationLimits::MinVelocityCorrection,
+                 GroomSimulationLimits::MaxVelocityCorrection, 0.85f);
+        params.FixedHz = sane(component.m_FixedHz, GroomSimulationLimits::MinFixedHz,
+                              GroomSimulationLimits::MaxFixedHz, 60.0f);
+        params.StretchTolerance =
+            sane(component.m_StretchTolerance, GroomSimulationLimits::MinStretchTolerance,
+                 GroomSimulationLimits::MaxStretchTolerance, GroomSimulationLimits::DefaultStretchTolerance);
+        params.ColliderPadding = sane(component.m_ColliderPadding, 0.0f, GroomSimulationLimits::MaxPadding, 0.0f);
+        params.ColliderFriction = sane(component.m_ColliderFriction, GroomSimulationLimits::MinFriction,
+                                       GroomSimulationLimits::MaxFriction, 0.35f);
+        params.MaxSubsteps = std::clamp(component.m_MaxSubsteps, GroomSimulationLimits::MinSubsteps,
+                                        GroomSimulationLimits::MaxSubsteps);
+        params.Iterations = std::clamp(component.m_Iterations, GroomSimulationLimits::MinIterations,
+                                       GroomSimulationLimits::MaxIterations);
+        // REJECT to the default. Saturating a corrupt index would select a
+        // different VALID solver, which is a coat that is silently simulated by
+        // something nobody chose.
+        params.Model = IsValidGroomSolverModel(static_cast<i32>(component.m_Model))
+                           ? static_cast<GroomSolverModel>(component.m_Model)
+                           : GroomSolverModel::DynamicFollowTheLeader;
+        params.CollisionEnabled = component.m_Collide;
+        return params;
+    }
+
+    /// The guide budget this component authorises for `role`.
+    ///
+    /// A function rather than five reads at the call site, so the mapping from
+    /// role to field exists exactly once and a role added to GroomCoatRole later
+    /// fails to compile here rather than silently taking the Unassigned budget
+    /// everywhere.
+    /// The authored collider radius scale, sanitised.
+    ///
+    /// Separate from MakeGroomSimulationParams because it is consumed at a
+    /// different place: ResolveGroomBodyColliders bakes it into the world-space
+    /// capsule, and the solver then sees a capsule that is already the right
+    /// size. One application, one place -- see GroomSimulationParams.
+    [[nodiscard]] inline f32 MakeGroomColliderRadiusScale(const GroomSimulationComponent& component) noexcept
+    {
+        return std::isfinite(component.m_ColliderRadiusScale)
+                   ? std::clamp(component.m_ColliderRadiusScale, GroomSimulationLimits::MinRadiusScale,
+                                GroomSimulationLimits::MaxRadiusScale)
+                   : 1.0f;
+    }
+
+    [[nodiscard]] inline u32 GroomGuideBudgetForRole(const GroomSimulationComponent& component,
+                                                     GroomCoatRole role) noexcept
+    {
+        switch (role)
+        {
+            case GroomCoatRole::Unassigned:
+                return component.m_MaxGuidesUnassigned;
+            case GroomCoatRole::Undercoat:
+                return component.m_MaxGuidesUndercoat;
+            case GroomCoatRole::GuardHair:
+                return component.m_MaxGuidesGuardHair;
+            case GroomCoatRole::Whisker:
+                return component.m_MaxGuidesWhisker;
+            case GroomCoatRole::LongHair:
+                return component.m_MaxGuidesLongHair;
+            case GroomCoatRole::Count:
+                break;
+        }
+        return 0u;
     }
 
     // ── GPU Fluid Simulation (Position-Based Fluids, issue #630) ─────────

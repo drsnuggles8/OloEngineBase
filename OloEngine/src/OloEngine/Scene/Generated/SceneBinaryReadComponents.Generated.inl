@@ -640,6 +640,60 @@ case 2500729774u: // GroomFibreComponent
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     break;
 }
+case 3851266605u: // GroomSimulationComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Gravity)) return false;
+    comp.m_Gravity = glm::clamp(comp.m_Gravity, glm::vec3(-1000.0f), glm::vec3(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Stiffness)) return false;
+    comp.m_Stiffness = std::clamp(comp.m_Stiffness, static_cast<f32>(0.0f), static_cast<f32>(2000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Damping)) return false;
+    comp.m_Damping = std::clamp(comp.m_Damping, static_cast<f32>(0.0f), static_cast<f32>(60.0f));
+    if (!SceneBinIO::Read(reader, comp.m_VelocityCorrection)) return false;
+    comp.m_VelocityCorrection = std::clamp(comp.m_VelocityCorrection, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_FixedHz)) return false;
+    comp.m_FixedHz = std::clamp(comp.m_FixedHz, static_cast<f32>(15.0f), static_cast<f32>(480.0f));
+    if (!SceneBinIO::Read(reader, comp.m_StretchTolerance)) return false;
+    comp.m_StretchTolerance = std::clamp(comp.m_StretchTolerance, static_cast<f32>(0.0001f), static_cast<f32>(0.5f));
+    if (!SceneBinIO::Read(reader, comp.m_TeleportDistance)) return false;
+    comp.m_TeleportDistance = std::clamp(comp.m_TeleportDistance, static_cast<f32>(0.001f), static_cast<f32>(1000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ColliderRadiusScale)) return false;
+    comp.m_ColliderRadiusScale = std::clamp(comp.m_ColliderRadiusScale, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ColliderPadding)) return false;
+    comp.m_ColliderPadding = std::clamp(comp.m_ColliderPadding, static_cast<f32>(0.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ColliderFriction)) return false;
+    comp.m_ColliderFriction = std::clamp(comp.m_ColliderFriction, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxSubsteps)) return false;
+    comp.m_MaxSubsteps = std::clamp(comp.m_MaxSubsteps, static_cast<u32>(1), static_cast<u32>(8));
+    if (!SceneBinIO::Read(reader, comp.m_Iterations)) return false;
+    comp.m_Iterations = std::clamp(comp.m_Iterations, static_cast<u32>(1), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_MaxGuidesUnassigned)) return false;
+    comp.m_MaxGuidesUnassigned = std::clamp(comp.m_MaxGuidesUnassigned, static_cast<u32>(0), static_cast<u32>(65536));
+    if (!SceneBinIO::Read(reader, comp.m_MaxGuidesUndercoat)) return false;
+    comp.m_MaxGuidesUndercoat = std::clamp(comp.m_MaxGuidesUndercoat, static_cast<u32>(0), static_cast<u32>(65536));
+    if (!SceneBinIO::Read(reader, comp.m_MaxGuidesGuardHair)) return false;
+    comp.m_MaxGuidesGuardHair = std::clamp(comp.m_MaxGuidesGuardHair, static_cast<u32>(0), static_cast<u32>(65536));
+    if (!SceneBinIO::Read(reader, comp.m_MaxGuidesWhisker)) return false;
+    comp.m_MaxGuidesWhisker = std::clamp(comp.m_MaxGuidesWhisker, static_cast<u32>(0), static_cast<u32>(65536));
+    if (!SceneBinIO::Read(reader, comp.m_MaxGuidesLongHair)) return false;
+    comp.m_MaxGuidesLongHair = std::clamp(comp.m_MaxGuidesLongHair, static_cast<u32>(0), static_cast<u32>(65536));
+    if (!SceneBinIO::Read(reader, comp.m_ResetKey)) return false;
+    {
+        decltype(comp.m_Model) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_Model)>(0) && v <= static_cast<decltype(comp.m_Model)>(2))
+            comp.m_Model = v;
+    }
+    {
+        decltype(comp.m_DebugView) v{};
+        if (!SceneBinIO::Read(reader, v)) return false;
+        if (v >= static_cast<decltype(comp.m_DebugView)>(0) && v <= static_cast<decltype(comp.m_DebugView)>(3))
+            comp.m_DebugView = v;
+    }
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Collide)) return false;
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

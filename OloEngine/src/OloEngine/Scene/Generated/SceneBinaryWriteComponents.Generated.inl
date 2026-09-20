@@ -468,6 +468,34 @@ if (entity.HasComponent<GroomFibreComponent>())
     SceneBinIO::Write(out, comp.m_Enabled);
 }
 
+if (entity.HasComponent<GroomSimulationComponent>())
+{
+    SceneBinIO::WriteU32(out, 3851266605u); // GroomSimulationComponent
+    auto const& comp = entity.GetComponent<GroomSimulationComponent>();
+    SceneBinIO::Write(out, comp.m_Gravity);
+    SceneBinIO::Write(out, comp.m_Stiffness);
+    SceneBinIO::Write(out, comp.m_Damping);
+    SceneBinIO::Write(out, comp.m_VelocityCorrection);
+    SceneBinIO::Write(out, comp.m_FixedHz);
+    SceneBinIO::Write(out, comp.m_StretchTolerance);
+    SceneBinIO::Write(out, comp.m_TeleportDistance);
+    SceneBinIO::Write(out, comp.m_ColliderRadiusScale);
+    SceneBinIO::Write(out, comp.m_ColliderPadding);
+    SceneBinIO::Write(out, comp.m_ColliderFriction);
+    SceneBinIO::Write(out, comp.m_MaxSubsteps);
+    SceneBinIO::Write(out, comp.m_Iterations);
+    SceneBinIO::Write(out, comp.m_MaxGuidesUnassigned);
+    SceneBinIO::Write(out, comp.m_MaxGuidesUndercoat);
+    SceneBinIO::Write(out, comp.m_MaxGuidesGuardHair);
+    SceneBinIO::Write(out, comp.m_MaxGuidesWhisker);
+    SceneBinIO::Write(out, comp.m_MaxGuidesLongHair);
+    SceneBinIO::Write(out, comp.m_ResetKey);
+    SceneBinIO::Write(out, comp.m_Model);
+    SceneBinIO::Write(out, comp.m_DebugView);
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_Collide);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent

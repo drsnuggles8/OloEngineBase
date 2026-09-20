@@ -439,7 +439,8 @@ namespace OloEngine
 
     GroomStrandMeshStats BuildGroomStrandMesh(const GroomAsset& groom, const GroomStrandBuildSettings& settings,
                                               std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
-                                              const GroomStrandDeformation* deformation, const GroomCoatContext* coat)
+                                              const GroomStrandDeformation* deformation, const GroomCoatContext* coat,
+                                              const GroomStrandSimulation* simulation)
     {
         outVertices.clear();
         outIndices.clear();
@@ -450,6 +451,12 @@ namespace OloEngine
         // the bind pose, and the caller already counted the refusal that got it
         // here (GroomBindingRejectReason).
         const bool deformed = deformation != nullptr && deformation->IsUsable(groom.GetCurveCount());
+
+        // Same rule, and for the same reason: a simulation that does not span
+        // this groom is ABSENT rather than partially applied. Half a moving coat
+        // is the plausible wrong image; a still one is visibly at its groomed
+        // rest shape, and the stats below say how many strands that is.
+        const bool simulated = simulation != nullptr && simulation->IsUsable(groom.GetCurveCount());
 
         GroomStrandMeshStats stats;
         const Selection selection = SelectCurves(groom, settings, coat);
@@ -559,10 +566,40 @@ namespace OloEngine
                                            curveCoat.Params.Clump, clumpGrowth);
             };
 
-            const auto place = [&](const glm::vec3& restPoint, bool previous)
+            // The guide simulation's displacement, if this strand has one. Read
+            // ONCE per curve rather than per point: the weights are a property of
+            // the strand, and the per-point part is the parameter `t` below.
+            bool curveSimulated = false;
+            if (simulated)
             {
-                return transform != nullptr ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
-                                            : restPoint;
+                // A strand counts as simulated when it names at least one guide
+                // that this frame's budget actually moved — a predicate, never a
+                // comparison of a displacement against zero.
+                curveSimulated = HasGroomGuideInfluence(*simulation, curve);
+                if (curveSimulated)
+                {
+                    ++stats.StrandsSimulated;
+                }
+                else
+                {
+                    ++stats.StrandsUnguided;
+                }
+            }
+
+            const auto place = [&](const glm::vec3& restPoint, f32 t, bool previous)
+            {
+                glm::vec3 placed = transform != nullptr
+                                       ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
+                                       : restPoint;
+                // ADDED TO the deformed rest position, never substituted for it.
+                // The displacement is measured from that same position, so a
+                // guide at rest contributes exactly zero and the coat is the one
+                // #1251 built.
+                if (curveSimulated)
+                {
+                    placed += SampleGroomGuideDisplacement(*simulation, curve, t, previous);
+                }
+                return placed;
             };
 
             for (u32 i = 0; i + 1u < count; ++i)
@@ -586,10 +623,15 @@ namespace OloEngine
                 // they were before #1249 and #1251.
                 const glm::vec3 rest0 = shape(i);
                 const glm::vec3 rest1 = shape(i + 1u);
-                const glm::vec3 p0 = place(rest0, false);
-                const glm::vec3 p1 = place(rest1, false);
-                const glm::vec3 prev0 = place(rest0, true);
-                const glm::vec3 prev1 = place(rest1, true);
+                // The SAME parameter the coat's shape term uses, so the guide
+                // sample and the length multiplier agree about where this point
+                // sits along the strand.
+                const f32 t0 = static_cast<f32>(i) * invSpan;
+                const f32 t1 = static_cast<f32>(i + 1u) * invSpan;
+                const glm::vec3 p0 = place(rest0, t0, false);
+                const glm::vec3 p1 = place(rest1, t1, false);
+                const glm::vec3 prev0 = place(rest0, t0, true);
+                const glm::vec3 prev1 = place(rest1, t1, true);
                 // Stored the same way for every corner of the quad so the
                 // vertex shader derives ONE screen-space tangent per segment.
                 // See GroomStrandVertex::Other for what goes wrong otherwise.

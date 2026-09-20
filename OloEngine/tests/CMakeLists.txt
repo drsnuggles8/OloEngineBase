@@ -123,6 +123,13 @@ add_executable(OloEngine-Tests
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
 		Groom/GroomDeformationTest.cpp
+		# Guide simulation and body collision (#1250). The length/rest-shape
+		# contract across frame rate, pause/resume and teleport; the fitted body
+		# proxy; and the guide-to-strand interpolation that turns a few hundred
+		# simulated guides into a moving coat.
+		Groom/GroomGuideSimulationTest.cpp
+		Groom/GroomGuideInfluenceTest.cpp
+		Groom/GroomBodyColliderTest.cpp
 		ComponentSerializerCoverageTest.cpp
 		ComponentTupleCoverageTest.cpp
 		ComponentHandlerCoverageTest.cpp
@@ -647,6 +654,7 @@ add_executable(OloEngine-Tests
 		# rebuild counters that answer criterion 4 as a number rather than a look.
 		Rendering/PropertyTests/GroomCoatShadowVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).

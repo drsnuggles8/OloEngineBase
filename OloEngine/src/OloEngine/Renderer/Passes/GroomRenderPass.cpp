@@ -285,8 +285,21 @@ namespace OloEngine
         // holds. It is a view — a span over the asset's own table and a pointer
         // to the request's settings — so nothing is copied per build.
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-        const GroomStrandMeshStats stats = BuildGroomStrandMesh(
-            *request.Groom, request.Build, vertices, indices, deformed ? &deformation : nullptr, &coat);
+        // The guide simulation (#1250), assembled at the point of use for the
+        // reason the coat context is: the request is MOVED into the frame's
+        // request vector, so a span stored beside it would have dangled the
+        // moment that vector reallocated. See GroomStrandRequest::Simulation.
+        //
+        // NO CACHE-KEY CHANGE IS NEEDED for it, and that is a consequence rather
+        // than an omission: a simulated groom is always a BOUND one (Scene steps
+        // the solver inside DeformGroomAgainstSurface, against the root
+        // transforms), so IsDeformed is already true, the entry is already keyed
+        // per entity and it is already rebuilt and refilled every frame.
+        const GroomStrandSimulation simulation = request.Simulation();
+        const GroomStrandMeshStats stats =
+            BuildGroomStrandMesh(*request.Groom, request.Build, vertices, indices,
+                                 deformed ? &deformation : nullptr, &coat,
+                                 simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
         if (vertices.empty() || indices.empty())
         {
             // An empty groom is not an error — a guides-only view of a groom
@@ -860,6 +873,39 @@ namespace OloEngine
                 }
             }
 
+            // The guide simulation (#1250), counted HERE and for the same
+            // reason the binding is: a coat whose solver refused produced no
+            // geometry, and a counter that means "this coat is not moving"
+            // must not read zero on exactly the frames it matters.
+            if (request.Influence)
+            {
+                const GroomSimulationStats& simulation = request.SimulationStats;
+                ++m_Stats.GroomsSimulated;
+                m_Stats.GuidesSimulated += simulation.GuidesSimulated;
+                m_Stats.GuidePointsSimulated += simulation.PointsSimulated;
+                m_Stats.SimulationContacts += simulation.ContactsResolved;
+                m_Stats.GuidesWithHeldRoots += simulation.GuidesWithHeldRoots;
+                m_Stats.SimulationSteps += simulation.StepsTaken;
+                m_Stats.SimulationStepsClamped =
+                    m_Stats.SimulationStepsClamped || simulation.StepsClamped;
+                if (simulation.Reseeded)
+                {
+                    ++m_Stats.SimulationReseeds;
+                }
+                // The WORST over every groom, and the TIGHTEST tolerance any of
+                // them declared: one coat out of contract must not be averaged
+                // away by nine that are in it.
+                if (std::abs(simulation.MaxStretchRatio - 1.0f) >
+                    std::abs(m_Stats.WorstStretchRatio - 1.0f))
+                {
+                    m_Stats.WorstStretchRatio = simulation.MaxStretchRatio;
+                }
+                m_Stats.WorstRestDeviation =
+                    std::max(m_Stats.WorstRestDeviation, simulation.MaxRestDeviation);
+                m_Stats.DeclaredStretchTolerance =
+                    std::min(m_Stats.DeclaredStretchTolerance, request.SimulationStretchTolerance);
+            }
+
             CacheEntry* entry = AcquireGeometry(request);
             if (entry == nullptr || !entry->Array)
             {
@@ -873,6 +919,11 @@ namespace OloEngine
             const GroomCoatShadowDecision coatDecision =
                 AcquireCoatVolume(request, *entry, residentCoatVolumes);
             m_Stats.CoatShadow.Record(coatDecision);
+            // From the BUILD, not from the request: the interpolation happens
+            // inside BuildGroomStrandMesh, so it is the only place that knows
+            // how many strands actually took a guide displacement (#1250).
+            m_Stats.StrandsSimulated += entry->Stats.StrandsSimulated;
+            m_Stats.StrandsUnguided += entry->Stats.StrandsUnguided;
             const bool coatActive =
                 coatDecision.Effective != GroomCoatShadowTechnique::None && entry->CoatVolume != nullptr;
             if (coatActive)

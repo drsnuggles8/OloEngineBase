@@ -861,6 +861,11 @@ namespace OloEngine
         // removed after it was last deformed — which is precisely when the
         // state is stale (#1249).
         m_GroomBindingRuntime.erase(entityUUID);
+        // The same for the simulation's particles, and for the same reason at a
+        // larger scale: a simulated coat holds two frames of displacement plus a
+        // solver state plus a fitted body proxy, which on a long-coated animal is
+        // more memory than the transforms (#1250).
+        m_GroomSimulationRuntime.erase(entityUUID);
 
         // Release the crowd agent slot (issue #616) — m_Registry.destroy() below
         // doesn't fire OnComponentRemoved<NavAgentComponent>, so without this an
@@ -1483,6 +1488,7 @@ namespace OloEngine
         // velocity measured against them is a jump across the session boundary
         // and TAA smears the whole coat on the first runtime frame (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+        ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
 
         // Item definitions are runtime data, not an editor-only cache. Loading
         // them at the shared Scene entry point covers Editor Play, OloRuntime,
@@ -1837,6 +1843,7 @@ namespace OloEngine
         // other side: the coat that is about to be drawn is the edit-mode one
         // and the positions held describe the runtime pose (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+        ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
 
         // Unified diagnostics timeline (#306): the authoritative "left Play mode"
         // fire. Recorded up front, while the scene is still intact. Teardown below tears
@@ -2007,6 +2014,7 @@ namespace OloEngine
     {
         // Same discontinuity as OnRuntimeStart (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+        ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
 
         // Same reset as OnRuntimeStart — simulation mode also re-baselines the
         // animation clock so first-frame velocity reprojection isn't bogus, and
@@ -2063,6 +2071,7 @@ namespace OloEngine
     {
         // Same discontinuity as OnRuntimeStop (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
+        ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
 
         OnPhysics2DStop();
         OnPhysics3DStop();
@@ -2668,6 +2677,9 @@ namespace OloEngine
         // true while paused at all — the pause gate below skips the whole
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
+        // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
+        // adds the ticks it actually runs (#1250).
+        m_GroomSimulationDeltaSeconds = 0.0f;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -2687,6 +2699,11 @@ namespace OloEngine
         // at a fixed dt via an accumulator. The pause / single-step gate is the
         // original `m_StepFrames-- > 0` post-decrement — only evaluated while
         // paused — so frame-by-frame editor scrubbing is unchanged.
+        // The guide simulation advances with the gameplay tick and freezes
+        // with it, so a paused frame holds the pose it paused on (#1250).
+        // Written before the gate rather than inside it, because a paused
+        // frame still renders and must see a zero.
+        m_GroomSimulationDeltaSeconds = 0.0f;
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
             SimulateRuntimeStep(ts);
@@ -2716,6 +2733,9 @@ namespace OloEngine
         // true while paused at all — the pause gate below skips the whole
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
+        // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
+        // adds the ticks it actually runs (#1250).
+        m_GroomSimulationDeltaSeconds = 0.0f;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -3993,6 +4013,14 @@ namespace OloEngine
 
     void Scene::SimulateRuntimeStep(Timestep const ts)
     {
+        // The guide simulation's clock (#1250). ACCUMULATED here rather than
+        // assigned at the frame entry points, because the fixed-step path
+        // drives this function several times per frame and the coat must
+        // advance by the whole of it -- and because the pause gate is around
+        // the CALL, so a paused frame leaves the zero the entry point wrote
+        // and the coat holds the pose it paused on.
+        m_GroomSimulationDeltaSeconds += static_cast<f32>(ts);
+
         ++m_SimulationTick;
         // Deterministic simulation clock: advances by exactly `ts` each tick, so
         // time-driven physics (buoyancy wave phase) is a function of the tick
@@ -5145,6 +5173,9 @@ namespace OloEngine
         // true while paused at all — the pause gate below skips the whole
         // gameplay schedule, so a history pass registered there would simply
         // stop running and freeze the stale delta it was meant to prevent.
+        // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
+        // adds the ticks it actually runs (#1250).
+        m_GroomSimulationDeltaSeconds = 0.0f;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -5164,6 +5195,9 @@ namespace OloEngine
             // Physics: 2D + 3D step and transform sync (shared with the other
             // runtime/simulate tick — see Scene::StepPhysics).
             StepPhysics(ts);
+            // ...and the groom clock, which this path advances by hand because
+            // it does not drive SimulateRuntimeStep (#1250).
+            m_GroomSimulationDeltaSeconds += static_cast<f32>(ts);
         }
 
         // Compose parent-chain world matrices before rendering, unconditionally
@@ -5205,6 +5239,15 @@ namespace OloEngine
             perfProfiler = app->GetPerformanceProfiler();
         }
         OLO_PERF_SCOPE("Scene::OnUpdateEditor", perfProfiler);
+        // The zero written below the deformation-history advance is FINAL on
+        // this path: the guide simulation does NOT advance in edit mode
+        // (#1250), because nothing here calls SimulateRuntimeStep. A scene
+        // must not change just from being open -- the rule
+        // TimeOfDayComponent::m_AdvanceInEditMode states for the clock -- and a
+        // coat that settled under gravity while an artist read the inspector
+        // would make every committed edit-mode capture incomparable with the
+        // one beside it. The debug views still draw: they show the groomed
+        // pose, which is the pose the coat is in.
         // Refresh LocalizedTextComponent → TextComponent.TextString so the
         // editor reflects locale changes in real time.
         LocalizationSystem::UpdateLocalizedText(*this);
@@ -5279,6 +5322,9 @@ namespace OloEngine
         // (#1226) — the edit-mode counterpart of the frame-boundary advance in
         // OnUpdateRuntime. Without it an edit-mode skeleton's previous pose
         // stays frozen at whatever it held when Play last stopped.
+        // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
+        // adds the ticks it actually runs (#1250).
+        m_GroomSimulationDeltaSeconds = 0.0f;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -8193,6 +8239,41 @@ namespace OloEngine
         }
     }
 
+    void Scene::ResetGroomSimulation(GroomHistoryResetCause cause)
+    {
+        // The state is KEPT and its history flag cleared, for the reason
+        // ResetGroomBindingHistory gives at more length: emptying the map would
+        // make the next frame report FirstUse for every coat and lose the cause
+        // the caller just named. The PARTICLES are dropped, though, because a
+        // wholesale discontinuity means the shape they were solved against no
+        // longer exists -- and the next frame re-seeds them at the groomed coat,
+        // which is the whole difference between a reset and a stretch.
+        for (auto& [id, state] : m_GroomSimulationRuntime)
+        {
+            state.m_Solver.Clear();
+            state.m_PrevDisplacements.clear();
+            state.m_HasHistory = false;
+            state.m_ResetCause = cause;
+        }
+    }
+
+    Ref<GroomGuideInfluenceTable> Scene::ResolveGroomGuideInfluence(AssetHandle handle, const Ref<GroomAsset>& groom)
+    {
+        auto& entry = m_GroomGuideInfluence[handle];
+        // Compared against the ASSET OBJECT, not only the handle: a hot-reload
+        // or a re-cook hands the manager a NEW GroomAsset under the same handle,
+        // and a handle-only key would serve a table describing the previous
+        // groom's guides for the rest of the session. The same invalidation
+        // m_GroomRegionMaps makes, for the same reason.
+        if (entry.m_Source == groom && entry.m_Table)
+        {
+            return entry.m_Table;
+        }
+        entry.m_Source = groom;
+        entry.m_Table = BuildGroomGuideInfluence(*groom);
+        return entry.m_Table;
+    }
+
     void Scene::PublishGroomStrandRequests()
     {
         OLO_PROFILE_FUNCTION();
@@ -8201,6 +8282,13 @@ namespace OloEngine
         // Every root-UV map handle a groom asked for this frame; the tail of this
         // function evicts the cached pixels of every map that is not in it.
         std::unordered_set<AssetHandle> liveRegionMaps;
+        // Every GROOM asset a request was published for this frame, for the same
+        // eviction the region maps get below: the guide-influence table is keyed
+        // by asset handle and outlives every entity that used it, so without this
+        // a groom repointed during an editing session leaves its table resident
+        // for the Scene's lifetime -- and on a 200k-strand coat that table is
+        // 6 MB (#1250).
+        std::unordered_set<AssetHandle> liveGrooms;
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -8312,6 +8400,7 @@ namespace OloEngine
             // rather than a second one that could disagree with it.
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
+            liveGrooms.insert(groomComponent.m_Groom);
             DeformGroomAgainstSurface(groomEntity, *groom, request);
 
             groomRequests.push_back(std::move(request));
@@ -8335,6 +8424,35 @@ namespace OloEngine
                           [&liveRegionMaps](const auto& entry)
                           { return !liveRegionMaps.contains(entry.first); });
         }
+
+        // The guide-influence tables, on the same rule and for the same reason.
+        // Rebuilt from the live set rather than reference-counted: the live set is
+        // already in hand, while a refcount would have to be maintained at every
+        // path that clears a groom handle, including the ones that do it by
+        // loading a scene over the top.
+        if (!m_GroomGuideInfluence.empty())
+        {
+            std::erase_if(m_GroomGuideInfluence,
+                          [&liveGrooms](const auto& entry)
+                          { return !liveGrooms.contains(entry.first); });
+        }
+
+        // THE GROOM CLOCK IS CONSUMED HERE, and this is the whole of the
+        // "exactly once per frame" guarantee the guide simulation needs.
+        //
+        // This function runs once per CAMERA -- a split-screen scene, a second
+        // viewport, a reflection probe all re-enter it -- while the solver must
+        // advance once per FRAME. Without this line a two-viewport scene
+        // integrates the coat at twice the rate, and the two views then disagree
+        // about where the fur is, which is a plausible wrong image in both of
+        // them. Zeroing rather than tracking a per-entity frame number, because
+        // the second pass through then takes zero steps, holds the particles
+        // exactly, and recomputes the SAME displacements from them -- so the
+        // second camera sees the first camera's coat, which is the correct
+        // answer and not merely a cheap one.
+        //
+        // The frame entry points re-arm it (see m_GroomSimulationDeltaSeconds).
+        m_GroomSimulationDeltaSeconds = 0.0f;
 
         Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
     }
@@ -8390,6 +8508,452 @@ namespace OloEngine
             entry.m_Failed = true;
         }
         return entry.m_Map;
+    }
+
+    bool Scene::SelectGroomSimulationGuides(Entity groomEntity, const GroomAsset& groom,
+                                            const GroomCoatContext& coat, const GroomStrandRequest& request,
+                                            std::vector<u32>& selectedCurves)
+    {
+        const UUID groomId = groomEntity.GetUUID();
+        const auto* component = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
+        if (component == nullptr || !component->m_Enabled)
+        {
+            // ERASED, not merely skipped. A coat whose simulation was switched
+            // off must not keep a megabyte of particles alive for the entity's
+            // lifetime, and re-enabling it re-seeds at the groomed shape, which
+            // is the right thing for a coat that has not been solved for a
+            // while anyway.
+            m_GroomSimulationRuntime.erase(groomId);
+            return false;
+        }
+
+        auto influence = ResolveGroomGuideInfluence(request.Handle, request.Groom);
+        if (!influence || influence->GetGuideCount() == 0u)
+        {
+            // A groom exported with no guide flags cannot be simulated. Not an
+            // error and not logged: the table counts it, the inspector shows the
+            // count, and the coat renders exactly as it did before #1250.
+            m_GroomSimulationRuntime.erase(groomId);
+            return false;
+        }
+
+        auto& state = m_GroomSimulationRuntime[groomId];
+        const u32 slotCount = influence->GetGuideCount();
+
+        // == The per-role budget ==
+        //
+        // A STRIDE over the role's guides, never the first N -- the rule the
+        // strand budget already follows, and for the same reason: taking the
+        // first N takes one end of the pelt and leaves the other side of the
+        // animal unsimulated, which reads as a broken binding rather than as a
+        // budget. The slots are in ascending curve order, and the cook made each
+        // group a contiguous range, so a stride over them is a spatially even
+        // sample.
+        u32 budgetByRole[GroomCoatRoleCount]{};
+        for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+        {
+            budgetByRole[role] = GroomGuideBudgetForRole(*component, static_cast<GroomCoatRole>(role));
+        }
+
+        // Re-selected only when the BUDGET or the asset moved. Re-selecting
+        // every frame would be cheap but not free, and more importantly it would
+        // hand the solver a fresh vector each frame whose CONTENTS are identical
+        // -- and the solver treats a changed guide set as a discontinuity, so
+        // anything that made the selection wobble would re-seed the coat
+        // continuously and it would never move at all.
+        const bool budgetMoved = state.m_BudgetGroom != request.Handle ||
+                                 !std::ranges::equal(state.m_BudgetByRole, budgetByRole) ||
+                                 state.m_GuideOfSlot.size() != slotCount;
+        if (budgetMoved)
+        {
+            state.m_BudgetGroom = request.Handle;
+            std::ranges::copy(budgetByRole, std::begin(state.m_BudgetByRole));
+            state.m_GuideOfSlot.assign(slotCount, GroomNoGuide);
+            state.m_SlotOfGuide.clear();
+
+            // Counted per role first, so the stride is derived from the role's
+            // own population rather than from the whole guide set.
+            u32 availableByRole[GroomCoatRoleCount]{};
+            const auto& groupIds = groom.GetCurveGroupIds();
+            const auto roleOf = [&](u32 slot)
+            {
+                const u32 curve = influence->GetGuideCurves()[slot];
+                const GroomCoatRole role = static_cast<GroomCoatRole>(coat.GroupDesc(groupIds[curve]).Role);
+                return IsValidGroomCoatRole(static_cast<i32>(role)) ? role : GroomCoatRole::Unassigned;
+            };
+            for (u32 slot = 0; slot < slotCount; ++slot)
+            {
+                ++availableByRole[static_cast<sizet>(roleOf(slot))];
+            }
+
+            u32 strideByRole[GroomCoatRoleCount]{};
+            for (u32 role = 0; role < GroomCoatRoleCount; ++role)
+            {
+                const u32 budget = budgetByRole[role];
+                const u32 available = availableByRole[role];
+                // Zero budget means this role is not simulated at all, which is
+                // a legitimate authoring choice (an undercoat that never leaves
+                // the skin) and is NOT the same as a stride of one.
+                strideByRole[role] =
+                    (budget == 0u || available == 0u) ? 0u : std::max(1u, (available + budget - 1u) / budget);
+            }
+
+            u32 takenByRole[GroomCoatRoleCount]{};
+            for (u32 slot = 0; slot < slotCount; ++slot)
+            {
+                const auto role = static_cast<sizet>(roleOf(slot));
+                const u32 stride = strideByRole[role];
+                if (stride == 0u)
+                {
+                    continue;
+                }
+                if ((takenByRole[role] % stride) != 0u)
+                {
+                    ++takenByRole[role];
+                    continue;
+                }
+                ++takenByRole[role];
+                state.m_GuideOfSlot[slot] = static_cast<u32>(state.m_SlotOfGuide.size());
+                state.m_SlotOfGuide.push_back(slot);
+            }
+        }
+
+        if (state.m_SlotOfGuide.empty())
+        {
+            return false;
+        }
+
+        // == Widen the deformer's selection to cover every simulated guide ==
+        //
+        // THE LOAD-BEARING STEP. EvaluateGroomRootTransforms only fills the
+        // curves it is given, and a guide the STRAND budget did not select would
+        // therefore have no deformed root -- so it would be solved against the
+        // BIND POSE while the body moves, and the coat would lag its own animal
+        // by a whole animation. Merged rather than appended because the
+        // evaluation walks the span in order and both inputs are ascending.
+        std::vector<u32> guideCurves;
+        guideCurves.reserve(state.m_SlotOfGuide.size());
+        for (const u32 slot : state.m_SlotOfGuide)
+        {
+            guideCurves.push_back(influence->GetGuideCurves()[slot]);
+        }
+        std::vector<u32> merged;
+        merged.reserve(selectedCurves.size() + guideCurves.size());
+        std::ranges::set_union(selectedCurves, guideCurves, std::back_inserter(merged));
+        selectedCurves.swap(merged);
+        return true;
+    }
+
+    void Scene::SimulateGroomGuides(Entity groomEntity, const GroomAsset& groom, const GroomBindingAsset& binding,
+                                    const GroomCoatContext& coat, const GroomSurfaceView& surface,
+                                    const GroomSkinningView& skinning, const glm::mat4& surfaceToGroom,
+                                    UUID targetId, u64 targetGeneration,
+                                    std::span<const GroomRootTransform> transforms, bool bindingHasHistory,
+                                    GroomStrandRequest& request)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const UUID groomId = groomEntity.GetUUID();
+        const auto found = m_GroomSimulationRuntime.find(groomId);
+        if (found == m_GroomSimulationRuntime.end())
+        {
+            return; // SelectGroomSimulationGuides declined this entity
+        }
+        auto& state = found->second;
+        const auto* component = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
+        if (component == nullptr || state.m_SlotOfGuide.empty())
+        {
+            return;
+        }
+        auto influence = ResolveGroomGuideInfluence(request.Handle, request.Groom);
+        if (!influence || influence->GetGuideCount() != state.m_GuideOfSlot.size())
+        {
+            return;
+        }
+
+        const GroomSimulationParams params = MakeGroomSimulationParams(*component);
+
+        // == The targets: the groomed coat, carried by the body, in WORLD space ==
+        //
+        // Through the SAME coat length multiplier the strand build will apply,
+        // because the rest LENGTHS are derived from these points and a coat
+        // authored at 2x length whose guides were solved at 1x would move with
+        // half the amplitude its silhouette has.
+        //
+        // The CLUMP term is deliberately not applied. It offsets a strand toward
+        // its tuft's mean growth direction by an amount that is very nearly
+        // constant along the guide, and the simulation carries a DIFFERENCE from
+        // the target -- so a constant offset cancels to first order. Including it
+        // would mean rebuilding the strand build's clump table here, which is a
+        // second copy of a computation that must agree exactly with the first.
+        const auto& points = groom.GetPoints();
+        const auto& rootUVs = groom.GetRootUVs();
+        const auto& groupIds = groom.GetCurveGroupIds();
+
+        state.m_Targets.clear();
+        std::vector<u32> offsets;
+        offsets.reserve(state.m_SlotOfGuide.size() + 1u);
+        offsets.push_back(0u);
+        std::vector<u32> guideCurves;
+        guideCurves.reserve(state.m_SlotOfGuide.size());
+
+        // COUNTED, not folded into a single flag. A guide whose root has no
+        // deformed frame is already handled per guide by
+        // ApplyGroomRootTransform, which returns the rest point -- so that one
+        // guide solves against its bind-pose shape while its neighbours move,
+        // which is a local, visible, diagnosable wrongness. Treating it as a
+        // whole-coat discontinuity (which an all-guides-valid flag did) made ONE
+        // degenerate triangle re-seed the groom every frame, so the coat never
+        // simulated at all and nothing said why.
+        u32 guidesWithHeldRoots = 0;
+        for (const u32 slot : state.m_SlotOfGuide)
+        {
+            const u32 curve = influence->GetGuideCurves()[slot];
+            const u32 first = groom.GetCurveFirstPoint(curve);
+            const u32 count = groom.GetCurvePointCount(curve);
+            const GroomCoatStrandParams strand =
+                EvaluateGroomCoatStrand(coat, curve, rootUVs[curve], groupIds[curve]);
+            const glm::vec3& root = points[first];
+            const GroomRootTransform& transform = transforms[curve];
+            guidesWithHeldRoots += transform.Valid ? 0u : 1u;
+            const f32 invSpan = count > 1u ? 1.0f / static_cast<f32>(count - 1u) : 0.0f;
+            for (u32 i = 0; i < count; ++i)
+            {
+                const glm::vec3 shaped = ApplyGroomCoatShape(root, points[first + i], static_cast<f32>(i) * invSpan,
+                                                             strand.Length, 0.0f, glm::vec3(0.0f));
+                const glm::vec3 deformed =
+                    ApplyGroomRootTransform(binding.GetRoot(curve), transform, shaped, false);
+                state.m_Targets.push_back(glm::vec3(request.Transform * glm::vec4(deformed, 1.0f)));
+            }
+            offsets.push_back(static_cast<u32>(state.m_Targets.size()));
+            guideCurves.push_back(curve);
+        }
+
+        // == The body proxy, re-fitted only when the surface's identity moved ==
+        if (params.CollisionEnabled)
+        {
+            const u32 boneCount = static_cast<u32>(skinning.Palette.size());
+            // The SAME identity keys the binding's compatibility verdict uses,
+            // and all four of them. Counts alone are not an identity: repointing
+            // the binding at an LOD sibling with the same vertex and bone counts,
+            // or re-importing the body in place, keeps every count and changes
+            // every vertex -- and the coat would then be collided against the
+            // previous body's capsules for the rest of the session.
+            const bool proxyStale = !state.m_HasProxy || state.m_ProxyTarget != targetId ||
+                                    state.m_ProxyGeneration != targetGeneration ||
+                                    state.m_ProxyVertexCount != surface.VertexCount ||
+                                    state.m_ProxyBoneCount != boneCount;
+            if (proxyStale)
+            {
+                GroomColliderBuildSettings settings;
+                settings.MaxColliders = GroomSimulationLimits::MaxColliders;
+                state.m_ColliderStats =
+                    BuildGroomBodyColliders(surface, skinning, settings, state.m_ColliderBindings);
+                state.m_ProxyTarget = targetId;
+                state.m_ProxyGeneration = targetGeneration;
+                state.m_ProxyVertexCount = surface.VertexCount;
+                state.m_ProxyBoneCount = boneCount;
+                state.m_HasProxy = true;
+            }
+            // The body's REST object space to WORLD, composed once: the groom's
+            // world transform, then the body-to-groom mapping. The BONE matrix
+            // is applied inside, from the shared deformation output -- the same
+            // array the strand roots are carried by, so the coat and its
+            // colliders cannot end up a frame apart.
+            ResolveGroomBodyColliders(state.m_ColliderBindings, skinning.Palette,
+                                      request.Transform * surfaceToGroom,
+                                      MakeGroomColliderRadiusScale(*component), state.m_Colliders);
+        }
+        else
+        {
+            state.m_Colliders.clear();
+        }
+
+        // == Is the previous frame comparable? ==
+        //
+        // Every branch names a different cause, for the reason the binding's
+        // ladder does: a coat that ghosts has to be diagnosable.
+        const glm::vec3 worldPosition = glm::vec3(request.Transform[3]);
+        const f32 teleportDistance = std::isfinite(component->m_TeleportDistance)
+                                         ? std::clamp(component->m_TeleportDistance,
+                                                      GroomSimulationLimits::MinTeleportDistance,
+                                                      GroomSimulationLimits::MaxTeleportDistance)
+                                         : 1.0f;
+        GroomHistoryResetCause cause = GroomHistoryResetCause::None;
+        if (!state.m_HasHistory)
+        {
+            cause = state.m_ResetCause;
+        }
+        else if (state.m_HasResetKey && state.m_ResetKey != component->m_ResetKey)
+        {
+            // The authored reset control. A CHANGE of the key, not a flag the
+            // scene clears -- see GroomSimulationComponent::m_ResetKey.
+            cause = GroomHistoryResetCause::Manual;
+        }
+        else if (!bindingHasHistory)
+        {
+            // The shape the particles are solved AGAINST was discontinuous, so
+            // the particles are too. Attributed as the binding attributed it
+            // rather than re-decided, because the producer owns the rule.
+            cause = GroomHistoryResetCause::TargetChanged;
+        }
+        else if (glm::length(worldPosition - state.m_WorldPosition) > teleportDistance)
+        {
+            cause = GroomHistoryResetCause::Teleport;
+        }
+        state.m_ResetKey = component->m_ResetKey;
+        state.m_HasResetKey = true;
+
+        const bool hasHistory = cause == GroomHistoryResetCause::None;
+
+        // == Step ==
+        //
+        // The previous frame's displacements are moved aside BEFORE the new ones
+        // are written, so the pair the renderer reads is genuinely two
+        // consecutive frames of the same coat.
+        // ALWAYS ROTATED, on every frame that reaches here.
+        //
+        // This was gated on "time actually passed" to stop a second camera
+        // rotating the pair twice, and that was the wrong fix for the wrong
+        // problem. The second-camera case is already handled by zeroing the
+        // groom clock at the end of PublishGroomStrandRequests, and the gate
+        // introduced a worse bug at the other end: on a PAUSED frame the
+        // particles do not move, so `current` is unchanged, and keeping a `prev`
+        // from two frames ago made a frozen coat emit the motion of the last
+        // frame it moved -- a TAA smear on a coat that is standing still, which
+        // is exactly the failure the history contract exists to prevent.
+        //
+        // Rotating unconditionally makes a held frame emit prev == current, i.e.
+        // EXACTLY zero motion, which is the same rule
+        // GroomStrandVertex::PrevPosition is written under.
+        state.m_PrevDisplacements.swap(state.m_Displacements);
+
+        GroomSimulationInputs inputs;
+        inputs.GuideOffsets = offsets;
+        inputs.GuideCurves = guideCurves;
+        inputs.TargetPoints = state.m_Targets;
+        inputs.Colliders = state.m_Colliders;
+        inputs.Params = params;
+        inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
+        inputs.HasHistory = hasHistory;
+
+        GroomSimulationStats stats = StepGroomGuideSimulation(inputs, state.m_Solver);
+        // Counted here because this is the only place that holds the root
+        // transforms; the solver never sees them.
+        stats.GuidesWithHeldRoots = guidesWithHeldRoots;
+        if (stats.Refused)
+        {
+            // The solver cleared its own state; clearing ours is what stops the
+            // renderer interpolating from displacements that belong to a guide
+            // set that no longer exists.
+            state.m_Displacements.clear();
+            state.m_PrevDisplacements.clear();
+            state.m_HasHistory = false;
+            state.m_ResetCause = GroomHistoryResetCause::Manual;
+            state.m_WorldPosition = worldPosition;
+            // PUBLISHED ON THE WAY OUT. The displacement arrays are cleared, so
+            // GroomStrandSimulation::IsUsable refuses and the pass builds the
+            // groomed rest coat -- but the STATS still have to arrive, or the
+            // pass skips its whole simulation block and the inspector reports
+            // "Not simulated this frame" for a coat that refused. A counter that
+            // reads zero on exactly the frames it matters is the failure every
+            // other refusal in this subsystem is written against.
+            request.Influence = influence;
+            request.SimulationStats = stats;
+            request.SimulationStretchTolerance = params.StretchTolerance;
+            return;
+        }
+
+        // == Back to OBJECT space ==
+        //
+        // The solver works in world space (gravity and the body proxy are world
+        // quantities); the strand build works in object space, because that is
+        // the space the cached vertex buffer is in. One inverse per groom per
+        // frame converts the answer, and a non-invertible transform -- a zero
+        // scale -- refuses rather than writing infinities into the coat.
+        const glm::mat4 worldToObject = glm::inverse(request.Transform);
+        if (!Math::IsFinite(worldToObject))
+        {
+            state.m_Displacements.clear();
+            state.m_PrevDisplacements.clear();
+            state.m_HasHistory = false;
+            state.m_ResetCause = GroomHistoryResetCause::Manual;
+            state.m_WorldPosition = worldPosition;
+            // PUBLISHED ON THE WAY OUT. The displacement arrays are cleared, so
+            // GroomStrandSimulation::IsUsable refuses and the pass builds the
+            // groomed rest coat -- but the STATS still have to arrive, or the
+            // pass skips its whole simulation block and the inspector reports
+            // "Not simulated this frame" for a coat that refused. A counter that
+            // reads zero on exactly the frames it matters is the failure every
+            // other refusal in this subsystem is written against.
+            request.Influence = influence;
+            request.SimulationStats = stats;
+            request.SimulationStretchTolerance = params.StretchTolerance;
+            return;
+        }
+
+        state.m_Displacements.assign(state.m_Targets.size(), glm::vec3(0.0f));
+        for (sizet i = 0; i < state.m_Targets.size(); ++i)
+        {
+            const glm::vec3 simulated = glm::vec3(worldToObject * glm::vec4(state.m_Solver.Curr[i], 1.0f));
+            const glm::vec3 rest = glm::vec3(worldToObject * glm::vec4(state.m_Targets[i], 1.0f));
+            state.m_Displacements[i] = simulated - rest;
+        }
+
+        // A re-seeded frame has no comparable previous coat, so the previous
+        // displacements are DROPPED rather than reused. The sample then aliases
+        // the current frame and the coat emits exactly zero motion, which is the
+        // same rule GroomStrandVertex::PrevPosition is written under.
+        if (stats.Reseeded || state.m_PrevDisplacements.size() != state.m_Displacements.size())
+        {
+            state.m_PrevDisplacements.clear();
+        }
+
+        request.Influence = influence;
+        request.SimulationGuideOffsets = offsets;
+        request.SimulationDisplacements = state.m_Displacements;
+        request.SimulationPrevDisplacements = state.m_PrevDisplacements;
+        request.SimulationGuideOfSlot = state.m_GuideOfSlot;
+        request.SimulationSlotOfGuide = state.m_SlotOfGuide;
+        request.SimulationStats = stats;
+        request.SimulationStretchTolerance = params.StretchTolerance;
+        request.SimulationDebug = IsValidGroomSimulationDebugView(static_cast<i32>(component->m_DebugView))
+                                      ? static_cast<GroomSimulationDebugView>(component->m_DebugView)
+                                      : GroomSimulationDebugView::None;
+        // Carried only when something will draw them. A capsule list per groom
+        // per frame is not sent across the bus to be ignored.
+        if (GroomDebugViewShowsColliders(request.SimulationDebug))
+        {
+            request.SimulationColliders = state.m_Colliders;
+        }
+
+        state.m_HasHistory = true;
+        state.m_ResetCause = GroomHistoryResetCause::None;
+        state.m_WorldPosition = worldPosition;
+
+        // The debug views, drawn HERE for the reason the binding preview is:
+        // these are the particles and the capsules the coat was solved with,
+        // THIS frame. Drawing them from a later pass would read the state one
+        // frame after the coat it describes, so a frame that was visibly wrong
+        // would be a frame the renderer had already stopped using.
+        //
+        // Gated on the same two editor-debug flags every other component
+        // visualisation is, so a capture turns them off.
+        if (request.SimulationDebug != GroomSimulationDebugView::None)
+        {
+            if (const auto& rendererSettings = Renderer3D::GetRendererSettings();
+                rendererSettings.EditorDebugDrawsEnabled && rendererSettings.ShowComponentGizmos)
+            {
+                if (GroomDebugViewShowsGuides(request.SimulationDebug))
+                {
+                    (void)DrawGroomGuidePreview(state.m_Solver.Curr, offsets);
+                }
+                if (GroomDebugViewShowsColliders(request.SimulationDebug))
+                {
+                    (void)DrawGroomColliderPreview(state.m_Colliders);
+                }
+            }
+        }
     }
 
     void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)
@@ -8653,6 +9217,12 @@ namespace OloEngine
         // GroomStrandMesh.h says the same thing at the point the two must agree.
         const GroomCoatContext coat{ &request.Coat, groom.GetGroupCoats() };
         SelectGroomStrandCurves(groom, request.Build, state.m_SelectedCurves, &coat);
+        // ...WIDENED to cover every guide the simulation will solve (#1250).
+        // A guide with no deformed root is a guide solved against the bind
+        // pose, which is a coat that lags its own animal by a whole
+        // animation; SelectGroomSimulationGuides says so at more length.
+        const bool simulating = SelectGroomSimulationGuides(groomEntity, groom, coat, request,
+                                                            state.m_SelectedCurves);
 
         GroomDeformationInputs inputs;
         inputs.Surface = view;
@@ -8676,6 +9246,17 @@ namespace OloEngine
                                         std::span<const u32>(state.m_SelectedCurves), state.m_Transforms);
         request.Binding = bindingAsset;
         request.BindingReject = GroomBindingRejectReason::None;
+
+        // The guide simulation (#1250), stepped HERE: after the root transforms
+        // exist, because the guides are solved against them, and before they are
+        // swapped into the request below, because that swap empties the scratch
+        // buffer this reads.
+        if (simulating)
+        {
+            SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
+                                inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
+                                state.m_Transforms, hasHistory, request);
+        }
 
         // The binding preview is drawn HERE, not in the gizmo loop, and the
         // reason is the whole value of the view: these are the transforms the

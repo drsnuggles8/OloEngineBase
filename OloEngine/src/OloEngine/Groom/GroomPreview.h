@@ -27,6 +27,7 @@
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomDeformation.h"
+#include "OloEngine/Groom/GroomGuideSimulation.h"
 
 #include <glm/glm.hpp>
 
@@ -196,4 +197,38 @@ namespace OloEngine
                                                      std::span<const GroomRootTransform> transforms,
                                                      const glm::mat4& transform,
                                                      const GroomBindingPreviewSettings& settings);
+
+    // == Simulation debug views (issue #1250) ==
+    //
+    // Two questions a coat that moves wrongly raises, and they need different
+    // pictures: "where are the guides" and "where does the body think it is".
+    // Both are drawn from the state the coat was BUILT from this frame -- the
+    // same argument the binding preview above makes -- so a curve that is
+    // visibly wrong is a curve the renderer used.
+
+    struct GroomGuidePreviewStats
+    {
+        u32 GuidesDrawn = 0;
+        u32 CollidersDrawn = 0;
+        u32 LinesDrawn = 0;
+        u32 Stride = 1;
+
+        [[nodiscard]] bool operator==(const GroomGuidePreviewStats&) const = default;
+    };
+
+    /// Draw the simulated guide polylines, in WORLD space.
+    ///
+    /// `positions` and `offsets` are the solver's own state -- world space, and
+    /// the prefix table it carries -- so nothing is re-derived and the picture
+    /// cannot disagree with the simulation. `maxGuides` strides rather than
+    /// truncates, for the reason every budget in this subsystem does.
+    GroomGuidePreviewStats DrawGroomGuidePreview(std::span<const glm::vec3> positions,
+                                                 std::span<const u32> offsets, u32 maxGuides = 256u);
+
+    /// Draw the fitted body proxy, in WORLD space: three rings per capsule plus
+    /// its axis. Rings rather than a shaded capsule because this is a
+    /// debug-line path and a wireframe that can be seen THROUGH is the point --
+    /// the question is where the coat is relative to the proxy, and a solid one
+    /// would hide the answer.
+    GroomGuidePreviewStats DrawGroomColliderPreview(std::span<const GroomCollider> colliders);
 } // namespace OloEngine
