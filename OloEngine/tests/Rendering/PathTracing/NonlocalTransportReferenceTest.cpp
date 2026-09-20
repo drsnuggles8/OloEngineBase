@@ -283,9 +283,14 @@ namespace OloEngine::Tests
         // narrowness does. Repairing the fit moves the image away from transport
         // at the default's red channel rather than towards it.
         //
-        // See TheSeparableProjectionOutweighsBothErrorsAtASmallBrightFeature,
-        // which is the control that measured it, and the comment on
+        // See TheGatherBeatsAPerfectProfilePushedThroughTheSeparablePass, which
+        // is the control that measured it, and the comment on
         // kSkinDiffusionSupportFraction, which records the decision.
+        //
+        // AND THE DECISION WAS LATER REVERSED, WHICH DOES NOT MAKE THE ABOVE
+        // WRONG. #1368 repaired the projection and the fit TOGETHER (version 6);
+        // repairing the fit alone still moves the image away from transport, and
+        // this paragraph is still the reason.
     }
 
     TEST(SkinDiffusionReference, TheProfileCarriesShapeAndTheAlbedoCarriesEnergy)
@@ -1031,12 +1036,39 @@ namespace OloEngine::Tests
         EXPECT_GT(widenedHalo, shippedHalo - 0.005) << "shipped " << shippedHalo << ", widened " << widenedHalo;
     }
 
-    TEST(SkinDiffusionReference, TheSeparableProjectionOutweighsBothErrorsAtASmallBrightFeature)
+    TEST(SkinDiffusionReference, TheGatherBeatsAPerfectProfilePushedThroughTheSeparablePass)
     {
-        // ACCEPTANCE CRITERION 2 OF #1361, DECIDED: THE FIT IS NOT REVISITED,
-        // and this is why. It is the one measurement in this file that compares
-        // the pass against a version of ITSELF with the errors #1255 found
-        // removed, and the result is the opposite of the expected one.
+        // THIS TEST WAS #1361'S TRIPWIRE AND IT HAS BEEN TRIPPED, DELIBERATELY.
+        //
+        // It shipped as TheSeparableProjectionOutweighsBothErrorsAtASmallBright-
+        // Feature, whose job was to hold #1361's decision in place: the
+        // separable projection is the dominant error, so repairing either of the
+        // other two buys nothing, and a change that genuinely fixed the
+        // projection was supposed to fail this test and earn the right to delete
+        // it. #1368's version 6 is that change, and the acceptance criterion
+        // says to delete or invert this. It is INVERTED rather than deleted,
+        // because the control it builds — the walk's own profile at full support
+        // through a separable pass — is the only thing in this file that can
+        // separate "our profile was wrong" from "our PROJECTION was wrong", and
+        // that distinction is the whole of #1368.
+        //
+        // IT DID NOT FAIL ON ITS OWN WHEN VERSION 6 LANDED, and that is worth
+        // writing down. The test was hard-wired to version 1's kernel, so it
+        // went on measuring version 1 after the gather shipped and stayed green
+        // while its own comment promised it would go red. A tripwire that names
+        // a fixed version cannot notice a new one; the arm added below is what
+        // makes the statement about WHAT SHIPS rather than about a version
+        // number spelled into the test.
+        //
+        // The two statements it now carries:
+        //   1. THE HISTORY, unchanged and still true of version 1 — a perfect
+        //      profile pushed through the separable pass is FURTHER from
+        //      transport than version 1's narrow fit and truncated support are.
+        //      That is what "the projection dominates" means and it is why
+        //      neither single lever was worth pulling.
+        //   2. THE FINDING — version 6, which removes the projection, beats that
+        //      control. Fixing the projection was worth more than a perfect
+        //      profile, which is the claim statement 1 implies and no test made.
         //
         // The control carries the WALK's own profile, sampled 600 entries to a
         // side against production's 17, across the walk's FULL histogram
@@ -1148,6 +1180,48 @@ namespace OloEngine::Tests
         // different quantity, and putting them in one inequality would be a
         // units error dressed up as a finding.)
         EXPECT_GT(exactError, 0.05) << "exact-transport halo error " << exactError;
+
+        // ------------------------------------------------------------------
+        // THE INVERSION (#1368) — the arm this test was written to earn.
+        // ------------------------------------------------------------------
+        //
+        // Everything above is a statement about version 1 and about a control
+        // that shares its separable projection. This is the statement about what
+        // SHIPS: version 6 evaluates the same albedo as an isotropic gather on a
+        // refitted profile, so the projection is gone, and it lands closer to
+        // transport than a PERFECT profile does with the projection still in it.
+        //
+        // WHY THIS IS THE STRONGEST FORM OF THE CLAIM. "Version 6 beats version
+        // 1" is true and is measured next door, at every albedo, by
+        // TheGatherImprovesEveryAlbedoAndNeverDamagesTheAccurateBand. It is also
+        // the weaker statement, because version 6 changed two things and that
+        // comparison cannot say which one paid. THIS comparison can: the control
+        // has an exact profile and a separable projection, version 6 has an
+        // approximate profile and no projection, and version 6 wins. The
+        // projection was the expensive error, which is exactly what the test
+        // asserted before the fix and is now demonstrated rather than inferred.
+        const SkinDiffusionKernel gather =
+            BuildSkinDiffusionKernel(MakeGatherProfile(kAuthored), SkinDiffusionQuality::Medium);
+        ASSERT_TRUE(gather.IsGather) << "version 6 must build a disc, not a separable table";
+        const f64 gatherError = WorstGatherHaloError(gather, walk);
+
+        // A margin, for the reason the ordering above carries one: the walk is
+        // stochastic and a reseed on another machine must not flip a finding.
+        EXPECT_LT(gatherError, exactError - 0.01)
+            << "version 6 halo error " << gatherError << " against a perfect profile through the separable pass "
+            << exactError
+            << " — if the gather is no longer the closer of the two, #1368's finding that the projection was the "
+            << "dominant error does not hold and version 6 should be re-derived";
+
+        // AND IT BEATS VERSION 1 TOO, stated here rather than left to the band
+        // sweep, so that this test is a complete three-way and cannot report a
+        // gather that merely beat a bad control.
+        EXPECT_LT(gatherError, shippedError - 0.01)
+            << "version 6 " << gatherError << ", version 1 " << shippedError;
+
+        GTEST_LOG_(INFO) << "#1368 inversion @ authored 0.85: version 1 " << shippedError
+                         << ", a perfect profile through the separable pass " << exactError << ", version 6 "
+                         << gatherError;
     }
 
     TEST(SkinDiffusionReference, TheIsotropicGatherAndTheRefitOnlyPayOffTOGETHER)

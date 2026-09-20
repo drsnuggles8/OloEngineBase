@@ -17,7 +17,9 @@ A profile stays at version 0 until an author moves it, and no renderer setting o
 is [ADR 0024](../adr/0024-material-kind-is-not-the-closure-version.md)'s rule: correcting or
 extending a transport must not silently restate every authored head.
 
-`ReferenceHead.oloskin` is authored at version 1 and is the worked example.
+`ReferenceHead.oloskin` is authored at version 1 and is the worked example. **Version 6 is the
+corrected transport** — same switch, `EvaluationModel: 6` — see *Version 6 — the isotropic gather*
+below for what it changes and what it costs.
 
 ## What the pass does
 
@@ -202,6 +204,50 @@ This is screen-space real-time diffusion, not a claim of volumetric transport.
   where the shipped kernel misplaces **0.056**. One term measured alone exceeds the total of all of
   them, so the separable projection is the dominant error and neither lever touches it. The
   measurements are `SkinDiffusionReference` in `NonlocalTransportReferenceTest.cpp`.
+
+## Version 6 — the isotropic gather
+
+**Author a profile at `EvaluationModel: 6` to get the corrected transport.** It replaces the two
+separable passes with one 25-tap golden-angle disc and Burley's searchlight fit with a refitted
+two-exponential profile. Both at once, because either alone is a regression — that is the whole of
+#1368 and it is the reason there is no switch for half of it.
+
+Measured as the worst disagreement with a Monte Carlo searchlight walk over a bright small feature's
+halo, read at 2/3/5/8/12/18/25 mm as a fraction of the feature's own energy:
+
+| authored `ScatterColor` | version 1 | version 6 | gain |
+|---|---|---|---|
+| 0.35 | 0.0224 | 0.0137 | 1.6x |
+| 0.55 | 0.0481 | 0.0226 | 2.1x |
+| 0.70 | 0.0419 | 0.0171 | 2.5x |
+| **0.85** — the default's red channel | **0.0558** | **0.0186** | **3.0x** |
+| 0.95 | 0.1032 | 0.0327 | 3.2x |
+
+**The coupling, at 0.85.** Version 1 measures 0.0558. The gather on the *uncorrected* profile
+measures 0.0607 and the correction through the *separable* pass measures 0.1179 — both **worse than
+doing nothing**. The two errors have opposite signs and partly cancel in version 1, so a half of
+this change is not a smaller improvement, it is a regression.
+
+**It is cheaper than what it replaces:** 25 fetches in one pass against the Medium tier's 17 along
+each of two, and the second fullscreen draw is gone. The tap angle is derived from the tap index
+rather than stored, so the disc travels through the same one-float-per-tap upload the separable
+table uses and no uniform block is resized.
+
+**It is not neutral on arrival,** unlike versions 3, 4 and 5. There is no field to author: moving a
+profile to 6 changes its look immediately, by design, because the change *is* the correction. No
+shipped `.oloskin` was moved, so a head signed off at version 1 keeps its pixels
+([ADR 0024](../adr/0024-material-kind-is-not-the-closure-version.md)).
+
+**What was measured and rejected:** a second separable pass on the 45° diagonal. Rotating a
+separable kernel maps every tap pair to the same radius, so the radial response is identical and
+averaging the two changes the radial CDF not at all. It would reduce the star-shaped *angular*
+artifact, which is a different defect.
+
+The measurements are `SkinDiffusionReference` in `NonlocalTransportReferenceTest.cpp` —
+`TheIsotropicGatherAndTheRefitOnlyPayOffTOGETHER` for the coupling,
+`TheGatherImprovesEveryAlbedoAndNeverDamagesTheAccurateBand` for the sweep, and
+`TheGatherBeatsAPerfectProfilePushedThroughTheSeparablePass` for the claim that the projection, not
+the profile, was the expensive error.
 
 ## If it looks like it is doing nothing, check the SUBJECT'S SCALE first
 
