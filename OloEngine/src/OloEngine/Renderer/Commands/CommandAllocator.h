@@ -22,6 +22,39 @@ namespace OloEngine
         static constexpr sizet MAX_COMMAND_SIZE = 4096;
         static constexpr sizet COMMAND_ALIGNMENT = 16; // Ensure commands are aligned properly
 
+        // A packet and its payload are ONE allocation of
+        // sizeof(CommandPacket) + sizeof(T), and AllocateCommandMemory rejects
+        // anything above MAX_COMMAND_SIZE. So the bound on a payload is the cap
+        // minus the header, not the cap itself: binding the compile-time check
+        // to MAX_COMMAND_SIZE alone lets a payload pass the static_assert and
+        // then be refused at runtime, which is a null packet at draw time
+        // instead of a build error.
+        static_assert(sizeof(CommandPacket) < MAX_COMMAND_SIZE,
+                      "CommandPacket's header must be smaller than MAX_COMMAND_SIZE, or the payload bound below wraps and stops bounding anything");
+        static constexpr sizet MAX_COMMAND_PAYLOAD_SIZE = MAX_COMMAND_SIZE - sizeof(CommandPacket);
+
+        static_assert(COMMAND_ALIGNMENT <= ThreadLocalCache::MAX_ALIGNMENT,
+                      "COMMAND_ALIGNMENT must be an alignment the underlying cache honours");
+
+        template<typename T>
+        static constexpr bool PayloadFitsMaxCommandSize()
+        {
+            return sizeof(T) <= MAX_COMMAND_PAYLOAD_SIZE;
+        }
+
+        // The payload lives at allocationBase + sizeof(CommandPacket), and the
+        // base is COMMAND_ALIGNMENT-aligned. BOTH conditions are needed: the
+        // header is not a multiple of COMMAND_ALIGNMENT, so an `||` here
+        // accepts a 16-aligned payload sitting behind a header that only moves
+        // it to an 8-aligned address. Raising alignof(T) past what holds here
+        // means padding sizeof(CommandPacket) up to a multiple of it, not
+        // relaxing this predicate.
+        template<typename T>
+        static constexpr bool PayloadPlacementIsAligned()
+        {
+            return alignof(T) <= COMMAND_ALIGNMENT && (sizeof(CommandPacket) % alignof(T)) == 0;
+        }
+
         explicit CommandAllocator(sizet blockSize = DEFAULT_BLOCK_SIZE);
         ~CommandAllocator() = default;
 
@@ -42,11 +75,14 @@ namespace OloEngine
         template<typename T>
         CommandPacket* CreateCommandPacket(const T& commandData, const PacketMetadata& metadata = {})
         {
-            static_assert(sizeof(T) <= MAX_COMMAND_SIZE, "Command exceeds maximum size");
+            static_assert(PayloadFitsMaxCommandSize<T>(),
+                          "Command exceeds maximum size: sizeof(CommandPacket) + sizeof(T) must fit in MAX_COMMAND_SIZE");
             static_assert(std::is_trivially_copyable_v<T>,
                           "CreateCommandPacket() uses memcpy and requires trivially copyable types. "
                           "For non-trivial types, use AllocatePacketWithCommand() instead.");
-            static_assert(sizeof(CommandPacket) % alignof(T) == 0 || alignof(T) <= COMMAND_ALIGNMENT,
+            static_assert(std::is_trivially_destructible_v<T>,
+                          "CommandPacket does not call command destructors; T must be trivially destructible.");
+            static_assert(PayloadPlacementIsAligned<T>(),
                           "Command payload placement is not properly aligned for T");
 
             // Allocate memory for the CommandPacket + command data together
@@ -54,7 +90,10 @@ namespace OloEngine
             constexpr sizet commandSize = sizeof(T);
             void* block = AllocateCommandMemory(packetSize + commandSize);
             if (!block)
+            {
+                OLO_CORE_ERROR("CommandAllocator::CreateCommandPacket: allocation of {0} bytes failed", packetSize + commandSize);
                 return nullptr;
+            }
 
             // Construct a new CommandPacket in the allocated memory
             auto* packet = new (block) CommandPacket();
@@ -74,14 +113,23 @@ namespace OloEngine
             static_assert(std::is_trivially_destructible_v<T>,
                           "AllocatePacketWithCommand requires trivially destructible types "
                           "since CommandPacket does not call command destructors.");
-            static_assert(sizeof(CommandPacket) % alignof(T) == 0 || alignof(T) <= COMMAND_ALIGNMENT,
+            // Same three rules as CreateCommandPacket, at the same boundary. A
+            // rule enforced in one of two entry points is not enforced: this
+            // path previously had neither the size bound nor a null check.
+            static_assert(PayloadFitsMaxCommandSize<T>(),
+                          "Command exceeds maximum size: sizeof(CommandPacket) + sizeof(T) must fit in MAX_COMMAND_SIZE");
+            static_assert(PayloadPlacementIsAligned<T>(),
                           "Command payload placement is not properly aligned for T");
 
             constexpr sizet packetSize = sizeof(CommandPacket);
             constexpr sizet commandSize = sizeof(T);
             constexpr sizet totalSize = packetSize + commandSize;
             void* block = AllocateCommandMemory(totalSize);
-            OLO_CORE_ASSERT(block, "CommandAllocator::AllocatePacketWithCommand: Allocation failed!");
+            if (!block)
+            {
+                OLO_CORE_ERROR("CommandAllocator::AllocatePacketWithCommand: allocation of {0} bytes failed", totalSize);
+                return nullptr;
+            }
             // Placement-new the packet at the start
             auto* packet = new (block) CommandPacket();
             // Placement-new the command immediately after (in the inline data region)

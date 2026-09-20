@@ -186,6 +186,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md): fix the callee that locks internally; don't wrap a self-synchronised member in an outer lock.
 - [spinlock-payload-cache-line-separation.md](spinlock-payload-cache-line-separation.md): keep a lock off its payload's cache line.
 - [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md): three checks before promoting a per-tick scratch vector to persistent state.
+- [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
 
 ## Subsystem notes (`notes-*.md`)
 
@@ -428,6 +429,7 @@ The logic is right; when it runs, or how long it lives, is wrong.
 | [intrusive-refcount-weakref-races.md](intrusive-refcount-weakref-races.md) | TOCTOU between a decrement and a re-read. |
 | [non-recursive-lock-self-locking-helper.md](non-recursive-lock-self-locking-helper.md) | A locked scope calling a sibling that locks the same non-recursive mutex; unlock the callee, don't move the caller. |
 | [per-frame-scratch-reuse.md](per-frame-scratch-reuse.md) | Promoting a per-tick local to persistent state. |
+| [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md) | A bump allocator sized its new block with padding computed for the old base, then recomputed padding for the new base with no final bounds check; the cursor advanced out of the block. |
 | [parallelizable-mover-systems.md](parallelizable-mover-systems.md) | Split a system at its write boundary. |
 | [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md) | What is bound when you clear. |
 | [vulkan-command-ordered-buffer-writes.md](vulkan-command-ordered-buffer-writes.md) | A CPU write between two recorded draws is last-write-wins on Vulkan. |
