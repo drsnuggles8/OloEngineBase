@@ -35,6 +35,22 @@ Scene: AnimalPopulation
 # Seed: 1258. Every placement, phase and rate below comes from it through
 # the fixed LCG in the generator — not Python's `random`, whose stream is an
 # interpreter implementation detail.
+#
+# KNOWN LIMITATION, STATED RATHER THAN HIDDEN. The grooms here are drawn at
+# each animal's own transform, NOT bound to the fox body: there is no cooked
+# GroomBindingComponent binding for the Fox rig, and building one is #1249's
+# surface rather than #1258's. The Fox is authored in centimetres and placed
+# at a scale of ~0.012, so each coat renders as a small blob at the animal's
+# origin instead of sitting on its back.
+#
+# That does not affect what this scene is FOR. The budget is measured on the
+# work each animal submits — strand counts, guide counts, bone counts — and
+# the editor log shows the scheduler assigning different strides (1, 2, 3, 4)
+# across this population, which is the whole point. But this is a SCHEDULING
+# fixture, not a finished groomed herd, and it should not be cited as one.
+# The budget's visual evidence lives in
+# OloEngine/tests/Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp,
+# whose grooms are correctly scaled.
 Entities:
   # ── Camera (scene camera; capture manifests pose the EDITOR camera) ──
   - Entity: 1258000000000001
@@ -50,6 +66,9 @@ Entities:
         PerspectiveFOV: 0.7854
         PerspectiveNear: 0.05
         PerspectiveFar: 400
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
   # ── Key light: raking enough to read a coat silhouette at distance ──
@@ -65,8 +84,11 @@ Entities:
       Color: [1, 0.95, 0.86]
       Intensity: 5
       CastShadows: true
+      ShadowDepthBiasTexels: 2
+      ShadowNormalBias: 0.01
       MaxShadowDistance: 220
-      CascadeLambda: 0.9
+      CascadeSplitLambda: 0.9
+      CascadeDebugVisualization: false
   # ── THE HERO: close-up, full coat, protected by the budget ──
   - Entity: 1258000000000003
     TagComponent:
@@ -2525,7 +2547,7 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [240, 0.04, 240]
     MeshComponent:
-      PrimitiveType: 1
+      Primitive: 1
     MaterialComponent:
       AlbedoColor: [0.24, 0.26, 0.18]
       Metallic: 0

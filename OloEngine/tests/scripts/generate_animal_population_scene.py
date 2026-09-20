@@ -153,25 +153,45 @@ def camera():
         "        PerspectiveFOV: 0.7854\n"
         "        PerspectiveNear: 0.05\n"
         "        PerspectiveFar: 400\n"
+        "        OrthographicSize: 10\n"
+        "        OrthographicNear: -1\n"
+        "        OrthographicFar: 1\n"
         "      Primary: true\n"
         "      FixedAspectRatio: false\n"
     )
 
 
 def dir_light(direction, color, intensity):
+    # Key spellings copied from generate_reference_fixture_scenes.py rather than
+    # guessed. An unknown key here does NOT fail the load — it is silently
+    # ignored — so a misspelling is a value that quietly never applies.
+    # `CascadeSplitLambda` was spelled `CascadeLambda` in this generator's first
+    # draft and did nothing at all.
     return (
         "    DirectionalLightComponent:\n"
         f"      Direction: {vec(direction)}\n"
         f"      Color: {vec(color)}\n"
         f"      Intensity: {f(intensity)}\n"
         "      CastShadows: true\n"
-        "      MaxShadowDistance: 220\n"
-        "      CascadeLambda: 0.9\n"
+        "      ShadowDepthBiasTexels: 2\n"
+        # The engine default (0.01), deliberately NOT the 0.1 the sample scenes
+        # author: a 10x normal bias detaches contact shadows from their caster
+        # (#1119), and what this scene exists to show is the coats.
+        "      ShadowNormalBias: 0.01\n"
+        f"      MaxShadowDistance: 220\n"
+        "      CascadeSplitLambda: 0.9\n"
+        "      CascadeDebugVisualization: false\n"
     )
 
 
 def mesh(primitive):
-    return f"    MeshComponent:\n      PrimitiveType: {primitive}\n"
+    # `Primitive`, NOT `PrimitiveType`. SceneSerializer reads the former; the
+    # latter deserialises as a bad conversion and takes the WHOLE SCENE down,
+    # because one failed entity aborts the load. The first run of this
+    # generator did exactly that, and the only symptom was
+    # "SceneSerializer: 1 entities failed to deserialize - aborting" in
+    # OloEngine.log next to an empty viewport.
+    return f"    MeshComponent:\n      Primitive: {primitive}\n"
 
 
 def material(albedo, metallic, roughness):
@@ -325,6 +345,22 @@ NOTE = [
     f"Seed: {SEED}. Every placement, phase and rate below comes from it through",
     "the fixed LCG in the generator — not Python's `random`, whose stream is an",
     "interpreter implementation detail.",
+    "",
+    "KNOWN LIMITATION, STATED RATHER THAN HIDDEN. The grooms here are drawn at",
+    "each animal's own transform, NOT bound to the fox body: there is no cooked",
+    "GroomBindingComponent binding for the Fox rig, and building one is #1249's",
+    "surface rather than #1258's. The Fox is authored in centimetres and placed",
+    "at a scale of ~0.012, so each coat renders as a small blob at the animal's",
+    "origin instead of sitting on its back.",
+    "",
+    "That does not affect what this scene is FOR. The budget is measured on the",
+    "work each animal submits — strand counts, guide counts, bone counts — and",
+    "the editor log shows the scheduler assigning different strides (1, 2, 3, 4)",
+    "across this population, which is the whole point. But this is a SCHEDULING",
+    "fixture, not a finished groomed herd, and it should not be cited as one.",
+    "The budget's visual evidence lives in",
+    "OloEngine/tests/Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp,",
+    "whose grooms are correctly scaled.",
 ]
 
 
