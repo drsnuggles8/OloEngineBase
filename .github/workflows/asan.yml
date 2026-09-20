@@ -1271,18 +1271,37 @@ jobs:
         --label "ASan (Windows)"
         --expected-total ${{ needs.asan-windows.outputs.ctest-total }}
 
-    # NO `merge-multiple`, deliberately. GTEST_OUTPUT writes into a directory and
-    # gtest names the files itself -- OloEngine-Tests.xml, then _1, _2, ... per
-    # process -- so all four shards produce the SAME filenames. Merging them into one
-    # directory would have shards silently overwrite each other and the report would
-    # be missing real failures while looking complete. One directory per artifact,
-    # and a `**` glob below.
+    # NO `merge-multiple`, deliberately. Since #1372 the test binary names its own
+    # report file (filter + shard + pid), so the shards no longer collide the way
+    # they did when gtest chose `OloEngine-Tests.xml`, then _1, _2, ... by probing
+    # the filesystem. This stays one directory per artifact anyway: the names are
+    # unique by construction WITHIN a runner, and nothing here should depend on
+    # pids not repeating ACROSS the four. A merge that silently overwrote a shard
+    # would look exactly like a complete report. One directory per artifact, and a
+    # `**` glob below.
     - name: Download the shard test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: asan-windows-test-results-shard-*
         path: test_results
       continue-on-error: true
+
+    # #1372. Every report must be READABLE, and this runs BEFORE the reporter so
+    # the message names the cause instead of arriving as a parser stack trace.
+    #
+    # The bug it guards was silent for as long as it existed: gtest picked its own
+    # filename when GTEST_OUTPUT named a directory, two parallel processes picked
+    # the same one, and one suite's results were overwritten. No test failed -- the
+    # corruption is in the report, not the run -- so the shards stayed green, and
+    # the shard-coverage proof below counts ctest ENTRIES rather than readable
+    # reports, so it could not see it either. Fixed in the test binary
+    # (OloEngine/tests/TestXmlOutputPath.h); this is what makes a recurrence loud.
+    - name: Assert every shard report is readable
+      if: always()
+      run: >
+        python3 scripts/verify_test_reports.py
+        --dir test_results
+        --label "ASan (Windows)"
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded
@@ -3022,16 +3041,29 @@ jobs:
         --label "ASan + LSan (Linux)"
         --expected-total ${{ needs.asan-lsan-linux.outputs.ctest-total }}
 
-    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
-    # files itself, so every shard produces the SAME filenames; merging would have
-    # them overwrite each other and the report would look complete while missing
-    # real failures. One directory per artifact, and a `**` glob below.
+    # NO `merge-multiple`. Since #1372 the test binary names its own report file,
+    # so shards no longer collide the way they did when gtest chose the name by
+    # probing the filesystem. Kept per-artifact regardless: the names are unique
+    # within a runner, not guaranteed across them, and a merge that overwrote a
+    # shard would look exactly like a complete report. One directory per artifact,
+    # and a `**` glob below.
     - name: Download the shard test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: asan-lsan-linux-test-results-shard-*
         path: test_results
       continue-on-error: true
+
+    # #1372, the same guard the ASan (Windows) coverage job carries: every report
+    # must be readable, checked before the reporter so a recurrence names its
+    # cause. These shards set the same directory-style GTEST_OUTPUT and ran the
+    # same racing gtest filename probe.
+    - name: Assert every shard report is readable
+      if: always()
+      run: >
+        python3 scripts/verify_test_reports.py
+        --dir test_results
+        --label "ASan + LSan (Linux)"
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to
@@ -3265,16 +3297,29 @@ jobs:
         --label "UBSan (Linux)"
         --expected-total ${{ needs.ubsan-linux.outputs.ctest-total }}
 
-    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
-    # files itself, so every shard produces the SAME filenames; merging would have
-    # them overwrite each other and the report would look complete while missing
-    # real failures. One directory per artifact, and a `**` glob below.
+    # NO `merge-multiple`. Since #1372 the test binary names its own report file,
+    # so shards no longer collide the way they did when gtest chose the name by
+    # probing the filesystem. Kept per-artifact regardless: the names are unique
+    # within a runner, not guaranteed across them, and a merge that overwrote a
+    # shard would look exactly like a complete report. One directory per artifact,
+    # and a `**` glob below.
     - name: Download the shard test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: ubsan-linux-test-results-shard-*
         path: test_results
       continue-on-error: true
+
+    # #1372, the same guard the ASan (Windows) coverage job carries: every report
+    # must be readable, checked before the reporter so a recurrence names its
+    # cause. These shards set the same directory-style GTEST_OUTPUT and ran the
+    # same racing gtest filename probe.
+    - name: Assert every shard report is readable
+      if: always()
+      run: >
+        python3 scripts/verify_test_reports.py
+        --dir test_results
+        --label "UBSan (Linux)"
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to
@@ -3517,16 +3562,29 @@ jobs:
         --label "TSan (Linux)"
         --expected-total ${{ needs.tsan-linux.outputs.ctest-total }}
 
-    # NO `merge-multiple`. GTEST_OUTPUT writes into a directory and gtest names the
-    # files itself, so every shard produces the SAME filenames; merging would have
-    # them overwrite each other and the report would look complete while missing
-    # real failures. One directory per artifact, and a `**` glob below.
+    # NO `merge-multiple`. Since #1372 the test binary names its own report file,
+    # so shards no longer collide the way they did when gtest chose the name by
+    # probing the filesystem. Kept per-artifact regardless: the names are unique
+    # within a runner, not guaranteed across them, and a merge that overwrote a
+    # shard would look exactly like a complete report. One directory per artifact,
+    # and a `**` glob below.
     - name: Download the shard test results
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: tsan-linux-test-results-shard-*
         path: test_results
       continue-on-error: true
+
+    # #1372, the same guard the ASan (Windows) coverage job carries: every report
+    # must be readable, checked before the reporter so a recurrence names its
+    # cause. These shards set the same directory-style GTEST_OUTPUT and ran the
+    # same racing gtest filename probe.
+    - name: Assert every shard report is readable
+      if: always()
+      run: >
+        python3 scripts/verify_test_reports.py
+        --dir test_results
+        --label "TSan (Linux)"
 
     - name: Test report
       # Fork PRs can't write checks (job-level `checks: write` is downgraded to
