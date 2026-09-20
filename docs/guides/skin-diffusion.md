@@ -188,8 +188,10 @@ This is screen-space real-time diffusion, not a claim of volumetric transport.
   irradiance — is smooth at that scale.
 - **No transmission.** Light through an ear lit from behind is not this feature; it is what
   `ThicknessScale` is being carried for.
-- **The profile runs narrow above a diffuse albedo of ~0.7, and the support holds 97% of the real
-  transport at the default's red channel, not 99.5%.** Both were measured against a Monte Carlo
+- **At transport version 1, the profile runs narrow above a diffuse albedo of ~0.7, and the support
+  holds 97% of the real transport at the default's red channel, not 99.5%.** Everything in this
+  bullet describes version 1; **version 6 (`IsotropicGather`) fixes both** — see below. Both were
+  measured against a Monte Carlo
   searchlight walk (#1255) and both were deliberately left (#1361). Widening the support needs
   1.80x the radius at a fixed 17 taps — a uniformly coarser kernel, with the unblurred centre tap
   going from 0.143 to 0.217 of the profile — and moves a bright feature's halo by 0.004 of that

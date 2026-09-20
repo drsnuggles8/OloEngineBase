@@ -199,12 +199,21 @@ namespace OloEngine
             return 0.0f;
 
         const f32 target = std::min(fraction, 0.9999f);
-        // The bracket scales with the SLOWEST exponential, which is `ratio * d`
-        // rather than 3d once the ratio is authorable. Keeping the same
-        // multiple of the slow rate keeps the order of magnitude of headroom
-        // the Burley bracket had.
+        // THE BRACKET KEYS ON THE SLOWEST EXPONENTIAL, and `ratio * d` is only
+        // the slower of the two when the ratio is above 1. Below it the plain
+        // `d` term decays more slowly and a bracket scaled by the ratio comes
+        // out SHORT — at ratio 0.25 and a mixture weight of 1 it reaches 5.33d
+        // where the 0.999 radius is 6.91d, and bisection then returns its own
+        // upper bound as if it were the answer. Silent, and wrong by whatever
+        // the caller asked for.
+        //
+        // Both shipped models pass a ratio above 1 (Burley's 3, version 6's 4),
+        // so max() changes no number this engine computes; it is here because
+        // the function is public and takes an arbitrary positive ratio.
+        // Keeping the same multiple of the SLOW rate keeps the order of
+        // magnitude of headroom the Burley bracket had.
         f32 low = 0.0f;
-        f32 high = (kCdfInversionUpperBoundInD / 3.0f) * ratio * d;
+        f32 high = (kCdfInversionUpperBoundInD / 3.0f) * std::max(1.0f, ratio) * d;
         for (i32 i = 0; i < kCdfInversionIterations; ++i)
         {
             const f32 mid = 0.5f * (low + high);

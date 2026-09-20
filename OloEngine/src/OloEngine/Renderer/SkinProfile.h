@@ -179,9 +179,10 @@ namespace OloEngine
         // nobody should author against. They are one.
         //
         // WHAT CHANGES, precisely:
-        //   * the kernel becomes a 32-tap golden-angle disc evaluated in ONE
+        //   * the kernel becomes a 25-tap golden-angle disc evaluated in ONE
         //     pass, rather than 17 taps along each of two axes. It is not a
-        //     cost increase: 32 fetches against 34.
+        //     cost increase, it is a cost CUT: 25 fetches against 34. The count
+        //     is kSkinGatherTapCount, which records why 25 and not more.
         //   * the profile becomes a generalised two-exponential whose mixture
         //     weight, rate ratio and scaling correction are
         //     kSkinGatherMixtureWeight, kSkinGatherRateRatio and

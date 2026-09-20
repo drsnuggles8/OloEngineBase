@@ -1244,10 +1244,12 @@ namespace OloEngine::Tests
         // regression rather than a partial win. That is what coupled means.
         SkinDiffusionKernel refitOnly = gather;
         {
-            // Re-run the separable construction against the version-6 scaling by
-            // asking the production builder for a version-5 profile whose
-            // authored radius already carries the correction. Same d, same
-            // support, separable taps.
+            // Re-run the separable construction against version 6's scaling by
+            // asking the production builder for a VERSION-1 profile (MakeProfile
+            // authors ScreenSpaceDiffusion) whose authored radius already
+            // carries the correction. Same d, same support, separable taps —
+            // and version 1 specifically, so no later version's terms enter the
+            // comparison.
             SkinProfileParameters shifted = MakeProfile(kAuthored);
             shifted.ScatterRadiusMM =
                 glm::vec3(kUnitRadiusMM * SkinGatherScalingCorrection(kAuthored));

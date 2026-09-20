@@ -393,3 +393,63 @@ TEST(SkinDiffusionTest, SupportRadiusCoversTheWidestChannel)
     EXPECT_GT(SkinBurleyCdf(support, d.y), kSkinDiffusionSupportFraction);
     EXPECT_GT(SkinBurleyCdf(support, d.z), kSkinDiffusionSupportFraction);
 }
+
+TEST(SkinDiffusionTest, TheGeneralisedTransportReducesToBurley)
+{
+    // THE CLAIM SkinDiffusion.h MAKES, ASSERTED RATHER THAN ASSUMED. #1368
+    // opened up the two constants Burley fixed at 0.25 and 3, and the whole
+    // argument for doing it that way — rather than as a second profile beside
+    // the first — is that version 1 is then the SPECIAL CASE and not a separate
+    // code path. That is only true if the generalised form reproduces the
+    // original to the bit, so this is where it is checked.
+    for (const f32 d : { 0.25f, 1.0f, 3.5f })
+    {
+        for (const f32 r : { 0.05f, 0.5f, 2.0f, 9.0f, 40.0f })
+        {
+            EXPECT_NEAR(SkinTransportCdf(r, d, 0.25f, 3.0f), SkinBurleyCdf(r, d), 1.0e-6f)
+                << "r = " << r << ", d = " << d;
+        }
+        for (const f32 fraction : { 0.25f, 0.5f, 0.9f, kSkinDiffusionSupportFraction })
+        {
+            EXPECT_NEAR(SkinTransportRadiusForFraction(fraction, d, 0.25f, 3.0f),
+                        SkinBurleyRadiusForFraction(fraction, d), 1.0e-3f * d)
+                << "fraction = " << fraction << ", d = " << d;
+        }
+    }
+}
+
+TEST(SkinDiffusionTest, TheInversionBracketHoldsWhenTheRateRatioIsBelowOne)
+{
+    // A RATIO BELOW 1 MAKES THE PLAIN `d` TERM THE SLOW ONE, and a bracket
+    // scaled by the ratio is then too SHORT — bisection converges on its own
+    // upper bound and hands that back as the answer, silently, wrong by
+    // whatever was asked for.
+    //
+    // Neither shipped model can reach this (Burley passes 3, version 6 passes
+    // 4), so nothing in the engine was wrong. The function is public and takes
+    // an arbitrary positive ratio, which is enough reason to pin it: the next
+    // caller is the one that would have found out.
+    //
+    // Checked against the closed form, which exists when the mixture weight is
+    // 1: CDF(r) = 1 - e^{-r/d}, so the fraction f is reached at -d ln(1 - f).
+    constexpr f32 kD = 1.0f;
+    for (const f32 ratio : { 0.1f, 0.25f, 0.5f, 1.0f, 3.0f })
+    {
+        for (const f32 fraction : { 0.9f, 0.99f, 0.999f })
+        {
+            const f32 produced = SkinTransportRadiusForFraction(fraction, kD, 1.0f, ratio);
+            const f32 expected = -kD * std::log(1.0f - fraction);
+            EXPECT_NEAR(produced, expected, 0.01f * expected)
+                << "ratio = " << ratio << ", fraction = " << fraction << ": the bracket is too short";
+        }
+    }
+
+    // And the CDF really does reach what the radius claims, for both shipped
+    // ratios and a below-one one — the property the bracket exists to deliver.
+    for (const f32 ratio : { 0.25f, 3.0f, 4.0f })
+    {
+        const f32 r = SkinTransportRadiusForFraction(kSkinDiffusionSupportFraction, kD, 0.5f, ratio);
+        EXPECT_NEAR(SkinTransportCdf(r, kD, 0.5f, ratio), kSkinDiffusionSupportFraction, 1.0e-3f)
+            << "ratio = " << ratio;
+    }
+}
