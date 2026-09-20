@@ -69,17 +69,22 @@ is scheduled when nothing else runs.
 
 ## 3. The runners share one host, one GPU and 31 GiB
 
-> **`olo-gpu-amd` is being retired (from 2026-09-20); the target is TWO slots, not three.**
-> It holds no capability the CI runners lack — the sentence below is why — so it was purely
-> a scheduling reservation, and one the memory budget could not afford: three units capped
-> at `MemoryMax=14G` each inside ONE `MemoryMax=19G` account slice let the box dispatch
-> three heavy jobs into a budget sized for two.
+> **`olo-gpu-amd` was retired on 2026-09-20. The box has TWO dispatch slots, not three.**
+> It held no capability the CI runners lack — the sentence below is why — so it was purely a
+> scheduling reservation, and one the memory budget could not afford: three units capped at
+> `MemoryMax=14G` each inside ONE `MemoryMax=19G` account slice let the box dispatch three
+> heavy jobs into a budget sized for two.
 >
-> **Two of the three steps are done.** `gpu-conformance-amd.yml` requests `olo-ci`, so
-> nothing schedules onto it. **The box still has three dispatch slots until its registration
-> is removed**, which is root-only and is
-> [§7 Retiring a runner](self-hosted-gpu-runner.md#7-retiring-a-runner). Do not quote the
-> two-slot figure until `gh api .../actions/runners` stops listing `olo-gpu-amd`.
+> All three steps are done: `gpu-conformance-amd.yml` requests `olo-ci`, the registration is
+> removed (`gh api .../actions/runners` lists only `olo-ci-1` and `olo-ci-2`), and the unit
+> is disabled with its drop-ins gone. The procedure, for the next time one is retired, is
+> [§7 Retiring a runner](self-hosted-gpu-runner.md#7-retiring-a-runner) — a workflow change
+> alone is not a retirement.
+>
+> Its directory survives at `/home/gh-runner-olo/actions-runner` (~6.8 G, of which ~5.5 G is
+> `_work`). `config.sh remove` cleared `.credentials` and `.runner`, so the tree is inert;
+> it is kept only because reclaiming the disk is a separate decision and `_work` is full of
+> absolute paths a future runner could not reuse anyway.
 >
 > **Do not re-register a third runner on this account.** The slice is the constraint, and it
 > is per-account: adding a runner adds a dispatch slot without adding any memory, which is
