@@ -3620,6 +3620,95 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimalBudgetComponent& c)
+    {
+        // NO VERSION GATE, and none is possible: the component is new in #1258
+        // and a save's components are keyed by an FNV hash of the type name, so
+        // a save written before it existed does not contain the key and the load
+        // never reaches this function. That is also why this band did NOT take a
+        // kSaveGameFormatVersion number — spending one would have collided with
+        // whatever another branch is appending to an EXISTING component, for no
+        // benefit here. Same reasoning as GroomLodComponent above.
+        ar << c.m_FullRateMotionMetres;
+        ar << c.m_MaxDeformationSteps << c.m_MaxSimulationSteps << c.m_MaxVisibilitySteps << c.m_MaxShadowSteps;
+        ar << c.m_Role << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            // A save file is untrusted input like any other, and the
+            // OLO_SERIALIZE annotations reach scene YAML and the live-write
+            // registries, NOT this archive — so the bounds are restated here or
+            // a corrupt save is the one route that bypasses every one of them.
+            const AnimalBudgetComponent defaults;
+
+            // A NON-FINITE MOTION BOUND IS THE DANGEROUS ONE, and not because
+            // it crashes. MaxDeformationStepForPoseBound compares against it,
+            // every comparison with a NaN is false in both directions, and the
+            // function's non-finite branch answers 0 — so the animal would
+            // silently refuse to reduce its tick rate for the rest of the
+            // session, with nothing in any log and only a frame time to show
+            // for it.
+            if (!std::isfinite(c.m_FullRateMotionMetres) || c.m_FullRateMotionMetres < 0.0f)
+            {
+                c.m_FullRateMotionMetres = defaults.m_FullRateMotionMetres;
+            }
+            c.m_FullRateMotionMetres = std::clamp(c.m_FullRateMotionMetres, 0.0f, 100.0f);
+
+            c.m_MaxDeformationSteps = std::min(c.m_MaxDeformationSteps, 16u);
+            c.m_MaxSimulationSteps = std::min(c.m_MaxSimulationSteps, 16u);
+            c.m_MaxVisibilitySteps = std::min(c.m_MaxVisibilitySteps, 16u);
+            c.m_MaxShadowSteps = std::min(c.m_MaxShadowSteps, 16u);
+
+            // AN OUT-OF-RANGE ROLE TAKES BACKGROUND, NOT HERO, matching
+            // MakeAnimalRole. The safe default for a broken number is the
+            // animal that gives way: a save that resolved to a scene full of
+            // accidental heroes would make the budget unservable and report
+            // BudgetExceeded forever, which is a louder failure than a herd
+            // animal that lost its promotion.
+            if (!IsValidAnimalRole(static_cast<i32>(c.m_Role)))
+            {
+                c.m_Role = defaults.m_Role;
+            }
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, AnimalPathComponent& c)
+    {
+        ar << c.m_RadiusX << c.m_RadiusZ << c.m_RateX << c.m_RateZ << c.m_PhaseX << c.m_PhaseZ;
+        ar << c.m_OriginX << c.m_OriginY << c.m_OriginZ << c.m_ElapsedSeconds;
+        ar << c.m_HasOrigin << c.m_OrientToPath << c.m_Enabled;
+
+        if (ar.IsLoading())
+        {
+            const AnimalPathComponent defaults;
+
+            // THE ELAPSED TIME IS THE WHOLE SAVED STATE OF THE PATH, because
+            // the position is a closed form of it — so a corrupt value here
+            // does not merely misplace the animal for a frame, it misplaces it
+            // permanently and identically on every reload. A non-finite one
+            // propagates into the sine and puts the entity at NaN, which EnTT,
+            // the transform hierarchy and the culler will all happily carry.
+            const auto repair = [](f32& value, f32 fallback, f32 lo, f32 hi)
+            {
+                if (!std::isfinite(value))
+                {
+                    value = fallback;
+                }
+                value = std::clamp(value, lo, hi);
+            };
+            repair(c.m_RadiusX, defaults.m_RadiusX, 0.0f, 10000.0f);
+            repair(c.m_RadiusZ, defaults.m_RadiusZ, 0.0f, 10000.0f);
+            repair(c.m_RateX, defaults.m_RateX, -100.0f, 100.0f);
+            repair(c.m_RateZ, defaults.m_RateZ, -100.0f, 100.0f);
+            repair(c.m_PhaseX, defaults.m_PhaseX, -1000.0f, 1000.0f);
+            repair(c.m_PhaseZ, defaults.m_PhaseZ, -1000.0f, 1000.0f);
+            repair(c.m_OriginX, defaults.m_OriginX, -1000000.0f, 1000000.0f);
+            repair(c.m_OriginY, defaults.m_OriginY, -1000000.0f, 1000000.0f);
+            repair(c.m_OriginZ, defaults.m_OriginZ, -1000000.0f, 1000000.0f);
+            repair(c.m_ElapsedSeconds, 0.0f, 0.0f, 1000000000.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSimulationComponent& c)
     {
         // NO VERSION GATE, and none is possible: the component is new in #1250
@@ -5818,6 +5907,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(GroomCoatComponent);
         REGISTER_SAVE_COMPONENT(GroomSimulationComponent);
         REGISTER_SAVE_COMPONENT(GroomLodComponent);
+        REGISTER_SAVE_COMPONENT(AnimalBudgetComponent);
+        REGISTER_SAVE_COMPONENT(AnimalPathComponent);
         REGISTER_SAVE_COMPONENT(FluidComponent);
         REGISTER_SAVE_COMPONENT(FluidEmitterComponent);
         REGISTER_SAVE_COMPONENT(FluidKillVolumeComponent);

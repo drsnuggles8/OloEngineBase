@@ -16,6 +16,8 @@
 
 SAVE_COMPONENT(AbilityComponent, entity, writer);
 SAVE_COMPONENT(AircraftComponent, entity, writer);
+SAVE_COMPONENT(AnimalBudgetComponent, entity, writer);
+SAVE_COMPONENT(AnimalPathComponent, entity, writer);
 SAVE_COMPONENT(AnimationGraphComponent, entity, writer);
 SAVE_COMPONENT(AnimationStateComponent, entity, writer);
 SAVE_COMPONENT(AudioListenerComponent, entity, writer);

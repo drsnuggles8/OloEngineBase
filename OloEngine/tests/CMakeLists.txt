@@ -59,6 +59,7 @@ add_executable(OloEngine-Tests
 		# new lever from being added as a bare Env:: read again.
 		Core/CVarTest.cpp
 		Core/DebugLeversTest.cpp
+		Core/FrameTimeTailTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
@@ -758,6 +759,7 @@ add_executable(OloEngine-Tests
 		# rendering path, the compensation's A/B, and the two hysteresis bounds
 		# driven as CAMERA MOTION, which is the only shape in which "does not
 		# thrash" has a truth value.
+		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
 		# The #1248 bake-off itself. Every number in
@@ -977,6 +979,8 @@ add_executable(OloEngine-Tests
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
+		Scene/AnimalSchedulerContractTest.cpp
+		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
@@ -1532,6 +1536,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
+		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
 		Functional/SaveGame/InventoryComponentSceneYAMLRoundTripTest.cpp
 		Functional/SaveGame/HierarchyPreservedAcrossSaveLoadTest.cpp

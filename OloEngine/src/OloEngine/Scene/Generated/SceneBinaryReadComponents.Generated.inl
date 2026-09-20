@@ -71,6 +71,52 @@ case 436629486u: // AircraftComponent
     comp.m_YawInput = std::clamp(comp.m_YawInput, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
     break;
 }
+case 3098555439u: // AnimalBudgetComponent
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalBudgetComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_FullRateMotionMetres)) return false;
+    comp.m_FullRateMotionMetres = std::clamp(comp.m_FullRateMotionMetres, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxDeformationSteps)) return false;
+    comp.m_MaxDeformationSteps = std::clamp(comp.m_MaxDeformationSteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_MaxSimulationSteps)) return false;
+    comp.m_MaxSimulationSteps = std::clamp(comp.m_MaxSimulationSteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_MaxVisibilitySteps)) return false;
+    comp.m_MaxVisibilitySteps = std::clamp(comp.m_MaxVisibilitySteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_MaxShadowSteps)) return false;
+    comp.m_MaxShadowSteps = std::clamp(comp.m_MaxShadowSteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_Role)) return false;
+    comp.m_Role = std::clamp(comp.m_Role, static_cast<decltype(comp.m_Role)>(0), static_cast<decltype(comp.m_Role)>(2));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
+case 37445965u: // AnimalPathComponent
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalPathComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_RadiusX)) return false;
+    comp.m_RadiusX = std::clamp(comp.m_RadiusX, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RadiusZ)) return false;
+    comp.m_RadiusZ = std::clamp(comp.m_RadiusZ, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RateX)) return false;
+    comp.m_RateX = std::clamp(comp.m_RateX, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RateZ)) return false;
+    comp.m_RateZ = std::clamp(comp.m_RateZ, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PhaseX)) return false;
+    comp.m_PhaseX = std::clamp(comp.m_PhaseX, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_PhaseZ)) return false;
+    comp.m_PhaseZ = std::clamp(comp.m_PhaseZ, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_OriginX)) return false;
+    comp.m_OriginX = std::clamp(comp.m_OriginX, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_OriginY)) return false;
+    comp.m_OriginY = std::clamp(comp.m_OriginY, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_OriginZ)) return false;
+    comp.m_OriginZ = std::clamp(comp.m_OriginZ, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ElapsedSeconds)) return false;
+    comp.m_ElapsedSeconds = std::clamp(comp.m_ElapsedSeconds, static_cast<f32>(0.0f), static_cast<f32>(1000000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HasOrigin)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_OrientToPath)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 2678681430u: // BoatComponent
 {
     auto& comp = deserializedEntity.AddComponent<BoatComponent>();

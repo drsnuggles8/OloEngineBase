@@ -16,6 +16,8 @@
 
 TRY_LOAD_COMPONENT(AbilityComponent);
 TRY_LOAD_COMPONENT(AircraftComponent);
+TRY_LOAD_COMPONENT(AnimalBudgetComponent);
+TRY_LOAD_COMPONENT(AnimalPathComponent);
 TRY_LOAD_COMPONENT(AnimationGraphComponent);
 TRY_LOAD_COMPONENT(AnimationStateComponent);
 TRY_LOAD_COMPONENT(AudioListenerComponent);

@@ -17,6 +17,8 @@
 
 OLO_ON_COMPONENT_ADDED_NOOP(AbilityComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AircraftComponent)
+OLO_ON_COMPONENT_ADDED_NOOP(AnimalBudgetComponent)
+OLO_ON_COMPONENT_ADDED_NOOP(AnimalPathComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AnimationGraphComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AnimationStateComponent)
 OLO_ON_COMPONENT_ADDED_NOOP(AudioListenerComponent)

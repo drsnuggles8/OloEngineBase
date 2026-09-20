@@ -9,6 +9,7 @@
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/Streaming/StreamingSettings.h"
 #include "OloEngine/Scene/WorldOriginSettings.h"
 #include "OloEngine/Scene/SceneLightmap.h"
@@ -225,6 +226,25 @@ namespace OloEngine
         [[nodiscard("Store this!")]] u64 GetSimulationTick() const
         {
             return m_SimulationTick;
+        }
+
+        /// This frame's multi-animal scheduling telemetry (issue #1258): what
+        /// the population asked for, what it was given, which axis dominates,
+        /// and whether the budget could be met at all.
+        ///
+        /// Read by the editor's statistics panel and by the evidence tests.
+        /// Zeroed every frame the scheduler runs, so a stale read is a frame of
+        /// zeroes rather than a frame of last frame's numbers.
+        [[nodiscard]] const AnimalSchedulerStats& GetAnimalSchedulerStats() const noexcept
+        {
+            return m_AnimalSchedulerStats;
+        }
+
+        /// This frame's per-animal decisions, keyed by entity UUID. Empty when
+        /// nothing in the scene carries an AnimalBudgetComponent.
+        [[nodiscard]] const std::unordered_map<UUID, AnimalSchedule>& GetAnimalSchedules() const noexcept
+        {
+            return m_AnimalSchedules;
         }
 
         // Deterministic simulation clock (seconds since OnRuntimeStart), advanced
@@ -1161,6 +1181,9 @@ namespace OloEngine
         // FlockingSystem.h for the full rationale.
         void UpdateBoidSteering(Timestep ts);  // neighbour search + steering forces (worker-safe)
         void UpdateBoidMovement(Timestep ts);  // integrate velocity + move entities (game thread)
+        // Walk the reproducible animal population along its authored paths
+        // (issue #1258). Registered in the gameplay scheduler as "AnimalPaths".
+        void UpdateAnimalPaths(Timestep ts);
         void UpdateInventory(Timestep ts);     // pickups / despawn
         void UpdateDiscovery(Timestep ts);     // landing-trigger discovery loop + objective UI (issue #881)
         void UpdateDestructibles(Timestep ts); // shatter breakables + age/cleanup debris (issue #459)
@@ -1554,6 +1577,70 @@ namespace OloEngine
         // m_GroomRegionMaps' reason: an entity destroyed mid-session would
         // otherwise leave its counters resident for the Scene's lifetime.
         std::unordered_map<UUID, GroomLodState> m_GroomLodRuntime;
+
+        // ── Multi-animal scheduling budgets (issue #1258) ────────────────
+        //
+        // HERE RATHER THAN IN A PASS, and for GroomLodState's reason: a pass
+        // runs once per CAMERA while a hysteresis and a starvation counter must
+        // advance once per FRAME. Advanced in a pass, a split-screen scene
+        // would burn its hold twice as fast and starve at double rate against a
+        // budget that did not.
+        //
+        // Keyed by UUID and swept against the animals seen this frame, so an
+        // entity destroyed mid-session does not leave its counters resident for
+        // the Scene's lifetime.
+        std::unordered_map<UUID, AnimalScheduleState> m_AnimalScheduleRuntime;
+
+        /// This frame's decisions, gathered once and spent in three places: the
+        /// animation tick rate in UpdateAnimation, the groom budgets in
+        /// PublishGroomStrandRequests, and the shadow bias the pass applies.
+        ///
+        /// ONE EVALUATION, THREE CONSUMERS — the rule #1252 states for
+        /// AdvanceGroomLod and for the same reason: deciding it in each place
+        /// would mean three evaluations of a hysteretic function and three sets
+        /// of counters that drift apart by construction.
+        std::unordered_map<UUID, AnimalSchedule> m_AnimalSchedules;
+
+        AnimalSchedulerStats m_AnimalSchedulerStats;
+
+        /// Frames since the scene started running, used ONLY to phase the
+        /// staggered deformation ticks. Its absolute value is never read — only
+        /// `(counter + phase) % period` — so a wrap is harmless.
+        ///
+        /// THE STAGGER IS THE WHOLE POINT of this counter, and it is what makes
+        /// the frame-time TAIL fall rather than only the mean. Forty animals at
+        /// a quarter rate all ticking on the same frame is the same peak cost
+        /// as forty animals at full rate, once every four frames; spread across
+        /// the period it is a quarter of the peak. A scheduler without the
+        /// phase improves every average and leaves the stutter exactly where it
+        /// was.
+        u64 m_AnimalFrameCounter = 0;
+
+        /// Gather every animal, share the frame out between them, and publish
+        /// the result into m_AnimalSchedules. Called once per frame from the
+        /// frame boundary, beside SelectAnimatedSurfaceLOD and for its reason:
+        /// it must run BEFORE the tick that poses the bodies and before the
+        /// submission that draws their coats.
+        void ScheduleAnimalPopulationForFrame();
+
+        /// This frame's schedule for `id`, or null when the animal is not
+        /// budgeted. Null is not an error: it is the answer for every entity
+        /// without an AnimalBudgetComponent, which is every entity in every
+        /// scene authored before #1258.
+        [[nodiscard]] const AnimalSchedule* FindAnimalSchedule(UUID id) const;
+
+        /// Whether this animal's skeleton should be posed on this frame.
+        ///
+        /// True for every unbudgeted entity, so the pre-#1258 behaviour is
+        /// exactly "no AnimalBudgetComponent". For a budgeted one the period is
+        /// 2^step and the phase is derived from the UUID, which is what spreads
+        /// the population's expensive frames instead of aligning them.
+        ///
+        /// `outScaledSeconds` receives the time the pose must advance by when
+        /// the answer is true: the WHOLE period's worth, not one frame's, so
+        /// the clip time never drifts behind the world and an animal at a
+        /// quarter rate is not also running at a quarter speed.
+        [[nodiscard]] bool ShouldPoseAnimalThisFrame(UUID id, f32 frameSeconds, f32& outScaledSeconds) const;
 
         // The guide-to-strand influence table, keyed by GROOM ASSET HANDLE and
         // invalidated by the asset's identity, exactly as m_GroomRegionMaps is

@@ -2689,6 +2689,12 @@ namespace OloEngine
         // ...and resolve which mesh that surface IS this frame, before anything
         // deforms it (#1227).
         SelectAnimatedSurfaceLOD();
+        // ...and share this frame's work out among the animals, before the tick
+        // that poses them and before the submission that draws their coats
+        // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
+        // reason: a scheduler wired into only some of them leaves the others
+        // spending last frame's allocation, which is invisible in every test.
+        ScheduleAnimalPopulationForFrame();
 
         UpdateStreaming();
 
@@ -2745,6 +2751,12 @@ namespace OloEngine
         // ...and resolve which mesh that surface IS this frame, before anything
         // deforms it (#1227).
         SelectAnimatedSurfaceLOD();
+        // ...and share this frame's work out among the animals, before the tick
+        // that poses them and before the submission that draws their coats
+        // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
+        // reason: a scheduler wired into only some of them leaves the others
+        // spending last frame's allocation, which is invisible in every test.
+        ScheduleAnimalPopulationForFrame();
 
         UpdateStreaming();
 
@@ -3981,6 +3993,25 @@ namespace OloEngine
                 .Reads(kBoidSteering)
                 .ReadsWrites(kLocalTransforms);
 
+            // Walk the reproducible animal population along its authored paths
+            // (issue #1258).
+            //
+            // ReadsWrites rather than Writes on LocalTransforms: the path reads
+            // the entity's authored translation ONCE, to capture its origin,
+            // and writes the translation every tick after that. Declaring only
+            // the write would leave the first-tick read undeclared, which is
+            // invisible in the sequential order the tie-break produces and is a
+            // data race the moment anything here is marked Parallelizable.
+            //
+            // NOT Parallelizable, and deliberately: notes-core-and-threading.md
+            // section 16 makes that a thread-safety audit plus an entry in
+            // Scene::Scene()'s EnTT storage pre-warm list, and a closed-form
+            // sine per animal is not work worth paying that bill for. The
+            // expensive half of this feature is the scheduling, which runs at
+            // the frame boundary and not in this graph at all.
+            sched.AddSystem("AnimalPaths", [](Scene& s, Timestep ts) { s.UpdateAnimalPaths(ts); })
+                .ReadsWrites(kLocalTransforms);
+
             // Place the camera on its spring arm (issue #645). Registered
             // DEAD LAST on purpose: a follow camera must observe the target's
             // FINAL pose for the tick, so it has to sit after the physics
@@ -4175,7 +4206,36 @@ namespace OloEngine
                     FootIKStateComponent* footIKState = nullptr;
                     const FootIKComponent* footIK = ResolveFootIK(entity, footIKState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
+
+                    // ── The deformation budget (#1258) ────────────────────
+                    //
+                    // The ONE place a scheduled animal's pose rate is spent,
+                    // and it is applied at BOTH animation sites — the runtime
+                    // tick and the editor preview — for the AdvanceHistory
+                    // pairing's reason: a gate wired into only one of them
+                    // makes the editor and the game disagree about what the
+                    // budget does, which is the worst place for them to
+                    // disagree.
+                    //
+                    // ShouldPoseAnimalThisFrame returns true for every entity
+                    // without an AnimalBudgetComponent, so a scene authored
+                    // before this feature ticks exactly as it always did. The
+                    // scaled seconds are the WHOLE PERIOD's worth, so an animal
+                    // posed every fourth frame plays its clip at full speed
+                    // rather than at a quarter of it.
+                    f32 poseSeconds = ts.GetSeconds();
+                    if (!ShouldPoseAnimalThisFrame(entity.GetUUID(), ts.GetSeconds(), poseSeconds))
+                    {
+                        // The pose is HELD, not zeroed. Holding means prev ==
+                        // current for the deformation history, so the frame
+                        // emits zero motion for this animal rather than a
+                        // velocity computed across a discontinuity — the smear
+                        // DeformationHistoryResetCause exists to prevent, and
+                        // it costs nothing to get right here.
+                        continue;
+                    }
+
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -4429,6 +4489,384 @@ namespace OloEngine
                 EvaluateEntityMorphTargets(morphView.get<MorphTargetComponent>(e),
                                            morphView.get<MeshComponent>(e), lodComp, skeleton);
             }
+        }
+    }
+
+    const AnimalSchedule* Scene::FindAnimalSchedule(UUID id) const
+    {
+        const auto it = m_AnimalSchedules.find(id);
+        return it != m_AnimalSchedules.end() ? &it->second : nullptr;
+    }
+
+    bool Scene::ShouldPoseAnimalThisFrame(UUID id, f32 frameSeconds, f32& outScaledSeconds) const
+    {
+        outScaledSeconds = frameSeconds;
+
+        const AnimalSchedule* schedule = FindAnimalSchedule(id);
+        if (schedule == nullptr)
+        {
+            // Every entity without an AnimalBudgetComponent, which is every
+            // entity in every scene authored before #1258. The pre-existing
+            // behaviour is therefore exactly "no component", not "a component
+            // set to neutral" — nothing to get wrong on load.
+            return true;
+        }
+
+        const u32 step = schedule->Step[static_cast<sizet>(AnimalWorkAxis::Deformation)];
+        if (step == 0u)
+        {
+            return true;
+        }
+
+        const u32 period = 1u << (step < 30u ? step : 30u);
+
+        // THE PHASE IS DERIVED FROM THE UUID, and it is the difference between
+        // a scheduler that lowers the mean and one that also lowers the tail.
+        // Forty animals at a quarter rate all ticking on the same frame cost
+        // exactly as much on that frame as forty animals at full rate; spread
+        // across the period they cost a quarter. Without this line every
+        // average improves and the stutter sits exactly where it was.
+        //
+        // A UUID is already well mixed, so its low bits are a usable phase
+        // without hashing — and using it rather than a counter means the phase
+        // is a property of the ENTITY, stable across a step change, a save/load
+        // and a scene reload.
+        const u64 phase = static_cast<u64>(id) % static_cast<u64>(period);
+        if (((m_AnimalFrameCounter + phase) % static_cast<u64>(period)) != 0u)
+        {
+            return false;
+        }
+
+        // THE WHOLE PERIOD'S TIME, NOT ONE FRAME'S. An animal posed every
+        // fourth frame with one frame's dt runs its clip at a quarter speed —
+        // a walk becomes a crawl, and it is the kind of wrong that looks like
+        // an animation bug three subsystems away. Advancing by the period keeps
+        // the clip time locked to the world clock; what the budget buys is a
+        // coarser SAMPLING of the same motion, which is the whole premise of
+        // the pose-step bound in AnimalScheduler.h.
+        outScaledSeconds = frameSeconds * static_cast<f32>(period);
+        return true;
+    }
+
+    void Scene::UpdateAnimalPaths(Timestep ts)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        const f32 dt = ts.GetSeconds();
+        if (!std::isfinite(dt) || dt < 0.0f)
+        {
+            // A broken timestep advances nothing. Integrating it would push
+            // every animal's elapsed time to NaN, and the closed form would
+            // then place the whole population at NaN for the rest of the
+            // session — one bad frame becoming permanent.
+            return;
+        }
+
+        auto view = m_Registry.view<TransformComponent, AnimalPathComponent>();
+        for (const auto e : view)
+        {
+            auto& path = view.get<AnimalPathComponent>(e);
+            auto& transform = view.get<TransformComponent>(e);
+
+            if (!path.m_Enabled)
+            {
+                continue;
+            }
+
+            // THE ORIGIN IS CAPTURED, NOT AUTHORED SEPARATELY. An artist places
+            // the herd by dragging it; the figure is then traced around
+            // wherever it was dropped. Captured once and flagged, rather than
+            // detected by comparing against a sentinel, because (0, 0, 0) is a
+            // perfectly ordinary place to put a herd.
+            if (!path.m_HasOrigin)
+            {
+                path.m_OriginX = transform.Translation.x;
+                path.m_OriginY = transform.Translation.y;
+                path.m_OriginZ = transform.Translation.z;
+                path.m_HasOrigin = true;
+            }
+
+            path.m_ElapsedSeconds += dt;
+            if (!std::isfinite(path.m_ElapsedSeconds))
+            {
+                path.m_ElapsedSeconds = 0.0f;
+            }
+
+            // CLOSED FORM, NEVER AN ACCUMULATION. The elapsed time is
+            // accumulated; the POSITION is not. A position integrated frame by
+            // frame drifts with the frame rate, so the same scene captured at a
+            // different dt would put the animals somewhere else and every
+            // measurement downstream would be comparing two different
+            // populations — which is criterion 1 failing silently.
+            const glm::vec3 origin{ path.m_OriginX, path.m_OriginY, path.m_OriginZ };
+            const glm::vec3 offset = AnimalPathOffsetAt(path, path.m_ElapsedSeconds);
+            transform.Translation = origin + offset;
+
+            if (!path.m_OrientToPath)
+            {
+                continue;
+            }
+
+            // The ANALYTIC derivative, not a difference between two sampled
+            // points: a difference is undefined at dt == 0 (a paused frame) and
+            // noisy at small dt, which reads as an animal spinning on the spot
+            // while standing still.
+            const glm::vec3 tangent = AnimalPathTangentAt(path, path.m_ElapsedSeconds);
+            const f32 speedSq = (tangent.x * tangent.x) + (tangent.z * tangent.z);
+            if (speedSq > 1.0e-8f)
+            {
+                // Yaw ONLY, and through SetRotationEuler rather than by
+                // touching the quaternion. A quadruped on flat ground does not
+                // roll or pitch to follow a path, and writing all three would
+                // fight whatever else poses the animal; going through the
+                // setter is what keeps the component's Euler cache and its
+                // authoritative quaternion from disagreeing.
+                glm::vec3 euler = transform.GetRotationEuler();
+                euler.y = std::atan2(tangent.x, tangent.z);
+                transform.SetRotationEuler(euler);
+            }
+        }
+    }
+
+    void Scene::ScheduleAnimalPopulationForFrame()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        ++m_AnimalFrameCounter;
+        m_AnimalSchedules.clear();
+        m_AnimalSchedulerStats = AnimalSchedulerStats{};
+
+        const auto budgetView = m_Registry.view<TransformComponent, AnimalBudgetComponent>();
+        if (budgetView.begin() == budgetView.end())
+        {
+            // Nothing in this scene opted in. Drop any state a previous
+            // population left behind, so re-adding an animal starts from its
+            // apparent size rather than from wherever the budget left it.
+            m_AnimalScheduleRuntime.clear();
+            return;
+        }
+
+        // Last frame's culling-camera LOD inputs — SelectAnimatedSurfaceLOD's
+        // frame of reference and its justification, which applies here word for
+        // word: this runs BEFORE the tick that poses the bodies and before the
+        // submission that draws their coats, so the alternative is a camera
+        // that has not been set up yet. A camera moves a fraction of a frame
+        // between the two and cannot change a step that is not already sitting
+        // exactly on a threshold.
+        const LODViewParams& lodView = Renderer3D::GetLODViewParams();
+
+        const RendererSettings& rendererSettings = Renderer3D::GetRendererSettings();
+
+        AnimalBudgetPolicy policy;
+        policy.Enabled = rendererSettings.AnimalSchedulingEnabled;
+        policy.ProtectHero = rendererSettings.AnimalProtectHero;
+        policy.FrameBudgetUnits = rendererSettings.AnimalFrameBudgetUnits;
+        policy.MaxPoseStepPixels = rendererSettings.AnimalMaxPoseStepPixels;
+        policy.MinVisibleStrands = rendererSettings.AnimalMinVisibleStrands;
+        policy.HoldFrames = rendererSettings.AnimalHoldFrames;
+        policy.StarvationFrames = rendererSettings.AnimalStarvationFrames;
+        policy.AxisWeights[static_cast<sizet>(AnimalWorkAxis::Deformation)] =
+            rendererSettings.AnimalDeformationWeight;
+        policy.AxisWeights[static_cast<sizet>(AnimalWorkAxis::Simulation)] = rendererSettings.AnimalSimulationWeight;
+        policy.AxisWeights[static_cast<sizet>(AnimalWorkAxis::Visibility)] = rendererSettings.AnimalVisibilityWeight;
+        policy.AxisWeights[static_cast<sizet>(AnimalWorkAxis::Shadow)] = rendererSettings.AnimalShadowWeight;
+        // Through the sanitiser inside ScheduleAnimalPopulation, never raw:
+        // every one of these crossed a settings struct an MCP write can reach.
+
+        std::vector<AnimalWorkItem> items;
+        std::vector<UUID> ids;
+        std::unordered_set<UUID> liveAnimals;
+
+        for (const auto entity : budgetView)
+        {
+            const auto& budget = budgetView.get<AnimalBudgetComponent>(entity);
+            if (!budget.m_Enabled)
+            {
+                continue;
+            }
+
+            const Entity animal{ entity, this };
+            const UUID id = animal.GetUUID();
+            const glm::mat4 worldTransform = GetWorldTransform(animal);
+
+            AnimalWorkItem item;
+            item.Id = id;
+            item.Role = MakeAnimalRole(budget);
+
+            // ── The bounds this animal is measured by ────────────────────
+            //
+            // The GROOM's bounds when it has one, the mesh's otherwise. The
+            // groom is the right box for a coated animal because it is the coat
+            // that dominates the cost, and a body mesh's bounds can be
+            // noticeably smaller than the coat standing on it.
+            BoundingBox localBounds;
+            bool haveBounds = false;
+            u32 strandCount = 0u;
+
+            if (const auto* groomComp = m_Registry.try_get<GroomComponent>(entity);
+                groomComp != nullptr && groomComp->m_RenderStrands && groomComp->m_Groom != 0)
+            {
+                if (Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(groomComp->m_Groom); groom)
+                {
+                    localBounds.Min = groom->GetBoundsMin();
+                    localBounds.Max = groom->GetBoundsMax();
+                    haveBounds = true;
+                    // What the coat would build at FULL rate — the static
+                    // budget, not this frame's. The scheduler prices the work
+                    // the animal would submit unbudgeted and then decides how
+                    // much of it to buy.
+                    strandCount = std::min(groomComp->m_MaxRenderStrands, static_cast<u32>(groom->GetCurveCount()));
+                }
+            }
+
+            if (const auto* meshComp = m_Registry.try_get<MeshComponent>(entity);
+                !haveBounds && meshComp != nullptr && meshComp->m_MeshSource)
+            {
+                localBounds = meshComp->m_MeshSource->GetBoundingBox();
+                haveBounds = true;
+            }
+
+            if (!haveBounds)
+            {
+                // A budgeted entity with neither a groom nor a mesh source is
+                // an authoring mistake, not a crash: it is scheduled at zero
+                // apparent size, which asks for the cheapest step and costs the
+                // frame nothing. Counted as considered so it shows up in the
+                // panel rather than silently vanishing from the population.
+                localBounds.Min = glm::vec3{ -0.5f };
+                localBounds.Max = glm::vec3{ 0.5f };
+            }
+
+            item.PixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
+            item.StrandCount = strandCount;
+
+            // ── The per-axis work this animal would submit at full rate ──
+            if (const auto* skeletonComp = m_Registry.try_get<SkeletonComponent>(entity);
+                skeletonComp != nullptr && skeletonComp->m_Skeleton)
+            {
+                // The final palette's size IS the bone count, and it is what
+                // the deformation axis is actually priced per: a skeleton whose
+                // palette has not been sized yet costs nothing to pose, which
+                // is the honest answer rather than a guess from the hierarchy.
+                item.BoneCount = static_cast<u32>(skeletonComp->m_Skeleton->m_FinalBoneMatrices.size());
+            }
+
+            if (const auto* simComp = m_Registry.try_get<GroomSimulationComponent>(entity); simComp != nullptr)
+            {
+                // Guides times points is the particle count the solver
+                // integrates; substeps is how many times it does so this frame.
+                item.GuidePointCount = strandCount > 0u ? std::max(1u, strandCount / 16u) : 0u;
+                item.SimulationSubsteps = std::max(1u, simComp->m_MaxSubsteps);
+            }
+
+            if (const auto* shadowComp = m_Registry.try_get<GroomCoatShadowComponent>(entity);
+                shadowComp != nullptr && shadowComp->m_Enabled)
+            {
+                const u32 resolution = std::max(1u, shadowComp->m_Resolution);
+                item.ShadowVoxelCount = resolution * resolution * resolution;
+            }
+
+            item.DrawCallCount = std::max(1u, item.StrandCount > 0u ? 2u : 1u);
+            item.Visible = item.PixelSize > 0.0f;
+
+            // ── What its own ladders already asked for ───────────────────
+            //
+            // READ, NOT RE-EVALUATED. AdvanceGroomLod is a hysteretic function
+            // and PublishGroomStrandRequests already advances it once this
+            // frame; calling it again here would advance the counters twice and
+            // halve every hold the groom relies on. What the scheduler wants is
+            // the answer, and last frame's answer is the one that exists at the
+            // frame boundary — which is the same one-frame offset every other
+            // input here carries.
+            std::array<u32, AnimalWorkAxisCount> desired{ 0u, 0u, 0u, 0u };
+            if (const auto lodIt = m_GroomLodRuntime.find(id); lodIt != m_GroomLodRuntime.end())
+            {
+                desired[static_cast<sizet>(AnimalWorkAxis::Simulation)] = lodIt->second.SimulationStep;
+                desired[static_cast<sizet>(AnimalWorkAxis::Visibility)] = lodIt->second.VisibilityStep;
+                desired[static_cast<sizet>(AnimalWorkAxis::Shadow)] = lodIt->second.ShadowStep;
+            }
+            item.DesiredStep = desired;
+
+            // ── The caps: the authored ones, tightened by the floors ─────
+            const std::array<u32, AnimalWorkAxisCount> authored = MakeAnimalMaxSteps(budget);
+            item.MaxStep = authored;
+
+            // The pose-step bound, in SCREEN SPACE. The authored motion is in
+            // metres per full-rate frame; projecting it needs the same
+            // pixels-per-metre the apparent size was computed with, which is
+            // what dividing the bounds' pixel size by its world extent gives.
+            // THE WORLD EXTENT, NOT THE LOCAL ONE. EstimateProjectedPixelSize
+            // takes the transform into account, so dividing its answer by the
+            // LOCAL span would be dividing a world-space measurement by a
+            // model-space one -- and the reference animals are authored in
+            // centimetres and placed at a scale of 0.01, so the error is a
+            // factor of a hundred in the permissive direction. The pose bound
+            // would then allow every reduction it was asked for and the coats
+            // would judder at exactly the distances the bound exists to
+            // protect.
+            const glm::vec3 basisScale{ glm::length(glm::vec3(worldTransform[0])),
+                                        glm::length(glm::vec3(worldTransform[1])),
+                                        glm::length(glm::vec3(worldTransform[2])) };
+            const glm::vec3 extent = (localBounds.Max - localBounds.Min) * basisScale;
+            const f32 worldSpan = std::max({ extent.x, extent.y, extent.z });
+            const f32 pixelsPerMetre =
+                (std::isfinite(worldSpan) && worldSpan > 1.0e-4f) ? (item.PixelSize / worldSpan) : 0.0f;
+            const f32 motionPixels = budget.m_FullRateMotionMetres * pixelsPerMetre;
+            item.MaxStep[static_cast<sizet>(AnimalWorkAxis::Deformation)] = MaxDeformationStepForPoseBound(
+                motionPixels, policy.MaxPoseStepPixels, authored[static_cast<sizet>(AnimalWorkAxis::Deformation)]);
+
+            // The strand floor. Applied to the CAP, so it binds against the
+            // distance ladder as well as against the budget — "invisible
+            // distant coats" is a failure the ladder can produce unaided.
+            if (item.Visible && item.StrandCount > 0u)
+            {
+                item.MaxStep[static_cast<sizet>(AnimalWorkAxis::Visibility)] = MaxVisibilityStepForStrandFloor(
+                    item.StrandCount, policy.MinVisibleStrands,
+                    authored[static_cast<sizet>(AnimalWorkAxis::Visibility)]);
+            }
+
+            items.push_back(item);
+            ids.push_back(id);
+            liveAnimals.insert(id);
+        }
+
+        if (items.empty())
+        {
+            m_AnimalScheduleRuntime.clear();
+            return;
+        }
+
+        // Sweep first, THEN take the state pointers. A map that rehashes while
+        // pointers into it are live is a dangling read, and erase_if on an
+        // unordered_map can rehash.
+        if (!m_AnimalScheduleRuntime.empty())
+        {
+            std::erase_if(m_AnimalScheduleRuntime,
+                          [&liveAnimals](const auto& entry) { return !liveAnimals.contains(entry.first); });
+        }
+        m_AnimalScheduleRuntime.reserve(items.size());
+        for (const UUID id : ids)
+        {
+            m_AnimalScheduleRuntime.try_emplace(id);
+        }
+
+        std::vector<AnimalScheduleSlot> slots;
+        slots.reserve(items.size());
+        for (sizet i = 0; i < items.size(); ++i)
+        {
+            AnimalScheduleSlot slot;
+            slot.Item = items[i];
+            slot.State = &m_AnimalScheduleRuntime[ids[i]];
+            slots.push_back(slot);
+        }
+
+        const std::vector<AnimalSchedule> schedules =
+            ScheduleAnimalPopulation(policy, AnimalCostModel{}, slots, &m_AnimalSchedulerStats);
+
+        m_AnimalSchedules.reserve(schedules.size());
+        for (const AnimalSchedule& schedule : schedules)
+        {
+            m_AnimalSchedules.emplace(schedule.Id, schedule);
         }
     }
 
@@ -5185,6 +5623,12 @@ namespace OloEngine
         // ...and resolve which mesh that surface IS this frame, before anything
         // deforms it (#1227).
         SelectAnimatedSurfaceLOD();
+        // ...and share this frame's work out among the animals, before the tick
+        // that poses them and before the submission that draws their coats
+        // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
+        // reason: a scheduler wired into only some of them leaves the others
+        // spending last frame's allocation, which is invisible in every test.
+        ScheduleAnimalPopulationForFrame();
 
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
@@ -5334,6 +5778,12 @@ namespace OloEngine
         // ...and resolve which mesh that surface IS this frame, before anything
         // deforms it (#1227).
         SelectAnimatedSurfaceLOD();
+        // ...and share this frame's work out among the animals, before the tick
+        // that poses them and before the submission that draws their coats
+        // (#1258). At EVERY frame entry point, for the AdvanceHistory pairing's
+        // reason: a scheduler wired into only some of them leaves the others
+        // spending last frame's allocation, which is invisible in every test.
+        ScheduleAnimalPopulationForFrame();
 
         // Update animations so they preview in the editor (IK responds to target movement).
         // Reuses the AnimationStateComponent + SkeletonComponent owning group (issue #443).
@@ -5356,7 +5806,36 @@ namespace OloEngine
                     FootIKStateComponent* footIKState = nullptr;
                     const FootIKComponent* footIK = ResolveFootIK(entity, footIKState);
                     auto const& entityTransform = entity.GetComponent<TransformComponent>().GetTransform();
-                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, ts.GetSeconds(), ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
+
+                    // ── The deformation budget (#1258) ────────────────────
+                    //
+                    // The ONE place a scheduled animal's pose rate is spent,
+                    // and it is applied at BOTH animation sites — the runtime
+                    // tick and the editor preview — for the AdvanceHistory
+                    // pairing's reason: a gate wired into only one of them
+                    // makes the editor and the game disagree about what the
+                    // budget does, which is the worst place for them to
+                    // disagree.
+                    //
+                    // ShouldPoseAnimalThisFrame returns true for every entity
+                    // without an AnimalBudgetComponent, so a scene authored
+                    // before this feature ticks exactly as it always did. The
+                    // scaled seconds are the WHOLE PERIOD's worth, so an animal
+                    // posed every fourth frame plays its clip at full speed
+                    // rather than at a quarter of it.
+                    f32 poseSeconds = ts.GetSeconds();
+                    if (!ShouldPoseAnimalThisFrame(entity.GetUUID(), ts.GetSeconds(), poseSeconds))
+                    {
+                        // The pose is HELD, not zeroed. Holding means prev ==
+                        // current for the deformation history, so the frame
+                        // emits zero motion for this animal rather than a
+                        // velocity computed across a discontinuity — the smear
+                        // DeformationHistoryResetCause exists to prevent, and
+                        // it costs nothing to get right here.
+                        continue;
+                    }
+
+                    Animation::AnimationSystem::Update(animState, *skelComp.m_Skeleton, poseSeconds, ikTarget, entityTransform, springBone, springState, noise, noiseState, footIK, footIKState);
 
                     // Sample morph target keyframes from the current animation clip
                     if (!animState.m_CurrentClip->MorphKeyframes.empty())
@@ -8440,6 +8919,38 @@ namespace OloEngine
                 GroomLodState& lodState = m_GroomLodRuntime[groomEntity.GetUUID()];
                 request.Lod = AdvanceGroomLod(request.LodPolicy, lodInputs, lodState);
                 liveGroomLodEntities.insert(groomEntity.GetUUID());
+
+                // ── The population budget, folded in (#1258) ──────────────
+                //
+                // THE COARSER OF THE TWO WINS, on each axis independently. The
+                // groom's own ladder says what this coat needs at its apparent
+                // size; the population schedule says what the frame can afford
+                // to give it. A budget that could REFINE past the ladder would
+                // spend work a distance test already called pointless, so the
+                // combination is a max and never an override.
+                //
+                // Applied AFTER AdvanceGroomLod rather than instead of it,
+                // because the hysteresis state must keep tracking what the
+                // apparent size asks for: overwriting it with the budget's
+                // answer would make the coat's own thresholds unreachable and
+                // the ladder would never refine again once the budget relaxed.
+                if (const AnimalSchedule* schedule = FindAnimalSchedule(groomEntity.GetUUID()); schedule != nullptr)
+                {
+                    request.Lod.SimulationStep = std::max(
+                        request.Lod.SimulationStep, schedule->Step[static_cast<sizet>(AnimalWorkAxis::Simulation)]);
+                    request.Lod.VisibilityStep = std::max(
+                        request.Lod.VisibilityStep, schedule->Step[static_cast<sizet>(AnimalWorkAxis::Visibility)]);
+                    request.Lod.ShadowStep = std::max(request.Lod.ShadowStep,
+                                                      schedule->Step[static_cast<sizet>(AnimalWorkAxis::Shadow)]);
+                    // Recomputed from the steps rather than taken from the
+                    // schedule, so the fraction and the step can never say
+                    // different things — GroomLodDecision's two fields are
+                    // derived, and a consumer reading one while another reads
+                    // the other is how a coat gets built at one density and
+                    // compensated at another.
+                    request.Lod.SimulationFraction = GroomLodStepFraction(request.Lod.SimulationStep);
+                    request.Lod.VisibilityFraction = GroomLodStepFraction(request.Lod.VisibilityStep);
+                }
 
                 if (request.Lod.Representation == GroomRepresentation::Card)
                 {

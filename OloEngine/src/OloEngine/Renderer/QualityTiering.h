@@ -48,6 +48,27 @@ namespace OloEngine
         bool VignetteEnabled = false;
         bool ChromaticAberrationEnabled = false;
 
+        // Multi-animal scheduling budget (issue #1258). The per-frame
+        // allowance the population scheduler shares out, in AnimalCostModel's
+        // calibrated units (one unit is one microsecond on the calibration
+        // machine). Applied to RendererSettings via
+        // ApplyTieringToRendererSettings alongside the DDGI knobs, and
+        // one-directional for the same reason: RendererSettings is a runtime
+        // knob set, not part of the per-scene PostProcessSettings overlay that
+        // StripTieringOverlay round-trips.
+        //
+        // A TIER IS A BUDGET, NOT A QUALITY SWITCH, and that is criterion 4's
+        // axis made concrete: the same population is scheduled against a
+        // different allowance on Low than on Ultra, so the tiers differ by how
+        // much work the herd may spend rather than by a feature being turned
+        // off. What the budget must never buy back is the hero, which is why
+        // AnimalProtectHero is not a tiered field.
+        //
+        // These struct defaults ARE the High-tier values, matching every other
+        // field here.
+        bool AnimalSchedulingEnabled = true;
+        f32 AnimalFrameBudgetUnits = 6000.0f;
+
         // Realtime DDGI (issue #632). Applied to RendererSettings via
         // ApplyTieringToRendererSettings — one-directional (not part of the
         // per-scene PP overlay StripTieringOverlay round-trips), since

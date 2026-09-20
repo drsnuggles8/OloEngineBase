@@ -10,6 +10,8 @@ void VisitComponentTypes(Visitor&& visitor)
 {
     visitor.template operator()<AbilityComponent, true>("AbilityComponent");
     visitor.template operator()<AircraftComponent, true>("AircraftComponent");
+    visitor.template operator()<AnimalBudgetComponent, true>("AnimalBudgetComponent");
+    visitor.template operator()<AnimalPathComponent, true>("AnimalPathComponent");
     visitor.template operator()<AnimationGraphComponent, true>("AnimationGraphComponent");
     visitor.template operator()<AnimationStateComponent, true>("AnimationStateComponent");
     visitor.template operator()<AudioListenerComponent, true>("AudioListenerComponent");

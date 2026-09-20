@@ -2242,6 +2242,8 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
             DisplayAddComponentEntry<GroomLodComponent>("Groom LOD");
+            DisplayAddComponentEntry<AnimalBudgetComponent>("Animal Budget");
+            DisplayAddComponentEntry<AnimalPathComponent>("Animal Path");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
@@ -9564,6 +9566,199 @@ namespace OloEngine
             else
             {
                 ImGui::TextDisabled("The groom pass has not run yet.");
+            } });
+
+        DrawComponent<AnimalBudgetComponent>("Animal Budget", entity, [entity](auto& component)
+                                             {
+            ImGui::TextWrapped("Enters this animal into the population budget (#1258), which shares one frame's "
+                               "work out among every animal that carries this component.");
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Off removes this animal from the population budget entirely: it then runs\n"
+                                  "at whatever its own distance ladders ask for, which is the pre-#1258\n"
+                                  "frame. The per-entity half of the A/B control; the global half is\n"
+                                  "Renderer Settings -> Animal scheduling.");
+            }
+
+            static const char* kRoleNames[] = { "Hero", "Featured", "Background" };
+            int role = static_cast<int>(component.m_Role);
+            if (role < 0 || role >= IM_ARRAYSIZE(kRoleNames))
+            {
+                role = 2;
+            }
+            if (ImGui::Combo("Role", &role, kRoleNames, IM_ARRAYSIZE(kRoleNames)))
+            {
+                component.m_Role = static_cast<u8>(role);
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Who gives way when the frame cannot afford everyone. Background yields\n"
+                                  "first and is driven to its caps before any Featured animal is touched;\n"
+                                  "a Hero is never coarsened at all while Protect Hero is set, and a\n"
+                                  "population that cannot be served with the hero at full rate is REPORTED\n"
+                                  "rather than absorbed by quietly softening it.\n\n"
+                                  "Authored, not derived from distance: a hero is still the hero when it\n"
+                                  "walks away from camera.");
+            }
+
+            ImGui::DragFloat("Fastest bone motion (m/frame)", &component.m_FullRateMotionMetres, 0.005f, 0.0f, 100.0f,
+                             "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("How far this animal's fastest bone travels in ONE full-rate frame at 60 Hz,\n"
+                                  "over its whole clip set -- a sprint cycle, not the current gait.\n\n"
+                                  "This is what bounds the animation tick rate: an animal ticked at 1/2^k\n"
+                                  "moves 2^k times as far between poses, and that is invisible exactly\n"
+                                  "while the on-screen displacement stays under Max pose step. Authored\n"
+                                  "rather than measured because measuring it needs the pose evaluated --\n"
+                                  "the very work the budget exists to skip.\n\n"
+                                  "Too LOW and a distant animal judders. Too high and it never gets a rate\n"
+                                  "reduction at all.");
+            }
+
+            ImGui::SeparatorText("Caps (halvings this animal will accept)");
+            ImGui::DragInt("Deformation", reinterpret_cast<int*>(&component.m_MaxDeformationSteps), 0.1f, 0, 16);
+            ImGui::DragInt("Simulation", reinterpret_cast<int*>(&component.m_MaxSimulationSteps), 0.1f, 0, 16);
+            ImGui::DragInt("Visibility", reinterpret_cast<int*>(&component.m_MaxVisibilitySteps), 0.1f, 0, 16);
+            ImGui::DragInt("Shadow", reinterpret_cast<int*>(&component.m_MaxShadowSteps), 0.1f, 0, 16);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Four numbers rather than one because the axes degrade differently and are\n"
+                                  "noticed differently: thinned guides look identical until the animal\n"
+                                  "moves, thinned strands are visible standing still, and a quarter-rate\n"
+                                  "skeleton is invisible at distance and judder up close.");
+            }
+
+            // ── What the budget actually did to this animal, live ─────────
+            //
+            // THE INPUT BESIDE THE ANSWER. Without this the panel shows what
+            // was authored and the viewport shows the result, and the only way
+            // to connect them is to guess -- which is how "the budget is
+            // ignoring my caps" gets reported when the real answer is that the
+            // population fits and nothing needed coarsening at all.
+            ImGui::SeparatorText("This frame");
+            const Scene* scene = entity.GetScene();
+            const AnimalSchedule* schedule = nullptr;
+            if (scene != nullptr)
+            {
+                const auto& schedules = scene->GetAnimalSchedules();
+                if (const auto it = schedules.find(entity.GetUUID()); it != schedules.end())
+                {
+                    schedule = &it->second;
+                }
+            }
+
+            if (schedule == nullptr)
+            {
+                ImGui::TextDisabled("Not scheduled this frame (budget disabled, or the scene is not being ticked).");
+            }
+            else
+            {
+                ImGui::Text("Apparent size: %.0f px", static_cast<double>(schedule->PixelSize));
+                ImGui::Text("Outcome: %s", ToString(schedule->Outcome).data());
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("AtDesired  - running at exactly what its own ladder asked for.\n"
+                                      "Coarsened  - the budget took work away.\n"
+                                      "CapHeld    - the budget wanted more and a floor, the pose-step bound\n"
+                                      "             or the hero rule refused. With Budget exceeded set, this\n"
+                                      "             is a population that has outgrown its caps.\n"
+                                      "HeldByHyst - a coarsening is pending but the hold has not elapsed.");
+                }
+                for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
+                {
+                    ImGui::Text("  %-12s step %u  (%.1f%% of full rate)",
+                                ToString(static_cast<AnimalWorkAxis>(a)).data(), schedule->Step[a],
+                                static_cast<double>(schedule->Fraction[a] * 100.0f));
+                }
+                ImGui::Text("Estimated cost: %.0f units", static_cast<double>(schedule->EstimatedCostUnits));
+            }
+
+            if (scene != nullptr)
+            {
+                const AnimalSchedulerStats& stats = scene->GetAnimalSchedulerStats();
+                ImGui::SeparatorText("Population");
+                ImGui::Text("Animals: %u  at desired %u  coarsened %u  cap-held %u", stats.AnimalsConsidered,
+                            stats.AnimalsAtDesired, stats.AnimalsCoarsened, stats.AnimalsCapHeld);
+                ImGui::Text("Cost: %.0f / %.0f units", static_cast<double>(stats.EstimatedCostUnits),
+                            static_cast<double>(stats.FrameBudgetUnits));
+                ImGui::Text("Worst starvation streak: %u frames", stats.MaxStarvedFrames);
+                if (stats.BudgetExceeded)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.2f, 1.0f));
+                    ImGui::TextWrapped("Budget exceeded: every animal that could give way is at its cap and the "
+                                       "frame still does not fit. The hero is being left at full rate rather "
+                                       "than quietly softened -- raise the frame budget, raise the caps, or "
+                                       "reduce the population.");
+                    ImGui::PopStyleColor();
+                }
+                if (stats.AnimalsAtVisibilityFloor > 0u)
+                {
+                    ImGui::TextDisabled("%u coat(s) held at the strand floor.", stats.AnimalsAtVisibilityFloor);
+                }
+                if (stats.AnimalsAtPoseStepCap > 0u)
+                {
+                    ImGui::TextDisabled("%u animal(s) refused a rate reduction by the pose-step bound.",
+                                        stats.AnimalsAtPoseStepCap);
+                }
+            } });
+
+        DrawComponent<AnimalPathComponent>("Animal Path", entity, [](auto& component)
+                                           {
+            ImGui::TextWrapped("A seeded, closed-form trajectory. The position is computed FROM the elapsed time "
+                               "rather than accumulated into it, so the same scene reproduces bit for bit at any "
+                               "frame rate -- which is what makes a population measurable.");
+
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            ImGui::Checkbox("Orient to path", &component.m_OrientToPath);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Yaw the animal along its own velocity, from the analytic derivative rather\n"
+                                  "than a difference between two sampled frames -- a difference is undefined\n"
+                                  "on a paused frame and noisy at low speed, which reads as an animal\n"
+                                  "spinning while standing still.\n\n"
+                                  "Off leaves the authored rotation alone, which is what a hand-posed hero\n"
+                                  "wants.");
+            }
+
+            ImGui::SeparatorText("Figure");
+            ImGui::DragFloat("Radius X (m)", &component.m_RadiusX, 0.1f, 0.0f, 10000.0f, "%.2f");
+            ImGui::DragFloat("Radius Z (m)", &component.m_RadiusZ, 0.1f, 0.0f, 10000.0f, "%.2f");
+            ImGui::DragFloat("Rate X (rad/s)", &component.m_RateX, 0.01f, -100.0f, 100.0f, "%.3f");
+            ImGui::DragFloat("Rate Z (rad/s)", &component.m_RateZ, 0.01f, -100.0f, 100.0f, "%.3f");
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("A Lissajous figure, not a circle, and deliberately: a herd on circles holds\n"
+                                  "every animal at a constant distance from the camera, so the distance\n"
+                                  "ladders never move and the budget is never exercised. The population\n"
+                                  "would look busy and measure nothing.\n\n"
+                                  "Unequal rates also stop the herd re-synchronising into a line.");
+            }
+            ImGui::DragFloat("Phase X (rad)", &component.m_PhaseX, 0.01f, -1000.0f, 1000.0f, "%.3f");
+            ImGui::DragFloat("Phase Z (rad)", &component.m_PhaseZ, 0.01f, -1000.0f, 1000.0f, "%.3f");
+
+            ImGui::SeparatorText("State");
+            ImGui::Text("Elapsed: %.2f s", static_cast<double>(component.m_ElapsedSeconds));
+            if (component.m_HasOrigin)
+            {
+                ImGui::Text("Origin: %.2f, %.2f, %.2f", static_cast<double>(component.m_OriginX),
+                            static_cast<double>(component.m_OriginY), static_cast<double>(component.m_OriginZ));
+            }
+            else
+            {
+                ImGui::TextDisabled("Origin is captured from this entity's translation on the first tick.");
+            }
+            if (ImGui::Button("Reset to start"))
+            {
+                component.m_ElapsedSeconds = 0.0f;
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Puts the animal back at the start of its figure. Because the position is a\n"
+                                  "closed form of the elapsed time, this is the whole of the path's state --\n"
+                                  "there is no accumulated drift to clear.");
             } });
 
         DrawComponent<GroomLodComponent>("Groom LOD", entity, [entity](auto& component)

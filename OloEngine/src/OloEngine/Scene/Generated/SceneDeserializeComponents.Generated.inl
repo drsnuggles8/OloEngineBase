@@ -88,6 +88,47 @@ if (auto node = entity["AircraftComponent"]; node)
         comp.m_YawInput = std::clamp(v, static_cast<f32>(-1.0f), static_cast<f32>(1.0f));
 }
 
+if (auto node = entity["AnimalBudgetComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalBudgetComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FullRateMotionMetres"], v))
+        comp.m_FullRateMotionMetres = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_MaxDeformationSteps = std::clamp(node["MaxDeformationSteps"].as<u32>(comp.m_MaxDeformationSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxSimulationSteps = std::clamp(node["MaxSimulationSteps"].as<u32>(comp.m_MaxSimulationSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxVisibilitySteps = std::clamp(node["MaxVisibilitySteps"].as<u32>(comp.m_MaxVisibilitySteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_MaxShadowSteps = std::clamp(node["MaxShadowSteps"].as<u32>(comp.m_MaxShadowSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_Role = std::clamp(node["Role"].as<decltype(comp.m_Role)>(comp.m_Role), static_cast<decltype(comp.m_Role)>(0), static_cast<decltype(comp.m_Role)>(2));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
+if (auto node = entity["AnimalPathComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<AnimalPathComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RadiusX"], v))
+        comp.m_RadiusX = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RadiusZ"], v))
+        comp.m_RadiusZ = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RateX"], v))
+        comp.m_RateX = std::clamp(v, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RateZ"], v))
+        comp.m_RateZ = std::clamp(v, static_cast<f32>(-100.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PhaseX"], v))
+        comp.m_PhaseX = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["PhaseZ"], v))
+        comp.m_PhaseZ = std::clamp(v, static_cast<f32>(-1000.0f), static_cast<f32>(1000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginX"], v))
+        comp.m_OriginX = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginY"], v))
+        comp.m_OriginY = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["OriginZ"], v))
+        comp.m_OriginZ = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ElapsedSeconds"], v))
+        comp.m_ElapsedSeconds = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1000000000.0f));
+    comp.m_HasOrigin = node["HasOrigin"].as<bool>(comp.m_HasOrigin);
+    comp.m_OrientToPath = node["OrientToPath"].as<bool>(comp.m_OrientToPath);
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["BoatComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<BoatComponent>();

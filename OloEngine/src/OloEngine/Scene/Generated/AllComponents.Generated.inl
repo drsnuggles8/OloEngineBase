@@ -14,6 +14,8 @@
 using AllComponents = ComponentGroup<
     AbilityComponent,
     AircraftComponent,
+    AnimalBudgetComponent,
+    AnimalPathComponent,
     AnimationGraphComponent,
     AnimationStateComponent,
     AudioListenerComponent,

@@ -11,6 +11,7 @@
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Physics3D/ColliderMaterial.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
+#include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/Components.h"
 
 #include <cstddef>
@@ -130,7 +131,17 @@ namespace
     X(OloEngine::GroomLodBudgetCurve)                             \
     X(OloEngine::GroomLodPolicy)                                  \
     X(OloEngine::GroomLodDecision)                                \
-    X(OloEngine::GroomLodState)
+    X(OloEngine::GroomLodState)                                   \
+    /* Scene/AnimalScheduler.h (#1258). The population budget's */ \
+    /* five value types, each implementing operator== as        */ \
+    /* BitwiseEqual(*this, other). AnimalWorkItem is not here:  */ \
+    /* it has no operator==, so padding-free would be a         */ \
+    /* constraint nothing depends on.                           */ \
+    X(OloEngine::AnimalCostModel)                                 \
+    X(OloEngine::AnimalBudgetPolicy)                              \
+    X(OloEngine::AnimalScheduleState)                             \
+    X(OloEngine::AnimalSchedule)                                  \
+    X(OloEngine::AnimalSchedulerStats)
 
 #define OLO_STATIC_ASSERT_TRIVIAL(T) static_assert(std::is_trivially_copyable_v<T>, #T " must stay trivially copyable for Math::BitwiseEqual");
     OLO_BITWISE_EQUAL_TYPES(OLO_STATIC_ASSERT_TRIVIAL)

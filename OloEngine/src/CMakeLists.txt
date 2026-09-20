@@ -445,6 +445,8 @@
 		"OloEngine/Core/FilesystemUtils.h"
 		"OloEngine/Core/FramePacer.cpp"
 		"OloEngine/Core/FramePacer.h"
+		"OloEngine/Core/FrameTimeTail.cpp"
+		"OloEngine/Core/FrameTimeTail.h"
 		"OloEngine/Core/IInputProvider.h"
 		"OloEngine/Core/Input.h"
 		"OloEngine/Core/InputAction.h"
@@ -1417,6 +1419,8 @@
 		"OloEngine/Tilemap/TilemapColliderBuilder.h"
 		"OloEngine/Tilemap/TilemapColliderBuilder.cpp"
 
+		"OloEngine/Scene/AnimalScheduler.cpp"
+		"OloEngine/Scene/AnimalScheduler.h"
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"

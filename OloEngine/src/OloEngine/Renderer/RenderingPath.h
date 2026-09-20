@@ -193,6 +193,60 @@ namespace OloEngine
         // regardless of what the screen asked for — the floor under sparsity.
         f32 DDGICameraSeedRadius = 12.0f;
 
+
+        // --- Multi-animal scheduling budgets (issue #1258) ---
+        //
+        // The population arbiter that sits ABOVE every per-entity ladder. A
+        // groom's own LOD (#1252) and a mesh's own LOD (#711) each read one
+        // entity's apparent size and are right about that entity; neither can
+        // see that forty of them are asking for full rate at once. These knobs
+        // are what shares the frame out between them.
+        //
+        // THE REAL OPT-IN IS THE COMPONENT, NOT THIS FLAG. An entity is a
+        // candidate only if it carries an AnimalBudgetComponent, so a scene
+        // authored before this feature renders identically however this is
+        // set — which is why the quality tiers may safely turn it on for
+        // everyone. This flag is the global kill switch and the A/B control
+        // arm for every capture in this feature's evidence; it defaults off so
+        // that a RendererSettings built without a tier applied schedules
+        // nothing.
+        bool AnimalSchedulingEnabled = false;
+        // Never coarsen a Hero-role animal. A population that cannot be served
+        // with the hero at full rate is REPORTED (AnimalSchedulerStats::
+        // BudgetExceeded) rather than absorbed by quietly degrading it, because
+        // absorbing it hides the one thing the budget exists to protect.
+        bool AnimalProtectHero = true;
+        // The whole population's per-frame allowance, in AnimalCostModel's
+        // calibrated units (one unit is one microsecond on the calibration
+        // machine, so 6000 is a 6 ms slice). The quality tier writes this — see
+        // ApplyTieringToRendererSettings.
+        f32 AnimalFrameBudgetUnits = 6000.0f;
+        // Screen-space bound on a single pose update's displacement. This is
+        // what makes a reduced animation tick rate invisible rather than
+        // judder: an animal ticked at 1/2^k moves 2^k times as far between
+        // poses, which is unnoticeable exactly while it stays sub-pixel.
+        f32 AnimalMaxPoseStepPixels = 1.0f;
+        // The fewest strands a VISIBLE coat may be built with. A floor, not a
+        // target — below it a coat reads as a bald patch rather than as a
+        // cheaper coat, which is the "invisible distant coats" failure the
+        // issue names and the one an authoring session never sees.
+        u32 AnimalMinVisibleStrands = 256;
+        // Consecutive frames a coarser allocation must persist before it is
+        // taken. Refining is immediate.
+        u32 AnimalHoldFrames = 4;
+        // The fairness bound: the most consecutive frames any one animal may
+        // run below its desired step while a peer sits at its own. Enforced by
+        // construction through the service order, not merely checked.
+        u32 AnimalStarvationFrames = 8;
+        // Weights, normalised, deciding how the allowance splits across the
+        // four axes. Per axis rather than one pool so a population that is
+        // expensive to simulate cannot eat the allowance that keeps its
+        // silhouette.
+        f32 AnimalDeformationWeight = 1.0f;
+        f32 AnimalSimulationWeight = 1.0f;
+        f32 AnimalVisibilityWeight = 1.0f;
+        f32 AnimalShadowWeight = 1.0f;
+
         // --- Virtualized geometry (Nanite-style cluster LOD DAG, issue #629) ---
         // Master switch for the whole virtual-geometry path. Deferred-only regardless (the
         // pass is not even added to the graph outside Deferred), so this is an ADDITIONAL
