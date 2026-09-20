@@ -1611,6 +1611,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_ASAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_LINK_SEMAPHORE_SLOTS=1
         -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
@@ -2097,6 +2098,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_UBSAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_LINK_SEMAPHORE_SLOTS=1
         -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
@@ -2562,6 +2564,7 @@ jobs:
         -DOLO_ENABLE_COMPILER_CACHE=ON
         -DOLO_ENABLE_TSAN=ON
         -DBUILD_TESTS=ON
+        -DOLO_LINK_SEMAPHORE_SLOTS=1
         -DOLO_TESTS_CTEST_ARGS=--olo-gl-backend=none
 
     # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`

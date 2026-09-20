@@ -53,8 +53,15 @@ option(OLO_ENABLE_LINK_SEMAPHORE
        "Throttle link steps across ALL build trees via a shared OS semaphore (Ninja/Makefiles only)"
        ON)
 
+# THE DEFAULT IS FOR A 64 GB DEV BOX AND IS OVER-BUDGET ON olo-ci. Two permits means two
+# concurrent links, and build-memory.yml measured one ld.lld link of OloEngine-Tests at
+# 11.17 GiB (Debug+ASan) / 10.03 GiB (plain Debug). Two of those is 22.3 GiB against the
+# runners' shared MemoryMax=19G account slice — over the slice cap before a single compile
+# is counted. The self-hosted Linux jobs therefore pass -DOLO_LINK_SEMAPHORE_SLOTS=1
+# explicitly; this default stays 2 because it is right for the 64 GB host it was measured
+# on, and a host-specific number does not belong in a shared default.
 set(OLO_LINK_SEMAPHORE_SLOTS "2" CACHE STRING
-    "Permits for the cross-tree link semaphore. 2 is the measured safe ceiling on a 64 GB host.")
+    "Permits for the cross-tree link semaphore. 2 is the measured safe ceiling on a 64 GB host; olo-ci passes 1 (see comment above).")
 
 if(OLO_ENABLE_LINK_SEMAPHORE)
     if(CMAKE_GENERATOR MATCHES "Visual Studio")

@@ -392,6 +392,11 @@ jobs:
           -DOLO_VIDEO_FFMPEG=OFF
           -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF
           -DOLO_LINK_JOBS=1
+          # OLO_LINK_JOBS is the Ninja pool and bounds links WITHIN this build.
+          # This bounds them ACROSS jobs: the other CI slot is a separate build
+          # the pool cannot see, and two 10-11 GiB links in one 19 GiB slice is
+          # 22.3 GiB. The shared default is 2, measured on a 64 GB dev box.
+          -DOLO_LINK_SEMAPHORE_SLOTS=1
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
       # is the whole point: the combined actions/cache action saves in a POST-JOB
