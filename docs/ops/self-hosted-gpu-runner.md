@@ -11,7 +11,7 @@ and the Linux CI jobs in
 
 | Runner(s) | Labels | Serves |
 |---|---|---|
-| ~~`olo-gpu-amd`~~ | ~~`self-hosted,Linux,X64,gpu-amd`~~ | **RETIRED 2026-09-20.** Held no capability `olo-ci` lacks (same Unix user, same `video`/`render` groups, same `/dev/dri/renderD128`), while costing a third dispatch slot against an account slice sized for two heavy jobs. `gpu-conformance-amd.yml` now runs on `olo-ci`. Everything below is kept for the provisioning detail, which still describes how the GPU is reached; it is no longer a live runner. |
+| ~~`olo-gpu-amd`~~ | ~~`self-hosted,Linux,X64,gpu-amd`~~ | **BEING RETIRED (from 2026-09-20).** Holds no capability `olo-ci` lacks (same Unix user, same `video`/`render` groups, same `/dev/dri/renderD128`), while costing a third dispatch slot against an account slice sized for two heavy jobs. `gpu-conformance-amd.yml` now requests `olo-ci`, so nothing schedules onto it — but **it is not retired until its registration is removed**, which is root-only: see [§7 Retiring a runner](#7-retiring-a-runner). Until then it stays registered and idle, and the host still has three dispatch slots on paper. Everything below is kept for the provisioning detail, which still describes how the GPU is reached. |
 | `olo-ci-1`, `olo-ci-2` | `self-hosted,Linux,X64,olo-ci` | by default **one** Linux sanitizer job — ASan + LSan, and only on a same-repo PR that trips the `native` paths filter; UBSan and TSan defaulted to hosted in [#1219](https://github.com/drsnuggles8/OloEngineBase/issues/1219) and return here only via their rollback variable — plus `vulkan-off` and `steam-stub` on PRs that touch their seams, and the nightly GPU-under-sanitizer job. Fork PRs and `force_hosted` dispatches never route here at all. |
 
 **The Linux sanitizer jobs run here with hosted parity** (#1015): every ctest-launched test
@@ -530,6 +530,43 @@ Note the Linux sanitizer jobs use the **Unix Makefiles** generator, so the root
 Ninja-only. Their link concurrency is bounded only by `--parallel 2`, i.e. up to
 2 jobs × 2 links on this box. That is the pessimistic worst case behind the
 9 GiB figure above.
+
+### 7. Retiring a runner
+
+Changing a workflow's `runs-on` stops work being *scheduled* onto a runner. It does
+**not** retire it: the runner stays registered, keeps a heartbeat, and still counts as a
+dispatch slot that any workflow requesting its labels can reach. Both steps are required,
+and the order matters — deregister first, so nothing can be dispatched to a runner whose
+service you are about to stop.
+
+Removal needs a **removal token**, which is not the registration token and expires the
+same way. `gh` can mint one with repo admin:
+
+```bash
+# 1. Confirm it is idle. Never remove a runner mid-job.
+gh api repos/drsnuggles8/OloEngineBase/actions/runners \
+    --jq '.runners[] | select(.name=="olo-gpu-amd") | "\(.status) busy=\(.busy)"'
+
+# 2. Deregister, as the runner user, from its own directory.
+tok=$(gh api -X POST repos/drsnuggles8/OloEngineBase/actions/runners/remove-token --jq .token)
+sudo -u gh-runner-olo bash -c "cd /home/gh-runner-olo/actions-runner && ./config.sh remove --token $tok"
+
+# 3. Only now stop and disable the unit.
+sudo -u gh-runner-olo XDG_RUNTIME_DIR=/run/user/$(id -u gh-runner-olo) \
+    systemctl --user disable --now actions-runner-olo.service
+
+# 4. Verify it is gone from BOTH sides.
+gh api repos/drsnuggles8/OloEngineBase/actions/runners --jq '.runners[].name'
+pgrep -u gh-runner-olo -af Runner.Listener
+```
+
+Leave the runner *directory* in place unless you are reclaiming disk: `.credentials` and
+`.runner` are removed by `config.sh remove`, so the tree is inert, and its `_work` tree is
+full of absolute paths that a future runner cannot reuse anyway.
+
+**Do not simply stop the service and call it retired.** A registered-but-offline runner is
+the state that makes a queued job wait for a machine that will never take it, and it is
+what this host looked like between the workflow change and the deregistration.
 
 ## GitHub-side settings
 

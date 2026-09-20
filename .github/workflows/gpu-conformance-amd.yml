@@ -152,14 +152,28 @@ jobs:
       #
       # The tighter neighbour is closer than that, though, and this width has
       # never been measured against it: gh-runner-1/2/3 are separate accounts in
-      # separate cgroup slices, but olo-gpu-amd (this job's runner) shares ONE
-      # account -- and so ONE MemoryMax=19G slice -- with olo-ci-1 and olo-ci-2.
-      # An overlap with a sanitizer build on either of those slots is 6 ordinary
-      # TUs plus 2 instrumented ones at ~9 GB each, inside 19 G total. The 6 is
-      # left as-is here because it was set on a measurement (the --parallel 12
-      # that ran the job out of memory); lowering it on a guess is the mistake
-      # this file's neighbours just had to unwind. Measure it before an overlap
-      # does it for us.
+      # separate cgroup slices, but THIS JOB now runs on olo-ci-1 or olo-ci-2,
+      # which share ONE account -- and so ONE MemoryMax=19G slice -- with each
+      # other. So the overlap is this job's 6 ordinary TUs against ONE sanitizer
+      # job's 2 instrumented ones on the other slot.
+      #
+      # That is strictly better than before, and worth stating because it reads
+      # like a regression: retiring olo-gpu-amd took the box from three dispatch
+      # slots to two, so the worst case went from this job overlapping TWO
+      # sanitizer builds to at most one. It is not, however, PROVEN to fit.
+      # docs/agent-rules/build-memory-per-tu.md puts a Debug+ASan compile at a
+      # 0.32 GiB median and 8.09 GiB heaviest, and this job is Release, whose
+      # per-TU cost that census never measured -- so the honest statement is
+      # that the pathological tail (2 x 8.09 plus 6 Release TUs) does not
+      # obviously fit in 19 GiB, and the typical case comfortably does.
+      #
+      # THE 6 IS STILL LEFT AS-IS, and deliberately: it was set on a measurement
+      # (the --parallel 12 that ran the job out of memory), and lowering it on a
+      # guess is the mistake this file's neighbours just had to unwind. Nothing
+      # bounds COMPILE concurrency across the two slots -- OLO_LINK_SEMAPHORE_SLOTS
+      # below bounds linkers only -- so if this job OOMs again with the box at two
+      # slots, that is the measurement arriving, and the fix is a number from
+      # .github/workflows/build-memory.yml, not another guess here.
       CMAKE_BUILD_PARALLEL_LEVEL: 6
       # CPM/FetchContent pull vendor sources into OloEngine/vendor/ *inside the
       # workspace*, which the wipe + checkout clears every run. Without a cache
