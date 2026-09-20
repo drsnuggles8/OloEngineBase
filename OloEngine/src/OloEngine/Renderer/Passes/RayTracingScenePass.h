@@ -9,6 +9,7 @@ namespace OloEngine
 
     namespace RayTracing
     {
+        class RayTracingProbe;
         class RayTracingScene;
         class VegetationSurfaceCache;
     } // namespace RayTracing
@@ -61,6 +62,12 @@ namespace OloEngine
         {
             m_Vegetation = cache;
         }
+        // The live-frame ray probe behind olo_rt_trace_ray (#607). Borrowed,
+        // never owned, like the two above.
+        void SetRayTracingProbe(RayTracing::RayTracingProbe* probe) noexcept
+        {
+            m_Probe = probe;
+        }
 
         // TRUE whenever both sources are attached — deliberately NOT "is ray
         // tracing available". See the class comment.
@@ -70,5 +77,6 @@ namespace OloEngine
         RayTracing::RayTracingScene* m_Scene = nullptr;
         const GPUScene* m_GPUScene = nullptr;
         RayTracing::VegetationSurfaceCache* m_Vegetation = nullptr;
+        RayTracing::RayTracingProbe* m_Probe = nullptr;
     };
 } // namespace OloEngine

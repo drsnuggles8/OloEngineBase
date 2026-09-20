@@ -259,7 +259,7 @@ and for what to do when adding a tool.
 | `olo_script_get_last_errors` | recent C# (Mono) / Lua (Sol2) script exceptions |
 | `olo_reload_script` | **(consented write)** reload the C# script assembly — the editor's *Script ▸ Reload assembly* (Ctrl+R) path — so a rebuilt game assembly is picked up without restarting the editor; reports whether scripting is available, whether the reload ran, and the post-reload script-class count. Gated behind **Agent writes** (Disabled/Prompt/Allow all) |
 | `olo_crash_list` / `olo_crash_get` | crash reports under `CrashReports/` |
-| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame. `delivery:"resource_link"` publishes the PNG as an ephemeral `olo://capture/...` resource + `resource_link` block instead of inline base64 (see [Resources](#resources)). `region`:{x,y,w,h} captures a sub-rect at **native resolution** instead of the whole viewport rescaled to `maxWidth` — see [Native-resolution region capture](#native-resolution-region-capture-region) |
+| `olo_screenshot` | the viewport rendered to a PNG image block; optional one-shot camera pose (`camera`/`orbit` + `settleFrames`) with automatic save/restore of the user's camera. In **Play mode** the frame comes from the runtime's primary `CameraComponent`, so poses are refused there (they could only move the unused editor camera) and the reply's `sceneState`/`camera` meta says which camera produced the frame. `delivery:"resource_link"` publishes the PNG as an ephemeral `olo://capture/...` resource + `resource_link` block instead of inline base64 (see [Resources](#resources)). `region`:{x,y,w,h} captures a sub-rect at **native resolution** instead of the whole viewport rescaled to `maxWidth` — see [Native-resolution region capture](#native-resolution-region-capture-region). `path` **also** writes the PNG under `assets/mcp-captures/` and returns its resolved absolute location — the ergonomic route for a raw-HTTP session; absolute paths and `..` are rejected, see [Writing a capture to disk](#writing-a-capture-to-disk-olo_screenshot--path-) |
 | `olo_camera_get` | the editor camera's pose (position, focal point, yaw/pitch, FOV, clips, viewport size) |
 | `olo_camera_set_pose` | move the editor camera: `position` + (`target` \| `yaw`/`pitch`), optional `fov` |
 | `olo_camera_orbit` | orbit-frame the camera around a world point: `target`, `yaw`, `pitch`, `distance` |
@@ -274,6 +274,7 @@ and for what to do when adding a tool.
 | `olo_render_lod_stats` | Renderer3D's session-cumulative classic-mesh `lodSwitches` counter and `objectsPerLODLevel` histogram; these are not a single-frame sample |
 | `olo_skeletal_deformation_stats` | The shared skeletal deformation output (#1226): skinned skeletons advanced last frame, bone matrices covered, and history resets by cause. The advance counts are LAST-FRAME; the `historyResets` block is a session total. `skeletonsWithoutHistory` is the number emitting zero bone motion because their previous pose was dropped rather than because nothing moved — persistently non-zero means something drops history every frame, which looks like animation that never reaches the motion vectors |
 | `olo_rt_scene_stats` | The hardware ray-tracing scene (#978): whether ray query is usable and why not when it is not, resident BLAS population by geometry class, TLAS instances, acceleration-structure and scratch memory, compaction savings, and this frame's build/refit/compaction/retire counts. `unavailable` (no RT on this device) and `noData` (RT live, no TLAS built yet) are distinct. The `gpuScene` block — emitted whatever the status is — reports the canonical scene the structures are BUILT FROM: live instance/geometry/material records and `notStagedTotal`, the renderable geometry that produced none. The `vegetation` block — also emitted whatever the status is, because a producer that refuses its work is exactly what makes the scene report `noData` — carries representation split, reuse, dispatch batches, memory, refusals, history reset and readiness. Read it first: a small `tlasInstances` beside a large `notStagedTotal` means most of the scene is not in the acceleration structure at all (#1065) |
+| `olo_rt_trace_ray` | Trace up to 64 deterministic world-space rays against the LIVE scene's TLAS and get, per ray: hit/miss, distance, world position, all three barycentrics, the GPU Scene instance/primitive/material/geometry slots, the interpolated UV, and the world shading normal with its winding sign (#607, running #978's `RayTracingProbe.comp`). This is what separates *the TLAS was built* from *the TLAS is correct* — `olo_rt_scene_stats`' counters look the same whether an instance transform transposed or everything is right. A **miss is a first-class answer** with its ray echoed beside it. `terminateOnFirstHit` makes a visibility ray; `instanceMask` is ANDed with each instance's mask. **Vulkan only** — see [Tracing a ray you know the answer to](#tracing-a-ray-you-know-the-answer-to-olo_rt_trace_ray) |
 | `olo_rt_vegetation_diagnostic` | **(consented write)** force every wind-aware vegetation group to a detailed update instead of its distance-selected temporal snapshot, so a detailed-versus-proxy A/B is measurable on one running editor (#1240). Omit `forceDetailed` to read the current state; `false` restores automatic distance selection. It changes UPDATE FREQUENCY ONLY — not plants, wind, camera, raster LOD or budgets — and is render-thread state that no scene, save-game or asset owns, so it is never persisted. Restore it when the benchmark ends; a session left forced keeps paying for refreshes it does not need. Read the result against `olo_rt_scene_stats.vegetation`, whose `detailedGroups`/`proxyGroups` split is what the override moves. Gated behind **Agent writes** |
 | `olo_pathtracer_stats` | The GPU reference path tracer's counters for the last completed frame (#1055): `status` (`unavailable` / `disabled` / `fallback` with the reason / `active`), the accumulation state (samples per pixel, samples added, `consecutiveRestarts` — a climbing count means the image can never converge), the scene as the tracer saw it (emissive triangles and area, punctual and sphere-area lights, lights past the shader's slot bound, Legacy-closure materials), the texture path (`texturesAvailable`, and the counted limits `hitsShadedUntextured` / `maskedGeometryTracedAsSolid` / `materialTexturesUnresolved` where it is not), and the settings the frame ran with. Read it before trusting a traced frame as ground truth: every `true` limit names a term the frame is missing |
 | `olo_restir_stats` | The ReSTIR DI tier's verdict and counters for the last completed frame (#1140): `status` (`unavailable` / `disabled` / `fallback` with the reason named / `active`), the MEASURED engagement criterion's own inputs (emitter count, the per-pixel candidate budget it must exceed, the hysteresis margin), the light census, and what the estimator actually did — which normalisation ran, the reservoir layout version, `historyPlanesAvailable` against `historyPlanesRequired`, and whether temporal and visibility reuse ran at all. Read it before trusting a resampled frame: `visibilityReuseRan` false means light leaks through occluders, `temporalReuseRan` false means every pixel restarted this frame, `lightsBeyondShaderBound` and `emittersBeyondEncodableIndex` name emitters the tier cannot reach, and `settingsClamped` means the frame did LESS than was asked. This is the tool that turns "the frame is black" into a named cause; it found `TargetUnavailable` and an unbound GPU Scene during bring-up. Directional lights are deliberately absent from every count — the clustered loop keeps them so they keep their cascades, their ray-traced shadow mask channel and their cloud shadow |
@@ -732,7 +733,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create`, `olo_groom_bind` |
 | `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
-| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
+| `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_trace_ray`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
 | `scripting` | `olo_script_get_api`, `olo_script_get_last_errors`, `olo_reload_script` |
@@ -1848,6 +1849,115 @@ For float/HDR sources note that min-max normalisation becomes **region-local**, 
 what a zoomed inspection wants (a 64×64 crop of a flat-looking HDR target gets its own
 contrast). `olo_render_target_stats` already had `rect` and dodges its 4,194,304-texel
 ceiling the same way.
+
+### Writing a capture to disk (`olo_screenshot { path }`)
+
+The PNG comes back inline as base64, or — with `delivery:"resource_link"` — as an
+ephemeral `olo://capture` resource. A session driving this server over **raw HTTP** has
+neither convenience: the `olo_*` tools are not registered as MCP tools for it (a
+non-interactive session never gets the reconnect that would surface them), so it must
+base64-decode every capture itself before it can look at one.
+
+Pass `path` and the capture is **also** written to a file, and the reply carries the
+resolved absolute location:
+
+```jsonc
+// olo_screenshot { "path": "ssr/before.png" }
+{ "sceneState": "edit-or-simulate", "camera": "editor camera",
+  "path": "C:/repos/OloEngine/OloEditor/assets/mcp-captures/ssr/before.png",
+  "relativePath": "assets/mcp-captures/ssr/before.png",
+  "bytesWritten": 184392 }
+```
+
+The image still arrives in the content blocks exactly as it would without `path` — the
+two are independent, and `path` works with `delivery:"resource_link"` as well.
+
+**`path` is a name, not a path, and the rejections are the design.** An unconstrained
+path argument would hand an otherwise read-only, unauthenticated localhost server an
+arbitrary-write primitive. So the value is resolved under one fixed, git-ignored
+directory — `OloEditor/assets/mcp-captures/` — and everything that could escape it is
+**refused, never sanitised**:
+
+| input | result |
+|---|---|
+| `"shot.png"`, `"ssr/before.png"` | written under `assets/mcp-captures/` |
+| `"shot"` | `.png` is appended — the bytes are always a PNG |
+| `"assets/mcp-captures/shot.png"` | the same file; echoing back a returned path is not doubled |
+| `"/etc/x.png"`, `"C:/x.png"`, `"C:x.png"` | **rejected** (absolute or drive-relative) |
+| `"../x.png"`, `"a/../../x.png"` | **rejected** (parent-directory traversal) |
+| `"a..b.png"` | accepted — `..` is checked as a path *component*, not a substring |
+
+A silently rewritten path would be worse than a rejected one: the caller would then
+believe it wrote somewhere it did not. A write that fails is a tool **error**, never a
+reply that reports a healthy frame beside a file that is not there.
+
+### Tracing a ray you know the answer to (`olo_rt_trace_ray`)
+
+`olo_rt_scene_stats` reports the acceleration structures' **counters**: BLAS population, TLAS
+instance count, what the builder refused. Those answer *was the TLAS built*. They cannot answer
+*is the TLAS correct* — an instance transform that transposed, a geometry that went in at the
+wrong slot and a stale BLAS all produce perfectly healthy counters. Tracing a ray whose answer
+you already know is the only question that tells them apart.
+
+```jsonc
+// olo_rt_trace_ray { "rays": [
+//   { "origin": [0, 5, 0], "direction": [0, -1, 0], "tMin": 0.001, "tMax": 100 },
+//   { "origin": [500, 5, 0], "direction": [0, -1, 0] }      // expected: nothing out there
+// ] }
+{
+  "status": "answered", "batchId": 3, "rayCount": 2, "hitCount": 1, "missCount": 1,
+  "latencyFrames": 2, "slotsInFlight": 0,
+  "flags": { "cullBackFaces": false, "terminateOnFirstHit": false, "instanceMask": 255 },
+  "rays": [
+    { "index": 0, "hit": true,
+      "ray": { "origin": [0,5,0], "direction": [0,-1,0], "tMin": 0.001, "tMax": 100 },
+      "distance": 4.5, "position": [0, 0.5, 0], "barycentrics": [0.5, 0.25, 0.25],
+      "instanceSlot": 12, "primitiveIndex": 840, "materialSlot": 3, "geometrySlot": 7,
+      "uv": [0.31, 0.62], "worldNormal": [0, 1, 0], "windingSign": 1 },
+    { "index": 1, "hit": false,
+      "ray": { "origin": [500,5,0], "direction": [0,-1,0], "tMin": 0, "tMax": 1000 } }
+  ]
+}
+```
+
+**A miss is an answer, not an omission.** Every ray gets an entry with its ray echoed beside it,
+so a miss can never be confused with a ray that was not traced — and the miss case is what makes
+the tool trustworthy at all. A missed entry carries **no** hit fields: a miss reporting
+`distance: 0, instanceSlot: 0` would read as a hit on instance 0 at the ray origin.
+
+**`status` keeps the three empty answers apart**, because they need opposite fixes:
+
+| `status` | meaning |
+|---|---|
+| `unavailable` | this device/backend cannot trace, or no TLAS exists yet — `reason` says which |
+| `pending` | queued, but the answer has not come back in the settle window (the editor did not render — check `olo_perf_snapshot`'s liveness block) |
+| `answered` | the trace ran; `hitCount: 0` here means everything genuinely missed |
+
+**Vulkan only.** `GL_EXT_ray_query` has no OpenGL representation, so on a GL context this returns
+`unavailable` with that as the reason rather than a page of zeros. Relaunch the editor with `--rhi=vulkan` (note: `driver.ps1 -Action attach` has no passthrough for it, so an `attach` session is an OpenGL one).
+
+**Why it settles a few frames.** The dispatch has to be recorded *inside* a frame, after
+`RayTracingScenePass` has built the structures and emitted its build→read barrier; an MCP handler
+runs between frames. So the batch is queued, a later frame traces it, and the hits are read back
+through a fence — the same submit → settle → re-poll shape `olo_terrain_pick` uses, and for the
+same reason. The `batchId` in the reply is always the batch you submitted: the readback ring is
+three slots deep, and an answer that belonged to an earlier trace would otherwise be
+indistinguishable from yours.
+
+Two things worth knowing before you read a result:
+
+- **The echoed direction is normalized**, so `position == origin + direction * distance` holds
+  against the numbers in the reply. Check that arithmetic — it is free, and it catches a
+  misread far faster than eyeballing a coordinate.
+- **`instanceSlot` is the GPU Scene instance slot** (the ray query's `instanceCustomIndex`), so it
+  cross-references directly with `olo_rt_scene_stats`' `gpuScene` block. A hit reporting a slot
+  outside that table is a TLAS/GPU-Scene disagreement, which is exactly the bug class this tool
+  exists to surface.
+
+`tMin` defaults to 0 and `tMax` to 1000. Use a small `tMin` (0.001) when the origin sits on a
+surface. `0 <= tMin <= tMax`, a finite origin/direction and a non-zero direction are **spec
+requirements** of `rayQueryInitializeEXT`, not conventions — violating one is undefined behaviour
+on the device, so such a ray is refused with a reason rather than traced.
 
 ### Transient plan & pool introspection (`olo_render_transient_plan`)
 

@@ -37,6 +37,7 @@
 #include "OloEngine/Renderer/MaterialShaderHeapTable.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
+#include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneDrawLink.h"
 #include "OloEngine/Wind/WindSystem.h"
@@ -424,6 +425,9 @@ namespace OloEngine
         [[nodiscard]] static const GPUScene& GetGPUScene();
         [[nodiscard]] static const MaterialShaderHeapTable& GetMaterialShaderHeapTable();
         [[nodiscard]] static RayTracing::RayTracingScene& GetRayTracingScene();
+        // The live-frame ray probe (#607). Mutable: the MCP tool SUBMITS a
+        // batch through it between frames and reads the answer back later.
+        [[nodiscard]] static RayTracing::RayTracingProbe& GetRayTracingProbe();
         // The deformed-vertex producer behind the animated BLASes (#1229).
         [[nodiscard]] static RayTracing::DeformedSurfaceCache& GetDeformedSurfaceCache();
         [[nodiscard]] static RayTracing::VegetationSurfaceCache& GetVegetationSurfaceCache();
@@ -2285,6 +2289,12 @@ namespace OloEngine
             // it for the same reason: a renderer restart must not strand the
             // BLAS table behind a dangling scene.
             RayTracing::RayTracingScene SceneRT;
+            // The live-frame ray probe behind olo_rt_trace_ray (#607).
+            // Value-owned beside SceneRT because it traces against SceneRT's
+            // TLAS and has exactly its lifetime; its ring holds raw GPU
+            // handles, so a restart that stranded one behind the other would
+            // leak a fence and a buffer per session.
+            RayTracing::RayTracingProbe ProbeRT;
             // The deformed-vertex producer for animated surfaces (#1229).
             // Value-owned beside SceneRT for the same reason SceneRT is owned
             // beside SceneGPU: its buffers ARE what SceneRT's animated BLASes
