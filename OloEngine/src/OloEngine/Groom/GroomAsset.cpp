@@ -96,6 +96,18 @@ namespace OloEngine
                                     GroomLimits::MaxCurveCount);
             return false;
         }
+        // The POINT cap too, symmetric with GroomAsset::Validate's. The decoder
+        // bounds a file-supplied PointCount before it sizes anything, so this is
+        // not the hostile-file guard -- it is the AUTHORED one, for a level that
+        // reached AttachLodLevels from a builder or a tool rather than from
+        // disk. Without it the two paths disagree about what a valid level is,
+        // and the one that disagrees is the one with no file behind it to blame.
+        if (Points.size() > GroomLimits::MaxPointCount)
+        {
+            outReason = std::format("LOD level point count {} exceeds the format cap {}", Points.size(),
+                                    GroomLimits::MaxPointCount);
+            return false;
+        }
         if (!IsValidGroomRepresentation(static_cast<i32>(Representation)))
         {
             outReason =

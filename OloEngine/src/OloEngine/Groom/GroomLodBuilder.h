@@ -15,7 +15,7 @@
 // coat at every distance: averaging curves that diverge produces a shorter,
 // straighter curve, so it loses exactly the spread that gives a tuft its
 // silhouette, and on the short coat it lost 45% of the covered area outright
-// (0.543 against the kept member's 0.957). A kept strand is a SAMPLE of the
+// (0.548 against the kept member's 0.963). A kept strand is a SAMPLE of the
 // coat and lies on its manifold by construction. GroomCardAggregation keeps
 // both, and MeanCentreline survives as the measured-and-rejected alternative
 // the way GroomCompositionMode::AlphaToCoverage does.
@@ -90,7 +90,7 @@ namespace OloEngine
         /// THE ONE THE MEASURED COMPARISON SELECTED, on every coat and at every
         /// distance: on the human scalp at a 59x reduction it scored a
         /// per-pixel silhouette error of 0.054-0.098 against the mean
-        /// centreline's 0.072-0.135, and it costs FEWER segments on a short
+        /// centreline's 0.072-0.115, and it costs FEWER segments on a short
         /// coat because it keeps its member's own point count instead of
         /// resampling to a fixed one.
         RepresentativeStrand = 1,

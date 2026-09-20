@@ -118,6 +118,19 @@ namespace OloEngine
             outReason = "card source pixel size is not a finite, non-negative number";
             return false;
         }
+        // MaxCards is validated like the other three, and for the same reason:
+        // it is the one setting that SIZES AN ALLOCATION. The reserve below is
+        // `cardCount * PointsPerCard` points, so an unbounded cap admits a
+        // reserve of MaxCurveCount x 64 points -- about half a billion -- long
+        // before Validate ever sees the level. A cook that refuses by name costs
+        // nothing; a std::bad_alloc from a tool's typo is not something any
+        // caller of this function catches.
+        if (settings.MaxCards == 0u || settings.MaxCards > GroomLimits::MaxCurveCount)
+        {
+            outReason = std::format("card cap {} is outside [1, {}]", settings.MaxCards,
+                                    GroomLimits::MaxCurveCount);
+            return false;
+        }
 
         const u32 baseCurveCount = base.GetCurveCount();
         if (baseCurveCount == 0)
@@ -209,6 +222,17 @@ namespace OloEngine
             outReason = std::format("card cell {} produces {} cards from {} strands, which is no reduction; "
                                     "use a larger cell",
                                     settings.CellSize, cardCount, stats.CurvesConsidered);
+            return false;
+        }
+
+        // The same bound on the POINTS the build is about to reserve. Checked
+        // against the cards actually counted rather than against MaxCards, so a
+        // generous cap costs nothing on a groom that does not reach it.
+        if (static_cast<u64>(cardCount) * settings.PointsPerCard > GroomLimits::MaxPointCount)
+        {
+            outReason = std::format("card cell {} produces {} cards of {} points, above the format's {}-point cap",
+                                    settings.CellSize, cardCount, settings.PointsPerCard,
+                                    GroomLimits::MaxPointCount);
             return false;
         }
 

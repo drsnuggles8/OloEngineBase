@@ -605,6 +605,41 @@ TEST(GroomLodCook, ACardBudgetIsARefusalAndNeverATruncation)
     EXPECT_EQ(level.GetCurveCount(), 0u);
 }
 
+TEST(GroomLodCook, TheCardCapItselfIsBoundedBecauseItSizesAnAllocation)
+{
+    // MaxCards is the one setting that reaches a reserve: the build asks for
+    // `cardCount * PointsPerCard` points up front. Left unbounded it admits a
+    // reserve of MaxCurveCount x 64 — about half a billion points — long before
+    // GroomLodLevel::Validate sees the level, and std::bad_alloc is not
+    // something any caller of BuildCardLevel catches. So it is validated like
+    // the cell size and the point count beside it.
+    Ref<GroomAsset> pelt = MakeTestPelt();
+    ASSERT_TRUE(pelt);
+
+    GroomLodLevel level;
+    std::string reason;
+
+    GroomCardSettings zero;
+    zero.MaxCards = 0;
+    EXPECT_FALSE(GroomLodBuilder::BuildCardLevel(*pelt, zero, level, reason, nullptr));
+    EXPECT_NE(reason.find("card cap"), std::string::npos) << reason;
+
+    GroomCardSettings huge;
+    huge.MaxCards = GroomLimits::MaxCurveCount + 1u;
+    EXPECT_FALSE(GroomLodBuilder::BuildCardLevel(*pelt, huge, level, reason, nullptr));
+    EXPECT_NE(reason.find("card cap"), std::string::npos) << reason;
+    EXPECT_EQ(level.GetCurveCount(), 0u);
+
+    // And a level whose POINT count exceeds the format's cap is refused by the
+    // level itself, not only by the decoder. The decoder bounds a file-supplied
+    // count before it sizes anything; this is the authored path, which has no
+    // file behind it to blame.
+    GroomCardSettings ok;
+    ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*pelt, ok, level, reason, nullptr)) << reason;
+    std::string levelReason;
+    EXPECT_TRUE(level.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason)) << levelReason;
+}
+
 TEST(GroomLodCook, ALevelMayNotClaimTheStrandTierAndADuplicateIsRejected)
 {
     // Non-const: AttachLodLevels writes to the groom, which is the whole point

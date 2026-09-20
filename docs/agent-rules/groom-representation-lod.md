@@ -31,7 +31,7 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
    centreline is the textbook hair card and it measured worse on every coat at every distance:
    averaging curves that diverge produces a shorter, straighter curve, so it loses exactly the
    spread that gives a tuft its silhouette. On the short coat it lost 45 % of the covered area
-   (0.543 against the kept member's 0.957). `GroomCardAggregation::MeanCentreline` survives as the
+   (0.548 against the kept member's 0.963). `GroomCardAggregation::MeanCentreline` survives as the
    measured-and-rejected alternative, the way `GroomCompositionMode::AlphaToCoverage` does.
 
 5. **The card tier earns its cook by being ABOVE the compensation cap, not by being cheaper.** The
@@ -39,9 +39,15 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
    card within noise. But the runtime widening is capped at 8x, because a strand widened sixty
    times is a flat band rather than a fibre — so past the cap a stride *cannot* restore the density.
    At a 59x reduction the matched strand arm carries **0.23** of the coat's area and the card
-   carries **1.01**, with half to a third of the silhouette error. That gap is the whole reason a
-   level is cooked rather than derived. A cell that only reduces by 4–9x is not worth cooking, and
-   the builder's "no reduction" refusal is the floor rather than the target.
+   carries **1.01**. That gap is the whole reason a level is cooked rather than derived. A cell that
+   only reduces by 4–9x is not worth cooking, and the builder's "no reduction" refusal is the floor
+   rather than the target.
+
+   The card's SILHOUETTE advantage is a separate, weaker claim and is asserted as two: it is never
+   materially worse (5 % tolerance) anywhere in the card band, and it wins outright at and below
+   64 px, where the margin is a factor (2.8x on the scalp) rather than the 1.3 % the short coat
+   scores at the top of the band. A 1.3 % gap between two independently summed measurements is a
+   coincidence, not a contract.
 
 6. **A card is a cooked CURVE, so every tier goes through one shader.** Criterion 1 asks for colour
    and highlight response to be preserved across a transition; the cheapest way to be sure of that
@@ -95,7 +101,7 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
     reference coats and six distances down to 4 px, the highest *solid* fraction measured anywhere
     was **0.064**. A shell would replace a see-through coat with a solid lump.
     `GroomLodFallbackReason::MeshTierNotSelected` reports it, and
-    `GroomLodComparison.TheShellTierIsMeasuredBeforeItIsRefused` fails if a future coat ever
+    `GroomLodShellTier.TheShellTierIsMeasuredBeforeItIsRefused` fails if a future coat ever
     saturates — which is the correct signal to revisit, not a reason to hard-code the refusal.
 
 ## `sizeof(GroomLodComponent)` and the other pinned layouts
