@@ -1417,9 +1417,50 @@ Two corollaries that generalise past skin:
   reaches it; #1255 measured exactly that and it is why the issue named a small bright feature
   instead.
 
+**The sequel, and the reason this rule is not "leave approximations alone".** #1368 extended the
+same control to a 2D gather and found the three terms are *coupled*: (3) over-spreads and (1)+(2)
+pull back, so repairing either side **alone** is a regression — at the default's red channel,
+version 1 measures 0.0558, the gather on the uncorrected profile 0.0607, and the correction through
+the separable pass 0.1179. Repairing **both** measures 0.0186. The lesson the first half teaches is
+"do not tune a term until the control says removing it helps"; the second half adds **"and measure
+the terms TOGETHER, because a control that removes one at a time can report that none of them
+matter."** That shipped as `SkinEvaluationModel::IsotropicGather` (version 6).
+
 Measurements: `SkinDiffusionReference` in
 [NonlocalTransportReferenceTest.cpp](../../OloEngine/tests/Rendering/PathTracing/NonlocalTransportReferenceTest.cpp);
 the decision is recorded on `kSkinDiffusionSupportFraction` in `SkinDiffusion.h`.
+
+## A tripwire test that names a fixed version cannot notice a new one
+
+**Write the guard against what SHIPS, not against the version number you are defending.** #1361
+left two errors unrepaired and pinned the decision with
+`TheSeparableProjectionOutweighsBothErrorsAtASmallBrightFeature`, whose own comment promised that "a
+future change which genuinely fixes the projection fails this test and gets to delete it". #1368
+shipped exactly that change. The test stayed **green**, because it built its kernel from a
+version-1 profile and went on measuring version 1 after version 6 existed. The tripwire was
+retired by hand, two commits later, when someone re-read the acceptance criteria.
+
+A guard is only a guard over the code path it actually evaluates. If the thing being defended can
+be superseded by adding a new enumerator, the guard has to reach that enumerator — iterate the enum,
+or assert against the value the production path selects, rather than naming a constant.
+
+## Nine copies of a cumulative version list will go stale at the copy no test builds
+
+**When a cumulative `SkinEvaluationModel` list appears in more than one place, make it one named
+predicate.** The versions are tested with explicit lists rather than `>=`, deliberately, so a
+non-diffusing version cannot inherit diffusion silently — but that safety was being bought nine
+times over, and the list went stale three times: #1242 missed the kernel builder, #1243 missed it
+again, and #1368 updated eight of nine and missed the **editor inspector's**, which then told an
+author a version-6 head was "authored at transport version 0" while it diffused on screen.
+
+The inspector's copy is the one that rots because `OloEditor` is not in the test build, so no
+evidence test can reach it. `SkinEvaluatesScreenSpaceDiffusion` and
+`SkinEvaluatesThicknessTransmission` are now the single lists, pinned by
+`EveryTransportVersionIsClassifiedAndTheClassificationIsWhatRuns` in `SkinDiffusionTest` and
+`SkinTransmissionTest` — which iterate to `kSkinEvaluationModelCount` and **count** the classified
+versions, so appending an enumerator fails the test without anyone having edited it. The general
+rule: an explicit list is a good safety property and a bad copy-paste; keep the list, delete the
+copies.
 
 ## A full local `ctest` sweep is ~1841 tests and rewrites ~180 tracked evidence PNGs
 

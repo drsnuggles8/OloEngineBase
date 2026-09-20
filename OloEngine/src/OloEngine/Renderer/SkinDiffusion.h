@@ -238,6 +238,36 @@ namespace OloEngine
     [[nodiscard]] f32 SkinBurleyStripFraction(f32 a, f32 d) noexcept;
 
     // -------------------------------------------------------------------------
+    // Which versions diffuse
+    // -------------------------------------------------------------------------
+
+    // True for the transport versions whose DIFFUSE half is spread across the
+    // surface in screen space — whether by version 1's separable pair or by
+    // version 6's isotropic gather.
+    //
+    // AN EXPLICIT LIST IN ONE PLACE, WHICH IS THE POINT. The list is spelled out
+    // rather than written `>= ScreenSpaceDiffusion` on purpose: a version
+    // appended to SkinEvaluationModel that does NOT diffuse must not inherit
+    // diffusion silently. But the price of that safety is an edit per version,
+    // and the price was being paid SIX TIMES — the kernel builder, the
+    // diffusing-profile count in the editor's MCP tools, the inspector's reach
+    // readout, and more. #1242 missed one list, #1243 missed the same one again,
+    // and #1368 missed the inspector's, which told an author that a version-6
+    // head was "authored at transport version 0" while it diffused on screen.
+    //
+    // Three misses on one list is not a reason to loosen the test; it is a
+    // reason for there to be ONE of it. A caller asks this function, so
+    // appending a version is one edit here plus the GLSL mirror, and forgetting
+    // it fails everywhere at once rather than in the one place nobody looks.
+    [[nodiscard]] inline constexpr bool SkinEvaluatesScreenSpaceDiffusion(SkinEvaluationModel model) noexcept
+    {
+        return model == SkinEvaluationModel::ScreenSpaceDiffusion ||
+               model == SkinEvaluationModel::ThicknessTransmission ||
+               model == SkinEvaluationModel::LayeredSpecular || model == SkinEvaluationModel::OralSurface ||
+               model == SkinEvaluationModel::OcularSurface || model == SkinEvaluationModel::IsotropicGather;
+    }
+
+    // -------------------------------------------------------------------------
     // The version-6 refit (#1368)
     // -------------------------------------------------------------------------
     //

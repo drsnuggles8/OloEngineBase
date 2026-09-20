@@ -3750,24 +3750,16 @@ namespace OloEngine
                         // built from them, and it is roughly eight times larger.
                         // Showing only the input is how "1.5 mm" becomes a
                         // surprise at 12 mm of visible bleed.
-                        // BOTH DIFFUSING VERSIONS. Version 2 is "everything
-                        // version 1 does, plus transmission", so a version-2
-                        // profile diffuses too — testing only for version 1 here
-                        // would tell an author their head had stopped scattering
-                        // the moment they enabled transmission, which is exactly
-                        // the wrong thing for a diagnostic readout to claim.
-                        // ALL THREE DIFFUSING VERSIONS (issue #1243 appended
-                        // the third). The versions are cumulative, so omitting
-                        // one here would tell an author their head had stopped
-                        // scattering the moment they moved the profile forward —
-                        // exactly the wrong thing for a diagnostic readout to
-                        // claim, and the same trap this list already documented
-                        // one version ago.
-                        if (parameters.EvaluationModel == SkinEvaluationModel::ScreenSpaceDiffusion ||
-                            parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                            parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                            parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
+                        // EVERY DIFFUSING VERSION, and it is no longer a list
+                        // kept here. #1368 appended version 6 and updated eight
+                        // of the nine CPU lists; this was the ninth, so a
+                        // version-6 head read "authored at transport version 0"
+                        // in the inspector while it diffused on screen — the
+                        // third time this exact readout has gone stale one
+                        // version behind the renderer. SkinEvaluatesScreenSpace-
+                        // Diffusion (Renderer/SkinDiffusion.h) is now the single
+                        // list, so there is nothing here to forget.
+                        if (SkinEvaluatesScreenSpaceDiffusion(parameters.EvaluationModel))
                         {
                             ImGui::Text("Diffusion reach (mm, derived): %.2f",
                                         static_cast<f64>(SkinDiffusionSupportRadiusMM(parameters)));
@@ -3790,12 +3782,13 @@ namespace OloEngine
                         // glowing, which is almost never the lobe's shape and
                         // almost always one of three data problems — the
                         // version, the strength, or a missing thickness.
-                        // BOTH TRANSMITTING VERSIONS, for the reason the
-                        // diffusion list above lists three.
-                        if (parameters.EvaluationModel == SkinEvaluationModel::ThicknessTransmission ||
-                            parameters.EvaluationModel == SkinEvaluationModel::LayeredSpecular ||
-                            parameters.EvaluationModel == SkinEvaluationModel::OralSurface ||
-                            parameters.EvaluationModel == SkinEvaluationModel::OcularSurface)
+                        // EVERY TRANSMITTING VERSION, through the single list,
+                        // for the reason the diffusion readout above gives. This
+                        // block went stale the same way and with a worse symptom:
+                        // it does not say the wrong thing, it DISAPPEARS, so a
+                        // version-6 ear that is not glowing offers the author no
+                        // readout at all to explain why.
+                        if (SkinEvaluatesThicknessTransmission(parameters.EvaluationModel))
                         {
                             ImGui::Text("Transmission: strength %.2f, anisotropy %.2f, power %.1f",
                                         static_cast<f64>(parameters.Transmission.Strength),
