@@ -36,6 +36,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -879,4 +880,118 @@ TEST(AnimalSchedulerCost, CoarseningNeverIncreasesTheEstimatedCost)
         EXPECT_LE(cost, previous + 1e-4f) << "step " << step;
         previous = cost;
     }
+}
+
+// -----------------------------------------------------------------------------
+// The decision carries the floors, so a downstream ladder cannot walk past them
+// -----------------------------------------------------------------------------
+
+TEST(AnimalSchedulerFloor, TheScheduleCarriesTheCapSoAConsumerCanClampAgainstIt)
+{
+    // WHY THE DECISION CARRIES MaxStep AT ALL. A consumer that combines this
+    // schedule with another ladder — Scene does exactly that, folding the
+    // budget into the groom's own #1252 answer — must clamp the combination.
+    // Spending `max(myLadder, scheduled)` and stopping there lets the OTHER
+    // ladder walk straight past MinVisibleStrands, and every assertion inside
+    // this file still passes because the scheduler never saw that number.
+    //
+    // This case is the seam: the cap the consumer needs is ON the decision, and
+    // it is the floor-derived one rather than the authored one.
+    constexpr u32 kStrands = 1000u;
+    constexpr u32 kFloor = 256u;
+
+    AnimalBudgetPolicy policy = TightPolicy();
+    policy.MinVisibleStrands = kFloor;
+    policy.FrameBudgetUnits = 1.0e8f; // no pressure: the cap must not depend on it
+
+    AnimalWorkItem item = MakeAnimal(7u, AnimalRole::Background, 40.0f, kStrands);
+    item.MaxStep[kVis] = MaxVisibilityStepForStrandFloor(kStrands, kFloor, 8u);
+
+    PopulationRun run({ item }, policy);
+    const std::vector<AnimalSchedule> schedules = run.Step();
+
+    ASSERT_EQ(schedules.size(), 1u);
+    // 1000 strands over a 256 floor affords exactly one halving.
+    EXPECT_EQ(schedules[0].MaxStep[kVis], 1u)
+        << "the decision does not carry the floor-derived cap, so a consumer combining it with another ladder has "
+           "nothing to clamp against";
+    EXPECT_GE(static_cast<u32>(static_cast<f32>(kStrands) * AnimalStepFraction(schedules[0].MaxStep[kVis])), kFloor);
+
+    // And the clamp a consumer performs with it does the job: a downstream
+    // ladder asking for a sixty-fourth is held at the floor.
+    constexpr u32 kGreedyLadderStep = 6u;
+    const u32 combined = std::min(std::max(kGreedyLadderStep, schedules[0].Step[kVis]), schedules[0].MaxStep[kVis]);
+    EXPECT_EQ(combined, 1u);
+    EXPECT_GE(static_cast<u32>(static_cast<f32>(kStrands) * AnimalStepFraction(combined)), kFloor);
+}
+
+// -----------------------------------------------------------------------------
+// StarvationFrames is a bound the allocator obeys, not a number it stores
+// -----------------------------------------------------------------------------
+
+TEST(AnimalSchedulerStarvation, AnAnimalAtTheStarvationBoundIsPassedOverWhileAPeerIsStillEligible)
+{
+    // The knob has to DO something. Two identical background animals, one
+    // already at the bound, a budget that can only afford one of them at full
+    // rate: the one at the bound must be excluded from the candidate set and
+    // the other must give way, however the apparent-size tie-break would have
+    // ordered them.
+    std::vector<AnimalWorkItem> items;
+    items.push_back(MakeAnimal(10u, AnimalRole::Background, 200.0f));
+    items.push_back(MakeAnimal(11u, AnimalRole::Background, 200.0f));
+
+    AnimalBudgetPolicy policy = TightPolicy();
+    policy.StarvationFrames = 4u;
+    // A BUDGET THE ELIGIBLE PEER CAN ABSORB ON ITS OWN. At 400 units the
+    // visibility allowance is 93 and two 12 000-strand coats cost 324, which
+    // one peer cannot close even at its cap — so the allocator correctly drops
+    // the starvation rule and coarsens the starved animal too, and the case
+    // would be asserting that the bound is unenforceable rather than that it is
+    // ignored. At 1000 the allowance is 243 and one halving of the peer (162 +
+    // 81 = 243) closes it exactly.
+    policy.FrameBudgetUnits = 1000.0f;
+
+    PopulationRun run(items, policy);
+    run.StateOf(10u).StarvedFrames[kVis] = 4u; // at the bound
+    run.StateOf(11u).StarvedFrames[kVis] = 0u;
+
+    const std::vector<AnimalSchedule> schedules = run.Step();
+    ASSERT_EQ(schedules.size(), 2u);
+
+    const AnimalSchedule& atBound = schedules[0].Id == UUID{ 10u } ? schedules[0] : schedules[1];
+    const AnimalSchedule& fresh = schedules[0].Id == UUID{ 10u } ? schedules[1] : schedules[0];
+
+    EXPECT_EQ(atBound.Step[kVis], 0u)
+        << "an animal at StarvationFrames was coarsened again while an eligible peer was available: the bound is "
+           "being stored and not enforced";
+    EXPECT_GT(fresh.Step[kVis], 0u) << "the eligible peer should have absorbed the shortfall";
+}
+
+TEST(AnimalSchedulerStarvation, WhenEveryCandidateIsAtTheBoundTheRuleIsDroppedRatherThanStalling)
+{
+    // The other half, and it is the one that would deadlock if it were missing.
+    // With nobody left to swap with, refusing to coarsen anyone would leave the
+    // axis permanently over budget and the frame permanently wrong — so the
+    // relative bound is dropped for that pass rather than turned into a
+    // guarantee it cannot keep.
+    std::vector<AnimalWorkItem> items;
+    items.push_back(MakeAnimal(10u, AnimalRole::Background, 200.0f));
+    items.push_back(MakeAnimal(11u, AnimalRole::Background, 200.0f));
+
+    AnimalBudgetPolicy policy = TightPolicy();
+    policy.StarvationFrames = 4u;
+    policy.FrameBudgetUnits = 400.0f;
+
+    PopulationRun run(items, policy);
+    run.StateOf(10u).StarvedFrames[kVis] = 9u;
+    run.StateOf(11u).StarvedFrames[kVis] = 9u;
+
+    AnimalSchedulerStats stats;
+    const std::vector<AnimalSchedule> schedules = run.Step(&stats);
+
+    const bool anythingCoarsened =
+        std::ranges::any_of(schedules, [](const AnimalSchedule& s) { return s.Step[kVis] > 0u; });
+    EXPECT_TRUE(anythingCoarsened)
+        << "every candidate was over the starvation bound and the allocator refused to coarsen any of them, so the "
+           "axis stays over budget forever";
 }

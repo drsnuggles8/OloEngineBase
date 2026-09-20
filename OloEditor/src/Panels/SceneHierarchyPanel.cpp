@@ -9578,8 +9578,12 @@ namespace OloEngine
             {
                 ImGui::SetTooltip("Off removes this animal from the population budget entirely: it then runs\n"
                                   "at whatever its own distance ladders ask for, which is the pre-#1258\n"
-                                  "frame. The per-entity half of the A/B control; the global half is\n"
-                                  "Renderer Settings -> Animal scheduling.");
+                                  "frame.\n\n"
+                                  "This is the per-entity control. The population-wide allowance comes\n"
+                                  "from the QUALITY TIER, which writes RendererSettings::\n"
+                                  "AnimalFrameBudgetUnits -- there is deliberately no second global\n"
+                                  "slider for it, because two places to set one budget is how the two\n"
+                                  "end up disagreeing.");
             }
 
             static const char* kRoleNames[] = { "Hero", "Featured", "Background" };

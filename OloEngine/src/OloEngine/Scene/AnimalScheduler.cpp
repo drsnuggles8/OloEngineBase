@@ -326,12 +326,19 @@ namespace OloEngine
                     schedule.Step[a] = std::min(slot.Item.DesiredStep[a], kMaxBudgetSteps);
                     schedule.Fraction[a] = AnimalStepFraction(schedule.Step[a]);
                 }
+                for (sizet a = 0; a < AnimalWorkAxisCount; ++a)
+                {
+                    schedule.MaxStep[a] = std::min(slot.Item.MaxStep[a], kMaxBudgetSteps);
+                }
                 schedule.EstimatedCostUnits = EstimateAnimalCostUnits(model, slot.Item, schedule.Step);
                 results.push_back(schedule);
             }
             if (outStats != nullptr)
             {
-                stats.AnimalsConsidered = 0u;
+                // THE REAL COUNT, not zero. A panel showing "Animals: 0" above a
+                // list of live per-animal rows is a contradiction, and the A/B
+                // control arm is exactly where a reader is looking hardest.
+                // Nothing was SCHEDULED, which the outcomes already say.
                 *outStats = stats;
             }
             return results;
@@ -427,8 +434,13 @@ namespace OloEngine
                 entry.Item = &slots[i].Item;
                 entry.Index = static_cast<u32>(i);
                 entry.StarvedFrames = slots[i].State != nullptr ? slots[i].State->StarvedFrames[a] : 0u;
+                // `+ 0.0f` is not redundant: std::max(-0.0f, 0.0f) returns
+                // -0.0f, and BitwiseEqual(-0.0f, +0.0f) is FALSE while `<` is
+                // false in both directions — which is not a strict weak
+                // ordering, and std::stable_sort on one is undefined behaviour
+                // rather than a wrong answer. Adding zero collapses the two.
                 entry.PixelSize =
-                    std::isfinite(slots[i].Item.PixelSize) ? std::max(slots[i].Item.PixelSize, 0.0f) : 0.0f;
+                    std::isfinite(slots[i].Item.PixelSize) ? (std::max(slots[i].Item.PixelSize, 0.0f) + 0.0f) : 0.0f;
                 entry.Id = static_cast<u64>(slots[i].Item.Id);
                 order.push_back(entry);
             }
@@ -458,22 +470,54 @@ namespace OloEngine
                 // allocation that took one background animal to a sixteenth
                 // while its neighbour stayed at full rate is the within-frame
                 // twin of the starvation the counters fix across frames.
+                // STARVATIONFRAMES IS ENFORCED HERE, and this is what makes it
+                // a knob rather than a comment. The sort order alone rotates
+                // the loss, but nothing in it BOUNDS how long one animal can be
+                // passed over — so the authored number has to exclude an
+                // over-starved animal from the candidate set while any
+                // same-role peer is still eligible.
+                //
+                // "While any peer is still eligible" is the whole of the
+                // relative bound: when every candidate is over the threshold
+                // there is nobody to swap with, and refusing to coarsen anyone
+                // would make the axis unservable rather than fair. So the rule
+                // is dropped for the pass in that case, which is checked once
+                // per pass rather than assumed.
+                const auto eligible = [&](const ServiceOrder& entry, bool honourStarvation)
+                {
+                    if (entry.Item->Role != role)
+                    {
+                        return false;
+                    }
+                    const sizet idx = entry.Index;
+                    if (allocated[idx][a] >= std::min(slots[idx].Item.MaxStep[a], kMaxBudgetSteps))
+                    {
+                        return false;
+                    }
+                    if (honourStarvation && policy.StarvationFrames > 0u &&
+                        entry.StarvedFrames >= policy.StarvationFrames)
+                    {
+                        return false;
+                    }
+                    return true;
+                };
+
                 bool progressed = true;
                 while (progressed && axisCost[a] > axisBudget[a])
                 {
                     progressed = false;
+
+                    const bool anyUnstarved =
+                        std::ranges::any_of(order, [&](const ServiceOrder& e) { return eligible(e, true); });
+
                     for (const ServiceOrder& entry : order)
                     {
-                        if (entry.Item->Role != role)
+                        if (!eligible(entry, anyUnstarved))
                         {
                             continue;
                         }
                         const sizet i = entry.Index;
                         const u32 cap = std::min(slots[i].Item.MaxStep[a], kMaxBudgetSteps);
-                        if (allocated[i][a] >= cap)
-                        {
-                            continue;
-                        }
                         const AnimalWorkAxis axis = static_cast<AnimalWorkAxis>(a);
                         const f32 before = AxisCostAtStep(model, slots[i].Item, axis, allocated[i][a]);
                         allocated[i][a] += 1u;
@@ -552,7 +596,14 @@ namespace OloEngine
                 // plain coarsening because it is the signature of a population
                 // the budget cannot serve, and telling the two apart is the
                 // difference between tuning the budget and rebuilding the herd.
-                if (allocated[i][a] >= cap && axisExceeded[a])
+                // THREE conditions, and the third is the one that keeps the
+                // hero contract honest. Without `> desired`, a protected hero
+                // whose deformation cap is 0 — which is every normally-sized
+                // on-screen animal, because MaxDeformationStepForPoseBound
+                // refuses a reduction that would break the pose bound — is
+                // "at its cap" at full rate, and reports CapHeld the moment any
+                // axis overflows. It was never coarsened and never could be.
+                if (allocated[i][a] >= cap && axisExceeded[a] && allocated[i][a] > desired)
                 {
                     capHeld = true;
                 }
@@ -568,6 +619,7 @@ namespace OloEngine
                 stats.MaxStarvedFrames = std::max(stats.MaxStarvedFrames, state.StarvedFrames[a]);
 
                 schedule.Step[a] = state.Step[a];
+                schedule.MaxStep[a] = cap;
                 schedule.Fraction[a] = AnimalStepFraction(state.Step[a]);
             }
 
@@ -590,9 +642,17 @@ namespace OloEngine
                     stats.AnimalsAtVisibilityFloor += 1u;
                 }
             }
-            if (item.MaxStep[static_cast<sizet>(AnimalWorkAxis::Deformation)] == 0u)
             {
-                stats.AnimalsAtPoseStepCap += 1u;
+                constexpr sizet def = static_cast<sizet>(AnimalWorkAxis::Deformation);
+                // Same shape as the visibility-floor counter above, and for the
+                // same reason: "the pose bound refused a reduction" is only
+                // interesting when something was ASKING for one. Counting every
+                // animal whose cap happens to be zero makes this number a
+                // headcount of the population rather than a signal of pressure.
+                if (item.Visible && std::min(item.MaxStep[def], kMaxBudgetSteps) == 0u && axisExceeded[def])
+                {
+                    stats.AnimalsAtPoseStepCap += 1u;
+                }
             }
 
             schedule.Outcome = AnimalBudgetOutcome::AtDesired;

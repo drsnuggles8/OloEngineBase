@@ -4184,6 +4184,13 @@ namespace OloEngine
 
     void Scene::UpdateAnimation(Timestep ts)
     {
+        // The deformation stagger's clock (#1258), advanced HERE because this
+        // is the function whose body the gate runs in. Incrementing it at a
+        // frame boundary instead would count a different event than the one it
+        // phases — see ShouldPoseAnimalThisFrame. Its absolute value is never
+        // read, only `(tick + phase) % period`, so a wrap is harmless.
+        ++m_AnimalPoseTick;
+
         // Update animations. Full-owning group over AnimationStateComponent +
         // SkeletonComponent (neither is shared with the physics/particle hot
         // loops, so both pools are owned — issue #443 ownership map).
@@ -4532,7 +4539,16 @@ namespace OloEngine
         // is a property of the ENTITY, stable across a step change, a save/load
         // and a scene reload.
         const u64 phase = static_cast<u64>(id) % static_cast<u64>(period);
-        if (((m_AnimalFrameCounter + phase) % static_cast<u64>(period)) != 0u)
+        // COUNTED ON m_AnimalPoseTick, WHICH THIS GATE'S OWN CALLER ADVANCES,
+        // and not on a per-frame counter. UpdateAnimation runs from
+        // SimulateRuntimeStep, which the fixed-timestep accumulator calls ZERO
+        // OR MORE times per rendered frame — so a frame counter and this gate
+        // are two different clocks. At a 120 Hz display against a 60 Hz fixed
+        // step the sim ticks land only on even frame numbers, and a period-2
+        // animal with an odd phase is then never posed at all: frozen for as
+        // long as the pacing holds, and invisible to any test that drives
+        // OnUpdateRuntime (the one entry point where the two clocks agree).
+        if (((m_AnimalPoseTick + phase) % static_cast<u64>(period)) != 0u)
         {
             return false;
         }
@@ -8934,14 +8950,34 @@ namespace OloEngine
                 // apparent size asks for: overwriting it with the budget's
                 // answer would make the coat's own thresholds unreachable and
                 // the ladder would never refine again once the budget relaxed.
-                if (const AnimalSchedule* schedule = FindAnimalSchedule(groomEntity.GetUUID()); schedule != nullptr)
+                if (const AnimalSchedule* schedule = FindAnimalSchedule(groomEntity.GetUUID());
+                    schedule != nullptr && schedule->Outcome != AnimalBudgetOutcome::NotScheduled)
                 {
-                    request.Lod.SimulationStep = std::max(
-                        request.Lod.SimulationStep, schedule->Step[static_cast<sizet>(AnimalWorkAxis::Simulation)]);
-                    request.Lod.VisibilityStep = std::max(
-                        request.Lod.VisibilityStep, schedule->Step[static_cast<sizet>(AnimalWorkAxis::Visibility)]);
-                    request.Lod.ShadowStep = std::max(request.Lod.ShadowStep,
-                                                      schedule->Step[static_cast<sizet>(AnimalWorkAxis::Shadow)]);
+                    // MAX, THEN CLAMP TO THE CAP. The max is what makes the
+                    // budget unable to hand out work the distance ladder
+                    // already called pointless; the CLAMP is what stops the
+                    // ladder walking straight past MinVisibleStrands.
+                    //
+                    // Without it the floor only ever bound the BUDGET's answer:
+                    // a 1000-strand coat whose own ladder asks for a
+                    // sixty-fourth is built at 15 strands while the floor says
+                    // 256, and every assertion inside AnimalScheduler still
+                    // passes because the scheduler never saw the ladder's
+                    // number. "Invisible distant coats" is a failure the ladder
+                    // can produce unaided, which is the whole reason the cap is
+                    // applied against the desired step too.
+                    const auto combine = [](u32 ladder, u32 scheduled, u32 cap)
+                    { return std::min(std::max(ladder, scheduled), cap); };
+
+                    constexpr sizet simAxis = static_cast<sizet>(AnimalWorkAxis::Simulation);
+                    constexpr sizet visAxis = static_cast<sizet>(AnimalWorkAxis::Visibility);
+                    constexpr sizet shadowAxis = static_cast<sizet>(AnimalWorkAxis::Shadow);
+                    request.Lod.SimulationStep =
+                        combine(request.Lod.SimulationStep, schedule->Step[simAxis], schedule->MaxStep[simAxis]);
+                    request.Lod.VisibilityStep =
+                        combine(request.Lod.VisibilityStep, schedule->Step[visAxis], schedule->MaxStep[visAxis]);
+                    request.Lod.ShadowStep =
+                        combine(request.Lod.ShadowStep, schedule->Step[shadowAxis], schedule->MaxStep[shadowAxis]);
                     // Recomputed from the steps rather than taken from the
                     // schedule, so the fraction and the step can never say
                     // different things — GroomLodDecision's two fields are

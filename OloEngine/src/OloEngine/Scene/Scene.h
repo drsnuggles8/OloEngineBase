@@ -1616,6 +1616,17 @@ namespace OloEngine
         /// was.
         u64 m_AnimalFrameCounter = 0;
 
+        /// The clock the deformation stagger is phased on, advanced once per
+        /// UpdateAnimation — which is the function the gate's body runs in.
+        ///
+        /// A SECOND COUNTER AND NOT m_AnimalFrameCounter, because the two count
+        /// different events: UpdateAnimation runs from SimulateRuntimeStep,
+        /// which the fixed-timestep accumulator calls zero or more times per
+        /// rendered frame. Phasing on the frame counter freezes animals outright
+        /// whenever the display rate is a multiple of the fixed step — see
+        /// ShouldPoseAnimalThisFrame.
+        u64 m_AnimalPoseTick = 0;
+
         /// Gather every animal, share the frame out between them, and publish
         /// the result into m_AnimalSchedules. Called once per frame from the
         /// frame boundary, beside SelectAnimatedSurfaceLOD and for its reason:

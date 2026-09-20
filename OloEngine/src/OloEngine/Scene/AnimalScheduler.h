@@ -513,6 +513,19 @@ namespace OloEngine
         /// The step each axis runs at this frame, after budget and hysteresis.
         std::array<u32, AnimalWorkAxisCount> Step{ 0u, 0u, 0u, 0u };
 
+        /// The coarsest step each axis was ALLOWED to take — the authored cap
+        /// tightened by the floors (MinVisibleStrands on Visibility,
+        /// MaxPoseStepPixels on Deformation).
+        ///
+        /// CARRIED ON THE DECISION because a consumer that combines this
+        /// schedule with another ladder has to clamp against it. Spending
+        /// `max(myLadderStep, scheduleStep)` and stopping there lets the OTHER
+        /// ladder walk straight past the floor — a 1000-strand coat whose
+        /// distance ladder asks for a sixty-fourth is built at 15 strands while
+        /// MinVisibleStrands says 256, and every assertion inside the scheduler
+        /// still passes because the scheduler never saw it. Clamp to this.
+        std::array<u32, AnimalWorkAxisCount> MaxStep{ 0u, 0u, 0u, 0u };
+
         /// 2^-step per axis, precomputed so no consumer has to agree with any
         /// other about what a step means.
         std::array<f32, AnimalWorkAxisCount> Fraction{ 1.0f, 1.0f, 1.0f, 1.0f };
@@ -553,7 +566,7 @@ namespace OloEngine
         }
     };
 
-    static_assert(sizeof(AnimalSchedule) == 56,
+    static_assert(sizeof(AnimalSchedule) == 72,
                   "AnimalSchedule is compared with a whole-object memcmp: it must have no implicit padding");
     static_assert(std::is_trivially_copyable_v<AnimalSchedule>);
 
