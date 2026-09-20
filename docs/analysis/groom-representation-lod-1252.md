@@ -123,8 +123,9 @@ cooking; the builder's "no reduction" refusal is a floor, not a target, and the 
 is chosen to land well past the cap.
 
 **The card's advantage is a factor, but only once the coat is small.** It grows as the coat
-shrinks — on the scalp it is 2.2× the stride's per-pixel error at 128 px, 2.8× at 64 and 3.7× at
-32 — and at the very top of the card band the two constructions are within noise: the short coat
+shrinks — on the scalp the *stride's* per-pixel error is 2.2× the card's at 128 px, 2.8× at 64 and
+3.7× at 32 (the card is the smaller number) — and at the very top of the card band the two
+constructions are within noise: the short coat
 scores 0.2567 against the stride's 0.2602 at 128 px, a 1.3 % margin that a different float
 summation order on another platform could flip either way. So the assertion held across the whole
 band is "the card is never materially worse" (5 % tolerance), and the strict "the card wins" is

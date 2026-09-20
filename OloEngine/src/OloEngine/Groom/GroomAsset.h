@@ -299,6 +299,20 @@ namespace OloEngine
         /// GroomAsset::Validate; a level's were not until CodeRabbit asked.
         [[nodiscard]] bool Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const;
 
+        /// The same check with the two SIZE caps injected, so the cap branches
+        /// can be reached by a test. They guard allocations of 8 M curves and
+        /// 256 M points; a test that wanted to cross one honestly would have to
+        /// build a multi-gigabyte level, so in practice nobody does and the two
+        /// branches ship unexecuted. Every OTHER invariant here is reachable
+        /// with a handful of curves and is tested that way -- these two are the
+        /// exception only because of their magnitude, not their nature.
+        ///
+        /// Production calls the two-argument form. Lowering a cap cannot make a
+        /// level pass that the real caps would reject, so the seam cannot be
+        /// used to smuggle an oversized level past the boundary.
+        [[nodiscard]] bool ValidateWithCaps(u32 baseCurveCount, u32 groupCount, u32 maxCurveCount, u64 maxPointCount,
+                                            std::string& outReason) const;
+
         /// Field by field: a defaulted operator== would compare
         /// SourcePixelSize — and every element of the three float arrays — with
         /// a float `==`, which cpp-coding-quality §2a forbids. The integer

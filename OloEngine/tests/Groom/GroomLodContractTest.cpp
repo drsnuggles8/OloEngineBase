@@ -638,6 +638,29 @@ TEST(GroomLodCook, TheCardCapItselfIsBoundedBecauseItSizesAnAllocation)
     ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*pelt, ok, level, reason, nullptr)) << reason;
     std::string levelReason;
     EXPECT_TRUE(level.Validate(pelt->GetCurveCount(), pelt->GetGroupCount(), levelReason)) << levelReason;
+
+    // Crossing the REAL caps means 8 M curves or 256 M points -- a level of
+    // several gigabytes -- so the two size branches would ship unexecuted if
+    // the caps were not injectable. ValidateWithCaps exists for exactly this:
+    // the caps come down to the level's own size and each branch fires by
+    // name. Lowering a cap cannot make an oversized level pass, so the seam
+    // does not weaken the boundary it tests.
+    const u32 curves = level.GetCurveCount();
+    const u64 points = level.Points.size();
+    ASSERT_GT(curves, 1u);
+    ASSERT_GT(points, 1u);
+
+    EXPECT_FALSE(level.ValidateWithCaps(pelt->GetCurveCount(), pelt->GetGroupCount(), curves - 1u, points, levelReason));
+    EXPECT_NE(levelReason.find("curve count"), std::string::npos) << levelReason;
+
+    EXPECT_FALSE(level.ValidateWithCaps(pelt->GetCurveCount(), pelt->GetGroupCount(), curves, points - 1u, levelReason));
+    EXPECT_NE(levelReason.find("point count"), std::string::npos) << levelReason;
+
+    // The control both refusals need: AT the caps the same level passes, so
+    // what was measured is the crossing and not some unrelated invariant the
+    // level was failing all along.
+    EXPECT_TRUE(level.ValidateWithCaps(pelt->GetCurveCount(), pelt->GetGroupCount(), curves, points, levelReason))
+        << levelReason;
 }
 
 TEST(GroomLodCook, ALevelMayNotClaimTheStrandTierAndADuplicateIsRejected)

@@ -45,7 +45,8 @@ Read before touching `OloEngine/src/OloEngine/Groom/GroomLod*.{h,cpp}`,
 
    The card's SILHOUETTE advantage is a separate, weaker claim and is asserted as two: it is never
    materially worse (5 % tolerance) anywhere in the card band, and it wins outright at and below
-   64 px, where the margin is a factor (2.8x on the scalp) rather than the 1.3 % the short coat
+   64 px, where the margin is a factor (the stride's error is 2.8x the card's on the scalp) rather
+   than the 1.3 % the short coat
    scores at the top of the band. A 1.3 % gap between two independently summed measurements is a
    coincidence, not a contract.
 

@@ -319,49 +319,66 @@ namespace
     // comparison case below is its own gtest SUITE and therefore its own ctest
     // entry -- so a case that built all three would pay for two coats it never
     // measures, three times over.
+    constexpr sizet kCoatCount = 3;
+
     [[nodiscard]] Coat MakeCoat(sizet index)
     {
         using namespace Tests::GroomStrandFixture;
-        std::vector<Coat> coats;
-        std::string reason;
 
-        // EVERY COAT IS REBUILT WITH WRAPPED ROOT UVs. #1246's generators record
-        // an unwrapped `phi / 2pi`, which reaches ~11 459 on a 20 000-strand
-        // scalp, and the clump-cell addressing clamps a UV to +/-16 — so
-        // clustering the raw fixture puts most of the animal in one cell and
-        // measures the fixture instead of the representation. See
-        // RebuildWithWrappedRootUVs for why the fold happens here rather than
-        // upstream.
-        const auto add = [&](const char* name, const StrandCoat& source, std::vector<f32> cells)
+        // THE FIXTURE IS SELECTED BEFORE IT IS GENERATED. An earlier revision
+        // built all three and returned one, which meant each split case paid
+        // for two coats it never measures — and MakeCoats() below paid for nine
+        // to keep three. That is the opposite of what the split was for.
+        const char* name = nullptr;
+        StrandCoat source;
+        std::vector<f32> cells{ 0.05f, 0.02f };
+        switch (index)
         {
-            EXPECT_TRUE(source.Groom) << source.FailureReason;
-            if (!source.Groom)
-            {
-                return;
-            }
-            Ref<GroomAsset> wrapped = Tests::GroomLodFixture::RebuildWithWrappedRootUVs(*source.Groom, reason);
-            EXPECT_TRUE(wrapped) << reason;
-            if (wrapped)
-            {
-                coats.push_back(Coat{ name, wrapped, std::move(cells) });
-            }
-        };
+            case 0:
+                // A human scalp: long, sparse, 70 um. The hardest case for any
+                // aggregation, because the strands are nowhere near each other.
+                name = "human-scalp";
+                source = MakeScalp(20000u, 8u);
+                break;
+            case 1:
+                // A short coat: dense, 25 mm, 110 um. The case a shell would be
+                // for, if a shell were for anything.
+                name = "short-coat";
+                source = MakePelt(30000u, 4u);
+                break;
+            case 2:
+                // A long coat: 90 mm guard hairs, coarser and sparser than the
+                // short one. Its silhouette is the thing a LOD is most likely
+                // to lose.
+                name = "long-coat";
+                source = MakePelt(20000u, 6u, 3u, 0.12f, 0.09f, 1.4e-4f);
+                break;
+            default:
+                ADD_FAILURE() << "no coat with index " << index;
+                return Coat{};
+        }
 
-        // A human scalp: long, sparse, 70 um. The hardest case for any
-        // aggregation, because the strands are nowhere near each other.
-        add("human-scalp", MakeScalp(20000u, 8u), { 0.05f, 0.02f });
-        // A short coat: dense, 25 mm, 110 um. The case a shell would be for, if
-        // a shell were for anything.
-        add("short-coat", MakePelt(30000u, 4u), { 0.05f, 0.02f });
-        // A long coat: 90 mm guard hairs, coarser and sparser than the short
-        // one. Its silhouette is the thing a LOD is most likely to lose.
-        add("long-coat", MakePelt(20000u, 6u, 3u, 0.12f, 0.09f, 1.4e-4f), { 0.05f, 0.02f });
+        EXPECT_TRUE(source.Groom) << source.FailureReason;
+        if (!source.Groom)
+        {
+            return Coat{};
+        }
 
-        EXPECT_LT(index, coats.size());
-        return index < coats.size() ? coats[index] : Coat{};
+        // REBUILT WITH WRAPPED ROOT UVs. #1246's generators record an unwrapped
+        // `phi / 2pi`, which reaches ~11 459 on a 20 000-strand scalp, and the
+        // clump-cell addressing clamps a UV to +/-16 — so clustering the raw
+        // fixture puts most of the animal in one cell and measures the fixture
+        // instead of the representation. See RebuildWithWrappedRootUVs for why
+        // the fold happens here rather than upstream.
+        std::string reason;
+        Ref<GroomAsset> wrapped = Tests::GroomLodFixture::RebuildWithWrappedRootUVs(*source.Groom, reason);
+        EXPECT_TRUE(wrapped) << reason;
+        if (!wrapped)
+        {
+            return Coat{};
+        }
+        return Coat{ name, wrapped, std::move(cells) };
     }
-
-    constexpr sizet kCoatCount = 3;
 
     [[nodiscard]] std::vector<Coat> MakeCoats()
     {
@@ -627,9 +644,12 @@ namespace
                     //    supports two different strengths and asserting the
                     //    strong one everywhere would be asserting a coincidence.
                     //
-                    //    The card's advantage GROWS as the coat shrinks (scalp:
-                    //    2.2x the stride's error at 128 px, 2.8x at 64, 3.7x at
-                    //    32), which is itself why the tier is distance-gated. At
+                    //    The card's advantage GROWS as the coat shrinks. On the
+                    //    scalp the STRIDE's error is 2.2x the card's at 128 px,
+                    //    2.8x at 64 and 3.7x at 32 -- the card is the smaller
+                    //    number, and stating it the other way round says the
+                    //    opposite of the finding. That growth is itself why the
+                    //    tier is distance-gated. At
                     //    the very TOP of the card band the two are within noise
                     //    — the short coat scores 0.2567 against 0.2602 at 128 px,
                     //    a 1.3% margin that a different float summation order on

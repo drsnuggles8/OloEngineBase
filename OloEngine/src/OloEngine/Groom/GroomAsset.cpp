@@ -84,16 +84,22 @@ namespace OloEngine
 
     bool GroomLodLevel::Validate(u32 baseCurveCount, u32 groupCount, std::string& outReason) const
     {
+        return ValidateWithCaps(baseCurveCount, groupCount, GroomLimits::MaxCurveCount, GroomLimits::MaxPointCount,
+                                outReason);
+    }
+
+    bool GroomLodLevel::ValidateWithCaps(u32 baseCurveCount, u32 groupCount, u32 maxCurveCount, u64 maxPointCount,
+                                         std::string& outReason) const
+    {
         const u32 curveCount = GetCurveCount();
         if (curveCount == 0)
         {
             outReason = "LOD level has zero curves; a level that stands in for nothing must not be cooked";
             return false;
         }
-        if (curveCount > GroomLimits::MaxCurveCount)
+        if (curveCount > maxCurveCount)
         {
-            outReason = std::format("LOD level curve count {} exceeds the format cap {}", curveCount,
-                                    GroomLimits::MaxCurveCount);
+            outReason = std::format("LOD level curve count {} exceeds the format cap {}", curveCount, maxCurveCount);
             return false;
         }
         // The POINT cap too, symmetric with GroomAsset::Validate's. The decoder
@@ -102,10 +108,9 @@ namespace OloEngine
         // reached AttachLodLevels from a builder or a tool rather than from
         // disk. Without it the two paths disagree about what a valid level is,
         // and the one that disagrees is the one with no file behind it to blame.
-        if (Points.size() > GroomLimits::MaxPointCount)
+        if (Points.size() > maxPointCount)
         {
-            outReason = std::format("LOD level point count {} exceeds the format cap {}", Points.size(),
-                                    GroomLimits::MaxPointCount);
+            outReason = std::format("LOD level point count {} exceeds the format cap {}", Points.size(), maxPointCount);
             return false;
         }
         if (!IsValidGroomRepresentation(static_cast<i32>(Representation)))
