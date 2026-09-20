@@ -200,9 +200,28 @@ namespace OloEngine
                                     groom.GetProvenance().SourcePath.size() +
                                     groom.GetProvenance().SourceFormat.size();
 
+        // ── Section 10's size (issue #1252) ──
+        // Each level carries its OWN counts, so its size is summed here rather
+        // than derived from the Info section's.
+        u64 lodBytes = sizeof(u32); // the level count
+        for (const GroomLodLevel& level : groom.GetLodLevels())
+        {
+            const auto levelCurves = static_cast<u64>(level.GetCurveCount());
+            const auto levelPoints = static_cast<u64>(level.Points.size());
+            lodBytes += sizeof(OloGroomFormat::LodLevelHeader);
+            lodBytes += (levelCurves + 1u) * sizeof(u32); // offsets
+            lodBytes += levelPoints * sizeof(f32) * 3u;   // points
+            lodBytes += levelPoints * sizeof(f32);        // widths
+            lodBytes += levelCurves * sizeof(f32) * 2u;   // root UVs
+            lodBytes += levelCurves * sizeof(u16);        // groups
+            lodBytes += levelCurves * sizeof(u8);         // flags
+            lodBytes += levelCurves * sizeof(u32);        // source map
+        }
+
         const u64 payloadSize = (static_cast<u64>(OloGroomFormat::kSectionCount) * sizeof(OloGroomFormat::SectionFrame)) +
                                 sizeof(OloGroomFormat::InfoSection) + offsetBytes + pointBytes + widthBytes +
-                                rootUVBytes + groupIdBytes + flagBytes + groupNameBytes + provenanceBytes + coatBytes;
+                                rootUVBytes + groupIdBytes + flagBytes + groupNameBytes + provenanceBytes + coatBytes +
+                                lodBytes;
         if (payloadSize > OloGroomFormat::MaxUncompressedPayloadSize)
         {
             outReason = std::format("cooked payload size {} exceeds the format cap {}",
@@ -306,6 +325,48 @@ namespace OloEngine
             }
             AppendSection(payload, OloGroomFormat::SectionType::GroupCoats, coats.data(),
                           static_cast<u64>(coats.size()) * sizeof(GroomCoatGroupDesc));
+        }
+
+        // ── Section 10: cooked LOD levels (#1252) ──
+        //
+        // ALWAYS PRESENT, even when the groom has none: the count is then 0 and
+        // nothing follows. A section that appeared only sometimes would make
+        // "old file" and "no levels" two readings of the same absence, and the
+        // reader would need a rule for which — the ambiguity section 9 already
+        // refuses for the same reason.
+        {
+            std::vector<u8> bytes;
+            const auto levelCount = static_cast<u32>(groom.GetLodLevels().size());
+            if (levelCount > OloGroomFormat::MaxLodLevels)
+            {
+                outReason = std::format("groom carries {} LOD levels, above the format cap {}", levelCount,
+                                        OloGroomFormat::MaxLodLevels);
+                return false;
+            }
+            bytes.reserve(static_cast<sizet>(lodBytes));
+            AppendBytes(bytes, &levelCount, sizeof(levelCount));
+
+            for (const GroomLodLevel& level : groom.GetLodLevels())
+            {
+                OloGroomFormat::LodLevelHeader header;
+                header.CurveCount = level.GetCurveCount();
+                header.PointCount = static_cast<u32>(level.Points.size());
+                header.SourcePixelSize = level.SourcePixelSize;
+                header.Representation = std::to_underlying(level.Representation);
+                // Pads left at their initialisers, which are zero. Two cooks of
+                // one groom must be byte-identical (GroomCooker.h), and a
+                // header built on the stack has no other guarantee.
+                AppendBytes(bytes, &header, sizeof(header));
+
+                AppendBytes(bytes, level.CurveOffsets.data(), level.CurveOffsets.size() * sizeof(u32));
+                AppendBytes(bytes, level.Points.data(), level.Points.size() * sizeof(glm::vec3));
+                AppendBytes(bytes, level.PointWidths.data(), level.PointWidths.size() * sizeof(f32));
+                AppendBytes(bytes, level.RootUVs.data(), level.RootUVs.size() * sizeof(glm::vec2));
+                AppendBytes(bytes, level.CurveGroupIds.data(), level.CurveGroupIds.size() * sizeof(u16));
+                AppendBytes(bytes, level.CurveFlags.data(), level.CurveFlags.size() * sizeof(u8));
+                AppendBytes(bytes, level.SourceCurves.data(), level.SourceCurves.size() * sizeof(u32));
+            }
+            AppendSection(payload, OloGroomFormat::SectionType::LodLevels, bytes.data(), bytes.size());
         }
 
         // ── Compress + header ──
@@ -579,6 +640,117 @@ namespace OloEngine
             for (const std::string& repair : repairs)
             {
                 OLO_CORE_WARN("GroomSerializer: coat parameter repaired on load: {}", repair);
+            }
+        }
+
+        // ── Section 10: cooked LOD levels (#1252) ──
+        //
+        // Every count in here is FILE-SUPPLIED and therefore hostile. The
+        // pattern is the one ReadArraySection establishes for the base arrays,
+        // applied per level: check the section frame, then bound each array's
+        // byte count against the bytes that actually remain BEFORE sizing
+        // anything. Reading the header and resizing first is how a CRC-valid
+        // file whose level declared 256M points allocates three gigabytes on
+        // its way to reporting a truncation.
+        {
+            OloGroomFormat::SectionFrame frame;
+            if (!reader.Read(&frame, sizeof(frame)) ||
+                frame.SectionId != std::to_underlying(OloGroomFormat::SectionType::LodLevels) ||
+                frame.ByteCount > reader.Remaining())
+            {
+                outReason = "LodLevels section is missing or malformed";
+                return false;
+            }
+            const sizet sectionEnd = reader.Pos + static_cast<sizet>(frame.ByteCount);
+
+            u32 levelCount = 0;
+            if (!reader.Read(&levelCount, sizeof(levelCount)))
+            {
+                outReason = "truncated before the LOD level count";
+                return false;
+            }
+            if (levelCount > OloGroomFormat::MaxLodLevels)
+            {
+                outReason = std::format("file declares {} LOD levels, above the format cap {}", levelCount,
+                                        OloGroomFormat::MaxLodLevels);
+                return false;
+            }
+
+            groom->m_LodLevels.reserve(levelCount);
+            for (u32 i = 0; i < levelCount; ++i)
+            {
+                OloGroomFormat::LodLevelHeader header;
+                if (!reader.Read(&header, sizeof(header)))
+                {
+                    outReason = std::format("truncated before LOD level {}'s header", i);
+                    return false;
+                }
+                if (header.CurveCount == 0 || header.CurveCount > OloGroomFormat::MaxCurveCount ||
+                    static_cast<u64>(header.PointCount) > OloGroomFormat::MaxPointCount)
+                {
+                    outReason = std::format("LOD level {} declares {} curves and {} points, outside the format caps",
+                                            i, header.CurveCount, header.PointCount);
+                    return false;
+                }
+
+                const u64 needed = (static_cast<u64>(header.CurveCount) + 1u) * sizeof(u32) +
+                                   static_cast<u64>(header.PointCount) * sizeof(glm::vec3) +
+                                   static_cast<u64>(header.PointCount) * sizeof(f32) +
+                                   static_cast<u64>(header.CurveCount) * sizeof(glm::vec2) +
+                                   static_cast<u64>(header.CurveCount) * sizeof(u16) +
+                                   static_cast<u64>(header.CurveCount) * sizeof(u8) +
+                                   static_cast<u64>(header.CurveCount) * sizeof(u32);
+                if (needed > reader.Remaining())
+                {
+                    outReason = std::format("LOD level {} needs {} bytes but only {} payload bytes remain — "
+                                            "corrupt or hostile header, refusing to allocate",
+                                            i, needed, reader.Remaining());
+                    return false;
+                }
+
+                GroomLodLevel level;
+                level.SourcePixelSize = header.SourcePixelSize;
+                level.Representation = IsValidGroomRepresentation(static_cast<i32>(header.Representation))
+                                           ? static_cast<GroomRepresentation>(header.Representation)
+                                           : GroomRepresentation::Count;
+                if (level.Representation == GroomRepresentation::Count)
+                {
+                    // REJECTED, not defaulted to Card. A level whose tier this
+                    // build does not know is a file from a newer engine, and
+                    // silently drawing it as a card would put geometry nobody
+                    // authored on screen at a distance nobody is watching.
+                    outReason = std::format("LOD level {} declares representation {}, which this build does not know",
+                                            i, header.Representation);
+                    return false;
+                }
+
+                level.CurveOffsets.resize(static_cast<sizet>(header.CurveCount) + 1u);
+                level.Points.resize(header.PointCount);
+                level.PointWidths.resize(header.PointCount);
+                level.RootUVs.resize(header.CurveCount);
+                level.CurveGroupIds.resize(header.CurveCount);
+                level.CurveFlags.resize(header.CurveCount);
+                level.SourceCurves.resize(header.CurveCount);
+
+                if (!reader.Read(level.CurveOffsets.data(), level.CurveOffsets.size() * sizeof(u32)) ||
+                    (header.PointCount != 0 &&
+                     (!reader.Read(level.Points.data(), level.Points.size() * sizeof(glm::vec3)) ||
+                      !reader.Read(level.PointWidths.data(), level.PointWidths.size() * sizeof(f32)))) ||
+                    !reader.Read(level.RootUVs.data(), level.RootUVs.size() * sizeof(glm::vec2)) ||
+                    !reader.Read(level.CurveGroupIds.data(), level.CurveGroupIds.size() * sizeof(u16)) ||
+                    !reader.Read(level.CurveFlags.data(), level.CurveFlags.size() * sizeof(u8)) ||
+                    !reader.Read(level.SourceCurves.data(), level.SourceCurves.size() * sizeof(u32)))
+                {
+                    outReason = std::format("truncated inside LOD level {}", i);
+                    return false;
+                }
+                groom->m_LodLevels.push_back(std::move(level));
+            }
+
+            if (reader.Pos != sectionEnd)
+            {
+                outReason = "LodLevels section length disagrees with its contents";
+                return false;
             }
         }
 

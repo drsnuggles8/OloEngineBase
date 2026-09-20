@@ -640,6 +640,34 @@ case 2500729774u: // GroomFibreComponent
     if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     break;
 }
+case 2274947583u: // GroomLodComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomLodComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_CardPixelSize)) return false;
+    comp.m_CardPixelSize = std::clamp(comp.m_CardPixelSize, static_cast<f32>(0.5f), static_cast<f32>(16384.0f));
+    if (!SceneBinIO::Read(reader, comp.m_MeshPixelSize)) return false;
+    comp.m_MeshPixelSize = std::clamp(comp.m_MeshPixelSize, static_cast<f32>(0.5f), static_cast<f32>(16384.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Hysteresis)) return false;
+    comp.m_Hysteresis = std::clamp(comp.m_Hysteresis, static_cast<f32>(0.0f), static_cast<f32>(0.5f));
+    if (!SceneBinIO::Read(reader, comp.m_MaxWidthCompensation)) return false;
+    comp.m_MaxWidthCompensation = std::clamp(comp.m_MaxWidthCompensation, static_cast<f32>(1.0f), static_cast<f32>(32.0f));
+    if (!SceneBinIO::Read(reader, comp.m_VisibilityFullPixelSize)) return false;
+    comp.m_VisibilityFullPixelSize = std::clamp(comp.m_VisibilityFullPixelSize, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SimulationFullPixelSize)) return false;
+    comp.m_SimulationFullPixelSize = std::clamp(comp.m_SimulationFullPixelSize, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ShadowFullPixelSize)) return false;
+    comp.m_ShadowFullPixelSize = std::clamp(comp.m_ShadowFullPixelSize, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HoldFrames)) return false;
+    comp.m_HoldFrames = std::clamp(comp.m_HoldFrames, static_cast<u32>(0), static_cast<u32>(600));
+    if (!SceneBinIO::Read(reader, comp.m_VisibilitySteps)) return false;
+    comp.m_VisibilitySteps = std::clamp(comp.m_VisibilitySteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_SimulationSteps)) return false;
+    comp.m_SimulationSteps = std::clamp(comp.m_SimulationSteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_ShadowSteps)) return false;
+    comp.m_ShadowSteps = std::clamp(comp.m_ShadowSteps, static_cast<u32>(0), static_cast<u32>(16));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 3851266605u: // GroomSimulationComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();

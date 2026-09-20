@@ -471,6 +471,20 @@ registry.push_back(OLO_GFW_FIELD(GroomFibreComponent, "Enabled", m_Enabled));
 
 static void BuildRegistryChunk6(std::vector<FieldEntry>& registry)
 {
+// GroomLodComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "CardPixelSize", m_CardPixelSize, OLO_GFW_BOUND(0.5f), OLO_GFW_BOUND(16384.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "MeshPixelSize", m_MeshPixelSize, OLO_GFW_BOUND(0.5f), OLO_GFW_BOUND(16384.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "Hysteresis", m_Hysteresis, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.5f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "MaxWidthCompensation", m_MaxWidthCompensation, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(32.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "VisibilityFullPixelSize", m_VisibilityFullPixelSize, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(16384.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "SimulationFullPixelSize", m_SimulationFullPixelSize, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(16384.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "ShadowFullPixelSize", m_ShadowFullPixelSize, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(16384.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "HoldFrames", m_HoldFrames, OLO_GFW_BOUND(0), OLO_GFW_BOUND(600)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "VisibilitySteps", m_VisibilitySteps, OLO_GFW_BOUND(0), OLO_GFW_BOUND(16)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "SimulationSteps", m_SimulationSteps, OLO_GFW_BOUND(0), OLO_GFW_BOUND(16)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomLodComponent, "ShadowSteps", m_ShadowSteps, OLO_GFW_BOUND(0), OLO_GFW_BOUND(16)));
+registry.push_back(OLO_GFW_FIELD(GroomLodComponent, "Enabled", m_Enabled));
+
 // GroomSimulationComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomSimulationComponent, "Gravity", m_Gravity, OLO_GFW_BOUND(-1000.0f), OLO_GFW_BOUND(1000.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(GroomSimulationComponent, "Stiffness", m_Stiffness, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(2000.0f)));
@@ -522,15 +536,15 @@ registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimIKEnabled", AimIKEnabled
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "LimbIKEnabled", LimbIKEnabled));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "ChainIKEnabled", ChainIKEnabled));
 
+}
+
+static void BuildRegistryChunk7(std::vector<FieldEntry>& registry)
+{
 // InstancePortalComponent
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", TargetZoneID));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "InstanceType", InstanceType));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers));
 
-}
-
-static void BuildRegistryChunk7(std::vector<FieldEntry>& registry)
-{
 // InstancedMeshComponent
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "Primitive", Primitive));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic));

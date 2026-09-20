@@ -59,6 +59,7 @@ using AllComponents = ComponentGroup<
     GroomCoatShadowComponent,
     GroomComponent,
     GroomFibreComponent,
+    GroomLodComponent,
     GroomSimulationComponent,
     IKTargetComponent,
     InstancePortalComponent,

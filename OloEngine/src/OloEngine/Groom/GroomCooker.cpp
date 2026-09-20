@@ -78,6 +78,40 @@ namespace OloEngine
                 groom.m_RootUVs = std::move(newRootUVs);
                 groom.m_CurveGroupIds = std::move(newGroupIds);
                 groom.m_CurveFlags = std::move(newFlags);
+
+                // ── The LOD levels' source map follows the permutation ──
+                //
+                // A cooked level (#1252) names, for each of its curves, the BASE
+                // curve whose binding rest frame and guides it borrows. The
+                // reorder above renumbers every base curve, so a map left alone
+                // now points at whatever strand took its index — and the visible
+                // result is a coat at card range that deforms and moves as if it
+                // grew somewhere else on the animal. Nothing would fail: the
+                // indices are all still in range.
+                //
+                // Fixed here rather than by requiring callers to build levels
+                // after canonicalising, because "call these in the right order"
+                // is a rule that holds until someone adds a third caller.
+                std::vector<u32> newIndexOfOld(curveCount);
+                for (u32 newIndex = 0; newIndex < curveCount; ++newIndex)
+                {
+                    newIndexOfOld[order[newIndex]] = newIndex;
+                }
+                for (GroomLodLevel& level : groom.m_LodLevels)
+                {
+                    for (u32& source : level.SourceCurves)
+                    {
+                        if (source < curveCount)
+                        {
+                            source = newIndexOfOld[source];
+                        }
+                        // An out-of-range entry is left alone deliberately: the
+                        // Validate() at the end of this function is what reports
+                        // it, by name, against the real curve count. Clamping it
+                        // here would repair a corrupt level into a valid-looking
+                        // wrong one.
+                    }
+                }
             }
 
             groom.RecomputeDerivedData();
@@ -124,6 +158,13 @@ namespace OloEngine
             // written to fail. GroomCoatAuthoringTest cooks and re-reads for
             // this reason.
             working.m_GroupCoats = groom.m_GroupCoats;
+            // The COOKED LOD LEVELS (#1252), copied for the reason the coat
+            // table above spells out and with a worse failure if they are not:
+            // a dropped coat table is a slightly uniform coat, a dropped level
+            // table is a groom that reports LevelNotCooked forever and silently
+            // never leaves the strand tier, so the feature appears to do
+            // nothing on exactly the assets it was cooked for.
+            working.m_LodLevels = groom.m_LodLevels;
             working.m_Basis = groom.m_Basis;
             working.m_Provenance = groom.m_Provenance;
 

@@ -848,6 +848,50 @@ namespace OloEngine
                                                path.string(), reason));
         }
 
+        // ── The cooked card level (issue #1252) ─────────────────────────────
+        //
+        // AFTER canonicalisation, because the level's source map indexes the
+        // base groom's curves and the reorder renumbers them. (GroomCooker's
+        // Canonicalize remaps the map when it does reorder, so building either
+        // side of it is correct — but building it here means the level is a
+        // function of the FINAL ordering and the cook has nothing to fix up,
+        // which is one fewer thing to be right about.)
+        //
+        // A FAILED BUILD IS NOT A FAILED IMPORT, and the reason is logged by
+        // name rather than swallowed: the commonest cause is a groom whose
+        // strands are too few or too evenly spread for the cell to cluster
+        // anything, which is a fact about the groom. The asset then simply
+        // never leaves the strand tier, and both the inspector and
+        // GroomLodFallbackReason::LevelNotCooked say so out loud.
+        if (options.BuildCardLod)
+        {
+            GroomLodLevel cards;
+            GroomCardBuildStats cardStats;
+            std::string cardReason;
+            if (GroomLodBuilder::BuildCardLevel(*groom, options.Cards, cards, cardReason, &cardStats))
+            {
+                if (GroomLodBuilder::AttachLodLevels(*groom, { std::move(cards) }, cardReason))
+                {
+                    OLO_CORE_INFO("AlembicGroomImporter: '{}' cooked {} cards from {} strands (cell {:.4f}, "
+                                  "cluster min {} mean {:.1f} max {})",
+                                  path.filename().string(), cardStats.CardsBuilt, cardStats.CurvesConsidered,
+                                  options.Cards.CellSize, cardStats.SmallestCluster, cardStats.MeanCluster,
+                                  cardStats.LargestCluster);
+                }
+                else
+                {
+                    OLO_CORE_WARN("AlembicGroomImporter: '{}' built a card level that did not validate ({}); the "
+                                  "groom will never leave the strand tier",
+                                  path.filename().string(), cardReason);
+                }
+            }
+            else
+            {
+                OLO_CORE_INFO("AlembicGroomImporter: '{}' cooked no card level: {}", path.filename().string(),
+                              cardReason);
+            }
+        }
+
         OLO_CORE_INFO("AlembicGroomImporter: imported '{}' — {} curves, {} control points, {} groups, {} guides, "
                       "basis {}, bounds ({:.4f},{:.4f},{:.4f})-({:.4f},{:.4f},{:.4f}), source hash 0x{:016X}",
                       path.filename().string(), groom->GetCurveCount(), groom->GetPointCount(),

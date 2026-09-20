@@ -215,6 +215,14 @@ namespace OloEngine
         // place rebuilds the coat instead of serving the strands the old pixels
         // made.
         key = mix(key, request.Build.CoatDigest);
+        // The REPRESENTATION (#1252). A card level and the base groom are two
+        // different curve sets, and at the same budget they would otherwise
+        // hash to the same key -- so a coat that handed over to cards would be
+        // served the strand geometry it had a moment ago, and the hand-over
+        // would do nothing at all until something else happened to evict it.
+        // The value is the tier rather than a pointer, so two entities on the
+        // same tier of the same asset still share one buffer.
+        key = mix(key, static_cast<u64>(std::to_underlying(request.Lod.Representation)));
         // A DEFORMED groom's vertices depend on a body's pose, so its geometry
         // is per ENTITY: two characters sharing one groom asset at one budget
         // must not share one buffer. Mixing the entity id in only on the
@@ -296,8 +304,13 @@ namespace OloEngine
         // transforms), so IsDeformed is already true, the entry is already keyed
         // per entity and it is already rebuilt and refilled every frame.
         const GroomStrandSimulation simulation = request.Simulation();
+        // THE CURVE SET THE LOD SELECTED (#1252), which is the cooked card
+        // level past the hand-over and the base groom otherwise. Both go
+        // through this one build, this one shader and this one BCSDF, which is
+        // what makes criterion 1's "colour and highlight response are preserved
+        // across transitions" true by construction rather than by care.
         const GroomStrandMeshStats stats =
-            BuildGroomStrandMesh(*request.Groom, request.Build, vertices, indices,
+            BuildGroomStrandMesh(request.BuildSource(), request.Build, vertices, indices,
                                  deformed ? &deformation : nullptr, &coat,
                                  simulation.IsUsable(request.Groom->GetCurveCount()) ? &simulation : nullptr);
         if (vertices.empty() || indices.empty())
@@ -518,7 +531,20 @@ namespace OloEngine
             }
         }
 
-        const u32 requested = GroomCoatShadow::SelectCoatLodStep(request.CoatLod, pixelSize);
+        // BIASED BY THE REPRESENTATION LOD'S SHADOW STEP (#1252). Added to the
+        // coat policy's own answer rather than replacing it, so the two remain
+        // separable: GroomCoatShadowComponent still decides what resolution a
+        // coat deserves at a size, and GroomLodComponent decides how much
+        // further down that ladder distance pushes it. Clamped to the coat
+        // policy's MaxLodSteps because that is what CoatLodResolution honours
+        // anyway -- a step past it would report a LOD the bake never used.
+        //
+        // This is the third and last of criterion 3's independent axes, and it
+        // is the one that is a BIAS rather than a budget because a shadow
+        // volume spends a resolution, not a count.
+        const u32 requested = std::min(GroomCoatShadow::SelectCoatLodStep(request.CoatLod, pixelSize) +
+                                           request.Lod.ShadowStep,
+                                       request.CoatLod.MaxLodSteps);
         entry.CoatLodStableFrames = requested == entry.CoatRequestedLodStep ? entry.CoatLodStableFrames + 1u : 0u;
         entry.CoatRequestedLodStep = requested;
         // Three frames, so a coat sitting exactly on a LOD boundary cannot
@@ -950,6 +976,56 @@ namespace OloEngine
                                             RHI::HeapSlotLifetime::Persistent);
             context.FlushHeapOffsets();
 
+            // ── The coverage compensation (#1252) ───────────────────
+            //
+            // FROM THE ACHIEVED FRACTION, never the requested one, and this is
+            // the only place the achieved fraction exists: the strand budget is
+            // spent as an integer STRIDE PER ROLE, so a budget asked for 0.4 of
+            // a role retains a third of it. Compensating by the policy's 1/0.4
+            // would leave the coat a sixth thinner than it started, and the
+            // error compounds at every step down the ladder.
+            //
+            // The numbers come out of the cache entry's own build stats, which
+            // cost nothing to read — they were computed when the geometry was
+            // built and are what the inspector already shows.
+            //
+            // It multiplies the AUTHORING width scale rather than replacing it:
+            // m_WidthScale is a unit-scale lever for a groom exported at a
+            // different scale, and this is a density correction. Folding them
+            // into one number would make turning the LOD off change a coat that
+            // was authored at 0.5.
+            const f32 achievedFraction =
+                entry->Stats.StrandsAvailable > 0u
+                    ? static_cast<f32>(entry->Stats.StrandsSelected) / static_cast<f32>(entry->Stats.StrandsAvailable)
+                    : 1.0f;
+            const f32 widthCompensation =
+                request.LodPolicy.Enabled
+                    ? GroomLodWidthCompensation(achievedFraction, request.LodPolicy.MaxWidthCompensation)
+                    : 1.0f;
+            const f32 effectiveWidthScale = request.WidthScale * widthCompensation;
+
+            // ── The LOD counters (#1252) ────────────────────────────
+            //
+            // Recorded HERE rather than where the decision was made, because
+            // criterion 4 asks for cost and memory BY REPRESENTATION and only
+            // this point knows both the tier and what it cost. A groom that
+            // produced no geometry never reaches here and is therefore not
+            // counted against a representation it did not draw.
+            const auto tier = static_cast<sizet>(request.Lod.Representation);
+            m_Stats.Lod.Record(request.Lod);
+            m_Stats.Lod.StrandsByRepresentation[tier] += entry->Stats.StrandsSelected;
+            m_Stats.Lod.BytesByRepresentation[tier] += entry->Bytes;
+            m_Stats.Lod.MaxWidthCompensation =
+                std::max(m_Stats.Lod.MaxWidthCompensation, widthCompensation);
+            // A coat AT the cap is genuinely thinner than it was authored, and
+            // criterion 1 is a claim about exactly that. The comparison is
+            // against the sanitised policy's cap, so it cannot be true because
+            // an author typed a NaN.
+            if (widthCompensation >= request.LodPolicy.MaxWidthCompensation && widthCompensation > 1.0f)
+            {
+                ++m_Stats.Lod.GroomsAtCompensationCap;
+            }
+
             const f32 axisX = glm::length(glm::vec3(request.Transform[0]));
             const f32 axisY = glm::length(glm::vec3(request.Transform[1]));
             const f32 axisZ = glm::length(glm::vec3(request.Transform[2]));
@@ -972,7 +1048,7 @@ namespace OloEngine
             params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(spec.Width), static_cast<f32>(spec.Height), 0.0f, 0.0f);
             params.RampWidth =
-                glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
+                glm::vec4(request.RampFloor, effectiveWidthScale, objectScale, request.AlphaCutoff);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);

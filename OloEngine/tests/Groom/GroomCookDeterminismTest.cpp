@@ -212,12 +212,12 @@ TEST(GroomCookDeterminism, EveryEnumeratedSectionIsWrittenExactlyOnce)
     // a successful decode IS the assertion that every section is present once.
     Ref<GroomAsset> decoded;
     ASSERT_TRUE(GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), decoded, reason)) << reason;
-    // 10 since #1251 added section 9, the per-group coat table. This constant is
-    // pinned deliberately: bumping it is the moment to check that the new
-    // section is written by EncodeToBytes, read by DecodeFromBytes in the same
-    // position, counted in the payload-size arithmetic, and that CurrentVersion
-    // and MinSupportedVersion both moved.
-    EXPECT_EQ(OloGroomFormat::kSectionCount, 10);
+    // 11 since #1252 added section 10, the cooked LOD levels (10 was #1251's
+    // per-group coat table). This constant is pinned deliberately: bumping it is
+    // the moment to check that the new section is written by EncodeToBytes, read
+    // by DecodeFromBytes in the same position, counted in the payload-size
+    // arithmetic, and that CurrentVersion and MinSupportedVersion both moved.
+    EXPECT_EQ(OloGroomFormat::kSectionCount, 11);
 }
 
 #if defined(OLO_WITH_ALEMBIC)

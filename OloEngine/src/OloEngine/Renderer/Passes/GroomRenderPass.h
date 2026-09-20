@@ -183,6 +183,15 @@ namespace OloEngine
 
         GroomCompositionStats Composition;
 
+        // ── Representation LOD (#1252) ───────────────────────────────
+        //
+        // Which tier every groom is on, why it is not the tier its apparent
+        // size selected, and what each tier cost in strands and GPU bytes.
+        // Criterion 4 asks for cost and memory reported BY REPRESENTATION;
+        // this is the frame-wide half of that, and the per-entity half is the
+        // inspector's readout on GroomLodComponent.
+        GroomLodStats Lod;
+
         void Reset() noexcept
         {
             *this = GroomRenderStats{};

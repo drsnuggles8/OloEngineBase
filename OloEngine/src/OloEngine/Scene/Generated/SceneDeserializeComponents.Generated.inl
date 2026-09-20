@@ -634,6 +634,30 @@ if (auto node = entity["GroomFibreComponent"]; node)
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 
+if (auto node = entity["GroomLodComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomLodComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["CardPixelSize"], v))
+        comp.m_CardPixelSize = std::clamp(v, static_cast<f32>(0.5f), static_cast<f32>(16384.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MeshPixelSize"], v))
+        comp.m_MeshPixelSize = std::clamp(v, static_cast<f32>(0.5f), static_cast<f32>(16384.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Hysteresis"], v))
+        comp.m_Hysteresis = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.5f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["MaxWidthCompensation"], v))
+        comp.m_MaxWidthCompensation = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(32.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["VisibilityFullPixelSize"], v))
+        comp.m_VisibilityFullPixelSize = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SimulationFullPixelSize"], v))
+        comp.m_SimulationFullPixelSize = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ShadowFullPixelSize"], v))
+        comp.m_ShadowFullPixelSize = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(16384.0f));
+    comp.m_HoldFrames = std::clamp(node["HoldFrames"].as<u32>(comp.m_HoldFrames), static_cast<u32>(0), static_cast<u32>(600));
+    comp.m_VisibilitySteps = std::clamp(node["VisibilitySteps"].as<u32>(comp.m_VisibilitySteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_SimulationSteps = std::clamp(node["SimulationSteps"].as<u32>(comp.m_SimulationSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_ShadowSteps = std::clamp(node["ShadowSteps"].as<u32>(comp.m_ShadowSteps), static_cast<u32>(0), static_cast<u32>(16));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["GroomSimulationComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomSimulationComponent>();
